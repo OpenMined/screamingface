@@ -1,54 +1,47 @@
 # Developer Tool & AI Coding Website Design Landscape
 
-*Research compiled from training knowledge through May 2025. Items flagged with [MAY HAVE CHANGED] indicate areas where sites were actively iterating.*
+> **Updated March 2026 with live web research.** Sites were fetched and analyzed directly.
 
 ---
 
 ## Part 1: AI Coding CLI Tools
 
 ### Cursor (cursor.com)
-- **Palette:** Dark mode default. Near-black background with white/light gray text. Cool blue-purple gradient accent, used sparingly.
-- **Typography:** Clean sans-serif (Inter or similar). Large bold hero headlines. Lightweight body text with generous line-height.
-- **Hero:** Copy-first: "The AI Code Editor" -- extremely concise. Brief subheadline, single CTA. Product screenshot below fold.
-- **Credibility:** Logo bar, benchmark claims, developer testimonials.
-- **Tone:** Minimalist, confident, slightly exclusive. Written by an engineer who respects your time.
-- **Memorable:** Extreme restraint. The site feels expensive because of what it *doesn't* show.
-- **Forgettable:** Now the archetype everyone imitates. The "dark + gradient + minimal" formula is becoming generic.
+- **Palette:** Warm dark tones (#14120b dark, #26251e light) — deliberately NOT pure black. Trending warmer than 2024-era dark modes.
+- **Typography:** Custom branded fonts: CursorGothic (display), BerkeleyMono (code), Jannon (serif accent). Three-font stack is now the norm.
+- **Hero:** "Built to make you extraordinarily productive, Cursor is the best way to code with AI." Product screenshot-forward. Research timeline "Acme Labs" section. Painted landscape wallpapers as background imagery — unusually artistic for a dev tool.
+- **Credibility:** Fortune 500 logos (Stripe, OpenAI, NVIDIA, Figma, Adobe). Multi-tier pricing up to $200/mo Ultra.
+- **Memorable:** The warm dark palette and CursorGothic typeface are genuinely distinctive. The "Acme Labs" research section signals ambition.
+- **Forgettable:** Still the archetype everyone imitates — just now with warmer tones.
 
-### Windsurf / Codeium (codeium.com)
-- **Palette:** Dark background (warmer than Cursor). Signature teal/green accent. [MAY HAVE CHANGED with rebrand]
-- **Typography:** Modern geometric sans-serif. Bold headlines, slightly more "designed" than Cursor.
-- **Hero:** More feature-forward. Product visual alongside copy. Multiple CTAs.
-- **Credibility:** Benchmark charts, enterprise logos, comparison tables. More aggressive about quantitative claims.
-- **Tone:** Technical and assertive. "We're faster, more accurate" energy.
-- **Memorable:** The teal accent is distinctive. Willingness to show benchmark data directly.
-- **Forgettable:** Tries to out-feature Cursor rather than establishing its own identity.
+### Windsurf (windsurf.com) — formerly Codeium
+- **Palette:** Dark theme with sand/cream backgrounds, aqua/cyan accents, sea-shade blue tones. Full commitment to the surfing metaphor.
+- **Typography:** Modern geometric sans-serif. More "designed" than most.
+- **Hero:** "Where developers are doing their best work." Feature-forward with product visuals. "94% of code written by AI" is a bold claim.
+- **Memorable:** The surf/flow metaphor is distinctive. Own model (SWE-1.5) adds credibility.
+- **Forgettable:** Trying to out-feature Cursor rather than establishing its own lane.
 
-### Claude Code (claude.ai/code)
-- **Palette:** Anthropic's warm palette. Light/cream background -- notably NOT dark mode. Signature orange-tan accent. Muted earth tones.
-- **Typography:** Refined serif or serif-adjacent for headlines (literary, thoughtful quality). Clean sans-serif body.
-- **Hero:** Terminal-first. Shows actual CLI interaction. Honest: this is a CLI tool, and they show the CLI.
-- **Credibility:** SWE-bench scores. Anthropic's brand credibility.
-- **Tone:** Thoughtful, precise, slightly academic. Careful, intellectually honest.
-- **Memorable:** Light/warm palette is genuinely distinctive. Feels like walking into a well-lit room after a series of dark caves.
+### Claude Code (claude.com/product/claude-code)
+- **Palette:** Burnt orange/rust (#d97757), cream backgrounds (#faf9f0). Warm, literary, NOT dark mode.
+- **Typography:** Refined serif-adjacent for headlines. Clean sans-serif body. Literary quality.
+- **Hero:** Multi-platform positioning — terminal, IDE, Slack, web. Honest about being a CLI tool.
+- **Credibility:** SWE-bench scores. Anthropic's research pedigree. NASA usage.
+- **Memorable:** Light/warm palette remains genuinely distinctive in an all-dark landscape.
 - **Forgettable:** Can feel understated to the point of being easy to scroll past.
 
-### GitHub Copilot (github.com/features/copilot)
-- **Palette:** GitHub dark: deep navy/charcoal. Blue-purple gradients, bright green CTAs. Occasional signature orange.
-- **Typography:** Mona Sans (custom). Large bold headlines. Enterprise-grade hierarchy.
-- **Hero:** Big-budget. Animated code flow, glowing UI elements. Visual-first with multiple CTAs.
-- **Credibility:** Heavy. Statistics, Fortune 500 logos, analyst quotes.
-- **Tone:** Corporate-friendly but developer-aware. Microsoft/GitHub balance.
-- **Memorable:** Production value. Feels like the biggest player because the site says so.
-- **Forgettable:** Feels like a big company's marketing site. Lacks edge or personality.
+### GitHub Copilot
+- **Palette:** Dark navy/charcoal, purple accents, bright green CTAs.
+- **Typography:** Mona Sans (custom). Enterprise-grade hierarchy.
+- **Hero:** "Command your craft." Big-budget animated visuals. Multiple CTAs.
+- **Credibility:** Statistics, Fortune 500 logos. Free tier is new and notable.
+- **Memorable:** Production value. Feels like the biggest player.
+- **Forgettable:** Corporate. Lacks edge or personality.
 
 ### Aider (aider.chat)
-- **Palette:** Light mode. White/off-white. Minimal color. Terminal-style branding.
-- **Typography:** Monospace-heavy. Simple, functional hierarchy.
-- **Hero:** Utility-first. Homepage is essentially documentation. Install command front and center. Terminal GIF.
-- **Credibility:** SWE-bench position prominently displayed. Bar charts. GitHub stars. Open-source.
-- **Tone:** Hacker/builder. No marketing speak. Reads like a well-written README.
-- **Memorable:** The anti-design IS the design. Plainness is genuinely distinctive.
+- **Palette:** Dark mode, minimal color. Terminal-style.
+- **Typography:** Monospace-heavy. Functional hierarchy.
+- **Hero:** Utility-first — homepage is essentially documentation. Install command front and center. 41K stars, 5.3M pip installs, 88% "Singularity" metric prominently displayed.
+- **Memorable:** The anti-design IS the design. The "Singularity" metric (88% self-authored code) is a brilliant, novel credibility signal.
 - **Forgettable:** If you're not already in the market, nothing hooks you visually.
 
 ---
@@ -56,86 +49,118 @@
 ## Part 2: Developer Infrastructure Products
 
 ### Vercel (vercel.com)
-- **Palette:** The reference standard. Pure black background, pure white text. Occasional blue links. No real accent.
-- **Typography:** Geist (their own typeface, open-sourced). The typography IS the brand.
-- **Hero:** Bold statement headline, product demo. Aggressive negative space.
-- **Credibility:** Massive enterprise logos. Framework ecosystem as proof.
-- **Tone:** Aspirational minimalism. "Ship faster." Every word is load-bearing.
-- **Memorable:** Absolute commitment to black and white. Set the template for an entire generation.
+- **Palette:** Still the reference standard. Black + white + minimal. Now messaging "AI Cloud."
+- **Typography:** Geist (their own typeface). The typography IS the brand.
+- **Hero:** "Build and deploy the best web experiences with the AI Cloud." Animated globe with pulsing nodes.
+- **Memorable:** Commitment to minimalism. Set the template for an entire generation.
 - **Forgettable:** So influential it now reads as "standard."
 
 ### Linear (linear.app)
-- **Palette:** Dark mode with signature purple/violet accent. Dark charcoal backgrounds.
-- **Typography:** Clean, tight sans-serif. Notably compact -- reflecting density-is-a-feature philosophy.
-- **Hero:** Product-first. The actual Linear interface in stylized context. Crisp, opinionated headline.
-- **Credibility:** Design-as-credibility. The site is so well-designed it implies the product must be too.
-- **Tone:** Opinionated and precise. Short sentences. Strong opinions. Almost manifesto-like.
-- **Memorable:** The purple is ownable. Micro-animations, every pixel considered. Consistently cited as best-in-class.
+- **Palette:** Dark mode, signature purple/violet accent.
+- **Typography:** Clean, tight sans-serif. Compact, reflecting density-is-a-feature philosophy.
+- **Hero:** Product-first. Actual Linear interface in stylized context.
+- **Memorable:** The purple is ownable. Every pixel considered. Consistently cited as best-in-class.
 
-### Railway (railway.app)
-- **Palette:** Dark but warmer. Slightly warm charcoal. Signature pink/magenta accent.
-- **Typography:** Clean sans-serif, slightly rounded/friendly.
-- **Hero:** Product demo oriented. "Deploy in seconds" energy. Friendly and direct.
-- **Credibility:** Usage stats, community size. More indie/startup than enterprise.
-- **Tone:** Friendly, slightly playful, accessible. The approachable alternative.
-- **Memorable:** The warmth. Pink accents and friendly tone feel genuinely different.
+### Railway (railway.com — migrated from railway.app)
+- **Palette:** Deep purple/navy (#13111C) with vaporwave-inspired alternate themes. Warmer than typical dark mode.
+- **Typography:** Three-font stack: Inter Tight + JetBrains Mono + IBM Plex Serif. **Serif in a dev tool** — trend signal.
+- **Hero:** Product demo oriented. Layered gradient parallax with day/dusk variants.
+- **Changes:** Domain migration from railway.app to railway.com (301 redirect). Vaporwave themes are new.
+- **Memorable:** The warmth and personality. Serif typography usage signals a shift.
 
 ### Supabase (supabase.com)
-- **Palette:** Dark mode with signature green (#3ECF8E). Strong and ownable.
-- **Typography:** Clean sans-serif. Code-forward.
-- **Hero:** Copy-first with code. "Build in a weekend, scale to millions." Tabbed code examples.
-- **Credibility:** GitHub stars prominent. Open-source central. Launch Week as cultural proof.
-- **Tone:** Open-source community energy. Friendly, transparent, slightly irreverent.
-- **Memorable:** The green is instantly recognizable. The tagline is best-in-class.
+- **Palette:** Dark mode, signature green (#3ECF8E). Strong and ownable.
+- **Typography:** Clean sans-serif. Code-forward. Monospace section labels in uppercase.
+- **Hero:** "Build in a weekend, scale to millions." Tabbed code examples.
+- **Memorable:** The green is instantly recognizable. The tagline is best-in-class. Launch Week as cultural institution.
 
 ### Resend (resend.com)
-- **Palette:** Dark, near-black. Minimal -- black, white, one accent. Extreme restraint.
-- **Typography:** Clean modern sans-serif. Vercel-influenced.
-- **Hero:** Code-first. A simple API call example. Maximum clarity.
-- **Tone:** Minimalist, developer-native. "Email for developers" -- that's the whole pitch.
-- **Memorable:** The purity. Masterclass in "just enough."
-- **Forgettable:** Firmly in the Vercel aesthetic school. Beautiful but not distinctive.
+- **Palette:** Forced dark mode (no light toggle). Near-black. Extreme restraint.
+- **Typography:** THREE-font system: Domaine (serif display) + ABC Favorit (sans) + Commit Mono. **Serif headlines in a dev tool** — significant trend signal.
+- **Hero:** Code-first. Simple API call example.
+- **Memorable:** The serif display font (Domaine) is a standout. Glassmorphism on buttons (backdrop-blur-[25px]).
+- **Forgettable:** Firmly in the Vercel aesthetic school.
+
+### Raycast (raycast.com)
+- **Palette:** Dark mode, vibrant accents (purple, orange, cyan).
+- **Typography:** Clean sans-serif. Command palette IS the brand.
+- **Hero:** 3D WebGL cube with glass effects. Interactive, impressive.
+- **Memorable:** The WebGL hero sets a high bar. Extensions ecosystem.
 
 ---
 
-## Part 3: AI/ML Leaderboard & Benchmark Sites
+## Part 3: New AI Coding Tools (Launched Since Mid-2025)
 
-### Hugging Face Open LLM Leaderboard
-- Gradio app styling. HF yellow/orange on white/light. Massive sortable table. Utility-first. No marketing.
-- **Memorable:** Comprehensive reference standard. The HF brand (emoji, yellow) is distinctive even when individual pages aren't.
-
-### LMSYS Chatbot Arena
-- Gradio app. Light backgrounds. Academic presentation. Elo rating methodology.
-- **Memorable:** The blind arena concept is brilliant. Brand is the methodology.
-- **Forgettable:** Visually interchangeable with any Gradio demo.
-
-### Artificial Analysis (artificialanalysis.ai)
-- Light mode default. Clean blue accents. Interactive charts. More designed than academic leaderboards.
-- **Memorable:** Quality-vs-price scatter plots became widely shared. Fills gap between academic and marketing.
+| Tool | Design Style | Key Visual Choices | Notable |
+|------|-------------|-------------------|---------|
+| **Augment** (augmentcode.com) | Dark mode, serif headlines, floating nodes | Serif display + mono section labels | "The Software Agent Company." SWE-Bench leaderboard prominent. |
+| **Devin** (devin.ai) | Clean/minimal, workflow-focused | 4-step visual flow graphic | Ticket → Plan → Test → PR. Agent-first messaging. |
+| **Poolside** (poolside.ai) | Enterprise-minimal, light/dark toggle | Restrained, corporate | "AGI for the enterprise." Government/public sector push. |
+| **Magic** (magic.dev) | Ultra-minimal white, word-by-word animation | Aurora overlay, anti-dark-mode | `clamp(5vw, 2rem, 7.5vw)` fluid type. Staggered text reveals. |
+| **Bolt.new** | Dark, glow effects | Persona-based sections | Targets PMs, entrepreneurs, marketers — not just devs. |
+| **Lovable** (lovable.dev) | Light cream (#fcfbf8), warm tones | Camera Plain Variable font | "Build something Lovable." Bucking dark-mode trend. |
+| **v0** (v0.app — rebranded from v0.dev) | Conversational/minimal | **Prompt input as hero** | The hero IS a text input field. "What do you want to create?" |
+| **Zed** (zed.dev) | Clean dark/light, blue accent | Serif accent headings | "Love your editor again." Emotional positioning. |
+| **Qodo** (qodo.ai — rebranded from CodiumAI) | Purple brand (#3722F3) | Dark neutrals | Code review focus. Full rebrand. |
 
 ---
 
-## Part 4: Synthesis
+## Part 4: Key Ecosystem Updates
 
-### Overused Patterns (Cliches)
+### shadcn/ui
+- **NOT rebranded.** Still "shadcn/ui."
+- Now on CLI v4 (March 2026).
+- **Major new framing:** "Built for you and your coding agents" — explicitly targeting AI agent workflows with skills, presets, and dry run modes.
+- 100+ components across Base UI and Radix variants.
 
-1. **Dark mode + gradient accent color.** Fresh when Vercel/Cursor did it; now wallpaper.
+### Tailwind CSS
+- Now on **v4.2**. No dramatic visual overhaul — evolutionary updates.
+- Still uses Inter for its own site. No rebrand.
+
+---
+
+## Part 5: Design Trend Synthesis (March 2026)
+
+### 10 Key Shifts Since Mid-2025
+
+1. **Serif headlines in dev tools.** The biggest aesthetic shift. Augment, Resend, Railway, Zed, Cursor (Jannon) all use serifs for display text. This was almost unheard of in 2024.
+
+2. **Custom branded typefaces are table stakes.** Vercel (Geist), Cursor (CursorGothic), Resend (Domaine/ABC Favorit), Cal.com (Cal Sans), Lovable (Camera Plain). Having your own font is now expected, not differentiating.
+
+3. **Three-font stacks are the new normal.** Display + body + monospace. Up from two-font norm. Railway: Inter Tight + IBM Plex Serif + JetBrains Mono. Resend: Domaine + ABC Favorit + Commit Mono.
+
+4. **"Prompt as hero" pattern.** v0.app, Bolt.new, Lovable all use a text input field as the primary hero element instead of traditional marketing copy. Emerging pattern.
+
+5. **Warm dark palettes replacing pure black.** Cursor (#14120b), Bun (#0b0a08), Railway (#13111C). Sites moving away from #000000 toward warm-tinted darks.
+
+6. **AI agent messaging replaced "AI-powered."** The frame shifted from "AI helps you" to "AI agents work for you." Every site now positions around autonomous agents, not copilots.
+
+7. **WebGL/3D is standard for hero sections.** Raycast (3D cube), Vercel (animated globe), Deno (animated illustration), Clerk (meteor paths). Static hero images are rare.
+
+8. **Glassmorphism 2.0.** Evolved beyond frosted panels. Resend: `backdrop-blur-[25px]` on buttons with gradient + texture overlays. Raycast: glass-effect 3D cubes.
+
+9. **Domain consolidation.** Railway: .app → .com. v0: .dev → .app. CodiumAI → Qodo (entirely new domain). Trend toward .com and .app TLDs.
+
+10. **`prefers-reduced-motion` support.** Deno, Astro, Magic all explicitly respect this. Accessibility in animations is now standard practice.
+
+### Overused Patterns (Clichés)
+
+1. **Dark mode + gradient accent color.** Was fresh when Vercel/Cursor did it. Now wallpaper.
 2. **"The AI [noun]" headline formula.** Zero differentiation.
-3. **Floating UI mockup hero.** Stylized screenshot at angle with glow. Everyone does this.
-4. **Enterprise logo bars.** They blur together.
-5. **Geometric sans-serif everything.** Inter, Geist, SF Pro. One typographic voice.
-6. **"Ship faster" / "Build faster" copy.** Undifferentiated.
-7. **The Vercel template.** At least a dozen sites are visually interchangeable.
+3. **Scrolling customer logo bars.** Every. Single. Site. Has one.
+4. **"Get Started" + "Book a Demo" dual CTAs.** Universal and undifferentiated.
+5. **Geometric sans-serif everything.** Inter remains dominant despite custom font trend.
+6. **"Ship faster" / "Build faster" copy.** Still undifferentiated.
 
 ### Underrepresented / Fresh Approaches
 
-1. **Light mode as default.** Claude/Anthropic is nearly alone. Genuinely distinctive.
-2. **Serif or display typography.** Almost no one uses serifs. Would immediately stand out.
-3. **Color saturation / actual color.** The space is overwhelmingly monochrome-plus-one-accent.
-4. **Humor and irreverence.** Almost no one is actually funny. Massive opening.
-5. **Custom illustration styles.** Most rely on screenshots or abstract gradients.
-6. **Print/editorial design influences.** Magazine-like layouts, editorial typography. Unexplored.
-7. **Showing the human/community.** Almost every site is product-first.
+1. **Light mode as default.** Claude, Magic, Lovable, Groq (rebranded!) are the few. Distinctive but growing.
+2. **Actual color and saturation.** The space is still overwhelmingly monochrome-plus-one-accent.
+3. **Humor and irreverence.** Almost no one is actually funny. Massive opening.
+4. **Custom illustration styles.** Deno has animated lo-fi anime with parallax. Almost everyone else uses screenshots or abstract gradients.
+5. **Print/editorial design influences.** Magazine-like layouts, editorial typography. Still unexplored.
+6. **Showing the human/community.** Almost every site is product-first.
+7. **Emoji as brand identity.** HuggingFace stands alone. Nobody else has tried.
 
 ### Key Tensions
 
@@ -143,33 +168,37 @@
 |---|---|
 | Fun vs. Credible | Playful brands risk not being taken seriously. Serious brands risk being forgettable. |
 | Simple vs. Detailed | Minimal sites trust the visitor. Dense sites try to convert on first visit. |
-| Dark vs. Light | Dark = "technical, premium." Light = "approachable, different." Dark is safer but undifferentiated. |
-| Open-source ethos vs. Commercial polish | README-style has authenticity. Polished has reach. |
-| Data-driven vs. Narrative-driven | Benchmarks are credible but cold. Stories are engaging but feel like marketing. |
+| Dark vs. Light | Dark is "technical, premium." Light is "different." Dark is safer but undifferentiated. Light is growing. |
+| Agent vs. Copilot | "Works for you" vs. "works with you." Agent messaging is winning. |
+| Custom vs. Standard | Custom fonts/3D are expected at top tier. But "standard" (shadcn, Inter) signals authenticity in open source. |
 
-### Strategic Direction for Screamingface
+---
 
-1. **Lean into the absurdity of the name.** Every other tool takes itself seriously. The name gives permission to be weird, loud, and memorable. The tension (silly name + serious benchmarks) IS the brand.
+## Part 6: Strategic Direction for Screamingface
 
-2. **Go light, not dark.** Almost the entire competitive set is dark mode. A confident light-mode site would be immediately distinctive. Anthropic proved this works; screamingface can go further with more personality.
+1. **Lean into the absurdity of the name.** Every other tool takes itself seriously. The name gives permission to be weird, loud, and memorable.
 
-3. **Use actual color.** The space is starved for color. Own a bold, saturated palette -- not a single accent on black. Think: energetic, slightly unhinged. Colors that feel like the emoji itself.
+2. **Light mode is now a strategic decision, not just contrarian.** Claude, Magic, Lovable, Groq all went light. It's still distinctive but no longer lonely. The question is: go light with MORE personality than Claude, or go warm-dark with MORE color than Cursor?
 
-4. **Typographic contrast.** Break the geometric-sans monoculture. A distinctive display typeface for headlines with character paired with clean sans for body.
+3. **Use actual color.** The space is still starved for color despite all the gradient accents. Own a bold, saturated palette — not a single accent on black.
 
-5. **Let benchmarks be bold, not buried.** Show data prominently but with brand personality -- like a scoreboard at a sporting event, not a spreadsheet.
+4. **Serif headlines are now trendy, not risky.** Augment, Resend, Railway, Zed, Cursor all did it. A distinctive display typeface would still stand out, but it's no longer a differentiator on its own.
+
+5. **Skip the WebGL hero.** It's now expected at top-tier sites. A deliberately simple, personality-driven hero (think: big emoji, bold claim, install command) would stand out MORE than another animated 3D scene.
 
 6. **One-command install as centerpiece.** A single terminal line, beautifully presented, large, impossible to miss.
 
-7. **The tension IS the brand.** Silly name + serious performance. One command + powerful ensemble. Open source + SOTA results. Embody these tensions rather than resolving them.
+7. **The tension IS the brand.** Silly name + SOTA benchmarks. One command + powerful ensemble. Open source + beats billion-dollar models. Embody these tensions.
+
+8. **Don't chase the "AI agent" framing.** Everyone is saying "agent." Say "ensemble" — it's unclaimed, technical enough to be credible, simple enough to understand.
 
 **Closest viable reference points:**
 - Supabase's community energy and confidence (but wilder)
 - Aider's terminal-honesty and benchmark-forwardness (but with actual design)
-- Railway's warmth and personality (but turned up to 11)
-- Anthropic's willingness to use light mode and serif typography (but less restrained)
-- None are direct templates -- the goal is a category of one
+- Lovable's willingness to go light and warm (but less corporate)
+- Bun's mascot-plus-benchmarks duality (but with an emoji instead of an illustration)
+- None are direct templates — the goal is a category of one
 
 ---
 
-*Note: All observations as of approximately May 2025. A round of live screenshots before finalizing design direction is strongly recommended.*
+*Research compiled March 2026 from live website analysis. Last fetched: March 10, 2026.*
