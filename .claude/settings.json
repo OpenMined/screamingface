@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch(domain:*)",
+      "Mcp",
+      "Skill(git:commit)",
+      "Skill(git:commit:*)",
+      "mcp__plugin_context7_context7__*",
+      "mcp__plugin_playwright_playwright__*",
+      "mcp__claude_ai_Notion__*"
+    ],
+    "defaultMode": "allowEdits"
+  }
+}

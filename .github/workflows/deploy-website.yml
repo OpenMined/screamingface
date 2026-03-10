@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "docs/**"
+      - "apps/web/**"
 
   workflow_dispatch:
 
@@ -28,22 +28,22 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: docs/package-lock.json
+          cache-dependency-path: apps/web/package-lock.json
 
       - name: Install dependencies
-        working-directory: docs
+        working-directory: apps/web
         run: npm ci
 
       - name: Build
-        working-directory: docs
+        working-directory: apps/web
         run: npm run build
 
       - name: Add .nojekyll
-        run: touch docs/out/.nojekyll
+        run: touch apps/web/out/.nojekyll
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/out
+          path: apps/web/out
 
   deploy:
     needs: build
