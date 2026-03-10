@@ -1,0 +1,224 @@
+😱Development Plan
+
+Summary: Over the next 4 weeks, a small team will rebuild a prototype website, microservices, and protocol into a reliable beta network capable of withstanding Hacker News level scale and security scrutiny. We will then extend it with additional functionality (released every 1-2 weeks) for the following 11 weeks.
+
+Week 1 (“Accessible SOTA”): Static website, 8 local microservices, 3-view taskbar app (local eval studio, token usage/limit tracker, and cache UI) packaged as a python based electron taskbar app for OSX and Linux. SOTA on the multiple choice section of HLE by ensembling gemini-cli, claude code, codex, and ollama. Launch private beta by EOW. Used by OM team.
+
+Goal: ship “something” (basic desktop app prototype and v1 of onboarding website) to internal OpenMined team by EOW
+
+Core User Flow:
+	•	Visit homepage and see “sota” claim
+	•	Run curl based command to download, install, and configure
+	•	All model sources are automatically detected (ollama, claude code, etc.)
+	•	codex, claude code, and gemini are automatically configured to use screamingface backend
+	•	Start using normal coding CLI but it works better without being noticeably slower.
+
+Responsibilities:
+	•	Everyone: everyone helps with everything and we all spend 9am to 2pm+ on a video call together context sharing and building each day. Primary planned responsibilities are subject to change based on daily hangs, but we’ll start with what’s below.
+
+	•	Bennett: branding and visual design for static website and local app
+	•	static website: design the visual appearance
+	•	local app frontend: settings, spend, eval studio, cache/log
+
+	•	Kyle: static website development and local app frontend development
+	•	static website: a leaderboard chart on the homepage + an install flow
+	•	local app frontend:
+	•	Settings: Configure ensemble for various coding tools
+	•	Spend: View and manage token spend across all models available
+	•	Eval Studio: Duplicate SOTA results using the models you have access to
+	•	Cache/Log: Browse/search/filter entries in the cache, delete them, see statistics
+
+	•	Sergey: 8 local microservices (e.g., very simple FastAPI endpoints) and electron app packaging / devops
+	•	electron app packaging for Linux and OSX
+	•	cache: localhost microservice which caches LLM queries to disk
+	•	url4localclaudecode: makes claude code cli commands available via url4 compatible url.
+	•	url4localgemini: makes gemini cli commands available via url4 compatible url
+	•	url4localcodex: makes chatgpt cli commands  available via url4 compatible url
+	•	url4localollama: makes ollama cli commands available via url4 compatible url
+	•	claudecode2url4: enables (local) claude code to use any url4 endpoint as its AI endpoint
+	•	openai2url4: enables any (local) openai API client to use any url4 endpoint as its AI endpoint
+	•	(help Trask with local app backend as needed)
+
+	•	Kevin: local app backend + url4 protocol specification, parser, and visual editor
+	•	local app backend (mostly just uses these other microservices, also the backend for settings/config)
+	•	url4 protocol iteration and specification
+	•	Create initial url4 parser (python/js) and visualzier/editor (js)
+
+	•	Trask: product owner + everything
+	•	Help everyone with everything
+	•	Daily use, testing, and requirements specification and prioritization.
+
+
+Week 2 (“Value-for-SOTA”): First two cloud-deployed enclave microservices (cache and cli model runner) and first personal drive asset (model) enables people to share token budget with each other. Local app and static website are updated to show value-for-money tradeoff. The whole OpenMined team now has the ability to share tokens with one another.
+
+Core User Flow:
+	•	Visit homepage and see “sota” claim
+	•	Run curl based command to download, install, and configure
+	•	All model sources are automatically detected (ollama, claude code, etc.)
+	•	codex, claude code, and gemini are automatically configured to use screamingface backend
+	•	Start using normal coding CLI but it works better without being noticeably slower.
+	•	Run out of credits (like we all do), and get prompted (do any of your friends/colleagues have dormant credits they can share?).
+	•	Send link to friends for tutorial to setup their tokens
+	•	Go to url4.ai and login with account
+	•	Create a “model” 
+	•	Get handed a URL (the claude code setup url)
+	•	Click the url and authenticate
+	•	Share the model with a friend, set rate limits for them (e.g. time of day, % of token budget, etc.)
+	•	As a feature, can also share “cache” results with friend (rate limited), meaning if they prompt the *exact* same thing as you you’ll get the same result.
+	•	Model shows up as option in local endpoint.
+	•	Add it to the default ensemble
+
+
+	•	Everyone: 
+	•	everyone helps with everything and we all spend 9am to 2pm+ on a video call together context sharing and building each day. Primary planned responsibilities are subject to change based on daily hangs, but we’ll start with what’s below.
+	•	This week will also be spent debugging things we built from last week (as we have some test users)
+	•	We all use the tool in our own CLI coding tools as our main daily driver. Fix what you don’t like.
+
+	•	Bennett: branding and visual design for gates endpoint and local app
+	•	local app: 
+	•	design small extensions (such as CTA to ask friends for credits)
+	•	extend the ability to estimate the $ value of tokens from various models given subscriptions,  which should enable the homepage to be upgraded with a accuracy-vs-$ graph.
+	•	online webapp: 
+	•	design the visual appearance for new “gates” section
+	•	update the website with a new accuracy-vs-$ graph which includes models your friends let you use, showing how the overall system is getting both more tokens for the same $ and more accurfacy for the same $. This should drive home the value proposition for folks even more.
+
+	•	Kyle: webapp development and local app frontend development
+	•	online webapp: implement the new “gates” section
+	•	local app: implement the new minor functionality to the local app (the CTA)
+
+	•	Sergey: 2 hosted microservices
+	•	enclave model runners: this is a CPU enclave implementation which allows arbitrary numbers of users to authenticate with their favourite CLI tools, after which point they can empower other people (they trust) to use their tokens
+	•	Claude code runner
+	•	Gemini cli runner
+	•	Codex runner
+	•	Ollama runner (we know this might be slow)
+	•	enclave cache: this is a cloud hosted copy of the local cache we were working with before, into which users can backup their local cache and share cache results for their models with other people. Also runs in an enclave so folks know we can’t see the values.
+
+	•	Kevin: local app backend + url4 protocol iteration and specification
+	•	cloud app backend (mostly just uses these other microservices, also the backend for settings/config)
+	•	url4 protocol iteration and specification. We’ll need to tweak/improve the protocol to get the new functionality working.
+	•	Special focus on url4 for job running - time delay kind of stuff (work with andrew on context)
+	•	Update initial url4 parser (python/js) and visualzier/editor (js)
+	•	Improve AI eval studio with more ensemble flexibility given the url4 protocol improvements
+
+	•	Trask: product owner + everything
+	•	Help everyone with everything
+	•	Daily use, testing, and requirements specification and prioritization.
+
+
+Week 3 (“HN-ready Scale and SOTA Across Many Benchmarks”): extend the HLE multiple choice leaderboard so that now we can support an arbitrary number of supported leaderboards (not yet user contributed, just many leaderboards).
+
+
+	•	Everyone: 
+	•	everyone helps with everything and we all spend 9am to 2pm+ on a video call together context sharing and building each day. Primary planned responsibilities are subject to change based on daily hangs, but we’ll start with what’s below.
+	•	This week will also be spent debugging things we built from last week (as we have some test users)
+	•	We all use the tool in our own CLI coding tools as our main daily driver. Fix what you don’t like.
+
+	•	Bennett: branding and visual design for gates endpoint and local app
+	•	local app: 
+	•	design extensions so we can run the AI eval studio against any supported benchmark (note: we need to handle more than just multiple choice evals)
+	•	Extend the ability to do $ estimate for how much it will cost to run an eval.
+	•	Extend the ability to do a verified eval and submit it to the global leaderboard (must submit your keys to the enclave service so we know you’re not cheating)
+	•	online webapp: 
+	•	design the visual appearance for new “gates” section
+	•	update the website with a new accuracy-vs-$ graph which includes models your friends let you use, showing how the overall system is getting both more tokens for the same $ and more accurfacy for the same $. This should drive home the value proposition for folks even more.
+
+	•	Kyle: webapp development and local app frontend development
+	•	online webapp: implement the new leaderboards page
+	•	local app: implement the new minor functionality to the local app (the CTA)
+
+	•	Sergey: load balancing and scale testing
+	•	Develop testing suite so we can test hackernews frontpage level scale
+	•	Develop worker / load balancers for enclave model runners if necessary
+
+	•	Kevin: local app backend + url4 protocol iteration and specification
+	•	Extend url4 with protocol specs needed for multiple 
+
+	•	Trask: product owner + everything
+	•	Help everyone with everything
+	•	Daily use, testing, and requirements specification and prioritization.
+	•	Build ensembles which achieve sota across all the leading benchmarks
+
+
+Week 4 (“HN-ready Security, Polish, and Public Launch”): 
+
+	•	Everyone: 
+	•	everyone helps with everything and we all spend 9am to 2pm+ on a video call together context sharing and building each day. Primary planned responsibilities are subject to change based on daily hangs, but we’ll start with what’s below.
+	•	This week will also be spent debugging things we built from last week (as we have some test users)
+	•	We all use the tool in our own CLI coding tools as our main daily driver. Fix what you don’t like.
+
+	•	Bennett: branding and visual design polish. revisit the system in preparation for launch
+	•	Social media: develop social media strategy / assets / etc.
+	•	Full product polish: now is time for user delight. Take everything from “ok” to “incredible” with subtle pieces like shading, movement, color, and spacing
+	•	Reconsider main product messaging. 
+	•	Integrate deeper analytics tracking strategy.
+
+	•	Kyle: webapp development and local app frontend development
+	•	Work closely with Bennett to implement the subtle polish across the product. We’re looking to go from good to great.
+	•	Implement significant testing strategy. Look for bugs. Fix bugs. Test across many platforms and browsers. We want to find all the app problems before the users are about to find them.
+
+	•	Sergey: security audit… hack the system and then fix it
+	•	Put on your white hat hacker vibe - use all your knowledge of the system. Try to get it to do things we don’t want it to do.
+	•	FIx the security bugs you find.
+
+	•	Kevin: local app backend + url4 protocol iteration and specification
+	•	Support the app polish folks with subtle changes in teh backend
+	•	Draft serious url4 protocol spec pages and overview, teaching folks about the initial version of the protocol and its vision.
+
+	•	Trask: product owner + everything
+	•	Help everyone with everything
+	•	Daily use, testing, and requirements specification and prioritization.
+
+
+Week 5 (“Post Launch Rapid Debugging”): 
+
+	•	This week is responsive. Stuff is gonna break. We’re gonna fix it.
+	•	If you find yourself with thumbs twiddling. Get a jump start on Week 6
+
+Week 6 (“Payment layer”): 
+
+	•	Everyone: 
+	•	everyone helps with everything and we all spend 9am to 2pm+ on a video call together context sharing and building each day. Primary planned responsibilities are subject to change based on daily hangs, but we’ll start with what’s below.
+	•	This week will also be spent debugging things we built from last week (as we have some test users)
+	•	We all use the tool in our own CLI coding tools as our main daily driver. Fix what you don’t like.
+
+	•	Bennett: branding and visual design for payment extensions.
+	•	develop a high level philosophy for how we communicate our relationship with money
+	•	Modify the cloud and local interfaces with this functionality, starting with an integration with coinbase (known constraint: can only transact with other coinbase users… but it’s free and instant micropayments)
+	•	Include: optional donate % of spend to OpenMined.
+
+	•	Kyle: webapp development and local app frontend development
+	•	Work closely with bennett to implement changes
+
+	•	Sergey: update all relevant microservices with the ability to talk to the payment layer
+	•	People should be able to charge money for access to their tokens (and vice versa), cache calls, etc.
+	•	OpenMined needs the ability to track ingress egress costs o thate ventualyl we can communicate to the user how much their work costs the community (and ask them to donate)
+
+	•	Kevin: local app backend + url4 protocol iteration and specification
+	•	Develop backend implementing payment infrastructure
+	•	Update url4 with payment related features (possibly x402). Think deeply about how this integrates
+	•	Update url4 parsers and visualizer where relevant.
+	•	Update url4 documentation.
+
+	•	Trask: product owner + everything
+	•	Help everyone with everything
+	•	Daily use, testing, and requirements specification and prioritization.
+
+(Future plans if things are going well)
+
+Week 7 (“Gated Data Proxies and Enclave Inference Integration”)
+Week 8 (“Copy-paste based URLs for LLM UIs”)
+Week 9 (“Testing and Release”)
+Week 10 (“User Contributed Benchmarks and Automatic Data Importers”)
+Week 11 (“Intelligence Budgeting and Subscribing”)
+Week 12 (“Groups and Peers”)
+Week 13 (“Testing and Release”)
+Week 14 (“URL4 Microservices for Crawling, Caching, and Data-specific Sources”)
+Week 15 (“Microservies for On-Prem Deployment and Other Major Publisher Integrations”)
+Week 16 (“Beyond Coinbase Payment Integrations”)
+Week 17 (“Testing and Release”)
+Week 18 (“Browser Plugins for Consumer UI Token Sharing”)
+Week 19-21 (“Microservices for Major AI for Science Usecases”)
+Week 22 (“Testing and Release”)
+
+Full Vision Here
