@@ -21,7 +21,7 @@ const sotypeMono = Sometype_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "😱 screamingface — SOTA on your laptop",
+  title: "screamingface — SOTA on your laptop",
   description:
     "An AI ensemble that combines Claude Code, Gemini CLI, Codex, and Ollama to beat state-of-the-art benchmarks. One command to install.",
 };
