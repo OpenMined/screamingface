@@ -25,9 +25,10 @@ def plugin_list() -> None:
         return
 
     enabled_set = set(config.plugins)
-    for name, ep in sorted(discovered.items()):
+    for name, entry in sorted(discovered.items()):
         state = "enabled" if name in enabled_set else "available"
-        typer.echo(f"  {name:<30} [{state}]  ({ep.value})")
+        source = entry.value if hasattr(entry, "value") else entry.__module__  # type: ignore[union-attr]
+        typer.echo(f"  {name:<30} [{state}]  ({source})")
 
 
 @plugin_app.command("info")
@@ -49,6 +50,15 @@ def plugin_info(
     typer.echo(f"Version:     {plugin.version}")
     typer.echo(f"Description: {plugin.description}")
     typer.echo(f"Depends:     {', '.join(plugin.depends) or '(none)'}")
+    if plugin.settings_class:
+        typer.echo(f"Settings:    {plugin.settings_class.__name__}")
+        for field_name, field_info in plugin.settings_class.model_fields.items():
+            default = field_info.default
+            annotation = field_info.annotation
+            type_name = getattr(annotation, "__name__", str(annotation))
+            typer.echo(f"  {field_name}: {type_name} = {default!r}")
+    if plugin.system_deps:
+        typer.echo(f"System deps: {', '.join(plugin.system_deps)}")
 
 
 @plugin_app.command("enable")

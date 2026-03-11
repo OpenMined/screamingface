@@ -6,7 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 
 from screamingface.core.classes import ClassRegistry
 from screamingface.core.config import AppConfig
@@ -61,6 +61,36 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/plugins")
+    async def list_plugins() -> dict:
+        """List all active plugins with metadata."""
+        return {
+            name: {
+                "version": p.version,
+                "description": p.description,
+                "has_settings": p.settings_class is not None,
+            }
+            for name, p in app.state.plugins.active_plugins.items()
+        }
+
+    @app.get("/plugins/{name}/schema")
+    async def plugin_schema(name: str) -> dict:
+        """Return JSON Schema for a plugin's settings."""
+        plugin = app.state.plugins.active_plugins.get(name)
+        if not plugin:
+            raise HTTPException(404, f"Plugin {name!r} not active")
+        if not plugin.settings_class:
+            raise HTTPException(404, f"Plugin {name!r} has no configurable settings")
+        return plugin.settings_class.model_json_schema()
+
+    @app.get("/plugins/{name}/settings")
+    async def plugin_settings(name: str) -> dict:
+        """Return current resolved settings for a plugin."""
+        plugin = app.state.plugins.active_plugins.get(name)
+        if not plugin or not plugin.settings:
+            raise HTTPException(404, f"Plugin {name!r} not found or has no settings")
+        return plugin.settings.model_dump()
 
     # Discover and activate plugins
     plugin_registry.discover()

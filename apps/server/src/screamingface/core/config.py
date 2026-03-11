@@ -16,6 +16,9 @@ class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
     reload: bool = False
+    ssl: bool = True
+    ssl_certfile: str | None = None
+    ssl_keyfile: str | None = None
 
 
 class AppConfig(BaseModel):
