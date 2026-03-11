@@ -10,9 +10,8 @@ from fastapi.testclient import TestClient
 
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
-from screamingface.plugin import Plugin, PluginSettings
+from screamingface.plugin import Plugin
 from screamingface.plugins.claude_proxy.plugin import ClaudeProxySettings
-
 
 # --- Settings resolution ---
 

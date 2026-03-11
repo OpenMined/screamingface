@@ -18,7 +18,6 @@ from screamingface.plugins.url_executor.decoder import (
 )
 from screamingface.plugins.url_executor.plugin import UrlExecutorSettings
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

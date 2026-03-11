@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import TYPE_CHECKING, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from screamingface.plugins.claude_cli.models import ClaudeRunRequest
@@ -153,9 +154,14 @@ async def stream_claude(
         yield json.dumps({"type": "error", "error": "timeout"}) + "\n"
 
     duration = time.monotonic() - start
-    yield json.dumps({
-        "type": "done",
-        "exit_code": proc.returncode or 0,
-        "stderr": stderr,
-        "duration_seconds": round(duration, 3),
-    }) + "\n"
+    yield (
+        json.dumps(
+            {
+                "type": "done",
+                "exit_code": proc.returncode or 0,
+                "stderr": stderr,
+                "duration_seconds": round(duration, 3),
+            }
+        )
+        + "\n"
+    )

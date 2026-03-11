@@ -16,7 +16,6 @@ from screamingface.plugins.claude_cli.models import ClaudeRunRequest
 from screamingface.plugins.claude_cli.plugin import ClaudeCliSettings
 from screamingface.plugins.claude_cli.runner import build_args
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

@@ -47,6 +47,7 @@ _FLOAT_FIELDS = {"mb", "ts"}
 # Fields that should be parsed as bools
 _BOOL_FIELDS = {"dsp", "nsp"}
 
+
 def build_dispatch_body(params: dict[str, str], prompt: str) -> dict[str, Any]:
     """Build the JSON body for the internal POST dispatch from query params.
 

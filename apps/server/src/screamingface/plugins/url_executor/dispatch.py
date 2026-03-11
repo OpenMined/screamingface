@@ -9,7 +9,6 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
 from httpx import ASGITransport
 
-
 # Backend name → (plugin name, default action, POST path template)
 BACKEND_MAP: dict[str, tuple[str, str, str]] = {
     "cli": ("claude-cli", "run", "/claude/run"),

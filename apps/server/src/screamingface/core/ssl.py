@@ -51,8 +51,10 @@ def generate_certs() -> None:
     subprocess.run(
         [
             "mkcert",
-            "-cert-file", str(CERT_FILE),
-            "-key-file", str(KEY_FILE),
+            "-cert-file",
+            str(CERT_FILE),
+            "-key-file",
+            str(KEY_FILE),
             "localhost",
             "127.0.0.1",
         ],

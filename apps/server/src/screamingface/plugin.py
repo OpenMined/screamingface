@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 from screamingface import __version__
 
 if TYPE_CHECKING:
+    import typer
     from fastapi import FastAPI
 
     from screamingface.core.classes import ClassRegistry
@@ -84,3 +85,11 @@ class Plugin:
 
     def teardown(self) -> None:
         """Called when the plugin is deactivated. Clean up resources here."""
+
+    @classmethod
+    def register_cli(cls, app: typer.Typer) -> None:
+        """Register CLI subcommands on the root Typer app.
+
+        Called during CLI construction — no server or app instance exists.
+        Override this to add plugin-specific CLI commands (e.g. sub-apps).
+        """

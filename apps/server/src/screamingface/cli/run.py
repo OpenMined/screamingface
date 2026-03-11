@@ -53,6 +53,17 @@ def run(
 
     cfg = load_config(config)
 
+    # Auto-pick a free port if the configured one is busy
+    if port is None:
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", cfg.server.port)) == 0:
+                # Port is in use — find a free one
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as free:
+                    free.bind(("127.0.0.1", 0))
+                    cfg.server.port = free.getsockname()[1]
+
     # Apply CLI overrides
     if host is not None:
         cfg.server.host = host
@@ -83,6 +94,17 @@ def run(
             # Use user-provided paths (expand ~)
             ssl_certfile_path = str(Path(certfile).expanduser())
             ssl_keyfile_path = str(Path(keyfile).expanduser())
+        elif "intercept" in cfg.plugins:
+            # Intercept plugin needs certs that cover intercepted domains.
+            # Generate them here since uvicorn.run() needs paths before
+            # the plugin's setup() runs inside the factory.
+            from screamingface.plugins.intercept.certs import ensure_intercept_certs
+
+            intercept_cfg = cfg.plugin_config.get("intercept", {})
+            domains = intercept_cfg.get("domains", ["api.anthropic.com"])
+            cert, key = ensure_intercept_certs(domains)  # type: ignore[arg-type]
+            ssl_certfile_path = str(cert)
+            ssl_keyfile_path = str(key)
         else:
             # Auto-generate certs with mkcert
             from screamingface.core.ssl import ensure_ssl
@@ -91,12 +113,19 @@ def run(
             ssl_certfile_path = str(cert)
             ssl_keyfile_path = str(key)
 
+    # Serialize resolved config to env var so it survives uvicorn's
+    # reloader fork (module-level state doesn't persist across forks).
+    import os
+
+    os.environ["_SF_RUNTIME_CONFIG"] = cfg.model_dump_json()
+
     uvicorn.run(
         "screamingface.core.app:create_app",
         host=cfg.server.host,
         port=cfg.server.port,
         reload=cfg.server.reload,
         factory=True,
+        log_level="info",
         ssl_certfile=ssl_certfile_path,
         ssl_keyfile=ssl_keyfile_path,
     )

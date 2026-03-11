@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import tempfile
 from pathlib import Path
@@ -59,7 +58,7 @@ def create_router(settings: ClaudeCliSettings) -> APIRouter:
                 exit_code, stdout, stderr, duration = await run_claude(
                     args, request.prompt, timeout
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 raise HTTPException(status_code=504, detail="Claude CLI timed out")
 
             result = None

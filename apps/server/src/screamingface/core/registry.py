@@ -114,9 +114,7 @@ class PluginRegistry:
         # Check if other active plugins depend on this one
         dependents = [p.name for p in self._active.values() if name in p.depends]
         if dependents:
-            raise RuntimeError(
-                f"Cannot deactivate {name!r}: plugins {dependents} depend on it"
-            )
+            raise RuntimeError(f"Cannot deactivate {name!r}: plugins {dependents} depend on it")
 
         plugin.teardown()
         del self._active[name]

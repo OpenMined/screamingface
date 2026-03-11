@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Request, Response
 
@@ -16,9 +17,26 @@ from screamingface.core.routes import RouteRegistry
 
 logger = logging.getLogger(__name__)
 
+# Stash for CLI-resolved config. When uvicorn uses factory=True, it calls
+# create_app() with no args. This lets run.py pass its fully-resolved
+# config (with CLI overrides, auto-port, plugin filtering) to the factory.
+_pending_config: AppConfig | None = None
+
 
 def create_app(config: AppConfig | None = None) -> FastAPI:
     """Create and configure the FastAPI application with all registries."""
+    # Ensure app-level loggers are visible (uvicorn only configures its own).
+    # Safe to call multiple times — basicConfig is a no-op if a handler exists.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s - %(message)s")
+    global _pending_config  # noqa: PLW0603
+    if config is None:
+        config = _pending_config
+        _pending_config = None  # consume it
+    if config is None:
+        # Check env var (survives uvicorn reloader fork)
+        raw = os.environ.pop("_SF_RUNTIME_CONFIG", "")
+        if raw:
+            config = AppConfig.model_validate_json(raw)
     if config is None:
         from screamingface.core.config import load_config
 

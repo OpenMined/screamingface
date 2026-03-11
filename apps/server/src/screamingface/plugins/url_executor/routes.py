@@ -64,9 +64,7 @@ def create_router(settings: UrlExecutorSettings) -> APIRouter:
     ) -> HTMLResponse | JSONResponse | StreamingResponse:
         return await _handle(request, backend, action=None)
 
-    @router.get(
-        "/x/{backend}/{action}", response_model=None, operation_id="url_exec_with_action"
-    )
+    @router.get("/x/{backend}/{action}", response_model=None, operation_id="url_exec_with_action")
     async def url_exec_with_action(
         request: Request, backend: str, action: str
     ) -> HTMLResponse | JSONResponse | StreamingResponse:

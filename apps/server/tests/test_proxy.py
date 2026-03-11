@@ -46,7 +46,10 @@ def test_proxy_non_streaming(proxy_client: TestClient) -> None:
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
         resp = proxy_client.post(
             "/v1/messages",
-            json={"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hi"}]},
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": "Hi"}],
+            },
             headers={"x-api-key": "test-key", "anthropic-version": "2023-06-01"},
         )
 
@@ -58,7 +61,9 @@ def test_proxy_non_streaming(proxy_client: TestClient) -> None:
 def test_proxy_forwards_headers(proxy_client: TestClient) -> None:
     mock_response = httpx.Response(200, json={"id": "msg_456"})
 
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+    with patch(
+        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
+    ) as mock_post:
         proxy_client.post(
             "/v1/messages",
             json={"model": "claude-sonnet-4-20250514", "messages": []},
@@ -80,7 +85,9 @@ def test_proxy_auth_fallback(proxy_client: TestClient, monkeypatch: pytest.Monke
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-from-env")
     mock_response = httpx.Response(200, json={"id": "msg_789"})
 
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
+    with patch(
+        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
+    ) as mock_post:
         proxy_client.post(
             "/v1/messages",
             json={"model": "claude-sonnet-4-20250514", "messages": []},
