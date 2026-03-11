@@ -1,4 +1,6 @@
 import LeaderboardChart from "@/components/LeaderboardChart";
+import EmailCapture from "@/components/EmailCapture";
+import { ChevronRight } from "lucide-react";
 
 const installCommand = `curl -fsSL https://screamingface.ai/install | sh`;
 
@@ -7,19 +9,19 @@ const steps = [
     number: "01",
     title: "Install",
     description:
-      "One command downloads and configures screamingface on your machine.",
+      "One command. Downloads and configures screamingface on your machine. Nothing is uploaded during setup.",
   },
   {
     number: "02",
     title: "Auto-detected",
     description:
-      "Claude Code, Gemini CLI, Codex, and Ollama are detected and configured automatically.",
+      "screamingface reads your PATH and existing configs. Claude Code, Gemini CLI, Codex, and Ollama are found and wired up automatically.",
   },
   {
     number: "03",
     title: "Just code",
     description:
-      "Use your normal coding CLI. The ensemble routes every prompt to the best available model.",
+      "Use your normal CLI workflow. We don't change your setup — we route every prompt to whichever model scores best on the task.",
   },
 ];
 
@@ -59,8 +61,15 @@ export default function Home() {
           >
             <span className="text-gradient-gold">SOTA</span> on your laptop.
           </h1>
-          <p className="text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed">
-            Combine Claude Code, Gemini CLI, Codex, and Ollama into an ensemble that beats any single model on state-of-the-art benchmarks — without changing how you code.
+          <p className="text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed mb-4">
+            The models you already use — Claude Code, Gemini CLI, Codex, Ollama — combined into an ensemble that consistently outscores any one of them. No new workflow. No new subscription.
+          </p>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Skeptical?{" "}
+            <a href="#leaderboard" className="text-primary hover:opacity-80 transition-opacity">
+              See the benchmark scores
+            </a>
+            {" "}— and run the evals yourself.
           </p>
           <div className="mt-10 flex items-center justify-center gap-4">
             <a
@@ -70,10 +79,12 @@ export default function Home() {
               Get started
             </a>
             <a
-              href="#leaderboard"
+              href="https://github.com/OpenMined/screamingface"
               className="border border-border px-6 py-3 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+              target="_blank"
+              rel="noopener noreferrer"
             >
-              See the benchmarks
+              View on GitHub
             </a>
           </div>
         </section>
@@ -89,21 +100,38 @@ export default function Home() {
                 className="text-3xl font-semibold mb-3"
                 style={{ fontFamily: "var(--font-rubik)" }}
               >
-                Beat SOTA. Every prompt.
+                The ensemble wins.
               </h2>
               <p className="text-muted-foreground max-w-md mx-auto">
-                By ensembling the models you already have, screamingface consistently outperforms any individual frontier model.
+                HLE (Humanity&apos;s Last Exam) multiple-choice accuracy. The ensemble combines the models you already have — it doesn&apos;t require anything new.
               </p>
             </div>
             <div className="bg-card border border-border rounded-lg p-8">
               <LeaderboardChart />
             </div>
+            <p className="text-xs text-muted-foreground text-center mt-5">
+              These scores are reproducible. Evaluation code is open source —{" "}
+              <a
+                href="https://github.com/OpenMined/screamingface"
+                className="underline underline-offset-2 hover:text-foreground transition-colors"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                run it yourself
+              </a>
+              .
+            </p>
           </div>
         </section>
 
         {/* Install */}
-        <section id="install" className="px-6 py-20 border-t border-border">
-          <div className="max-w-3xl mx-auto">
+        <section id="install" className="px-6 py-24 border-t border-border relative overflow-hidden">
+          {/* Subtle radial glow behind command block */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden>
+            <div className="w-[700px] h-[320px] rounded-full bg-primary/[0.06] blur-[90px]" />
+          </div>
+
+          <div className="max-w-3xl mx-auto relative">
             <div className="text-center mb-12">
               <h2
                 className="text-3xl font-semibold mb-3"
@@ -112,20 +140,39 @@ export default function Home() {
                 One command to install.
               </h2>
               <p className="text-muted-foreground">
-                screamingface detects every model on your machine and configures itself
-                automatically.
+                screamingface detects every model on your machine and configures itself automatically. Nothing is sent to a server during setup.
               </p>
             </div>
 
-            {/* Command block */}
-            <div className="bg-card border border-border rounded-xl px-6 py-5 flex items-center gap-3 text-sm mb-12">
-              <span className="text-muted-foreground select-none shrink-0" style={{ fontFamily: "var(--font-sometype-mono)" }}>$</span>
-              <span
-                className="min-w-0 block text-foreground overflow-x-auto whitespace-nowrap"
-                style={{ fontFamily: "var(--font-sometype-mono)" }}
-              >
-                {installCommand}
-              </span>
+            {/* Command block — terminal style */}
+            <div className="bg-card border border-border rounded-xl overflow-hidden mb-12 shadow-xl shadow-black/30">
+              {/* Terminal chrome */}
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-secondary/60">
+                <span className="w-3 h-3 rounded-full bg-[#ff5f57]" />
+                <span className="w-3 h-3 rounded-full bg-[#febc2e]" />
+                <span className="w-3 h-3 rounded-full bg-[#28c840]" />
+                <span
+                  className="ml-auto text-xs text-muted-foreground"
+                  style={{ fontFamily: "var(--font-sometype-mono)" }}
+                >
+                  bash
+                </span>
+              </div>
+              {/* Command */}
+              <div className="px-6 py-5 flex items-center gap-3 text-sm">
+                <span
+                  className="text-primary select-none shrink-0"
+                  style={{ fontFamily: "var(--font-sometype-mono)" }}
+                >
+                  $
+                </span>
+                <span
+                  className="min-w-0 block text-foreground overflow-x-auto whitespace-nowrap"
+                  style={{ fontFamily: "var(--font-sometype-mono)" }}
+                >
+                  {installCommand}
+                </span>
+              </div>
             </div>
 
             {/* Steps */}
@@ -152,12 +199,65 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {/* Why open matters */}
+        <section className="px-6 py-20 border-t border-border bg-card/40">
+          <div className="max-w-3xl mx-auto text-center">
+            <h2
+              className="text-3xl font-semibold mb-4"
+              style={{ fontFamily: "var(--font-rubik)" }}
+            >
+              No single company should own the most powerful model.
+            </h2>
+            <p className="text-muted-foreground max-w-xl mx-auto mb-12">
+              When you ensemble open and proprietary models together, the combined system outperforms any one provider — and changes who controls the frontier.
+            </p>
+
+            {/* Stakes grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-5 text-left mb-12">
+              {[
+                { title: "Privacy",         body: "Institutions share data without surrendering control." },
+                { title: "Copyright",       body: "Creator attribution rights survive model training." },
+                { title: "Hallucination",   body: "Predictions stay traceable back to their sources." },
+                { title: "Bias",            body: "Each community governs its own contributions." },
+                { title: "Value Alignment", body: "AI values set by everyone, not one." },
+                { title: "Democracy",       body: "Strength from open markets, not central control." },
+              ].map((item) => (
+                <div key={item.title} className="flex gap-2.5">
+                  <ChevronRight className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
+                  <div>
+                    <h3
+                      className="text-sm font-medium text-foreground"
+                      style={{ fontFamily: "var(--font-rubik)" }}
+                    >
+                      {item.title}
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                      {item.body}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <a
+              href="https://attribution-based-control.ai/#societal-consequences"
+              className="text-sm text-primary underline underline-offset-2 hover:opacity-80 transition-opacity"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Read about the societal stakes →
+            </a>
+          </div>
+        </section>
+
+        {/* Email capture */}
+        <EmailCapture />
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-border px-6 py-8 text-center text-sm text-muted-foreground">
-        <p>
-          😱 screamingface — built by{" "}
+      <footer className="border-t border-border px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
+        <span>😱 screamingface — built by{" "}
           <a
             href="https://openmined.org"
             className="hover:text-foreground transition-colors underline underline-offset-2"
@@ -166,7 +266,25 @@ export default function Home() {
           >
             OpenMined
           </a>
-        </p>
+        </span>
+        <nav className="flex items-center gap-5">
+          <a
+            href="https://github.com/OpenMined/screamingface"
+            className="hover:text-foreground transition-colors"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+          </a>
+          <a
+            href="https://attribution-based-control.ai/#societal-consequences"
+            className="hover:text-foreground transition-colors"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Why it matters
+          </a>
+        </nav>
       </footer>
     </div>
   );
