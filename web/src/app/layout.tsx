@@ -36,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body
         className={`${inter.variable} ${rubik.variable} ${sotypeMono.variable} antialiased bg-background text-foreground`}
       >

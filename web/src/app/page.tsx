@@ -1,5 +1,6 @@
 import LeaderboardChart from "@/components/LeaderboardChart";
 import EmailCapture from "@/components/EmailCapture";
+import CollaboratorsGrid from "@/components/CollaboratorsGrid";
 import { ChevronRight } from "lucide-react";
 
 const installCommand = `curl -fsSL https://screamingface.ai/install | sh`;
@@ -200,6 +201,9 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Collaborators */}
+        <CollaboratorsGrid />
+
         {/* Why open matters */}
         <section className="px-6 py-20 border-t border-border bg-card/40">
           <div className="max-w-3xl mx-auto text-center">
@@ -207,21 +211,21 @@ export default function Home() {
               className="text-3xl font-semibold mb-4"
               style={{ fontFamily: "var(--font-rubik)" }}
             >
-              No single company should own the most powerful model.
+              The best AI is built together.
             </h2>
             <p className="text-muted-foreground max-w-xl mx-auto mb-12">
-              When you ensemble open and proprietary models together, the combined system outperforms any one provider — and changes who controls the frontier.
+              When open and proprietary models work together, the result outperforms any single provider — and the whole ecosystem benefits.
             </p>
 
             {/* Stakes grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-5 text-left mb-12">
               {[
-                { title: "Privacy",         body: "Institutions share data without surrendering control." },
+                { title: "Privacy",         body: "Institutions contribute data while keeping full control." },
                 { title: "Copyright",       body: "Creator attribution rights survive model training." },
                 { title: "Hallucination",   body: "Predictions stay traceable back to their sources." },
                 { title: "Bias",            body: "Each community governs its own contributions." },
-                { title: "Value Alignment", body: "AI values set by everyone, not one." },
-                { title: "Democracy",       body: "Strength from open markets, not central control." },
+                { title: "Value Alignment", body: "AI values shaped by everyone who uses it." },
+                { title: "Democracy",       body: "Strength from everything the free market builds together." },
               ].map((item) => (
                 <div key={item.title} className="flex gap-2.5">
                   <ChevronRight className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
