@@ -1,0 +1,17 @@
+# Iason Gabriel
+**Role:** Senior Staff Research Scientist, Google DeepMind; Lead, Humanity, Ethics, and Alignment team; Time 100 AI 2024
+**Category:** ABC Citations — P9
+
+**Note on citation:** Andrew Trask's thesis cites this person as "Gabriel, I." (standard format) — the "I." stands for Iason. The cited works are his 2020 *Minds and Machines* paper "Artificial Intelligence, Values and Alignment" and the 2024 arXiv paper "The Ethics of Advanced AI Assistants" (arXiv:2404.16244), co-authored with a large DeepMind team.
+
+## Who They Are
+Iason Gabriel is the rare political theorist inside a frontier AI lab who has actually shaped how that lab thinks about value alignment. He came to DeepMind from Oxford moral and political philosophy and UN work, bringing a distributive justice framework to questions most AI ethics practitioners approach through utilitarian or safety-focused lenses. His 2020 paper "Artificial Intelligence, Values and Alignment" in *Minds and Machines* is one of the most cited philosophical treatments of alignment in the field. His 2024 "Ethics of Advanced AI Assistants" paper is arguably the most detailed public articulation yet of what ethical constraints on agentic AI should look like — covering value alignment, manipulation, anthropomorphism, trust, privacy, and the societal implications of AI agents acting autonomously on behalf of users at scale.
+
+## Relationship to AI Tools
+Gabriel is an ethics architect, not a practitioner. He engages with AI tools by designing the normative frameworks that should govern them — and does so from inside one of the organizations building the most capable ones. His work is applied philosophy: what values should this system have, whose values should it reflect, how do we handle value disagreement across users and cultures, and who gets to decide? He is acutely aware of the tension between working at a company that concentrates AI capability and advocating for frameworks that would constrain that concentration.
+
+## Likely Reaction to screamingface
+Gabriel would engage with screamingface through the lens of value pluralism and alignment governance. His "Ethics of Advanced AI Assistants" paper grapples extensively with what happens when an AI assistant is intermediated — when it acts on behalf of a user across multiple domains and multiple principals. Screamingface's ensemble routing is precisely this kind of intermediation: a system routing user intent through multiple model providers, none of whom has the full picture. He would ask the alignment question directly: whose values does the ensemble optimize for when the models disagree? What happens when Claude routes a query one way and Gemini would route it another? Is the routing decision itself a values decision, and if so, who made it and how is it auditable? He might find the attribution mechanism compelling as a partial answer — it at least creates a record of which system contributed what — but he'd push for transparent value specification that makes the routing logic legible, not just the outputs.
+
+## Key Tension
+Gabriel's framework requires AI systems to be explicit about whose values they serve and how they handle disagreement — but screamingface's ensemble routing makes implicit value decisions at the model selection layer that are currently opaque, and "best available model for the task" is not a values framework, it's a performance heuristic.
