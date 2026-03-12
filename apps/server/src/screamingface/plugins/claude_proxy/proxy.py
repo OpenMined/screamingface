@@ -137,7 +137,7 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
     async def proxy_messages(request: Request) -> Response:
         _check_host(request)
         body = await request.json()
-        body = await _enrich_with_url4(request, body)
+        # body = await _enrich_with_url4(request, body)
         headers = _build_headers(request)
         url = f"{upstream_url}/v1/messages"
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
