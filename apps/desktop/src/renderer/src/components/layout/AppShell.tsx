@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Sidebar, type View } from './Sidebar';
 import { StatusBar } from './StatusBar';
+import { Toaster } from '../ui/toaster';
 import type { ServerStatus, PluginManifest } from '../../../../preload/types';
 
 interface AppShellProps {
@@ -27,6 +28,7 @@ export function AppShell({
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
       <StatusBar serverStatus={serverStatus} serverPort={serverPort} />
+      <Toaster />
     </div>
   );
 }

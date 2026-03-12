@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useServerStatus } from '../hooks/use-server-status';
+import { useToast } from '../hooks/use-toast';
 import type { DiscoveredPlugin } from '../../../preload/types';
 
 interface ServerConfig {
@@ -41,7 +42,14 @@ interface PluginSchema {
 
 const defaultConfig: AppConfig = {
   version: '0.1.0',
-  server: { host: '0.0.0.0', port: 8000, reload: false, ssl: true, ssl_certfile: null, ssl_keyfile: null },
+  server: {
+    host: '0.0.0.0',
+    port: 8000,
+    reload: false,
+    ssl: true,
+    ssl_certfile: null,
+    ssl_keyfile: null,
+  },
   plugins: [],
   plugin_config: {},
   url4config: null,
@@ -65,22 +73,57 @@ function StatusDot({ status }: { status: PluginStatus }) {
   return <span className={`inline-block h-2 w-2 rounded-full ${color}`} title={title} />;
 }
 
+function buildServerUrl(config: AppConfig): string {
+  const scheme = config.server.ssl ? 'https' : 'http';
+  const host = config.server.host === '0.0.0.0' ? 'localhost' : config.server.host;
+  return `${scheme}://${host}:${config.server.port}`;
+}
+
+const AUTO_SAVE_DELAY = 800;
+
 export function SettingsView() {
   const [config, setConfig] = useState<AppConfig>(defaultConfig);
-  const [dirty, setDirty] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [serverPlugins, setServerPlugins] = useState<Record<string, ServerPluginInfo> | null>(null);
-  const [discoveredPlugins, setDiscoveredPlugins] = useState<Record<string, DiscoveredPlugin> | null>(null);
+  const [discoveredPlugins, setDiscoveredPlugins] = useState<Record<
+    string,
+    DiscoveredPlugin
+  > | null>(null);
   const [newPluginName, setNewPluginName] = useState('');
   const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null);
   const [pluginSchemas, setPluginSchemas] = useState<Record<string, PluginSchema>>({});
-  const [pluginLiveSettings, setPluginLiveSettings] = useState<Record<string, Record<string, unknown>>>({});
+  const [pluginLiveSettings, setPluginLiveSettings] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
   const [schemaLoading, setSchemaLoading] = useState<Record<string, boolean>>({});
   const [schemaErrors, setSchemaErrors] = useState<Record<string, boolean>>({});
 
   const { status: serverStatus, info: serverInfo } = useServerStatus();
+  const { toast } = useToast();
 
-  const serverUrl = serverInfo ? `${serverInfo.scheme}://${serverInfo.host === '0.0.0.0' ? 'localhost' : serverInfo.host}:${serverInfo.port}` : null;
+  // Auto-save: debounce writes to disk
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const configRef = useRef(config);
+  configRef.current = config;
+  const initialLoadRef = useRef(true);
+
+  const scheduleAutoSave = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        await window.electronAPI.config.write(
+          configRef.current as unknown as Record<string, unknown>,
+        );
+        toast('Settings saved', 'success', 2000);
+      } catch {
+        toast('Failed to save settings', 'error');
+      }
+    }, AUTO_SAVE_DELAY);
+  }, [toast]);
+
+  // Server URL: prefer live info from process, fall back to config-derived URL
+  const serverUrl = serverInfo
+    ? `${serverInfo.scheme}://${serverInfo.host === '0.0.0.0' ? 'localhost' : serverInfo.host}:${serverInfo.port}`
+    : buildServerUrl(config);
 
   // Discover available plugins via CLI (works without server)
   useEffect(() => {
@@ -91,46 +134,37 @@ export function SettingsView() {
     });
   }, []);
 
-  // Fetch active plugin metadata from server when running
+  // Fetch via main process to bypass self-signed cert issues
+  const serverFetch = useCallback(async (url: string) => {
+    const res = await window.electronAPI.server.fetch(url);
+    return { ok: res.ok, json: () => JSON.parse(res.body) };
+  }, []);
+
+  // Fetch active plugin metadata from server
   const fetchServerPlugins = useCallback(async () => {
-    if (!serverUrl) return;
     try {
-      const res = await fetch(`${serverUrl}/plugins`);
+      const res = await serverFetch(`${serverUrl}/plugins`);
       if (res.ok) {
-        setServerPlugins(await res.json());
+        setServerPlugins(res.json());
       }
     } catch {
       setServerPlugins(null);
     }
-  }, [serverUrl]);
+  }, [serverUrl, serverFetch]);
 
   useEffect(() => {
-    if (serverStatus === 'ready') {
-      fetchServerPlugins();
-    } else {
-      setServerPlugins(null);
-      setExpandedPlugin(null);
-      setPluginSchemas({});
-      setPluginLiveSettings({});
-      setSchemaErrors({});
-    }
-  }, [serverStatus, fetchServerPlugins]);
-
-  // Clear schema caches when server plugins re-fetch (stale guard)
-  useEffect(() => {
-    setPluginSchemas({});
-    setPluginLiveSettings({});
-    setSchemaErrors({});
-  }, [serverPlugins]);
+    fetchServerPlugins();
+  }, [fetchServerPlugins, serverStatus]);
 
   // Fetch schema + live settings when a plugin is expanded
   useEffect(() => {
-    if (!expandedPlugin || !serverUrl || pluginSchemas[expandedPlugin]) return;
+    if (!expandedPlugin || pluginSchemas[expandedPlugin]) return;
     setSchemaLoading((prev) => ({ ...prev, [expandedPlugin]: true }));
+    setSchemaErrors((prev) => ({ ...prev, [expandedPlugin]: false }));
     const name = expandedPlugin;
     Promise.all([
-      fetch(`${serverUrl}/plugins/${name}/schema`).then((r) => r.ok ? r.json() : null),
-      fetch(`${serverUrl}/plugins/${name}/settings`).then((r) => r.ok ? r.json() : null),
+      serverFetch(`${serverUrl}/plugins/${name}/schema`).then((r) => (r.ok ? r.json() : null)),
+      serverFetch(`${serverUrl}/plugins/${name}/settings`).then((r) => (r.ok ? r.json() : null)),
     ])
       .then(([schema, settings]) => {
         if (schema?.properties) {
@@ -148,27 +182,37 @@ export function SettingsView() {
       .finally(() => {
         setSchemaLoading((prev) => ({ ...prev, [name]: false }));
       });
-  }, [expandedPlugin, serverUrl, pluginSchemas]);
+  }, [expandedPlugin, serverUrl, pluginSchemas, serverFetch]);
 
+  // Load config from disk and subscribe to external changes
   useEffect(() => {
-    window.electronAPI.config.read().then((c) => setConfig(c as AppConfig));
+    window.electronAPI.config.read().then((c) => {
+      setConfig(c as AppConfig);
+      // Mark initial load complete after state settles
+      setTimeout(() => {
+        initialLoadRef.current = false;
+      }, 100);
+    });
     const unsub = window.electronAPI.config.onChanged((c) => {
       setConfig(c as AppConfig);
-      setDirty(false);
     });
     return unsub;
   }, []);
 
+  const markDirty = useCallback(() => {
+    if (!initialLoadRef.current) {
+      scheduleAutoSave();
+    }
+  }, [scheduleAutoSave]);
+
   const update = (patch: Partial<ServerConfig>) => {
     setConfig((prev) => ({ ...prev, server: { ...prev.server, ...patch } }));
-    setDirty(true);
-    setSaved(false);
+    markDirty();
   };
 
   const updatePlugins = (plugins: string[]) => {
     setConfig((prev) => ({ ...prev, plugins }));
-    setDirty(true);
-    setSaved(false);
+    markDirty();
   };
 
   const addPlugin = (name: string) => {
@@ -183,20 +227,21 @@ export function SettingsView() {
     return serverPlugins[name] ? 'active' : 'missing';
   };
 
-  // Plugins that are discovered but not yet enabled
   const availableToAdd = discoveredPlugins
     ? Object.entries(discoveredPlugins)
         .filter(([name]) => !config.plugins.includes(name))
         .map(([name, info]) => ({ name, ...info }))
     : [];
 
-  // Get metadata: prefer server data (live), fall back to discovered data (CLI)
   const getPluginMeta = (name: string) => {
     if (serverPlugins?.[name]) {
       return { version: serverPlugins[name].version, description: serverPlugins[name].description };
     }
     if (discoveredPlugins?.[name]) {
-      return { version: discoveredPlugins[name].version, description: discoveredPlugins[name].description };
+      return {
+        version: discoveredPlugins[name].version,
+        description: discoveredPlugins[name].description,
+      };
     }
     return null;
   };
@@ -212,11 +257,14 @@ export function SettingsView() {
         },
       },
     }));
-    setDirty(true);
-    setSaved(false);
+    markDirty();
   };
 
-  const getFieldValue = (pluginName: string, field: string, schemaProp: SchemaProperty): unknown => {
+  const getFieldValue = (
+    pluginName: string,
+    field: string,
+    schemaProp: SchemaProperty,
+  ): unknown => {
     const localVal = config.plugin_config[pluginName]?.[field];
     if (localVal !== undefined) return localVal;
     const liveVal = pluginLiveSettings[pluginName]?.[field];
@@ -229,48 +277,35 @@ export function SettingsView() {
     return _name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   };
 
-  const save = async () => {
-    await window.electronAPI.config.write(config as unknown as Record<string, unknown>);
-    setDirty(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="font-heading text-lg font-semibold text-foreground">Settings</h1>
-        {dirty && (
-          <button
-            onClick={save}
-            className="rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Save
-          </button>
-        )}
-        {saved && <span className="text-xs text-chart-3">Saved</span>}
-      </div>
+      <h1 className="font-heading text-lg font-semibold text-foreground">Settings</h1>
 
       {/* Server settings */}
       <section className="rounded-lg border border-border bg-card p-4">
-        <h2 className="text-sm font-medium text-foreground">Server</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-foreground">Server</h2>
+          {serverStatus === 'ready' && <span className="text-[10px] text-chart-3">Running</span>}
+        </div>
         <div className="mt-4 grid grid-cols-2 gap-4">
           <label className="space-y-1">
             <span className="text-xs text-muted-foreground">Host</span>
             <input
               type="text"
-              value={config.server.host}
+              value={serverInfo?.host ?? config.server.host}
               onChange={(e) => update({ host: e.target.value })}
-              className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              disabled={serverStatus === 'ready'}
+              className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </label>
           <label className="space-y-1">
             <span className="text-xs text-muted-foreground">Port</span>
             <input
               type="number"
-              value={config.server.port}
+              value={serverInfo?.port ?? config.server.port}
               onChange={(e) => update({ port: parseInt(e.target.value) || 8000 })}
-              className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              disabled={serverStatus === 'ready'}
+              className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </label>
         </div>
@@ -278,9 +313,10 @@ export function SettingsView() {
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
-              checked={config.server.ssl}
+              checked={serverInfo ? serverInfo.scheme === 'https' : config.server.ssl}
               onChange={(e) => update({ ssl: e.target.checked })}
-              className="rounded border-input"
+              disabled={serverStatus === 'ready'}
+              className="rounded border-input disabled:opacity-50 disabled:cursor-not-allowed"
             />
             SSL
           </label>
@@ -289,7 +325,8 @@ export function SettingsView() {
               type="checkbox"
               checked={config.server.reload}
               onChange={(e) => update({ reload: e.target.checked })}
-              className="rounded border-input"
+              disabled={serverStatus === 'ready'}
+              className="rounded border-input disabled:opacity-50 disabled:cursor-not-allowed"
             />
             Auto-reload
           </label>
@@ -309,8 +346,7 @@ export function SettingsView() {
             onChange={(e) => {
               const val = e.target.value.trim() || null;
               setConfig((prev) => ({ ...prev, url4config: val }));
-              setDirty(true);
-              setSaved(false);
+              markDirty();
             }}
             placeholder="url4://project/context (leave empty to disable)"
             className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
@@ -334,13 +370,22 @@ export function SettingsView() {
               const pluginStatus = getPluginStatus(name);
               const meta = getPluginMeta(name);
               const hasSettings = serverPlugins?.[name]?.has_settings === true;
-              const isExpanded = expandedPlugin === name;
+              const isExpanded = hasSettings && expandedPlugin === name;
               const schema = pluginSchemas[name];
               return (
                 <div key={name} className="rounded-md bg-secondary">
-                  <div className="flex items-center justify-between px-3 py-2">
+                  <div
+                    className={`flex items-center justify-between px-3 py-2 select-none ${hasSettings ? 'cursor-pointer' : ''}`}
+                    onClick={
+                      hasSettings ? () => setExpandedPlugin(isExpanded ? null : name) : undefined
+                    }
+                  >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <StatusDot status={pluginStatus} />
+                      {hasSettings ? (
+                        <StatusDot status={pluginStatus} />
+                      ) : (
+                        <span className="inline-block h-2 w-2" />
+                      )}
                       <div className="min-w-0">
                         <span className="font-mono text-xs text-foreground">{name}</span>
                         {meta?.version && (
@@ -357,16 +402,13 @@ export function SettingsView() {
                     </div>
                     <div className="flex items-center gap-1 ml-2 shrink-0">
                       {hasSettings && (
-                        <button
-                          onClick={() => setExpandedPlugin(isExpanded ? null : name)}
-                          className="p-1 text-muted-foreground transition-colors hover:text-foreground"
-                          title={isExpanded ? 'Collapse settings' : 'Expand settings'}
-                        >
+                        <span className="p-1 text-muted-foreground">
                           {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                        </button>
+                        </span>
                       )}
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           if (expandedPlugin === name) setExpandedPlugin(null);
                           updatePlugins(config.plugins.filter((_, j) => j !== i));
                         }}
@@ -376,93 +418,126 @@ export function SettingsView() {
                       </button>
                     </div>
                   </div>
-                  {isExpanded && hasSettings && (
-                    <div className="border-t border-border/50 px-3 py-3">
+                  {isExpanded && (
+                    <div className="border-t border-border/50 px-4 py-4">
                       {schemaLoading[name] && (
                         <p className="text-xs text-muted-foreground">Loading settings...</p>
                       )}
                       {schemaErrors[name] && !schemaLoading[name] && (
-                        <p className="text-xs text-destructive">Could not load settings schema</p>
+                        <p className="text-xs text-muted-foreground/60 italic">
+                          No configurable settings or server not reachable
+                        </p>
                       )}
                       {schema && !schemaLoading[name] && (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                           {Object.entries(schema.properties).map(([field, prop]) => {
                             const value = getFieldValue(name, field, prop);
                             const label = fieldLabel(field, prop);
 
                             if (prop.type === 'boolean') {
                               return (
-                                <label key={field} className="flex items-center gap-2 text-xs text-muted-foreground">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(value)}
-                                    onChange={(e) => updatePluginConfig(name, field, e.target.checked)}
-                                    className="rounded border-input"
-                                  />
-                                  <span>{label}</span>
+                                <div key={field}>
+                                  <label className="flex items-center gap-2.5 text-xs text-foreground">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(value)}
+                                      onChange={(e) =>
+                                        updatePluginConfig(name, field, e.target.checked)
+                                      }
+                                      className="h-3.5 w-3.5 rounded border-input"
+                                    />
+                                    {label}
+                                  </label>
                                   {prop.description && (
-                                    <span className="text-[10px] text-muted-foreground/60">— {prop.description}</span>
+                                    <p className="mt-1 pl-6 text-[10px] text-muted-foreground/60">
+                                      {prop.description}
+                                    </p>
                                   )}
-                                </label>
+                                </div>
                               );
                             }
 
                             if (prop.type === 'integer' || prop.type === 'number') {
                               return (
-                                <label key={field} className="space-y-1">
-                                  <span className="text-xs text-muted-foreground">{label}</span>
-                                  {prop.description && (
-                                    <span className="ml-2 text-[10px] text-muted-foreground/60">{prop.description}</span>
-                                  )}
+                                <div key={field} className="space-y-1.5">
+                                  <div>
+                                    <span className="text-xs text-muted-foreground">{label}</span>
+                                    {prop.description && (
+                                      <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                                        {prop.description}
+                                      </p>
+                                    )}
+                                  </div>
                                   <input
                                     type="number"
                                     value={value != null ? String(value) : ''}
                                     onChange={(e) => {
                                       const v = e.target.value;
-                                      updatePluginConfig(name, field, v === '' ? null : prop.type === 'integer' ? parseInt(v) : parseFloat(v));
+                                      updatePluginConfig(
+                                        name,
+                                        field,
+                                        v === ''
+                                          ? null
+                                          : prop.type === 'integer'
+                                            ? parseInt(v)
+                                            : parseFloat(v),
+                                      );
                                     }}
                                     className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                                   />
-                                </label>
+                                </div>
                               );
                             }
 
                             if (prop.type === 'array' && prop.items?.type === 'string') {
-                              const arrValue = Array.isArray(value) ? (value as string[]).join(', ') : '';
+                              const arrValue = Array.isArray(value)
+                                ? (value as string[]).join(', ')
+                                : '';
                               return (
-                                <label key={field} className="space-y-1">
-                                  <span className="text-xs text-muted-foreground">{label}</span>
-                                  {prop.description && (
-                                    <span className="ml-2 text-[10px] text-muted-foreground/60">{prop.description}</span>
-                                  )}
+                                <div key={field} className="space-y-1.5">
+                                  <div>
+                                    <span className="text-xs text-muted-foreground">{label}</span>
+                                    {prop.description && (
+                                      <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                                        {prop.description}
+                                      </p>
+                                    )}
+                                  </div>
                                   <input
                                     type="text"
                                     value={arrValue}
                                     onChange={(e) => {
-                                      const parts = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
+                                      const parts = e.target.value
+                                        .split(',')
+                                        .map((s) => s.trim())
+                                        .filter(Boolean);
                                       updatePluginConfig(name, field, parts);
                                     }}
                                     placeholder="Comma-separated values"
                                     className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
                                   />
-                                </label>
+                                </div>
                               );
                             }
 
                             // Default: string or unknown type
                             return (
-                              <label key={field} className="space-y-1">
-                                <span className="text-xs text-muted-foreground">{label}</span>
-                                {prop.description && (
-                                  <span className="ml-2 text-[10px] text-muted-foreground/60">{prop.description}</span>
-                                )}
+                              <div key={field} className="space-y-1.5">
+                                <div>
+                                  <span className="text-xs text-muted-foreground">{label}</span>
+                                  {prop.description && (
+                                    <p className="mt-0.5 text-[10px] text-muted-foreground/60">
+                                      {prop.description}
+                                    </p>
+                                  )}
+                                </div>
                                 <input
                                   type="text"
                                   value={value != null ? String(value) : ''}
                                   onChange={(e) => updatePluginConfig(name, field, e.target.value)}
                                   className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                                 />
-                              </label>
+                              </div>
                             );
                           })}
                         </div>
@@ -485,10 +560,13 @@ export function SettingsView() {
               }}
               className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             >
-              <option value="" disabled>Add a plugin...</option>
+              <option value="" disabled>
+                Add a plugin...
+              </option>
               {availableToAdd.map(({ name, description }) => (
                 <option key={name} value={name}>
-                  {name}{description ? ` — ${description}` : ''}
+                  {name}
+                  {description ? ` — ${description}` : ''}
                 </option>
               ))}
             </select>

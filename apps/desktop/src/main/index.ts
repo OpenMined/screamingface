@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
 import { join } from 'path';
 import { is } from '@electron-toolkit/utils';
 import { registerAllHandlers } from './ipc';
@@ -75,7 +75,27 @@ function registerPopupHandlers(): void {
   });
 }
 
+// Allow renderer fetch() to our local server's self-signed certificate
+app.on('certificate-error', (event, _webContents, url, _error, _cert, callback) => {
+  const parsed = new URL(url);
+  if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+    event.preventDefault();
+    callback(true);
+  } else {
+    callback(false);
+  }
+});
+
 app.whenReady().then(() => {
+  // Accept self-signed certs for local server (covers fetch/XHR in renderer)
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    if (request.hostname === 'localhost' || request.hostname === '127.0.0.1') {
+      callback(0); // accept
+    } else {
+      callback(-3); // use default verification
+    }
+  });
+
   registerAllHandlers();
   registerPopupHandlers();
   createWindow();

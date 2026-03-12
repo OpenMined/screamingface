@@ -38,6 +38,7 @@ export interface ElectronAPI {
     getStatus: () => Promise<{ status: ServerStatus; info: ServerInfo | null }>;
     onStatusChanged: (callback: (status: ServerStatus) => void) => () => void;
     onLog: (callback: (line: string) => void) => () => void;
+    fetch: (url: string) => Promise<{ ok: boolean; status: number; body: string }>;
   };
   venv: {
     detect: () => Promise<{ status: VenvStatus; uvFound: boolean }>;
