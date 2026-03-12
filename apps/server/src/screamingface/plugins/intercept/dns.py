@@ -47,9 +47,7 @@ def uninstall() -> None:
         logger.info("DNS override removed")
 
 
-def _patched_getaddrinfo(
-    host: Any, port: Any, *args: Any, **kwargs: Any
-) -> list[tuple[Any, ...]]:
+def _patched_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
     """Resolve intercepted domains to their real IPs, bypass /etc/hosts."""
     hostname = str(host)
     if hostname in _overrides:

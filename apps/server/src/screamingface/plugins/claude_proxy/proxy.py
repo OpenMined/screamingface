@@ -44,6 +44,7 @@ def _truncate(text: str, limit: int = 4000) -> str:
 def _get_tracer():  # type: ignore[no-untyped-def]
     try:
         from opentelemetry import trace
+
         return trace.get_tracer("screamingface.proxy")
     except ImportError:
         return None
@@ -52,6 +53,7 @@ def _get_tracer():  # type: ignore[no-untyped-def]
 def _set_span_attrs(attrs: dict[str, Any], span=None) -> None:  # type: ignore[no-untyped-def]
     try:
         from opentelemetry import trace
+
         span = span or trace.get_current_span()
         if span and span.is_recording():
             for k, v in attrs.items():
@@ -63,6 +65,7 @@ def _set_span_attrs(attrs: dict[str, Any], span=None) -> None:  # type: ignore[n
 def _set_span_headers(prefix: str, headers: dict[str, str], span=None) -> None:  # type: ignore[no-untyped-def]
     try:
         from opentelemetry import trace
+
         span = span or trace.get_current_span()
         if span and span.is_recording():
             for k, v in headers.items():
@@ -73,11 +76,13 @@ def _set_span_headers(prefix: str, headers: dict[str, str], span=None) -> None: 
 
 def _start_client_span(tracer, name: str):  # type: ignore[no-untyped-def]
     from opentelemetry.trace import SpanKind
+
     return tracer.start_as_current_span(name, kind=SpanKind.CLIENT)
 
 
 def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-def]
     from opentelemetry.trace import SpanKind
+
     return tracer.start_span(name, kind=SpanKind.CLIENT)
 
 
@@ -179,12 +184,20 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
                     _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
                     async with httpx.AsyncClient(timeout=timeout) as client:
                         resp = await client.post(url, json=body, headers=headers)
-                    _set_span_attrs({"http.status_code": resp.status_code, "response.body": _truncate(resp.text)}, span)
+                    _set_span_attrs(
+                        {
+                            "http.status_code": resp.status_code,
+                            "response.body": _truncate(resp.text),
+                        },
+                        span,
+                    )
                     _set_span_headers("response.headers", dict(resp.headers), span)
             else:
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.post(url, json=body, headers=headers)
-            _set_span_attrs({"response.body": _truncate(resp.text), "http.status_code": resp.status_code})
+            _set_span_attrs(
+                {"response.body": _truncate(resp.text), "http.status_code": resp.status_code},
+            )
             _set_span_headers("response.headers", dict(resp.headers))
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
@@ -212,16 +225,24 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
                 _set_span_attrs({"http.method": method, "http.url": url}, span)
                 _set_span_headers("request.headers", _redact_headers(headers), span)
                 if body:
-                    _set_span_attrs({"request.body": _truncate(body.decode(errors="replace"))}, span)
+                    _set_span_attrs(
+                        {"request.body": _truncate(body.decode(errors="replace"))},
+                        span,
+                    )
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.request(method, url, **kwargs)
-                _set_span_attrs({"http.status_code": resp.status_code, "response.body": _truncate(resp.text)}, span)
+                _set_span_attrs(
+                    {"http.status_code": resp.status_code, "response.body": _truncate(resp.text)},
+                    span,
+                )
                 _set_span_headers("response.headers", dict(resp.headers), span)
         else:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.request(method, url, **kwargs)
 
-        _set_span_attrs({"response.body": _truncate(resp.text), "http.status_code": resp.status_code})
+        _set_span_attrs(
+            {"response.body": _truncate(resp.text), "http.status_code": resp.status_code},
+        )
         _set_span_headers("response.headers", dict(resp.headers))
 
         content_type = resp.headers.get("content-type", "")

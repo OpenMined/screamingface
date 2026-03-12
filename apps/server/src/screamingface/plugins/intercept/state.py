@@ -7,7 +7,7 @@ import json
 import logging
 import os
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ def is_stale() -> bool:
 
 def now_iso() -> str:
     """Return current UTC time as ISO string."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def hosts_hash() -> str:

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
-from screamingface.plugins.claude_env.shellenv import add_exports, has_exports, remove_exports
+from screamingface.plugins.claude_env.shellenv import add_exports, remove_exports
 
 if TYPE_CHECKING:
     import typer
@@ -40,10 +40,7 @@ class ClaudeEnvSettings(PluginSettings):
 
 class ClaudeEnvPlugin(Plugin):
     name = "claude-env"
-    description = (
-        "Redirect Claude Code via env vars — "
-        "no sudo, no /etc/hosts, no port 443"
-    )
+    description = "Redirect Claude Code via env vars — no sudo, no /etc/hosts, no port 443"
     depends = ["claude-proxy"]
     settings_class = ClaudeEnvSettings
     system_deps = ["mkcert"]

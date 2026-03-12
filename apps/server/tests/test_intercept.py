@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -39,11 +38,13 @@ def _patch_state_file(state_file: Path):
 def hosts_file(tmp_path: Path) -> Path:
     """Temp file simulating /etc/hosts."""
     f = tmp_path / "hosts"
-    f.write_text(textwrap.dedent("""\
+    f.write_text(
+        textwrap.dedent("""\
         127.0.0.1 localhost
         255.255.255.255 broadcasthost
         ::1 localhost
-    """))
+    """)
+    )
     return f
 
 
@@ -114,13 +115,15 @@ class TestState:
     def test_clear_state(self, state_file: Path) -> None:
         from screamingface.plugins.intercept.state import InterceptState, clear_state, save_state
 
-        save_state(InterceptState(
-            active=True,
-            activated_at="2026-01-01T00:00:00+00:00",
-            domains=["api.anthropic.com"],
-            original_hosts_hash="abc",
-            pid=os.getpid(),
-        ))
+        save_state(
+            InterceptState(
+                active=True,
+                activated_at="2026-01-01T00:00:00+00:00",
+                domains=["api.anthropic.com"],
+                original_hosts_hash="abc",
+                pid=os.getpid(),
+            )
+        )
         assert state_file.exists()
         clear_state()
         assert not state_file.exists()
@@ -135,26 +138,30 @@ class TestState:
     def test_is_stale_with_dead_pid(self, state_file: Path) -> None:
         from screamingface.plugins.intercept.state import InterceptState, is_stale, save_state
 
-        save_state(InterceptState(
-            active=True,
-            activated_at="2026-01-01T00:00:00+00:00",
-            domains=["api.anthropic.com"],
-            original_hosts_hash="abc",
-            pid=999999999,  # almost certainly dead
-        ))
+        save_state(
+            InterceptState(
+                active=True,
+                activated_at="2026-01-01T00:00:00+00:00",
+                domains=["api.anthropic.com"],
+                original_hosts_hash="abc",
+                pid=999999999,  # almost certainly dead
+            )
+        )
         assert is_stale() is True
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_is_stale_with_live_pid(self, state_file: Path) -> None:
         from screamingface.plugins.intercept.state import InterceptState, is_stale, save_state
 
-        save_state(InterceptState(
-            active=True,
-            activated_at="2026-01-01T00:00:00+00:00",
-            domains=["api.anthropic.com"],
-            original_hosts_hash="abc",
-            pid=os.getpid(),  # this process is alive
-        ))
+        save_state(
+            InterceptState(
+                active=True,
+                activated_at="2026-01-01T00:00:00+00:00",
+                domains=["api.anthropic.com"],
+                original_hosts_hash="abc",
+                pid=os.getpid(),  # this process is alive
+            )
+        )
         assert is_stale() is False
 
     @pytest.mark.usefixtures("_patch_state_file")
@@ -167,13 +174,15 @@ class TestState:
     def test_is_stale_inactive_state(self, state_file: Path) -> None:
         from screamingface.plugins.intercept.state import InterceptState, is_stale, save_state
 
-        save_state(InterceptState(
-            active=False,
-            activated_at="2026-01-01T00:00:00+00:00",
-            domains=[],
-            original_hosts_hash="abc",
-            pid=999999999,
-        ))
+        save_state(
+            InterceptState(
+                active=False,
+                activated_at="2026-01-01T00:00:00+00:00",
+                domains=[],
+                original_hosts_hash="abc",
+                pid=999999999,
+            )
+        )
         assert is_stale() is False
 
 

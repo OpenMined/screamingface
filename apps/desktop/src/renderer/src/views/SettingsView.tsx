@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useServerStatus } from '../hooks/use-server-status';
 import type { DiscoveredPlugin } from '../../../preload/types';
 
@@ -23,6 +24,19 @@ interface ServerPluginInfo {
   version: string;
   description: string;
   has_settings: boolean;
+}
+
+interface SchemaProperty {
+  type: string;
+  default?: unknown;
+  items?: { type: string };
+  title?: string;
+  description?: string;
+}
+
+interface PluginSchema {
+  properties: Record<string, SchemaProperty>;
+  required?: string[];
 }
 
 const defaultConfig: AppConfig = {
@@ -58,6 +72,11 @@ export function SettingsView() {
   const [serverPlugins, setServerPlugins] = useState<Record<string, ServerPluginInfo> | null>(null);
   const [discoveredPlugins, setDiscoveredPlugins] = useState<Record<string, DiscoveredPlugin> | null>(null);
   const [newPluginName, setNewPluginName] = useState('');
+  const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null);
+  const [pluginSchemas, setPluginSchemas] = useState<Record<string, PluginSchema>>({});
+  const [pluginLiveSettings, setPluginLiveSettings] = useState<Record<string, Record<string, unknown>>>({});
+  const [schemaLoading, setSchemaLoading] = useState<Record<string, boolean>>({});
+  const [schemaErrors, setSchemaErrors] = useState<Record<string, boolean>>({});
 
   const { status: serverStatus, info: serverInfo } = useServerStatus();
 
@@ -90,8 +109,46 @@ export function SettingsView() {
       fetchServerPlugins();
     } else {
       setServerPlugins(null);
+      setExpandedPlugin(null);
+      setPluginSchemas({});
+      setPluginLiveSettings({});
+      setSchemaErrors({});
     }
   }, [serverStatus, fetchServerPlugins]);
+
+  // Clear schema caches when server plugins re-fetch (stale guard)
+  useEffect(() => {
+    setPluginSchemas({});
+    setPluginLiveSettings({});
+    setSchemaErrors({});
+  }, [serverPlugins]);
+
+  // Fetch schema + live settings when a plugin is expanded
+  useEffect(() => {
+    if (!expandedPlugin || !serverUrl || pluginSchemas[expandedPlugin]) return;
+    setSchemaLoading((prev) => ({ ...prev, [expandedPlugin]: true }));
+    const name = expandedPlugin;
+    Promise.all([
+      fetch(`${serverUrl}/plugins/${name}/schema`).then((r) => r.ok ? r.json() : null),
+      fetch(`${serverUrl}/plugins/${name}/settings`).then((r) => r.ok ? r.json() : null),
+    ])
+      .then(([schema, settings]) => {
+        if (schema?.properties) {
+          setPluginSchemas((prev) => ({ ...prev, [name]: schema }));
+        } else {
+          setSchemaErrors((prev) => ({ ...prev, [name]: true }));
+        }
+        if (settings) {
+          setPluginLiveSettings((prev) => ({ ...prev, [name]: settings }));
+        }
+      })
+      .catch(() => {
+        setSchemaErrors((prev) => ({ ...prev, [name]: true }));
+      })
+      .finally(() => {
+        setSchemaLoading((prev) => ({ ...prev, [name]: false }));
+      });
+  }, [expandedPlugin, serverUrl, pluginSchemas]);
 
   useEffect(() => {
     window.electronAPI.config.read().then((c) => setConfig(c as AppConfig));
@@ -142,6 +199,34 @@ export function SettingsView() {
       return { version: discoveredPlugins[name].version, description: discoveredPlugins[name].description };
     }
     return null;
+  };
+
+  const updatePluginConfig = (pluginName: string, field: string, value: unknown) => {
+    setConfig((prev) => ({
+      ...prev,
+      plugin_config: {
+        ...prev.plugin_config,
+        [pluginName]: {
+          ...prev.plugin_config[pluginName],
+          [field]: value,
+        },
+      },
+    }));
+    setDirty(true);
+    setSaved(false);
+  };
+
+  const getFieldValue = (pluginName: string, field: string, schemaProp: SchemaProperty): unknown => {
+    const localVal = config.plugin_config[pluginName]?.[field];
+    if (localVal !== undefined) return localVal;
+    const liveVal = pluginLiveSettings[pluginName]?.[field];
+    if (liveVal !== undefined) return liveVal;
+    return schemaProp.default;
+  };
+
+  const fieldLabel = (_name: string, prop: SchemaProperty): string => {
+    if (prop.title) return prop.title;
+    return _name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   };
 
   const save = async () => {
@@ -248,30 +333,142 @@ export function SettingsView() {
             config.plugins.map((name, i) => {
               const pluginStatus = getPluginStatus(name);
               const meta = getPluginMeta(name);
+              const hasSettings = serverPlugins?.[name]?.has_settings === true;
+              const isExpanded = expandedPlugin === name;
+              const schema = pluginSchemas[name];
               return (
-                <div key={name} className="flex items-center justify-between rounded-md bg-secondary px-3 py-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <StatusDot status={pluginStatus} />
-                    <div className="min-w-0">
-                      <span className="font-mono text-xs text-foreground">{name}</span>
-                      {meta?.version && (
-                        <span className="ml-2 text-[10px] text-muted-foreground">
-                          v{meta.version}
-                        </span>
+                <div key={name} className="rounded-md bg-secondary">
+                  <div className="flex items-center justify-between px-3 py-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <StatusDot status={pluginStatus} />
+                      <div className="min-w-0">
+                        <span className="font-mono text-xs text-foreground">{name}</span>
+                        {meta?.version && (
+                          <span className="ml-2 text-[10px] text-muted-foreground">
+                            v{meta.version}
+                          </span>
+                        )}
+                        {meta?.description && (
+                          <p className="text-[10px] leading-tight text-muted-foreground/70 truncate">
+                            {meta.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 ml-2 shrink-0">
+                      {hasSettings && (
+                        <button
+                          onClick={() => setExpandedPlugin(isExpanded ? null : name)}
+                          className="p-1 text-muted-foreground transition-colors hover:text-foreground"
+                          title={isExpanded ? 'Collapse settings' : 'Expand settings'}
+                        >
+                          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        </button>
                       )}
-                      {meta?.description && (
-                        <p className="text-[10px] leading-tight text-muted-foreground/70 truncate">
-                          {meta.description}
-                        </p>
-                      )}
+                      <button
+                        onClick={() => {
+                          if (expandedPlugin === name) setExpandedPlugin(null);
+                          updatePlugins(config.plugins.filter((_, j) => j !== i));
+                        }}
+                        className="text-xs text-muted-foreground transition-colors hover:text-destructive"
+                      >
+                        Remove
+                      </button>
                     </div>
                   </div>
-                  <button
-                    onClick={() => updatePlugins(config.plugins.filter((_, j) => j !== i))}
-                    className="ml-2 shrink-0 text-xs text-muted-foreground transition-colors hover:text-destructive"
-                  >
-                    Remove
-                  </button>
+                  {isExpanded && hasSettings && (
+                    <div className="border-t border-border/50 px-3 py-3">
+                      {schemaLoading[name] && (
+                        <p className="text-xs text-muted-foreground">Loading settings...</p>
+                      )}
+                      {schemaErrors[name] && !schemaLoading[name] && (
+                        <p className="text-xs text-destructive">Could not load settings schema</p>
+                      )}
+                      {schema && !schemaLoading[name] && (
+                        <div className="space-y-3">
+                          {Object.entries(schema.properties).map(([field, prop]) => {
+                            const value = getFieldValue(name, field, prop);
+                            const label = fieldLabel(field, prop);
+
+                            if (prop.type === 'boolean') {
+                              return (
+                                <label key={field} className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(value)}
+                                    onChange={(e) => updatePluginConfig(name, field, e.target.checked)}
+                                    className="rounded border-input"
+                                  />
+                                  <span>{label}</span>
+                                  {prop.description && (
+                                    <span className="text-[10px] text-muted-foreground/60">— {prop.description}</span>
+                                  )}
+                                </label>
+                              );
+                            }
+
+                            if (prop.type === 'integer' || prop.type === 'number') {
+                              return (
+                                <label key={field} className="space-y-1">
+                                  <span className="text-xs text-muted-foreground">{label}</span>
+                                  {prop.description && (
+                                    <span className="ml-2 text-[10px] text-muted-foreground/60">{prop.description}</span>
+                                  )}
+                                  <input
+                                    type="number"
+                                    value={value != null ? String(value) : ''}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      updatePluginConfig(name, field, v === '' ? null : prop.type === 'integer' ? parseInt(v) : parseFloat(v));
+                                    }}
+                                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                                  />
+                                </label>
+                              );
+                            }
+
+                            if (prop.type === 'array' && prop.items?.type === 'string') {
+                              const arrValue = Array.isArray(value) ? (value as string[]).join(', ') : '';
+                              return (
+                                <label key={field} className="space-y-1">
+                                  <span className="text-xs text-muted-foreground">{label}</span>
+                                  {prop.description && (
+                                    <span className="ml-2 text-[10px] text-muted-foreground/60">{prop.description}</span>
+                                  )}
+                                  <input
+                                    type="text"
+                                    value={arrValue}
+                                    onChange={(e) => {
+                                      const parts = e.target.value.split(',').map((s) => s.trim()).filter(Boolean);
+                                      updatePluginConfig(name, field, parts);
+                                    }}
+                                    placeholder="Comma-separated values"
+                                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                                  />
+                                </label>
+                              );
+                            }
+
+                            // Default: string or unknown type
+                            return (
+                              <label key={field} className="space-y-1">
+                                <span className="text-xs text-muted-foreground">{label}</span>
+                                {prop.description && (
+                                  <span className="ml-2 text-[10px] text-muted-foreground/60">{prop.description}</span>
+                                )}
+                                <input
+                                  type="text"
+                                  value={value != null ? String(value) : ''}
+                                  onChange={(e) => updatePluginConfig(name, field, e.target.value)}
+                                  className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })

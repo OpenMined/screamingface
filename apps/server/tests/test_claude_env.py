@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -139,9 +138,7 @@ class TestClaudeEnvPlugin:
                 "screamingface.plugins.claude_env.plugin._mkcert_ca_root",
                 return_value="/fake/rootCA.pem",
             ),
-            patch(
-                "screamingface.plugins.claude_env.plugin.add_exports"
-            ) as mock_add,
+            patch("screamingface.plugins.claude_env.plugin.add_exports") as mock_add,
             patch("subprocess.run"),  # launchctl
         ):
             plugin.setup(app, hooks, classes, routes)
@@ -169,9 +166,7 @@ class TestClaudeEnvPlugin:
                 "screamingface.plugins.claude_env.plugin._mkcert_ca_root",
                 return_value="/fake/rootCA.pem",
             ),
-            patch(
-                "screamingface.plugins.claude_env.plugin.add_exports"
-            ) as mock_add,
+            patch("screamingface.plugins.claude_env.plugin.add_exports") as mock_add,
             patch("subprocess.run"),
         ):
             plugin.setup(app, hooks, MagicMock(), MagicMock())
@@ -195,9 +190,7 @@ class TestClaudeEnvPlugin:
                 "screamingface.plugins.claude_env.plugin._mkcert_ca_root",
                 return_value=None,
             ),
-            patch(
-                "screamingface.plugins.claude_env.plugin.add_exports"
-            ) as mock_add,
+            patch("screamingface.plugins.claude_env.plugin.add_exports") as mock_add,
         ):
             plugin.setup(app, hooks, MagicMock(), MagicMock())
 
@@ -209,9 +202,7 @@ class TestClaudeEnvPlugin:
         from screamingface.plugins.claude_env.plugin import ClaudeEnvPlugin
 
         plugin = ClaudeEnvPlugin()
-        with patch(
-            "screamingface.plugins.claude_env.plugin.remove_exports"
-        ) as mock_remove:
+        with patch("screamingface.plugins.claude_env.plugin.remove_exports") as mock_remove:
             plugin.teardown()
 
         mock_remove.assert_called_once()
@@ -221,9 +212,7 @@ class TestClaudeEnvPlugin:
         from screamingface.plugins.claude_env.plugin import ClaudeEnvPlugin
 
         plugin = ClaudeEnvPlugin()
-        with patch(
-            "screamingface.plugins.claude_env.plugin.remove_exports"
-        ) as mock_remove:
+        with patch("screamingface.plugins.claude_env.plugin.remove_exports") as mock_remove:
             await plugin._on_shutdown()
 
         mock_remove.assert_called_once()
@@ -244,9 +233,7 @@ class TestClaudeEnvCLI:
 
         runner = CliRunner()
         with (
-            patch(
-                "screamingface.plugins.claude_env.cli.has_exports", return_value=True
-            ),
+            patch("screamingface.plugins.claude_env.cli.has_exports", return_value=True),
             patch(
                 "screamingface.plugins.claude_env.cli.current_exports",
                 return_value={"ANTHROPIC_BASE_URL": "https://localhost:8000"},
@@ -264,9 +251,7 @@ class TestClaudeEnvCLI:
         from screamingface.plugins.claude_env.cli import claude_env_app
 
         runner = CliRunner()
-        with patch(
-            "screamingface.plugins.claude_env.cli.has_exports", return_value=False
-        ):
+        with patch("screamingface.plugins.claude_env.cli.has_exports", return_value=False):
             result = runner.invoke(claude_env_app, ["status"])
 
         assert result.exit_code == 0
@@ -278,9 +263,7 @@ class TestClaudeEnvCLI:
         from screamingface.plugins.claude_env.cli import claude_env_app
 
         runner = CliRunner()
-        with patch(
-            "screamingface.plugins.claude_env.cli.remove_exports"
-        ) as mock_remove:
+        with patch("screamingface.plugins.claude_env.cli.remove_exports") as mock_remove:
             result = runner.invoke(claude_env_app, ["off"])
 
         assert result.exit_code == 0

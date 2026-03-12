@@ -31,8 +31,10 @@ def ensure_intercept_certs(domains: list[str]) -> tuple[Path, Path]:
     subprocess.run(
         [
             "mkcert",
-            "-cert-file", str(INTERCEPT_CERT),
-            "-key-file", str(INTERCEPT_KEY),
+            "-cert-file",
+            str(INTERCEPT_CERT),
+            "-key-file",
+            str(INTERCEPT_KEY),
             *san_names,
         ],
         check=True,

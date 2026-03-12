@@ -14,7 +14,6 @@ from screamingface.plugin import Plugin, PluginSettings
 from screamingface.plugins.intercept import dns
 from screamingface.plugins.intercept.certs import ensure_intercept_certs
 from screamingface.plugins.intercept.hosts import add_entries, flush_dns, remove_entries
-from screamingface.plugins.intercept.trust import ensure_node_trusts_ca
 from screamingface.plugins.intercept.state import (
     InterceptState,
     clear_state,
@@ -24,6 +23,7 @@ from screamingface.plugins.intercept.state import (
     now_iso,
     save_state,
 )
+from screamingface.plugins.intercept.trust import ensure_node_trusts_ca
 
 if TYPE_CHECKING:
     import typer
@@ -116,13 +116,15 @@ class InterceptPlugin(Plugin):
         self._setup_port_forward(settings.server_port)
 
         # 6. Save state for crash recovery
-        save_state(InterceptState(
-            active=True,
-            activated_at=now_iso(),
-            domains=domains,
-            original_hosts_hash=hosts_hash(),
-            pid=os.getpid(),
-        ))
+        save_state(
+            InterceptState(
+                active=True,
+                activated_at=now_iso(),
+                domains=domains,
+                original_hosts_hash=hosts_hash(),
+                pid=os.getpid(),
+            )
+        )
 
         # 7. Register shutdown hook for clean teardown
         hooks.register("app.shutdown", self._on_shutdown, plugin_name=self.name)
@@ -165,7 +167,6 @@ class InterceptPlugin(Plugin):
             check=False,  # OK if already disabled
             capture_output=True,
         )
-
 
     @classmethod
     def register_cli(cls, app: typer.Typer) -> None:

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 class TracingSettings(PluginSettings):
     model_config = SettingsConfigDict(
         env_prefix="SF_TRACING__",
@@ -42,10 +43,7 @@ class TracingPlugin(Plugin):
         try:
             import opentelemetry  # noqa: F401
         except ImportError:
-            return False, (
-                "OpenTelemetry not installed. "
-                "Run: uv sync --extra tracing"
-            )
+            return False, ("OpenTelemetry not installed. Run: uv sync --extra tracing")
         return True, ""
 
     def setup(
@@ -106,7 +104,9 @@ class TracingPlugin(Plugin):
                 import phoenix as px
 
                 self._phoenix_session = px.launch_app(run_in_thread=True)
-                phoenix_url = getattr(self._phoenix_session, "url", f"http://localhost:{phoenix_port}")
+                phoenix_url = getattr(
+                    self._phoenix_session, "url", f"http://localhost:{phoenix_port}"
+                )
                 logger.info("Phoenix UI available at %s", phoenix_url)
 
                 # Update OTLP endpoint to match the actual Phoenix port
@@ -117,7 +117,10 @@ class TracingPlugin(Plugin):
 
                 atexit.register(self._stop_phoenix)
             except Exception:
-                logger.warning("Failed to launch Phoenix — spans will still be exported", exc_info=True)
+                logger.warning(
+                    "Failed to launch Phoenix — spans will still be exported",
+                    exc_info=True,
+                )
 
         # 2. Configure OTEL TracerProvider with a filtering processor
         #    that drops noisy ASGI http send/receive child spans.
@@ -135,17 +138,13 @@ class TracingPlugin(Plugin):
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
             span_exporter = OTLPSpanExporter(endpoint=settings.otlp_endpoint)
-            provider.add_span_processor(
-                _FilteringSpanProcessor(BatchSpanProcessor(span_exporter))
-            )
+            provider.add_span_processor(_FilteringSpanProcessor(BatchSpanProcessor(span_exporter)))
             logger.info("OTEL exporting to %s", settings.otlp_endpoint)
         elif settings.exporter == "console":
             from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
 
             span_exporter = ConsoleSpanExporter()
-            provider.add_span_processor(
-                _FilteringSpanProcessor(SimpleSpanProcessor(span_exporter))
-            )
+            provider.add_span_processor(_FilteringSpanProcessor(SimpleSpanProcessor(span_exporter)))
             logger.info("OTEL exporting to console")
 
         trace.set_tracer_provider(provider)
@@ -166,6 +165,7 @@ class TracingPlugin(Plugin):
         # in the proxy with full body/header visibility instead.
         try:
             from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
             HTTPXClientInstrumentor().uninstrument()
         except Exception:
             pass
@@ -243,5 +243,3 @@ def _server_request_hook(span, scope) -> None:  # type: ignore[no-untyped-def]
     qs = scope.get("query_string", b"")
     if qs:
         span.set_attribute("http.query_string", qs.decode(errors="replace"))
-
-

@@ -24,7 +24,8 @@ def render_preview_html(backend: str, action: str, params: dict[str, Any]) -> st
 <meta charset="utf-8">
 <title>Execute: /x/{safe_backend}/{safe_action}</title>
 <style>
-  body {{ font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }}
+  body {{ font-family: system-ui, sans-serif; max-width: 800px;
+         margin: 2rem auto; padding: 0 1rem; }}
   table {{ border-collapse: collapse; width: 100%; margin: 1rem 0; }}
   td, th {{ border: 1px solid #ddd; padding: 0.5rem; text-align: left; vertical-align: top; }}
   pre {{ margin: 0; white-space: pre-wrap; word-break: break-all; }}
