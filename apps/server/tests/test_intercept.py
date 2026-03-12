@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sys
 import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -660,6 +661,7 @@ class TestTrust:
 
         assert result is None
 
+    @pytest.mark.skipif(sys.platform != "darwin", reason="launchctl is macOS only")
     def test_ensure_launchctl_calls_setenv(self) -> None:
         from screamingface.plugins.intercept.trust import _ensure_launchctl
 

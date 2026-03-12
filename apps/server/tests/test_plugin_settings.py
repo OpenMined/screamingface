@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -83,7 +84,8 @@ def proxy_settings_app() -> FastAPI:
             }
         },
     )
-    return create_app(config)
+    with patch("shutil.which", return_value="/usr/bin/claude"):
+        return create_app(config)
 
 
 @pytest.fixture
