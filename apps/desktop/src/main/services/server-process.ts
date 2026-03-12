@@ -1,0 +1,257 @@
+import { ChildProcess, spawn } from 'child_process';
+import { join } from 'path';
+import { EventEmitter } from 'events';
+import https from 'https';
+import http from 'http';
+import { configService } from './config-service';
+
+export type ServerStatus = 'stopped' | 'starting' | 'ready' | 'error' | 'restarting';
+
+interface ReadyEvent {
+  event: 'ready';
+  host: string;
+  port: number;
+  pid: number;
+  scheme: string;
+}
+
+class ServerProcess extends EventEmitter {
+  private child: ChildProcess | null = null;
+  private status: ServerStatus = 'stopped';
+  private healthTimer: ReturnType<typeof setInterval> | null = null;
+  private healthFailures = 0;
+  private restartCount = 0;
+  private readyInfo: ReadyEvent | null = null;
+  private stopping = false;
+
+  private static MAX_HEALTH_FAILURES = 3;
+  private static MAX_RESTARTS = 3;
+  private static HEALTH_INTERVAL_MS = 10_000;
+  private static RESTART_DELAY_MS = 2_000;
+
+  private get serverDir(): string {
+    return configService.serverDir;
+  }
+
+  private get sfBin(): string {
+    return join(this.serverDir, '.venv', 'bin', 'sf');
+  }
+
+  private setStatus(s: ServerStatus): void {
+    this.status = s;
+    this.emit('status', s);
+  }
+
+  getStatus(): { status: ServerStatus; info: ReadyEvent | null } {
+    return { status: this.status, info: this.readyInfo };
+  }
+
+  async start(): Promise<boolean> {
+    if (this.child) return false;
+
+    this.setStatus('starting');
+    this.readyInfo = null;
+    this.stopping = false;
+
+    const config = configService.read();
+
+    const child = spawn(this.sfBin, ['run', '--subprocess', '--config-json', JSON.stringify(config)], {
+      cwd: this.serverDir,
+      env: { ...process.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    this.child = child;
+
+    child.stdout!.on('data', (data: Buffer) => {
+      const lines = data.toString().split('\n').filter(Boolean);
+      for (const line of lines) {
+        this.handleStdoutLine(line);
+      }
+    });
+
+    child.stderr!.on('data', (data: Buffer) => {
+      this.emit('log', data.toString());
+    });
+
+    child.on('close', (code, signal) => {
+      this.stopHealthCheck();
+      this.child = null;
+      this.readyInfo = null;
+
+      // Expected shutdown — stop() or restart() initiated this kill
+      if (this.stopping) return;
+
+      if (code !== 0 && code !== null) {
+        this.setStatus('error');
+        this.emit('log', `Server exited with code ${code}`);
+      } else if (signal) {
+        this.setStatus('error');
+        this.emit('log', `Server killed by signal ${signal}`);
+      } else {
+        this.setStatus('stopped');
+      }
+    });
+
+    child.on('error', (err) => {
+      this.emit('log', `Failed to start server: ${err.message}`);
+      this.child = null;
+      this.setStatus('error');
+    });
+
+    return true;
+  }
+
+  async stop(): Promise<void> {
+    this.stopHealthCheck();
+    if (!this.child) return;
+
+    this.stopping = true;
+    const wasRestarting = this.status === 'restarting';
+    const child = this.child;
+    this.child = null;
+    this.readyInfo = null;
+
+    // Wait for the process to actually exit after SIGTERM
+    await new Promise<void>((resolve) => {
+      child.once('close', () => resolve());
+      child.kill('SIGTERM');
+      // Fallback: force-kill after 5s if it hasn't exited
+      setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch { /* already dead */ }
+        resolve();
+      }, 5000);
+    });
+
+    this.stopping = false;
+    // Don't overwrite 'restarting' status — start() will set 'starting' next
+    if (!wasRestarting) {
+      this.setStatus('stopped');
+    }
+  }
+
+  async restart(): Promise<void> {
+    this.setStatus('restarting');
+    this.restartCount = 0;
+    await this.stop();
+    await this.start();
+  }
+
+  private handleStdoutLine(line: string): void {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed.event === 'ready') {
+        this.readyInfo = parsed as ReadyEvent;
+        this.setStatus('ready');
+        this.restartCount = 0;
+        this.startHealthCheck();
+        this.emit('log', `Server ready at ${parsed.scheme}://${parsed.host}:${parsed.port}`);
+        return;
+      }
+    } catch {
+      // Not JSON — regular log line
+    }
+    this.emit('log', line);
+  }
+
+  private startHealthCheck(): void {
+    this.stopHealthCheck();
+    this.healthFailures = 0;
+
+    // Delay first check — ready event fires during lifespan startup,
+    // uvicorn may not be accepting connections for another moment
+    this.healthTimer = setTimeout(() => {
+      this.healthTimer = setInterval(async () => {
+        this.runHealthCheck();
+      }, ServerProcess.HEALTH_INTERVAL_MS);
+      this.runHealthCheck();
+    }, 2000) as ReturnType<typeof setInterval>;
+  }
+
+  private async runHealthCheck(): Promise<void> {
+    if (!this.readyInfo || this.stopping) return;
+    try {
+      const ok = await this.pingHealth();
+      if (ok) {
+        this.healthFailures = 0;
+      } else {
+        this.onHealthFailure();
+      }
+    } catch {
+      this.onHealthFailure();
+    }
+  }
+
+  private pingHealth(): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (!this.readyInfo) { resolve(false); return; }
+
+      const { scheme, host, port } = this.readyInfo;
+      const checkHost = host === '0.0.0.0' ? '127.0.0.1' : host;
+      const url = `${scheme}://${checkHost}:${port}/health`;
+      const mod = scheme === 'https' ? https : http;
+
+      const req = mod.get(
+        {
+          hostname: checkHost,
+          port,
+          path: '/health',
+          timeout: 5000,
+          // Accept self-signed certs for local health checks
+          rejectUnauthorized: false,
+        },
+        (res) => {
+          res.resume();
+          if (res.statusCode === 200) {
+            resolve(true);
+          } else {
+            this.emit('log', `Health check ${url} returned ${res.statusCode}`);
+            resolve(false);
+          }
+        },
+      );
+
+      req.on('timeout', () => {
+        this.emit('log', `Health check ${url} timed out`);
+        req.destroy();
+        resolve(false);
+      });
+      req.on('error', (err) => {
+        this.emit('log', `Health check ${url} error: ${err.message}`);
+        resolve(false);
+      });
+    });
+  }
+
+  private stopHealthCheck(): void {
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+    }
+  }
+
+  private onHealthFailure(): void {
+    this.healthFailures++;
+    this.emit('log', `Health check failed (${this.healthFailures}/${ServerProcess.MAX_HEALTH_FAILURES})`);
+
+    if (this.healthFailures >= ServerProcess.MAX_HEALTH_FAILURES) {
+      if (this.restartCount < ServerProcess.MAX_RESTARTS) {
+        this.restartCount++;
+        this.emit('log', `Auto-restarting (attempt ${this.restartCount}/${ServerProcess.MAX_RESTARTS})...`);
+        setTimeout(() => this.autoRestart(), ServerProcess.RESTART_DELAY_MS);
+      } else {
+        this.setStatus('error');
+        this.emit('log', 'Max restart attempts reached. Server is down.');
+      }
+    }
+  }
+
+  private async autoRestart(): Promise<void> {
+    this.setStatus('restarting');
+    // Don't reset restartCount here — only restart() (user-initiated) resets it
+    await this.stop();
+    await this.start();
+  }
+}
+
+export const serverProcess = new ServerProcess();

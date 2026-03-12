@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -49,6 +51,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await hooks.emit_async("app.startup")
+        # Subprocess mode: emit JSON ready event so parent process knows we're up
+        if os.environ.get("_SF_SUBPROCESS"):
+            ready = {
+                "event": "ready",
+                "host": config.server.host,
+                "port": config.server.port,
+                "pid": os.getpid(),
+                "scheme": "https" if config.server.ssl else "http",
+            }
+            sys.stdout.write(json.dumps(ready) + "\n")
+            sys.stdout.flush()
         yield
         await hooks.emit_async("app.shutdown")
 

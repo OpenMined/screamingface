@@ -5,17 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 from typing import TYPE_CHECKING, Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from screamingface.plugins.claude_proxy.plugin import ClaudeProxySettings
-
-logger = logging.getLogger(__name__)
 
 FORWARD_HEADERS = {
     "anthropic-version",
@@ -26,20 +25,14 @@ FORWARD_HEADERS = {
     "accept",
 }
 
-# Keys whose values are redacted in trace output
 _SENSITIVE_HEADERS = {"x-api-key", "authorization"}
 
 
 def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
-    """Return a copy of headers with sensitive values masked."""
     return {
         k: (v[:8] + "…" if k.lower() in _SENSITIVE_HEADERS and len(v) > 8 else v)
         for k, v in headers.items()
     }
-
-
-def _fmt_headers(headers: dict[str, str]) -> str:
-    return "\n".join(f"  {k}: {v}" for k, v in headers.items())
 
 
 def _truncate(text: str, limit: int = 4000) -> str:
@@ -48,22 +41,77 @@ def _truncate(text: str, limit: int = 4000) -> str:
     return text[:limit] + f"\n... ({len(text) - limit} more chars)"
 
 
+def _get_tracer():  # type: ignore[no-untyped-def]
+    try:
+        from opentelemetry import trace
+        return trace.get_tracer("screamingface.proxy")
+    except ImportError:
+        return None
+
+
+def _set_span_attrs(attrs: dict[str, Any], span=None) -> None:  # type: ignore[no-untyped-def]
+    try:
+        from opentelemetry import trace
+        span = span or trace.get_current_span()
+        if span and span.is_recording():
+            for k, v in attrs.items():
+                span.set_attribute(k, v)
+    except ImportError:
+        pass
+
+
+def _set_span_headers(prefix: str, headers: dict[str, str], span=None) -> None:  # type: ignore[no-untyped-def]
+    try:
+        from opentelemetry import trace
+        span = span or trace.get_current_span()
+        if span and span.is_recording():
+            for k, v in headers.items():
+                span.set_attribute(f"{prefix}.{k}", v)
+    except ImportError:
+        pass
+
+
+def _start_client_span(tracer, name: str):  # type: ignore[no-untyped-def]
+    from opentelemetry.trace import SpanKind
+    return tracer.start_as_current_span(name, kind=SpanKind.CLIENT)
+
+
+def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-def]
+    from opentelemetry.trace import SpanKind
+    return tracer.start_span(name, kind=SpanKind.CLIENT)
+
+
 def create_router(settings: ClaudeProxySettings) -> APIRouter:
     upstream_url = settings.upstream_url.rstrip("/")
     api_key_env = settings.api_key_env
 
     router = APIRouter(tags=["claude-proxy"])
 
-    def _check_host(request: Request) -> None:
-        """When intercept is active, only proxy requests to intercepted domains.
+    async def _enrich_with_url4(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        url4config = getattr(request.app.state, "config", None)
+        if url4config is not None:
+            url4config = url4config.url4config
+        if not url4config:
+            return body
+        try:
+            from screamingface.core.url4 import resolve_url4_context
 
-        Requests arriving with Host: api.anthropic.com are from intercepted
-        clients. Requests with Host: localhost are direct and should not be
-        caught by the proxy's catch-all routes.
-        """
+            enrichment = await resolve_url4_context(url4config)
+            system = body.get("system")
+            if system is None:
+                body["system"] = enrichment
+            elif isinstance(system, str):
+                body["system"] = enrichment + "\n\n" + system
+            elif isinstance(system, list):
+                body["system"] = [{"type": "text", "text": enrichment}, *system]
+        except Exception:
+            logger.warning("Failed to enrich request with url4 context", exc_info=True)
+        return body
+
+    def _check_host(request: Request) -> None:
         intercept_domains: set[str] | None = getattr(request.app.state, "intercept_domains", None)
         if intercept_domains is None:
-            return  # no intercept active — proxy everything
+            return
         host = request.headers.get("host", "").split(":")[0]
         if host not in intercept_domains:
             raise HTTPException(status_code=404)
@@ -74,82 +122,70 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
             value = request.headers.get(key)
             if value:
                 headers[key] = value
-        # Auth fallback: inject API key from env if client didn't provide one
         if "x-api-key" not in headers and "authorization" not in headers:
             api_key = os.environ.get(api_key_env, "")
             if api_key:
                 headers["x-api-key"] = api_key
         return headers
 
-    def _trace_request(method: str, url: str, headers: dict[str, str], body: Any = None) -> None:
-        parts = [
-            f"→ {method} {url}",
-            f"→ headers:\n{_fmt_headers(_redact_headers(headers))}",
-        ]
-        if body is not None:
-            if isinstance(body, (dict, list)):
-                parts.append(f"→ body:\n{_truncate(json.dumps(body, indent=2))}")
-            elif isinstance(body, bytes) and body:
-                parts.append(f"→ body:\n{_truncate(body.decode(errors='replace'))}")
-        logger.info("\n".join(parts))
-
-    def _trace_response(
-        status: int, elapsed: float, headers: dict[str, str], body: str | None = None
-    ) -> None:
-        resp_hdrs = {k: v for k, v in headers.items()}
-        parts = [
-            f"← {status}  ({elapsed:.1f}s)",
-            f"← headers:\n{_fmt_headers(resp_hdrs)}",
-        ]
-        if body is not None:
-            parts.append(f"← body:\n{_truncate(body)}")
-        logger.info("\n".join(parts))
-
     @router.post("/v1/messages", response_model=None, operation_id="proxy_messages")
     async def proxy_messages(request: Request) -> Response:
         _check_host(request)
         body = await request.json()
+        body = await _enrich_with_url4(request, body)
         headers = _build_headers(request)
         url = f"{upstream_url}/v1/messages"
-
-        _trace_request("POST", url, headers, body)
-
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
-        t0 = time.monotonic()
+        tracer = _get_tracer()
 
-        stream = body.get("stream", False)
+        # Server span: just record the raw request body
+        _set_span_attrs({"request.body": _truncate(json.dumps(body))})
+        _set_span_headers("request.headers", _redact_headers(headers))
 
-        if stream:
+        if body.get("stream", False):
             client = httpx.AsyncClient(timeout=timeout)
+            upstream_span = _start_client_span_detached(tracer, f"POST {url}") if tracer else None
+            if upstream_span:
+                _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
+                _set_span_headers("request.headers", _redact_headers(headers), upstream_span)
+                _set_span_attrs({"request.body": _truncate(json.dumps(body))}, upstream_span)
 
             async def stream_response():
                 chunks: list[bytes] = []
                 try:
                     async with client.stream("POST", url, json=body, headers=headers) as resp:
-                        logger.info(
-                            "← %d streaming  (%.1fs to first byte)\n← headers:\n%s",
-                            resp.status_code,
-                            time.monotonic() - t0,
-                            _fmt_headers(dict(resp.headers)),
-                        )
+                        if upstream_span:
+                            _set_span_attrs({"http.status_code": resp.status_code}, upstream_span)
+                            _set_span_headers("response.headers", dict(resp.headers), upstream_span)
                         async for chunk in resp.aiter_bytes():
                             chunks.append(chunk)
                             yield chunk
                 finally:
                     if chunks:
                         raw = b"".join(chunks).decode(errors="replace")
-                        logger.info("← streaming body:\n%s", _truncate(raw))
+                        if upstream_span:
+                            _set_span_attrs({"response.body": _truncate(raw)}, upstream_span)
+                        _set_span_attrs({"response.body": _truncate(raw)})
+                    if upstream_span:
+                        upstream_span.end()
                     await client.aclose()
 
-            return StreamingResponse(
-                stream_response(),
-                media_type="text/event-stream",
-            )
+            return StreamingResponse(stream_response(), media_type="text/event-stream")
         else:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(url, json=body, headers=headers)
-            elapsed = time.monotonic() - t0
-            _trace_response(resp.status_code, elapsed, dict(resp.headers), resp.text)
+            if tracer:
+                with _start_client_span(tracer, f"POST {url}") as span:
+                    _set_span_attrs({"http.method": "POST", "http.url": url}, span)
+                    _set_span_headers("request.headers", _redact_headers(headers), span)
+                    _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        resp = await client.post(url, json=body, headers=headers)
+                    _set_span_attrs({"http.status_code": resp.status_code, "response.body": _truncate(resp.text)}, span)
+                    _set_span_headers("response.headers", dict(resp.headers), span)
+            else:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(url, json=body, headers=headers)
+            _set_span_attrs({"response.body": _truncate(resp.text), "http.status_code": resp.status_code})
+            _set_span_headers("response.headers", dict(resp.headers))
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
     @router.get("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_get")
@@ -159,22 +195,34 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
         headers = _build_headers(request)
         url = f"{upstream_url}/v1/{path}"
         method = request.method
-
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
-        t0 = time.monotonic()
+        tracer = _get_tracer()
 
         body = await request.body()
         kwargs: dict[str, Any] = {"headers": headers}
         if body:
             kwargs["content"] = body
 
-        _trace_request(method, url, headers, body if body else None)
+        _set_span_headers("request.headers", _redact_headers(headers))
+        if body:
+            _set_span_attrs({"request.body": _truncate(body.decode(errors="replace"))})
 
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.request(method, url, **kwargs)
+        if tracer:
+            with _start_client_span(tracer, f"{method} {url}") as span:
+                _set_span_attrs({"http.method": method, "http.url": url}, span)
+                _set_span_headers("request.headers", _redact_headers(headers), span)
+                if body:
+                    _set_span_attrs({"request.body": _truncate(body.decode(errors="replace"))}, span)
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.request(method, url, **kwargs)
+                _set_span_attrs({"http.status_code": resp.status_code, "response.body": _truncate(resp.text)}, span)
+                _set_span_headers("response.headers", dict(resp.headers), span)
+        else:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.request(method, url, **kwargs)
 
-        elapsed = time.monotonic() - t0
-        _trace_response(resp.status_code, elapsed, dict(resp.headers), resp.text)
+        _set_span_attrs({"response.body": _truncate(resp.text), "http.status_code": resp.status_code})
+        _set_span_headers("response.headers", dict(resp.headers))
 
         content_type = resp.headers.get("content-type", "")
         if "text/event-stream" in content_type:

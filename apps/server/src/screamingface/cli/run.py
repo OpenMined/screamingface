@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Annotated
 
@@ -12,6 +13,10 @@ def run(
     config: Annotated[
         Path | None,
         typer.Option("--config", "-c", help="Path to config file (default: sf.json)"),
+    ] = None,
+    config_json: Annotated[
+        str | None,
+        typer.Option("--config-json", help="Inline JSON config (alternative to --config file)"),
     ] = None,
     host: Annotated[
         str | None,
@@ -45,24 +50,44 @@ def run(
         str | None,
         typer.Option("--ssl-keyfile", help="Path to SSL key file"),
     ] = None,
+    subprocess_mode: Annotated[
+        bool,
+        typer.Option("--subprocess", help="Subprocess mode (structured ready event, no reload)"),
+    ] = False,
 ) -> None:
     """Start the ScreamingFace server."""
     import uvicorn
 
-    from screamingface.core.config import load_config
+    from screamingface.core.config import CONFIG_ENV_VAR, AppConfig, load_config
 
-    cfg = load_config(config)
+    # Config resolution: --config-json > --config file > SF_CONFIG env > sf.json
+    if config_json is not None:
+        cfg = AppConfig.model_validate_json(config_json)
+    elif config is not None:
+        cfg = load_config(config)
+    else:
+        raw_env = os.environ.get(CONFIG_ENV_VAR, "")
+        if raw_env:
+            cfg = AppConfig.model_validate_json(raw_env)
+        else:
+            cfg = load_config()
 
-    # Auto-pick a free port if the configured one is busy
+    # Subprocess mode: force no-reload, signal via env var
+    if subprocess_mode:
+        cfg.server.reload = False
+        os.environ["_SF_SUBPROCESS"] = "1"
+
+    # Auto-pick a free port if the configured one is busy (increment +1, +2, …)
     if port is None:
         import socket
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            if s.connect_ex(("127.0.0.1", cfg.server.port)) == 0:
-                # Port is in use — find a free one
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as free:
-                    free.bind(("127.0.0.1", 0))
-                    cfg.server.port = free.getsockname()[1]
+        candidate = cfg.server.port
+        while candidate < cfg.server.port + 100:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                if s.connect_ex(("127.0.0.1", candidate)) != 0:
+                    break
+            candidate += 1
+        cfg.server.port = candidate
 
     # Apply CLI overrides
     if host is not None:
@@ -115,8 +140,6 @@ def run(
 
     # Serialize resolved config to env var so it survives uvicorn's
     # reloader fork (module-level state doesn't persist across forks).
-    import os
-
     os.environ["_SF_RUNTIME_CONFIG"] = cfg.model_dump_json()
 
     uvicorn.run(

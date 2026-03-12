@@ -11,8 +11,15 @@ plugin_app = typer.Typer(help="Manage ScreamingFace plugins.")
 
 
 @plugin_app.command("list")
-def plugin_list() -> None:
+def plugin_list(
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output as JSON"),
+    ] = False,
+) -> None:
     """Show all discovered plugins and their activation state."""
+    import json
+
     from screamingface.core.config import load_config
     from screamingface.core.registry import PluginRegistry
 
@@ -21,10 +28,26 @@ def plugin_list() -> None:
     discovered = registry.discover()
 
     if not discovered:
-        typer.echo("No plugins discovered.")
+        if json_output:
+            typer.echo("{}")
+        else:
+            typer.echo("No plugins discovered.")
         return
 
     enabled_set = set(config.plugins)
+
+    if json_output:
+        result = {}
+        for name, entry in sorted(discovered.items()):
+            plugin = registry.load_plugin(name)
+            result[name] = {
+                "state": "enabled" if name in enabled_set else "available",
+                "version": plugin.version if plugin else None,
+                "description": plugin.description if plugin else None,
+            }
+        typer.echo(json.dumps(result))
+        return
+
     for name, entry in sorted(discovered.items()):
         state = "enabled" if name in enabled_set else "available"
         source = entry.value if hasattr(entry, "value") else entry.__module__  # type: ignore[union-attr]
