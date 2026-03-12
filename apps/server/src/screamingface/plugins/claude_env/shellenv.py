@@ -72,10 +72,7 @@ def remove_exports() -> None:
 
 def has_exports() -> bool:
     """Check if the marker block exists in any shell profile."""
-    return any(
-        p.exists() and MARKER_BEGIN in p.read_text()
-        for p in shell_profiles()
-    )
+    return any(p.exists() and MARKER_BEGIN in p.read_text() for p in shell_profiles())
 
 
 def current_exports() -> dict[str, str]:
