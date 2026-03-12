@@ -68,6 +68,22 @@ class _DependentPlugin(Plugin):
         pass
 
 
+class _AlphaPlugin(Plugin):
+    name = "alpha"
+    conflicts = ["beta"]
+
+    def setup(self, **kwargs):  # type: ignore[override]
+        pass
+
+
+class _BetaPlugin(Plugin):
+    name = "beta"
+    conflicts = ["alpha"]
+
+    def setup(self, **kwargs):  # type: ignore[override]
+        pass
+
+
 def test_preflight_pass() -> None:
     reg = PluginRegistry()
     plugin = _PassPlugin()
@@ -116,3 +132,29 @@ def test_cascade_skip(caplog: pytest.LogCaptureFixture) -> None:
     assert len(activated) == 0
     assert "fail-plugin" not in reg.active_plugins
     assert "dependent" not in reg.active_plugins
+
+
+def test_conflict_skips(caplog: pytest.LogCaptureFixture) -> None:
+    """If plugin A conflicts with active plugin B, A is skipped."""
+    reg = PluginRegistry()
+    reg.activate(_AlphaPlugin())
+    assert "alpha" in reg.active_plugins
+
+    with caplog.at_level(logging.WARNING):
+        reg.activate(_BetaPlugin())
+    assert "beta" not in reg.active_plugins
+    assert "conflicts with" in caplog.text
+
+
+def test_conflict_activate_all(caplog: pytest.LogCaptureFixture) -> None:
+    """activate_all skips the second conflicting plugin."""
+    reg = PluginRegistry()
+    reg._discovered["alpha"] = _AlphaPlugin
+    reg._discovered["beta"] = _BetaPlugin
+
+    with caplog.at_level(logging.WARNING):
+        activated = reg.activate_all(["alpha", "beta"])
+
+    assert len(activated) == 1
+    assert "alpha" in reg.active_plugins
+    assert "beta" not in reg.active_plugins

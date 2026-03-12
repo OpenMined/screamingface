@@ -12,7 +12,7 @@ from httpx import ASGITransport
 # Backend name → (plugin name, default action, POST path template)
 BACKEND_MAP: dict[str, tuple[str, str, str]] = {
     "cli": ("claude-cli", "run", "/claude/run"),
-    "proxy": ("claude-proxy", "messages", "/v1/messages"),
+    "proxy": ("claude-frontend", "messages", "/v1/messages"),
 }
 
 

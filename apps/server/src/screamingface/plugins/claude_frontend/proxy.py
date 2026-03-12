@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import ssl
 from typing import TYPE_CHECKING, Any
 
+import certifi
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -14,7 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from screamingface.plugins.claude_proxy.plugin import ClaudeProxySettings
+    from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings
 
 FORWARD_HEADERS = {
     "anthropic-version",
@@ -86,11 +88,23 @@ def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-d
     return tracer.start_span(name, kind=SpanKind.CLIENT)
 
 
-def create_router(settings: ClaudeProxySettings) -> APIRouter:
+def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
     upstream_url = settings.upstream_url.rstrip("/")
     api_key_env = settings.api_key_env
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    logger.info("Proxy SSL context using certifi CA: %s", certifi.where())
 
-    router = APIRouter(tags=["claude-proxy"])
+    # Diagnostic: check DNS override at request time
+    import socket as _sock
+
+    def _log_dns(domain: str) -> None:
+        try:
+            results = _sock.getaddrinfo(domain, 443, _sock.AF_INET)
+            logger.info("DNS probe for %s → %s", domain, results[0][4][0])
+        except Exception as e:
+            logger.warning("DNS probe for %s failed: %s", domain, e)
+
+    router = APIRouter(tags=["claude-frontend"])
 
     async def _enrich_with_url4(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         url4config = getattr(request.app.state, "config", None)
@@ -148,7 +162,7 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
         _set_span_headers("request.headers", _redact_headers(headers))
 
         if body.get("stream", False):
-            client = httpx.AsyncClient(timeout=timeout)
+            client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
             upstream_span = _start_client_span_detached(tracer, f"POST {url}") if tracer else None
             if upstream_span:
                 _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
@@ -182,7 +196,7 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
                     _set_span_attrs({"http.method": "POST", "http.url": url}, span)
                     _set_span_headers("request.headers", _redact_headers(headers), span)
                     _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
-                    async with httpx.AsyncClient(timeout=timeout) as client:
+                    async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                         resp = await client.post(url, json=body, headers=headers)
                     _set_span_attrs(
                         {
@@ -193,7 +207,7 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
                     )
                     _set_span_headers("response.headers", dict(resp.headers), span)
             else:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                     resp = await client.post(url, json=body, headers=headers)
             _set_span_attrs(
                 {"response.body": _truncate(resp.text), "http.status_code": resp.status_code},
@@ -229,7 +243,7 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
                         {"request.body": _truncate(body.decode(errors="replace"))},
                         span,
                     )
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                     resp = await client.request(method, url, **kwargs)
                 _set_span_attrs(
                     {"http.status_code": resp.status_code, "response.body": _truncate(resp.text)},
@@ -237,7 +251,7 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
                 )
                 _set_span_headers("response.headers", dict(resp.headers), span)
         else:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                 resp = await client.request(method, url, **kwargs)
 
         _set_span_attrs(
@@ -253,5 +267,34 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
                 status_code=resp.status_code,
             )
         return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+    @router.api_route(
+        "/api/{path:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        response_model=None,
+        operation_id="proxy_passthrough",
+    )
+    async def proxy_passthrough(request: Request, path: str) -> Response:
+        """Forward /api/* requests to the real upstream (Claude Code telemetry, OAuth, etc.)."""
+        _check_host(request)
+        headers = _build_headers(request)
+        url = f"{upstream_url}/api/{path}"
+        method = request.method
+        timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+        _log_dns("api.anthropic.com")
+        logger.info("Passthrough %s %s → upstream %s", method, f"/api/{path}", url)
+
+        body = await request.body()
+        kwargs: dict[str, Any] = {"headers": headers}
+        if body:
+            kwargs["content"] = body
+
+        async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
+            resp = await client.request(method, url, **kwargs)
+
+        content_type = resp.headers.get("content-type", "")
+        if "json" in content_type:
+            return JSONResponse(content=resp.json(), status_code=resp.status_code)
+        return Response(content=resp.content, status_code=resp.status_code, media_type=content_type)
 
     return router

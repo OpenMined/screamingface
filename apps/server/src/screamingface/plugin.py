@@ -25,6 +25,7 @@ class PluginSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",
+        extra="ignore",
     )
 
     @classmethod
@@ -52,9 +53,12 @@ class Plugin:
     # TODO: integrate with release tooling to auto-bump from pyproject.toml
     version: str = __version__
     depends: list[str] = []
+    conflicts: list[str] = []
     description: str = ""
     settings_class: type[PluginSettings] | None = None
     system_deps: list[str] = []
+    requires_root: bool = False
+    required_port: int | None = None
     settings: PluginSettings | None = None
 
     def preflight(self) -> tuple[bool, str]:
@@ -85,6 +89,15 @@ class Plugin:
 
     def teardown(self) -> None:
         """Called when the plugin is deactivated. Clean up resources here."""
+
+    def cleanup_stale(self) -> None:
+        """Remove leftover side effects from a previously active instance.
+
+        Called on server startup for discovered-but-inactive plugins. Override
+        this in plugins that modify system state (shell profiles, /etc/hosts,
+        port forwarding, etc.) so that disabling a plugin reliably cleans up
+        even if the server wasn't running when the plugin was removed.
+        """
 
     @classmethod
     def register_cli(cls, app: typer.Typer) -> None:

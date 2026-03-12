@@ -49,7 +49,7 @@ def uninstall() -> None:
 
 def _patched_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
     """Resolve intercepted domains to their real IPs, bypass /etc/hosts."""
-    hostname = str(host)
+    hostname = host.decode("ascii") if isinstance(host, bytes) else str(host)
     if hostname in _overrides:
         real_ip = _overrides[hostname]
         logger.debug("DNS override: %s → %s", hostname, real_ip)

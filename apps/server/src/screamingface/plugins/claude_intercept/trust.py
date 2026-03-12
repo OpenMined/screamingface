@@ -4,13 +4,10 @@ macOS stores trusted CAs in the system Keychain, but Node.js ignores it —
 it uses its own bundled CA bundle. The NODE_EXTRA_CA_CERTS env var tells
 Node.js to trust additional CA certificates.
 
-This module handles the one-time setup:
+This module handles setup and teardown:
 1. Adds NODE_EXTRA_CA_CERTS to all existing shell profiles
 2. Sets it via launchctl for the current session (new processes only)
-
-The shell profile change is permanent and harmless — the mkcert CA is always
-installed in the system Keychain, and NODE_EXTRA_CA_CERTS simply tells
-Node.js to trust it too.
+3. Removes both on teardown when the claude-intercept plugin is deactivated
 """
 
 from __future__ import annotations
@@ -96,6 +93,46 @@ def _ensure_shell_profile(ca_cert: Path) -> bool:
         any_written = True
 
     return any_written
+
+
+def remove_node_ca_trust() -> None:
+    """Remove NODE_EXTRA_CA_CERTS from all shell profiles and launchctl."""
+    _remove_shell_profile()
+    _remove_launchctl()
+
+
+def has_node_ca_trust() -> bool:
+    """Check if the NODE_EXTRA_CA_CERTS marker exists in any shell profile."""
+    return any(p.exists() and MARKER in p.read_text() for p in _shell_profiles())
+
+
+def _remove_shell_profile() -> None:
+    """Remove the NODE_EXTRA_CA_CERTS line from all shell profiles."""
+    for profile in _shell_profiles():
+        if not profile.exists():
+            continue
+        content = profile.read_text()
+        if MARKER not in content:
+            continue
+        lines = content.splitlines(keepends=True)
+        new_lines = [line for line in lines if MARKER not in line]
+        profile.write_text("".join(new_lines))
+        logger.info("Removed NODE_EXTRA_CA_CERTS from %s", profile)
+
+
+def _remove_launchctl() -> None:
+    """Unset NODE_EXTRA_CA_CERTS via launchctl."""
+    if sys.platform != "darwin":
+        return
+    try:
+        subprocess.run(
+            ["launchctl", "unsetenv", "NODE_EXTRA_CA_CERTS"],
+            check=True,
+            capture_output=True,
+        )
+        logger.info("Removed NODE_EXTRA_CA_CERTS via launchctl")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        logger.debug("launchctl unsetenv failed (non-fatal)")
 
 
 def _ensure_launchctl(ca_cert: Path) -> None:

@@ -79,6 +79,16 @@ class PluginRegistry:
             logger.warning("Plugin %r is already active", plugin.name)
             return
 
+        # Check conflicts — warn & skip if a conflicting plugin is active
+        for conflict in plugin.conflicts:
+            if conflict in self._active:
+                logger.warning(
+                    "Plugin %r skipped: conflicts with active plugin %r",
+                    plugin.name,
+                    conflict,
+                )
+                return
+
         # Check dependencies — warn & skip instead of raising
         for dep in plugin.depends:
             if dep not in self._active:

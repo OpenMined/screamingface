@@ -44,6 +44,8 @@ def plugin_list(
                 "state": "enabled" if name in enabled_set else "available",
                 "version": plugin.version if plugin else None,
                 "description": plugin.description if plugin else None,
+                "requires_root": plugin.requires_root if plugin else False,
+                "conflicts": plugin.conflicts if plugin else [],
             }
         typer.echo(json.dumps(result))
         return
@@ -80,6 +82,8 @@ def plugin_info(
             annotation = field_info.annotation
             type_name = getattr(annotation, "__name__", str(annotation))
             typer.echo(f"  {field_name}: {type_name} = {default!r}")
+    typer.echo(f"Root:        {'required' if plugin.requires_root else 'no'}")
+    typer.echo(f"Conflicts:   {', '.join(plugin.conflicts) or '(none)'}")
     if plugin.system_deps:
         typer.echo(f"System deps: {', '.join(plugin.system_deps)}")
 

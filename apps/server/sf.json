@@ -2,23 +2,28 @@
   "version": "0.1.0",
   "server": {
     "host": "0.0.0.0",
-    "port": 8000,
+    "port": 443,
     "reload": true,
     "ssl": true,
     "ssl_certfile": null,
     "ssl_keyfile": null
   },
   "plugins": [
-    "claude-proxy",
-    "claude-env",
+    "claude-frontend",
     "tracing",
-    "url-executor"
+    "url-executor",
+    "claude-cli",
+    "claude-intercept"
   ],
   "url4config": "smththatmakesense",
   "plugin_config": {
-    "claude-proxy": {
+    "claude-frontend": {
       "upstream_url": "https://api.anthropic.com",
       "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    "claude-intercept": {
+      "auto_cleanup": true,
+      "server_port": 8001
     }
   }
 }

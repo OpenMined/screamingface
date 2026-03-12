@@ -48,7 +48,7 @@ Useful commands:
 uv run sf --help                 # CLI reference
 uv run sf run --no-ssl           # skip SSL if mkcert not installed
 uv run sf run --port 9000        # custom port
-uv run sf run --enable claude-proxy  # run only specific plugins
+uv run sf run --enable claude-frontend  # run only specific plugins
 uv run sf plugin list --json     # list discovered plugins
 uv run pytest                    # run tests
 uv run ruff check src tests      # lint
@@ -67,10 +67,10 @@ All config lives in `apps/server/sf.json`:
     "reload": true,
     "ssl": true
   },
-  "plugins": ["claude-proxy", "claude-env", "tracing", "url-executor"],
+  "plugins": ["claude-frontend", "claude-env-intercept", "tracing", "url-executor"],
   "url4config": null,
   "plugin_config": {
-    "claude-proxy": {
+    "claude-frontend": {
       "upstream_url": "https://api.anthropic.com",
       "api_key_env": "ANTHROPIC_API_KEY"
     }
@@ -114,7 +114,7 @@ npm run dev                      # Next.js dev server
 
 | Variable | Purpose | Required |
 |----------|---------|----------|
-| `ANTHROPIC_API_KEY` | Claude API key for the proxy plugin | For claude-proxy |
+| `ANTHROPIC_API_KEY` | Claude API key for the proxy plugin | For claude-frontend |
 | `SF_CONFIG` | Inline JSON config (overrides sf.json) | No |
 
 ## Running Tests
@@ -134,19 +134,19 @@ npm run lint
 The server uses a plugin architecture inspired by Odoo. Plugins are discovered via entry points and activated in `sf.json`.
 
 Built-in plugins:
-- **claude-proxy** -- forwards Claude API requests to Anthropic (with optional url4 context enrichment)
-- **claude-env** -- writes proxy env vars to shell profile so Claude Code uses the local server
+- **claude-frontend** -- forwards Claude API requests to Anthropic (with optional url4 context enrichment)
+- **claude-env-intercept** -- writes proxy env vars to shell profile so Claude Code uses the local server
 - **claude-cli** -- runs Claude CLI commands from the server
 - **tracing** -- OpenTelemetry instrumentation (requires `uv sync --extra tracing`)
-- **intercept** -- DNS/hosts interception to transparently redirect Claude API traffic
+- **claude-intercept** -- DNS/hosts interception to transparently redirect Claude API traffic
 - **url-executor** -- executes url4 protocol URLs
 
 ## Pointing Claude Code at the Proxy
 
-Once the server is running with `claude-proxy` and `claude-env` plugins:
+Once the server is running with `claude-frontend` and `claude-env-intercept` plugins:
 
 ```bash
-# The claude-env plugin writes these to your shell profile automatically.
+# The claude-env-intercept plugin writes these to your shell profile automatically.
 # If you need to set them manually:
 export ANTHROPIC_BASE_URL="https://localhost:8000"
 export NODE_EXTRA_CA_CERTS="$(mkcert -CAROOT)/rootCA.pem"

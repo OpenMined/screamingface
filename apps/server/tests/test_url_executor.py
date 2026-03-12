@@ -43,10 +43,10 @@ def _mock_process(stdout: bytes = b"", stderr: bytes = b"", returncode: int = 0)
 def app_with_executor() -> FastAPI:
     with patch("shutil.which", return_value="/usr/local/bin/claude"):
         config = AppConfig(
-            plugins=["claude-cli", "claude-proxy", "url-executor"],
+            plugins=["claude-cli", "claude-frontend", "url-executor"],
             plugin_config={
                 "claude-cli": {},
-                "claude-proxy": {},
+                "claude-frontend": {},
                 "url-executor": {},
             },
         )

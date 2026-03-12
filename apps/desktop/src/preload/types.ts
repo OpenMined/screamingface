@@ -24,6 +24,8 @@ export interface DiscoveredPlugin {
   state: 'enabled' | 'available';
   version: string | null;
   description: string | null;
+  requires_root?: boolean;
+  conflicts?: string[];
 }
 
 export interface ElectronAPI {

@@ -10,8 +10,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 HOSTS_FILE = Path("/etc/hosts")
-MARKER_BEGIN = "# screamingface-intercept-begin"
-MARKER_END = "# screamingface-intercept-end"
+MARKER_BEGIN = "# screamingface-claude-intercept-begin"
+MARKER_END = "# screamingface-claude-intercept-end"
 
 
 def add_entries(domains: list[str], target: str = "127.0.0.1") -> None:
@@ -67,10 +67,12 @@ def flush_dns() -> None:
     subprocess.run(
         ["sudo", "dscacheutil", "-flushcache"],
         check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["sudo", "killall", "-HUP", "mDNSResponder"],
         check=True,
+        capture_output=True,
     )
 
 
