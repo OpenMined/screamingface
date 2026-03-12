@@ -35,7 +35,9 @@ packages/    Shared packages
 
 ```bash
 cd apps/server
-uv sync                          # install dependencies
+uv python install 3.13
+uv venv --python 3.13
+uv sync --extra tracing          # install dependencies
 uv run sf run                    # start server (reads sf.json)
 ```
 
