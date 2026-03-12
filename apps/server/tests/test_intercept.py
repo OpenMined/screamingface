@@ -603,7 +603,7 @@ class TestTrust:
         profile = tmp_path / ".zshrc"
         profile.write_text("# existing content\n")
 
-        with patch("screamingface.plugins.intercept.trust._shell_profile", return_value=profile):
+        with patch("screamingface.plugins.intercept.trust._shell_profiles", return_value=[profile]):
             result = _ensure_shell_profile(Path("/fake/rootCA.pem"))
 
         assert result is True
@@ -619,7 +619,7 @@ class TestTrust:
         profile = tmp_path / ".zshrc"
         profile.write_text(f'export NODE_EXTRA_CA_CERTS="/fake/rootCA.pem"  {MARKER}\n')
 
-        with patch("screamingface.plugins.intercept.trust._shell_profile", return_value=profile):
+        with patch("screamingface.plugins.intercept.trust._shell_profiles", return_value=[profile]):
             result = _ensure_shell_profile(Path("/fake/rootCA.pem"))
 
         assert result is True
@@ -633,7 +633,7 @@ class TestTrust:
         profile = tmp_path / ".zshrc"
         assert not profile.exists()
 
-        with patch("screamingface.plugins.intercept.trust._shell_profile", return_value=profile):
+        with patch("screamingface.plugins.intercept.trust._shell_profiles", return_value=[profile]):
             result = _ensure_shell_profile(Path("/fake/rootCA.pem"))
 
         assert result is True

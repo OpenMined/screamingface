@@ -22,10 +22,10 @@ def profile_file(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def _patch_profile(profile_file: Path):
-    """Redirect shell_profile() to a temp file."""
+    """Redirect shell_profiles() to a temp file."""
     with patch(
-        "screamingface.plugins.claude_env.shellenv.shell_profile",
-        return_value=profile_file,
+        "screamingface.plugins.claude_env.shellenv.shell_profiles",
+        return_value=[profile_file],
     ):
         yield
 
@@ -238,6 +238,10 @@ class TestClaudeEnvCLI:
                 "screamingface.plugins.claude_env.cli.current_exports",
                 return_value={"ANTHROPIC_BASE_URL": "https://localhost:8000"},
             ),
+            patch(
+                "screamingface.plugins.claude_env.cli.shell_profiles",
+                return_value=[Path("/fake/.zshrc")],
+            ),
         ):
             result = runner.invoke(claude_env_app, ["status"])
 
@@ -263,7 +267,13 @@ class TestClaudeEnvCLI:
         from screamingface.plugins.claude_env.cli import claude_env_app
 
         runner = CliRunner()
-        with patch("screamingface.plugins.claude_env.cli.remove_exports") as mock_remove:
+        with (
+            patch("screamingface.plugins.claude_env.cli.remove_exports") as mock_remove,
+            patch(
+                "screamingface.plugins.claude_env.cli.shell_profiles",
+                return_value=[Path("/fake/.zshrc")],
+            ),
+        ):
             result = runner.invoke(claude_env_app, ["off"])
 
         assert result.exit_code == 0

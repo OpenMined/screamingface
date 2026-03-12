@@ -8,7 +8,7 @@ from screamingface.plugins.claude_env.shellenv import (
     current_exports,
     has_exports,
     remove_exports,
-    shell_profile,
+    shell_profiles,
 )
 
 claude_env_app = typer.Typer(
@@ -24,17 +24,19 @@ def status() -> None:
     if has_exports():
         exports = current_exports()
         typer.echo("Claude Env: ACTIVE")
-        typer.echo(f"  Profile: {shell_profile()}")
+        for profile in shell_profiles():
+            typer.echo(f"  Profile: {profile}")
         for key, value in exports.items():
             typer.echo(f"  {key}={value}")
     else:
         typer.echo("Claude Env: INACTIVE")
-        typer.echo("  No exports in shell profile")
+        typer.echo("  No exports in shell profiles")
 
 
 @claude_env_app.command()
 def off() -> None:
-    """Remove Claude Code env vars from shell profile."""
+    """Remove Claude Code env vars from shell profiles."""
     remove_exports()
-    typer.echo(f"Removed exports from {shell_profile()}")
+    for profile in shell_profiles():
+        typer.echo(f"Removed exports from {profile}")
     typer.echo("Open a new terminal for changes to take effect.")
