@@ -245,10 +245,8 @@ export default function Home() {
             </div>
 
             <a
-              href="https://attribution-based-control.ai/#societal-consequences"
+              href="/why"
               className="text-sm text-primary underline underline-offset-2 hover:opacity-80 transition-opacity"
-              target="_blank"
-              rel="noopener noreferrer"
             >
               Read about the societal stakes →
             </a>
@@ -281,10 +279,8 @@ export default function Home() {
             GitHub
           </a>
           <a
-            href="https://attribution-based-control.ai/#societal-consequences"
+            href="/why"
             className="hover:text-foreground transition-colors"
-            target="_blank"
-            rel="noopener noreferrer"
           >
             Why it matters
           </a>
