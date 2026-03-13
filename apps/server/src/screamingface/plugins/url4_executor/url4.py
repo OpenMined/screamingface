@@ -44,7 +44,7 @@ GRAMMAR = r"""
         | text
         ;
 
-    url = value:/https?:\/\/[^\s,()]+/ ;
+    url = value:/https?:\/\/(?:[^\s,()]|\([^()]*\))+/ ;
 
     text = value:/[^,()]+/ ;
 """
