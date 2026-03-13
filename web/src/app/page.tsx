@@ -204,51 +204,60 @@ export default function Home() {
         {/* Collaborators */}
         <CollaboratorsGrid />
 
-        {/* Why open matters */}
+        {/* Why it wins */}
         <section className="px-6 py-20 border-t border-border bg-card/40">
           <div className="max-w-3xl mx-auto text-center">
             <h2
               className="text-3xl font-semibold mb-4"
               style={{ fontFamily: "var(--font-rubik)" }}
             >
-              The best AI is built together.
+              Why the ensemble wins.
             </h2>
             <p className="text-muted-foreground max-w-xl mx-auto mb-12">
-              When open and proprietary models work together, the result outperforms any single provider — and the whole ecosystem benefits.
+              Different models make different mistakes. When their errors don&apos;t overlap — anti-correlated errors — the ensemble catches what any single model misses. The result: consistently better accuracy without needing a bigger model.
             </p>
 
-            {/* Stakes grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-5 text-left mb-12">
-              {[
-                { title: "Privacy",         body: "Institutions contribute data while keeping full control." },
-                { title: "Copyright",       body: "Creator attribution rights survive model training." },
-                { title: "Hallucination",   body: "Predictions stay traceable back to their sources." },
-                { title: "Bias",            body: "Each community governs its own contributions." },
-                { title: "Value Alignment", body: "AI values shaped by everyone who uses it." },
-                { title: "Democracy",       body: "Strength from everything the free market builds together." },
-              ].map((item) => (
-                <div key={item.title} className="flex gap-2.5">
-                  <ChevronRight className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
-                  <div>
-                    <h3
-                      className="text-sm font-medium text-foreground"
-                      style={{ fontFamily: "var(--font-rubik)" }}
-                    >
-                      {item.title}
-                    </h3>
-                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                      {item.body}
-                    </p>
-                  </div>
-                </div>
-              ))}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left mb-12">
+              <div className="border border-border rounded-lg p-5">
+                <h3
+                  className="text-sm font-medium text-foreground mb-2"
+                  style={{ fontFamily: "var(--font-rubik)" }}
+                >
+                  More accurate
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  The ensemble outscores every individual model on published benchmarks. Anti-correlated errors across providers mean the combination is structurally stronger, not just statistically lucky.
+                </p>
+              </div>
+              <div className="border border-border rounded-lg p-5">
+                <h3
+                  className="text-sm font-medium text-foreground mb-2"
+                  style={{ fontFamily: "var(--font-rubik)" }}
+                >
+                  Faster
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Intelligent routing picks the fastest model that can handle each task. You get the speed of the lightest provider on simple prompts and the power of the strongest on hard ones.
+                </p>
+              </div>
+              <div className="border border-border rounded-lg p-5">
+                <h3
+                  className="text-sm font-medium text-foreground mb-2"
+                  style={{ fontFamily: "var(--font-rubik)" }}
+                >
+                  Cheaper
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Share credits with friends. If someone in your network has unused tokens on a provider you need, screamingface can route through their allocation. Everyone pays less.
+                </p>
+              </div>
             </div>
 
             <a
               href="/why"
               className="text-sm text-primary underline underline-offset-2 hover:opacity-80 transition-opacity"
             >
-              Read about the societal stakes →
+              Why this matters beyond the benchmarks →
             </a>
           </div>
         </section>

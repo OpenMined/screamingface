@@ -7,6 +7,10 @@ An AI ensemble system combining Claude Code, Gemini CLI, Codex, and Ollama to be
 - `web/` — static marketing website (leaderboard chart, install flow)
 - `app/` — local Electron desktop app
 - `cloud/` — cloud webapp (Gates/token sharing UI, leaderboards)
+- `personas/` — audience personas, research cohorts, and weighting guide
+- `brand/` — brand research (competitive landscape, design, SEO)
+- `docs/` — development plan, design guidance, internal docs
+  - **`docs/😱 Development Plan.docx`** — the original product development plan. Key reference for scope, phasing, and product decisions. A plain-text version is at `docs/devplan.txt`.
 
 ## The Four App Screens
 - **Settings** — configure which AI models are in the ensemble
@@ -35,3 +39,13 @@ An AI ensemble system combining Claude Code, Gemini CLI, Codex, and Ollama to be
 - **Ensemble** — combining multiple AI models for better results than any single model
 - **SOTA** — State of the Art benchmark accuracy scores we're trying to beat
 - **Localhost microservices** — small FastAPI backends running on the user's machine
+
+## Personas
+
+This project uses a persona system to guide copy, design, positioning, and feature decisions. **Before doing any work that involves messaging, tone, design choices, or audience targeting**, consult the persona weighting guide.
+
+- **Weighting guide:** `personas/weighting-guide.md` — start here. Maps every work context (homepage, /why page, app screens, etc.) to the right audience personas.
+- **Audience personas:** `personas/persona-audience-1.md` (developers, P0), `personas/persona-audience-2.md` (thought leaders/policy, P1), `personas/openmined-core-team.md` (internal, pre-launch)
+- **Research cohorts:** `personas/abc-citations/` (thesis citation network — peers & validators) and `personas/time100-ai/` (influential AI figures — Audience 2 adjacent)
+
+If a task involves copy, design, or positioning and you're unsure which audience applies, ask before proceeding.

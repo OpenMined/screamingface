@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 // Replace with your actual form endpoint (Formspree, custom API, etc.)
 const FORM_ENDPOINT = "https://formspree.io/f/REPLACE_ME";
 
-export default function EmailCapture() {
+interface EmailCaptureProps {
+  /** Content to render above the form. If omitted, uses the default "Stay in the loop" layout. */
+  children?: ReactNode;
+}
+
+export default function EmailCapture({ children }: EmailCaptureProps) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
 
@@ -36,16 +41,22 @@ export default function EmailCapture() {
   return (
     <section id="updates" className="px-6 py-20 border-t border-border">
       <div className="max-w-xl mx-auto text-center">
-        <div className="text-4xl mb-4 select-none">😱</div>
-        <h2
-          className="text-2xl font-semibold mb-3"
-          style={{ fontFamily: "var(--font-rubik)" }}
-        >
-          Stay in the loop.
-        </h2>
-        <p className="text-muted-foreground text-sm mb-8">
-          Early access, benchmark drops, and open beta updates — when they happen. No noise.
-        </p>
+        {children ? (
+          children
+        ) : (
+          <>
+            <div className="text-4xl mb-4 select-none">😱</div>
+            <h2
+              className="text-2xl font-semibold mb-3"
+              style={{ fontFamily: "var(--font-rubik)" }}
+            >
+              Stay in the loop.
+            </h2>
+            <p className="text-muted-foreground text-sm mb-8">
+              Early access, benchmark drops, and open beta updates — when they happen. No noise.
+            </p>
+          </>
+        )}
 
         {status === "success" ? (
           <p

@@ -1,72 +1,69 @@
 # Personas Directory
 
-This directory contains user personas that inform how Claude approaches design, copy, features, and prioritization across all parts of the screamingface project (website, app, cloud).
+This directory contains audience personas and research cohorts that inform how Claude approaches copy, design, features, and positioning across the screamingface project.
 
-## Purpose
+## Start Here
 
-Personas are not just marketing artifacts. They are **working context for Claude** — loaded when making decisions about:
-- **Website copy and design** — what language resonates, what to emphasize on the homepage
+**Read `weighting-guide.md` first.** It maps every work context (homepage, /why page, app screens, outreach) to the right audience personas and tells you when to use which files.
+
+## What's In This Directory
+
+### Audience Personas (the core three)
+- `persona-audience-1.md` — Technical developers & benchmark enthusiasts (P0, primary launch target)
+- `persona-audience-2.md` — AI/society thought leaders, journalists & policy champions (P1)
+- `openmined-core-team.md` — OpenMined internal team (pre-launch review only)
+
+### Research Cohorts (reference material)
+- `abc-citations/` — Researchers cited in Andrew Trask's thesis at attribution-based-control.ai. Potential peers, co-authors, and validators. Individual profiles indicate whether each person is a peer or Audience 2-aligned.
+  - `abc-citations-report.md` — Group analysis and engagement strategy
+  - `personas/*.md` — Individual researcher profiles
+- `time100-ai/` — TIME's 100 most influential people in AI (2025). Most connected to Audience 2 considerations.
+  - `persona-time-100-ai-report.md` — Group analysis organized by orientation
+  - `personas/{thinkers,shapers,leaders,innovators}/*.md` — Individual profiles
+
+### Supporting Files
+- `weighting-guide.md` — **The routing doc.** Which personas apply to which work context.
+- `flatten-headers.lua` — Pandoc filter for document export
+
+## How Personas Are Used
+
+Personas are not marketing artifacts. They are **working context for Claude** — loaded when making decisions about:
+- **Website copy and design** — what language resonates, what to emphasize
 - **App UX** — what screens matter most, what workflows to optimize
-- **Feature prioritization** — what to build next based on who we're serving
-- **Onboarding flows** — what assumptions we can make about technical ability
-- **Messaging and positioning** — how to frame the ensemble value prop for different audiences
+- **Positioning** — how to frame the ensemble value prop for different audiences
+- **Outreach** — who to engage, in what order, with what framing
 
-## Persona Types
+## When to Read What
 
-We maintain personas at two levels:
+| Task | Read |
+|------|------|
+| Any copy/design work | `weighting-guide.md` → relevant audience persona |
+| Homepage work | `persona-audience-1.md` (primary), `persona-audience-2.md` (secondary) |
+| /why page work | `persona-audience-2.md`, then ABC + Time 100 group reports |
+| App screen work | `openmined-core-team.md` (pre-launch) or `persona-audience-1.md` (post-launch) |
+| "How would X react?" | Relevant group report → individual profile if needed |
+| Positioning question | `weighting-guide.md` → relevant personas + cohort reports |
 
-### 1. Internal Personas (who's building and dogfooding)
-These represent the team and close collaborators who use screamingface daily. They inform the "Week 1" experience — the product must work for these people first before it works for anyone else.
+## Summary Reports (planned)
 
-### 2. External Personas (who we're launching to)
-These represent target users at various stages of the product's growth. They inform marketing, onboarding, and feature decisions as we expand beyond internal use.
-
-## How to Use Personas
-
-When Claude is working on a task, reference the relevant persona:
-- "Write homepage copy targeting the **CLI Power User**"
-- "Design the spend screen for the **Credit-Strapped Developer**"
-- "What would the **OpenMined Core Team** need from the eval studio?"
-
-Personas should be referenced in CLAUDE.md files within each package (web/, app/, cloud/) to guide context-specific work.
+Digestible rollup reports for the ABC and Time 100 cohorts are in development. These will distill general sentiments and positioning themes from individual profiles. Until those exist, the group-level reports are the starting point.
 
 ## Persona File Format
 
-Each persona file follows this structure:
+Each audience persona follows this structure:
 
 ```
 # [Persona Name]
 **Type:** Internal | External
 **Priority:** P0 (build for now) | P1 (build for soon) | P2 (design for later)
 
-## Identity
-Who they are in 2-3 sentences. Role, context, motivation.
-
-## Technical Profile
-- Tools they use daily
-- Technical comfort level
-- Operating systems / environments
-
-## Relationship to AI Coding Tools
-How they currently use AI in their workflow. What's working, what's frustrating.
-
+## Who They Are / Identity
+## Technical Profile (if applicable)
 ## Pain Points
-What problems screamingface solves for them. Be specific.
-
 ## Value Triggers
-What would make them say "I need this." The moments that drive adoption.
-
 ## Messaging That Resonates
-Language, framing, and proof points that land with this persona.
-
 ## Messaging That Falls Flat
-What to avoid. Jargon, framings, or promises that don't connect.
-
 ## Design Implications
-How this persona affects UI/UX decisions across website, app, and cloud.
-
-## Key Quotes (real or synthesized)
-Representative statements that capture their mindset. Source from Slack, interviews, or synthesis.
 ```
 
 ## Persona Roadmap
@@ -74,20 +71,12 @@ Representative statements that capture their mindset. Source from Slack, intervi
 | Persona | Type | Priority | Status |
 |---------|------|----------|--------|
 | OpenMined Core Team | Internal | P0 | Done |
+| Audience 1 (Technical Developers) | External | P0 | Done |
+| Audience 2 (Thought Leaders/Policy) | External | P1 | Done |
+| ABC Citations Cohort | Research | Reference | Done (individual profiles in progress) |
+| Time 100 AI Cohort | Research | Reference | Done |
 | CLI Power User | External | P0 | Planned |
 | Credit-Strapped Developer | External | P1 | Planned |
 | Benchmark Enthusiast | External | P1 | Planned |
 | Team Lead / Multiplier | External | P2 | Planned |
 | AI-Curious Non-Engineer | External | P2 | Planned |
-
-### Planned Persona Descriptions
-
-**CLI Power User** — A developer who already uses 2+ AI coding CLIs (Claude Code, Gemini, Codex) daily. They're productive but annoyed by context-switching between tools and inconsistent quality. They want one interface that's always the best answer. This is the Day 1 external user.
-
-**Credit-Strapped Developer** — Someone who hits API rate limits or budget caps regularly. They've done the mental math on what each provider costs. The "share credits with friends" feature is their entry point. Token economics matter to them.
-
-**Benchmark Enthusiast** — Follows AI leaderboards, runs their own evals, cares about measurable quality. The SOTA claim is what gets them in the door. They want to verify it themselves via the Eval Studio.
-
-**Team Lead / Multiplier** — Manages a small engineering team. Interested in screamingface as a way to give their team better AI without 5 different subscriptions. The "Gates" token sharing feature is their unlock.
-
-**AI-Curious Non-Engineer** — Interested in AI tools but not deeply technical. Could be a designer, PM, or researcher. The ensemble concept intrigues them but they need it to be dead simple. Important for viral growth but not a launch target.
