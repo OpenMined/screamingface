@@ -25,6 +25,8 @@ interface ServerPluginInfo {
   version: string;
   description: string;
   has_settings: boolean;
+  requires_root?: boolean;
+  conflicts?: string[];
 }
 
 interface SchemaProperty {
@@ -212,7 +214,24 @@ export function SettingsView() {
 
   const updatePlugins = (plugins: string[]) => {
     setConfig((prev) => ({ ...prev, plugins }));
-    markDirty();
+
+    if (initialLoadRef.current) return;
+
+    // Plugin changes require a server restart — save immediately (skip debounce)
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    const configToSave = { ...configRef.current, plugins };
+    window.electronAPI.config
+      .write(configToSave as unknown as Record<string, unknown>)
+      .then(() => {
+        if (serverStatus === 'ready') {
+          toast('Restarting server with updated plugins...', 'success', 3000);
+          return window.electronAPI.server.restart();
+        }
+        toast('Settings saved', 'success', 2000);
+      })
+      .catch(() => {
+        toast('Failed to save settings', 'error');
+      });
   };
 
   const addPlugin = (name: string) => {
@@ -230,17 +249,28 @@ export function SettingsView() {
   const availableToAdd = discoveredPlugins
     ? Object.entries(discoveredPlugins)
         .filter(([name]) => !config.plugins.includes(name))
-        .map(([name, info]) => ({ name, ...info }))
+        .map(([name, info]) => {
+          const conflicts = info.conflicts ?? [];
+          const conflictsWith = conflicts.filter((c) => config.plugins.includes(c));
+          return { name, ...info, conflictsWith };
+        })
     : [];
 
   const getPluginMeta = (name: string) => {
     if (serverPlugins?.[name]) {
-      return { version: serverPlugins[name].version, description: serverPlugins[name].description };
+      return {
+        version: serverPlugins[name].version,
+        description: serverPlugins[name].description,
+        requires_root: serverPlugins[name].requires_root,
+        conflicts: serverPlugins[name].conflicts,
+      };
     }
     if (discoveredPlugins?.[name]) {
       return {
         version: discoveredPlugins[name].version,
         description: discoveredPlugins[name].description,
+        requires_root: discoveredPlugins[name].requires_root,
+        conflicts: discoveredPlugins[name].conflicts,
       };
     }
     return null;
@@ -337,7 +367,8 @@ export function SettingsView() {
       <section className="rounded-lg border border-border bg-card p-4">
         <h2 className="text-sm font-medium text-foreground">Context URL Template</h2>
         <p className="mt-1 text-[10px] text-muted-foreground">
-          A url4 template with {"{prompt}"} placeholders, resolved and injected into every Claude API request.
+          A url4 template with {'{prompt}'} placeholders, resolved and injected into every Claude
+          API request.
         </p>
         <div className="mt-3">
           <input
@@ -396,6 +427,12 @@ export function SettingsView() {
                         {meta?.description && (
                           <p className="text-[10px] leading-tight text-muted-foreground/70 truncate">
                             {meta.description}
+                          </p>
+                        )}
+                        {meta?.requires_root && (
+                          <p className="text-[10px] leading-tight text-amber-500">
+                            Requires root privileges — the app will prompt for your password when
+                            starting the server
                           </p>
                         )}
                       </div>
@@ -558,15 +595,17 @@ export function SettingsView() {
               onChange={(e) => {
                 if (e.target.value) addPlugin(e.target.value);
               }}
-              className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="flex-1 min-w-0 appearance-none rounded-md border border-input bg-background bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[position:right_8px_center] bg-no-repeat pl-3 pr-8 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             >
               <option value="" disabled>
                 Add a plugin...
               </option>
-              {availableToAdd.map(({ name, description }) => (
-                <option key={name} value={name}>
+              {availableToAdd.map(({ name, description, requires_root, conflictsWith }) => (
+                <option key={name} value={name} disabled={conflictsWith.length > 0}>
                   {name}
                   {description ? ` — ${description}` : ''}
+                  {requires_root ? ' (requires root)' : ''}
+                  {conflictsWith.length > 0 ? ` [conflicts with ${conflictsWith.join(', ')}]` : ''}
                 </option>
               ))}
             </select>

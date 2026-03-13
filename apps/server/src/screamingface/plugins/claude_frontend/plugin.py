@@ -1,4 +1,4 @@
-"""Claude Proxy plugin — transparent proxy between Claude Code and the Anthropic API."""
+"""Claude Frontend plugin — transparent proxy between Claude Code and the Anthropic API."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
-from screamingface.plugins.claude_proxy.proxy import create_router
+from screamingface.plugins.claude_frontend.proxy import create_router
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -17,19 +17,19 @@ if TYPE_CHECKING:
     from screamingface.core.routes import RouteRegistry
 
 
-class ClaudeProxySettings(PluginSettings):
+class ClaudeFrontendSettings(PluginSettings):
     model_config = SettingsConfigDict(
-        env_prefix="SF_CLAUDE_PROXY__",
+        env_prefix="SF_CLAUDE_FRONTEND__",
         env_nested_delimiter="__",
     )
     upstream_url: str = "https://api.anthropic.com"
     api_key_env: str = "ANTHROPIC_API_KEY"
 
 
-class ClaudeProxyPlugin(Plugin):
-    name = "claude-proxy"
+class ClaudeFrontendPlugin(Plugin):
+    name = "claude-frontend"
     description = "Transparent proxy between Claude Code and the Anthropic API"
-    settings_class = ClaudeProxySettings
+    settings_class = ClaudeFrontendSettings
 
     def preflight(self) -> tuple[bool, str]:
         ok, reason = super().preflight()

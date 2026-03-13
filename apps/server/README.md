@@ -24,7 +24,7 @@ We've seen this movie. It ends with a tangled codebase that only the original au
 
 ### How our plugin architecture solves this
 
-**Each AI backend is its own plugin.** The Claude proxy lives in `plugins/claude_proxy/`. The Claude CLI wrapper lives in `plugins/claude_cli/`. Ollama would be `plugins/ollama/`. They share zero code. Break one, the others don't notice.
+**Each AI backend is its own plugin.** The Claude proxy lives in `plugins/claude_frontend/`. The Claude CLI wrapper lives in `plugins/claude_cli/`. Ollama would be `plugins/ollama/`. They share zero code. Break one, the others don't notice.
 
 **New contributors touch one folder.** Want to add Gemini? Create `plugins/gemini/`, implement the Plugin interface, submit a PR. You don't need to understand how Claude's proxy works.
 
@@ -182,7 +182,7 @@ class HelloWorldPlugin(Plugin):
 **4. Enable it in `sf.json`:**
 ```json
 {
-  "plugins": ["claude-proxy", "hello-world"]
+  "plugins": ["claude-frontend", "hello-world"]
 }
 ```
 
@@ -214,7 +214,7 @@ Your plugin lives inside this repository under `src/screamingface/plugins/`. It'
 **Built-in plugins to study:**
 | Plugin | Folder | What it does |
 |---|---|---|
-| `claude-proxy` | `plugins/claude_proxy/` | Forwards requests to the Anthropic API |
+| `claude-frontend` | `plugins/claude_frontend/` | Forwards requests to the Anthropic API |
 | `claude-cli` | `plugins/claude_cli/` | Runs Claude Code CLI locally and wraps it as a REST endpoint |
 | `url-executor` | `plugins/url_executor/` | Routes URL-encoded requests to the right backend |
 

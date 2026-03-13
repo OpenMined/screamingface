@@ -11,8 +11,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-MARKER_BEGIN = "# screamingface-claude-env-begin"
-MARKER_END = "# screamingface-claude-env-end"
+MARKER_BEGIN = "# screamingface-claude-env-intercept-begin"
+MARKER_END = "# screamingface-claude-env-intercept-end"
 
 
 _RC_CANDIDATES = (
@@ -67,7 +67,7 @@ def remove_exports() -> None:
             continue
         new_content = _strip_marker_block(content)
         profile.write_text(new_content)
-        logger.info("Removed claude-env exports from %s", profile)
+        logger.info("Removed claude-env-intercept exports from %s", profile)
 
 
 def has_exports() -> bool:

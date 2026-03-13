@@ -115,9 +115,9 @@ def setup(self, app, hooks, classes, routes):
     "reload": true,
     "ssl": true
   },
-  "plugins": ["claude-proxy"],
+  "plugins": ["claude-frontend"],
   "plugin_config": {
-    "claude-proxy": {
+    "claude-frontend": {
       "upstream_url": "https://api.anthropic.com",
       "api_key_env": "ANTHROPIC_API_KEY"
     }
@@ -339,10 +339,10 @@ class MyMixin:
 ```python
 class MyFeaturePlugin(Plugin):
     name = "my-feature"
-    depends = ["claude-proxy"]  # activated after claude-proxy
+    depends = ["claude-frontend"]  # activated after claude-frontend
 
     def setup(self, app, hooks, classes, routes):
-        # Safe to access claude-proxy's registrations here
+        # Safe to access claude-frontend's registrations here
         pass
 ```
 

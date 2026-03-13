@@ -1,26 +1,26 @@
-"""CLI commands for the claude-env plugin: sf claude-env status/off."""
+"""CLI commands for the claude-env-intercept plugin: sf claude-env-intercept status/off."""
 
 from __future__ import annotations
 
 import typer
 
-from screamingface.plugins.claude_env.shellenv import (
+from screamingface.plugins.claude_env_intercept.shellenv import (
     current_exports,
     has_exports,
     remove_exports,
     shell_profiles,
 )
 
-claude_env_app = typer.Typer(
-    name="claude-env",
+claude_env_intercept_app = typer.Typer(
+    name="claude-env-intercept",
     help="Manage Claude Code environment variable redirection.",
     no_args_is_help=True,
 )
 
 
-@claude_env_app.command()
+@claude_env_intercept_app.command()
 def status() -> None:
-    """Show current claude-env state."""
+    """Show current claude-env-intercept state."""
     if has_exports():
         exports = current_exports()
         typer.echo("Claude Env: ACTIVE")
@@ -33,7 +33,7 @@ def status() -> None:
         typer.echo("  No exports in shell profiles")
 
 
-@claude_env_app.command()
+@claude_env_intercept_app.command()
 def off() -> None:
     """Remove Claude Code env vars from shell profiles."""
     remove_exports()

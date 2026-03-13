@@ -25,13 +25,13 @@ def state_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def state_file(state_dir: Path) -> Path:
-    return state_dir / "intercept-state.json"
+    return state_dir / "claude-intercept-state.json"
 
 
 @pytest.fixture
 def _patch_state_file(state_file: Path):
     """Redirect STATE_FILE to a temp path for all state tests."""
-    with patch("screamingface.plugins.intercept.state.STATE_FILE", state_file):
+    with patch("screamingface.plugins.claude_intercept.state.STATE_FILE", state_file):
         yield
 
 
@@ -53,9 +53,9 @@ def hosts_file(tmp_path: Path) -> Path:
 def _patch_hosts_file(hosts_file: Path):
     """Redirect HOSTS_FILE and disable sudo writes for hosts tests."""
     with (
-        patch("screamingface.plugins.intercept.hosts.HOSTS_FILE", hosts_file),
+        patch("screamingface.plugins.claude_intercept.hosts.HOSTS_FILE", hosts_file),
         patch(
-            "screamingface.plugins.intercept.hosts._write_hosts",
+            "screamingface.plugins.claude_intercept.hosts._write_hosts",
             side_effect=lambda content: hosts_file.write_text(content),
         ),
     ):
@@ -72,7 +72,11 @@ class TestState:
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_save_and_load_roundtrip(self, state_file: Path) -> None:
-        from screamingface.plugins.intercept.state import InterceptState, load_state, save_state
+        from screamingface.plugins.claude_intercept.state import (
+            InterceptState,
+            load_state,
+            save_state,
+        )
 
         state = InterceptState(
             active=True,
@@ -92,13 +96,13 @@ class TestState:
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_load_returns_none_when_missing(self) -> None:
-        from screamingface.plugins.intercept.state import load_state
+        from screamingface.plugins.claude_intercept.state import load_state
 
         assert load_state() is None
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_load_returns_none_on_corrupt_json(self, state_file: Path) -> None:
-        from screamingface.plugins.intercept.state import load_state
+        from screamingface.plugins.claude_intercept.state import load_state
 
         state_file.parent.mkdir(parents=True, exist_ok=True)
         state_file.write_text("not valid json{{{")
@@ -106,7 +110,7 @@ class TestState:
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_load_returns_none_on_missing_fields(self, state_file: Path) -> None:
-        from screamingface.plugins.intercept.state import load_state
+        from screamingface.plugins.claude_intercept.state import load_state
 
         state_file.parent.mkdir(parents=True, exist_ok=True)
         state_file.write_text(json.dumps({"active": True}))  # missing fields
@@ -114,7 +118,11 @@ class TestState:
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_clear_state(self, state_file: Path) -> None:
-        from screamingface.plugins.intercept.state import InterceptState, clear_state, save_state
+        from screamingface.plugins.claude_intercept.state import (
+            InterceptState,
+            clear_state,
+            save_state,
+        )
 
         save_state(
             InterceptState(
@@ -131,13 +139,17 @@ class TestState:
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_clear_state_noop_when_missing(self) -> None:
-        from screamingface.plugins.intercept.state import clear_state
+        from screamingface.plugins.claude_intercept.state import clear_state
 
         clear_state()  # should not raise
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_is_stale_with_dead_pid(self, state_file: Path) -> None:
-        from screamingface.plugins.intercept.state import InterceptState, is_stale, save_state
+        from screamingface.plugins.claude_intercept.state import (
+            InterceptState,
+            is_stale,
+            save_state,
+        )
 
         save_state(
             InterceptState(
@@ -152,7 +164,11 @@ class TestState:
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_is_stale_with_live_pid(self, state_file: Path) -> None:
-        from screamingface.plugins.intercept.state import InterceptState, is_stale, save_state
+        from screamingface.plugins.claude_intercept.state import (
+            InterceptState,
+            is_stale,
+            save_state,
+        )
 
         save_state(
             InterceptState(
@@ -167,13 +183,17 @@ class TestState:
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_is_stale_no_state(self) -> None:
-        from screamingface.plugins.intercept.state import is_stale
+        from screamingface.plugins.claude_intercept.state import is_stale
 
         assert is_stale() is False
 
     @pytest.mark.usefixtures("_patch_state_file")
     def test_is_stale_inactive_state(self, state_file: Path) -> None:
-        from screamingface.plugins.intercept.state import InterceptState, is_stale, save_state
+        from screamingface.plugins.claude_intercept.state import (
+            InterceptState,
+            is_stale,
+            save_state,
+        )
 
         save_state(
             InterceptState(
@@ -197,7 +217,11 @@ class TestHosts:
 
     @pytest.mark.usefixtures("_patch_hosts_file")
     def test_add_entries(self, hosts_file: Path) -> None:
-        from screamingface.plugins.intercept.hosts import MARKER_BEGIN, MARKER_END, add_entries
+        from screamingface.plugins.claude_intercept.hosts import (
+            MARKER_BEGIN,
+            MARKER_END,
+            add_entries,
+        )
 
         add_entries(["api.anthropic.com"])
         content = hosts_file.read_text()
@@ -209,7 +233,7 @@ class TestHosts:
 
     @pytest.mark.usefixtures("_patch_hosts_file")
     def test_add_multiple_domains(self, hosts_file: Path) -> None:
-        from screamingface.plugins.intercept.hosts import add_entries
+        from screamingface.plugins.claude_intercept.hosts import add_entries
 
         add_entries(["api.anthropic.com", "api.openai.com"])
         content = hosts_file.read_text()
@@ -218,7 +242,7 @@ class TestHosts:
 
     @pytest.mark.usefixtures("_patch_hosts_file")
     def test_add_custom_target_ip(self, hosts_file: Path) -> None:
-        from screamingface.plugins.intercept.hosts import add_entries
+        from screamingface.plugins.claude_intercept.hosts import add_entries
 
         add_entries(["api.anthropic.com"], target="10.0.0.1")
         content = hosts_file.read_text()
@@ -226,7 +250,7 @@ class TestHosts:
 
     @pytest.mark.usefixtures("_patch_hosts_file")
     def test_add_entries_idempotent(self, hosts_file: Path) -> None:
-        from screamingface.plugins.intercept.hosts import MARKER_BEGIN, add_entries
+        from screamingface.plugins.claude_intercept.hosts import MARKER_BEGIN, add_entries
 
         add_entries(["api.anthropic.com"])
         add_entries(["api.anthropic.com"])
@@ -236,7 +260,7 @@ class TestHosts:
 
     @pytest.mark.usefixtures("_patch_hosts_file")
     def test_remove_entries(self, hosts_file: Path) -> None:
-        from screamingface.plugins.intercept.hosts import (
+        from screamingface.plugins.claude_intercept.hosts import (
             MARKER_BEGIN,
             add_entries,
             remove_entries,
@@ -254,7 +278,7 @@ class TestHosts:
 
     @pytest.mark.usefixtures("_patch_hosts_file")
     def test_remove_entries_noop_when_missing(self, hosts_file: Path) -> None:
-        from screamingface.plugins.intercept.hosts import remove_entries
+        from screamingface.plugins.claude_intercept.hosts import remove_entries
 
         original = hosts_file.read_text()
         remove_entries()  # should not raise
@@ -262,7 +286,7 @@ class TestHosts:
 
     @pytest.mark.usefixtures("_patch_hosts_file")
     def test_has_entries(self, hosts_file: Path) -> None:
-        from screamingface.plugins.intercept.hosts import add_entries, has_entries
+        from screamingface.plugins.claude_intercept.hosts import add_entries, has_entries
 
         assert has_entries() is False
         add_entries(["api.anthropic.com"])
@@ -270,7 +294,7 @@ class TestHosts:
 
     @pytest.mark.usefixtures("_patch_hosts_file")
     def test_strip_preserves_surrounding_content(self, hosts_file: Path) -> None:
-        from screamingface.plugins.intercept.hosts import add_entries, remove_entries
+        from screamingface.plugins.claude_intercept.hosts import add_entries, remove_entries
 
         # Add custom content after original
         original = hosts_file.read_text()
@@ -293,12 +317,12 @@ class TestCerts:
     """Tests for intercept cert generation."""
 
     def test_ensure_intercept_certs_calls_mkcert(self) -> None:
-        from screamingface.plugins.intercept.certs import ensure_intercept_certs
+        from screamingface.plugins.claude_intercept.certs import ensure_intercept_certs
 
         with (
-            patch("screamingface.plugins.intercept.certs.ensure_mkcert_installed"),
-            patch("screamingface.plugins.intercept.certs.ensure_ca_installed"),
-            patch("screamingface.plugins.intercept.certs.DEFAULT_CERT_DIR") as mock_dir,
+            patch("screamingface.plugins.claude_intercept.certs.ensure_mkcert_installed"),
+            patch("screamingface.plugins.claude_intercept.certs.ensure_ca_installed"),
+            patch("screamingface.plugins.claude_intercept.certs.DEFAULT_CERT_DIR") as mock_dir,
             patch("subprocess.run") as mock_run,
         ):
             mock_dir.mkdir = MagicMock()
@@ -314,12 +338,12 @@ class TestCerts:
             assert "api.anthropic.com" in cmd
 
     def test_ensure_intercept_certs_multiple_domains(self) -> None:
-        from screamingface.plugins.intercept.certs import ensure_intercept_certs
+        from screamingface.plugins.claude_intercept.certs import ensure_intercept_certs
 
         with (
-            patch("screamingface.plugins.intercept.certs.ensure_mkcert_installed"),
-            patch("screamingface.plugins.intercept.certs.ensure_ca_installed"),
-            patch("screamingface.plugins.intercept.certs.DEFAULT_CERT_DIR") as mock_dir,
+            patch("screamingface.plugins.claude_intercept.certs.ensure_mkcert_installed"),
+            patch("screamingface.plugins.claude_intercept.certs.ensure_ca_installed"),
+            patch("screamingface.plugins.claude_intercept.certs.DEFAULT_CERT_DIR") as mock_dir,
             patch("subprocess.run") as mock_run,
         ):
             mock_dir.mkdir = MagicMock()
@@ -337,51 +361,84 @@ class TestCerts:
 # ===================================================================
 
 
-class TestInterceptPlugin:
-    """Tests for the InterceptPlugin orchestrator."""
+class TestClaudeInterceptPlugin:
+    """Tests for the ClaudeInterceptPlugin orchestrator."""
 
     def test_preflight_passes_when_mkcert_available(self) -> None:
-        from screamingface.plugins.intercept.plugin import InterceptPlugin, InterceptSettings
+        from screamingface.plugins.claude_intercept.plugin import (
+            ClaudeInterceptPlugin,
+            ClaudeInterceptSettings,
+        )
 
-        plugin = InterceptPlugin()
-        plugin.settings = InterceptSettings()
-        with patch("shutil.which", return_value="/usr/local/bin/mkcert"):
+        plugin = ClaudeInterceptPlugin()
+        plugin.settings = ClaudeInterceptSettings()
+        with (
+            patch("shutil.which", return_value="/usr/local/bin/mkcert"),
+            patch("os.getuid", return_value=0),
+        ):
             ok, reason = plugin.preflight()
         assert ok is True
         assert reason == ""
 
     def test_preflight_fails_when_mkcert_missing(self) -> None:
-        from screamingface.plugins.intercept.plugin import InterceptPlugin, InterceptSettings
+        from screamingface.plugins.claude_intercept.plugin import (
+            ClaudeInterceptPlugin,
+            ClaudeInterceptSettings,
+        )
 
-        plugin = InterceptPlugin()
-        plugin.settings = InterceptSettings()
+        plugin = ClaudeInterceptPlugin()
+        plugin.settings = ClaudeInterceptSettings()
         with patch("shutil.which", return_value=None):
             ok, reason = plugin.preflight()
         assert ok is False
         assert "mkcert" in reason
 
-    def test_preflight_auto_cleans_stale_state(self) -> None:
-        from screamingface.plugins.intercept.plugin import InterceptPlugin, InterceptSettings
+    def test_preflight_fails_without_root(self) -> None:
+        from screamingface.plugins.claude_intercept.plugin import (
+            ClaudeInterceptPlugin,
+            ClaudeInterceptSettings,
+        )
 
-        plugin = InterceptPlugin()
-        plugin.settings = InterceptSettings(auto_cleanup=True)
+        plugin = ClaudeInterceptPlugin()
+        plugin.settings = ClaudeInterceptSettings()
         with (
             patch("shutil.which", return_value="/usr/local/bin/mkcert"),
-            patch("screamingface.plugins.intercept.plugin.is_stale", return_value=True),
-            patch("screamingface.plugins.intercept.plugin._cleanup_stale") as mock_cleanup,
+            patch("os.getuid", return_value=1000),
+        ):
+            ok, reason = plugin.preflight()
+        assert ok is False
+        assert "root" in reason
+
+    def test_preflight_auto_cleans_stale_state(self) -> None:
+        from screamingface.plugins.claude_intercept.plugin import (
+            ClaudeInterceptPlugin,
+            ClaudeInterceptSettings,
+        )
+
+        plugin = ClaudeInterceptPlugin()
+        plugin.settings = ClaudeInterceptSettings(auto_cleanup=True)
+        with (
+            patch("shutil.which", return_value="/usr/local/bin/mkcert"),
+            patch("os.getuid", return_value=0),
+            patch("screamingface.plugins.claude_intercept.plugin.is_stale", return_value=True),
+            patch("screamingface.plugins.claude_intercept.plugin._cleanup_stale") as mock_cleanup,
         ):
             ok, reason = plugin.preflight()
         assert ok is True
         mock_cleanup.assert_called_once()
 
     def test_preflight_fails_on_stale_without_auto_cleanup(self) -> None:
-        from screamingface.plugins.intercept.plugin import InterceptPlugin, InterceptSettings
+        from screamingface.plugins.claude_intercept.plugin import (
+            ClaudeInterceptPlugin,
+            ClaudeInterceptSettings,
+        )
 
-        plugin = InterceptPlugin()
-        plugin.settings = InterceptSettings(auto_cleanup=False)
+        plugin = ClaudeInterceptPlugin()
+        plugin.settings = ClaudeInterceptSettings(auto_cleanup=False)
         with (
             patch("shutil.which", return_value="/usr/local/bin/mkcert"),
-            patch("screamingface.plugins.intercept.plugin.is_stale", return_value=True),
+            patch("os.getuid", return_value=0),
+            patch("screamingface.plugins.claude_intercept.plugin.is_stale", return_value=True),
         ):
             ok, reason = plugin.preflight()
         assert ok is False
@@ -389,13 +446,17 @@ class TestInterceptPlugin:
 
     def test_setup_full_lifecycle(self) -> None:
         """Test the full setup: DNS resolve → certs → hosts → pfctl → state → hook."""
-        from screamingface.plugins.intercept.plugin import InterceptPlugin, InterceptSettings
+        from screamingface.plugins.claude_intercept.plugin import (
+            ClaudeInterceptPlugin,
+            ClaudeInterceptSettings,
+        )
 
-        plugin = InterceptPlugin()
-        plugin.settings = InterceptSettings(domains=["api.anthropic.com"], server_port=8000)
+        plugin = ClaudeInterceptPlugin()
+        plugin.settings = ClaudeInterceptSettings(domains=["api.anthropic.com"])
 
         app = MagicMock()
         app.state = MagicMock()
+        app.state.config.server.port = 8000
         hooks = MagicMock()
         classes = MagicMock()
         routes = MagicMock()
@@ -403,18 +464,22 @@ class TestInterceptPlugin:
         fake_addr = [(2, 1, 6, "", ("93.184.216.34", 443))]
 
         with (
+            patch("screamingface.plugins.claude_intercept.plugin.has_entries", return_value=False),
             patch("socket.getaddrinfo", return_value=fake_addr),
-            patch("screamingface.plugins.intercept.plugin.dns") as mock_dns,
+            patch("screamingface.plugins.claude_intercept.plugin.dns") as mock_dns,
             patch(
-                "screamingface.plugins.intercept.plugin.ensure_intercept_certs",
+                "screamingface.plugins.claude_intercept.plugin.ensure_intercept_certs",
                 return_value=(Path("/fake/cert.pem"), Path("/fake/key.pem")),
             ),
-            patch("screamingface.plugins.intercept.plugin.ensure_node_trusts_ca"),
-            patch("screamingface.plugins.intercept.plugin.add_entries") as mock_add,
-            patch("screamingface.plugins.intercept.plugin.flush_dns") as mock_flush,
-            patch("screamingface.plugins.intercept.plugin.save_state") as mock_save,
-            patch("screamingface.plugins.intercept.plugin.hosts_hash", return_value="abc"),
-            patch("screamingface.plugins.intercept.plugin.now_iso", return_value="2026-01-01"),
+            patch("screamingface.plugins.claude_intercept.plugin.ensure_node_trusts_ca"),
+            patch("screamingface.plugins.claude_intercept.plugin.add_entries") as mock_add,
+            patch("screamingface.plugins.claude_intercept.plugin.flush_dns") as mock_flush,
+            patch("screamingface.plugins.claude_intercept.plugin.save_state") as mock_save,
+            patch("screamingface.plugins.claude_intercept.plugin.hosts_hash", return_value="abc"),
+            patch(
+                "screamingface.plugins.claude_intercept.plugin.now_iso",
+                return_value="2026-01-01",
+            ),
             patch("subprocess.run"),  # pfctl
         ):
             plugin.setup(app, hooks, classes, routes)
@@ -435,18 +500,18 @@ class TestInterceptPlugin:
         assert saved_state.domains == ["api.anthropic.com"]
         # Shutdown hook registered
         hooks.register.assert_called_once_with(
-            "app.shutdown", plugin._on_shutdown, plugin_name="intercept"
+            "app.shutdown", plugin._on_shutdown, plugin_name="claude-intercept"
         )
 
     def test_teardown_cleans_up(self) -> None:
-        from screamingface.plugins.intercept.plugin import InterceptPlugin
+        from screamingface.plugins.claude_intercept.plugin import ClaudeInterceptPlugin
 
-        plugin = InterceptPlugin()
+        plugin = ClaudeInterceptPlugin()
         with (
-            patch("screamingface.plugins.intercept.plugin.dns") as mock_dns,
-            patch("screamingface.plugins.intercept.plugin.remove_entries") as mock_remove,
-            patch("screamingface.plugins.intercept.plugin.flush_dns") as mock_flush,
-            patch("screamingface.plugins.intercept.plugin.clear_state") as mock_clear,
+            patch("screamingface.plugins.claude_intercept.plugin.dns") as mock_dns,
+            patch("screamingface.plugins.claude_intercept.plugin.remove_entries") as mock_remove,
+            patch("screamingface.plugins.claude_intercept.plugin.flush_dns") as mock_flush,
+            patch("screamingface.plugins.claude_intercept.plugin.clear_state") as mock_clear,
             patch("subprocess.run"),  # pfctl -d
         ):
             plugin.teardown()
@@ -458,14 +523,14 @@ class TestInterceptPlugin:
 
     @pytest.mark.anyio
     async def test_on_shutdown_cleans_up(self) -> None:
-        from screamingface.plugins.intercept.plugin import InterceptPlugin
+        from screamingface.plugins.claude_intercept.plugin import ClaudeInterceptPlugin
 
-        plugin = InterceptPlugin()
+        plugin = ClaudeInterceptPlugin()
         with (
-            patch("screamingface.plugins.intercept.plugin.dns") as mock_dns,
-            patch("screamingface.plugins.intercept.plugin.remove_entries") as mock_remove,
-            patch("screamingface.plugins.intercept.plugin.flush_dns") as mock_flush,
-            patch("screamingface.plugins.intercept.plugin.clear_state") as mock_clear,
+            patch("screamingface.plugins.claude_intercept.plugin.dns") as mock_dns,
+            patch("screamingface.plugins.claude_intercept.plugin.remove_entries") as mock_remove,
+            patch("screamingface.plugins.claude_intercept.plugin.flush_dns") as mock_flush,
+            patch("screamingface.plugins.claude_intercept.plugin.clear_state") as mock_clear,
             patch("subprocess.run"),  # pfctl -d
         ):
             await plugin._on_shutdown()
@@ -476,9 +541,9 @@ class TestInterceptPlugin:
         mock_clear.assert_called_once()
 
     def test_setup_port_forward_calls_pfctl(self) -> None:
-        from screamingface.plugins.intercept.plugin import InterceptPlugin
+        from screamingface.plugins.claude_intercept.plugin import ClaudeInterceptPlugin
 
-        plugin = InterceptPlugin()
+        plugin = ClaudeInterceptPlugin()
         with patch("subprocess.run") as mock_run:
             plugin._setup_port_forward(8000)
 
@@ -490,18 +555,21 @@ class TestInterceptPlugin:
         assert b"port 8000" in stdin
 
     def test_teardown_port_forward_calls_pfctl(self) -> None:
-        from screamingface.plugins.intercept.plugin import InterceptPlugin
+        from screamingface.plugins.claude_intercept.plugin import ClaudeInterceptPlugin
 
         with patch("subprocess.run") as mock_run:
-            InterceptPlugin._teardown_port_forward()
+            ClaudeInterceptPlugin._teardown_port_forward()
 
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
         assert cmd == ["sudo", "pfctl", "-d"]
 
     def test_cleanup_stale(self) -> None:
-        from screamingface.plugins.intercept.plugin import InterceptPlugin, _cleanup_stale
-        from screamingface.plugins.intercept.state import InterceptState
+        from screamingface.plugins.claude_intercept.plugin import (
+            ClaudeInterceptPlugin,
+            _cleanup_stale,
+        )
+        from screamingface.plugins.claude_intercept.state import InterceptState
 
         state = InterceptState(
             active=True,
@@ -511,11 +579,11 @@ class TestInterceptPlugin:
             pid=999999999,
         )
         with (
-            patch("screamingface.plugins.intercept.plugin.load_state", return_value=state),
-            patch("screamingface.plugins.intercept.plugin.remove_entries") as mock_remove,
-            patch("screamingface.plugins.intercept.plugin.flush_dns") as mock_flush,
-            patch("screamingface.plugins.intercept.plugin.clear_state") as mock_clear,
-            patch.object(InterceptPlugin, "_teardown_port_forward") as mock_pfctl,
+            patch("screamingface.plugins.claude_intercept.plugin.load_state", return_value=state),
+            patch("screamingface.plugins.claude_intercept.plugin.remove_entries") as mock_remove,
+            patch("screamingface.plugins.claude_intercept.plugin.flush_dns") as mock_flush,
+            patch("screamingface.plugins.claude_intercept.plugin.clear_state") as mock_clear,
+            patch.object(ClaudeInterceptPlugin, "_teardown_port_forward") as mock_pfctl,
         ):
             _cleanup_stale()
 
@@ -535,7 +603,7 @@ class TestDNSOverride:
 
     def test_install_overrides_getaddrinfo(self) -> None:
         """After install(), getaddrinfo returns real IP for intercepted domains."""
-        from screamingface.plugins.intercept import dns
+        from screamingface.plugins.claude_intercept import dns
 
         original = socket.getaddrinfo
         try:
@@ -551,7 +619,7 @@ class TestDNSOverride:
 
     def test_non_intercepted_domain_unchanged(self) -> None:
         """Domains not in the override map resolve normally."""
-        from screamingface.plugins.intercept import dns
+        from screamingface.plugins.claude_intercept import dns
 
         try:
             dns.install({"example.com": "93.184.216.34"})
@@ -565,7 +633,7 @@ class TestDNSOverride:
 
     def test_uninstall_restores_original(self) -> None:
         """After uninstall(), getaddrinfo is the original function."""
-        from screamingface.plugins.intercept import dns
+        from screamingface.plugins.claude_intercept import dns
 
         original = socket.getaddrinfo
         dns.install({"example.com": "1.2.3.4"})
@@ -576,7 +644,7 @@ class TestDNSOverride:
 
     def test_install_idempotent(self) -> None:
         """Calling install() twice doesn't stack patches."""
-        from screamingface.plugins.intercept import dns
+        from screamingface.plugins.claude_intercept import dns
 
         try:
             dns.install({"a.com": "1.1.1.1"})
@@ -598,12 +666,15 @@ class TestTrust:
     """Tests for making Node.js trust the mkcert CA."""
 
     def test_ensure_shell_profile_adds_line(self, tmp_path: Path) -> None:
-        from screamingface.plugins.intercept.trust import MARKER, _ensure_shell_profile
+        from screamingface.plugins.claude_intercept.trust import MARKER, _ensure_shell_profile
 
         profile = tmp_path / ".zshrc"
         profile.write_text("# existing content\n")
 
-        with patch("screamingface.plugins.intercept.trust._shell_profiles", return_value=[profile]):
+        with patch(
+            "screamingface.plugins.claude_intercept.trust._shell_profiles",
+            return_value=[profile],
+        ):
             result = _ensure_shell_profile(Path("/fake/rootCA.pem"))
 
         assert result is True
@@ -614,12 +685,15 @@ class TestTrust:
         assert "# existing content" in content
 
     def test_ensure_shell_profile_idempotent(self, tmp_path: Path) -> None:
-        from screamingface.plugins.intercept.trust import MARKER, _ensure_shell_profile
+        from screamingface.plugins.claude_intercept.trust import MARKER, _ensure_shell_profile
 
         profile = tmp_path / ".zshrc"
         profile.write_text(f'export NODE_EXTRA_CA_CERTS="/fake/rootCA.pem"  {MARKER}\n')
 
-        with patch("screamingface.plugins.intercept.trust._shell_profiles", return_value=[profile]):
+        with patch(
+            "screamingface.plugins.claude_intercept.trust._shell_profiles",
+            return_value=[profile],
+        ):
             result = _ensure_shell_profile(Path("/fake/rootCA.pem"))
 
         assert result is True
@@ -628,12 +702,15 @@ class TestTrust:
         assert content.count(MARKER) == 1
 
     def test_ensure_shell_profile_creates_if_missing(self, tmp_path: Path) -> None:
-        from screamingface.plugins.intercept.trust import _ensure_shell_profile
+        from screamingface.plugins.claude_intercept.trust import _ensure_shell_profile
 
         profile = tmp_path / ".zshrc"
         assert not profile.exists()
 
-        with patch("screamingface.plugins.intercept.trust._shell_profiles", return_value=[profile]):
+        with patch(
+            "screamingface.plugins.claude_intercept.trust._shell_profiles",
+            return_value=[profile],
+        ):
             result = _ensure_shell_profile(Path("/fake/rootCA.pem"))
 
         assert result is True
@@ -641,7 +718,7 @@ class TestTrust:
         assert "NODE_EXTRA_CA_CERTS" in profile.read_text()
 
     def test_mkcert_ca_root_returns_path(self) -> None:
-        from screamingface.plugins.intercept.trust import mkcert_ca_root
+        from screamingface.plugins.claude_intercept.trust import mkcert_ca_root
 
         with (
             patch("subprocess.run") as mock_run,
@@ -654,7 +731,7 @@ class TestTrust:
         assert str(result).endswith("rootCA.pem")
 
     def test_mkcert_ca_root_returns_none_on_error(self) -> None:
-        from screamingface.plugins.intercept.trust import mkcert_ca_root
+        from screamingface.plugins.claude_intercept.trust import mkcert_ca_root
 
         with patch("subprocess.run", side_effect=FileNotFoundError):
             result = mkcert_ca_root()
@@ -663,7 +740,7 @@ class TestTrust:
 
     @pytest.mark.skipif(sys.platform != "darwin", reason="launchctl is macOS only")
     def test_ensure_launchctl_calls_setenv(self) -> None:
-        from screamingface.plugins.intercept.trust import _ensure_launchctl
+        from screamingface.plugins.claude_intercept.trust import _ensure_launchctl
 
         with patch("subprocess.run") as mock_run:
             _ensure_launchctl(Path("/fake/rootCA.pem"))
@@ -686,14 +763,14 @@ class TestInterceptCLI:
     def test_status_inactive(self) -> None:
         from typer.testing import CliRunner
 
-        from screamingface.plugins.intercept.cli import intercept_app
+        from screamingface.plugins.claude_intercept.cli import claude_intercept_app
 
         runner = CliRunner()
         with (
-            patch("screamingface.plugins.intercept.cli.load_state", return_value=None),
-            patch("screamingface.plugins.intercept.cli.has_entries", return_value=False),
+            patch("screamingface.plugins.claude_intercept.cli.load_state", return_value=None),
+            patch("screamingface.plugins.claude_intercept.cli.has_entries", return_value=False),
         ):
-            result = runner.invoke(intercept_app, ["status"])
+            result = runner.invoke(claude_intercept_app, ["status"])
 
         assert result.exit_code == 0
         assert "INACTIVE" in result.output
@@ -701,8 +778,8 @@ class TestInterceptCLI:
     def test_status_active(self) -> None:
         from typer.testing import CliRunner
 
-        from screamingface.plugins.intercept.cli import intercept_app
-        from screamingface.plugins.intercept.state import InterceptState
+        from screamingface.plugins.claude_intercept.cli import claude_intercept_app
+        from screamingface.plugins.claude_intercept.state import InterceptState
 
         runner = CliRunner()
         state = InterceptState(
@@ -713,11 +790,11 @@ class TestInterceptCLI:
             pid=os.getpid(),
         )
         with (
-            patch("screamingface.plugins.intercept.cli.load_state", return_value=state),
-            patch("screamingface.plugins.intercept.cli.has_entries", return_value=True),
-            patch("screamingface.plugins.intercept.cli.is_stale", return_value=False),
+            patch("screamingface.plugins.claude_intercept.cli.load_state", return_value=state),
+            patch("screamingface.plugins.claude_intercept.cli.has_entries", return_value=True),
+            patch("screamingface.plugins.claude_intercept.cli.is_stale", return_value=False),
         ):
-            result = runner.invoke(intercept_app, ["status"])
+            result = runner.invoke(claude_intercept_app, ["status"])
 
         assert result.exit_code == 0
         assert "ACTIVE" in result.output
@@ -726,8 +803,8 @@ class TestInterceptCLI:
     def test_status_stale(self) -> None:
         from typer.testing import CliRunner
 
-        from screamingface.plugins.intercept.cli import intercept_app
-        from screamingface.plugins.intercept.state import InterceptState
+        from screamingface.plugins.claude_intercept.cli import claude_intercept_app
+        from screamingface.plugins.claude_intercept.state import InterceptState
 
         runner = CliRunner()
         state = InterceptState(
@@ -738,11 +815,11 @@ class TestInterceptCLI:
             pid=999999999,
         )
         with (
-            patch("screamingface.plugins.intercept.cli.load_state", return_value=state),
-            patch("screamingface.plugins.intercept.cli.has_entries", return_value=True),
-            patch("screamingface.plugins.intercept.cli.is_stale", return_value=True),
+            patch("screamingface.plugins.claude_intercept.cli.load_state", return_value=state),
+            patch("screamingface.plugins.claude_intercept.cli.has_entries", return_value=True),
+            patch("screamingface.plugins.claude_intercept.cli.is_stale", return_value=True),
         ):
-            result = runner.invoke(intercept_app, ["status"])
+            result = runner.invoke(claude_intercept_app, ["status"])
 
         assert result.exit_code == 0
         assert "STALE" in result.output
@@ -750,14 +827,14 @@ class TestInterceptCLI:
     def test_status_inactive_with_leftover_hosts(self) -> None:
         from typer.testing import CliRunner
 
-        from screamingface.plugins.intercept.cli import intercept_app
+        from screamingface.plugins.claude_intercept.cli import claude_intercept_app
 
         runner = CliRunner()
         with (
-            patch("screamingface.plugins.intercept.cli.load_state", return_value=None),
-            patch("screamingface.plugins.intercept.cli.has_entries", return_value=True),
+            patch("screamingface.plugins.claude_intercept.cli.load_state", return_value=None),
+            patch("screamingface.plugins.claude_intercept.cli.has_entries", return_value=True),
         ):
-            result = runner.invoke(intercept_app, ["status"])
+            result = runner.invoke(claude_intercept_app, ["status"])
 
         assert result.exit_code == 0
         assert "INACTIVE" in result.output
@@ -766,18 +843,18 @@ class TestInterceptCLI:
     def test_off_cleans_up(self) -> None:
         from typer.testing import CliRunner
 
-        from screamingface.plugins.intercept.cli import intercept_app
+        from screamingface.plugins.claude_intercept.cli import claude_intercept_app
 
         runner = CliRunner()
         with (
-            patch("screamingface.plugins.intercept.cli.remove_entries") as mock_remove,
-            patch("screamingface.plugins.intercept.cli.flush_dns") as mock_flush,
-            patch("screamingface.plugins.intercept.cli.clear_state") as mock_clear,
+            patch("screamingface.plugins.claude_intercept.cli.remove_entries") as mock_remove,
+            patch("screamingface.plugins.claude_intercept.cli.flush_dns") as mock_flush,
+            patch("screamingface.plugins.claude_intercept.cli.clear_state") as mock_clear,
             patch(
-                "screamingface.plugins.intercept.cli.InterceptPlugin._teardown_port_forward",
+                "screamingface.plugins.claude_intercept.cli.ClaudeInterceptPlugin._teardown_port_forward",
             ) as mock_pfctl,
         ):
-            result = runner.invoke(intercept_app, ["off"])
+            result = runner.invoke(claude_intercept_app, ["off"])
 
         assert result.exit_code == 0
         assert "Done" in result.output
@@ -798,17 +875,17 @@ class TestRegisterCLI:
     def test_intercept_plugin_registers_cli(self) -> None:
         import typer
 
-        from screamingface.plugins.intercept.plugin import InterceptPlugin
+        from screamingface.plugins.claude_intercept.plugin import ClaudeInterceptPlugin
 
         app = typer.Typer()
-        InterceptPlugin.register_cli(app)
+        ClaudeInterceptPlugin.register_cli(app)
 
         # Verify a sub-typer was added (registered_groups is typer's internal)
         group_names = [
             g.typer_instance.info.name  # type: ignore[union-attr]
             for g in app.registered_groups
         ]
-        assert "intercept" in group_names
+        assert "claude-intercept" in group_names
 
     def test_base_plugin_register_cli_is_noop(self) -> None:
         import typer
@@ -819,3 +896,188 @@ class TestRegisterCLI:
         Plugin.register_cli(app)
         # No groups added
         assert len(app.registered_groups) == 0
+
+
+# ===================================================================
+# E2E tests — app-level integration via create_app
+# ===================================================================
+
+
+class TestInterceptE2E:
+    """End-to-end tests that boot the full app with intercept + claude-proxy."""
+
+    @pytest.fixture
+    def hosts_file(self, tmp_path: Path) -> Path:
+        """Temp file simulating /etc/hosts."""
+        f = tmp_path / "hosts"
+        f.write_text(
+            textwrap.dedent("""\
+            127.0.0.1 localhost
+            255.255.255.255 broadcasthost
+            ::1 localhost
+        """)
+        )
+        return f
+
+    @pytest.fixture
+    def state_file(self, tmp_path: Path) -> Path:
+        return tmp_path / "screamingface" / "claude-intercept-state.json"
+
+    @pytest.fixture
+    def _mock_system_calls(self, hosts_file: Path, state_file: Path):
+        """Patch all privileged operations so tests run without root."""
+        fake_addr = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+
+        with (
+            # Redirect file paths to temp
+            patch("screamingface.plugins.claude_intercept.hosts.HOSTS_FILE", hosts_file),
+            patch("screamingface.plugins.claude_intercept.state.HOSTS_FILE", hosts_file),
+            patch("screamingface.plugins.claude_intercept.state.STATE_FILE", state_file),
+            # Write hosts to temp file instead of via sudo tee
+            patch(
+                "screamingface.plugins.claude_intercept.hosts._write_hosts",
+                side_effect=lambda content: hosts_file.write_text(content),
+            ),
+            # Stub subprocess.run for pfctl/dscacheutil/killall/mkcert
+            patch("subprocess.run", return_value=MagicMock(returncode=0)),
+            # Stub shutil.which for mkcert + claude
+            patch("shutil.which", return_value="/usr/local/bin/mkcert"),
+            # Stub cert generation
+            patch(
+                "screamingface.plugins.claude_intercept.certs.ensure_mkcert_installed",
+            ),
+            patch(
+                "screamingface.plugins.claude_intercept.certs.ensure_ca_installed",
+            ),
+            patch(
+                "screamingface.plugins.claude_intercept.certs.DEFAULT_CERT_DIR",
+                new_callable=lambda: type(
+                    "P",
+                    (),
+                    {
+                        "mkdir": lambda *a, **kw: None,
+                        "__truediv__": lambda self, name: Path(f"/fake/certs/{name}"),
+                    },
+                ),
+            ),
+            # Stub Node trust setup
+            patch("screamingface.plugins.claude_intercept.trust.ensure_node_trusts_ca"),
+            # Stub os.getuid to pretend we're root
+            patch("os.getuid", return_value=0),
+            # Stub socket.getaddrinfo for DNS resolution
+            patch("socket.getaddrinfo", return_value=fake_addr),
+        ):
+            yield
+
+    @pytest.fixture
+    def claude_intercept_app(self, _mock_system_calls):
+        from screamingface.core.app import create_app
+        from screamingface.core.config import AppConfig
+
+        config = AppConfig(
+            plugins=["claude-intercept", "claude-frontend"],
+            plugin_config={
+                "claude-intercept": {"domains": ["api.anthropic.com"]},
+                "claude-frontend": {"upstream_url": "https://api.anthropic.com"},
+            },
+        )
+        return create_app(config)
+
+    def test_plugin_activates_via_app(self, claude_intercept_app) -> None:
+        """Intercept plugin appears in active_plugins and sets intercept_domains."""
+        assert "claude-intercept" in claude_intercept_app.state.plugins.active_plugins
+        assert "api.anthropic.com" in claude_intercept_app.state.intercept_domains
+
+    def test_hosts_entries_added(self, claude_intercept_app, hosts_file: Path) -> None:
+        """Temp hosts file contains marker block with domain entries."""
+        from screamingface.plugins.claude_intercept.hosts import MARKER_BEGIN, MARKER_END
+
+        content = hosts_file.read_text()
+        assert MARKER_BEGIN in content
+        assert "127.0.0.1 api.anthropic.com" in content
+        assert MARKER_END in content
+
+    def test_state_saved(self, claude_intercept_app, state_file: Path) -> None:
+        """State file exists with active: true and correct domains."""
+        assert state_file.exists()
+        data = json.loads(state_file.read_text())
+        assert data["active"] is True
+        assert "api.anthropic.com" in data["domains"]
+
+    def test_pfctl_called(self, claude_intercept_app, _mock_system_calls) -> None:
+        """subprocess.run was called with pfctl to set up port forwarding."""
+        import subprocess
+
+        # subprocess.run is already mocked — check it was called with pfctl args
+        calls = subprocess.run.call_args_list  # type: ignore[attr-defined]
+        pfctl_calls = [c for c in calls if c[0] and c[0][0][:2] == ["sudo", "pfctl"]]
+        assert len(pfctl_calls) > 0
+
+    def test_shutdown_cleans_up(
+        self, claude_intercept_app, hosts_file: Path, state_file: Path
+    ) -> None:
+        """After lifespan exit, hosts are cleaned and state is cleared."""
+        from fastapi.testclient import TestClient
+
+        from screamingface.plugins.claude_intercept.hosts import MARKER_BEGIN
+
+        with TestClient(claude_intercept_app):
+            pass  # enter and exit lifespan
+
+        content = hosts_file.read_text()
+        assert MARKER_BEGIN not in content
+        assert not state_file.exists()
+
+    def test_proxy_handles_intercepted_request(self, claude_intercept_app) -> None:
+        """POST /v1/messages with intercepted Host header gets proxied."""
+        import httpx
+        from fastapi.testclient import TestClient
+
+        mock_response = httpx.Response(
+            200,
+            json={"id": "msg_123", "content": [{"type": "text", "text": "Hello"}]},
+        )
+
+        with (
+            TestClient(claude_intercept_app) as client,
+            patch("httpx.AsyncClient.send", return_value=mock_response),
+        ):
+            resp = client.post(
+                "/v1/messages",
+                json={"model": "claude-sonnet-4-20250514", "max_tokens": 10, "messages": []},
+                headers={
+                    "Host": "api.anthropic.com",
+                    "x-api-key": "sk-test-key-1234",
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+            )
+            assert resp.status_code == 200
+            assert resp.json()["id"] == "msg_123"
+
+    def test_requires_root_in_plugins_endpoint(self, claude_intercept_app) -> None:
+        """GET /plugins returns requires_root: true for intercept."""
+        from fastapi.testclient import TestClient
+
+        with TestClient(claude_intercept_app) as client:
+            resp = client.get("/plugins")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["claude-intercept"]["requires_root"] is True
+
+    def test_preflight_fails_without_root(self) -> None:
+        """Plugin preflight fails when not running as root."""
+        from screamingface.plugins.claude_intercept.plugin import (
+            ClaudeInterceptPlugin,
+            ClaudeInterceptSettings,
+        )
+
+        plugin = ClaudeInterceptPlugin()
+        plugin.settings = ClaudeInterceptSettings()
+        with (
+            patch("shutil.which", return_value="/usr/local/bin/mkcert"),
+            patch("os.getuid", return_value=1000),
+        ):
+            ok, reason = plugin.preflight()
+        assert ok is False
+        assert "root" in reason

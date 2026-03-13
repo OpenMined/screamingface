@@ -10,8 +10,8 @@ from screamingface.core.ssl import DEFAULT_CERT_DIR, ensure_ca_installed, ensure
 
 logger = logging.getLogger(__name__)
 
-INTERCEPT_CERT = DEFAULT_CERT_DIR / "intercept.pem"
-INTERCEPT_KEY = DEFAULT_CERT_DIR / "intercept-key.pem"
+INTERCEPT_CERT = DEFAULT_CERT_DIR / "claude-intercept.pem"
+INTERCEPT_KEY = DEFAULT_CERT_DIR / "claude-intercept-key.pem"
 
 
 def ensure_intercept_certs(domains: list[str]) -> tuple[Path, Path]:

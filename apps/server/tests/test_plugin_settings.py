@@ -12,25 +12,25 @@ from fastapi.testclient import TestClient
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
 from screamingface.plugin import Plugin
-from screamingface.plugins.claude_proxy.plugin import ClaudeProxySettings
+from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings
 
 # --- Settings resolution ---
 
 
 def test_settings_defaults() -> None:
-    settings = ClaudeProxySettings()
+    settings = ClaudeFrontendSettings()
     assert settings.upstream_url == "https://api.anthropic.com"
     assert settings.api_key_env == "ANTHROPIC_API_KEY"
 
 
 def test_settings_init_override() -> None:
-    settings = ClaudeProxySettings(upstream_url="http://custom")
+    settings = ClaudeFrontendSettings(upstream_url="http://custom")
     assert settings.upstream_url == "http://custom"
 
 
 def test_env_var_wins_over_init(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SF_CLAUDE_PROXY__UPSTREAM_URL", "http://env")
-    settings = ClaudeProxySettings(upstream_url="http://json")
+    monkeypatch.setenv("SF_CLAUDE_FRONTEND__UPSTREAM_URL", "http://env")
+    settings = ClaudeFrontendSettings(upstream_url="http://json")
     assert settings.upstream_url == "http://env"
 
 
@@ -76,9 +76,9 @@ def test_system_dep_check_fails(caplog: pytest.LogCaptureFixture) -> None:
 @pytest.fixture
 def proxy_settings_app() -> FastAPI:
     config = AppConfig(
-        plugins=["claude-proxy"],
+        plugins=["claude-frontend"],
         plugin_config={
-            "claude-proxy": {
+            "claude-frontend": {
                 "upstream_url": "https://api.anthropic.com",
                 "api_key_env": "ANTHROPIC_API_KEY",
             }
@@ -97,13 +97,13 @@ def test_plugins_list_endpoint(settings_client: TestClient) -> None:
     resp = settings_client.get("/plugins")
     assert resp.status_code == 200
     data = resp.json()
-    assert "claude-proxy" in data
-    assert data["claude-proxy"]["version"] == "0.1.0"
-    assert data["claude-proxy"]["has_settings"] is True
+    assert "claude-frontend" in data
+    assert data["claude-frontend"]["version"] == "0.1.0"
+    assert data["claude-frontend"]["has_settings"] is True
 
 
 def test_plugin_schema_endpoint(settings_client: TestClient) -> None:
-    resp = settings_client.get("/plugins/claude-proxy/schema")
+    resp = settings_client.get("/plugins/claude-frontend/schema")
     assert resp.status_code == 200
     schema = resp.json()
     assert "properties" in schema
@@ -112,7 +112,7 @@ def test_plugin_schema_endpoint(settings_client: TestClient) -> None:
 
 
 def test_plugin_settings_endpoint(settings_client: TestClient) -> None:
-    resp = settings_client.get("/plugins/claude-proxy/settings")
+    resp = settings_client.get("/plugins/claude-frontend/settings")
     assert resp.status_code == 200
     data = resp.json()
     assert data["upstream_url"] == "https://api.anthropic.com"

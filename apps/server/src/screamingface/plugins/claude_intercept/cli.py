@@ -1,21 +1,22 @@
-"""CLI commands for the intercept plugin: sf intercept status/off."""
+"""CLI commands for the claude-intercept plugin: sf claude-intercept status/off."""
 
 from __future__ import annotations
 
 import typer
 
-from screamingface.plugins.intercept.hosts import flush_dns, has_entries, remove_entries
-from screamingface.plugins.intercept.plugin import InterceptPlugin
-from screamingface.plugins.intercept.state import clear_state, is_stale, load_state
+from screamingface.plugins.claude_intercept.hosts import flush_dns, has_entries, remove_entries
+from screamingface.plugins.claude_intercept.plugin import ClaudeInterceptPlugin
+from screamingface.plugins.claude_intercept.state import clear_state, is_stale, load_state
+from screamingface.plugins.claude_intercept.trust import remove_node_ca_trust
 
-intercept_app = typer.Typer(
-    name="intercept",
+claude_intercept_app = typer.Typer(
+    name="claude-intercept",
     help="Manage DNS/SSL interception for AI API traffic.",
     no_args_is_help=True,
 )
 
 
-@intercept_app.command()
+@claude_intercept_app.command()
 def status() -> None:
     """Show current intercept state."""
     state = load_state()
@@ -32,15 +33,18 @@ def status() -> None:
     else:
         typer.echo("Intercept: INACTIVE")
         if hosts_active:
-            typer.echo("  WARNING: /etc/hosts still has intercept entries (run 'sf intercept off')")
+            typer.echo(
+                "  WARNING: /etc/hosts still has intercept entries (run 'sf claude-intercept off')"
+            )
 
 
-@intercept_app.command()
+@claude_intercept_app.command()
 def off() -> None:
     """Force cleanup — remove DNS entries and port forwarding."""
     typer.echo("Cleaning up intercept state...")
     remove_entries()
     flush_dns()
-    InterceptPlugin._teardown_port_forward()
+    ClaudeInterceptPlugin._teardown_port_forward()
+    remove_node_ca_trust()
     clear_state()
-    typer.echo("Done. DNS and port forwarding restored.")
+    typer.echo("Done. DNS, port forwarding, and shell profiles restored.")

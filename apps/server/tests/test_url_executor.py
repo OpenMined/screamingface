@@ -21,8 +21,12 @@ from screamingface.plugins.url_executor.plugin import UrlExecutorSettings
 def app_with_executor() -> FastAPI:
     with patch("shutil.which", return_value="/usr/local/bin/claude"):
         config = AppConfig(
-            plugins=["url-executor"],
-            plugin_config={"url-executor": {}},
+            plugins=["claude-cli", "claude-frontend", "url-executor"],
+            plugin_config={
+                "claude-cli": {},
+                "claude-frontend": {},
+                "url-executor": {},
+            },
         )
         return create_app(config)
 

@@ -24,11 +24,11 @@ def test_create_app_with_direct_config() -> None:
 
 def test_create_app_from_runtime_env(monkeypatch) -> None:
     """_SF_RUNTIME_CONFIG env var is consumed by create_app."""
-    cfg = AppConfig(plugins=["claude-proxy"], server={"port": 9999})  # type: ignore[arg-type]
+    cfg = AppConfig(plugins=["claude-frontend"], server={"port": 9999})  # type: ignore[arg-type]
     monkeypatch.setenv("_SF_RUNTIME_CONFIG", cfg.model_dump_json())
     app = create_app()
     assert app.state.config.server.port == 9999
-    assert app.state.config.plugins == ["claude-proxy"]
+    assert app.state.config.plugins == ["claude-frontend"]
     # Env var should be consumed (popped)
     assert os.environ.get("_SF_RUNTIME_CONFIG", "") == ""
 

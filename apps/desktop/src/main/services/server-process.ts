@@ -1,9 +1,12 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, spawn, execFileSync, execFile as execFileCb } from 'child_process';
 import { join } from 'path';
 import { EventEmitter } from 'events';
+import { promisify } from 'util';
 import https from 'https';
 import http from 'http';
 import { configService } from './config-service';
+
+const execFileAsync = promisify(execFileCb);
 
 export type ServerStatus = 'stopped' | 'starting' | 'ready' | 'error' | 'restarting';
 
@@ -46,20 +49,82 @@ class ServerProcess extends EventEmitter {
     return { status: this.status, info: this.readyInfo };
   }
 
+  /**
+   * Check if any enabled plugin requires root privileges by querying
+   * the `sf plugin list --json` CLI output.
+   */
+  private needsRoot(): boolean {
+    try {
+      const raw = execFileSync(this.sfBin, ['plugin', 'list', '--json'], {
+        cwd: this.serverDir,
+        timeout: 10_000,
+      }).toString();
+      const plugins = JSON.parse(raw) as Record<string, { requires_root?: boolean }>;
+      const config = configService.read();
+      const enabled = (config.plugins ?? []) as string[];
+      return enabled.some((name) => plugins[name]?.requires_root === true);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Prompt for the admin password via a native macOS dialog.
+   * Returns null if the user cancels.
+   */
+  private async promptForPassword(): Promise<string | null> {
+    try {
+      const { stdout } = await execFileAsync('osascript', [
+        '-e',
+        'display dialog "ScreamingFace needs administrator privileges for the claude-intercept plugin." default answer "" with hidden answer with title "ScreamingFace" buttons {"Cancel", "OK"} default button "OK"',
+        '-e',
+        'text returned of result',
+      ]);
+      return stdout.trim() || null;
+    } catch {
+      return null; // User pressed Cancel
+    }
+  }
+
   async start(): Promise<boolean> {
-    if (this.child) return false;
+    if (this.child || this.status === 'starting') return false;
 
     this.setStatus('starting');
     this.readyInfo = null;
     this.stopping = false;
 
     const config = configService.read();
+    const configJson = JSON.stringify(config);
+    const args = ['run', '--subprocess', '--config-json', configJson];
 
-    const child = spawn(this.sfBin, ['run', '--subprocess', '--config-json', JSON.stringify(config)], {
-      cwd: this.serverDir,
-      env: { ...process.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    // If a plugin requires root and we're not already root, elevate via sudo
+    const elevate = this.needsRoot() && process.getuid?.() !== 0;
+    let child: ChildProcess;
+
+    if (elevate) {
+      const password = await this.promptForPassword();
+      if (!password) {
+        this.setStatus('stopped');
+        this.emit('log', 'Administrator authentication cancelled');
+        return false;
+      }
+
+      // Use sudo -S to read password from stdin; stdout/stderr stream normally
+      child = spawn('sudo', ['-S', this.sfBin, ...args], {
+        cwd: this.serverDir,
+        env: { ...process.env },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      child.stdin!.write(password + '\n');
+      child.stdin!.end();
+    } else {
+      child = spawn(this.sfBin, args, {
+        cwd: this.serverDir,
+        env: { ...process.env },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    }
 
     this.child = child;
 
@@ -118,7 +183,11 @@ class ServerProcess extends EventEmitter {
       child.kill('SIGTERM');
       // Fallback: force-kill after 5s if it hasn't exited
       setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch { /* already dead */ }
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* already dead */
+        }
         resolve();
       }, 5000);
     });
@@ -184,7 +253,10 @@ class ServerProcess extends EventEmitter {
 
   private pingHealth(): Promise<boolean> {
     return new Promise((resolve) => {
-      if (!this.readyInfo) { resolve(false); return; }
+      if (!this.readyInfo) {
+        resolve(false);
+        return;
+      }
 
       const { scheme, host, port } = this.readyInfo;
       const checkHost = host === '0.0.0.0' ? '127.0.0.1' : host;
@@ -232,12 +304,18 @@ class ServerProcess extends EventEmitter {
 
   private onHealthFailure(): void {
     this.healthFailures++;
-    this.emit('log', `Health check failed (${this.healthFailures}/${ServerProcess.MAX_HEALTH_FAILURES})`);
+    this.emit(
+      'log',
+      `Health check failed (${this.healthFailures}/${ServerProcess.MAX_HEALTH_FAILURES})`,
+    );
 
     if (this.healthFailures >= ServerProcess.MAX_HEALTH_FAILURES) {
       if (this.restartCount < ServerProcess.MAX_RESTARTS) {
         this.restartCount++;
-        this.emit('log', `Auto-restarting (attempt ${this.restartCount}/${ServerProcess.MAX_RESTARTS})...`);
+        this.emit(
+          'log',
+          `Auto-restarting (attempt ${this.restartCount}/${ServerProcess.MAX_RESTARTS})...`,
+        );
         setTimeout(() => this.autoRestart(), ServerProcess.RESTART_DELAY_MS);
       } else {
         this.setStatus('error');

@@ -1,6 +1,6 @@
-"""Claude Env plugin — redirect Claude Code via environment variables.
+"""Claude Env Intercept plugin — redirect Claude Code via environment variables.
 
-Zero-sudo alternative to the intercept plugin. Adds ANTHROPIC_BASE_URL and
+Zero-sudo alternative to the claude-intercept plugin. Adds ANTHROPIC_BASE_URL and
 NODE_EXTRA_CA_CERTS to the shell profile so Claude Code connects directly
 to the ScreamingFace server. No /etc/hosts, no pfctl, no port 443.
 """
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
-from screamingface.plugins.claude_env.shellenv import add_exports, remove_exports
+from screamingface.plugins.claude_env_intercept.shellenv import add_exports, remove_exports
 
 if TYPE_CHECKING:
     import typer
@@ -28,9 +28,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ClaudeEnvSettings(PluginSettings):
+class ClaudeEnvInterceptSettings(PluginSettings):
     model_config = SettingsConfigDict(
-        env_prefix="SF_CLAUDE_ENV__",
+        env_prefix="SF_CLAUDE_ENV_INTERCEPT__",
         env_nested_delimiter="__",
     )
     # The URL Claude Code will use to reach this server.
@@ -38,12 +38,35 @@ class ClaudeEnvSettings(PluginSettings):
     base_url: str | None = None
 
 
-class ClaudeEnvPlugin(Plugin):
-    name = "claude-env"
+class ClaudeEnvInterceptPlugin(Plugin):
+    name = "claude-env-intercept"
     description = "Redirect Claude Code via env vars — no sudo, no /etc/hosts, no port 443"
-    depends = ["claude-proxy"]
-    settings_class = ClaudeEnvSettings
+    depends = ["claude-frontend"]
+    conflicts = ["claude-intercept"]
+    settings_class = ClaudeEnvInterceptSettings
     system_deps = ["mkcert"]
+
+    # Keys that setup() may set via launchctl — needed for cleanup even
+    # if the instance that originally set them is long gone.
+    _LAUNCHCTL_KEYS = ("ANTHROPIC_BASE_URL", "NODE_EXTRA_CA_CERTS")
+
+    def cleanup_stale(self) -> None:
+        from screamingface.plugins.claude_env_intercept.shellenv import has_exports
+
+        if has_exports():
+            logger.info("Cleaning up stale claude-env-intercept exports from shell profiles")
+            remove_exports()
+        # Also unset launchctl vars that may have survived a crash
+        if sys.platform == "darwin":
+            for key in self._LAUNCHCTL_KEYS:
+                try:
+                    subprocess.run(
+                        ["launchctl", "unsetenv", key],
+                        check=False,
+                        capture_output=True,
+                    )
+                except FileNotFoundError:
+                    pass
 
     def preflight(self) -> tuple[bool, str]:
         ok, reason = super().preflight()
@@ -58,7 +81,7 @@ class ClaudeEnvPlugin(Plugin):
         classes: ClassRegistry,
         routes: RouteRegistry,
     ) -> None:
-        settings: ClaudeEnvSettings = self.settings  # type: ignore[assignment]
+        settings: ClaudeEnvInterceptSettings = self.settings  # type: ignore[assignment]
 
         # Determine the base URL for Claude Code
         base_url = settings.base_url
@@ -124,9 +147,9 @@ class ClaudeEnvPlugin(Plugin):
 
     @classmethod
     def register_cli(cls, app: typer.Typer) -> None:
-        from screamingface.plugins.claude_env.cli import claude_env_app
+        from screamingface.plugins.claude_env_intercept.cli import claude_env_intercept_app
 
-        app.add_typer(claude_env_app, name="claude-env")
+        app.add_typer(claude_env_intercept_app, name="claude-env-intercept")
 
 
 def _mkcert_ca_root() -> str | None:

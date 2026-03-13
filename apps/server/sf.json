@@ -2,24 +2,28 @@
   "version": "0.1.0",
   "server": {
     "host": "0.0.0.0",
-    "port": 8000,
+    "port": 443,
     "reload": true,
     "ssl": true,
     "ssl_certfile": null,
     "ssl_keyfile": null
   },
   "plugins": [
-    "claude-proxy",
+    "claude-frontend",
     "claude-cli",
-    "claude-env",
     "tracing",
-    "url-executor"
+    "url-executor",
+    "claude-intercept"
   ],
   "url4config": "https://localhost:{port}/claude/run?p={prompt}",
   "plugin_config": {
-    "claude-proxy": {
+    "claude-frontend": {
       "upstream_url": "https://api.anthropic.com",
       "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    "claude-intercept": {
+      "auto_cleanup": true,
+      "server_port": 8001
     }
   }
 }

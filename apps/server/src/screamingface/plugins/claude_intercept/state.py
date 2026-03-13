@@ -1,4 +1,4 @@
-"""Durable state for crash recovery of the intercept plugin."""
+"""Durable state for crash recovery of the claude-intercept plugin."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-STATE_FILE = Path("~/.screamingface/intercept-state.json").expanduser()
+STATE_FILE = Path("~/.screamingface/claude-intercept-state.json").expanduser()
 HOSTS_FILE = Path("/etc/hosts")
 
 
@@ -23,6 +23,7 @@ class InterceptState:
     domains: list[str]
     original_hosts_hash: str  # SHA256 of /etc/hosts before modification
     pid: int  # server PID that activated
+    real_ips: dict[str, str] | None = None  # domain → real IP (persisted across reloads)
 
 
 def save_state(state: InterceptState) -> None:

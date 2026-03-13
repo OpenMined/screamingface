@@ -1,4 +1,4 @@
-"""Tests for the claude-proxy plugin."""
+"""Tests for the claude-frontend plugin."""
 
 from __future__ import annotations
 
@@ -16,10 +16,10 @@ from screamingface.core.config import AppConfig
 @pytest.fixture
 def proxy_app() -> FastAPI:
     config = AppConfig(
-        plugins=["claude-proxy"],
+        plugins=["claude-frontend"],
         url4config=None,
         plugin_config={
-            "claude-proxy": {
+            "claude-frontend": {
                 "upstream_url": "https://api.anthropic.com",
                 "api_key_env": "ANTHROPIC_API_KEY",
             }
@@ -36,7 +36,7 @@ def proxy_client(proxy_app: FastAPI) -> TestClient:
 
 def test_proxy_plugin_discovered(proxy_app: FastAPI) -> None:
     active = proxy_app.state.plugins.active_plugins
-    assert "claude-proxy" in active
+    assert "claude-frontend" in active
 
 
 def test_proxy_non_streaming(proxy_client: TestClient) -> None:
@@ -109,9 +109,9 @@ def test_proxy_auth_fallback(proxy_client: TestClient, monkeypatch: pytest.Monke
 @pytest.fixture
 def proxy_app_with_url4() -> FastAPI:
     config = AppConfig(
-        plugins=["claude-proxy"],
+        plugins=["claude-frontend"],
         plugin_config={
-            "claude-proxy": {
+            "claude-frontend": {
                 "upstream_url": "https://api.anthropic.com",
                 "api_key_env": "ANTHROPIC_API_KEY",
             }

@@ -77,8 +77,25 @@ def run(
         cfg.server.reload = False
         os.environ["_SF_SUBPROCESS"] = "1"
 
-    # Auto-pick a free port if the configured one is busy (increment +1, +2, …)
-    if port is None:
+    # Check if any enabled plugin requires a specific port
+    required_port_by_plugin: int | None = None
+    if cfg.plugins:
+        from screamingface.core.registry import PluginRegistry
+
+        _reg = PluginRegistry()
+        _reg.discover()
+        for pname in cfg.plugins:
+            if pname in _reg.discovered_plugins:
+                p = _reg.load_plugin(pname)
+                if p.required_port is not None:
+                    required_port_by_plugin = p.required_port
+                    break
+
+    if required_port_by_plugin is not None:
+        # Plugin demands a specific port — force it, skip auto-increment
+        cfg.server.port = required_port_by_plugin
+    elif port is None:
+        # Auto-pick a free port if the configured one is busy (increment +1, +2, …)
         import socket
 
         candidate = cfg.server.port
@@ -119,13 +136,13 @@ def run(
             # Use user-provided paths (expand ~)
             ssl_certfile_path = str(Path(certfile).expanduser())
             ssl_keyfile_path = str(Path(keyfile).expanduser())
-        elif "intercept" in cfg.plugins:
-            # Intercept plugin needs certs that cover intercepted domains.
+        elif "claude-intercept" in cfg.plugins:
+            # Claude-intercept plugin needs certs that cover intercepted domains.
             # Generate them here since uvicorn.run() needs paths before
             # the plugin's setup() runs inside the factory.
-            from screamingface.plugins.intercept.certs import ensure_intercept_certs
+            from screamingface.plugins.claude_intercept.certs import ensure_intercept_certs
 
-            intercept_cfg = cfg.plugin_config.get("intercept", {})
+            intercept_cfg = cfg.plugin_config.get("claude-intercept", {})
             domains = intercept_cfg.get("domains", ["api.anthropic.com"])
             cert, key = ensure_intercept_certs(domains)  # type: ignore[arg-type]
             ssl_certfile_path = str(cert)
@@ -142,6 +159,10 @@ def run(
     # reloader fork (module-level state doesn't persist across forks).
     os.environ["_SF_RUNTIME_CONFIG"] = cfg.model_dump_json()
 
+    # Force standard asyncio event loop (not uvloop). The intercept plugin
+    # monkey-patches socket.getaddrinfo to bypass /etc/hosts for upstream
+    # connections. uvloop's getaddrinfo uses libuv's C-level resolver which
+    # ignores the Python-level patch, causing a routing loop.
     uvicorn.run(
         "screamingface.core.app:create_app",
         host=cfg.server.host,
@@ -149,6 +170,7 @@ def run(
         reload=cfg.server.reload,
         factory=True,
         log_level="info",
+        loop="asyncio",
         ssl_certfile=ssl_certfile_path,
         ssl_keyfile=ssl_keyfile_path,
     )

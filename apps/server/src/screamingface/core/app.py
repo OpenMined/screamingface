@@ -101,6 +101,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "version": p.version,
                 "description": p.description,
                 "has_settings": p.settings_class is not None,
+                "requires_root": p.requires_root,
+                "conflicts": p.conflicts,
             }
             for name, p in app.state.plugins.active_plugins.items()
         }
@@ -139,5 +141,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 classes=classes,
                 routes=routes,
             )
+
+    # Clean up stale side effects from previously-active-but-now-disabled plugins
+    # (e.g. shell profile entries, /etc/hosts modifications left behind when a
+    # plugin was removed while the server wasn't running)
+    inactive = set(plugin_registry.discovered_plugins.keys()) - set(
+        plugin_registry.active_plugins.keys()
+    )
+    for name in inactive:
+        try:
+            plugin = plugin_registry.load_plugin(name)
+            plugin.cleanup_stale()
+        except Exception:
+            logger.debug("cleanup_stale for %s failed (non-fatal)", name, exc_info=True)
 
     return app

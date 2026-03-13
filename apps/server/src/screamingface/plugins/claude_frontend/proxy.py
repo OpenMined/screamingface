@@ -7,9 +7,11 @@ import json
 import logging
 import os
 import re
+import ssl
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
+import certifi
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -17,7 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from screamingface.plugins.claude_proxy.plugin import ClaudeProxySettings
+    from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings
 
 FORWARD_HEADERS = {
     "anthropic-version",
@@ -89,11 +91,23 @@ def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-d
     return tracer.start_span(name, kind=SpanKind.CLIENT)
 
 
-def create_router(settings: ClaudeProxySettings) -> APIRouter:
+def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
     upstream_url = settings.upstream_url.rstrip("/")
     api_key_env = settings.api_key_env
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    logger.info("Proxy SSL context using certifi CA: %s", certifi.where())
 
-    router = APIRouter(tags=["claude-proxy"])
+    # Diagnostic: check DNS override at request time
+    import socket as _sock
+
+    def _log_dns(domain: str) -> None:
+        try:
+            results = _sock.getaddrinfo(domain, 443, _sock.AF_INET)
+            logger.info("DNS probe for %s → %s", domain, results[0][4][0])
+        except Exception as e:
+            logger.warning("DNS probe for %s failed: %s", domain, e)
+
+    router = APIRouter(tags=["claude-frontend"])
 
     async def _resolve_url4(request: Request, body: dict[str, Any]) -> str | None:
         """Resolve the url4 config and return the result text, or None to skip."""
@@ -109,7 +123,10 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
         roles = [m.get("role") for m in messages]
         has_assistant = any(r == "assistant" for r in roles)
         logger.info(
-            "ENRICH >>> msg_count=%d roles=%s has_assistant=%s", len(messages), roles, has_assistant
+            "ENRICH >>> msg_count=%d roles=%s has_assistant=%s",
+            len(messages),
+            roles,
+            has_assistant,
         )
         if has_assistant:
             logger.info("ENRICH >>> SKIPPED (conversation already has assistant messages)")
@@ -153,11 +170,15 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
             logger.info("url4 resolve — result: %s", result[:200])
             return result
         except Exception:
-            logger.warning("url4 resolution failed, falling through to Anthropic", exc_info=True)
+            logger.warning(
+                "url4 resolution failed, falling through to Anthropic", exc_info=True
+            )
             return None
 
     def _check_host(request: Request) -> None:
-        intercept_domains: set[str] | None = getattr(request.app.state, "intercept_domains", None)
+        intercept_domains: set[str] | None = getattr(
+            request.app.state, "intercept_domains", None
+        )
         if intercept_domains is None:
             return
         host = request.headers.get("host", "").split(":")[0]
@@ -222,26 +243,40 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
         )
 
         if is_streaming:
-            client = httpx.AsyncClient(timeout=timeout)
-            upstream_span = _start_client_span_detached(tracer, f"POST {url}") if tracer else None
+            client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
+            upstream_span = (
+                _start_client_span_detached(tracer, f"POST {url}") if tracer else None
+            )
             if upstream_span:
                 _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
-                _set_span_headers("request.headers", _redact_headers(headers), upstream_span)
-                _set_span_attrs({"request.body": _truncate(json.dumps(body))}, upstream_span)
+                _set_span_headers(
+                    "request.headers", _redact_headers(headers), upstream_span
+                )
+                _set_span_attrs(
+                    {"request.body": _truncate(json.dumps(body))}, upstream_span
+                )
 
             async def stream_response():
                 chunks: list[bytes] = []
                 try:
                     logger.info("STREAM >>> opening upstream connection to Anthropic")
-                    async with client.stream("POST", url, json=body, headers=headers) as resp:
+                    async with client.stream(
+                        "POST", url, json=body, headers=headers
+                    ) as resp:
                         logger.info(
                             "STREAM >>> upstream responded: status=%s content-type=%s",
                             resp.status_code,
                             resp.headers.get("content-type", "?"),
                         )
                         if upstream_span:
-                            _set_span_attrs({"http.status_code": resp.status_code}, upstream_span)
-                            _set_span_headers("response.headers", dict(resp.headers), upstream_span)
+                            _set_span_attrs(
+                                {"http.status_code": resp.status_code}, upstream_span
+                            )
+                            _set_span_headers(
+                                "response.headers",
+                                dict(resp.headers),
+                                upstream_span,
+                            )
                         chunk_count = 0
                         async for chunk in resp.aiter_bytes():
                             chunk_count += 1
@@ -260,27 +295,41 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
                             sum(len(c) for c in chunks),
                         )
                 except Exception as exc:
-                    logger.error("STREAM >>> ERROR during streaming: %s", exc, exc_info=True)
+                    logger.error(
+                        "STREAM >>> ERROR during streaming: %s", exc, exc_info=True
+                    )
                     raise
                 finally:
                     if chunks:
                         raw = b"".join(chunks).decode(errors="replace")
                         if upstream_span:
-                            _set_span_attrs({"response.body": _truncate(raw)}, upstream_span)
+                            _set_span_attrs(
+                                {"response.body": _truncate(raw)}, upstream_span
+                            )
                         _set_span_attrs({"response.body": _truncate(raw)})
                     if upstream_span:
                         upstream_span.end()
                     await client.aclose()
                     logger.info("STREAM >>> client closed")
 
-            return StreamingResponse(stream_response(), media_type="text/event-stream")
+            return StreamingResponse(
+                stream_response(), media_type="text/event-stream"
+            )
         else:
             if tracer:
                 with _start_client_span(tracer, f"POST {url}") as span:
-                    _set_span_attrs({"http.method": "POST", "http.url": url}, span)
-                    _set_span_headers("request.headers", _redact_headers(headers), span)
-                    _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
-                    async with httpx.AsyncClient(timeout=timeout) as client:
+                    _set_span_attrs(
+                        {"http.method": "POST", "http.url": url}, span
+                    )
+                    _set_span_headers(
+                        "request.headers", _redact_headers(headers), span
+                    )
+                    _set_span_attrs(
+                        {"request.body": _truncate(json.dumps(body))}, span
+                    )
+                    async with httpx.AsyncClient(
+                        timeout=timeout, verify=ssl_ctx
+                    ) as client:
                         resp = await client.post(url, json=body, headers=headers)
                     _set_span_attrs(
                         {
@@ -291,16 +340,25 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
                     )
                     _set_span_headers("response.headers", dict(resp.headers), span)
             else:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(
+                    timeout=timeout, verify=ssl_ctx
+                ) as client:
                     resp = await client.post(url, json=body, headers=headers)
             _set_span_attrs(
-                {"response.body": _truncate(resp.text), "http.status_code": resp.status_code},
+                {
+                    "response.body": _truncate(resp.text),
+                    "http.status_code": resp.status_code,
+                },
             )
             _set_span_headers("response.headers", dict(resp.headers))
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
-    @router.get("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_get")
-    @router.post("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_post")
+    @router.get(
+        "/v1/{path:path}", response_model=None, operation_id="proxy_catchall_get"
+    )
+    @router.post(
+        "/v1/{path:path}", response_model=None, operation_id="proxy_catchall_post"
+    )
     async def proxy_catchall(request: Request, path: str) -> Response:
         _check_host(request)
         headers = _build_headers(request)
@@ -316,30 +374,46 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
 
         _set_span_headers("request.headers", _redact_headers(headers))
         if body:
-            _set_span_attrs({"request.body": _truncate(body.decode(errors="replace"))})
+            _set_span_attrs(
+                {"request.body": _truncate(body.decode(errors="replace"))}
+            )
 
         if tracer:
             with _start_client_span(tracer, f"{method} {url}") as span:
-                _set_span_attrs({"http.method": method, "http.url": url}, span)
-                _set_span_headers("request.headers", _redact_headers(headers), span)
+                _set_span_attrs(
+                    {"http.method": method, "http.url": url}, span
+                )
+                _set_span_headers(
+                    "request.headers", _redact_headers(headers), span
+                )
                 if body:
                     _set_span_attrs(
                         {"request.body": _truncate(body.decode(errors="replace"))},
                         span,
                     )
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(
+                    timeout=timeout, verify=ssl_ctx
+                ) as client:
                     resp = await client.request(method, url, **kwargs)
                 _set_span_attrs(
-                    {"http.status_code": resp.status_code, "response.body": _truncate(resp.text)},
+                    {
+                        "http.status_code": resp.status_code,
+                        "response.body": _truncate(resp.text),
+                    },
                     span,
                 )
                 _set_span_headers("response.headers", dict(resp.headers), span)
         else:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=timeout, verify=ssl_ctx
+            ) as client:
                 resp = await client.request(method, url, **kwargs)
 
         _set_span_attrs(
-            {"response.body": _truncate(resp.text), "http.status_code": resp.status_code},
+            {
+                "response.body": _truncate(resp.text),
+                "http.status_code": resp.status_code,
+            },
         )
         _set_span_headers("response.headers", dict(resp.headers))
 
@@ -351,5 +425,44 @@ def create_router(settings: ClaudeProxySettings) -> APIRouter:
                 status_code=resp.status_code,
             )
         return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+    @router.api_route(
+        "/api/{path:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        response_model=None,
+        operation_id="proxy_passthrough",
+    )
+    async def proxy_passthrough(request: Request, path: str) -> Response:
+        """Forward /api/* requests to the real upstream (Claude Code telemetry, OAuth, etc.)."""
+        _check_host(request)
+        headers = _build_headers(request)
+        url = f"{upstream_url}/api/{path}"
+        method = request.method
+        timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+        _log_dns("api.anthropic.com")
+        logger.info(
+            "Passthrough %s %s → upstream %s", method, f"/api/{path}", url
+        )
+
+        body = await request.body()
+        kwargs: dict[str, Any] = {"headers": headers}
+        if body:
+            kwargs["content"] = body
+
+        async with httpx.AsyncClient(
+            timeout=timeout, verify=ssl_ctx
+        ) as client:
+            resp = await client.request(method, url, **kwargs)
+
+        content_type = resp.headers.get("content-type", "")
+        if "json" in content_type:
+            return JSONResponse(
+                content=resp.json(), status_code=resp.status_code
+            )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=content_type,
+        )
 
     return router
