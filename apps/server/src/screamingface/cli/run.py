@@ -159,6 +159,10 @@ def run(
     # reloader fork (module-level state doesn't persist across forks).
     os.environ["_SF_RUNTIME_CONFIG"] = cfg.model_dump_json()
 
+    # Force standard asyncio event loop (not uvloop). The intercept plugin
+    # monkey-patches socket.getaddrinfo to bypass /etc/hosts for upstream
+    # connections. uvloop's getaddrinfo uses libuv's C-level resolver which
+    # ignores the Python-level patch, causing a routing loop.
     uvicorn.run(
         "screamingface.core.app:create_app",
         host=cfg.server.host,
@@ -166,6 +170,7 @@ def run(
         reload=cfg.server.reload,
         factory=True,
         log_level="info",
+        loop="asyncio",
         ssl_certfile=ssl_certfile_path,
         ssl_keyfile=ssl_keyfile_path,
     )
