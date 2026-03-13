@@ -67,8 +67,7 @@ All config lives in `apps/server/sf.json`:
     "reload": true,
     "ssl": true
   },
-  "plugins": ["claude-frontend", "claude-env-intercept", "tracing", "url-executor"],
-  "url4config": null,
+  "plugins": ["claude-frontend", "claude-env-intercept", "tracing", "url4-executor"],
   "plugin_config": {
     "claude-frontend": {
       "upstream_url": "https://api.anthropic.com",
@@ -136,10 +135,10 @@ The server uses a plugin architecture inspired by Odoo. Plugins are discovered v
 Built-in plugins:
 - **claude-frontend** -- forwards Claude API requests to Anthropic (with optional url4 context enrichment)
 - **claude-env-intercept** -- writes proxy env vars to shell profile so Claude Code uses the local server
-- **claude-cli** -- runs Claude CLI commands from the server
+- **claude-backend** -- runs Claude CLI commands from the server
 - **tracing** -- OpenTelemetry instrumentation (requires `uv sync --extra tracing`)
 - **claude-intercept** -- DNS/hosts interception to transparently redirect Claude API traffic
-- **url-executor** -- executes url4 protocol URLs
+- **url4-executor** -- url4 protocol engine — parsing, resolution, and HTTP endpoint
 
 ## Pointing Claude Code at the Proxy
 

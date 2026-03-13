@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import validator from '@rjsf/validator-ajv8';
+import type { RJSFSchema } from '@rjsf/utils';
 import { useServerStatus } from '../hooks/use-server-status';
 import { useToast } from '../hooks/use-toast';
+import { ThemedForm, inlineRefs } from '../components/rjsf-theme';
 import type { DiscoveredPlugin } from '../../../preload/types';
 
 interface ServerConfig {
@@ -18,7 +21,6 @@ interface AppConfig {
   server: ServerConfig;
   plugins: string[];
   plugin_config: Record<string, Record<string, unknown>>;
-  url4config: string | null;
 }
 
 interface ServerPluginInfo {
@@ -27,19 +29,6 @@ interface ServerPluginInfo {
   has_settings: boolean;
   requires_root?: boolean;
   conflicts?: string[];
-}
-
-interface SchemaProperty {
-  type: string;
-  default?: unknown;
-  items?: { type: string };
-  title?: string;
-  description?: string;
-}
-
-interface PluginSchema {
-  properties: Record<string, SchemaProperty>;
-  required?: string[];
 }
 
 const defaultConfig: AppConfig = {
@@ -54,7 +43,6 @@ const defaultConfig: AppConfig = {
   },
   plugins: [],
   plugin_config: {},
-  url4config: null,
 };
 
 type PluginStatus = 'active' | 'configured' | 'missing';
@@ -92,7 +80,7 @@ export function SettingsView() {
   > | null>(null);
   const [newPluginName, setNewPluginName] = useState('');
   const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null);
-  const [pluginSchemas, setPluginSchemas] = useState<Record<string, PluginSchema>>({});
+  const [pluginSchemas, setPluginSchemas] = useState<Record<string, RJSFSchema>>({});
   const [pluginLiveSettings, setPluginLiveSettings] = useState<
     Record<string, Record<string, unknown>>
   >({});
@@ -102,30 +90,58 @@ export function SettingsView() {
   const { status: serverStatus, info: serverInfo } = useServerStatus();
   const { toast } = useToast();
 
+  // Server URL: prefer live info from process, fall back to config-derived URL
+  const serverUrl = serverInfo
+    ? `${serverInfo.scheme}://${serverInfo.host === '0.0.0.0' ? 'localhost' : serverInfo.host}:${serverInfo.port}`
+    : buildServerUrl(config);
+
+  // Fetch via main process to bypass self-signed cert issues
+  const serverFetch = useCallback(
+    async (url: string, init?: { method?: string; body?: string }) => {
+      const res = await window.electronAPI.server.fetch(url, init);
+      return { ok: res.ok, status: res.status, json: () => JSON.parse(res.body) };
+    },
+    [],
+  );
+
   // Auto-save: debounce writes to disk
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const configRef = useRef(config);
   configRef.current = config;
   const initialLoadRef = useRef(true);
+  const serverUrlRef = useRef(serverUrl);
+  serverUrlRef.current = serverUrl;
 
   const scheduleAutoSave = useCallback(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
       try {
-        await window.electronAPI.config.write(
-          configRef.current as unknown as Record<string, unknown>,
-        );
+        // Validate plugin settings with the server before saving
+        const cfg = configRef.current;
+        for (const [pluginName, settings] of Object.entries(cfg.plugin_config)) {
+          if (!cfg.plugins.includes(pluginName)) continue;
+          if (!settings || Object.keys(settings).length === 0) continue;
+          try {
+            const res = await serverFetch(
+              `${serverUrlRef.current}/plugins/${pluginName}/settings/validate`,
+              { method: 'POST', body: JSON.stringify(settings) },
+            );
+            if (!res.ok) {
+              const err = res.json();
+              toast(`${pluginName}: ${err.detail ?? 'Validation failed'}`, 'error');
+              return; // abort save
+            }
+          } catch {
+            // Server not reachable — skip server validation, save anyway
+          }
+        }
+        await window.electronAPI.config.write(cfg as unknown as Record<string, unknown>);
         toast('Settings saved', 'success', 2000);
       } catch {
         toast('Failed to save settings', 'error');
       }
     }, AUTO_SAVE_DELAY);
-  }, [toast]);
-
-  // Server URL: prefer live info from process, fall back to config-derived URL
-  const serverUrl = serverInfo
-    ? `${serverInfo.scheme}://${serverInfo.host === '0.0.0.0' ? 'localhost' : serverInfo.host}:${serverInfo.port}`
-    : buildServerUrl(config);
+  }, [toast, serverFetch]);
 
   // Discover available plugins via CLI (works without server)
   useEffect(() => {
@@ -134,12 +150,6 @@ export function SettingsView() {
         setDiscoveredPlugins(result);
       }
     });
-  }, []);
-
-  // Fetch via main process to bypass self-signed cert issues
-  const serverFetch = useCallback(async (url: string) => {
-    const res = await window.electronAPI.server.fetch(url);
-    return { ok: res.ok, json: () => JSON.parse(res.body) };
   }, []);
 
   // Fetch active plugin metadata from server
@@ -170,7 +180,7 @@ export function SettingsView() {
     ])
       .then(([schema, settings]) => {
         if (schema?.properties) {
-          setPluginSchemas((prev) => ({ ...prev, [name]: schema }));
+          setPluginSchemas((prev) => ({ ...prev, [name]: inlineRefs(schema) }));
         } else {
           setSchemaErrors((prev) => ({ ...prev, [name]: true }));
         }
@@ -276,37 +286,6 @@ export function SettingsView() {
     return null;
   };
 
-  const updatePluginConfig = (pluginName: string, field: string, value: unknown) => {
-    setConfig((prev) => ({
-      ...prev,
-      plugin_config: {
-        ...prev.plugin_config,
-        [pluginName]: {
-          ...prev.plugin_config[pluginName],
-          [field]: value,
-        },
-      },
-    }));
-    markDirty();
-  };
-
-  const getFieldValue = (
-    pluginName: string,
-    field: string,
-    schemaProp: SchemaProperty,
-  ): unknown => {
-    const localVal = config.plugin_config[pluginName]?.[field];
-    if (localVal !== undefined) return localVal;
-    const liveVal = pluginLiveSettings[pluginName]?.[field];
-    if (liveVal !== undefined) return liveVal;
-    return schemaProp.default;
-  };
-
-  const fieldLabel = (_name: string, prop: SchemaProperty): string => {
-    if (prop.title) return prop.title;
-    return _name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  };
-
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <h1 className="font-heading text-lg font-semibold text-foreground">Settings</h1>
@@ -360,27 +339,6 @@ export function SettingsView() {
             />
             Auto-reload
           </label>
-        </div>
-      </section>
-
-      {/* url4 context enrichment */}
-      <section className="rounded-lg border border-border bg-card p-4">
-        <h2 className="text-sm font-medium text-foreground">Context Enrichment</h2>
-        <p className="mt-1 text-[10px] text-muted-foreground">
-          A url4 URL that resolves to a prompt injected into every Claude API request.
-        </p>
-        <div className="mt-3">
-          <input
-            type="text"
-            value={config.url4config ?? ''}
-            onChange={(e) => {
-              const val = e.target.value.trim() || null;
-              setConfig((prev) => ({ ...prev, url4config: val }));
-              markDirty();
-            }}
-            placeholder="url4://project/context (leave empty to disable)"
-            className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-          />
         </div>
       </section>
 
@@ -465,118 +423,29 @@ export function SettingsView() {
                         </p>
                       )}
                       {schema && !schemaLoading[name] && (
-                        <div className="space-y-4">
-                          {Object.entries(schema.properties).map(([field, prop]) => {
-                            const value = getFieldValue(name, field, prop);
-                            const label = fieldLabel(field, prop);
-
-                            if (prop.type === 'boolean') {
-                              return (
-                                <div key={field}>
-                                  <label className="flex items-center gap-2.5 text-xs text-foreground">
-                                    <input
-                                      type="checkbox"
-                                      checked={Boolean(value)}
-                                      onChange={(e) =>
-                                        updatePluginConfig(name, field, e.target.checked)
-                                      }
-                                      className="h-3.5 w-3.5 rounded border-input"
-                                    />
-                                    {label}
-                                  </label>
-                                  {prop.description && (
-                                    <p className="mt-1 pl-6 text-[10px] text-muted-foreground/60">
-                                      {prop.description}
-                                    </p>
-                                  )}
-                                </div>
-                              );
+                        <ThemedForm
+                          schema={schema}
+                          formData={{
+                            ...pluginLiveSettings[name],
+                            ...config.plugin_config[name],
+                          }}
+                          validator={validator}
+                          liveValidate
+                          onChange={({ formData, errors }) => {
+                            setConfig((prev) => ({
+                              ...prev,
+                              plugin_config: {
+                                ...prev.plugin_config,
+                                [name]: formData,
+                              },
+                            }));
+                            if (!errors || errors.length === 0) {
+                              markDirty();
                             }
-
-                            if (prop.type === 'integer' || prop.type === 'number') {
-                              return (
-                                <div key={field} className="space-y-1.5">
-                                  <div>
-                                    <span className="text-xs text-muted-foreground">{label}</span>
-                                    {prop.description && (
-                                      <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-                                        {prop.description}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <input
-                                    type="number"
-                                    value={value != null ? String(value) : ''}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      updatePluginConfig(
-                                        name,
-                                        field,
-                                        v === ''
-                                          ? null
-                                          : prop.type === 'integer'
-                                            ? parseInt(v)
-                                            : parseFloat(v),
-                                      );
-                                    }}
-                                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                                  />
-                                </div>
-                              );
-                            }
-
-                            if (prop.type === 'array' && prop.items?.type === 'string') {
-                              const arrValue = Array.isArray(value)
-                                ? (value as string[]).join(', ')
-                                : '';
-                              return (
-                                <div key={field} className="space-y-1.5">
-                                  <div>
-                                    <span className="text-xs text-muted-foreground">{label}</span>
-                                    {prop.description && (
-                                      <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-                                        {prop.description}
-                                      </p>
-                                    )}
-                                  </div>
-                                  <input
-                                    type="text"
-                                    value={arrValue}
-                                    onChange={(e) => {
-                                      const parts = e.target.value
-                                        .split(',')
-                                        .map((s) => s.trim())
-                                        .filter(Boolean);
-                                      updatePluginConfig(name, field, parts);
-                                    }}
-                                    placeholder="Comma-separated values"
-                                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-                                  />
-                                </div>
-                              );
-                            }
-
-                            // Default: string or unknown type
-                            return (
-                              <div key={field} className="space-y-1.5">
-                                <div>
-                                  <span className="text-xs text-muted-foreground">{label}</span>
-                                  {prop.description && (
-                                    <p className="mt-0.5 text-[10px] text-muted-foreground/60">
-                                      {prop.description}
-                                    </p>
-                                  )}
-                                </div>
-                                <input
-                                  type="text"
-                                  value={value != null ? String(value) : ''}
-                                  onChange={(e) => updatePluginConfig(name, field, e.target.value)}
-                                  className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                                />
-                              </div>
-                            );
-                          })}
-                        </div>
+                          }}
+                          omitExtraData
+                          uiSchema={{ 'ui:submitButtonOptions': { norender: true } }}
+                        />
                       )}
                     </div>
                   )}

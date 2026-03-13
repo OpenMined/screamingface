@@ -103,7 +103,13 @@ class PluginRegistry:
             raw_config: dict[str, Any] = {}
             if app and hasattr(app.state, "config"):
                 raw_config = app.state.config.plugin_config.get(plugin.name, {})
-            plugin.settings = plugin.settings_class(**raw_config)
+            try:
+                plugin.settings = plugin.settings_class(**raw_config)
+            except Exception as exc:
+                logger.warning(
+                    "Plugin %r skipped: invalid config — %s", plugin.name, exc
+                )
+                return
 
         # Run plugin preflight check (includes system_deps validation)
         ok, reason = plugin.preflight()

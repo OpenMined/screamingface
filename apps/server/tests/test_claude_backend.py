@@ -1,4 +1,4 @@
-"""Tests for the claude-cli plugin."""
+"""Tests for the claude-backend plugin."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from fastapi.testclient import TestClient
 
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
-from screamingface.plugins.claude_cli.models import ClaudeRunRequest
-from screamingface.plugins.claude_cli.plugin import ClaudeCliSettings
-from screamingface.plugins.claude_cli.runner import build_args
+from screamingface.plugins.claude_backend.models import ClaudeRunRequest
+from screamingface.plugins.claude_backend.plugin import ClaudeBackendSettings
+from screamingface.plugins.claude_backend.runner import build_args
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -25,8 +25,8 @@ from screamingface.plugins.claude_cli.runner import build_args
 def cli_app() -> FastAPI:
     with patch("shutil.which", return_value="/usr/local/bin/claude"):
         config = AppConfig(
-            plugins=["claude-cli"],
-            plugin_config={"claude-cli": {}},
+            plugins=["claude-backend"],
+            plugin_config={"claude-backend": {}},
         )
         return create_app(config)
 
@@ -60,11 +60,11 @@ def _mock_process(stdout: bytes = b"", stderr: bytes = b"", returncode: int = 0)
 
 def test_plugin_discovered(cli_app: FastAPI) -> None:
     active = cli_app.state.plugins.active_plugins
-    assert "claude-cli" in active
+    assert "claude-backend" in active
 
 
 def test_settings_defaults() -> None:
-    settings = ClaudeCliSettings()
+    settings = ClaudeBackendSettings()
     assert settings.default_model is None
     assert settings.default_effort == "medium"
     assert settings.timeout_seconds == 300.0
@@ -74,8 +74,8 @@ def test_settings_defaults() -> None:
 
 
 def test_settings_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SF_CLAUDE_CLI__DEFAULT_MODEL", "claude-sonnet-4-20250514")
-    settings = ClaudeCliSettings()
+    monkeypatch.setenv("SF_CLAUDE_BACKEND__DEFAULT_MODEL", "claude-sonnet-4-20250514")
+    settings = ClaudeBackendSettings()
     assert settings.default_model == "claude-sonnet-4-20250514"
 
 
@@ -86,7 +86,7 @@ def test_settings_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_build_args_minimal() -> None:
     request = ClaudeRunRequest(prompt="hello")
-    settings = ClaudeCliSettings()
+    settings = ClaudeBackendSettings()
     args = build_args(request, settings)
     assert args[:2] == ["claude", "-p"]
     assert "--effort" in args
@@ -115,7 +115,7 @@ def test_build_args_full() -> None:
         dangerously_skip_permissions=True,
         no_session_persistence=False,
     )
-    settings = ClaudeCliSettings()
+    settings = ClaudeBackendSettings()
     args = build_args(request, settings, temp_dir="/tmp/tempfiles")
 
     assert "--model" in args
@@ -153,7 +153,7 @@ def test_build_args_full() -> None:
 def test_run_success(cli_client: TestClient) -> None:
     proc = _mock_process(stdout=b"Hello from Claude!", stderr=b"")
     with patch(
-        "screamingface.plugins.claude_cli.runner.asyncio.create_subprocess_exec",
+        "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
         new_callable=AsyncMock,
         return_value=proc,
     ):
@@ -170,7 +170,7 @@ def test_run_success(cli_client: TestClient) -> None:
 def test_run_cli_error(cli_client: TestClient) -> None:
     proc = _mock_process(stdout=b"", stderr=b"Error: something broke", returncode=1)
     with patch(
-        "screamingface.plugins.claude_cli.runner.asyncio.create_subprocess_exec",
+        "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
         new_callable=AsyncMock,
         return_value=proc,
     ):
@@ -186,7 +186,7 @@ def test_run_timeout(cli_client: TestClient) -> None:
     proc = _mock_process()
     proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
     with patch(
-        "screamingface.plugins.claude_cli.runner.asyncio.create_subprocess_exec",
+        "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
         new_callable=AsyncMock,
         return_value=proc,
     ):
@@ -201,7 +201,7 @@ def test_run_timeout(cli_client: TestClient) -> None:
 def test_run_with_files(cli_client: TestClient) -> None:
     proc = _mock_process(stdout=b"processed")
     with patch(
-        "screamingface.plugins.claude_cli.runner.asyncio.create_subprocess_exec",
+        "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
         new_callable=AsyncMock,
         return_value=proc,
     ) as mock_exec:
@@ -238,7 +238,7 @@ def test_run_json_output(cli_client: TestClient) -> None:
     payload = {"answer": 42, "reasoning": "because"}
     proc = _mock_process(stdout=json.dumps(payload).encode())
     with patch(
-        "screamingface.plugins.claude_cli.runner.asyncio.create_subprocess_exec",
+        "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
         new_callable=AsyncMock,
         return_value=proc,
     ):
@@ -263,7 +263,7 @@ def test_run_streaming(cli_client: TestClient) -> None:
     proc.stderr.read = AsyncMock(return_value=b"")
 
     with patch(
-        "screamingface.plugins.claude_cli.runner.asyncio.create_subprocess_exec",
+        "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
         new_callable=AsyncMock,
         return_value=proc,
     ):
@@ -287,7 +287,7 @@ def test_alias_acceptance(cli_client: TestClient) -> None:
     """POST with short aliases is accepted."""
     proc = _mock_process(stdout=b"ok", stderr=b"")
     with patch(
-        "screamingface.plugins.claude_cli.runner.asyncio.create_subprocess_exec",
+        "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
         new_callable=AsyncMock,
         return_value=proc,
     ):
@@ -306,7 +306,7 @@ def test_long_name_acceptance(cli_client: TestClient) -> None:
     """POST with long field names is still accepted."""
     proc = _mock_process(stdout=b"ok", stderr=b"")
     with patch(
-        "screamingface.plugins.claude_cli.runner.asyncio.create_subprocess_exec",
+        "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
         new_callable=AsyncMock,
         return_value=proc,
     ):

@@ -16,7 +16,9 @@ export function useServerStatus() {
 
     const unsub1 = window.electronAPI.server.onStatusChanged((s) => {
       setStatus(s);
-      if (s === 'ready') {
+      if (s === 'starting') {
+        setLogs([]);
+      } else if (s === 'ready') {
         // Re-fetch to get the updated info (host/port/scheme)
         window.electronAPI.server.getStatus().then((full) => setInfo(full.info));
       } else if (s === 'stopped' || s === 'error') {

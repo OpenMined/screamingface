@@ -30,7 +30,7 @@ apps/server/
 │   │   ├── run.py         # sf run — uvicorn launcher
 │   │   └── plugin.py      # sf plugin list|info|enable|disable
 │   └── plugins/           # Built-in plugins (auto-discovered)
-│       └── claude_proxy/  # Reference plugin
+│       └── claude_frontend/  # Reference plugin
 ├── tests/
 ├── sf.json                # Runtime config
 └── pyproject.toml
@@ -118,8 +118,7 @@ def setup(self, app, hooks, classes, routes):
   "plugins": ["claude-frontend"],
   "plugin_config": {
     "claude-frontend": {
-      "upstream_url": "https://api.anthropic.com",
-      "api_key_env": "ANTHROPIC_API_KEY"
+      "upstream_url": "https://api.anthropic.com"
     }
   }
 }

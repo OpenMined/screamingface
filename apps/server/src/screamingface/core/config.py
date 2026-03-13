@@ -29,7 +29,6 @@ class AppConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     plugins: list[str] = Field(default_factory=list)
     plugin_config: dict[str, dict[str, object]] = Field(default_factory=dict)
-    url4config: str | None = None
 
 
 def load_config(path: Path | None = None) -> AppConfig:

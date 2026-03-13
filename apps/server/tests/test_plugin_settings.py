@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -20,7 +20,8 @@ from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings
 def test_settings_defaults() -> None:
     settings = ClaudeFrontendSettings()
     assert settings.upstream_url == "https://api.anthropic.com"
-    assert settings.api_key_env == "ANTHROPIC_API_KEY"
+    assert settings.listen_port == 9101
+    assert settings.domains == ["api.anthropic.com"]
 
 
 def test_settings_init_override() -> None:
@@ -73,6 +74,26 @@ def test_system_dep_check_fails(caplog: pytest.LogCaptureFixture) -> None:
 # --- API endpoints ---
 
 
+async def _noop_serve():
+    pass
+
+
+def _mock_frontend_server():
+    """Context manager that prevents claude-frontend from starting a real server."""
+    mock_server = MagicMock()
+    mock_server.should_exit = False
+    mock_server.serve = _noop_serve
+    return (
+        patch("shutil.which", return_value="/usr/bin/claude"),
+        patch("screamingface.plugins.claude_frontend.plugin.uvicorn.Config"),
+        patch(
+            "screamingface.plugins.claude_frontend.plugin.uvicorn.Server",
+            return_value=mock_server,
+        ),
+        patch("screamingface.plugins.claude_frontend.plugin._wait_for_port", return_value=True),
+    )
+
+
 @pytest.fixture
 def proxy_settings_app() -> FastAPI:
     config = AppConfig(
@@ -80,11 +101,12 @@ def proxy_settings_app() -> FastAPI:
         plugin_config={
             "claude-frontend": {
                 "upstream_url": "https://api.anthropic.com",
-                "api_key_env": "ANTHROPIC_API_KEY",
+                "listen_port": 18081,
             }
         },
     )
-    with patch("shutil.which", return_value="/usr/bin/claude"):
+    p1, p2, p3, p4 = _mock_frontend_server()
+    with p1, p2, p3, p4:
         return create_app(config)
 
 
@@ -108,7 +130,8 @@ def test_plugin_schema_endpoint(settings_client: TestClient) -> None:
     schema = resp.json()
     assert "properties" in schema
     assert "upstream_url" in schema["properties"]
-    assert "api_key_env" in schema["properties"]
+    assert "listen_port" in schema["properties"]
+    assert "domains" in schema["properties"]
 
 
 def test_plugin_settings_endpoint(settings_client: TestClient) -> None:
@@ -116,7 +139,7 @@ def test_plugin_settings_endpoint(settings_client: TestClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["upstream_url"] == "https://api.anthropic.com"
-    assert data["api_key_env"] == "ANTHROPIC_API_KEY"
+    assert data["listen_port"] == 18081
 
 
 def test_plugin_schema_not_found(settings_client: TestClient) -> None:

@@ -1,4 +1,4 @@
-"""URL Executor plugin — GET URL gateway to backend plugins."""
+"""Claude Backend plugin — REST wrapper for the local Claude Code CLI."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
-from screamingface.plugins.url_executor.routes import create_router
+from screamingface.plugins.claude_backend.routes import create_router
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -17,21 +17,24 @@ if TYPE_CHECKING:
     from screamingface.core.routes import RouteRegistry
 
 
-class UrlExecutorSettings(PluginSettings):
+class ClaudeBackendSettings(PluginSettings):
     model_config = SettingsConfigDict(
-        env_prefix="SF_URL_EXECUTOR__",
+        env_prefix="SF_CLAUDE_BACKEND__",
         env_nested_delimiter="__",
     )
-    max_prompt_length: int = 10_000
-    require_execute_header: bool = True
-    show_preview_html: bool = True
+    default_model: str | None = None
+    default_effort: str = "medium"
+    timeout_seconds: float = 300.0
+    max_budget_usd: float | None = None
+    permission_mode: str | None = None
+    dangerously_skip_permissions: bool = False
 
 
-class UrlExecutorPlugin(Plugin):
-    name = "url-executor"
-    description = "GET URL gateway to backend plugins"
-    settings_class = UrlExecutorSettings
-    depends: list[str] = []
+class ClaudeBackendPlugin(Plugin):
+    name = "claude-backend"
+    description = "REST wrapper for the local Claude Code CLI"
+    settings_class = ClaudeBackendSettings
+    system_deps = ["claude"]
 
     def setup(
         self,

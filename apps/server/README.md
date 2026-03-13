@@ -24,7 +24,7 @@ We've seen this movie. It ends with a tangled codebase that only the original au
 
 ### How our plugin architecture solves this
 
-**Each AI backend is its own plugin.** The Claude proxy lives in `plugins/claude_frontend/`. The Claude CLI wrapper lives in `plugins/claude_cli/`. Ollama would be `plugins/ollama/`. They share zero code. Break one, the others don't notice.
+**Each AI backend is its own plugin.** The Claude proxy lives in `plugins/claude_frontend/`. The Claude CLI wrapper lives in `plugins/claude_backend/`. Ollama would be `plugins/ollama/`. They share zero code. Break one, the others don't notice.
 
 **New contributors touch one folder.** Want to add Gemini? Create `plugins/gemini/`, implement the Plugin interface, submit a PR. You don't need to understand how Claude's proxy works.
 
@@ -215,8 +215,8 @@ Your plugin lives inside this repository under `src/screamingface/plugins/`. It'
 | Plugin | Folder | What it does |
 |---|---|---|
 | `claude-frontend` | `plugins/claude_frontend/` | Forwards requests to the Anthropic API |
-| `claude-cli` | `plugins/claude_cli/` | Runs Claude Code CLI locally and wraps it as a REST endpoint |
-| `url-executor` | `plugins/url_executor/` | Routes URL-encoded requests to the right backend |
+| `claude-backend` | `plugins/claude_backend/` | Runs Claude Code CLI locally and wraps it as a REST endpoint |
+| `url4-executor` | `plugins/url4_executor/` | url4 protocol engine — parsing, resolution, and HTTP endpoint |
 
 ### Path B: External plugin (your own package)
 
@@ -268,15 +268,15 @@ uv pip install -e ../my-local-plugin              # local development
 
 No permission needed. Build it, publish it, users install it.
 
-## Real-world walkthrough: `claude-cli` plugin
+## Real-world walkthrough: `claude-backend` plugin
 
-Let's look at an actual plugin from the codebase — `plugins/claude_cli/plugin.py`:
+Let's look at an actual plugin from the codebase — `plugins/claude_backend/plugin.py`:
 
 **The settings class** — these are the knobs users can tune. Each has a default value. Users override them via `sf.json` or environment variables.
 ```python
-class ClaudeCliSettings(PluginSettings):
+class ClaudeBackendSettings(PluginSettings):
     model_config = SettingsConfigDict(
-        env_prefix="SF_CLAUDE_CLI__",
+        env_prefix="SF_CLAUDE_BACKEND__",
         env_nested_delimiter="__",
     )
     default_model: str | None = None
@@ -291,10 +291,10 @@ class ClaudeCliSettings(PluginSettings):
 
 **The plugin class and `setup()` method** — this is where everything gets wired up. This plugin creates a FastAPI router with its endpoints and registers it with the route registry.
 ```python
-class ClaudeCliPlugin(Plugin):
-    name = "claude-cli"
+class ClaudeBackendPlugin(Plugin):
+    name = "claude-backend"
     description = "REST wrapper for the local Claude Code CLI"
-    settings_class = ClaudeCliSettings
+    settings_class = ClaudeBackendSettings
     system_deps = ["claude"]
 
     def setup(self, app, hooks, classes, routes):
@@ -322,8 +322,7 @@ The single config file, shared between the Python server and the Electron fronte
   "plugins": ["claude-proxy"],
   "plugin_config": {
     "claude-proxy": {
-      "upstream_url": "https://api.anthropic.com",
-      "api_key_env": "ANTHROPIC_API_KEY"
+      "upstream_url": "https://api.anthropic.com"
     }
   }
 }
@@ -336,7 +335,7 @@ The single config file, shared between the Python server and the Electron fronte
 
 Settings are resolved in this order (highest priority wins):
 
-1. **Environment variables** — `SF_PLUGINNAME__SETTING` (e.g., `SF_CLAUDE_CLI__TIMEOUT_SECONDS=600`)
+1. **Environment variables** — `SF_PLUGINNAME__SETTING` (e.g., `SF_CLAUDE_BACKEND__TIMEOUT_SECONDS=600`)
 2. **`sf.json`** — the `plugin_config` section
 3. **Field defaults** — what's defined in the settings class
 

@@ -113,6 +113,26 @@
   }
 }
 
+/* Dark scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2e2a3a transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2e2a3a;
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #3e3a4a;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
