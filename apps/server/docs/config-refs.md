@@ -116,7 +116,7 @@ The SF server runs locally — the Electron app starts it on `localhost:8000`. T
 ANTHROPIC_API_BASE=http://localhost:8000/v1
 ```
 
-That's it. No ref, no hash, no inline DSL. Requests hit the proxy → `url4_executor` dispatches to the appropriate backend (`claude-cli` or `claude-proxy`) with the locally-stored config.
+That's it. No ref, no hash, no inline DSL. Requests hit the proxy → `url4_executor` dispatches to the appropriate backend (`claude-cli` or `claude-frontend`) with the locally-stored config.
 
 ### Why this sidesteps the entire problem
 

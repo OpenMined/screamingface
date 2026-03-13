@@ -106,14 +106,13 @@ class TestDNSOverrideE2E:
 
         ip = uvloop.run(resolve())
         # uvloop resolves via libuv C code, sees /etc/hosts → 127.0.0.1
-        assert ip == "127.0.0.1", (
-            f"Expected uvloop to bypass patch and return 127.0.0.1, got {ip}"
-        )
+        assert ip == "127.0.0.1", f"Expected uvloop to bypass patch and return 127.0.0.1, got {ip}"
 
     def test_httpx_reaches_real_api(self, dns_patched: str) -> None:
         """httpx request to DOMAIN goes to the real API, not localhost."""
-        import certifi
         import ssl
+
+        import certifi
 
         ssl_ctx = ssl.create_default_context(cafile=certifi.where())
 

@@ -1,4 +1,4 @@
-"""Tests for the url-executor plugin — /url4 endpoint."""
+"""Tests for the url4-executor plugin — /url4 endpoint."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
-from screamingface.plugins.url_executor.plugin import UrlExecutorSettings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -19,16 +18,11 @@ from screamingface.plugins.url_executor.plugin import UrlExecutorSettings
 
 @pytest.fixture
 def app_with_executor() -> FastAPI:
-    with patch("shutil.which", return_value="/usr/local/bin/claude"):
-        config = AppConfig(
-            plugins=["claude-cli", "claude-frontend", "url-executor"],
-            plugin_config={
-                "claude-cli": {},
-                "claude-frontend": {},
-                "url-executor": {},
-            },
-        )
-        return create_app(config)
+    config = AppConfig(
+        plugins=["url4-executor"],
+        plugin_config={},
+    )
+    return create_app(config)
 
 
 @pytest.fixture
@@ -37,18 +31,13 @@ def client(app_with_executor: FastAPI) -> TestClient:
 
 
 # ---------------------------------------------------------------------------
-# Plugin discovery & settings
+# Plugin discovery
 # ---------------------------------------------------------------------------
 
 
 def test_plugin_discovered(app_with_executor: FastAPI) -> None:
     active = app_with_executor.state.plugins.active_plugins
-    assert "url-executor" in active
-
-
-def test_settings_defaults() -> None:
-    settings = UrlExecutorSettings()
-    assert settings is not None
+    assert "url4-executor" in active
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +65,7 @@ def test_url4_list_with_strings(client: TestClient) -> None:
 
 def test_url4_list_with_url(client: TestClient) -> None:
     with patch(
-        "screamingface.core.url4._fetch_url",
+        "screamingface.plugins.url4_executor.url4._fetch_url",
         new_callable=AsyncMock,
         return_value="fetched data",
     ):
@@ -88,7 +77,7 @@ def test_url4_list_with_url(client: TestClient) -> None:
 
 def test_url4_nested(client: TestClient) -> None:
     with patch(
-        "screamingface.core.url4._fetch_url",
+        "screamingface.plugins.url4_executor.url4._fetch_url",
         new_callable=AsyncMock,
         return_value="from url",
     ):
@@ -97,3 +86,33 @@ def test_url4_nested(client: TestClient) -> None:
         assert "outer" in resp.text
         assert "from url" in resp.text
         assert "inner" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# ?ast=true tests
+# ---------------------------------------------------------------------------
+
+
+def test_url4_ast_plain_string(client: TestClient) -> None:
+    resp = client.get("/url4?context=hello+world&ast=true")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ast"]["type"] == "text"
+    assert data["ast"]["value"] == "hello world"
+    assert data["result"] == "hello world"
+
+
+def test_url4_ast_list(client: TestClient) -> None:
+    with patch(
+        "screamingface.plugins.url4_executor.url4._fetch_url",
+        new_callable=AsyncMock,
+        return_value="fetched",
+    ):
+        resp = client.get("/url4?context=(http://a.com, hello)&ast=true")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ast"]["type"] == "list"
+        assert len(data["ast"]["items"]) == 2
+        assert data["ast"]["items"][0]["type"] == "url"
+        assert data["ast"]["items"][1]["type"] == "text"
+        assert "fetched" in data["result"]

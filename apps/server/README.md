@@ -216,7 +216,7 @@ Your plugin lives inside this repository under `src/screamingface/plugins/`. It'
 |---|---|---|
 | `claude-frontend` | `plugins/claude_frontend/` | Forwards requests to the Anthropic API |
 | `claude-cli` | `plugins/claude_cli/` | Runs Claude Code CLI locally and wraps it as a REST endpoint |
-| `url-executor` | `plugins/url_executor/` | Routes URL-encoded requests to the right backend |
+| `url4-executor` | `plugins/url4_executor/` | url4 protocol engine — parsing, resolution, and HTTP endpoint |
 
 ### Path B: External plugin (your own package)
 

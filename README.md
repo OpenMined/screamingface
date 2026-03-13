@@ -67,7 +67,7 @@ All config lives in `apps/server/sf.json`:
     "reload": true,
     "ssl": true
   },
-  "plugins": ["claude-frontend", "claude-env-intercept", "tracing", "url-executor"],
+  "plugins": ["claude-frontend", "claude-env-intercept", "tracing", "url4-executor"],
   "plugin_config": {
     "claude-frontend": {
       "upstream_url": "https://api.anthropic.com",
@@ -138,7 +138,7 @@ Built-in plugins:
 - **claude-cli** -- runs Claude CLI commands from the server
 - **tracing** -- OpenTelemetry instrumentation (requires `uv sync --extra tracing`)
 - **claude-intercept** -- DNS/hosts interception to transparently redirect Claude API traffic
-- **url-executor** -- url4 protocol engine — parsing, resolution, and HTTP endpoint
+- **url4-executor** -- url4 protocol engine — parsing, resolution, and HTTP endpoint
 
 ## Pointing Claude Code at the Proxy
 

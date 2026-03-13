@@ -30,7 +30,7 @@ apps/server/
 │   │   ├── run.py         # sf run — uvicorn launcher
 │   │   └── plugin.py      # sf plugin list|info|enable|disable
 │   └── plugins/           # Built-in plugins (auto-discovered)
-│       └── claude_proxy/  # Reference plugin
+│       └── claude_frontend/  # Reference plugin
 ├── tests/
 ├── sf.json                # Runtime config
 └── pyproject.toml

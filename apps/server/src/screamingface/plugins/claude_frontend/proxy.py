@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
-import re
 import ssl
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
 
 import certifi
 import httpx
@@ -109,76 +106,8 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
 
     router = APIRouter(tags=["claude-frontend"])
 
-    async def _resolve_url4(request: Request, body: dict[str, Any]) -> str | None:
-        """Resolve the url4 config and return the result text, or None to skip."""
-        url4config = getattr(request.app.state, "config", None)
-        if url4config is not None:
-            url4config = url4config.url4config
-        if not url4config:
-            logger.info("ENRICH >>> SKIPPED (no url4config)")
-            return None
-
-        # Only resolve on the first turn — subsequent turns are passed through.
-        messages = body.get("messages", [])
-        roles = [m.get("role") for m in messages]
-        has_assistant = any(r == "assistant" for r in roles)
-        logger.info(
-            "ENRICH >>> msg_count=%d roles=%s has_assistant=%s",
-            len(messages),
-            roles,
-            has_assistant,
-        )
-        if has_assistant:
-            logger.info("ENRICH >>> SKIPPED (conversation already has assistant messages)")
-            return None
-
-        try:
-            from screamingface.core.url4 import resolve
-
-            # Extract the user's prompt from the last user message
-            user_prompt = ""
-            for msg in reversed(messages):
-                if msg.get("role") == "user":
-                    content = msg.get("content", "")
-                    if isinstance(content, str):
-                        user_prompt = content
-                    elif isinstance(content, list):
-                        user_prompt = " ".join(
-                            block.get("text", "")
-                            for block in content
-                            if isinstance(block, dict) and block.get("type") == "text"
-                        )
-                    break
-
-            # Strip <system-reminder>...</system-reminder> tags injected by
-            # Claude Code — they're metadata, not the user's actual prompt.
-            user_prompt = re.sub(
-                r"<system-reminder>.*?</system-reminder>",
-                "",
-                user_prompt,
-                flags=re.DOTALL,
-            ).strip()
-
-            # Replace template placeholders
-            config = request.app.state.config
-            port = str(config.server.port)
-            templated = url4config.replace("{prompt}", quote(user_prompt, safe=""))
-            templated = templated.replace("{port}", port)
-            logger.info("url4 resolve — prompt: %s", user_prompt[:200])
-
-            result = await asyncio.wait_for(resolve(templated), timeout=120.0)
-            logger.info("url4 resolve — result: %s", result[:200])
-            return result
-        except Exception:
-            logger.warning(
-                "url4 resolution failed, falling through to Anthropic", exc_info=True
-            )
-            return None
-
     def _check_host(request: Request) -> None:
-        intercept_domains: set[str] | None = getattr(
-            request.app.state, "intercept_domains", None
-        )
+        intercept_domains: set[str] | None = getattr(request.app.state, "intercept_domains", None)
         if intercept_domains is None:
             return
         host = request.headers.get("host", "").split(":")[0]
@@ -201,24 +130,6 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
     async def proxy_messages(request: Request) -> Response:
         _check_host(request)
         body = await request.json()
-
-        # If url4 resolves, return the result directly — no second LLM call.
-        url4_result = await _resolve_url4(request, body)
-        if url4_result is not None:
-            import uuid
-
-            synthetic = {
-                "id": f"msg_sf_{uuid.uuid4().hex[:24]}",
-                "type": "message",
-                "role": "assistant",
-                "model": body.get("model", "url4"),
-                "content": [{"type": "text", "text": url4_result}],
-                "stop_reason": "end_turn",
-                "stop_sequence": None,
-                "usage": {"input_tokens": 0, "output_tokens": 0},
-            }
-            logger.info("PROXY >>> returning url4 result directly (no Anthropic call)")
-            return JSONResponse(content=synthetic, status_code=200)
 
         headers = _build_headers(request)
         # Preserve query params (e.g. ?beta=true) that Claude Code sends
@@ -244,34 +155,24 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
 
         if is_streaming:
             client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
-            upstream_span = (
-                _start_client_span_detached(tracer, f"POST {url}") if tracer else None
-            )
+            upstream_span = _start_client_span_detached(tracer, f"POST {url}") if tracer else None
             if upstream_span:
                 _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
-                _set_span_headers(
-                    "request.headers", _redact_headers(headers), upstream_span
-                )
-                _set_span_attrs(
-                    {"request.body": _truncate(json.dumps(body))}, upstream_span
-                )
+                _set_span_headers("request.headers", _redact_headers(headers), upstream_span)
+                _set_span_attrs({"request.body": _truncate(json.dumps(body))}, upstream_span)
 
             async def stream_response():
                 chunks: list[bytes] = []
                 try:
                     logger.info("STREAM >>> opening upstream connection to Anthropic")
-                    async with client.stream(
-                        "POST", url, json=body, headers=headers
-                    ) as resp:
+                    async with client.stream("POST", url, json=body, headers=headers) as resp:
                         logger.info(
                             "STREAM >>> upstream responded: status=%s content-type=%s",
                             resp.status_code,
                             resp.headers.get("content-type", "?"),
                         )
                         if upstream_span:
-                            _set_span_attrs(
-                                {"http.status_code": resp.status_code}, upstream_span
-                            )
+                            _set_span_attrs({"http.status_code": resp.status_code}, upstream_span)
                             _set_span_headers(
                                 "response.headers",
                                 dict(resp.headers),
@@ -295,41 +196,27 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
                             sum(len(c) for c in chunks),
                         )
                 except Exception as exc:
-                    logger.error(
-                        "STREAM >>> ERROR during streaming: %s", exc, exc_info=True
-                    )
+                    logger.error("STREAM >>> ERROR during streaming: %s", exc, exc_info=True)
                     raise
                 finally:
                     if chunks:
                         raw = b"".join(chunks).decode(errors="replace")
                         if upstream_span:
-                            _set_span_attrs(
-                                {"response.body": _truncate(raw)}, upstream_span
-                            )
+                            _set_span_attrs({"response.body": _truncate(raw)}, upstream_span)
                         _set_span_attrs({"response.body": _truncate(raw)})
                     if upstream_span:
                         upstream_span.end()
                     await client.aclose()
                     logger.info("STREAM >>> client closed")
 
-            return StreamingResponse(
-                stream_response(), media_type="text/event-stream"
-            )
+            return StreamingResponse(stream_response(), media_type="text/event-stream")
         else:
             if tracer:
                 with _start_client_span(tracer, f"POST {url}") as span:
-                    _set_span_attrs(
-                        {"http.method": "POST", "http.url": url}, span
-                    )
-                    _set_span_headers(
-                        "request.headers", _redact_headers(headers), span
-                    )
-                    _set_span_attrs(
-                        {"request.body": _truncate(json.dumps(body))}, span
-                    )
-                    async with httpx.AsyncClient(
-                        timeout=timeout, verify=ssl_ctx
-                    ) as client:
+                    _set_span_attrs({"http.method": "POST", "http.url": url}, span)
+                    _set_span_headers("request.headers", _redact_headers(headers), span)
+                    _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
+                    async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                         resp = await client.post(url, json=body, headers=headers)
                     _set_span_attrs(
                         {
@@ -340,9 +227,7 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
                     )
                     _set_span_headers("response.headers", dict(resp.headers), span)
             else:
-                async with httpx.AsyncClient(
-                    timeout=timeout, verify=ssl_ctx
-                ) as client:
+                async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                     resp = await client.post(url, json=body, headers=headers)
             _set_span_attrs(
                 {
@@ -353,12 +238,8 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
             _set_span_headers("response.headers", dict(resp.headers))
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
-    @router.get(
-        "/v1/{path:path}", response_model=None, operation_id="proxy_catchall_get"
-    )
-    @router.post(
-        "/v1/{path:path}", response_model=None, operation_id="proxy_catchall_post"
-    )
+    @router.get("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_get")
+    @router.post("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_post")
     async def proxy_catchall(request: Request, path: str) -> Response:
         _check_host(request)
         headers = _build_headers(request)
@@ -374,26 +255,18 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
 
         _set_span_headers("request.headers", _redact_headers(headers))
         if body:
-            _set_span_attrs(
-                {"request.body": _truncate(body.decode(errors="replace"))}
-            )
+            _set_span_attrs({"request.body": _truncate(body.decode(errors="replace"))})
 
         if tracer:
             with _start_client_span(tracer, f"{method} {url}") as span:
-                _set_span_attrs(
-                    {"http.method": method, "http.url": url}, span
-                )
-                _set_span_headers(
-                    "request.headers", _redact_headers(headers), span
-                )
+                _set_span_attrs({"http.method": method, "http.url": url}, span)
+                _set_span_headers("request.headers", _redact_headers(headers), span)
                 if body:
                     _set_span_attrs(
                         {"request.body": _truncate(body.decode(errors="replace"))},
                         span,
                     )
-                async with httpx.AsyncClient(
-                    timeout=timeout, verify=ssl_ctx
-                ) as client:
+                async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                     resp = await client.request(method, url, **kwargs)
                 _set_span_attrs(
                     {
@@ -404,9 +277,7 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
                 )
                 _set_span_headers("response.headers", dict(resp.headers), span)
         else:
-            async with httpx.AsyncClient(
-                timeout=timeout, verify=ssl_ctx
-            ) as client:
+            async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                 resp = await client.request(method, url, **kwargs)
 
         _set_span_attrs(
@@ -440,25 +311,19 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
         method = request.method
         timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
         _log_dns("api.anthropic.com")
-        logger.info(
-            "Passthrough %s %s → upstream %s", method, f"/api/{path}", url
-        )
+        logger.info("Passthrough %s %s → upstream %s", method, f"/api/{path}", url)
 
         body = await request.body()
         kwargs: dict[str, Any] = {"headers": headers}
         if body:
             kwargs["content"] = body
 
-        async with httpx.AsyncClient(
-            timeout=timeout, verify=ssl_ctx
-        ) as client:
+        async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
             resp = await client.request(method, url, **kwargs)
 
         content_type = resp.headers.get("content-type", "")
         if "json" in content_type:
-            return JSONResponse(
-                content=resp.json(), status_code=resp.status_code
-            )
+            return JSONResponse(content=resp.json(), status_code=resp.status_code)
         return Response(
             content=resp.content,
             status_code=resp.status_code,

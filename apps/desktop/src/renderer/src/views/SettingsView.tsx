@@ -18,7 +18,6 @@ interface AppConfig {
   server: ServerConfig;
   plugins: string[];
   plugin_config: Record<string, Record<string, unknown>>;
-  url4config: string | null;
 }
 
 interface ServerPluginInfo {
@@ -54,7 +53,6 @@ const defaultConfig: AppConfig = {
   },
   plugins: [],
   plugin_config: {},
-  url4config: null,
 };
 
 type PluginStatus = 'active' | 'configured' | 'missing';
@@ -360,28 +358,6 @@ export function SettingsView() {
             />
             Auto-reload
           </label>
-        </div>
-      </section>
-
-      {/* url4 context template */}
-      <section className="rounded-lg border border-border bg-card p-4">
-        <h2 className="text-sm font-medium text-foreground">Context URL Template</h2>
-        <p className="mt-1 text-[10px] text-muted-foreground">
-          A url4 template with {'{prompt}'} placeholders, resolved and injected into every Claude
-          API request.
-        </p>
-        <div className="mt-3">
-          <input
-            type="text"
-            value={config.url4config ?? ''}
-            onChange={(e) => {
-              const val = e.target.value.trim() || null;
-              setConfig((prev) => ({ ...prev, url4config: val }));
-              markDirty();
-            }}
-            placeholder="(http://example.com/docs, {prompt}) — leave empty to disable"
-            className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-          />
         </div>
       </section>
 
