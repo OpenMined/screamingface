@@ -125,15 +125,15 @@ $ARGUMENTS
 
 Each skill loads only what it needs. A `/starter-app` invocation doesn't need to load audience personas. A `/media` invocation doesn't need the tech glossary. This keeps token usage reasonable.
 
-### Planned skills
+### Possible future skills
 
 | Skill | Purpose | Primary users |
 |-------|---------|--------------|
-| `/copy` | Generate or rewrite marketing copy | Kyle, content contributors |
-| `/webpage` | Create a new page following brand + tech standards | Kyle, frontend devs |
-| `/starter-app` | Scaffold a new project with OpenMined's stack | Sergey, Kevin, new devs |
-| `/proposal` | Generate a client or grant proposal | Trask, business team |
-| `/media` | Press releases, social posts, comms | Lacey, comms team |
+| `/copy` | Generate or rewrite marketing copy | Content contributors, frontend devs |
+| `/webpage` | Create a new page following brand + tech standards | Frontend devs |
+| `/starter-app` | Scaffold a new project with OpenMined's stack | Engineers, new contributors |
+| `/proposal` | Generate a client or grant proposal | Business and partnerships team |
+| `/media` | Press releases, social posts, comms | Communications team |
 | `/review` | Check any content against org voice + terminology | Everyone |
 
 ---
