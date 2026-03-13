@@ -118,8 +118,7 @@ def setup(self, app, hooks, classes, routes):
   "plugins": ["claude-frontend"],
   "plugin_config": {
     "claude-frontend": {
-      "upstream_url": "https://api.anthropic.com",
-      "api_key_env": "ANTHROPIC_API_KEY"
+      "upstream_url": "https://api.anthropic.com"
     }
   }
 }

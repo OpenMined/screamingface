@@ -37,7 +37,6 @@ class ClaudeFrontendSettings(PluginSettings):
         env_nested_delimiter="__",
     )
     upstream_url: str = "https://api.anthropic.com"
-    api_key_env: str = "ANTHROPIC_API_KEY"
     listen_port: int = 9101
     domains: list[str] = ["api.anthropic.com"]
 
@@ -75,6 +74,14 @@ class ClaudeFrontendPlugin(Plugin):
         frontend_app = FastAPI(title="claude-frontend")
         router = create_router(settings)
         frontend_app.include_router(router)
+
+        # Instrument with OTEL if tracing extras are installed.
+        try:
+            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+            FastAPIInstrumentor.instrument_app(frontend_app)
+        except ImportError:
+            pass
 
         # Start HTTP server in a background thread (plain HTTP — mitmproxy
         # handles TLS termination on the client side)

@@ -126,13 +126,9 @@ class TestClaudeEnvInterceptPlugin:
 
     def test_setup_writes_env_vars(self) -> None:
         from screamingface.core.frontend import FrontendEntry
-        from screamingface.plugins.claude_env_intercept.plugin import (
-            ClaudeEnvInterceptPlugin,
-            ClaudeEnvInterceptSettings,
-        )
+        from screamingface.plugins.claude_env_intercept.plugin import ClaudeEnvInterceptPlugin
 
         plugin = ClaudeEnvInterceptPlugin()
-        plugin.settings = ClaudeEnvInterceptSettings()
 
         app = MagicMock()
         app.state.frontends.entries = {
@@ -161,35 +157,10 @@ class TestClaudeEnvInterceptPlugin:
             "app.shutdown", plugin._on_shutdown, plugin_name="claude-env-intercept"
         )
 
-    def test_setup_custom_base_url(self) -> None:
-        from screamingface.plugins.claude_env_intercept.plugin import (
-            ClaudeEnvInterceptPlugin,
-            ClaudeEnvInterceptSettings,
-        )
-
-        plugin = ClaudeEnvInterceptPlugin()
-        plugin.settings = ClaudeEnvInterceptSettings(base_url="https://myhost:9999")
-
-        app = MagicMock()
-        hooks = MagicMock()
-
-        with (
-            patch("screamingface.plugins.claude_env_intercept.plugin.add_exports") as mock_add,
-            patch("subprocess.run"),
-        ):
-            plugin.setup(app, hooks, MagicMock(), MagicMock())
-
-        env_vars = mock_add.call_args[0][0]
-        assert env_vars["ANTHROPIC_BASE_URL"] == "https://myhost:9999"
-
     def test_setup_raises_when_no_frontend(self) -> None:
-        from screamingface.plugins.claude_env_intercept.plugin import (
-            ClaudeEnvInterceptPlugin,
-            ClaudeEnvInterceptSettings,
-        )
+        from screamingface.plugins.claude_env_intercept.plugin import ClaudeEnvInterceptPlugin
 
         plugin = ClaudeEnvInterceptPlugin()
-        plugin.settings = ClaudeEnvInterceptSettings()
 
         app = MagicMock()
         app.state.frontends.entries = {}
@@ -200,13 +171,9 @@ class TestClaudeEnvInterceptPlugin:
 
     def test_setup_auto_detects_from_registry(self) -> None:
         from screamingface.core.frontend import FrontendEntry
-        from screamingface.plugins.claude_env_intercept.plugin import (
-            ClaudeEnvInterceptPlugin,
-            ClaudeEnvInterceptSettings,
-        )
+        from screamingface.plugins.claude_env_intercept.plugin import ClaudeEnvInterceptPlugin
 
         plugin = ClaudeEnvInterceptPlugin()
-        plugin.settings = ClaudeEnvInterceptSettings()
 
         app = MagicMock()
         app.state.frontends.entries = {

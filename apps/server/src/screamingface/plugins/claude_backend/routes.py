@@ -1,4 +1,4 @@
-"""Routes for the claude-cli plugin."""
+"""Routes for the claude-backend plugin."""
 
 from __future__ import annotations
 
@@ -10,15 +10,15 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from screamingface.plugins.claude_cli.models import ClaudeRunRequest, ClaudeRunResponse
-from screamingface.plugins.claude_cli.runner import build_args, run_claude, stream_claude
+from screamingface.plugins.claude_backend.models import ClaudeRunRequest, ClaudeRunResponse
+from screamingface.plugins.claude_backend.runner import build_args, run_claude, stream_claude
 
 if TYPE_CHECKING:
-    from screamingface.plugins.claude_cli.plugin import ClaudeCliSettings
+    from screamingface.plugins.claude_backend.plugin import ClaudeBackendSettings
 
 
-def create_router(settings: ClaudeCliSettings) -> APIRouter:
-    router = APIRouter(tags=["claude-cli"])
+def create_router(settings: ClaudeBackendSettings) -> APIRouter:
+    router = APIRouter(tags=["claude-backend"])
 
     @router.post("/claude/run", response_model=None, operation_id="claude_run")
     async def claude_run(request: ClaudeRunRequest) -> JSONResponse | StreamingResponse:
@@ -26,7 +26,7 @@ def create_router(settings: ClaudeCliSettings) -> APIRouter:
         try:
             # Write files to temp dir if provided
             if request.files:
-                td = tempfile.mkdtemp(prefix="claude_cli_")
+                td = tempfile.mkdtemp(prefix="claude_backend_")
                 temp_dir = td
                 for f in request.files:
                     if ".." in f.filename:

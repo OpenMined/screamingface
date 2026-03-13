@@ -18,7 +18,6 @@ def proxy_app() -> FastAPI:
     """Create a standalone FastAPI app with the proxy router (no full server startup)."""
     settings = ClaudeFrontendSettings(
         upstream_url="https://api.anthropic.com",
-        api_key_env="ANTHROPIC_API_KEY",
     )
     app = FastAPI()
     router = create_router(settings)

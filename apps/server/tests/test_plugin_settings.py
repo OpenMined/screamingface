@@ -20,7 +20,6 @@ from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings
 def test_settings_defaults() -> None:
     settings = ClaudeFrontendSettings()
     assert settings.upstream_url == "https://api.anthropic.com"
-    assert settings.api_key_env == "ANTHROPIC_API_KEY"
     assert settings.listen_port == 9101
     assert settings.domains == ["api.anthropic.com"]
 
@@ -102,7 +101,6 @@ def proxy_settings_app() -> FastAPI:
         plugin_config={
             "claude-frontend": {
                 "upstream_url": "https://api.anthropic.com",
-                "api_key_env": "ANTHROPIC_API_KEY",
                 "listen_port": 18081,
             }
         },
@@ -132,7 +130,6 @@ def test_plugin_schema_endpoint(settings_client: TestClient) -> None:
     schema = resp.json()
     assert "properties" in schema
     assert "upstream_url" in schema["properties"]
-    assert "api_key_env" in schema["properties"]
     assert "listen_port" in schema["properties"]
     assert "domains" in schema["properties"]
 
@@ -142,7 +139,6 @@ def test_plugin_settings_endpoint(settings_client: TestClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["upstream_url"] == "https://api.anthropic.com"
-    assert data["api_key_env"] == "ANTHROPIC_API_KEY"
     assert data["listen_port"] == 18081
 
 

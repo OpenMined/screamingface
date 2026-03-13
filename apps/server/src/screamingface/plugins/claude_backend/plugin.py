@@ -1,4 +1,4 @@
-"""Claude CLI plugin — REST wrapper for the local Claude Code CLI."""
+"""Claude Backend plugin — REST wrapper for the local Claude Code CLI."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
-from screamingface.plugins.claude_cli.routes import create_router
+from screamingface.plugins.claude_backend.routes import create_router
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -17,9 +17,9 @@ if TYPE_CHECKING:
     from screamingface.core.routes import RouteRegistry
 
 
-class ClaudeCliSettings(PluginSettings):
+class ClaudeBackendSettings(PluginSettings):
     model_config = SettingsConfigDict(
-        env_prefix="SF_CLAUDE_CLI__",
+        env_prefix="SF_CLAUDE_BACKEND__",
         env_nested_delimiter="__",
     )
     default_model: str | None = None
@@ -30,10 +30,10 @@ class ClaudeCliSettings(PluginSettings):
     dangerously_skip_permissions: bool = False
 
 
-class ClaudeCliPlugin(Plugin):
-    name = "claude-cli"
+class ClaudeBackendPlugin(Plugin):
+    name = "claude-backend"
     description = "REST wrapper for the local Claude Code CLI"
-    settings_class = ClaudeCliSettings
+    settings_class = ClaudeBackendSettings
     system_deps = ["claude"]
 
     def setup(

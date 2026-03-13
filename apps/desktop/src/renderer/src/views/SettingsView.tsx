@@ -119,6 +119,7 @@ export function SettingsView() {
         // Validate plugin settings with the server before saving
         const cfg = configRef.current;
         for (const [pluginName, settings] of Object.entries(cfg.plugin_config)) {
+          if (!cfg.plugins.includes(pluginName)) continue;
           if (!settings || Object.keys(settings).length === 0) continue;
           try {
             const res = await serverFetch(

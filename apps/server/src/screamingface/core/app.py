@@ -18,7 +18,6 @@ from screamingface.core.frontend import FrontendRegistry
 from screamingface.core.hooks import HookRegistry
 from screamingface.core.registry import PluginRegistry
 from screamingface.core.routes import RouteRegistry
-
 from screamingface.plugin import Plugin
 
 logger = logging.getLogger(__name__)
@@ -55,6 +54,38 @@ def _inject_tag_enums(
                 _walk(items)
 
         # Also walk $defs / definitions
+        for defn in node.get("$defs", {}).values():
+            if isinstance(defn, dict) and defn.get("type") == "object":
+                _walk(defn)
+        for defn in node.get("definitions", {}).values():
+            if isinstance(defn, dict) and defn.get("type") == "object":
+                _walk(defn)
+
+    _walk(schema)
+
+
+def _collapse_nullable(schema: dict) -> None:
+    """Collapse ``anyOf: [{type: T}, {type: "null"}]`` into ``{type: T}``.
+
+    Pydantic emits this pattern for ``X | None`` fields.  RJSF interprets
+    ``anyOf`` as a type-selector dropdown, which is confusing for simple
+    nullable scalars.  Collapsing gives RJSF a plain typed field and lets
+    ``_inject_tag_enums`` / ``_inject_examples`` match these fields too.
+    """
+    def _walk(node: dict) -> None:
+        for field_schema in node.get("properties", {}).values():
+            any_of = field_schema.get("anyOf")
+            if isinstance(any_of, list) and len(any_of) == 2:
+                non_null = [s for s in any_of if s.get("type") != "null"]
+                if len(non_null) == 1:
+                    del field_schema["anyOf"]
+                    field_schema.update(non_null[0])
+            # Recurse into nested objects
+            if field_schema.get("type") == "object":
+                _walk(field_schema)
+            items = field_schema.get("items")
+            if isinstance(items, dict) and items.get("type") == "object":
+                _walk(items)
         for defn in node.get("$defs", {}).values():
             if isinstance(defn, dict) and defn.get("type") == "object":
                 _walk(defn)
@@ -217,6 +248,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not plugin.settings_class:
             raise HTTPException(404, f"Plugin {name!r} has no configurable settings")
         schema = plugin.settings_class.model_json_schema()
+        _collapse_nullable(schema)
         _inject_tag_enums(schema, app.state.plugins.active_plugins)
         _inject_examples(schema, "process_filter", _get_process_names())
         return schema

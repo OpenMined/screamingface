@@ -1,4 +1,4 @@
-"""Request and response schemas for the claude-cli plugin."""
+"""Request and response schemas for the claude-backend plugin."""
 
 from __future__ import annotations
 

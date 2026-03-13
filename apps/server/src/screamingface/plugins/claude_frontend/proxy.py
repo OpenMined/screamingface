@@ -99,7 +99,6 @@ def _record_trace_id(request: Request) -> str | None:
 
 def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
     upstream_url = settings.upstream_url.rstrip("/")
-    api_key_env = settings.api_key_env
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
     logger.info("Proxy SSL context using certifi CA: %s", certifi.where())
 
@@ -122,7 +121,7 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
             if value:
                 headers[key] = value
         if "x-api-key" not in headers and "authorization" not in headers:
-            api_key = os.environ.get(api_key_env, "")
+            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
             if api_key:
                 headers["x-api-key"] = api_key
         return headers

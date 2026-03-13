@@ -17,13 +17,13 @@ from typing import TYPE_CHECKING
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from screamingface.plugins.claude_cli.models import ClaudeRunRequest
-    from screamingface.plugins.claude_cli.plugin import ClaudeCliSettings
+    from screamingface.plugins.claude_backend.models import ClaudeRunRequest
+    from screamingface.plugins.claude_backend.plugin import ClaudeBackendSettings
 
 
 def build_args(
     request: ClaudeRunRequest,
-    settings: ClaudeCliSettings,
+    settings: ClaudeBackendSettings,
     temp_dir: str | None = None,
 ) -> list[str]:
     """Build the CLI argument list. Prompt is piped via stdin, not as a positional arg."""
