@@ -1,7 +1,6 @@
 import LeaderboardChart from "@/components/LeaderboardChart";
 import EmailCapture from "@/components/EmailCapture";
 import CollaboratorsGrid from "@/components/CollaboratorsGrid";
-import { ChevronRight } from "lucide-react";
 
 const installCommand = `curl -fsSL https://screamingface.ai/install | sh`;
 
@@ -203,64 +202,6 @@ export default function Home() {
 
         {/* Collaborators */}
         <CollaboratorsGrid />
-
-        {/* Why it wins */}
-        <section className="px-6 py-20 border-t border-border bg-card/40">
-          <div className="max-w-3xl mx-auto text-center">
-            <h2
-              className="text-3xl font-semibold mb-4"
-              style={{ fontFamily: "var(--font-rubik)" }}
-            >
-              Why the ensemble wins
-            </h2>
-            <p className="text-muted-foreground max-w-xl mx-auto mb-12">
-              Different models make different mistakes. When their errors don&apos;t overlap (anti-correlated errors) the ensemble catches what any single model misses. Consistently better accuracy without needing a bigger model.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left mb-12">
-              <div className="border border-border rounded-lg p-5">
-                <h3
-                  className="text-sm font-medium text-foreground mb-2"
-                  style={{ fontFamily: "var(--font-rubik)" }}
-                >
-                  More accurate
-                </h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  The ensemble outscores every individual model on published benchmarks. Anti-correlated errors across providers mean the combination is structurally stronger, not just statistically lucky.
-                </p>
-              </div>
-              <div className="border border-border rounded-lg p-5">
-                <h3
-                  className="text-sm font-medium text-foreground mb-2"
-                  style={{ fontFamily: "var(--font-rubik)" }}
-                >
-                  Faster
-                </h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Intelligent routing picks the fastest model that can handle each task. You get the speed of the lightest provider on simple prompts and the power of the strongest on hard ones.
-                </p>
-              </div>
-              <div className="border border-border rounded-lg p-5">
-                <h3
-                  className="text-sm font-medium text-foreground mb-2"
-                  style={{ fontFamily: "var(--font-rubik)" }}
-                >
-                  Cheaper
-                </h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  Share credits with friends. If someone in your network has unused tokens on a provider you need, screamingface can route through their allocation. Everyone pays less.
-                </p>
-              </div>
-            </div>
-
-            <a
-              href="/why"
-              className="text-sm text-primary underline underline-offset-2 hover:opacity-80 transition-opacity"
-            >
-              Why this matters beyond the benchmarks →
-            </a>
-          </div>
-        </section>
 
         {/* Email capture */}
         <EmailCapture />

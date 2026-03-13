@@ -318,30 +318,6 @@ export default function WhyPage() {
           </div>
         </section>
 
-        {/* ── The proof exists ────────────────────────────────────────────── */}
-        <section className="px-6 py-16 border-t border-border">
-          <div className="max-w-4xl mx-auto">
-            <div className="max-w-2xl mx-auto">
-              <h2
-                className="text-2xl font-semibold mb-3"
-                style={{ fontFamily: "var(--font-rubik)" }}
-              >
-                The ensemble beats every model it combines
-              </h2>
-              <p className="text-muted-foreground leading-relaxed mb-6">
-                screamingface is a working AI ensemble that combines Claude Code, Gemini CLI, Codex, and Ollama into a system that beats any single model on published benchmarks. The evaluation code is open source and the results are reproducible. Not a theoretical argument. Running today.
-              </p>
-              <a
-                href="/"
-                className="inline-flex items-center gap-1.5 text-sm text-primary hover:opacity-80 transition-opacity"
-              >
-                See the technical proof
-                <ChevronRight className="w-3.5 h-3.5" />
-              </a>
-            </div>
-          </div>
-        </section>
-
         {/* ── Built by OpenMined ──────────────────────────────────────────── */}
         <section className="px-6 py-16 border-t border-border bg-card/40">
           <div className="max-w-4xl mx-auto">

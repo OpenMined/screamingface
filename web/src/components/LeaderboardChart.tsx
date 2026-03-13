@@ -16,12 +16,49 @@ import {
 // Replace with real data when available.
 // Sorted high→low so the best performer renders at the top.
 const data = [
-  { model: "😱 Ensemble", score: 16.8, ensemble: true },
+  { model: "Ensemble 😱", subtitle: "(Gemini + GPT + Claude + Llama)", score: 16.8, ensemble: true },
   { model: "Gemini 1.5 Pro", score: 10.3, ensemble: false },
   { model: "GPT-4o", score: 9.1, ensemble: false },
   { model: "Claude 3.5 Sonnet", score: 8.7, ensemble: false },
   { model: "Llama 3 (Ollama)", score: 6.2, ensemble: false },
 ];
+
+const CustomYTick = ({
+  x,
+  y,
+  payload,
+}: {
+  x?: number;
+  y?: number;
+  payload?: { value: string };
+}) => {
+  const entry = data.find((d) => d.model === payload?.value);
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text
+        x={-8}
+        y={0}
+        textAnchor="end"
+        fill="oklch(0.72 0 0)"
+        fontSize={12}
+        dominantBaseline="central"
+      >
+        {payload?.value}
+      </text>
+      {entry?.subtitle && (
+        <text
+          x={-8}
+          y={18}
+          textAnchor="end"
+          fill="oklch(0.55 0 0)"
+          fontSize={10}
+        >
+          {entry.subtitle}
+        </text>
+      )}
+    </g>
+  );
+};
 
 const CustomTooltip = ({
   active,
@@ -76,7 +113,7 @@ export default function LeaderboardChart() {
       </div>
 
       {/* Horizontal bar chart */}
-      <ResponsiveContainer width="100%" height={240}>
+      <ResponsiveContainer width="100%" height={260}>
         <BarChart
           data={data}
           layout="vertical"
@@ -99,10 +136,10 @@ export default function LeaderboardChart() {
           <YAxis
             type="category"
             dataKey="model"
-            tick={{ fill: "oklch(0.72 0 0)", fontSize: 12 }}
+            tick={<CustomYTick />}
             axisLine={false}
             tickLine={false}
-            width={148}
+            width={240}
           />
           <Tooltip
             content={<CustomTooltip />}
