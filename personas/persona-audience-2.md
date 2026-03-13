@@ -6,11 +6,9 @@
 
 ## Who They Are
 
-This is Lacey's network. Journalists, reporters, researchers, and public intellectuals who think seriously about the intersection of AI, power, privacy, and society. They are not primarily coders — they are the people who shape how AI is understood outside technical circles, who write the think pieces that policymakers read, who speak at Davos-adjacent events and advise congressional staffers.
+This is Policy Stakeholders who are external influencers, likely PPS 3s & 2s. Journalists, reporters, researchers, academics, advocates, and public intellectuals who think seriously about the intersection of AI, power, privacy, and society. They are not primarily coders — they are the people who shape how AI is understood, who write the thought pieces that policymakers read, who speak at Davos, AI Summits, and similar high-profile events, and advise government decision-makers.
 
-This audience is meaningfully more diverse than Audience 1 — in gender, background, discipline, and geography. That diversity is not incidental; it reflects the nature of the work they do. The policy and ethics space in AI has always attracted a wider range of people than the engineering side. Screamingface's messaging to this group should reflect that reality — not by calling it out, but by being naturally inclusive in tone, examples, and representation.
-
-They are champions of privacy and data rights, often already familiar with concepts like federated learning, data sovereignty, and algorithmic accountability. They've covered GDPR, the EU AI Act, and the debates around open vs. closed AI models. They understand power dynamics. They are not naive about what's at stake.
+This audience is meaningfully more diverse than Audience 1 — in gender, background, discipline, and geography. That diversity is not incidental; it reflects the nature of the work they do and the technology. The policy and ethics space in AI has always attracted a wider range of people than the engineering side, and AI touches every discipline, from biology to culture, to farming. Screamingface's messaging to this group should reflect that reality — not by calling it out, but by being naturally inclusive and accessible in tone, communication-style/medium, examples, and representation.
 
 ---
 
@@ -26,22 +24,20 @@ If we wait until the window closes to start educating this audience, it will be 
 
 ## Why They Are Audience 2 (Not 1)
 
-This audience is not the first user of screamingface — the tool itself is built for developers. But they are the amplifiers and validators who can shape the broader narrative and unlock public funding for the infrastructure that makes open AI viable long-term. Without them, the project risks being a clever dev tool with no political or institutional backing when the big players react.
+This audience is not the first user of screamingface — the tool itself is built for developers. But they are the amplifiers and validators who can shape the broader narrative and help encourage adoption in developer communities that may be harder to reach or more complicated to convert. Without them, the project risks being a clever dev tool. For it to be paradigm-shifting, it needs to include the voices that are capable of shifting the paradigm.
 
-Their engagement is a spilloff from what Audience 1 builds. When screamingface demonstrates credibility with technical users, this audience has something to point to. The evidence from Audience 1 adoption is the proof of concept; Audience 2 turns it into a policy conversation.
+Their engagement is a spilloff from what Audience 1 builds and the excitement and use Audience 1 creates. When screamingface demonstrates credibility with technical users, this audience has something to point to. The evidence from Audience 1 adoption is the proof of concept; Audience 2 turns it into a societal step-change.
 
 ---
 
 ## What They Care About
 
 - The concentration of AI power in a small number of private companies
-- The erosion of public alternatives to proprietary AI systems
-- Data sovereignty: who owns the data that trains the models
-- Open, auditable AI vs. black-box systems
-- Historical parallels: how governments got left behind in prior technology waves
+- The erosion of public alternatives to proprietary AI systems and how that affects/subverts civic institutions
+- Data sovereignty: who owns the data that trains the models; who owns models codeveloped by community resources?
+- Human agency
+- Transparency: Open, auditable AI vs. black-box systems
 - The democratic and institutional implications of AI at scale
-
-**The parallel they'll understand:** Just as digitization of government resources required public investment and political coordination, we now need a federation of public AI data and compute. The window to do this is open — but not for long.
 
 ---
 
@@ -56,9 +52,9 @@ This is a reference point for the intellectual and policy case — a place to se
 
 ## Goals for Engaging This Audience
 
-1. **Educate early** — Start building understanding and concern now, before the 2-year window closes
+1. **Educate early** — Start building understanding and concern now, before the 2-year window closes; run workshops, convenings, roundtables, webinars
 2. **Gather collaborators** — Co-author posts, joint statements, shared research
-3. **Collect logos** — Organizational affiliations and endorsements that signal legitimacy to policymakers
+3. **Collect logos** — Organizational affiliations and endorsements that signal legitimacy
 4. **Build the coalition** — Identify champions within policy institutions, civil society orgs, and journalism who will advocate for public investment in federated AI
 
 ---
@@ -81,7 +77,7 @@ This site should go up quickly. It is not the developer-facing homepage — it's
 - **The window is closing** — urgency without alarmism; this is a solvable problem if we act now
 - **This is a public good problem** — not just a tech story; the same institutions that funded the internet need to fund open AI
 - **Proof exists** — screamingface isn't theoretical; it's running and it works
-- **No single company should own the most powerful AI** — aligns with their instincts about power concentration
+- **No single entity should own powerful AI** — aligns with their instincts about power concentration
 - **History rhymes** — the digitization analogy is legible and non-technical
 - **Open > closed** — they already believe this; screamingface gives it legs
 

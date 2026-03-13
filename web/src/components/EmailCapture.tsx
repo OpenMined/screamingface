@@ -50,10 +50,10 @@ export default function EmailCapture({ children }: EmailCaptureProps) {
               className="text-2xl font-semibold mb-3"
               style={{ fontFamily: "var(--font-rubik)" }}
             >
-              Stay in the loop.
+              Stay in the loop
             </h2>
             <p className="text-muted-foreground text-sm mb-8">
-              Early access, benchmark drops, and open beta updates — when they happen. No noise.
+              Early access, benchmark drops, and open beta updates. When they happen. No noise.
             </p>
           </>
         )}

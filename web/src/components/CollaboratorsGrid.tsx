@@ -71,7 +71,7 @@ export default function CollaboratorsGrid() {
             className="text-3xl font-semibold"
             style={{ fontFamily: "var(--font-rubik)" }}
           >
-            Built together.
+            Collaborations
           </h2>
         </div>
 

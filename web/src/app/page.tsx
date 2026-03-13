@@ -22,7 +22,7 @@ const steps = [
     number: "03",
     title: "Just code",
     description:
-      "Use your normal CLI workflow. We don't change your setup — we route every prompt to whichever model scores best on the task.",
+      "Use your normal CLI workflow. We don't change your setup. We route every prompt to whichever model scores best on the task.",
   },
 ];
 
@@ -63,14 +63,14 @@ export default function Home() {
             <span className="text-gradient-gold">SOTA</span> on your laptop.
           </h1>
           <p className="text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed mb-4">
-            The models you already use — Claude Code, Gemini CLI, Codex, Ollama — combined into an ensemble that consistently outscores any one of them. No new workflow. No new subscription.
+            The models you already use (Claude Code, Gemini CLI, Codex, Ollama) combined into an ensemble that consistently outscores any one of them. No new workflow. No new subscription.
           </p>
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
             Skeptical?{" "}
             <a href="#leaderboard" className="text-primary hover:opacity-80 transition-opacity">
               See the benchmark scores
             </a>
-            {" "}— and run the evals yourself.
+            , then run the evals yourself.
           </p>
           <div className="mt-10 flex items-center justify-center gap-4">
             <a
@@ -101,17 +101,17 @@ export default function Home() {
                 className="text-3xl font-semibold mb-3"
                 style={{ fontFamily: "var(--font-rubik)" }}
               >
-                The ensemble wins.
+                The ensemble wins
               </h2>
               <p className="text-muted-foreground max-w-md mx-auto">
-                HLE (Humanity&apos;s Last Exam) multiple-choice accuracy. The ensemble combines the models you already have — it doesn&apos;t require anything new.
+                HLE (Humanity&apos;s Last Exam) multiple-choice accuracy. The ensemble combines the models you already have. It doesn&apos;t require anything new.
               </p>
             </div>
             <div className="bg-card border border-border rounded-lg p-8">
               <LeaderboardChart />
             </div>
             <p className="text-xs text-muted-foreground text-center mt-5">
-              These scores are reproducible. Evaluation code is open source —{" "}
+              These scores are reproducible. Evaluation code is open source.{" "}
               <a
                 href="https://github.com/OpenMined/screamingface"
                 className="underline underline-offset-2 hover:text-foreground transition-colors"
@@ -138,7 +138,7 @@ export default function Home() {
                 className="text-3xl font-semibold mb-3"
                 style={{ fontFamily: "var(--font-rubik)" }}
               >
-                One command to install.
+                One command to install
               </h2>
               <p className="text-muted-foreground">
                 screamingface detects every model on your machine and configures itself automatically. Nothing is sent to a server during setup.
@@ -211,10 +211,10 @@ export default function Home() {
               className="text-3xl font-semibold mb-4"
               style={{ fontFamily: "var(--font-rubik)" }}
             >
-              Why the ensemble wins.
+              Why the ensemble wins
             </h2>
             <p className="text-muted-foreground max-w-xl mx-auto mb-12">
-              Different models make different mistakes. When their errors don&apos;t overlap — anti-correlated errors — the ensemble catches what any single model misses. The result: consistently better accuracy without needing a bigger model.
+              Different models make different mistakes. When their errors don&apos;t overlap (anti-correlated errors) the ensemble catches what any single model misses. Consistently better accuracy without needing a bigger model.
             </p>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-left mb-12">
@@ -268,7 +268,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="border-t border-border px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-        <span>😱 screamingface — built by{" "}
+        <span>😱 screamingface, built by{" "}
           <a
             href="https://openmined.org"
             className="hover:text-foreground transition-colors underline underline-offset-2"
