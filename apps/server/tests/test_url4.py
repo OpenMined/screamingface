@@ -335,8 +335,10 @@ async def test_resolve_str_list_mixed() -> None:
 async def test_resolve_str_example_4() -> None:
     """Nested url4 URLs resolve as single URL fetches."""
     responses = {
-        "https://localhost:8000/url4?context=(https://docs.a.com, https://docs.b.com)": "content-ab",
-        "https://localhost:8000/url4?context=(https://docs.c.com, https://docs.d.com)": "content-cd",
+        "https://localhost:8000/url4?context="
+        "(https://docs.a.com, https://docs.b.com)": "content-ab",
+        "https://localhost:8000/url4?context="
+        "(https://docs.c.com, https://docs.d.com)": "content-cd",
     }
 
     async def mock_fetch(url: str) -> str:
@@ -354,8 +356,10 @@ async def test_resolve_str_example_4() -> None:
 async def test_resolve_str_example_10() -> None:
     """Nested url4 URLs with text inside balanced parens resolve correctly."""
     responses = {
-        "https://localhost:8000/url4?context=(Background:, https://wiki.internal/project-overview)": "bg-content",
-        "https://localhost:8000/url4?context=(Recent changes:, https://api.github.com/repos/org/repo/commits)": "changes-content",
+        "https://localhost:8000/url4?context="
+        "(Background:, https://wiki.internal/project-overview)": "bg-content",
+        "https://localhost:8000/url4?context="
+        "(Recent changes:, https://api.github.com/repos/org/repo/commits)": "changes-content",
     }
 
     async def mock_fetch(url: str) -> str:

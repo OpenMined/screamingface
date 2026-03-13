@@ -90,7 +90,7 @@ def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-d
 
 
 def _record_trace_id(request: Request) -> str | None:
-    """Extract x-sf-trace-id (injected by mitmproxy addon) and record it on the current OTEL span."""
+    """Extract x-sf-trace-id (injected by mitmproxy addon) and record it."""
     trace_id = request.headers.get("x-sf-trace-id")
     if trace_id:
         _set_span_attrs({"sf.trace_id": trace_id})
@@ -148,14 +148,18 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
 
         is_streaming = body.get("stream", False)
         logger.info(
-            "PROXY >>> forwarding to %s | stream=%s | system_prompt_len=%s | msg_count=%s | trace=%s",
+            "PROXY >>> forwarding to %s | stream=%s | sys_len=%s | msgs=%s | trace=%s",
             url,
             is_streaming,
             len(json.dumps(body.get("system", ""))) if body.get("system") else 0,
             len(body.get("messages", [])),
             trace_id,
         )
-        logger.info("[E2E-TRACE] PROXY received %s /v1/messages | forwarding to %s", request.method, url)
+        logger.info(
+            "[E2E-TRACE] PROXY received %s /v1/messages | forwarding to %s",
+            request.method,
+            url,
+        )
 
         if is_streaming:
             client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)

@@ -210,7 +210,12 @@ class MitmproxyInterceptPlugin(Plugin):
         # Mixed filters can't be expressed in --mode local:<proc>, so use plain local.
         filters = {r.process_filter for r in settings.rules if r.process_filter}
         mode = f"local:{filters.pop()}" if len(filters) == 1 else "local"
-        logger.info("[E2E-TRACE] MITMPROXY mode=%s domains=%s proxy_port=%d", mode, domains, settings.proxy_port)
+        logger.info(
+            "[E2E-TRACE] MITMPROXY mode=%s domains=%s proxy_port=%d",
+            mode,
+            domains,
+            settings.proxy_port,
+        )
         allow_hosts = "|".join(re.escape(d) for d in domains)
 
         cmd = [
