@@ -20,7 +20,6 @@ class MitmproxyState:
     activated_at: str  # ISO timestamp
     pid: int  # mitmproxy subprocess PID
     proxy_port: int  # mitmproxy listen port
-    domains: list[str]  # intercepted domains
 
 
 def save_state(state: MitmproxyState) -> None:

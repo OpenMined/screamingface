@@ -2,7 +2,7 @@
   "version": "0.1.0",
   "server": {
     "host": "0.0.0.0",
-    "port": 443,
+    "port": 8000,
     "reload": true,
     "ssl": true,
     "ssl_certfile": null,
@@ -13,16 +13,37 @@
     "claude-cli",
     "tracing",
     "url4-executor",
-    "mitmproxy-intercept"
+    "claude-env-intercept"
   ],
   "plugin_config": {
     "claude-frontend": {
       "upstream_url": "https://api.anthropic.com",
-      "api_key_env": "ANTHROPIC_API_KEY"
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "listen_port": 9101,
+      "domains": [
+        "api.anthropic.com"
+      ]
     },
-    "claude-intercept": {
+    "mitmproxy-intercept": {
+      "rules": [
+        {
+          "domain": "api.anthropic.com",
+          "frontend": "claude-frontend",
+          "process_filter": "claude"
+        }
+      ],
+      "proxy_port": 8888,
+      "mitmdump_path": "mitmdump",
+      "mitmproxy_ca_cert": "~/.mitmproxy/mitmproxy-ca-cert.pem",
       "auto_cleanup": true,
-      "server_port": 8001
+      "trust_ca": true
+    },
+    "claude-cli": {
+      "default_model": null,
+      "default_effort": "medium",
+      "timeout_seconds": 300,
+      "permission_mode": null,
+      "dangerously_skip_permissions": false
     }
   }
 }

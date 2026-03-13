@@ -50,4 +50,11 @@ dev = [
     "pyright>=1.1.393",
     "pytest>=9.0.2",
     "ruff>=0.8",
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
+    "opentelemetry-instrumentation-fastapi>=0.41b0",
+    "opentelemetry-instrumentation-httpx>=0.41b0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20",
+    "arize-phoenix>=8.0",
+    "arize-phoenix-otel>=0.6",
 ]

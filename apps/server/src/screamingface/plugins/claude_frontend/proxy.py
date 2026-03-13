@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import certifi
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ FORWARD_HEADERS = {
     "content-type",
     "authorization",
     "accept",
+    "x-sf-trace-id",
 }
 
 _SENSITIVE_HEADERS = {"x-api-key", "authorization"}
@@ -88,6 +89,14 @@ def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-d
     return tracer.start_span(name, kind=SpanKind.CLIENT)
 
 
+def _record_trace_id(request: Request) -> str | None:
+    """Extract x-sf-trace-id (injected by mitmproxy addon) and record it on the current OTEL span."""
+    trace_id = request.headers.get("x-sf-trace-id")
+    if trace_id:
+        _set_span_attrs({"sf.trace_id": trace_id})
+    return trace_id
+
+
 def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
     upstream_url = settings.upstream_url.rstrip("/")
     api_key_env = settings.api_key_env
@@ -106,14 +115,6 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
 
     router = APIRouter(tags=["claude-frontend"])
 
-    def _check_host(request: Request) -> None:
-        intercept_domains: set[str] | None = getattr(request.app.state, "intercept_domains", None)
-        if intercept_domains is None:
-            return
-        host = request.headers.get("host", "").split(":")[0]
-        if host not in intercept_domains:
-            raise HTTPException(status_code=404)
-
     def _build_headers(request: Request) -> dict[str, str]:
         headers = {}
         for key in FORWARD_HEADERS:
@@ -128,7 +129,6 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
 
     @router.post("/v1/messages", response_model=None, operation_id="proxy_messages")
     async def proxy_messages(request: Request) -> Response:
-        _check_host(request)
         body = await request.json()
 
         headers = _build_headers(request)
@@ -140,24 +140,31 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
         tracer = _get_tracer()
 
+        # Record mitmproxy trace ID on the server span
+        trace_id = _record_trace_id(request)
+
         # Server span: just record the raw request body
         _set_span_attrs({"request.body": _truncate(json.dumps(body))})
         _set_span_headers("request.headers", _redact_headers(headers))
 
         is_streaming = body.get("stream", False)
         logger.info(
-            "PROXY >>> forwarding to %s | stream=%s | system_prompt_len=%s | msg_count=%s",
+            "PROXY >>> forwarding to %s | stream=%s | system_prompt_len=%s | msg_count=%s | trace=%s",
             url,
             is_streaming,
             len(json.dumps(body.get("system", ""))) if body.get("system") else 0,
             len(body.get("messages", [])),
+            trace_id,
         )
+        logger.info("[E2E-TRACE] PROXY received %s /v1/messages | forwarding to %s", request.method, url)
 
         if is_streaming:
             client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
             upstream_span = _start_client_span_detached(tracer, f"POST {url}") if tracer else None
             if upstream_span:
                 _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
+                if trace_id:
+                    _set_span_attrs({"sf.trace_id": trace_id}, upstream_span)
                 _set_span_headers("request.headers", _redact_headers(headers), upstream_span)
                 _set_span_attrs({"request.body": _truncate(json.dumps(body))}, upstream_span)
 
@@ -195,6 +202,7 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
                             chunk_count,
                             sum(len(c) for c in chunks),
                         )
+                        logger.info("[E2E-TRACE] PROXY response status=%d", resp.status_code)
                 except Exception as exc:
                     logger.error("STREAM >>> ERROR during streaming: %s", exc, exc_info=True)
                     raise
@@ -214,6 +222,8 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
             if tracer:
                 with _start_client_span(tracer, f"POST {url}") as span:
                     _set_span_attrs({"http.method": "POST", "http.url": url}, span)
+                    if trace_id:
+                        _set_span_attrs({"sf.trace_id": trace_id}, span)
                     _set_span_headers("request.headers", _redact_headers(headers), span)
                     _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
                     async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
@@ -236,17 +246,19 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
                 },
             )
             _set_span_headers("response.headers", dict(resp.headers))
+            logger.info("[E2E-TRACE] PROXY response status=%d", resp.status_code)
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
     @router.get("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_get")
     @router.post("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_post")
     async def proxy_catchall(request: Request, path: str) -> Response:
-        _check_host(request)
         headers = _build_headers(request)
         url = f"{upstream_url}/v1/{path}"
         method = request.method
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
         tracer = _get_tracer()
+
+        trace_id = _record_trace_id(request)
 
         body = await request.body()
         kwargs: dict[str, Any] = {"headers": headers}
@@ -260,6 +272,8 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
         if tracer:
             with _start_client_span(tracer, f"{method} {url}") as span:
                 _set_span_attrs({"http.method": method, "http.url": url}, span)
+                if trace_id:
+                    _set_span_attrs({"sf.trace_id": trace_id}, span)
                 _set_span_headers("request.headers", _redact_headers(headers), span)
                 if body:
                     _set_span_attrs(
@@ -305,11 +319,11 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
     )
     async def proxy_passthrough(request: Request, path: str) -> Response:
         """Forward /api/* requests to the real upstream (Claude Code telemetry, OAuth, etc.)."""
-        _check_host(request)
         headers = _build_headers(request)
         url = f"{upstream_url}/api/{path}"
         method = request.method
         timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+        _record_trace_id(request)
         _log_dns("api.anthropic.com")
         logger.info("Passthrough %s %s → upstream %s", method, f"/api/{path}", url)
 

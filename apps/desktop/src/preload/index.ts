@@ -21,7 +21,7 @@ const api: ElectronAPI = {
     getStatus: () => ipcRenderer.invoke('server:getStatus'),
     onStatusChanged: (cb) => onEvent('server:statusChanged', cb),
     onLog: (cb) => onEvent('server:log', cb),
-    fetch: (url) => ipcRenderer.invoke('server:fetch', url),
+    fetch: (url, init?) => ipcRenderer.invoke('server:fetch', url, init),
   },
   venv: {
     detect: () => ipcRenderer.invoke('venv:detect'),

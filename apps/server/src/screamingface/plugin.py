@@ -55,6 +55,7 @@ class Plugin:
     depends: list[str] = []
     conflicts: list[str] = []
     description: str = ""
+    tags: list[str] = []
     settings_class: type[PluginSettings] | None = None
     system_deps: list[str] = []
     requires_root: bool = False

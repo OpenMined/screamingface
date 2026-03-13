@@ -8,7 +8,7 @@ import socket
 import sys
 import textwrap
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -928,6 +928,13 @@ class TestInterceptE2E:
         """Patch all privileged operations so tests run without root."""
         fake_addr = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
 
+        async def _noop_serve():
+            pass
+
+        mock_server = MagicMock()
+        mock_server.should_exit = False
+        mock_server.serve = _noop_serve
+
         with (
             # Redirect file paths to temp
             patch("screamingface.plugins.claude_intercept.hosts.HOSTS_FILE", hosts_file),
@@ -966,6 +973,16 @@ class TestInterceptE2E:
             patch("os.getuid", return_value=0),
             # Stub socket.getaddrinfo for DNS resolution
             patch("socket.getaddrinfo", return_value=fake_addr),
+            # Prevent claude-frontend from starting a real server
+            patch("screamingface.plugins.claude_frontend.plugin.uvicorn.Config"),
+            patch(
+                "screamingface.plugins.claude_frontend.plugin.uvicorn.Server",
+                return_value=mock_server,
+            ),
+            patch(
+                "screamingface.plugins.claude_frontend.plugin._wait_for_port",
+                return_value=True,
+            ),
         ):
             yield
 
@@ -1029,9 +1046,22 @@ class TestInterceptE2E:
         assert not state_file.exists()
 
     def test_proxy_handles_intercepted_request(self, claude_intercept_app) -> None:
-        """POST /v1/messages with intercepted Host header gets proxied."""
+        """POST /v1/messages on the frontend app gets proxied to upstream.
+
+        With the separate-interface architecture, proxy routes live on the
+        frontend's own FastAPI app (not the main server).
+        """
         import httpx
+        from fastapi import FastAPI
         from fastapi.testclient import TestClient
+
+        from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings
+        from screamingface.plugins.claude_frontend.proxy import create_router
+
+        # Create the frontend app directly (same as the plugin does internally)
+        settings = ClaudeFrontendSettings(upstream_url="https://api.anthropic.com")
+        frontend_app = FastAPI()
+        frontend_app.include_router(create_router(settings))
 
         mock_response = httpx.Response(
             200,
@@ -1039,14 +1069,13 @@ class TestInterceptE2E:
         )
 
         with (
-            TestClient(claude_intercept_app) as client,
-            patch("httpx.AsyncClient.send", return_value=mock_response),
+            TestClient(frontend_app) as client,
+            patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response),
         ):
             resp = client.post(
                 "/v1/messages",
                 json={"model": "claude-sonnet-4-20250514", "max_tokens": 10, "messages": []},
                 headers={
-                    "Host": "api.anthropic.com",
                     "x-api-key": "sk-test-key-1234",
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",

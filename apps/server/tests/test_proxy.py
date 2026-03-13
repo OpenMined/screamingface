@@ -1,4 +1,4 @@
-"""Tests for the claude-frontend plugin."""
+"""Tests for the claude-frontend proxy routes."""
 
 from __future__ import annotations
 
@@ -9,33 +9,26 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from screamingface.core.app import create_app
-from screamingface.core.config import AppConfig
+from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings
+from screamingface.plugins.claude_frontend.proxy import create_router
 
 
 @pytest.fixture
 def proxy_app() -> FastAPI:
-    config = AppConfig(
-        plugins=["claude-frontend"],
-        plugin_config={
-            "claude-frontend": {
-                "upstream_url": "https://api.anthropic.com",
-                "api_key_env": "ANTHROPIC_API_KEY",
-            }
-        },
+    """Create a standalone FastAPI app with the proxy router (no full server startup)."""
+    settings = ClaudeFrontendSettings(
+        upstream_url="https://api.anthropic.com",
+        api_key_env="ANTHROPIC_API_KEY",
     )
-    with patch("shutil.which", return_value="/usr/bin/claude"):
-        return create_app(config)
+    app = FastAPI()
+    router = create_router(settings)
+    app.include_router(router)
+    return app
 
 
 @pytest.fixture
 def proxy_client(proxy_app: FastAPI) -> TestClient:
     return TestClient(proxy_app)
-
-
-def test_proxy_plugin_discovered(proxy_app: FastAPI) -> None:
-    active = proxy_app.state.plugins.active_plugins
-    assert "claude-frontend" in active
 
 
 def test_proxy_non_streaming(proxy_client: TestClient) -> None:

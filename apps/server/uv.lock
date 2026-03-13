@@ -2505,7 +2505,14 @@ tracing = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "arize-phoenix" },
+    { name = "arize-phoenix-otel" },
     { name = "httpx" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-instrumentation-fastapi" },
+    { name = "opentelemetry-instrumentation-httpx" },
+    { name = "opentelemetry-sdk" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
@@ -2533,7 +2540,14 @@ provides-extras = ["tracing"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "arize-phoenix", specifier = ">=8.0" },
+    { name = "arize-phoenix-otel", specifier = ">=0.6" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "opentelemetry-api", specifier = ">=1.20" },
+    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.20" },
+    { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.41b0" },
+    { name = "opentelemetry-instrumentation-httpx", specifier = ">=0.41b0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.20" },
     { name = "pyright", specifier = ">=1.1.393" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "ruff", specifier = ">=0.8" },
