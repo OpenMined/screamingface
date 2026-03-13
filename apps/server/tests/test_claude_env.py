@@ -125,6 +125,7 @@ class TestClaudeEnvInterceptPlugin:
     """Tests for the ClaudeEnvInterceptPlugin lifecycle."""
 
     def test_setup_writes_env_vars(self) -> None:
+        from screamingface.core.frontend import FrontendEntry
         from screamingface.plugins.claude_env_intercept.plugin import (
             ClaudeEnvInterceptPlugin,
             ClaudeEnvInterceptSettings,
@@ -134,26 +135,27 @@ class TestClaudeEnvInterceptPlugin:
         plugin.settings = ClaudeEnvInterceptSettings()
 
         app = MagicMock()
-        app.state.config.server.ssl = True
-        app.state.config.server.port = 8000
+        app.state.frontends.entries = {
+            "claude-frontend": FrontendEntry(
+                plugin_name="claude-frontend",
+                domains=["api.anthropic.com"],
+                host="127.0.0.1",
+                port=9101,
+                scheme="http",
+            )
+        }
         hooks = MagicMock()
-        classes = MagicMock()
-        routes = MagicMock()
 
         with (
-            patch(
-                "screamingface.plugins.claude_env_intercept.plugin._mkcert_ca_root",
-                return_value="/fake/rootCA.pem",
-            ),
             patch("screamingface.plugins.claude_env_intercept.plugin.add_exports") as mock_add,
             patch("subprocess.run"),  # launchctl
         ):
-            plugin.setup(app, hooks, classes, routes)
+            plugin.setup(app, hooks, MagicMock(), MagicMock())
 
         mock_add.assert_called_once()
         env_vars = mock_add.call_args[0][0]
-        assert env_vars["ANTHROPIC_BASE_URL"] == "https://localhost:8000"
-        assert env_vars["NODE_EXTRA_CA_CERTS"] == "/fake/rootCA.pem"
+        assert env_vars["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:9101"
+        assert "NODE_EXTRA_CA_CERTS" not in env_vars
 
         hooks.register.assert_called_once_with(
             "app.shutdown", plugin._on_shutdown, plugin_name="claude-env-intercept"
@@ -172,10 +174,6 @@ class TestClaudeEnvInterceptPlugin:
         hooks = MagicMock()
 
         with (
-            patch(
-                "screamingface.plugins.claude_env_intercept.plugin._mkcert_ca_root",
-                return_value="/fake/rootCA.pem",
-            ),
             patch("screamingface.plugins.claude_env_intercept.plugin.add_exports") as mock_add,
             patch("subprocess.run"),
         ):
@@ -184,7 +182,7 @@ class TestClaudeEnvInterceptPlugin:
         env_vars = mock_add.call_args[0][0]
         assert env_vars["ANTHROPIC_BASE_URL"] == "https://myhost:9999"
 
-    def test_setup_without_ssl(self) -> None:
+    def test_setup_raises_when_no_frontend(self) -> None:
         from screamingface.plugins.claude_env_intercept.plugin import (
             ClaudeEnvInterceptPlugin,
             ClaudeEnvInterceptSettings,
@@ -194,22 +192,42 @@ class TestClaudeEnvInterceptPlugin:
         plugin.settings = ClaudeEnvInterceptSettings()
 
         app = MagicMock()
-        app.state.config.server.ssl = False
-        app.state.config.server.port = 3000
+        app.state.frontends.entries = {}
+        hooks = MagicMock()
+
+        with pytest.raises(RuntimeError, match="claude-env-intercept requires claude-frontend"):
+            plugin.setup(app, hooks, MagicMock(), MagicMock())
+
+    def test_setup_auto_detects_from_registry(self) -> None:
+        from screamingface.core.frontend import FrontendEntry
+        from screamingface.plugins.claude_env_intercept.plugin import (
+            ClaudeEnvInterceptPlugin,
+            ClaudeEnvInterceptSettings,
+        )
+
+        plugin = ClaudeEnvInterceptPlugin()
+        plugin.settings = ClaudeEnvInterceptSettings()
+
+        app = MagicMock()
+        app.state.frontends.entries = {
+            "claude-frontend": FrontendEntry(
+                plugin_name="claude-frontend",
+                domains=["api.anthropic.com"],
+                host="127.0.0.1",
+                port=9201,
+                scheme="http",
+            )
+        }
         hooks = MagicMock()
 
         with (
-            patch(
-                "screamingface.plugins.claude_env_intercept.plugin._mkcert_ca_root",
-                return_value=None,
-            ),
             patch("screamingface.plugins.claude_env_intercept.plugin.add_exports") as mock_add,
+            patch("subprocess.run"),
         ):
             plugin.setup(app, hooks, MagicMock(), MagicMock())
 
         env_vars = mock_add.call_args[0][0]
-        assert env_vars["ANTHROPIC_BASE_URL"] == "http://localhost:3000"
-        assert "NODE_EXTRA_CA_CERTS" not in env_vars
+        assert env_vars["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:9201"
 
     def test_teardown_removes_exports(self) -> None:
         from screamingface.plugins.claude_env_intercept.plugin import ClaudeEnvInterceptPlugin

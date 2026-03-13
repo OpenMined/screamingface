@@ -1,8 +1,8 @@
 """Claude Env Intercept plugin — redirect Claude Code via environment variables.
 
-Zero-sudo alternative to the claude-intercept plugin. Adds ANTHROPIC_BASE_URL and
-NODE_EXTRA_CA_CERTS to the shell profile so Claude Code connects directly
-to the ScreamingFace server. No /etc/hosts, no pfctl, no port 443.
+Zero-sudo alternative to the claude-intercept plugin. Adds ANTHROPIC_BASE_URL
+to the shell profile so Claude Code connects through the claude-frontend proxy.
+No /etc/hosts, no pfctl, no port 443.
 """
 
 from __future__ import annotations
@@ -42,13 +42,12 @@ class ClaudeEnvInterceptPlugin(Plugin):
     name = "claude-env-intercept"
     description = "Redirect Claude Code via env vars — no sudo, no /etc/hosts, no port 443"
     depends = ["claude-frontend"]
-    conflicts = ["claude-intercept"]
+    conflicts = ["claude-intercept", "mitmproxy-intercept"]
     settings_class = ClaudeEnvInterceptSettings
-    system_deps = ["mkcert"]
 
     # Keys that setup() may set via launchctl — needed for cleanup even
     # if the instance that originally set them is long gone.
-    _LAUNCHCTL_KEYS = ("ANTHROPIC_BASE_URL", "NODE_EXTRA_CA_CERTS")
+    _LAUNCHCTL_KEYS = ("ANTHROPIC_BASE_URL",)
 
     def cleanup_stale(self) -> None:
         from screamingface.plugins.claude_env_intercept.shellenv import has_exports
@@ -68,12 +67,6 @@ class ClaudeEnvInterceptPlugin(Plugin):
                 except FileNotFoundError:
                     pass
 
-    def preflight(self) -> tuple[bool, str]:
-        ok, reason = super().preflight()
-        if not ok:
-            return ok, reason
-        return True, ""
-
     def setup(
         self,
         app: FastAPI,
@@ -86,22 +79,16 @@ class ClaudeEnvInterceptPlugin(Plugin):
         # Determine the base URL for Claude Code
         base_url = settings.base_url
         if base_url is None:
-            cfg = app.state.config
-            scheme = "https" if cfg.server.ssl else "http"
-            port = cfg.server.port
-            base_url = f"{scheme}://localhost:{port}"
-
-        # Find the mkcert root CA
-        ca_cert = _mkcert_ca_root()
-        if ca_cert is None:
-            logger.warning("Could not find mkcert CA root — skipping NODE_EXTRA_CA_CERTS")
+            entry = app.state.frontends.entries.get("claude-frontend")
+            if entry is None:
+                raise RuntimeError(
+                    "claude-env-intercept requires claude-frontend to be registered "
+                    "in FrontendRegistry"
+                )
+            base_url = f"{entry.scheme}://{entry.host}:{entry.port}"
 
         # Build env vars
-        env_vars: dict[str, str] = {
-            "ANTHROPIC_BASE_URL": base_url,
-        }
-        if ca_cert is not None:
-            env_vars["NODE_EXTRA_CA_CERTS"] = ca_cert
+        env_vars: dict[str, str] = {"ANTHROPIC_BASE_URL": base_url}
 
         # Write to shell profile
         add_exports(env_vars)
@@ -150,22 +137,3 @@ class ClaudeEnvInterceptPlugin(Plugin):
         from screamingface.plugins.claude_env_intercept.cli import claude_env_intercept_app
 
         app.add_typer(claude_env_intercept_app, name="claude-env-intercept")
-
-
-def _mkcert_ca_root() -> str | None:
-    """Return the path to mkcert's root CA certificate, or None."""
-    try:
-        result = subprocess.run(
-            ["mkcert", "-CAROOT"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        from pathlib import Path
-
-        ca_cert = Path(result.stdout.strip()) / "rootCA.pem"
-        if ca_cert.exists():
-            return str(ca_cert)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return None
