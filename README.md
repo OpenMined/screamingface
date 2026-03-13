@@ -134,7 +134,7 @@ npm run lint
 The server uses a plugin architecture inspired by Odoo. Plugins are discovered via entry points and activated in `sf.json`.
 
 Built-in plugins:
-- **claude-proxy** -- forwards Claude API requests to Anthropic (with optional url4 context enrichment)
+- **claude-proxy** -- forwards Claude API requests to Anthropic (with optional url4 context URL template)
 - **claude-env** -- writes proxy env vars to shell profile so Claude Code uses the local server
 - **claude-cli** -- runs Claude CLI commands from the server
 - **tracing** -- OpenTelemetry instrumentation (requires `uv sync --extra tracing`)

@@ -1,4 +1,4 @@
-"""URL Executor plugin — GET URL gateway to backend plugins."""
+"""URL Executor plugin — url4 context resolution endpoint."""
 
 from __future__ import annotations
 
@@ -22,14 +22,11 @@ class UrlExecutorSettings(PluginSettings):
         env_prefix="SF_URL_EXECUTOR__",
         env_nested_delimiter="__",
     )
-    max_prompt_length: int = 10_000
-    require_execute_header: bool = True
-    show_preview_html: bool = True
 
 
 class UrlExecutorPlugin(Plugin):
     name = "url-executor"
-    description = "GET URL gateway to backend plugins"
+    description = "url4 context resolution endpoint"
     settings_class = UrlExecutorSettings
     depends: list[str] = []
 

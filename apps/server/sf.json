@@ -10,11 +10,12 @@
   },
   "plugins": [
     "claude-proxy",
+    "claude-cli",
     "claude-env",
     "tracing",
     "url-executor"
   ],
-  "url4config": "smththatmakesense",
+  "url4config": "https://localhost:{port}/claude/run?p={prompt}",
   "plugin_config": {
     "claude-proxy": {
       "upstream_url": "https://api.anthropic.com",

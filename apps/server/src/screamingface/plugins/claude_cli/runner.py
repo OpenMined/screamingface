@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
 import time
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from screamingface.plugins.claude_cli.models import ClaudeRunRequest
@@ -100,12 +104,17 @@ async def run_claude(
     timeout: float,
 ) -> tuple[int, str, str, float]:
     """Run the Claude CLI and return (exit_code, stdout, stderr, duration_seconds)."""
+    # Force CLI to talk directly to Anthropic — explicitly override any
+    # ANTHROPIC_BASE_URL that may leak via launchctl, config files, etc.
+    env = dict(os.environ)
+    env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
     start = time.monotonic()
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     stdout_bytes, stderr_bytes = await asyncio.wait_for(
         proc.communicate(prompt.encode()),
@@ -126,12 +135,15 @@ async def stream_claude(
     timeout: float,
 ) -> AsyncGenerator[str, None]:
     """Stream stdout lines from the Claude CLI, ending with a done event."""
+    env = dict(os.environ)
+    env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
     start = time.monotonic()
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     assert proc.stdin is not None
     assert proc.stdout is not None

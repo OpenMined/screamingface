@@ -333,11 +333,11 @@ export function SettingsView() {
         </div>
       </section>
 
-      {/* url4 context enrichment */}
+      {/* url4 context template */}
       <section className="rounded-lg border border-border bg-card p-4">
-        <h2 className="text-sm font-medium text-foreground">Context Enrichment</h2>
+        <h2 className="text-sm font-medium text-foreground">Context URL Template</h2>
         <p className="mt-1 text-[10px] text-muted-foreground">
-          A url4 URL that resolves to a prompt injected into every Claude API request.
+          A url4 template with {"{prompt}"} placeholders, resolved and injected into every Claude API request.
         </p>
         <div className="mt-3">
           <input
@@ -348,7 +348,7 @@ export function SettingsView() {
               setConfig((prev) => ({ ...prev, url4config: val }));
               markDirty();
             }}
-            placeholder="url4://project/context (leave empty to disable)"
+            placeholder="(http://example.com/docs, {prompt}) — leave empty to disable"
             className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
           />
         </div>

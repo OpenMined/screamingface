@@ -7,9 +7,10 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
+from screamingface.core.url4 import resolve
 from screamingface.plugins.claude_cli.models import ClaudeRunRequest, ClaudeRunResponse
 from screamingface.plugins.claude_cli.runner import build_args, run_claude, stream_claude
 
@@ -22,6 +23,8 @@ def create_router(settings: ClaudeCliSettings) -> APIRouter:
 
     @router.post("/claude/run", response_model=None, operation_id="claude_run")
     async def claude_run(request: ClaudeRunRequest) -> JSONResponse | StreamingResponse:
+        request.prompt = await resolve(request.prompt)
+
         temp_dir: str | None = None
         try:
             # Write files to temp dir if provided
@@ -79,6 +82,30 @@ def create_router(settings: ClaudeCliSettings) -> APIRouter:
         finally:
             if request.output_format != "stream-json":
                 _cleanup(temp_dir)
+
+    @router.get("/claude/run", response_model=None, operation_id="claude_run_get")
+    async def claude_run_get(request: Request) -> PlainTextResponse:
+        """GET interface for url4 — accepts ?p= query param, returns plain text stdout."""
+        prompt = request.query_params.get("p")
+        if not prompt:
+            raise HTTPException(status_code=400, detail="Missing 'p' query parameter")
+
+        # Resolve prompt through url4
+        prompt = await resolve(prompt)
+
+        timeout = settings.timeout_seconds
+        req = ClaudeRunRequest(prompt=prompt)
+        args = build_args(req, settings, None)
+
+        try:
+            exit_code, stdout, stderr, duration = await run_claude(args, prompt, timeout)
+        except TimeoutError:
+            raise HTTPException(status_code=504, detail="Claude CLI timed out")
+
+        if exit_code != 0:
+            raise HTTPException(status_code=502, detail=f"Claude CLI exited {exit_code}: {stderr}")
+
+        return PlainTextResponse(content=stdout)
 
     return router
 

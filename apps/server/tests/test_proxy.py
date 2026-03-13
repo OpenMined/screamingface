@@ -11,13 +11,13 @@ from fastapi.testclient import TestClient
 
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
-from screamingface.core.url4 import clear_cache as clear_url4_cache
 
 
 @pytest.fixture
 def proxy_app() -> FastAPI:
     config = AppConfig(
         plugins=["claude-proxy"],
+        url4config=None,
         plugin_config={
             "claude-proxy": {
                 "upstream_url": "https://api.anthropic.com",
@@ -124,18 +124,17 @@ def proxy_app_with_url4() -> FastAPI:
 
 @pytest.fixture
 def proxy_client_with_url4(proxy_app_with_url4: FastAPI) -> TestClient:
-    clear_url4_cache()
     return TestClient(proxy_app_with_url4)
 
 
-@pytest.mark.xfail(reason="url4 enrichment not yet wired up")
-def test_proxy_url4_enrichment_string_system(proxy_client_with_url4: TestClient) -> None:
-    mock_response = httpx.Response(200, json={"id": "msg_u4_1"})
-
+def test_proxy_url4_returns_synthetic_response(proxy_client_with_url4: TestClient) -> None:
+    """When url4 resolves, proxy returns the result directly as a synthetic response."""
     with patch(
-        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
-    ) as mock_post:
-        proxy_client_with_url4.post(
+        "screamingface.core.url4.resolve",
+        new_callable=AsyncMock,
+        return_value="Here is your enriched context.",
+    ):
+        resp = proxy_client_with_url4.post(
             "/v1/messages",
             json={
                 "model": "claude-sonnet-4-20250514",
@@ -145,47 +144,51 @@ def test_proxy_url4_enrichment_string_system(proxy_client_with_url4: TestClient)
             headers={"x-api-key": "test-key", "anthropic-version": "2023-06-01"},
         )
 
-    sent_body = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1]["json"]
-    system = sent_body["system"]
-    assert isinstance(system, str)
-    assert "url4://test/rules" in system
-    assert system.endswith("Be helpful.")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "message"
+    assert data["role"] == "assistant"
+    assert data["content"][0]["type"] == "text"
+    assert data["content"][0]["text"] == "Here is your enriched context."
+    assert data["stop_reason"] == "end_turn"
+    assert data["id"].startswith("msg_sf_")
 
 
-@pytest.mark.xfail(reason="url4 enrichment not yet wired up")
-def test_proxy_url4_enrichment_array_system(proxy_client_with_url4: TestClient) -> None:
-    mock_response = httpx.Response(200, json={"id": "msg_u4_2"})
+def test_proxy_url4_skips_when_assistant_present(proxy_client_with_url4: TestClient) -> None:
+    """url4 enrichment is skipped on follow-up turns (assistant messages present)."""
+    mock_response = httpx.Response(200, json={"id": "msg_followup"})
 
-    with patch(
-        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
-    ) as mock_post:
-        proxy_client_with_url4.post(
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
+        resp = proxy_client_with_url4.post(
             "/v1/messages",
             json={
                 "model": "claude-sonnet-4-20250514",
-                "messages": [{"role": "user", "content": "Hi"}],
-                "system": [{"type": "text", "text": "Be helpful."}],
+                "messages": [
+                    {"role": "user", "content": "Hi"},
+                    {"role": "assistant", "content": "Hello!"},
+                    {"role": "user", "content": "Follow up"},
+                ],
             },
             headers={"x-api-key": "test-key", "anthropic-version": "2023-06-01"},
         )
 
-    sent_body = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1]["json"]
-    system = sent_body["system"]
-    assert isinstance(system, list)
-    assert len(system) == 2
-    assert system[0]["type"] == "text"
-    assert "url4://test/rules" in system[0]["text"]
-    assert system[1]["text"] == "Be helpful."
+    assert resp.status_code == 200
+    assert resp.json()["id"] == "msg_followup"
 
 
-@pytest.mark.xfail(reason="url4 enrichment not yet wired up")
-def test_proxy_url4_enrichment_no_system(proxy_client_with_url4: TestClient) -> None:
-    mock_response = httpx.Response(200, json={"id": "msg_u4_3"})
+def test_proxy_url4_falls_through_on_failure(proxy_client_with_url4: TestClient) -> None:
+    """When url4 resolution fails, proxy falls through to Anthropic."""
+    mock_response = httpx.Response(200, json={"id": "msg_fallback"})
 
-    with patch(
-        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
-    ) as mock_post:
-        proxy_client_with_url4.post(
+    with (
+        patch(
+            "screamingface.core.url4.resolve",
+            new_callable=AsyncMock,
+            side_effect=Exception("resolve failed"),
+        ),
+        patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response),
+    ):
+        resp = proxy_client_with_url4.post(
             "/v1/messages",
             json={
                 "model": "claude-sonnet-4-20250514",
@@ -194,7 +197,5 @@ def test_proxy_url4_enrichment_no_system(proxy_client_with_url4: TestClient) -> 
             headers={"x-api-key": "test-key", "anthropic-version": "2023-06-01"},
         )
 
-    sent_body = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1]["json"]
-    system = sent_body["system"]
-    assert isinstance(system, str)
-    assert "url4://test/rules" in system
+    assert resp.status_code == 200
+    assert resp.json()["id"] == "msg_fallback"
