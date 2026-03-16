@@ -5,6 +5,56 @@
 
 ---
 
+## The connection (general)
+
+screamingface is an AI ensemble tool that achieves state-of-the-art performance by combining multiple models. It runs on url4, an open protocol for AI task chains. url4 is designed as the grammar and protocol layer for Attribution-Based Control, which is the broader research agenda at OpenMined.
+
+screamingface is the simplest, most straightforward implementation of federated AI on url4. It proves the concept with public models and public data. Other OpenMined initiatives are working on what comes next.
+
+---
+
+## The connection (internal, for OM team)
+
+screamingface demonstrates that you can achieve SOTA performance without private data. That's the baseline. Other bets at OpenMined are working on how to bring private data onto the network, and those capabilities will integrate through url4 as they mature.
+
+url4 is the protocol and grammar for ABC. screamingface happens to be the first and most visible application built on it, but the protocol is designed to extend across OpenMined's full mission: discovery, networking, private data access, attribution. screamingface solves the network bootstrapping problem. It gets people engaged. It builds the community. And it gives the other bets a platform to demonstrate their value as they come online.
+
+The sequence: screamingface proves ensembling works and gets people in the door. Other bets plug in domain-specific private data and show improved performance in those domains. url4 extends to support richer attribution and control. The protocol grows. The network grows.
+
+---
+
+## What to say publicly vs. internally
+
+**Say publicly (now):**
+- screamingface combines multiple AI models and outperforms any single model
+- The results are open source and reproducible
+- It runs on url4, an open protocol
+- Decentralization is structurally better (different labs, different data, uncorrelated errors)
+- Built by OpenMined, a nonprofit
+
+**Say on the /why page (Persona 2, now):**
+- Decentralization itself is powerful. When models come from different labs with different data and different approaches, their errors are uncorrelated. That's why the ensemble wins.
+- url4 is an open protocol designed for federated AI
+- The ABC thesis is the intellectual foundation (link out)
+- Open infrastructure matters (the window, civic institutions, governance)
+
+**Say internally (OM team reveal, temporary callout):**
+- screamingface is the first bet built on url4
+- It achieves SOTA without private data. That's the baseline.
+- Other bets (e.g., Network Source AI with news media data) are working on private data integration
+- As those bets come online, they'll plug into this ecosystem and improve domain-specific performance
+- url4 is the protocol layer for ABC, designed to extend across OpenMined's full mission
+- screamingface solves the network bootstrapping problem
+
+**Don't say publicly (yet):**
+- Specific private data integration plans
+- Credit sharing as a working feature
+- Attribution as a working feature
+- Anything that frames this as "against big tech"
+- Specific timelines for when other bets will plug in
+
+---
+
 ## For the OpenMined team
 
 ### Mission-down
@@ -134,6 +184,33 @@ screamingface is the tool. url4 is the protocol. OpenMined is the org. ABC is th
   ABC                      github.com/OpenMined     SOTA benchmarks
 ```
 
+### The sequence (internal story)
+
+```
+  NOW                          NEXT                        LATER
+  ───                          ────                        ─────
+
+  😱 screamingface             Other bets plug in          url4 extends to
+  SOTA with public             private data via url4.      support full ABC.
+  models + public data.        Domain-specific             Attribution,
+  Network bootstrapping.       benchmarks improve.         compensation,
+       │                            │                      governance.
+       │                            │                        │
+       └────────────┬───────────────┘────────────────────────┘
+                    │
+              ┌─────▼─────┐
+              │    url4    │
+              │  protocol  │
+              │  (grows    │
+              │  with the  │
+              │  network)  │
+              └─────┬─────┘
+              ┌─────▼─────┐
+              │  OpenMined │
+              │  mission   │
+              └───────────┘
+```
+
 ### New from OpenMined (side by side)
 
 ```
@@ -174,7 +251,7 @@ screamingface is the tool. url4 is the protocol. OpenMined is the org. ABC is th
            │
          screamingface ··· first app: open AI ensemble
            │
-         ? ··············· what comes next on url4
+         ? ··············· other bets plug in via url4
 ```
 
 ### Practical (linear flow)

@@ -89,6 +89,61 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ── Internal team callout (REMOVE BEFORE PUBLIC LAUNCH) ──── */}
+        <section className="px-6 py-10 border-t border-primary/30 bg-primary/[0.04]">
+          <div className="max-w-3xl mx-auto">
+            <div>
+              <div className="flex items-center gap-3 mb-5">
+                <span className="text-2xl select-none">👋</span>
+                <h2
+                  className="text-lg font-semibold text-foreground"
+                  style={{ fontFamily: "var(--font-rubik)" }}
+                >
+                  OpenMined team: how screamingface 😱 fits in
+                </h2>
+              </div>
+              <div className="space-y-4 text-sm text-muted-foreground leading-relaxed">
+                <div className="flex items-start gap-3">
+                  <span className="text-base select-none shrink-0 mt-0.5">▸</span>
+                  <p>
+                    screamingface is a new bet focused on one thing: achieving state-of-the-art AI performance through open model ensembling. It proves that combining models from different providers beats any single model, using only public data and public APIs. That&apos;s the baseline.
+                  </p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-base select-none shrink-0 mt-0.5">▸</span>
+                  <p>
+                    Under the hood, screamingface runs on{" "}
+                    <a
+                      href="https://url4.ai"
+                      className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      url4
+                    </a>
+                    , a new open protocol designed as the grammar and protocol layer for Attribution-Based Control. url4 is bigger than screamingface. It&apos;s the foundation that other OpenMined initiatives will build on as they come online.
+                  </p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-base select-none shrink-0 mt-0.5">▸</span>
+                  <p>
+                    Other bets are working on how to bring private data onto this network. As those capabilities mature, they&apos;ll integrate through url4 and improve domain-specific performance. Imagine the current leaderboard, then a new benchmark where private news media data from the Network Source AI bet gets plugged in and the scores jump. That&apos;s the sequence.
+                  </p>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-base select-none shrink-0 mt-0.5">▸</span>
+                  <p>
+                    screamingface solves the network bootstrapping problem. It gets developers engaged, builds community, and creates the platform for demonstrating the value of private data and attribution as those pieces are ready. The public-facing site (what you see below) focuses on the ensemble performance story. The rest of the vision lives in url4 and the ABC thesis, and will surface publicly as the work progresses.
+                  </p>
+                </div>
+                <p className="text-xs text-muted-foreground/60 mt-4">
+                  This section is for internal review only and will be removed before public launch.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* Leaderboard */}
         <section
           id="leaderboard"

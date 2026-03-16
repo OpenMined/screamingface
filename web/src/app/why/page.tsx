@@ -66,7 +66,7 @@ export default function WhyPage() {
                 The ensemble advantage
               </h2>
               <p>
-                An ensemble draws from models built by different teams, trained on different data, with different strengths. Claude handles reasoning well. Gemini is fast on certain tasks. GPT and Llama each have areas where they lead. Instead of betting on one provider, the ensemble routes each prompt to the model most likely to get it right, or combines multiple answers into one that&apos;s better than any single&nbsp;response.
+                An ensemble draws from models built by different labs, trained on different data, with different approaches to cleaning, tuning, and architecture. Because each lab builds differently, their models tend to make different kinds of mistakes, and the ensemble catches what any single model misses. Instead of betting on one provider, it routes each prompt to the model most likely to get it&nbsp;right.
               </p>
               <p>
                 This also means no single entity controls the system. If one provider changes terms, raises prices, or restricts access, the ensemble routes around it. You keep working. Right now, while multiple competitive AI models exist and their APIs remain open, there is a window to build open infrastructure on top of&nbsp;them.
@@ -101,7 +101,7 @@ export default function WhyPage() {
                 , an open protocol that encodes AI task chains as human-readable URLs. Every computation step is transparent and auditable. url4 is what makes the ensemble work, and it&apos;s designed to be the foundation for open, federated&nbsp;AI.
               </p>
               <p>
-                The protocol is bigger than screamingface. Any application can build on url4. As the protocol matures, it will support new capabilities: shared resources across networks, traceable AI workflows, and the kind of accountability that single-provider systems can&apos;t offer. screamingface is the first application, and it proves the protocol&nbsp;works.
+                The protocol is bigger than screamingface. Any application can build on url4. As the protocol matures, it will support new capabilities, from traceable AI workflows to the kind of accountability that single-provider systems can&apos;t offer. screamingface is the first application, and it proves the protocol&nbsp;works.
               </p>
               <a
                 href="https://url4.ai"
