@@ -33,7 +33,7 @@ export default function WhyPage() {
               className="text-xs text-muted-foreground uppercase tracking-widest mb-8 border-l-2 border-primary pl-3"
               style={{ fontFamily: "var(--font-sometype-mono)" }}
             >
-              Deep Voting
+              An open protocol
             </p>
 
             {/* Headline */}
@@ -41,21 +41,21 @@ export default function WhyPage() {
               className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.1] mb-12 max-w-3xl"
               style={{ fontFamily: "var(--font-rubik)" }}
             >
-              Trust makes AI{" "}
-              <span className="text-gradient-gold">more accurate.</span>
+              Many models are{" "}
+              <span className="text-gradient-gold">better than one.</span>
             </h1>
 
             {/* Body */}
             <div className="max-w-2xl space-y-5 text-muted-foreground leading-relaxed">
               <p className="text-foreground/80">
-                Today&apos;s AI mashes all training data together, destroying the link between sources and predictions. Data providers lose control the moment they share. Users can&apos;t verify where answers come from. A new architecture called <em>Deep Voting</em> solves both problems at once, and the result is AI that&apos;s more accurate because it&apos;s more&nbsp;trustworthy.
+                screamingface combines multiple AI models into an ensemble that consistently outperforms any single model on published benchmarks. The results are open source and reproducible. Different models make different mistakes, and when their errors don&apos;t overlap, the combination is structurally stronger than any individual&nbsp;model.
               </p>
             </div>
 
           </div>
         </section>
 
-        {/* ── How AI loses trust ──────────────────────────────────────────── */}
+        {/* ── Why this matters ────────────────────────────────────────────── */}
         <section className="px-6 py-16 border-t border-border bg-card/40">
           <div className="max-w-4xl mx-auto">
             <div className="max-w-2xl mx-auto space-y-5 text-muted-foreground leading-relaxed">
@@ -63,22 +63,22 @@ export default function WhyPage() {
                 className="text-2xl font-semibold text-foreground mb-2"
                 style={{ fontFamily: "var(--font-rubik)" }}
               >
-                How AI loses trust
+                The ensemble advantage
               </h2>
               <p>
-                When a neural network trains, it combines millions of data points through addition. The result is a model that works, but the connection between any specific source and any specific prediction is gone. Permanently.
+                An ensemble draws from models built by different teams, trained on different data, with different strengths. Claude handles reasoning well. Gemini is fast on certain tasks. GPT and Llama each have areas where they lead. Instead of betting on one provider, the ensemble routes each prompt to the model most likely to get it right, or combines multiple answers into one that&apos;s better than any single&nbsp;response.
               </p>
               <p>
-                This is the root of every major AI debate right now. Copyright holders can&apos;t prove their work was used. Patients can&apos;t control how their medical data shapes predictions. Auditors can&apos;t trace a biased output back to biased training data. The EU AI Act, GDPR, and similar frameworks are all trying to solve problems that stem from this one architectural choice.
+                This also means no single entity controls the system. If one provider changes terms, raises prices, or restricts access, the ensemble routes around it. You keep working. Right now, while multiple competitive AI models exist and their APIs remain open, there is a window to build open infrastructure on top of&nbsp;them.
               </p>
               <p>
-                Both sides of the open-vs-closed AI debate are reacting to the same broken link. Companies centralize because they can&apos;t offer accountability otherwise. Critics demand openness because they can&apos;t verify anything otherwise. The architecture forces the&nbsp;conflict.
+                The EU AI Act, GDPR, US executive orders on AI, and frameworks from dozens of other governments all reflect a shared set of concerns about AI: transparency, accountability, and who controls the infrastructure. Open ensembles are a practical step toward addressing these concerns. They make AI usage auditable, distributed, and independent of any single&nbsp;vendor.
               </p>
             </div>
           </div>
         </section>
 
-        {/* ── Deep Voting ────────────────────────────────────────────────── */}
+        {/* ── The protocol ────────────────────────────────────────────────── */}
         <section className="px-6 py-16 border-t border-border">
           <div className="max-w-4xl mx-auto">
             <div className="max-w-2xl mx-auto space-y-5 text-muted-foreground leading-relaxed">
@@ -86,114 +86,10 @@ export default function WhyPage() {
                 className="text-2xl font-semibold text-foreground mb-2"
                 style={{ fontFamily: "var(--font-rubik)" }}
               >
-                Choose who you trust
+                url4: the protocol behind screamingface
               </h2>
               <p>
-                Deep Voting is a different approach to how AI learns. Instead of pooling all data into a single set of weights, it trains source-specific parameters that stay separate. They only combine at the moment of&nbsp;prediction.
-              </p>
-              <p>
-                This changes the relationship between AI and the people who feed it. Data providers can withdraw their contributions from specific predictions. Users can weight the sources they trust and filter out the ones they don&apos;t. Researchers can trace exactly which training data influenced a given&nbsp;output.
-              </p>
-              <p className="text-foreground/80">
-                Here is what makes it powerful: when you choose which sources to trust, accuracy improves. The system gets better <em>for you</em> because it reflects your judgment about what&apos;s reliable. Trust and accuracy reinforce each other. This is true for individual users choosing their sources, and for data providers choosing who gets to use their&nbsp;work.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* ── What trust-based AI makes possible ─────────────────────────── */}
-        <section className="px-6 py-16 border-t border-border bg-card/40">
-          <div className="max-w-4xl mx-auto">
-            <div className="max-w-2xl mx-auto mb-10">
-              <h2
-                className="text-2xl font-semibold mb-3"
-                style={{ fontFamily: "var(--font-rubik)" }}
-              >
-                What trust-based AI makes possible
-              </h2>
-            </div>
-            <div className="grid grid-cols-1 gap-y-8 max-w-2xl mx-auto">
-
-              {/* Privacy & Sovereignty */}
-              <div className="flex gap-3">
-                <ChevronRight className="w-4 h-4 text-primary mt-1 shrink-0" />
-                <div>
-                  <h3
-                    className="text-base font-medium text-foreground mb-2"
-                    style={{ fontFamily: "var(--font-rubik)" }}
-                  >
-                    Privacy &amp; Sovereignty
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    Data stays with its owner. Insights flow. Institutions and communities contribute to AI training while retaining full control over what is shared, with whom, and under what terms. When models are codeveloped using community resources, ownership is built into the&nbsp;protocol.
-                  </p>
-                </div>
-              </div>
-
-              {/* Copyright & Compensation */}
-              <div className="flex gap-3">
-                <ChevronRight className="w-4 h-4 text-primary mt-1 shrink-0" />
-                <div>
-                  <h3
-                    className="text-base font-medium text-foreground mb-2"
-                    style={{ fontFamily: "var(--font-rubik)" }}
-                  >
-                    Copyright &amp; Compensation
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    When contributions are traceable, creators can be compensated and their rights can be enforced. Attribution survives model training because the architecture is designed to&nbsp;preserve&nbsp;it.
-                  </p>
-                </div>
-              </div>
-
-              {/* Traceability */}
-              <div className="flex gap-3">
-                <ChevronRight className="w-4 h-4 text-primary mt-1 shrink-0" />
-                <div>
-                  <h3
-                    className="text-base font-medium text-foreground mb-2"
-                    style={{ fontFamily: "var(--font-rubik)" }}
-                  >
-                    Traceability
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    Every prediction maps back to its sources. Hallucinations and bias become auditable, not just detectable. When something goes wrong, you can find out why and hold the right system&nbsp;accountable.
-                  </p>
-                </div>
-              </div>
-
-              {/* Democratic Governance */}
-              <div className="flex gap-3">
-                <ChevronRight className="w-4 h-4 text-primary mt-1 shrink-0" />
-                <div>
-                  <h3
-                    className="text-base font-medium text-foreground mb-2"
-                    style={{ fontFamily: "var(--font-rubik)" }}
-                  >
-                    Democratic Governance
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    AI infrastructure is becoming as foundational as electricity grids and public roads. Open, federated systems built as public goods and governed collectively give civic institutions the ability to serve their communities on their own terms. Human agency over how knowledge is used is preserved at every&nbsp;level.
-                  </p>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </section>
-
-        {/* ── Built on open infrastructure ────────────────────────────────── */}
-        <section className="px-6 py-16 border-t border-border">
-          <div className="max-w-4xl mx-auto">
-            <div className="max-w-2xl mx-auto space-y-5 text-muted-foreground leading-relaxed">
-              <h2
-                className="text-2xl font-semibold text-foreground mb-2"
-                style={{ fontFamily: "var(--font-rubik)" }}
-              >
-                Built on open infrastructure
-              </h2>
-              <p>
-                screamingface is the first working implementation of these ideas. It combines multiple AI models into an ensemble that outperforms any single model, with an attribution layer (built on the open{" "}
+                screamingface runs on{" "}
                 <a
                   href="https://url4.ai"
                   className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity"
@@ -201,12 +97,103 @@ export default function WhyPage() {
                   rel="noopener noreferrer"
                 >
                   url4
-                </a>{" "}
-                protocol) that tracks every contribution. The evaluation code is open source and the results are&nbsp;reproducible.
+                </a>
+                , an open protocol that encodes AI task chains as human-readable URLs. Every computation step is transparent and auditable. url4 is what makes the ensemble work, and it&apos;s designed to be the foundation for open, federated&nbsp;AI.
               </p>
               <p>
-                We&apos;ve been here before. When governments digitized public records in the 1990s, the organizations that moved early built lasting infrastructure. The ones that waited bought vendor lock-in. The same pattern is unfolding now with AI. Hospitals, research labs, agricultural cooperatives, cultural archives. The opportunity to build open, trust-based AI infrastructure exists now, and the tools to build it already&nbsp;exist.
+                The protocol is bigger than screamingface. Any application can build on url4. As the protocol matures, it will support new capabilities: shared resources across networks, traceable AI workflows, and the kind of accountability that single-provider systems can&apos;t offer. screamingface is the first application, and it proves the protocol&nbsp;works.
               </p>
+              <a
+                href="https://url4.ai"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:opacity-80 transition-opacity mt-2"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Learn more about url4
+                <ChevronRight className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Why open AI infrastructure matters ──────────────────────────── */}
+        <section className="px-6 py-16 border-t border-border bg-card/40">
+          <div className="max-w-4xl mx-auto">
+            <div className="max-w-2xl mx-auto mb-10">
+              <h2
+                className="text-2xl font-semibold mb-3"
+                style={{ fontFamily: "var(--font-rubik)" }}
+              >
+                Why open AI infrastructure matters
+              </h2>
+              <p className="text-muted-foreground">
+                When AI runs on an open protocol, the benefits compound. The system is auditable by default. Institutions can participate without giving up control. And the infrastructure belongs to everyone who builds on it, not to a single company. We&apos;ve seen this pattern before. When governments digitized public records in the 1990s, the organizations that moved early built lasting infrastructure. The ones that waited bought vendor&nbsp;lock-in.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-y-8 max-w-2xl mx-auto">
+
+              {/* Independence */}
+              <div className="flex gap-3">
+                <ChevronRight className="w-4 h-4 text-primary mt-1 shrink-0" />
+                <div>
+                  <h3
+                    className="text-base font-medium text-foreground mb-2"
+                    style={{ fontFamily: "var(--font-rubik)" }}
+                  >
+                    Independence from any single provider
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Hospitals, research labs, agricultural cooperatives, cultural archives. Every sector is now dependent on AI. When that AI is controlled by one company, a pricing change or a policy shift affects everyone. Open ensembles give institutions the ability to serve their communities on their own&nbsp;terms.
+                  </p>
+                </div>
+              </div>
+
+              {/* Transparency */}
+              <div className="flex gap-3">
+                <ChevronRight className="w-4 h-4 text-primary mt-1 shrink-0" />
+                <div>
+                  <h3
+                    className="text-base font-medium text-foreground mb-2"
+                    style={{ fontFamily: "var(--font-rubik)" }}
+                  >
+                    Transparency by design
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    An open protocol means the system is auditable. How models are routed, what outputs are produced, and how the ensemble makes decisions can all be examined. This is a starting point for the kind of accountability that regulators and civic institutions are asking&nbsp;for.
+                  </p>
+                </div>
+              </div>
+
+              {/* Democratic governance */}
+              <div className="flex gap-3">
+                <ChevronRight className="w-4 h-4 text-primary mt-1 shrink-0" />
+                <div>
+                  <h3
+                    className="text-base font-medium text-foreground mb-2"
+                    style={{ fontFamily: "var(--font-rubik)" }}
+                  >
+                    AI as public infrastructure
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    AI infrastructure is becoming as foundational as electricity grids and public roads. Open, federated systems built as public goods and governed collectively are the alternative to a future where a handful of private entities control the most powerful technology of this generation. The question is whether we build them while the window is&nbsp;open.
+                  </p>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </section>
+
+        {/* ── Built by OpenMined ──────────────────────────────────────────── */}
+        <section className="px-6 py-16 border-t border-border">
+          <div className="max-w-4xl mx-auto">
+            <div className="max-w-2xl mx-auto space-y-5 text-muted-foreground leading-relaxed">
+              <h2
+                className="text-2xl font-semibold text-foreground mb-2"
+                style={{ fontFamily: "var(--font-rubik)" }}
+              >
+                Built by OpenMined
+              </h2>
               <p>
                 <a
                   href="https://openmined.org"
@@ -216,7 +203,7 @@ export default function WhyPage() {
                 >
                   OpenMined
                 </a>{" "}
-                is the nonprofit behind this work. Founded in 2017, the organization built PySyft (a framework for secure, privacy-preserving machine learning) and assembled one of the largest open-source AI communities in the&nbsp;world.
+                is a nonprofit that has been building open-source tools for privacy-preserving AI since 2017. PySyft, the Syft Network, federated learning research. screamingface and url4 are the latest work from an organization with a track record of building infrastructure that keeps data where it lives while letting insights&nbsp;flow.
               </p>
             </div>
 
@@ -226,10 +213,10 @@ export default function WhyPage() {
                 className="text-sm font-medium text-foreground mb-2"
                 style={{ fontFamily: "var(--font-rubik)" }}
               >
-                The full case
+                The long plan
               </h3>
               <p className="text-sm text-muted-foreground leading-relaxed mb-3">
-                Andrew Trask&apos;s thesis on Attribution-Based Control lays out the technical and societal argument in full. Deep Voting is Chapter 2. The thesis covers how traceable AI addresses copyright, privacy, bias, and democratic governance.
+                screamingface and url4 are early steps. The full vision for where this leads, including how open protocols can support attribution, creator compensation, and democratic AI governance, is laid out in Andrew Trask&apos;s thesis on Attribution-Based Control.
               </p>
               <a
                 href="https://attribution-based-control.ai"
@@ -258,7 +245,7 @@ export default function WhyPage() {
               Get involved
             </h2>
             <p className="text-muted-foreground text-sm mb-8 leading-relaxed">
-              We&apos;re building a coalition around open, trust-based AI infrastructure. If you want to help make the case while the window is open, here&apos;s how.
+              We&apos;re building a coalition around open AI infrastructure. If you want to help make the case while the window is open, here&apos;s how.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left mb-10">
