@@ -106,13 +106,13 @@ export default function Home() {
                 <div className="flex items-start gap-3">
                   <span className="text-base select-none shrink-0 mt-0.5">▸</span>
                   <p>
-                    screamingface is a new bet focused on one thing: achieving state-of-the-art AI performance through open model ensembling. It proves that combining models from different providers beats any single model, using only public data and public APIs. That&apos;s the baseline.
+                    The market adopts what performs best. screamingface gives us a public stage to prove that, and a place where every bet at OpenMined can show its value through shared leaderboards the market already understands.
                   </p>
                 </div>
                 <div className="flex items-start gap-3">
                   <span className="text-base select-none shrink-0 mt-0.5">▸</span>
                   <p>
-                    Under the hood, screamingface runs on{" "}
+                    Right now, screamingface achieves SOTA performance through open model ensembling, using only public data and public APIs. That&apos;s the baseline. It proves the concept and builds an audience. As your bets mature, they plug into this ecosystem through{" "}
                     <a
                       href="https://url4.ai"
                       className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity"
@@ -121,19 +121,28 @@ export default function Home() {
                     >
                       url4
                     </a>
-                    , a new open protocol designed as the grammar and protocol layer for Attribution-Based Control. url4 is bigger than screamingface. It&apos;s the foundation that other OpenMined initiatives will build on as they come online.
+                    , the open protocol underneath screamingface that&apos;s designed as the grammar layer for Attribution-Based Control.
                   </p>
                 </div>
                 <div className="flex items-start gap-3">
                   <span className="text-base select-none shrink-0 mt-0.5">▸</span>
                   <p>
-                    Other bets are working on how to bring private data onto this network. As those capabilities mature, they&apos;ll integrate through url4 and improve domain-specific performance. Imagine the current leaderboard, then a new benchmark where private news media data from the Network Source AI bet gets plugged in and the scores jump. That&apos;s the sequence.
+                    The leaderboards are where this comes together. Imagine the current benchmark results, then a new leaderboard where private news media data from Network Source AI gets added and the scores jump in that domain. Or where remote data science capabilities improve performance on a different benchmark. Each bet can demonstrate its value through a shared set of leaderboards that the market already understands.
                   </p>
                 </div>
                 <div className="flex items-start gap-3">
                   <span className="text-base select-none shrink-0 mt-0.5">▸</span>
                   <p>
-                    screamingface solves the network bootstrapping problem. It gets developers engaged, builds community, and creates the platform for demonstrating the value of private data and attribution as those pieces are ready. The public-facing site (what you see below) focuses on the ensemble performance story. The rest of the vision lives in url4 and the ABC thesis, and will surface publicly as the work progresses.
+                    The public-facing site (what you see below) focuses on the ensemble performance story. The connection to your work will grow as the leaderboards expand and the bets integrate. The deeper vision lives in url4 and the{" "}
+                    <a
+                      href="https://attribution-based-control.ai"
+                      className="text-foreground underline underline-offset-2 hover:opacity-80 transition-opacity"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      ABC thesis
+                    </a>
+                    , and will surface publicly as the work progresses.
                   </p>
                 </div>
                 <p className="text-xs text-muted-foreground/60 mt-4">
