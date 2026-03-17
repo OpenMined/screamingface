@@ -37,36 +37,43 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
   if (unlocked) return <>{children}</>;
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-8 px-6">
-      <div className="text-6xl select-none">😱</div>
-      <p
-        className="text-xl font-medium tracking-tight"
-        style={{ fontFamily: "var(--font-rubik)" }}
-      >
-        screamingface
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, padding: 24 }}>
+      <div style={{ fontSize: 48 }}>😱</div>
+      <p style={{ fontSize: 16 }}>
+        <strong>screamingface</strong>
       </p>
 
-      <form onSubmit={submit} className="flex flex-col items-center gap-3 w-full max-w-xs">
+      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, width: "100%", maxWidth: 280 }}>
         <input
           ref={inputRef}
           type="password"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="Password"
+          placeholder="password"
           autoComplete="current-password"
-          className={`w-full bg-card border rounded-lg px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-ring transition-colors ${
-            error ? "border-destructive focus:ring-destructive" : "border-border"
-          }`}
-          style={{ fontFamily: "var(--font-sometype-mono)" }}
+          style={{
+            width: "100%",
+            border: error ? "1px solid #cc0000" : "1px solid #ccc",
+            padding: "8px 12px",
+            fontSize: 13,
+            fontFamily: "var(--font-mono)",
+          }}
         />
         {error && (
-          <p className="text-xs text-destructive">Incorrect password.</p>
+          <p style={{ fontSize: 11, color: "#cc0000" }}>Incorrect password.</p>
         )}
         <button
           type="submit"
-          className="w-full gradient-gold text-[#1a1720] py-3 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+          style={{
+            width: "100%",
+            border: "1px solid #ccc",
+            padding: "8px 12px",
+            fontSize: 13,
+            background: "#f4f4f4",
+            cursor: "pointer",
+          }}
         >
-          Enter
+          enter
         </button>
       </form>
     </div>
