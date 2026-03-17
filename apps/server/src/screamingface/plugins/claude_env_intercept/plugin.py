@@ -65,8 +65,7 @@ class ClaudeEnvInterceptPlugin(Plugin):
         entry = app.state.frontends.entries.get("claude-frontend")
         if entry is None:
             raise RuntimeError(
-                "claude-env-intercept requires claude-frontend to be registered "
-                "in FrontendRegistry"
+                "claude-env-intercept requires claude-frontend to be registered in FrontendRegistry"
             )
         base_url = f"{entry.scheme}://{entry.host}:{entry.port}"
 

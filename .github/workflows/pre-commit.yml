@@ -24,6 +24,8 @@ jobs:
         working-directory: apps/server
         run: uv sync
 
-      - uses: pre-commit/action@v3.0.1
-        with:
-          extra_args: --config apps/server/.pre-commit-config.yaml --files apps/server/**/*
+      - name: Run pre-commit
+        working-directory: apps/server
+        run: |
+          pip install pre-commit
+          pre-commit run --show-diff-on-failure --color=always --all-files

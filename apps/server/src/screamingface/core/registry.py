@@ -106,9 +106,7 @@ class PluginRegistry:
             try:
                 plugin.settings = plugin.settings_class(**raw_config)
             except Exception as exc:
-                logger.warning(
-                    "Plugin %r skipped: invalid config — %s", plugin.name, exc
-                )
+                logger.warning("Plugin %r skipped: invalid config — %s", plugin.name, exc)
                 return
 
         # Run plugin preflight check (includes system_deps validation)

@@ -23,9 +23,7 @@ from screamingface.plugin import Plugin
 logger = logging.getLogger(__name__)
 
 
-def _inject_tag_enums(
-    schema: dict, active_plugins: dict[str, Plugin]
-) -> None:
+def _inject_tag_enums(schema: dict, active_plugins: dict[str, Plugin]) -> None:
     """Walk a JSON Schema and inject ``enum`` for fields whose name matches a plugin tag.
 
     Convention: if a string property's name matches a known tag (e.g. ``"frontend"``),
@@ -72,6 +70,7 @@ def _collapse_nullable(schema: dict) -> None:
     nullable scalars.  Collapsing gives RJSF a plain typed field and lets
     ``_inject_tag_enums`` / ``_inject_examples`` match these fields too.
     """
+
     def _walk(node: dict) -> None:
         for field_schema in node.get("properties", {}).values():
             any_of = field_schema.get("anyOf")
@@ -99,9 +98,7 @@ def _collapse_nullable(schema: dict) -> None:
 def _get_process_names() -> list[str]:
     """Return sorted unique names of currently running processes."""
     try:
-        out = subprocess.check_output(
-            ["ps", "-eo", "comm="], text=True, timeout=5
-        )
+        out = subprocess.check_output(["ps", "-eo", "comm="], text=True, timeout=5)
         names: set[str] = set()
         for line in out.splitlines():
             name = line.strip().rsplit("/", 1)[-1]  # basename
@@ -118,6 +115,7 @@ def _inject_examples(schema: dict, field_name: str, examples: list[str]) -> None
     Uses JSON Schema ``examples`` (not ``enum``) so the value is a suggestion,
     not a strict constraint — the user can still type a custom value.
     """
+
     def _walk(node: dict) -> None:
         for fname, fschema in node.get("properties", {}).items():
             if fschema.get("type") == "string" and fname == field_name:
