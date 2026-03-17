@@ -108,3 +108,17 @@ jobs:
           files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to sf-installer (public)
+        env:
+          GH_TOKEN: ${{ secrets.SF_INSTALLER_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # Delete existing release if re-running
+          gh release delete "$TAG" --repo OpenMined/sf-installer --yes 2>/dev/null || true
+          # Create public release with all artifacts
+          gh release create "$TAG" \
+            --repo OpenMined/sf-installer \
+            --title "ScreamingFace $TAG" \
+            --notes "Automated release from ScreamingFace build pipeline." \
+            artifacts/*
