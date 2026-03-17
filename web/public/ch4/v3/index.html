@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>screamingface — SOTA on your laptop</title>
+  <meta name="description" content="An AI ensemble that combines Claude Code, Gemini CLI, Codex, and Ollama to beat state-of-the-art benchmarks. One command to install.">
+  <meta name="robots" content="noindex, nofollow">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      font-family: "SF Mono", "Menlo", "Monaco", "Cascadia Mono", "Courier New", monospace;
+      font-size: 14px; line-height: 1.6; color: #1a1a1a; background: #fff;
+    }
+    a { color: #1a1a1a; text-decoration: underline; }
+    a:hover { color: #555; }
+
+    #gate {
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 32px; padding: 0 24px;
+    }
+    #gate .emoji { font-size: 64px; user-select: none; }
+    #gate .title { font-size: 20px; font-weight: 500; }
+    #gate form { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; max-width: 280px; }
+    #gate input[type="password"] {
+      width: 100%; border: 1px solid #ccc; border-radius: 6px;
+      padding: 10px 14px; font-size: 14px; outline: none; font-family: inherit;
+    }
+    #gate input.error { border-color: #dc2626; }
+    #gate .error-msg { font-size: 12px; color: #dc2626; display: none; }
+    #gate button {
+      width: 100%; background: #1a1a1a; color: #fff; padding: 10px 0;
+      border-radius: 6px; font-size: 14px; font-weight: 500; border: none; cursor: pointer;
+    }
+    #content { display: none; }
+  </style>
+</head>
+<body>
+
+  <div id="gate">
+    <div class="emoji">😱</div>
+    <p class="title">screamingface</p>
+    <form id="gate-form">
+      <input type="password" id="gate-input" placeholder="Password" autocomplete="current-password">
+      <p class="error-msg" id="gate-error">Incorrect password.</p>
+      <button type="submit">Enter</button>
+    </form>
+  </div>
+
+  <div id="content">
+    <div style="max-width:540px; margin:0 auto; padding:48px 20px;">
+
+      <header style="margin-bottom:40px;">
+        <h1 style="font-size:20px; font-weight:normal; margin-bottom:4px;">screamingface</h1>
+        <p style="color:#666;">AI model ensemble for your terminal</p>
+      </header>
+
+      <section style="margin-bottom:32px;">
+        <p style="margin-bottom:12px;">Routes prompts across Claude Code, Gemini CLI, Codex, and Ollama. Picks the best response. Runs locally.</p>
+        <p>No accounts. No API keys you don't already have. Open source.</p>
+      </section>
+
+      <section style="margin-bottom:32px;">
+        <div style="margin-bottom:8px;">Install:</div>
+        <pre style="background:#f6f6f6; border:1px solid #ddd; padding:10px 14px; overflow-x:auto;"><code>$ curl -fsSL https://screamingface.ai/install | sh</code></pre>
+      </section>
+
+      <section style="margin-bottom:32px;">
+        <div style="margin-bottom:8px;">How it works:</div>
+        <ol style="padding-left:20px; list-style-type:decimal;">
+          <li style="margin-bottom:4px;">Detects models on your PATH</li>
+          <li style="margin-bottom:4px;">Sends each prompt to the best-scoring model for that task type</li>
+          <li style="margin-bottom:4px;">Ensemble mode: runs multiple models, picks the best output</li>
+          <li>Everything stays on your machine</li>
+        </ol>
+      </section>
+
+      <section style="margin-bottom:32px;">
+        <div style="margin-bottom:8px;">Why:</div>
+        <p>No single model wins every benchmark. Ensembles beat individual models on SWE-bench, HumanEval, and MMLU — but deploying them is a pain. This makes it one command.</p>
+      </section>
+
+      <section style="margin-bottom:40px;">
+        <div style="display:flex; gap:20px;">
+          <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener noreferrer">github</a>
+          <a href="https://github.com/OpenMined/screamingface/issues" target="_blank" rel="noopener noreferrer">issues</a>
+          <a href="https://openmined.org" target="_blank" rel="noopener noreferrer">openmined</a>
+        </div>
+      </section>
+
+      <footer style="border-top:1px solid #ddd; padding-top:16px; color:#999; font-size:12px;">
+        built by OpenMined · open source · alpha
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var PASSWORD = "letmein";
+      var KEY = "sf_auth";
+      if (sessionStorage.getItem(KEY) === "1") {
+        document.getElementById("gate").style.display = "none";
+        document.getElementById("content").style.display = "block";
+        return;
+      }
+      document.getElementById("gate-input").focus();
+      document.getElementById("gate-form").addEventListener("submit", function(e) {
+        e.preventDefault();
+        var input = document.getElementById("gate-input");
+        if (input.value === PASSWORD) {
+          sessionStorage.setItem(KEY, "1");
+          document.getElementById("gate").style.display = "none";
+          document.getElementById("content").style.display = "block";
+        } else {
+          input.value = "";
+          input.classList.add("error");
+          document.getElementById("gate-error").style.display = "block";
+          setTimeout(function() {
+            input.classList.remove("error");
+            document.getElementById("gate-error").style.display = "none";
+          }, 1200);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

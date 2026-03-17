@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>screamingface — SOTA on your laptop</title>
+  <meta name="description" content="An AI ensemble that combines Claude Code, Gemini CLI, Codex, and Ollama to beat state-of-the-art benchmarks. One command to install.">
+  <meta name="robots" content="noindex, nofollow">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { font-family: "Times New Roman", Times, serif; font-size: 16px; color: #000; background: #fff; }
+    code, pre, kbd { font-family: monospace; }
+    a { color: #0000EE; text-decoration: underline; }
+    a:visited { color: #551A8B; }
+
+    #gate {
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 32px; padding: 0 24px;
+    }
+    #gate .emoji { font-size: 64px; user-select: none; }
+    #gate .title { font-size: 20px; font-weight: 500; }
+    #gate form { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; max-width: 280px; }
+    #gate input[type="password"] {
+      width: 100%; border: 1px solid #ccc; border-radius: 6px;
+      padding: 10px 14px; font-size: 14px; outline: none; font-family: inherit;
+    }
+    #gate input.error { border-color: #dc2626; }
+    #gate .error-msg { font-size: 12px; color: #dc2626; display: none; }
+    #gate button {
+      width: 100%; background: #1a1a1a; color: #fff; padding: 10px 0;
+      border-radius: 6px; font-size: 14px; font-weight: 500; border: none; cursor: pointer;
+    }
+    #content { display: none; }
+  </style>
+</head>
+<body>
+
+  <div id="gate">
+    <div class="emoji">😱</div>
+    <p class="title">screamingface</p>
+    <form id="gate-form">
+      <input type="password" id="gate-input" placeholder="Password" autocomplete="current-password">
+      <p class="error-msg" id="gate-error">Incorrect password.</p>
+      <button type="submit">Enter</button>
+    </form>
+  </div>
+
+  <div id="content">
+    <div style="max-width:600px; margin:0 auto; padding:40px 20px;">
+      <div style="text-align:center; margin-bottom:40px;">
+        <div style="font-size:64px; margin-bottom:16px;">😱</div>
+        <h1 style="font-size:36px; font-weight:bold; margin-bottom:12px;">SOTA on your laptop.</h1>
+        <p>An ensemble of the CLI models you already run. Combines their outputs, picks the best answer. Open source. No new accounts.</p>
+      </div>
+
+      <div style="margin-bottom:40px;">
+        <h2 style="font-size:24px; font-weight:bold; margin-bottom:8px;">One command</h2>
+        <p style="margin-bottom:16px;">Detects models on your machine. Configures itself. Nothing sent to a server.</p>
+        <pre style="background:#f0f0f0; border:1px solid #000; padding:12px 16px; overflow-x:auto; margin-bottom:32px;"><code>$ curl -fsSL https://screamingface.ai/install | sh</code></pre>
+        <p style="margin-bottom:8px;"><strong>01 — Install.</strong> One command. Configures locally. Nothing uploaded.</p>
+        <p style="margin-bottom:8px;"><strong>02 — Auto-detect.</strong> Finds Claude Code, Gemini CLI, Codex, and Ollama on your PATH.</p>
+        <p style="margin-bottom:8px;"><strong>03 — Route.</strong> Each prompt goes to whichever model scores best on the task.</p>
+      </div>
+
+      <p style="margin-bottom:40px;">
+        <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener noreferrer">github.com/OpenMined/screamingface</a>
+      </p>
+
+      <hr style="border:none; border-top:1px solid #000; margin-bottom:16px;">
+
+      <footer style="font-size:14px;">
+        😱 screamingface, built by <a href="https://openmined.org" target="_blank" rel="noopener noreferrer">OpenMined</a> — <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var PASSWORD = "letmein";
+      var KEY = "sf_auth";
+      if (sessionStorage.getItem(KEY) === "1") {
+        document.getElementById("gate").style.display = "none";
+        document.getElementById("content").style.display = "block";
+        return;
+      }
+      document.getElementById("gate-input").focus();
+      document.getElementById("gate-form").addEventListener("submit", function(e) {
+        e.preventDefault();
+        var input = document.getElementById("gate-input");
+        if (input.value === PASSWORD) {
+          sessionStorage.setItem(KEY, "1");
+          document.getElementById("gate").style.display = "none";
+          document.getElementById("content").style.display = "block";
+        } else {
+          input.value = "";
+          input.classList.add("error");
+          document.getElementById("gate-error").style.display = "block";
+          setTimeout(function() {
+            input.classList.remove("error");
+            document.getElementById("gate-error").style.display = "none";
+          }, 1200);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
