@@ -1,0 +1,32 @@
+/* v2: Brutalist base + 90s fancy element */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Times New Roman", Times, Georgia, serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #000;
+  background: #fff;
+}
+
+a {
+  color: #0000EE;
+  text-decoration: underline;
+}
+
+a:visited {
+  color: #551A8B;
+}
+
+a:hover {
+  color: #FF0000;
+}
+
+code, pre, kbd {
+  font-family: "Courier New", Courier, monospace;
+}
