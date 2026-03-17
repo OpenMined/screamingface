@@ -39,10 +39,7 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-8 px-6">
       <div className="text-6xl select-none">😱</div>
-      <p
-        className="text-xl font-medium tracking-tight"
-        style={{ fontFamily: "var(--font-rubik)" }}
-      >
+      <p className="text-xl font-medium tracking-tight">
         screamingface
       </p>
 
@@ -57,14 +54,13 @@ export default function PasswordGate({ children }: { children: React.ReactNode }
           className={`w-full bg-card border rounded-lg px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-ring transition-colors ${
             error ? "border-destructive focus:ring-destructive" : "border-border"
           }`}
-          style={{ fontFamily: "var(--font-sometype-mono)" }}
         />
         {error && (
           <p className="text-xs text-destructive">Incorrect password.</p>
         )}
         <button
           type="submit"
-          className="w-full gradient-gold text-[#1a1720] py-3 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+          className="w-full bg-foreground text-background py-3 rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
         >
           Enter
         </button>

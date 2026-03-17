@@ -2,14 +2,12 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark, .dark *));
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-inter);
-  --font-heading: var(--font-rubik);
-  --font-mono: var(--font-sometype-mono);
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-heading: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -46,7 +44,12 @@
   --radius-2xl: 999px;
 }
 
-/* Light mode — default */
+/* Force light mode */
+:root,
+html {
+  color-scheme: light only;
+}
+
 :root {
   --background: #faf9fb;
   --foreground: #14121a;
@@ -65,7 +68,7 @@
   --secondary-foreground: #14121a;
 
   --muted: #e4e1ef;
-  --muted-foreground: #6b6280;
+  --muted-foreground: #14121a;
 
   --accent: #e4e1ef;
   --accent-foreground: #14121a;
@@ -94,98 +97,7 @@
   --sidebar-ring: #c8842a;
 }
 
-/* Dark mode — follows system preference */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #14121a;
-    --foreground: #fcfcfd;
-    --card: #1e1b26;
-    --card-foreground: #fcfcfd;
-    --popover: #1e1b26;
-    --popover-foreground: #fcfcfd;
-    --primary: #f8c073;
-    --primary-foreground: #1a1720;
-    --secondary: #2a2633;
-    --secondary-foreground: #fcfcfd;
-    --muted: #2a2633;
-    --muted-foreground: #8a8699;
-    --accent: #2a2633;
-    --accent-foreground: #fcfcfd;
-    --destructive: #cc677b;
-    --border: #2e2a3a;
-    --input: #2e2a3a;
-    --ring: #f8c073;
-    --chart-1: #f8c073;
-    --chart-2: #f79763;
-    --chart-3: #53bea9;
-    --chart-4: #6976ae;
-    --chart-5: #cc677b;
-    --radius: 0.5rem;
-    --sidebar: #1e1b26;
-    --sidebar-foreground: #fcfcfd;
-    --sidebar-primary: #f8c073;
-    --sidebar-primary-foreground: #1a1720;
-    --sidebar-accent: #2a2633;
-    --sidebar-accent-foreground: #fcfcfd;
-    --sidebar-border: #2e2a3a;
-    --sidebar-ring: #f8c073;
-  }
-}
 
-/* Dark mode — manual class override */
-.dark {
-  --background: #14121a;
-  --foreground: #fcfcfd;
-  --card: #1e1b26;
-  --card-foreground: #fcfcfd;
-  --popover: #1e1b26;
-  --popover-foreground: #fcfcfd;
-  --primary: #f8c073;
-  --primary-foreground: #1a1720;
-  --secondary: #2a2633;
-  --secondary-foreground: #fcfcfd;
-  --muted: #2a2633;
-  --muted-foreground: #8a8699;
-  --accent: #2a2633;
-  --accent-foreground: #fcfcfd;
-  --destructive: #cc677b;
-  --border: #2e2a3a;
-  --input: #2e2a3a;
-  --ring: #f8c073;
-  --chart-1: #f8c073;
-  --chart-2: #f79763;
-  --chart-3: #53bea9;
-  --chart-4: #6976ae;
-  --chart-5: #cc677b;
-  --radius: 0.5rem;
-  --sidebar: #1e1b26;
-  --sidebar-foreground: #fcfcfd;
-  --sidebar-primary: #f8c073;
-  --sidebar-primary-foreground: #1a1720;
-  --sidebar-accent: #2a2633;
-  --sidebar-accent-foreground: #fcfcfd;
-  --sidebar-border: #2e2a3a;
-  --sidebar-ring: #f8c073;
-}
-
-/* OM gradient utilities */
-@layer utilities {
-  .gradient-gold {
-    background: linear-gradient(67deg, #f8c073, #f79763);
-  }
-  .gradient-teal {
-    background: linear-gradient(67deg, #52a8c5, #53bea9);
-  }
-  .gradient-violet {
-    background: linear-gradient(67deg, #6976ae, #52a8c5);
-  }
-  .text-gradient-gold {
-    background: linear-gradient(67deg, #f8c073, #f79763);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-}
 
 @layer base {
   * {
@@ -193,15 +105,24 @@
   }
   body {
     @apply bg-background text-foreground font-sans;
+    font-size: 16px;
   }
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-rubik), sans-serif;
     text-wrap: balance;
   }
   p {
     text-wrap: pretty;
+    font-size: 16px;
+  }
+  a {
+    color: var(--primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  a:hover {
+    opacity: 0.8;
   }
   code, pre, kbd {
-    font-family: var(--font-sometype-mono), monospace;
+    font-family: var(--font-mono);
   }
 }
