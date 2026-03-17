@@ -1,0 +1,51 @@
+{
+  "version": "0.1.0",
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "reload": true,
+    "ssl": true,
+    "ssl_certfile": null,
+    "ssl_keyfile": null
+  },
+  "plugins": [
+    "claude-backend",
+    "tracing",
+    "url4-executor",
+    "claude-env-intercept",
+    "claude-frontend"
+  ],
+  "plugin_config": {
+    "claude-frontend": {
+      "upstream_url": "https://api.anthropic.com",
+      "listen_port": 9101,
+      "domains": [
+        "api.anthropic.com"
+      ]
+    },
+    "mitmproxy-intercept": {
+      "rules": [
+        {
+          "domain": "api.anthropic.com",
+          "frontend": "claude-frontend",
+          "process_filter": "claude"
+        }
+      ],
+      "proxy_port": 8888,
+      "mitmdump_path": "mitmdump",
+      "mitmproxy_ca_cert": "~/.mitmproxy/mitmproxy-ca-cert.pem",
+      "auto_cleanup": true,
+      "trust_ca": true
+    },
+    "claude-backend": {
+      "default_model": null,
+      "default_effort": "medium",
+      "timeout_seconds": 300,
+      "permission_mode": null,
+      "dangerously_skip_permissions": false
+    },
+    "url4-executor": {
+      "expression": "(https://localhost:8000/url4?context=(https://docs.a.com, https://docs.b.com),https://localhost:8000/url4?context=(https://docs.c.com, https://docs.d.com))"
+    }
+  }
+}

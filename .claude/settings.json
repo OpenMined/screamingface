@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch(domain:*)",
+      "Mcp",
+      "mcp__plugin_context7_context7__*",
+      "mcp__plugin_playwright_playwright__*"
+    ],
+    "defaultMode": "plan"
+  }
+}
