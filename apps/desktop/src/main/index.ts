@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, session, shell } from 'electron';
 import { join } from 'path';
 import { is } from '@electron-toolkit/utils';
 import { registerAllHandlers } from './ipc';
+import { log } from './debug-log';
 
 let mainWindow: BrowserWindow | null = null;
 let phoenixWindow: BrowserWindow | null = null;
@@ -21,8 +22,13 @@ function createWindow(): void {
     },
   });
 
+  log(`[main] BrowserWindow created`);
+
   mainWindow.on('ready-to-show', () => {
+    log(`[main] ready-to-show`);
     mainWindow?.show();
+    // Temporary: open DevTools in production to diagnose Finder-launch black screen
+    mainWindow?.webContents.openDevTools({ mode: 'detach' });
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -86,7 +92,10 @@ app.on('certificate-error', (event, _webContents, url, _error, _cert, callback) 
   }
 });
 
+log(`[main] module loaded`);
+
 app.whenReady().then(() => {
+  log(`[main] app.whenReady()`);
   // Accept self-signed certs for local server (covers fetch/XHR in renderer)
   session.defaultSession.setCertificateVerifyProc((request, callback) => {
     if (request.hostname === 'localhost' || request.hostname === '127.0.0.1') {

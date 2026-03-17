@@ -1,13 +1,33 @@
-import { readFileSync, writeFileSync, watchFile, unwatchFile } from 'fs';
+import { readFileSync, writeFileSync, copyFileSync, existsSync, watchFile, unwatchFile } from 'fs';
 import { join, resolve } from 'path';
 import { EventEmitter } from 'events';
 import { app } from 'electron';
+import { is } from '@electron-toolkit/utils';
 
 function resolveServerDir(): string {
-  // In dev, app.getAppPath() points to apps/desktop/
-  // In production, it points to the asar archive
+  if (!is.dev) {
+    // Production: server source is bundled as an extraResource
+    return join(process.resourcesPath, 'server');
+  }
+  // Dev: sibling directory in the monorepo
   const appPath = app.getAppPath();
   return resolve(appPath, '..', 'server');
+}
+
+function resolveConfigPath(serverDir: string): string {
+  if (!is.dev) {
+    // Production: config lives in writable user data directory
+    const userDataConfig = join(app.getPath('userData'), 'sf.json');
+    if (!existsSync(userDataConfig)) {
+      const templatePath = join(serverDir, 'sf.json');
+      if (existsSync(templatePath)) {
+        copyFileSync(templatePath, userDataConfig);
+      }
+    }
+    return userDataConfig;
+  }
+  // Dev: config lives alongside server source
+  return join(serverDir, 'sf.json');
 }
 
 let SERVER_DIR: string;
@@ -20,7 +40,7 @@ class ConfigService extends EventEmitter {
     super();
     // Defer resolution until app is ready
     SERVER_DIR = resolveServerDir();
-    CONFIG_PATH = join(SERVER_DIR, 'sf.json');
+    CONFIG_PATH = resolveConfigPath(SERVER_DIR);
     this.configPath = CONFIG_PATH;
   }
 

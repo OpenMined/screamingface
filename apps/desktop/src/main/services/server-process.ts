@@ -4,6 +4,8 @@ import { EventEmitter } from 'events';
 import { promisify } from 'util';
 import https from 'https';
 import http from 'http';
+import { app } from 'electron';
+import { is } from '@electron-toolkit/utils';
 import { configService } from './config-service';
 
 const execFileAsync = promisify(execFileCb);
@@ -37,7 +39,18 @@ class ServerProcess extends EventEmitter {
   }
 
   private get sfBin(): string {
+    if (!is.dev) {
+      return join(app.getPath('userData'), '.venv', 'bin', 'sf');
+    }
     return join(this.serverDir, '.venv', 'bin', 'sf');
+  }
+
+  /** Writable directory used as cwd when spawning the server. */
+  private get serverCwd(): string {
+    if (!is.dev) {
+      return app.getPath('userData');
+    }
+    return this.serverDir;
   }
 
   private setStatus(s: ServerStatus): void {
@@ -56,7 +69,7 @@ class ServerProcess extends EventEmitter {
   private needsRoot(): boolean {
     try {
       const raw = execFileSync(this.sfBin, ['plugin', 'list', '--json'], {
-        cwd: this.serverDir,
+        cwd: this.serverCwd,
         timeout: 10_000,
       }).toString();
       const plugins = JSON.parse(raw) as Record<string, { requires_root?: boolean }>;
@@ -111,7 +124,7 @@ class ServerProcess extends EventEmitter {
 
       // Use sudo -S to read password from stdin; stdout/stderr stream normally
       child = spawn('sudo', ['-S', this.sfBin, ...args], {
-        cwd: this.serverDir,
+        cwd: this.serverCwd,
         env: { ...process.env },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -120,7 +133,7 @@ class ServerProcess extends EventEmitter {
       child.stdin!.end();
     } else {
       child = spawn(this.sfBin, args, {
-        cwd: this.serverDir,
+        cwd: this.serverCwd,
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe'],
       });

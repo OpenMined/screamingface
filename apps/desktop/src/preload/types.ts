@@ -46,7 +46,12 @@ export interface ElectronAPI {
     ) => Promise<{ ok: boolean; status: number; body: string }>;
   };
   venv: {
-    detect: () => Promise<{ status: VenvStatus; uvFound: boolean }>;
+    detect: () => Promise<{
+      status: VenvStatus;
+      uvFound: boolean;
+      needsSync: boolean;
+      autoBootstrap: boolean;
+    }>;
     create: () => Promise<boolean>;
     sync: (extra?: string) => Promise<boolean>;
     listPackages: () => Promise<Array<{ name: string; version: string }>>;
