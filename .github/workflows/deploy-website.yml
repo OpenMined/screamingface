@@ -38,6 +38,12 @@ jobs:
         working-directory: web
         run: npm run build
 
+      - name: Copy previews into build output
+        run: |
+          if [ -d web/previews ]; then
+            cp -r web/previews/* web/out/
+          fi
+
       - name: Add .nojekyll
         run: touch web/out/.nojekyll
 

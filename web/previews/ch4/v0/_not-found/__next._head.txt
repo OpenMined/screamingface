@@ -1,0 +1,6 @@
+1:"$Sreact.fragment"
+2:I[89900,["/ch4/v0/_next/static/chunks/bc097600d55902ce.js"],"ViewportBoundary"]
+3:I[89900,["/ch4/v0/_next/static/chunks/bc097600d55902ce.js"],"MetadataBoundary"]
+4:"$Sreact.suspense"
+5:I[60776,["/ch4/v0/_next/static/chunks/bc097600d55902ce.js"],"IconMark"]
+0:{"buildId":"H_lY3tQ2UM2ao702KYZQ9","rsc":["$","$1","h",{"children":[["$","meta",null,{"name":"robots","content":"noindex"}],["$","$L2",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}]]}],["$","div",null,{"hidden":true,"children":["$","$L3",null,{"children":["$","$4",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"screamingface — SOTA on your laptop"}],["$","meta","1",{"name":"description","content":"An AI ensemble that combines Claude Code, Gemini CLI, Codex, and Ollama to beat state-of-the-art benchmarks. One command to install."}],["$","meta","2",{"name":"robots","content":"noindex, nofollow"}],["$","link","3",{"rel":"icon","href":"/ch4/v0/icon.svg?icon.d7edea65.svg","sizes":"any","type":"image/svg+xml"}],["$","$L5","4",{}]]}]}]}],null]}],"loading":null,"isPartial":false}
