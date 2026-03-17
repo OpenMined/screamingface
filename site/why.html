@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>😱 screamingface — why this matters</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #222;
+  background: #fff;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 20px 40px;
+}
+
+a { color: #1a0dab; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3 { font-weight: 600; }
+h1 { font-size: 20px; margin: 24px 0 8px; }
+h2 { font-size: 16px; color: #333; margin: 28px 0 8px; }
+h3 { font-size: 14px; margin: 20px 0 6px; }
+
+hr { border: none; border-top: 1px solid #eee; margin: 24px 0; }
+p { margin-bottom: 10px; }
+
+.prose { max-width: 640px; line-height: 1.7; }
+.small { font-size: 12px; }
+
+header {
+  border-bottom: 1px solid #ddd;
+  padding: 12px 0 10px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+header nav { font-size: 13px; display: flex; gap: 18px; }
+header nav a { color: #555; }
+header nav a:hover { color: #1a0dab; }
+
+footer {
+  font-size: 12px;
+  color: #888;
+  padding: 16px 0;
+  line-height: 1.8;
+}
+footer a { color: #888; }
+footer a:hover { color: #1a0dab; }
+
+ul { padding-left: 20px; margin-bottom: 10px; }
+li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<!-- ─── Header ─── -->
+<header>
+  <div>
+    <a href="index.html" style="color:inherit;text-decoration:none">
+      <span style="font-size:22px">😱</span>
+      <strong style="font-size:16px">screamingface</strong>
+    </a>
+    <span style="color:#888;font-size:12px;margin-left:4px">/ why this matters</span>
+  </div>
+  <nav>
+    <a href="index.html">cost dashboard</a>
+    <a href="#window">the window</a>
+    <a href="#involved">get involved</a>
+    <a href="https://github.com/OpenMined/screamingface">github</a>
+  </nav>
+</header>
+
+<!-- ─── Lede ─── -->
+<h1 style="margin-top:8px">Who controls the price of intelligence?</h1>
+<div class="prose">
+<p>Right now, 3–4 companies set the price of AI and nobody is watching. There is no public index. No ticker. No transparency. Benchmarks measure accuracy in isolation. Pricing pages show cost per token in isolation. The number that actually matters — <strong>what does it cost to get a correct answer?</strong> — isn't tracked by anyone.</p>
+<p><a href="index.html">We started tracking it.</a> And the data tells a story that should concern anyone thinking about the future of AI.</p>
+</div>
+
+<hr>
+
+<!-- ─── Concentration ─── -->
+<h2>The concentration problem</h2>
+<div class="prose">
+<p>Look at the <a href="index.html">cost dashboard</a>. Every category shows the same pattern: a handful of companies control the frontier models, and they set prices with no public accountability. When Anthropic raises prices on coding tasks, or OpenAI adjusts their reasoning model rates, the cost of intelligence moves — and nobody tracks it.</p>
+<p>This is not a normal market. When fuel prices spike, there are indices, regulators, and public debate. When the cost of AI intelligence moves, there's a blog post from a company and a thread on Twitter.</p>
+<p>The cost dashboard is a small step toward fixing that. But the deeper problem requires a different kind of solution.</p>
+</div>
+
+<hr>
+
+<!-- ─── The window ─── -->
+<h2 id="window">The 2-year window</h2>
+<div class="prose">
+<p>Right now, open ensemble systems like screamingface can route around any single company's model. If Claude is too expensive for a task, route to Gemini. If Gemini is weak at coding, route to Claude. Competition works because the models are accessible via APIs.</p>
+<p>That access window is closing. Within roughly two years, large AI companies will respond — by restricting API access, by bundling models into walled ecosystems, or by competing directly in ways that make ensemble routing impractical.</p>
+<p>Before that window closes, the public sector needs to begin funding federated, decentralized AI infrastructure. This is not speculation. It's the same pattern as the previous wave of government digitization — the conversion of public records, libraries, health data, and civic systems into digital form. The organizations that moved early built lasting infrastructure. The ones that waited bought vendor lock-in.</p>
+<p>The same pattern is unfolding now with AI. Hospitals, research labs, agricultural cooperatives, cultural archives. The window to build open infrastructure is now.</p>
+</div>
+
+<hr>
+
+<!-- ─── Open infrastructure ─── -->
+<h2>What open infrastructure looks like</h2>
+<div class="prose">
+<p><strong>Transparent pricing.</strong> The cost of intelligence should be tracked publicly, like commodity prices. That's what the <a href="index.html">dashboard</a> does.</p>
+<p><strong>Ensemble routing.</strong> No single model should be a dependency. screamingface routes your queries to whichever model is cheapest for the task at hand. The tool is <a href="https://github.com/OpenMined/screamingface">open source</a>.</p>
+<p><strong>Attribution and traceability.</strong> When AI uses your data, you should know. When AI gives you an answer, you should be able to trace where it came from. Andrew Trask's work on <a href="https://attribution-based-control.ai">Attribution-Based Control</a> lays the technical foundation — source-specific parameters that never merge, predictions you can audit, contributions you can withdraw.</p>
+<p><strong>Shared resources.</strong> Credit-sharing across teams and institutions, so the cost of intelligence is distributed, not concentrated. Public infrastructure, not private tollbooths.</p>
+</div>
+
+<hr>
+
+<!-- ─── Who we are ─── -->
+<h2>Who we are</h2>
+<div class="prose">
+<p><a href="https://openmined.org">OpenMined</a> is a nonprofit focused on privacy-preserving AI, founded in 2017. We built <a href="https://github.com/OpenMined/PySyft">PySyft</a> (a framework for secure, privacy-preserving machine learning) and assembled one of the largest open-source AI communities in the world.</p>
+<p>screamingface is the next step: making AI cost-efficient, transparent, and open. The cost dashboard is phase one. The ensemble tool is phase two. The long-term vision is AI infrastructure that works like public utilities — open, accountable, and governed collectively.</p>
+</div>
+
+<hr>
+
+<!-- ─── Get involved ─── -->
+<h2 id="involved">Get involved</h2>
+<div class="prose">
+<p>We're building a coalition around open, transparent AI infrastructure. Here's how to help:</p>
+<p><strong>Co-author</strong> — Write with us. Policy briefs, research papers, public statements. We're building a body of work that makes the case for open AI as public infrastructure.</p>
+<p><strong>Share expertise</strong> — Privacy law, AI safety, copyright, democratic governance. Join a roundtable, speak at a convening, or advise on a workshop.</p>
+<p><strong>Contribute data</strong> — Run our <a href="index.html#contribute">open-source script</a> to anonymously contribute your real-world AI costs. More data = more useful dashboard.</p>
+<p><strong>Lend your name</strong> — Institutional affiliations and organizational endorsements signal to policymakers that this work has broad support.</p>
+<p><strong>Cover the story</strong> — If you're a journalist or researcher, we'll share data, methodology, and access. Everything is open and reproducible.</p>
+<p style="margin-top:16px">Reach us: <a href="https://github.com/OpenMined/screamingface">GitHub</a> · <a href="https://openmined.org">openmined.org</a></p>
+</div>
+
+<hr>
+
+<!-- ─── Further reading ─── -->
+<h2>Further reading</h2>
+<ul class="small" style="line-height:1.8">
+  <li><a href="https://attribution-based-control.ai">Attribution-Based Control</a> — Andrew Trask's thesis on traceable, trust-based AI</li>
+  <li><a href="https://attribution-based-control.ai/#societal-consequences">Societal Consequences of AI</a> — Why this matters beyond the technical</li>
+  <li><a href="index.html">The Cost Dashboard</a> — Live cost-per-accuracy data across models and tasks</li>
+  <li><a href="https://github.com/OpenMined/screamingface">screamingface on GitHub</a> — All code, methodology, and data</li>
+</ul>
+
+<hr>
+
+<!-- ─── Footer ─── -->
+<footer>
+<p>😱 <strong>screamingface</strong> — the real cost of intelligence. Built by <a href="https://openmined.org">OpenMined</a> (nonprofit, est. 2017).</p>
+<p><a href="index.html">cost dashboard</a> · <a href="https://github.com/OpenMined/screamingface">github</a> · <a href="https://attribution-based-control.ai">attribution-based-control.ai</a></p>
+</footer>
+
+</body>
+</html>

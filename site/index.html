@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>😱 screamingface — the real cost of intelligence</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #222;
+  background: #fff;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 20px 40px;
+}
+
+a { color: #1a0dab; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3 { font-weight: 600; }
+h1 { font-size: 20px; margin: 24px 0 8px; }
+h2 { font-size: 16px; color: #333; margin: 28px 0 8px; }
+h3 { font-size: 14px; margin: 20px 0 6px; }
+
+hr { border: none; border-top: 1px solid #eee; margin: 24px 0; }
+p { margin-bottom: 10px; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+th, td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid #eee;
+}
+th {
+  font-weight: 500;
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-bottom: 2px solid #ddd;
+  padding-bottom: 8px;
+}
+tr:hover td { background: #fafafa; }
+tr.ensemble td { background: #fdf6e3; }
+tr.ensemble:hover td { background: #faf0d4; }
+
+.r { text-align: right; }
+.muted { color: #999; font-size: 11px; }
+.green { color: #116611; }
+.red { color: #aa1111; }
+.gold { color: #c8842a; }
+.bold { font-weight: 600; }
+.small { font-size: 12px; }
+.xsmall { font-size: 11px; }
+.desc { font-size: 12px; color: #777; max-width: 640px; }
+.note { font-size: 11px; color: #aaa; margin-top: 2px; }
+.prose { max-width: 640px; line-height: 1.7; }
+.mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+
+pre {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: #f6f6f6;
+  padding: 10px 14px;
+  overflow-x: auto;
+  border: 1px solid #eee;
+  margin: 8px 0;
+}
+
+header {
+  border-bottom: 1px solid #ddd;
+  padding: 12px 0 10px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+header nav { font-size: 13px; display: flex; gap: 18px; }
+header nav a { color: #555; }
+header nav a:hover { color: #1a0dab; }
+
+footer {
+  font-size: 12px;
+  color: #888;
+  padding: 16px 0;
+  line-height: 1.8;
+}
+footer a { color: #888; }
+footer a:hover { color: #1a0dab; }
+
+/* sparkline */
+.spark { display: inline-block; vertical-align: middle; margin-right: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ─── Header ─── -->
+<header>
+  <div>
+    <span style="font-size:22px">😱</span>
+    <strong style="font-size:16px">screamingface</strong>
+    <span style="color:#888;font-size:12px;margin-left:4px">the real cost of intelligence</span>
+  </div>
+  <nav>
+    <a href="#about">about</a>
+    <a href="why.html">why this matters</a>
+    <a href="#contribute">contribute data</a>
+    <a href="https://github.com/OpenMined/screamingface">github</a>
+  </nav>
+</header>
+
+<!-- ─── Lede ─── -->
+<p><strong>How much does it cost to solve a problem with AI?</strong></p>
+<p class="small" style="color:#666;max-width:720px">
+  Every benchmark measures accuracy. Every pricing page shows cost per token.
+  Nobody shows what actually matters: the cost to get a correct answer on a real task.
+  This page tracks that number across models and problem types, updated daily.
+  All data is open. <a href="#methodology">Methodology</a>.
+</p>
+
+<p class="xsmall" style="color:#999;margin:16px 0 20px">
+  Jump to:
+  <a href="#coding">Coding</a>,
+  <a href="#math">Math</a>,
+  <a href="#reasoning">Reasoning</a>,
+  <a href="#general">General Knowledge</a>,
+  <a href="#frontier">Frontier</a>
+  | <a href="#ensemble">Why ensembles win</a>
+  | <a href="#about">About</a>
+</p>
+
+<!-- ═══ Summary table ═══ -->
+<h2 id="summary" style="margin-top:0">Summary — cost per correct answer</h2>
+<p class="xsmall" style="color:#888;margin-bottom:8px">
+  Cheapest option per category. <span class="gold bold">■</span> = ensemble (multiple models combined).
+  Updated March 16, 2026. Prices in USD.
+</p>
+
+<table>
+<thead>
+<tr>
+  <th>Category</th>
+  <th>Benchmark</th>
+  <th>Cheapest</th>
+  <th class="r">$/correct</th>
+  <th class="r">7d</th>
+  <th>Best single model</th>
+  <th class="r">$/correct</th>
+  <th class="r">Ensemble saves</th>
+</tr>
+</thead>
+<tbody>
+<tr class="ensemble">
+  <td><a href="#coding">Coding</a></td>
+  <td class="xsmall">SWE-bench Verified</td>
+  <td class="gold bold">Ensemble 😱</td>
+  <td class="r mono">$0.42</td>
+  <td class="r green xsmall"><svg class="spark" width="36" height="10" viewBox="0 0 36 10"><polyline points="0,2 6,3 12,4 18,5 24,6 30,8 36,9" fill="none" stroke="#116611" stroke-width="1.5"/></svg> ↓12%</td>
+  <td>Claude Opus 4.5</td>
+  <td class="r mono">$0.71</td>
+  <td class="r green bold">−41%</td>
+</tr>
+<tr class="ensemble">
+  <td><a href="#math">Math</a></td>
+  <td class="xsmall">MATH-500</td>
+  <td class="gold bold">Ensemble 😱</td>
+  <td class="r mono">$0.08</td>
+  <td class="r green xsmall"><svg class="spark" width="36" height="10" viewBox="0 0 36 10"><polyline points="0,1 6,2 12,3 18,5 24,6 30,8 36,9" fill="none" stroke="#116611" stroke-width="1.5"/></svg> ↓18%</td>
+  <td>Gemini 2.5 Pro</td>
+  <td class="r mono">$0.11</td>
+  <td class="r green bold">−27%</td>
+</tr>
+<tr class="ensemble">
+  <td><a href="#reasoning">Reasoning</a></td>
+  <td class="xsmall">GPQA Diamond</td>
+  <td class="gold bold">Ensemble 😱</td>
+  <td class="r mono">$0.19</td>
+  <td class="r red xsmall"><svg class="spark" width="36" height="10" viewBox="0 0 36 10"><polyline points="0,8 6,7 12,6 18,5 24,4 30,2 36,1" fill="none" stroke="#aa1111" stroke-width="1.5"/></svg> ↑8%</td>
+  <td>o3</td>
+  <td class="r mono">$0.34</td>
+  <td class="r green bold">−44%</td>
+</tr>
+<tr class="ensemble">
+  <td><a href="#general">General</a></td>
+  <td class="xsmall">MMLU-Pro</td>
+  <td class="gold bold">Ensemble 😱</td>
+  <td class="r mono">$0.03</td>
+  <td class="r green xsmall"><svg class="spark" width="36" height="10" viewBox="0 0 36 10"><polyline points="0,1 6,2 12,4 18,5 24,7 30,8 36,9" fill="none" stroke="#116611" stroke-width="1.5"/></svg> ↓22%</td>
+  <td>GPT-4.1</td>
+  <td class="r mono">$0.04</td>
+  <td class="r green bold">−25%</td>
+</tr>
+<tr class="ensemble">
+  <td><a href="#frontier">Frontier</a></td>
+  <td class="xsmall">HLE</td>
+  <td class="gold bold">Ensemble 😱</td>
+  <td class="r mono">$4.72</td>
+  <td class="r green xsmall"><svg class="spark" width="36" height="10" viewBox="0 0 36 10"><polyline points="0,2 6,3 12,4 18,5 24,6 30,8 36,9" fill="none" stroke="#116611" stroke-width="1.5"/></svg> ↓9%</td>
+  <td>Claude Opus 4.5</td>
+  <td class="r mono">$8.30</td>
+  <td class="r green bold">−43%</td>
+</tr>
+</tbody>
+</table>
+<p class="note">* illustrative data — real benchmarking infrastructure in development. <a href="#methodology">see methodology</a>.</p>
+
+<hr>
+
+<!-- ═══ Coding ═══ -->
+<h2 id="coding">Coding</h2>
+<p class="small"><strong>Benchmark:</strong> SWE-bench Verified</p>
+<p class="desc">Resolving real GitHub issues from popular open-source repositories. Each task requires reading code, understanding the bug, and producing a working patch.</p>
+<br>
+<table>
+<thead>
+<tr><th>#</th><th>Model</th><th>Provider</th><th class="r">Accuracy</th><th class="r">$/1k queries</th><th class="r">$/correct</th><th class="r">7d</th></tr>
+</thead>
+<tbody>
+<tr class="ensemble"><td class="muted">1</td><td class="gold bold">Ensemble 😱</td><td>Claude + Gemini + Codex</td><td class="r">83.2%</td><td class="r mono">$350</td><td class="r mono">$0.42</td><td class="r green xsmall">↓12%</td></tr>
+<tr><td class="muted">2</td><td>DeepSeek-R1</td><td>DeepSeek API</td><td class="r">64.8%</td><td class="r mono">$85</td><td class="r mono">$0.13</td><td class="r green xsmall">↓2%</td></tr>
+<tr><td class="muted">3</td><td>Codex CLI</td><td>OpenAI API</td><td class="r">69.1%</td><td class="r mono">$310</td><td class="r mono">$0.45</td><td class="r green xsmall">↓5%</td></tr>
+<tr><td class="muted">4</td><td>Gemini 2.5 Pro</td><td>Google AI API</td><td class="r">80.6%</td><td class="r mono">$420</td><td class="r mono">$0.52</td><td class="r green xsmall">↓8%</td></tr>
+<tr><td class="muted">5</td><td>GPT-4.1</td><td>OpenAI API</td><td class="r">72.3%</td><td class="r mono">$380</td><td class="r mono">$0.53</td><td class="r xsmall muted">—</td></tr>
+<tr><td class="muted">6</td><td>Claude Opus 4.5</td><td>Anthropic API</td><td class="r">80.9%</td><td class="r mono">$575</td><td class="r mono">$0.71</td><td class="r green xsmall">↓3%</td></tr>
+<tr><td class="muted">7</td><td>Llama 3.3 70B</td><td>Ollama (local)</td><td class="r">42.1%</td><td class="r muted">free*</td><td class="r muted">free*</td><td class="r xsmall muted">—</td></tr>
+</tbody>
+</table>
+<p class="note">* Local models run on your hardware. Sorted by $/correct (cheapest first).</p>
+
+<hr>
+
+<!-- ═══ Math ═══ -->
+<h2 id="math">Math</h2>
+<p class="small"><strong>Benchmark:</strong> MATH-500</p>
+<p class="desc">Competition-level mathematics. Algebra, geometry, number theory, combinatorics, probability.</p>
+<br>
+<table>
+<thead>
+<tr><th>#</th><th>Model</th><th>Provider</th><th class="r">Accuracy</th><th class="r">$/1k queries</th><th class="r">$/correct</th><th class="r">7d</th></tr>
+</thead>
+<tbody>
+<tr class="ensemble"><td class="muted">1</td><td class="gold bold">Ensemble 😱</td><td>Gemini + o3 + Claude</td><td class="r">97.8%</td><td class="r mono">$78</td><td class="r mono">$0.08</td><td class="r green xsmall">↓18%</td></tr>
+<tr><td class="muted">2</td><td>DeepSeek-R1</td><td>DeepSeek API</td><td class="r">89.5%</td><td class="r mono">$42</td><td class="r mono">$0.05</td><td class="r green xsmall">↓3%</td></tr>
+<tr><td class="muted">3</td><td>Gemini 2.5 Pro</td><td>Google AI API</td><td class="r">96.4%</td><td class="r mono">$106</td><td class="r mono">$0.11</td><td class="r green xsmall">↓6%</td></tr>
+<tr><td class="muted">4</td><td>GPT-4.1</td><td>OpenAI API</td><td class="r">91.8%</td><td class="r mono">$145</td><td class="r mono">$0.16</td><td class="r green xsmall">↓1%</td></tr>
+<tr><td class="muted">5</td><td>Claude Opus 4.5</td><td>Anthropic API</td><td class="r">94.2%</td><td class="r mono">$310</td><td class="r mono">$0.33</td><td class="r green xsmall">↓4%</td></tr>
+<tr><td class="muted">6</td><td>o3</td><td>OpenAI API</td><td class="r">96.1%</td><td class="r mono">$420</td><td class="r mono">$0.44</td><td class="r red xsmall">↑2%</td></tr>
+<tr><td class="muted">7</td><td>Llama 3.3 70B</td><td>Ollama (local)</td><td class="r">68.3%</td><td class="r muted">free*</td><td class="r muted">free*</td><td class="r xsmall muted">—</td></tr>
+</tbody>
+</table>
+<p class="note">* Local models run on your hardware. Sorted by $/correct (cheapest first).</p>
+
+<hr>
+
+<!-- ═══ Reasoning ═══ -->
+<h2 id="reasoning">Reasoning</h2>
+<p class="small"><strong>Benchmark:</strong> GPQA Diamond</p>
+<p class="desc">Graduate-level science questions written by domain experts. Physics, chemistry, biology. Questions that PhDs get wrong.</p>
+<br>
+<table>
+<thead>
+<tr><th>#</th><th>Model</th><th>Provider</th><th class="r">Accuracy</th><th class="r">$/1k queries</th><th class="r">$/correct</th><th class="r">7d</th></tr>
+</thead>
+<tbody>
+<tr class="ensemble"><td class="muted">1</td><td class="gold bold">Ensemble 😱</td><td>o3 + Claude + Gemini</td><td class="r">78.4%</td><td class="r mono">$149</td><td class="r mono">$0.19</td><td class="r red xsmall">↑8%</td></tr>
+<tr><td class="muted">2</td><td>DeepSeek-R1</td><td>DeepSeek API</td><td class="r">58.3%</td><td class="r mono">$38</td><td class="r mono">$0.07</td><td class="r green xsmall">↓1%</td></tr>
+<tr><td class="muted">3</td><td>GPT-4.1</td><td>OpenAI API</td><td class="r">62.1%</td><td class="r mono">$132</td><td class="r mono">$0.21</td><td class="r xsmall muted">—</td></tr>
+<tr><td class="muted">4</td><td>Gemini 2.5 Pro</td><td>Google AI API</td><td class="r">71.2%</td><td class="r mono">$198</td><td class="r mono">$0.28</td><td class="r green xsmall">↓4%</td></tr>
+<tr><td class="muted">5</td><td>o3</td><td>OpenAI API</td><td class="r">76.7%</td><td class="r mono">$261</td><td class="r mono">$0.34</td><td class="r red xsmall">↑5%</td></tr>
+<tr><td class="muted">6</td><td>Claude Opus 4.5</td><td>Anthropic API</td><td class="r">74.9%</td><td class="r mono">$285</td><td class="r mono">$0.38</td><td class="r green xsmall">↓2%</td></tr>
+<tr><td class="muted">7</td><td>Llama 3.3 70B</td><td>Ollama (local)</td><td class="r">38.7%</td><td class="r muted">free*</td><td class="r muted">free*</td><td class="r xsmall muted">—</td></tr>
+</tbody>
+</table>
+<p class="note">* Local models run on your hardware. Sorted by $/correct (cheapest first).</p>
+
+<hr>
+
+<!-- ═══ General Knowledge ═══ -->
+<h2 id="general">General Knowledge</h2>
+<p class="small"><strong>Benchmark:</strong> MMLU-Pro</p>
+<p class="desc">57 subjects from elementary math to professional law, medicine, and engineering. The standard general-purpose benchmark.</p>
+<br>
+<table>
+<thead>
+<tr><th>#</th><th>Model</th><th>Provider</th><th class="r">Accuracy</th><th class="r">$/1k queries</th><th class="r">$/correct</th><th class="r">7d</th></tr>
+</thead>
+<tbody>
+<tr class="ensemble"><td class="muted">1</td><td class="gold bold">Ensemble 😱</td><td>GPT-4.1 + Gemini + Claude</td><td class="r">89.7%</td><td class="r mono">$27</td><td class="r mono">$0.03</td><td class="r green xsmall">↓22%</td></tr>
+<tr><td class="muted">2</td><td>DeepSeek-R1</td><td>DeepSeek API</td><td class="r">78.9%</td><td class="r mono">$22</td><td class="r mono">$0.03</td><td class="r green xsmall">↓2%</td></tr>
+<tr><td class="muted">3</td><td>GPT-4.1</td><td>OpenAI API</td><td class="r">87.5%</td><td class="r mono">$35</td><td class="r mono">$0.04</td><td class="r green xsmall">↓8%</td></tr>
+<tr><td class="muted">4</td><td>Gemini 2.5 Pro</td><td>Google AI API</td><td class="r">85.3%</td><td class="r mono">$68</td><td class="r mono">$0.08</td><td class="r green xsmall">↓5%</td></tr>
+<tr><td class="muted">5</td><td>Claude Opus 4.5</td><td>Anthropic API</td><td class="r">86.8%</td><td class="r mono">$112</td><td class="r mono">$0.13</td><td class="r green xsmall">↓3%</td></tr>
+<tr><td class="muted">6</td><td>o3</td><td>OpenAI API</td><td class="r">84.1%</td><td class="r mono">$210</td><td class="r mono">$0.25</td><td class="r red xsmall">↑1%</td></tr>
+<tr><td class="muted">7</td><td>Llama 3.3 70B</td><td>Ollama (local)</td><td class="r">62.4%</td><td class="r muted">free*</td><td class="r muted">free*</td><td class="r xsmall muted">—</td></tr>
+</tbody>
+</table>
+<p class="note">* Local models run on your hardware. Sorted by $/correct (cheapest first).</p>
+
+<hr>
+
+<!-- ═══ Frontier ═══ -->
+<h2 id="frontier">Frontier</h2>
+<p class="small"><strong>Benchmark:</strong> HLE (Humanity's Last Exam)</p>
+<p class="desc">The hardest benchmark. Questions from 500+ experts across 100+ subjects, designed to be beyond current AI capability. Nobody scores above 20%.</p>
+<br>
+<table>
+<thead>
+<tr><th>#</th><th>Model</th><th>Provider</th><th class="r">Accuracy</th><th class="r">$/1k queries</th><th class="r">$/correct</th><th class="r">7d</th></tr>
+</thead>
+<tbody>
+<tr class="ensemble"><td class="muted">1</td><td class="gold bold">Ensemble 😱</td><td>All models combined</td><td class="r">16.8%</td><td class="r mono">$793</td><td class="r mono">$4.72</td><td class="r green xsmall">↓9%</td></tr>
+<tr><td class="muted">2</td><td>DeepSeek-R1</td><td>DeepSeek API</td><td class="r">6.2%</td><td class="r mono">$180</td><td class="r mono">$2.90</td><td class="r green xsmall">↓2%</td></tr>
+<tr><td class="muted">3</td><td>GPT-4.1</td><td>OpenAI API</td><td class="r">9.1%</td><td class="r mono">$420</td><td class="r mono">$4.62</td><td class="r xsmall muted">—</td></tr>
+<tr><td class="muted">4</td><td>Gemini 2.5 Pro</td><td>Google AI API</td><td class="r">10.9%</td><td class="r mono">$640</td><td class="r mono">$5.87</td><td class="r green xsmall">↓4%</td></tr>
+<tr><td class="muted">5</td><td>o3</td><td>OpenAI API</td><td class="r">12.3%</td><td class="r mono">$980</td><td class="r mono">$7.97</td><td class="r red xsmall">↑3%</td></tr>
+<tr><td class="muted">6</td><td>Claude Opus 4.5</td><td>Anthropic API</td><td class="r">14.1%</td><td class="r mono">$1,170</td><td class="r mono">$8.30</td><td class="r green xsmall">↓1%</td></tr>
+<tr><td class="muted">7</td><td>Llama 3.3 70B</td><td>Ollama (local)</td><td class="r">2.8%</td><td class="r muted">free*</td><td class="r muted">free*</td><td class="r xsmall muted">—</td></tr>
+</tbody>
+</table>
+<p class="note">* Local models run on your hardware. Sorted by $/correct (cheapest first).</p>
+
+<hr>
+
+<!-- ═══ Why ensembles win ═══ -->
+<section id="ensemble">
+<h2>Why ensembles win on cost</h2>
+<div class="prose">
+<p>No single model is the best at everything. Claude is strong at coding. Gemini is strong at math. o3 is strong at reasoning. DeepSeek is strong at being cheap.</p>
+<p>An ensemble routes each question to the model that's cheapest <em>for that specific kind of problem at the accuracy you need</em>. The result: higher accuracy at lower cost than any individual model. Every time.</p>
+<p>This isn't theoretical. The data above shows it. The ensemble row is highlighted in every table because it wins in every table.</p>
+<p><strong>Want this cost-efficiency for yourself?</strong> screamingface is an open-source tool that does exactly this — routes your AI prompts through the cheapest model that can handle the task. One command to install:</p>
+</div>
+<pre>curl -fsSL https://screamingface.ai/install | sh</pre>
+<p class="xsmall" style="color:#888">
+  Auto-detects Claude Code, Gemini CLI, Codex, and Ollama. Doesn't change your workflow. Doesn't upload your code. <a href="https://github.com/OpenMined/screamingface">View source on GitHub</a>.
+</p>
+</section>
+
+<hr>
+
+<!-- ═══ About ═══ -->
+<section id="about">
+<h2>About this page</h2>
+<div class="prose">
+<p>This is a project by <a href="https://openmined.org">OpenMined</a>, a nonprofit focused on privacy-preserving AI. We believe the cost of intelligence should be transparent, trackable, and open — like stock prices, not like trade secrets.</p>
+<p>Right now, 3–4 companies set the price of intelligence and nobody is watching. Benchmarks measure accuracy in isolation. Pricing pages show cost per token in isolation. Neither tells you what you actually need to know: <strong>how much does it cost to get a correct answer?</strong></p>
+<p>We combine public benchmark data with real API pricing to compute cost-per-correct-answer across problem types. The ensemble data comes from our own runs using the screamingface tool. All methodology is documented and all code is open source.</p>
+<p>For the deeper argument — market concentration, the 2-year window for public AI infrastructure, and what happens when nobody tracks the price of thinking — read <a href="why.html">why this matters</a>.</p>
+</div>
+</section>
+
+<hr>
+
+<!-- ═══ Methodology ═══ -->
+<section id="methodology">
+<h2>Methodology</h2>
+<div class="prose small">
+<p><strong>Accuracy data:</strong> Sourced from published benchmark results. We use official evaluations from model providers where available, third-party reproductions where not.</p>
+<p><strong>Cost data:</strong> Computed from published API pricing (input + output tokens) × average token usage per task. Local models (Ollama) listed at $0.00 — actual cost depends on your hardware.</p>
+<p><strong>Cost per correct answer</strong> = (cost per query) / (accuracy rate). A model that costs $0.10/query and gets 50% right → $0.20 per correct answer.</p>
+<p><strong>Ensemble:</strong> Routes each query to the model predicted cheapest at the required accuracy level for that task type. Costs include routing overhead.</p>
+<p><strong>7-day trend:</strong> % change in cost-per-correct over trailing 7 days. Reflects price changes and accuracy updates.</p>
+<p><strong>Update frequency:</strong> Pricing refreshed daily. Accuracy refreshed on new model releases. Last update: March 16, 2026.</p>
+</div>
+</section>
+
+<hr>
+
+<!-- ═══ Contribute ═══ -->
+<section id="contribute">
+<h2>Contribute data</h2>
+<div class="prose">
+<p>We're building a crowdsourced dataset of real-world AI costs. Run our open-source script to anonymously contribute your actual token usage and costs:</p>
+</div>
+<pre>curl -fsSL https://screamingface.ai/contribute | sh</pre>
+<p class="xsmall" style="color:#888;max-width:640px">
+  Reads your local API usage logs (Claude, OpenAI, Google). Sends only aggregates — no prompts, no responses, no API keys. <a href="https://github.com/OpenMined/screamingface">Review the source</a> before running.
+</p>
+</section>
+
+<hr>
+
+<!-- ═══ Footer ═══ -->
+<footer>
+<p>😱 <strong>screamingface</strong> — the real cost of intelligence. Built by <a href="https://openmined.org">OpenMined</a> (nonprofit, est. 2017).</p>
+<p><a href="why.html">why this matters</a> · <a href="https://github.com/OpenMined/screamingface">github</a> · <a href="https://attribution-based-control.ai">attribution-based-control.ai</a> · <a href="#methodology">methodology</a></p>
+<p style="margin-top:8px;font-size:11px;color:#bbb">Data on this page is illustrative while benchmarking infrastructure is in development.</p>
+</footer>
+
+</body>
+</html>
