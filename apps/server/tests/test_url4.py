@@ -160,9 +160,7 @@ def test_parse_example_5() -> None:
 def test_parse_example_6() -> None:
     """(text, url, text) — text + URL + text."""
     node = parse(
-        "(Follow these coding standards:,"
-        " https://company.com/style-guide,"
-        " Always use type hints.)"
+        "(Follow these coding standards:, https://company.com/style-guide, Always use type hints.)"
     )
     assert isinstance(node, Url4List)
     assert len(node.items) == 3
@@ -399,9 +397,7 @@ def test_settings_valid_list() -> None:
 
 
 def test_settings_valid_nested() -> None:
-    settings = Url4ExecutorSettings(
-        expression="(http://a.com, (http://b.com, inner text))"
-    )
+    settings = Url4ExecutorSettings(expression="(http://a.com, (http://b.com, inner text))")
     assert settings.expression == "(http://a.com, (http://b.com, inner text))"
 
 

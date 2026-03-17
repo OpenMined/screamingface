@@ -18,6 +18,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Install server dependencies
+        working-directory: apps/server
+        run: uv sync
+
       - uses: pre-commit/action@v3.0.1
         with:
           extra_args: --config apps/server/.pre-commit-config.yaml --files apps/server/**/*
