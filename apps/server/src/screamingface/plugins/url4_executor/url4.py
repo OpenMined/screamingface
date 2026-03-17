@@ -86,7 +86,7 @@ class Url4Semantics:
     def group(self, ast):
         elems = ast.elems if isinstance(ast.elems, list) else [ast.elems] if ast.elems else []
         # Filter out comma separator tokens from join operator
-        nodes = [e for e in elems if isinstance(e, (Url4Url, Url4Text, Url4List))]
+        nodes = [e for e in elems if isinstance(e, Url4Url | Url4Text | Url4List)]
         return Url4List(items=tuple(nodes))
 
     def context(self, ast):
