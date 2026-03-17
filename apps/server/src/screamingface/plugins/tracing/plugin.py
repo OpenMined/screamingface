@@ -138,13 +138,13 @@ class TracingPlugin(Plugin):
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
             span_exporter = OTLPSpanExporter(endpoint=settings.otlp_endpoint)
-            provider.add_span_processor(_FilteringSpanProcessor(BatchSpanProcessor(span_exporter)))
+            provider.add_span_processor(_FilteringSpanProcessor(BatchSpanProcessor(span_exporter)))  # type: ignore[reportArgumentType]
             logger.info("OTEL exporting to %s", settings.otlp_endpoint)
         elif settings.exporter == "console":
             from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
 
             span_exporter = ConsoleSpanExporter()
-            provider.add_span_processor(_FilteringSpanProcessor(SimpleSpanProcessor(span_exporter)))
+            provider.add_span_processor(_FilteringSpanProcessor(SimpleSpanProcessor(span_exporter)))  # type: ignore[reportArgumentType]
             logger.info("OTEL exporting to console")
 
         trace.set_tracer_provider(provider)
@@ -178,7 +178,7 @@ class TracingPlugin(Plugin):
     def _stop_phoenix(self) -> None:
         if self._phoenix_session is not None:
             try:
-                self._phoenix_session.close()
+                self._phoenix_session.close()  # type: ignore[reportAttributeAccessIssue]
                 logger.info("Phoenix session closed")
             except Exception:
                 logger.debug("Phoenix session close failed", exc_info=True)

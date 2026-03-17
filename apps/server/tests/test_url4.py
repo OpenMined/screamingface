@@ -252,8 +252,12 @@ def test_parse_strips_whitespace() -> None:
 def test_parse_list_strips_item_whitespace() -> None:
     node = parse("(  http://a.com ,  hello  )")
     assert isinstance(node, Url4List)
-    assert node.items[0].value == "http://a.com"
-    assert node.items[1].value == "hello"
+    url_item = node.items[0]
+    text_item = node.items[1]
+    assert isinstance(url_item, Url4Url)
+    assert url_item.value == "http://a.com"
+    assert isinstance(text_item, Url4Text)
+    assert text_item.value == "hello"
 
 
 # ---------------------------------------------------------------------------
