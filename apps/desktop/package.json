@@ -65,14 +65,51 @@
     "directories": {
       "output": "dist"
     },
+    "extraResources": [
+      {
+        "from": "../../apps/server/src",
+        "to": "server/src"
+      },
+      {
+        "from": "../../apps/server/pyproject.toml",
+        "to": "server/pyproject.toml"
+      },
+      {
+        "from": "../../apps/server/uv.lock",
+        "to": "server/uv.lock"
+      },
+      {
+        "from": "../../apps/server/sf.json",
+        "to": "server/sf.json"
+      },
+      {
+        "from": "build-assets/${os}/${arch}/uv",
+        "to": "server/bin/uv"
+      },
+      {
+        "from": "build-assets/${os}/${arch}/python",
+        "to": "server/python"
+      },
+      {
+        "from": "build-assets/${os}/${arch}/cache.tar.gz",
+        "to": "server/cache.tar.gz"
+      }
+    ],
     "mac": {
-      "target": "dmg"
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "linux": {
-      "target": "AppImage"
+      "target": [
+        "AppImage",
+        "tar.gz"
+      ]
     },
     "win": {
       "target": "nsis"
-    }
+    },
+    "artifactName": "ScreamingFace-${version}-${os}-${arch}.${ext}"
   }
 }
