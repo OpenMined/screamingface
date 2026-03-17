@@ -27,9 +27,10 @@ jobs:
           - runner: ubuntu-latest
             os: linux
             arch: x64
-          - runner: ubuntu-24.04-arm
-            os: linux
-            arch: arm64
+          # TODO: enable when repo has access to GitHub ARM runners
+          # - runner: ubuntu-24.04-arm
+          #   os: linux
+          #   arch: arm64
 
     runs-on: ${{ matrix.runner }}
 
