@@ -62,6 +62,7 @@
   "build": {
     "appId": "ai.screamingface.desktop",
     "productName": "ScreamingFace",
+    "icon": "build/icon",
     "directories": {
       "output": "dist"
     },
