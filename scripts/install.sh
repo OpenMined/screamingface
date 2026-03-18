@@ -6,7 +6,7 @@
 
 set -eu
 
-REPO="openmined/screamingface"
+REPO="OpenMined/sf-installer"
 APP_NAME="ScreamingFace"
 
 # --- Helpers ---

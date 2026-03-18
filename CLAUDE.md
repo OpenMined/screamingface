@@ -49,3 +49,25 @@ This project uses a persona system to guide copy, design, positioning, and featu
 - **Research cohorts:** `personas/abc-citations/` (thesis citation network — peers & validators) and `personas/time100-ai/` (influential AI figures — Audience 2 adjacent)
 
 If a task involves copy, design, or positioning and you're unsure which audience applies, ask before proceeding.
+
+## Git Workflow
+
+### Commit Rules
+
+- **Before every commit**, ask the user for the associated Asana ticket.
+- If no ticket exists, create one via the `/asana` command (default project `1213628819033917`), and set its `SF` custom field (GID `1213702745960748`) to the next sequential number.
+  - To find the next SF number: query project tasks with `opt_fields=custom_fields.display_value`, find the highest existing `SF-N` value, and use `N+1`.
+- **Branch naming:** `SF-{n}-{description}` (e.g. `SF-22-fix-auth-bug`). Derive from the ticket's SF field value.
+- If on the wrong branch, ask to create/switch to the correct one before committing.
+- **Never commit directly to `main`** — the `.githooks/pre-commit` hook enforces this.
+- Include the Asana task permalink in the commit message body.
+
+### Setup (one-time)
+
+After cloning, activate the shared git hooks:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+This enables the pre-commit hook that blocks direct commits to `main`.
