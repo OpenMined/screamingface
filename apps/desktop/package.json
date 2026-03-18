@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "ScreamingFace desktop control plane",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OpenMined/screamingface.git",
+    "directory": "apps/desktop"
+  },
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -111,6 +116,7 @@
     "win": {
       "target": "nsis"
     },
-    "artifactName": "ScreamingFace-${version}-${os}-${arch}.${ext}"
+    "artifactName": "ScreamingFace-${version}-${os}-${arch}.${ext}",
+    "publish": null
   }
 }
