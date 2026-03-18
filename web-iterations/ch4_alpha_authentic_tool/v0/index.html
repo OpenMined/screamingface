@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>screamingface — SOTA on your laptop</title>
+  <meta name="description" content="An AI ensemble that combines Claude Code, Gemini CLI, Codex, and Ollama to beat state-of-the-art benchmarks. One command to install.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #faf9fb;
+      --fg: #14121a;
+      --card: #f0eef5;
+      --border: #d4d0e4;
+      --muted: #14121a;
+      --primary: #c8842a;
+      --secondary-bg: rgba(228,225,239,0.6);
+      --destructive: #b84e5e;
+      --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+    html, body { font-family: var(--font-sans); font-size: 16px; color: var(--fg); background: var(--bg); -webkit-font-smoothing: antialiased; }
+    a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+    a:hover { opacity: 0.8; }
+    h1, h2, h3 { text-wrap: balance; }
+    p { text-wrap: pretty; }
+
+    /* ── Password gate ── */
+    [hidden] { display: none !important; }
+    .gate { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2rem; padding: 1.5rem; }
+    .gate-emoji { font-size: 3.75rem; user-select: none; }
+    .gate-title { font-size: 1.25rem; font-weight: 500; letter-spacing: -0.025em; }
+    .gate-form { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; width: 100%; max-width: 20rem; }
+    .gate-input {
+      width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 0.5rem;
+      padding: 0.75rem 1rem; font-size: 0.875rem; color: var(--fg); outline: none; transition: border-color 0.15s;
+    }
+    .gate-input:focus { border-color: var(--primary); }
+    .gate-input.error { border-color: var(--destructive); }
+    .gate-input::placeholder { color: var(--muted); opacity: 0.5; }
+    .gate-btn {
+      width: 100%; background: var(--fg); color: var(--bg); padding: 0.75rem; border-radius: 0.5rem;
+      font-size: 0.875rem; font-weight: 500; border: none; cursor: pointer; transition: opacity 0.15s;
+    }
+    .gate-btn:hover { opacity: 0.9; }
+    .gate-error { font-size: 0.75rem; color: var(--destructive); }
+
+    /* ── Site layout ── */
+    .site { min-height: 100vh; display: flex; flex-direction: column; }
+    .site main { flex: 1; }
+
+    /* Hero */
+    .hero { padding: 3rem 1.25rem 2.5rem; max-width: 56rem; margin: 0 auto; text-align: center; }
+    .hero-emoji { font-size: 2.5rem; margin-bottom: 1rem; user-select: none; }
+    .hero h1 { font-size: 2em; font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; margin-bottom: 1.25rem; }
+    .hero p { max-width: 36rem; margin: 0 auto; line-height: 1.625; }
+
+    /* Install */
+    .install { padding: 0 3rem 1.25rem; }
+    .install-inner { max-width: 48rem; margin: 0 auto; }
+    .install-header { text-align: center; margin-bottom: 2rem; }
+    .install-header h2 { font-size: 1.5em; font-weight: 600; margin-bottom: 0.5rem; }
+
+    /* Terminal block */
+    .terminal { background: var(--card); border: 1px solid var(--border); border-radius: 15px; overflow: hidden; margin-bottom: 2rem; }
+    .terminal-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.625rem 1rem; border-bottom: 1px solid var(--border); background: var(--secondary-bg); }
+    .terminal-dot { width: 0.75rem; height: 0.75rem; border-radius: 50%; }
+    .terminal-dot.red { background: #ff5f57; }
+    .terminal-dot.yellow { background: #febc2e; }
+    .terminal-dot.green { background: #28c840; }
+    .terminal-label { margin-left: auto; font-size: 0.75rem; font-family: var(--font-mono); }
+    .terminal-body { padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.75rem; }
+    .terminal-prompt { user-select: none; flex-shrink: 0; font-family: var(--font-mono); }
+    .terminal-cmd { min-width: 0; display: block; overflow-x: auto; white-space: nowrap; font-family: var(--font-mono); }
+
+    /* Steps */
+    .steps { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+    @media (min-width: 768px) { .steps { grid-template-columns: repeat(3, 1fr); } }
+    .step-num { font-size: 0.75rem; font-family: var(--font-mono); }
+    .step h3 { font-weight: 500; margin: 0.5rem 0; }
+    .step p { line-height: 1.625; }
+
+    /* GitHub link */
+    .gh-link { padding: 1.25rem 2rem; text-align: center; }
+
+    /* Footer */
+    .footer { padding: 1.5rem 1.25rem; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 0.75rem; }
+    @media (min-width: 640px) { .footer { flex-direction: row; } }
+
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 1.75em; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- view-source is a valid auth method -->
+<div id="gate" class="gate">
+  <div class="gate-emoji">😱</div>
+  <p class="gate-title">screamingface</p>
+  <form id="gate-form" class="gate-form">
+    <input id="gate-input" type="password" placeholder="Password" autocomplete="current-password" class="gate-input">
+    <p id="gate-error" class="gate-error" hidden>Incorrect password.</p>
+    <button type="submit" class="gate-btn">Enter</button>
+  </form>
+</div>
+
+<!-- ── Site (hidden until authenticated) ── -->
+<div id="site" class="site" hidden>
+  <main>
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-emoji">😱</div>
+      <h1>SOTA on your laptop.</h1>
+      <p>The models you already use — Claude Code, Gemini CLI, Codex, Ollama — combined into an ensemble that outscores any one of them. No new accounts, no new workflow.</p>
+    </section>
+
+    <!-- Install -->
+    <section class="install">
+      <div class="install-inner">
+        <div class="install-header">
+          <h2>One command to install</h2>
+          <p>screamingface detects every model on your machine and configures itself automatically. <br/>Nothing is sent to a server.</p>
+        </div>
+
+        <div class="terminal">
+          <div class="terminal-bar">
+            <span class="terminal-dot red"></span>
+            <span class="terminal-dot yellow"></span>
+            <span class="terminal-dot green"></span>
+            <span class="terminal-label">bash</span>
+          </div>
+          <div class="terminal-body">
+            <span class="terminal-prompt">$</span>
+            <span class="terminal-cmd">curl -fsSL https://screamingface.ai/install | sh</span>
+          </div>
+        </div>
+
+        <div class="steps">
+          <div class="step">
+            <span class="step-num">01</span>
+            <h3>Install</h3>
+            <p>Downloads and configures screamingface on your machine.</p>
+          </div>
+          <div class="step">
+            <span class="step-num">02</span>
+            <h3>Auto-detect</h3>
+            <p>Finds models on your PATH. No manual config.</p>
+          </div>
+          <div class="step">
+            <span class="step-num">03</span>
+            <h3>Just code</h3>
+            <p>Your existing workflow. Best model wins.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- GitHub -->
+    <div class="gh-link">
+      <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener noreferrer">github.com/OpenMined/screamingface</a>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <span>😱 screamingface, built by <a href="https://openmined.org" target="_blank" rel="noopener noreferrer">OpenMined</a></span>
+    <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener noreferrer">GitHub</a>
+  </footer>
+</div>
+
+<script>
+(function() {
+  var PASSWORD = "letmein";
+  var STORAGE_KEY = "sf_auth";
+
+  var gate = document.getElementById("gate");
+  var site = document.getElementById("site");
+  var form = document.getElementById("gate-form");
+  var input = document.getElementById("gate-input");
+  var errorEl = document.getElementById("gate-error");
+
+  function unlock() {
+    gate.hidden = true;
+    site.hidden = false;
+  }
+
+  function storageGet(key) {
+    try { return sessionStorage.getItem(key); } catch(e) { return null; }
+  }
+  function storageSet(key, val) {
+    try { sessionStorage.setItem(key, val); } catch(e) {}
+  }
+
+  if (storageGet(STORAGE_KEY) === "1") {
+    unlock();
+  } else {
+    input.focus();
+  }
+
+  form.addEventListener("submit", function(e) {
+    e.preventDefault();
+    if (input.value === PASSWORD) {
+      storageSet(STORAGE_KEY, "1");
+      unlock();
+    } else {
+      input.classList.add("error");
+      errorEl.hidden = false;
+      input.value = "";
+      setTimeout(function() {
+        input.classList.remove("error");
+        errorEl.hidden = true;
+      }, 1200);
+    }
+  });
+})();
+</script>
+
+</body>
+</html>
