@@ -1,0 +1,38 @@
+# Local build environment for testing Linux Electron packaging.
+# Usage:
+#   docker build -f Dockerfile.build -t sf-build .
+#   docker run --rm -v "$PWD/release:/out" sf-build
+#
+# Optional: pass --build-arg ARCH=arm64 for ARM builds (requires QEMU).
+
+FROM node:20-bookworm-slim
+
+ARG ARCH=x64
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates tar gzip \
+    # electron-builder Linux targets
+    dpkg fakeroot \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy only what's needed for dependency install first (layer caching)
+COPY apps/desktop/package.json apps/desktop/package-lock.json apps/desktop/
+RUN cd apps/desktop && npm ci
+
+# Copy the rest of the repo
+COPY . .
+
+# Download build assets (uv, python, wheel cache) for Linux
+RUN ./scripts/download-build-assets.sh --os linux --arch "$ARCH"
+
+# Build the Electron frontend
+RUN cd apps/desktop && npm run build
+
+# Package — publish=never since this is local testing
+RUN cd apps/desktop && npx electron-builder --linux --"$ARCH" --publish never
+
+# Copy artifacts to /out on run
+CMD cp apps/desktop/dist/*.AppImage apps/desktop/dist/*.tar.gz /out/ 2>/dev/null; \
+    echo "==> Artifacts copied to /out:" && ls -lh /out/

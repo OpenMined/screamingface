@@ -21,7 +21,7 @@ jobs:
           - runner: macos-14
             os: darwin
             arch: arm64
-          - runner: macos-13
+          - runner: macos-14
             os: darwin
             arch: x64
           - runner: ubuntu-latest
@@ -63,7 +63,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EB_PLATFORM: ${{ matrix.os == 'darwin' && 'mac' || 'linux' }}
           EB_ARCH: ${{ matrix.arch }}
-        run: npx electron-builder --"$EB_PLATFORM" --"$EB_ARCH"
+        run: npx electron-builder --"$EB_PLATFORM" --"$EB_ARCH" --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

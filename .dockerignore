@@ -1,0 +1,13 @@
+# Keep Docker context small — only send what the build needs
+.git
+node_modules
+**/node_modules
+**/dist
+**/out
+**/build-assets
+release/
+*.md
+.DS_Store
+.env*
+.venv
+__pycache__
