@@ -64,16 +64,23 @@
     .install-header h2 { font-size: 1.5em; font-weight: 600; margin-bottom: 0.5rem; }
 
     /* Terminal block */
-    .terminal { background: var(--card); border: 1px solid var(--border); border-radius: 15px; overflow: hidden; margin-bottom: 2rem; }
+    .terminal { background: var(--card); border: 1px solid var(--border); border-radius: 15px; overflow: hidden; margin-bottom: 1rem; }
     .terminal-bar { display: flex; align-items: center; gap: 0.5rem; padding: 0.625rem 1rem; border-bottom: 1px solid var(--border); background: var(--secondary-bg); }
     .terminal-dot { width: 0.75rem; height: 0.75rem; border-radius: 50%; }
     .terminal-dot.red { background: #ff5f57; }
     .terminal-dot.yellow { background: #febc2e; }
     .terminal-dot.green { background: #28c840; }
     .terminal-label { margin-left: auto; font-size: 0.75rem; font-family: var(--font-mono); }
-    .terminal-body { padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.75rem; }
+    .terminal-body { padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.75rem; position: relative; }
+    .terminal-copy { position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: var(--card); border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.375rem 0.5rem; cursor: pointer; font-family: var(--font-mono); font-size: 0.75rem; color: var(--muted); transition: opacity 0.15s; }
+    .terminal-copy:hover { background: var(--border); }
     .terminal-prompt { user-select: none; flex-shrink: 0; font-family: var(--font-mono); }
-    .terminal-cmd { min-width: 0; display: block; overflow-x: auto; white-space: nowrap; font-family: var(--font-mono); }
+    .terminal-cmd { min-width: 0; display: block; word-break: break-all; white-space: normal; font-size: 0.8125rem; line-height: 1.5; font-family: var(--font-mono); }
+    @media (min-width: 768px) { .terminal-cmd { white-space: nowrap; word-break: normal; overflow-x: auto; font-size: inherit; } }
+
+    /* Install details (below terminal) */
+    .install-details { text-align: center; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.75; margin-bottom: 2rem; }
+    .install-details code { background: var(--card); border: 1px solid var(--border); border-radius: 0.25rem; padding: 0.0625rem 0.375rem; font-family: var(--font-mono); font-size: 0.8125rem; }
 
     /* Steps */
     .steps { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
@@ -122,7 +129,7 @@
       <div class="install-inner">
         <div class="install-header">
           <h2>One command to install</h2>
-          <p>screamingface detects every model on your machine and configures itself automatically. <br/>Nothing is sent to a server.</p>
+          <p>Auto-detects every model on your machine. Nothing leaves your laptop. Then just code.</p>
         </div>
 
         <div class="terminal">
@@ -134,25 +141,31 @@
           </div>
           <div class="terminal-body">
             <span class="terminal-prompt">$</span>
-            <span class="terminal-cmd">curl -fsSL https://screamingface.ai/install | sh</span>
+            <span class="terminal-cmd" id="install-cmd">curl -fsSL https://github.com/OpenMined/sf-installer/releases/latest/download/install.sh | sh</span>
+            <button class="terminal-copy" id="copy-btn" title="Copy to clipboard">Copy</button>
           </div>
+        </div>
+
+        <div class="install-details">
+          macOS (Apple Silicon &amp; Intel) · Linux x64<br>
+          Custom install path? Set <code>SF_INSTALL_DIR</code> before running
         </div>
 
         <div class="steps">
           <div class="step">
             <span class="step-num">01</span>
             <h3>Install</h3>
-            <p>Downloads and configures screamingface on your machine.</p>
+            <p>Downloads and configures on your machine. Nothing is uploaded during setup.</p>
           </div>
           <div class="step">
             <span class="step-num">02</span>
             <h3>Auto-detect</h3>
-            <p>Finds models on your PATH. No manual config.</p>
+            <p>Reads your PATH and existing configs. Existing models are found automatically.</p>
           </div>
           <div class="step">
             <span class="step-num">03</span>
             <h3>Just code</h3>
-            <p>Your existing workflow. Best model wins.</p>
+            <p>Use your normal CLI workflow. Every prompt is routed through the ensemble.</p>
           </div>
         </div>
       </div>
@@ -213,6 +226,15 @@
         errorEl.hidden = true;
       }, 1200);
     }
+  });
+
+  var copyBtn = document.getElementById("copy-btn");
+  var cmdEl = document.getElementById("install-cmd");
+  copyBtn.addEventListener("click", function() {
+    navigator.clipboard.writeText(cmdEl.textContent).then(function() {
+      copyBtn.textContent = "Copied!";
+      setTimeout(function() { copyBtn.textContent = "Copy"; }, 1500);
+    });
   });
 })();
 </script>
