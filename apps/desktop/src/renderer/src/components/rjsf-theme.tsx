@@ -11,8 +11,20 @@ import type {
   RJSFSchema,
   TemplatesType,
   WidgetProps,
+  WrapIfAdditionalTemplateProps,
 } from '@rjsf/utils';
-import { Component, type ComponentType, type ErrorInfo, type ReactNode } from 'react';
+import { ADDITIONAL_PROPERTY_FLAG } from '@rjsf/utils';
+import {
+  Component,
+  type ComponentType,
+  type ErrorInfo,
+  type ReactNode,
+  useCallback,
+  useRef,
+  useState,
+} from 'react';
+import { Check, ChevronDown, Copy, Plus } from 'lucide-react';
+import { Url4Viewer } from './Url4Viewer';
 
 // ---------------------------------------------------------------------------
 // Error boundary — catches render crashes inside RJSF
@@ -61,41 +73,6 @@ function humanizeTitle(title: string): string {
   return title.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
-/**
- * Inline all `$ref` / `$defs` so RJSF gets a plain schema with no refs.
- * Pydantic emits `$defs` + `$ref` for nested models — RJSF *should*
- * resolve these, but in practice the custom templates sometimes receive
- * the un-resolved `$ref` node, which causes the field to render as a
- * text input showing `[object Object]`.
- */
-export function inlineRefs(schema: RJSFSchema): RJSFSchema {
-  const defs: Record<string, RJSFSchema> = schema.$defs ?? schema.definitions ?? {};
-  if (Object.keys(defs).length === 0) return schema;
-
-  function resolve(node: unknown): unknown {
-    if (node === null || typeof node !== 'object') return node;
-    if (Array.isArray(node)) return node.map(resolve);
-
-    const obj = node as Record<string, unknown>;
-
-    // Replace {"$ref": "#/$defs/Foo"} or {"$ref": "#/definitions/Foo"} with the def itself
-    if (typeof obj.$ref === 'string') {
-      const match = obj.$ref.match(/^#\/(?:\$defs|definitions)\/(.+)$/);
-      if (match && defs[match[1]]) {
-        return resolve(defs[match[1]]);
-      }
-    }
-
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj)) {
-      if (k === '$defs' || k === 'definitions') continue; // strip defs from output
-      out[k] = resolve(v);
-    }
-    return out;
-  }
-
-  return resolve(schema) as RJSFSchema;
-}
 
 // ---------------------------------------------------------------------------
 // Templates
@@ -131,7 +108,7 @@ function BaseInputTemplate(props: BaseInputTemplateProps) {
         list={listId}
         type={type === 'number' || type === 'integer' ? 'number' : 'text'}
         value={value ?? ''}
-        placeholder={placeholder}
+        placeholder={placeholder || (schema as any)['x-placeholder']}
         disabled={disabled || readonly}
         autoFocus={autofocus}
         onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value)}
@@ -151,44 +128,240 @@ function BaseInputTemplate(props: BaseInputTemplateProps) {
 }
 
 function FieldTemplate(props: FieldTemplateProps) {
-  const { id, label, children, rawDescription, rawErrors, schema } = props;
+  const { id, label, children, rawDescription, rawErrors, schema, registry } = props;
+  const WrapTemplate = registry.templates.WrapIfAdditionalTemplate;
+
+  let inner: ReactNode;
   if (schema.type === 'object' || schema.type === 'array') {
-    return <>{children}</>;
-  }
-  if (schema.type === 'boolean') {
-    return <div>{children}</div>;
-  }
-  return (
-    <div className="space-y-1.5">
-      <div>
-        {label && (
-          <label htmlFor={id} className="text-xs text-muted-foreground">
-            {humanizeTitle(label)}
-          </label>
-        )}
-        {rawDescription && (
-          <p className="mt-0.5 text-[10px] text-muted-foreground/60">{rawDescription}</p>
+    inner = <>{children}</>;
+  } else if (schema.type === 'boolean') {
+    inner = <div>{children}</div>;
+  } else {
+    inner = (
+      <div className="space-y-1.5">
+        <div>
+          {label && (
+            <label htmlFor={id} className="text-xs text-muted-foreground">
+              {humanizeTitle(label)}
+            </label>
+          )}
+          {rawDescription && (
+            <p className="mt-0.5 text-[10px] text-muted-foreground/60">{rawDescription}</p>
+          )}
+        </div>
+        {children}
+        {rawErrors && rawErrors.length > 0 && (
+          <p className="text-[10px] text-destructive">{rawErrors.join(', ')}</p>
         )}
       </div>
-      {children}
-      {rawErrors && rawErrors.length > 0 && (
-        <p className="text-[10px] text-destructive">{rawErrors.join(', ')}</p>
-      )}
+    );
+  }
+
+  if (WrapTemplate) {
+    return <WrapTemplate {...props}>{inner}</WrapTemplate>;
+  }
+  return <>{inner}</>;
+}
+
+function CopyLinkField({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [url]);
+  return (
+    <div className="mt-3 flex items-center gap-1.5">
+      <input
+        readOnly
+        value={url}
+        className="flex-1 rounded-md border border-input bg-muted/50 px-2.5 py-1 font-mono text-[11px] text-muted-foreground truncate"
+      />
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="shrink-0 rounded-md border border-input p-1.5 text-muted-foreground hover:text-foreground"
+      >
+        {copied ? <Check size={12} /> : <Copy size={12} />}
+      </button>
     </div>
   );
 }
 
 function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
-  const { title, properties, idSchema } = props;
-  const isRoot = !idSchema || idSchema.$id === 'root';
+  const { title, properties, fieldPathId, onAddProperty, schema, formData, registry } = props;
+  const isRoot = !fieldPathId || fieldPathId.$id === 'root';
+
+  // Dict-of-objects pattern (e.g. profiles: Record<string, BackendProfile>)
+  // renders as an exclusive accordion — expanding one collapses others.
+  const isAccordion =
+    schema.additionalProperties &&
+    typeof schema.additionalProperties === 'object' &&
+    (schema.additionalProperties as RJSFSchema).type === 'object';
+
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newEntryName, setNewEntryName] = useState('');
+  const addInputRef = useRef<HTMLInputElement>(null);
+
+  const hasAdditional = !!(schema.additionalProperties || schema.patternProperties);
+
+  if (isAccordion) {
+    const copyLink = schema['x-copy-link'] as
+      | { path: string; param: string; field: string }
+      | undefined;
+
+    const addEntry = registry.formContext?.addDictEntry as
+      | ((path: string[], name: string) => void)
+      | undefined;
+
+    const existingKeys = new Set(properties.map((p) => p.name));
+    const trimmedName = newEntryName.trim();
+    const isDuplicate = trimmedName !== '' && existingKeys.has(trimmedName);
+
+    const handleAdd = () => {
+      if (!trimmedName || isDuplicate) return;
+      if (addEntry && fieldPathId?.$id) {
+        const path = fieldPathId.$id.split('_').slice(1); // "root_specs" → ["specs"]
+        addEntry(path, trimmedName);
+        setExpandedKey(trimmedName);
+      } else {
+        onAddProperty();
+      }
+      setNewEntryName('');
+      setShowAddForm(false);
+    };
+
+    return (
+      <div className="space-y-1">
+        {!isRoot && title && (
+          <h4 className="mb-2 text-xs font-medium text-foreground">{humanizeTitle(title)}</h4>
+        )}
+        {schema.description && (
+          <p className="text-[10px] text-muted-foreground/60">{schema.description}</p>
+        )}
+        {properties.length === 0 && (
+          <p className="text-xs text-muted-foreground/50 py-3 text-center">
+            No entries yet
+          </p>
+        )}
+        {properties.map((p) => {
+          const isExpanded = expandedKey === p.name;
+          return (
+            <div key={p.name} className="overflow-hidden rounded-md border border-border/60">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left select-none transition-colors hover:bg-muted/50"
+                onClick={() => setExpandedKey(isExpanded ? null : p.name)}
+              >
+                <ChevronDown
+                  size={12}
+                  className={`shrink-0 text-muted-foreground transition-transform duration-150 ${isExpanded ? '' : '-rotate-90'}`}
+                />
+                <span className="font-mono text-xs font-medium text-foreground">{p.name}</span>
+                {!isExpanded && copyLink && formData?.[p.name]?.[copyLink.field] && (
+                  <span className="ml-2 truncate font-mono text-[10px] text-muted-foreground/50">
+                    {formData[p.name][copyLink.field]}
+                  </span>
+                )}
+              </button>
+              {isExpanded && (
+                <div className="border-t border-border/50 pl-8 pr-3 py-3">
+                  {p.content}
+                  {copyLink &&
+                    registry.formContext?.serverUrl &&
+                    formData?.[p.name]?.[copyLink.field] && (
+                      <>
+                        <Url4Viewer
+                          expression={formData[p.name][copyLink.field]}
+                          serverUrl={registry.formContext.serverUrl}
+                          fetchFn={registry.formContext.serverFetch}
+                          mode="expanded"
+                          className="mt-3 rounded-md bg-background p-3"
+                        />
+                        <CopyLinkField
+                          url={`${registry.formContext.serverUrl}${copyLink.path}?${copyLink.param}=${encodeURIComponent(formData[p.name][copyLink.field])}`}
+                        />
+                      </>
+                    )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {showAddForm ? (
+          <div className="mt-1 flex items-center gap-1.5">
+            <input
+              ref={addInputRef}
+              type="text"
+              value={newEntryName}
+              onChange={(e) => setNewEntryName(e.target.value)}
+              placeholder="Entry name"
+              autoFocus
+              className={`flex-1 rounded-md border bg-background px-2.5 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 ${isDuplicate ? 'border-destructive focus:ring-destructive' : 'border-input focus:ring-ring'}`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAdd();
+                } else if (e.key === 'Escape') {
+                  setShowAddForm(false);
+                  setNewEntryName('');
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleAdd}
+              disabled={!trimmedName || isDuplicate}
+              className="rounded-md border border-input px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none"
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAddForm(false);
+                setNewEntryName('');
+              }}
+              className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowAddForm(true)}
+            className="mt-1 flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Plus size={12} />
+            Add entry
+          </button>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
       {!isRoot && title && (
         <h4 className="text-xs font-medium text-foreground">{humanizeTitle(title)}</h4>
       )}
+      {schema.description && (
+        <p className="text-[10px] text-muted-foreground/60">{schema.description}</p>
+      )}
       {properties.map((p) => (
         <div key={p.name}>{p.content}</div>
       ))}
+      {hasAdditional && (
+        <button
+          type="button"
+          onClick={onAddProperty}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          + Add entry
+        </button>
+      )}
     </div>
   );
 }
@@ -257,6 +430,44 @@ function ArrayFieldTemplate(props: ArrayFieldTemplateProps) {
 }
 
 // ---------------------------------------------------------------------------
+// WrapIfAdditional — key input + remove for additionalProperties entries
+// ---------------------------------------------------------------------------
+
+function WrapIfAdditionalTemplate(props: WrapIfAdditionalTemplateProps) {
+  const { id, label, children, onKeyRenameBlur, onRemoveProperty, readonly, disabled, schema } =
+    props;
+  const isAdditional = ADDITIONAL_PROPERTY_FLAG in schema;
+
+  if (!isAdditional) {
+    return <>{children}</>;
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          id={`${id}-key`}
+          defaultValue={label}
+          disabled={disabled || readonly}
+          onBlur={onKeyRenameBlur}
+          className="flex-1 rounded-md border border-input bg-background px-2 py-1 font-mono text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+        <button
+          type="button"
+          disabled={disabled || readonly}
+          onClick={onRemoveProperty}
+          className="text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40"
+        >
+          Remove
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Widgets
 // ---------------------------------------------------------------------------
 
@@ -315,6 +526,8 @@ const templates: Partial<TemplatesType> = {
   ArrayFieldItemTemplate: ArrayFieldItemTemplate as ComponentType<ArrayFieldItemTemplateProps>,
   ArrayFieldItemButtonsTemplate:
     ArrayFieldItemButtonsTemplate as ComponentType<ArrayFieldItemButtonsTemplateProps>,
+  WrapIfAdditionalTemplate:
+    WrapIfAdditionalTemplate as ComponentType<WrapIfAdditionalTemplateProps>,
 };
 
 const widgets: RegistryWidgetsType = {

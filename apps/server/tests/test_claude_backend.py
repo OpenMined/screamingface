@@ -25,10 +25,40 @@ from screamingface.plugins.claude_backend.runner import build_args
 def cli_app() -> FastAPI:
     with patch("shutil.which", return_value="/usr/local/bin/claude"):
         config = AppConfig(
-            plugins=["claude-backend"],
+            plugins=["url4-executor", "claude-backend"],
             plugin_config={"claude-backend": {}},
         )
         return create_app(config)
+
+
+@pytest.fixture
+def profile_app() -> FastAPI:
+    with patch("shutil.which", return_value="/usr/local/bin/claude"):
+        config = AppConfig(
+            plugins=["url4-executor", "claude-backend"],
+            plugin_config={
+                "claude-backend": {
+                    "profiles": {
+                        "docs-review": {
+                            "context": "(docs-a, docs-b)",
+                            "system_prompt": "You review docs.",
+                            "model": "claude-sonnet-4-20250514",
+                            "effort": "high",
+                        },
+                        "quick": {
+                            "system_prompt": "Be concise.",
+                        },
+                    },
+                    "default_profile": "docs-review",
+                },
+            },
+        )
+        return create_app(config)
+
+
+@pytest.fixture
+def profile_client(profile_app: FastAPI) -> TestClient:
+    return TestClient(profile_app)
 
 
 @pytest.fixture
@@ -319,3 +349,110 @@ def test_long_name_acceptance(cli_client: TestClient) -> None:
     data = resp.json()
     assert data["ec"] == 0
     assert data["so"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# Profile settings
+# ---------------------------------------------------------------------------
+
+
+def test_profile_settings_defaults() -> None:
+    settings = ClaudeBackendSettings()
+    assert settings.profiles == {}
+    assert settings.default_profile is None
+
+
+def test_profile_invalid_name_rejected() -> None:
+    with pytest.raises(Exception, match="Invalid profile name"):
+        ClaudeBackendSettings(profiles={"INVALID NAME!": {}})
+
+
+# ---------------------------------------------------------------------------
+# Profile routes
+# ---------------------------------------------------------------------------
+
+
+def test_profile_get_resolves(profile_client: TestClient) -> None:
+    proc = _mock_process(stdout=b"Claude says hi", stderr=b"")
+    with (
+        patch(
+            "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=proc,
+        ),
+        patch(
+            "screamingface.plugins.url4_executor.url4._fetch_url",
+            new_callable=AsyncMock,
+            return_value="fetched docs",
+        ),
+    ):
+        resp = profile_client.get("/claude/docs-review?prompt=summarize")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ec"] == 0
+    assert data["so"] == "Claude says hi"
+
+
+def test_profile_no_context(profile_client: TestClient) -> None:
+    """Profile without context field works (no url4 resolution needed)."""
+    proc = _mock_process(stdout=b"concise reply", stderr=b"")
+    with patch(
+        "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
+        new_callable=AsyncMock,
+        return_value=proc,
+    ):
+        resp = profile_client.get("/claude/quick?prompt=hello")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ec"] == 0
+    assert data["so"] == "concise reply"
+
+
+def test_profile_context_override(profile_client: TestClient) -> None:
+    """Query param context overrides profile's default context."""
+    proc = _mock_process(stdout=b"overridden", stderr=b"")
+    with (
+        patch(
+            "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            return_value=proc,
+        ),
+        patch(
+            "screamingface.plugins.url4_executor.url4._fetch_url",
+            new_callable=AsyncMock,
+            return_value="custom content",
+        ),
+    ):
+        resp = profile_client.get(
+            "/claude/docs-review?prompt=review&context=http://other.com"
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["ec"] == 0
+
+
+def test_profile_not_found(profile_client: TestClient) -> None:
+    resp = profile_client.get("/claude/nonexistent?prompt=hello")
+    assert resp.status_code == 404
+    assert "nonexistent" in resp.json()["detail"]
+
+
+def test_profile_prompt_required(profile_client: TestClient) -> None:
+    resp = profile_client.get("/claude/docs-review")
+    assert resp.status_code == 422
+
+
+def test_profile_post(profile_client: TestClient) -> None:
+    """POST to profile endpoint works for large prompts."""
+    proc = _mock_process(stdout=b"posted", stderr=b"")
+    with patch(
+        "screamingface.plugins.claude_backend.runner.asyncio.create_subprocess_exec",
+        new_callable=AsyncMock,
+        return_value=proc,
+    ):
+        resp = profile_client.post("/claude/quick?prompt=hello")
+
+    assert resp.status_code == 200
+    assert resp.json()["so"] == "posted"

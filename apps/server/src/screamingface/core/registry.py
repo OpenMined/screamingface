@@ -138,9 +138,19 @@ class PluginRegistry:
         """Activate plugins in dependency order (topological sort).
 
         Plugins whose dependencies are not satisfied are skipped with a warning
-        instead of crashing.
+        instead of crashing.  Missing dependencies that are discoverable are
+        auto-added in-memory (sf.json is not modified).
         """
         plugins = {name: self.load_plugin(name) for name in names}
+
+        # Auto-add missing dependencies that are discoverable
+        for name, plugin in list(plugins.items()):
+            for dep in plugin.depends:
+                if dep not in plugins and dep not in self._active:
+                    if dep in self._discovered:
+                        plugins[dep] = self.load_plugin(dep)
+                        logger.info("Auto-added dependency %r (required by %r)", dep, name)
+
         activated: list[Plugin] = []
         visited: set[str] = set()
 

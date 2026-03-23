@@ -45,6 +45,7 @@ def plugin_list(
                 "version": plugin.version if plugin else None,
                 "description": plugin.description if plugin else None,
                 "requires_root": plugin.requires_root if plugin else False,
+                "depends": plugin.depends if plugin else [],
                 "conflicts": plugin.conflicts if plugin else [],
             }
         typer.echo(json.dumps(result))

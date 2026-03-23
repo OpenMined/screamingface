@@ -5,9 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pydantic import ValidationError
 
-from screamingface.plugins.url4_executor.plugin import Url4ExecutorSettings
 from screamingface.plugins.url4_executor.url4 import (
     Url4List,
     Url4Text,
@@ -375,41 +373,3 @@ async def test_resolve_str_example_10() -> None:
         assert result == "bg-content\nchanges-content"
 
 
-# ---------------------------------------------------------------------------
-# Settings validation tests
-# ---------------------------------------------------------------------------
-
-
-def test_settings_empty_expression_valid() -> None:
-    settings = Url4ExecutorSettings(expression="")
-    assert settings.expression == ""
-
-
-def test_settings_valid_plain_text() -> None:
-    settings = Url4ExecutorSettings(expression="hello world")
-    assert settings.expression == "hello world"
-
-
-def test_settings_valid_url() -> None:
-    settings = Url4ExecutorSettings(expression="http://example.com/data")
-    assert settings.expression == "http://example.com/data"
-
-
-def test_settings_valid_list() -> None:
-    settings = Url4ExecutorSettings(expression="(http://a.com, some text)")
-    assert settings.expression == "(http://a.com, some text)"
-
-
-def test_settings_valid_nested() -> None:
-    settings = Url4ExecutorSettings(expression="(http://a.com, (http://b.com, inner text))")
-    assert settings.expression == "(http://a.com, (http://b.com, inner text))"
-
-
-def test_settings_invalid_unmatched_paren() -> None:
-    with pytest.raises(ValidationError, match="Invalid url4 expression"):
-        Url4ExecutorSettings(expression="(hello world")
-
-
-def test_settings_invalid_extra_close_paren() -> None:
-    with pytest.raises(ValidationError, match="Invalid url4 expression"):
-        Url4ExecutorSettings(expression="hello)")

@@ -90,14 +90,14 @@ def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-d
 
 
 def _record_trace_id(request: Request) -> str | None:
-    """Extract x-sf-trace-id (injected by mitmproxy addon) and record it."""
+    """Extract x-sf-trace-id header and record it on the current span."""
     trace_id = request.headers.get("x-sf-trace-id")
     if trace_id:
         _set_span_attrs({"sf.trace_id": trace_id})
     return trace_id
 
 
-def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
+def create_router(settings: ClaudeFrontendSettings, app: Any = None) -> APIRouter:
     upstream_url = settings.upstream_url.rstrip("/")
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
     logger.info("Proxy SSL context using certifi CA: %s", certifi.where())
@@ -130,6 +130,35 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
     async def proxy_messages(request: Request) -> Response:
         body = await request.json()
 
+        # Resolve active_spec and prepend to system prompt
+        spec_name = settings.active_spec
+        if spec_name and app:
+            try:
+                specs_plugin = app.state.plugins.active_plugins.get("url4-specs")
+                if specs_plugin and specs_plugin.settings:
+                    spec = specs_plugin.settings.specs.get(spec_name)
+                    if spec and spec.expression:
+                        from screamingface.plugins.url4_executor.url4 import resolve_str
+
+                        resolved = await resolve_str(spec.expression)
+                        if resolved:
+                            existing = body.get("system", "")
+                            if isinstance(existing, list):
+                                existing.insert(
+                                    0, {"type": "text", "text": resolved + "\n\n"}
+                                )
+                            else:
+                                body["system"] = (
+                                    resolved + "\n\n" + existing if existing else resolved
+                                )
+                            logger.info(
+                                "Injected spec %r (%d chars) into system prompt",
+                                spec_name,
+                                len(resolved),
+                            )
+            except Exception:
+                logger.warning("Failed to resolve spec %r", spec_name, exc_info=True)
+
         headers = _build_headers(request)
         # Preserve query params (e.g. ?beta=true) that Claude Code sends
         qs = str(request.url.query)
@@ -139,7 +168,7 @@ def create_router(settings: ClaudeFrontendSettings) -> APIRouter:
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
         tracer = _get_tracer()
 
-        # Record mitmproxy trace ID on the server span
+        # Record trace ID on the server span
         trace_id = _record_trace_id(request)
 
         # Server span: just record the raw request body
