@@ -107,9 +107,7 @@ def create_router(settings: ClaudeBackendSettings) -> APIRouter:
                 resolved_context = await resolve_str(context_expr)
             except Exception as exc:
                 logger.warning("Context resolution failed: %s", exc, exc_info=True)
-                raise HTTPException(
-                    status_code=502, detail=f"Context resolution failed: {exc}"
-                )
+                raise HTTPException(status_code=502, detail=f"Context resolution failed: {exc}")
 
         full_prompt = f"{resolved_context}\n\n{prompt}" if resolved_context else prompt
 
@@ -135,9 +133,7 @@ def create_router(settings: ClaudeBackendSettings) -> APIRouter:
         )
         return await _execute_claude(request)
 
-    @router.get(
-        "/claude/{profile_name}", response_model=None, operation_id="claude_profile_get"
-    )
+    @router.get("/claude/{profile_name}", response_model=None, operation_id="claude_profile_get")
     async def claude_profile_get(
         profile_name: str,
         prompt: str,
@@ -145,9 +141,7 @@ def create_router(settings: ClaudeBackendSettings) -> APIRouter:
     ) -> JSONResponse | StreamingResponse:
         return await _handle_profile(profile_name, prompt, context)
 
-    @router.post(
-        "/claude/{profile_name}", response_model=None, operation_id="claude_profile_post"
-    )
+    @router.post("/claude/{profile_name}", response_model=None, operation_id="claude_profile_post")
     async def claude_profile_post(
         profile_name: str,
         prompt: str,

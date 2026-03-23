@@ -144,9 +144,7 @@ def create_router(settings: ClaudeFrontendSettings, app: Any = None) -> APIRoute
                         if resolved:
                             existing = body.get("system", "")
                             if isinstance(existing, list):
-                                existing.insert(
-                                    0, {"type": "text", "text": resolved + "\n\n"}
-                                )
+                                existing.insert(0, {"type": "text", "text": resolved + "\n\n"})
                             else:
                                 body["system"] = (
                                     resolved + "\n\n" + existing if existing else resolved

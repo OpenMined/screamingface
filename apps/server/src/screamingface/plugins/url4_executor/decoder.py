@@ -15,5 +15,5 @@ def split_intent(expr: str) -> tuple[str, str | None]:
         elif ch == ")":
             depth -= 1
         elif ch == "!" and depth == 0:
-            return expr[:i], expr[i + 1:]
+            return expr[:i], expr[i + 1 :]
     return expr, None

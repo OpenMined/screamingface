@@ -425,9 +425,7 @@ def test_profile_context_override(profile_client: TestClient) -> None:
             return_value="custom content",
         ),
     ):
-        resp = profile_client.get(
-            "/claude/docs-review?prompt=review&context=http://other.com"
-        )
+        resp = profile_client.get("/claude/docs-review?prompt=review&context=http://other.com")
 
     assert resp.status_code == 200
     assert resp.json()["ec"] == 0

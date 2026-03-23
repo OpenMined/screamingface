@@ -371,5 +371,3 @@ async def test_resolve_str_example_10() -> None:
             " https://localhost:8000/url4?context=(Recent changes:, https://api.github.com/repos/org/repo/commits))"
         )
         assert result == "bg-content\nchanges-content"
-
-

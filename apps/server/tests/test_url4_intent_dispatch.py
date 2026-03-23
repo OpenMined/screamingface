@@ -119,7 +119,9 @@ def test_intent_dispatch_with_fetched_url(client: TestClient) -> None:
     ):
         resp = client.get(
             "/url4",
-            params={"q": "(http://example.com)!http://localhost:8000/claude/default?prompt=analyze"},
+            params={
+                "q": "(http://example.com)!http://localhost:8000/claude/default?prompt=analyze"
+            },
         )
 
     assert resp.status_code == 200

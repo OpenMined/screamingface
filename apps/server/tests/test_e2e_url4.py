@@ -22,12 +22,16 @@ import httpx
 
 SERVER_DIR = Path(__file__).resolve().parents[1]  # apps/server/
 SERVER_CMD = [
-    "sf", "run",
+    "sf",
+    "run",
     "--no-ssl",
     "--no-reload",
-    "--disable", "claude-intercept",
-    "--disable", "mitmproxy-intercept",
-    "--disable", "claude-env-intercept",
+    "--disable",
+    "claude-intercept",
+    "--disable",
+    "mitmproxy-intercept",
+    "--disable",
+    "claude-env-intercept",
 ]
 
 TIMEOUT = 5
@@ -143,24 +147,33 @@ def main() -> int:
 
         # --- Basic url4 resolution (no backend needed) ---
 
-        results.append(check(
-            "resolve_plain_text", client,
-            params={"q": "hello"},
-            expect_status=200,
-            expect_contains="hello",
-        ))
+        results.append(
+            check(
+                "resolve_plain_text",
+                client,
+                params={"q": "hello"},
+                expect_status=200,
+                expect_contains="hello",
+            )
+        )
 
-        results.append(check(
-            "missing_q_rejected", client,
-            params={"context": "hello"},
-            expect_status=400,
-        ))
+        results.append(
+            check(
+                "missing_q_rejected",
+                client,
+                params={"context": "hello"},
+                expect_status=400,
+            )
+        )
 
-        results.append(check(
-            "intent_non_url_rejected", client,
-            params={"q": "hello!echo"},
-            expect_status=400,
-        ))
+        results.append(
+            check(
+                "intent_non_url_rejected",
+                client,
+                params={"q": "hello!echo"},
+                expect_status=400,
+            )
+        )
 
         # --- Intent dispatch to claude-backend (requires Claude CLI) ---
 
@@ -170,25 +183,31 @@ def main() -> int:
 
             # Simple: plain text context → backend
             intent_url = f"{backend_url}?prompt={quote(prompt)}"
-            results.append(check(
-                "intent_dispatch_to_claude", client,
-                params={"q": f"hello!{intent_url}"},
-                expect_status=200,
-                expect_not_empty=True,
-                timeout=60,
-            ))
+            results.append(
+                check(
+                    "intent_dispatch_to_claude",
+                    client,
+                    params={"q": f"hello!{intent_url}"},
+                    expect_status=200,
+                    expect_not_empty=True,
+                    timeout=60,
+                )
+            )
 
             # With fetched resource context → backend
             # Use the server's own /health endpoint as a fetchable resource
             health_url = f"{base}/health"
             intent_url2 = f"{backend_url}?prompt={quote('describe what you see in one sentence')}"
-            results.append(check(
-                "intent_fetch_then_dispatch", client,
-                params={"q": f"({health_url})!{intent_url2}"},
-                expect_status=200,
-                expect_not_empty=True,
-                timeout=60,
-            ))
+            results.append(
+                check(
+                    "intent_fetch_then_dispatch",
+                    client,
+                    params={"q": f"({health_url})!{intent_url2}"},
+                    expect_status=200,
+                    expect_not_empty=True,
+                    timeout=60,
+                )
+            )
         else:
             print("  [SKIP] intent_dispatch_to_claude — Claude CLI not found")
             print("  [SKIP] intent_fetch_then_dispatch — Claude CLI not found")

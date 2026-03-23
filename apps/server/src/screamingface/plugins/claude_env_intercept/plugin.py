@@ -64,9 +64,7 @@ class ClaudeEnvInterceptPlugin(Plugin):
         # Determine the base URL for Claude Code from claude-frontend settings
         cf_plugin = app.state.plugins.active_plugins.get("claude-frontend")
         if cf_plugin is None or cf_plugin.settings is None:
-            raise RuntimeError(
-                "claude-env-intercept requires claude-frontend to be active"
-            )
+            raise RuntimeError("claude-env-intercept requires claude-frontend to be active")
         cf_settings = cf_plugin.settings
         base_url = f"http://{cf_settings.listen_host}:{cf_settings.listen_port}"
 
