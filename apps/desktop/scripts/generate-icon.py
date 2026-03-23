@@ -50,7 +50,9 @@ def render_emoji_to_png(size: int) -> Image.Image:
     attrs = {
         AppKit.NSFontAttributeName: font,
     }
-    ns_string = AppKit.NSAttributedString.alloc().initWithString_attributes_(EMOJI, attrs)
+    ns_string = AppKit.NSAttributedString.alloc().initWithString_attributes_(
+        EMOJI, attrs
+    )
 
     # Measure the string to center it
     string_size = ns_string.size()
@@ -62,7 +64,9 @@ def render_emoji_to_png(size: int) -> Image.Image:
     AppKit.NSGraphicsContext.setCurrentContext_(None)
 
     # Convert to PNG bytes, then to Pillow Image
-    png_data = rep.representationUsingType_properties_(AppKit.NSBitmapImageFileTypePNG, {})
+    png_data = rep.representationUsingType_properties_(
+        AppKit.NSBitmapImageFileTypePNG, {}
+    )
     import io
 
     return Image.open(io.BytesIO(png_data)).convert("RGBA")
