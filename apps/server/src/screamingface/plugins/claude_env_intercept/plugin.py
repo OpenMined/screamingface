@@ -61,13 +61,12 @@ class ClaudeEnvInterceptPlugin(Plugin):
         classes: ClassRegistry,
         routes: RouteRegistry,
     ) -> None:
-        # Determine the base URL for Claude Code from FrontendRegistry
-        entry = app.state.frontends.entries.get("claude-frontend")
-        if entry is None:
-            raise RuntimeError(
-                "claude-env-intercept requires claude-frontend to be registered in FrontendRegistry"
-            )
-        base_url = f"{entry.scheme}://{entry.host}:{entry.port}"
+        # Determine the base URL for Claude Code from claude-frontend settings
+        cf_plugin = app.state.plugins.active_plugins.get("claude-frontend")
+        if cf_plugin is None or cf_plugin.settings is None:
+            raise RuntimeError("claude-env-intercept requires claude-frontend to be active")
+        cf_settings = cf_plugin.settings
+        base_url = f"http://{cf_settings.listen_host}:{cf_settings.listen_port}"
 
         # Build env vars
         env_vars: dict[str, str] = {"ANTHROPIC_BASE_URL": base_url}

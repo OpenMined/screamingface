@@ -4,9 +4,41 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from screamingface.models import AliasedModel
+
+
+class ClaudeProfile(BaseModel):
+    """A named pre-configured Claude execution endpoint."""
+
+    context: str | None = Field(
+        default=None,
+        description="URL4 expression for context (resolved at request time).",
+    )
+    system_prompt: str | None = Field(default=None, description="System prompt.")
+    append_system_prompt: str | None = Field(
+        default=None, description="Text appended to system prompt."
+    )
+    model: str | None = Field(default=None, description="Model override.")
+    output_format: Literal["text", "json", "stream-json"] | None = Field(
+        default=None, description="Output format."
+    )
+    json_schema: dict | None = Field(default=None, description="JSON schema for structured output.")
+    max_budget_usd: float | None = Field(default=None, description="Budget cap in USD.")
+    effort: Literal["low", "medium", "high", "max"] | None = Field(
+        default=None, description="Effort level."
+    )
+    tools: list[str] | None = Field(default=None, description="Tools to enable.")
+    allowed_tools: list[str] | None = Field(default=None, description="Allowed tools.")
+    disallowed_tools: list[str] | None = Field(default=None, description="Disallowed tools.")
+    mcp_config: str | None = Field(default=None, description="Path to MCP config.")
+    permission_mode: str | None = Field(default=None, description="Permission mode.")
+    add_dirs: list[str] | None = Field(default=None, description="Additional directories.")
+    fallback_model: str | None = Field(default=None, description="Fallback model.")
+    dangerously_skip_permissions: bool = Field(default=False)
+    no_session_persistence: bool = Field(default=True)
+    timeout_seconds: float | None = Field(default=None, description="Timeout override.")
 
 
 def _alias(short: str) -> dict:

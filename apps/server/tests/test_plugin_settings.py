@@ -21,7 +21,7 @@ def test_settings_defaults() -> None:
     settings = ClaudeFrontendSettings()
     assert settings.upstream_url == "https://api.anthropic.com"
     assert settings.listen_port == 9101
-    assert settings.domains == ["api.anthropic.com"]
+    assert settings.active_spec is None
 
 
 def test_settings_init_override() -> None:
@@ -131,7 +131,7 @@ def test_plugin_schema_endpoint(settings_client: TestClient) -> None:
     assert "properties" in schema
     assert "upstream_url" in schema["properties"]
     assert "listen_port" in schema["properties"]
-    assert "domains" in schema["properties"]
+    assert "active_spec" in schema["properties"]
 
 
 def test_plugin_settings_endpoint(settings_client: TestClient) -> None:

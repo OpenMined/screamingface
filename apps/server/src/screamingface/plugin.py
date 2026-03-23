@@ -100,6 +100,16 @@ class Plugin:
         even if the server wasn't running when the plugin was removed.
         """
 
+    def customize_schema(self, schema: dict) -> dict:
+        """Post-process the JSON schema for the settings UI.
+
+        Override this to dynamically inject enum choices, examples, or
+        other schema modifications that depend on the live settings instance.
+        Called by the ``/plugins/{name}/schema`` endpoint after standard
+        post-processing.
+        """
+        return schema
+
     @classmethod
     def register_cli(cls, app: typer.Typer) -> None:
         """Register CLI subcommands on the root Typer app.

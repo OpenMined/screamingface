@@ -25,6 +25,7 @@ export interface DiscoveredPlugin {
   version: string | null;
   description: string | null;
   requires_root?: boolean;
+  depends?: string[];
   conflicts?: string[];
 }
 

@@ -226,6 +226,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "description": p.description,
                 "has_settings": p.settings_class is not None,
                 "requires_root": p.requires_root,
+                "depends": p.depends,
                 "conflicts": p.conflicts,
                 "tags": p.tags,
             }
@@ -249,6 +250,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         _collapse_nullable(schema)
         _inject_tag_enums(schema, app.state.plugins.active_plugins)
         _inject_examples(schema, "process_filter", _get_process_names())
+        schema = plugin.customize_schema(schema)
         return schema
 
     @app.get("/plugins/{name}/settings")

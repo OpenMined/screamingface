@@ -4,7 +4,8 @@ import validator from '@rjsf/validator-ajv8';
 import type { RJSFSchema } from '@rjsf/utils';
 import { useServerStatus } from '../hooks/use-server-status';
 import { useToast } from '../hooks/use-toast';
-import { ThemedForm, inlineRefs } from '../components/rjsf-theme';
+import { ThemedForm } from '../components/rjsf-theme';
+import { inlineRefs } from '../components/rjsf-utils';
 import type { DiscoveredPlugin } from '../../../preload/types';
 
 interface ServerConfig {
@@ -28,6 +29,7 @@ interface ServerPluginInfo {
   description: string;
   has_settings: boolean;
   requires_root?: boolean;
+  depends?: string[];
   conflicts?: string[];
 }
 
@@ -272,6 +274,7 @@ export function SettingsView() {
         version: serverPlugins[name].version,
         description: serverPlugins[name].description,
         requires_root: serverPlugins[name].requires_root,
+        depends: serverPlugins[name].depends,
         conflicts: serverPlugins[name].conflicts,
       };
     }
@@ -280,6 +283,7 @@ export function SettingsView() {
         version: discoveredPlugins[name].version,
         description: discoveredPlugins[name].description,
         requires_root: discoveredPlugins[name].requires_root,
+        depends: discoveredPlugins[name].depends,
         conflicts: discoveredPlugins[name].conflicts,
       };
     }
@@ -392,6 +396,16 @@ export function SettingsView() {
                             starting the server
                           </p>
                         )}
+                        {meta?.depends && meta.depends.length > 0 && (() => {
+                          const unmet = meta.depends!.filter(
+                            (dep) => !config.plugins.includes(dep) && !serverPlugins?.[dep],
+                          );
+                          return unmet.length > 0 ? (
+                            <p className="text-[10px] leading-tight text-amber-500">
+                              Depends on: {unmet.join(', ')} (will be auto-added at startup)
+                            </p>
+                          ) : null;
+                        })()}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 ml-2 shrink-0">
@@ -403,6 +417,17 @@ export function SettingsView() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          // Warn if other enabled plugins depend on this one
+                          const dependents = config.plugins.filter((p) => {
+                            const pMeta = getPluginMeta(p);
+                            return pMeta?.depends?.includes(name);
+                          });
+                          if (dependents.length > 0) {
+                            const ok = window.confirm(
+                              `${dependents.join(', ')} depend${dependents.length === 1 ? 's' : ''} on ${name}. Remove anyway?`,
+                            );
+                            if (!ok) return;
+                          }
                           if (expandedPlugin === name) setExpandedPlugin(null);
                           updatePlugins(config.plugins.filter((_, j) => j !== i));
                         }}
@@ -428,6 +453,29 @@ export function SettingsView() {
                           formData={{
                             ...pluginLiveSettings[name],
                             ...config.plugin_config[name],
+                          }}
+                          formContext={{
+                            serverUrl,
+                            serverFetch,
+                            addDictEntry: (path: string[], entryName: string) => {
+                              setConfig((prev) => {
+                                const base = {
+                                  ...pluginLiveSettings[name],
+                                  ...prev.plugin_config[name],
+                                };
+                                let target: Record<string, unknown> = base;
+                                for (const key of path) {
+                                  target[key] = { ...(target[key] as Record<string, unknown>) };
+                                  target = target[key] as Record<string, unknown>;
+                                }
+                                target[entryName] = {};
+                                return {
+                                  ...prev,
+                                  plugin_config: { ...prev.plugin_config, [name]: base },
+                                };
+                              });
+                              markDirty();
+                            },
                           }}
                           validator={validator}
                           liveValidate

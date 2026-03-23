@@ -125,21 +125,16 @@ class TestClaudeEnvInterceptPlugin:
     """Tests for the ClaudeEnvInterceptPlugin lifecycle."""
 
     def test_setup_writes_env_vars(self) -> None:
-        from screamingface.core.frontend import FrontendEntry
         from screamingface.plugins.claude_env_intercept.plugin import ClaudeEnvInterceptPlugin
 
         plugin = ClaudeEnvInterceptPlugin()
 
+        cf_plugin = MagicMock()
+        cf_plugin.settings.listen_host = "127.0.0.1"
+        cf_plugin.settings.listen_port = 9101
+
         app = MagicMock()
-        app.state.frontends.entries = {
-            "claude-frontend": FrontendEntry(
-                plugin_name="claude-frontend",
-                domains=["api.anthropic.com"],
-                host="127.0.0.1",
-                port=9101,
-                scheme="http",
-            )
-        }
+        app.state.plugins.active_plugins = {"claude-frontend": cf_plugin}
         hooks = MagicMock()
 
         with (
@@ -163,28 +158,23 @@ class TestClaudeEnvInterceptPlugin:
         plugin = ClaudeEnvInterceptPlugin()
 
         app = MagicMock()
-        app.state.frontends.entries = {}
+        app.state.plugins.active_plugins = {}
         hooks = MagicMock()
 
         with pytest.raises(RuntimeError, match="claude-env-intercept requires claude-frontend"):
             plugin.setup(app, hooks, MagicMock(), MagicMock())
 
-    def test_setup_auto_detects_from_registry(self) -> None:
-        from screamingface.core.frontend import FrontendEntry
+    def test_setup_uses_custom_host_port(self) -> None:
         from screamingface.plugins.claude_env_intercept.plugin import ClaudeEnvInterceptPlugin
 
         plugin = ClaudeEnvInterceptPlugin()
 
+        cf_plugin = MagicMock()
+        cf_plugin.settings.listen_host = "192.168.1.10"
+        cf_plugin.settings.listen_port = 9201
+
         app = MagicMock()
-        app.state.frontends.entries = {
-            "claude-frontend": FrontendEntry(
-                plugin_name="claude-frontend",
-                domains=["api.anthropic.com"],
-                host="127.0.0.1",
-                port=9201,
-                scheme="http",
-            )
-        }
+        app.state.plugins.active_plugins = {"claude-frontend": cf_plugin}
         hooks = MagicMock()
 
         with (
@@ -194,7 +184,7 @@ class TestClaudeEnvInterceptPlugin:
             plugin.setup(app, hooks, MagicMock(), MagicMock())
 
         env_vars = mock_add.call_args[0][0]
-        assert env_vars["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:9201"
+        assert env_vars["ANTHROPIC_BASE_URL"] == "http://192.168.1.10:9201"
 
     def test_teardown_removes_exports(self) -> None:
         from screamingface.plugins.claude_env_intercept.plugin import ClaudeEnvInterceptPlugin

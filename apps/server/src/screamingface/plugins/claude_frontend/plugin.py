@@ -1,9 +1,7 @@
 """Claude Frontend plugin — transparent proxy on a dedicated port.
 
 Runs its own HTTP server so its routes (/v1/messages, /v1/*, /api/*) don't
-clash with the main SF server or other frontend plugins.  Registers in the
-FrontendRegistry so mitmproxy-intercept can auto-discover where to route
-intercepted api.anthropic.com traffic.
+clash with the main SF server or other frontend plugins.
 """
 
 from __future__ import annotations
@@ -17,9 +15,9 @@ from typing import TYPE_CHECKING
 
 import uvicorn
 from fastapi import FastAPI
+from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
-from screamingface.core.frontend import FrontendEntry
 from screamingface.plugin import Plugin, PluginSettings
 from screamingface.plugins.claude_frontend.proxy import create_router
 
@@ -36,20 +34,35 @@ class ClaudeFrontendSettings(PluginSettings):
         env_prefix="SF_CLAUDE_FRONTEND__",
         env_nested_delimiter="__",
     )
+    active_spec: str | None = Field(
+        default=None,
+        description="Active url4-spec to resolve and prepend as system context.",
+    )
     upstream_url: str = "https://api.anthropic.com"
+    listen_host: str = "127.0.0.1"
     listen_port: int = 9101
-    domains: list[str] = ["api.anthropic.com"]
 
 
 class ClaudeFrontendPlugin(Plugin):
     name = "claude-frontend"
     description = "Transparent proxy between Claude Code and the Anthropic API"
-    tags = ["frontend"]
+    depends = ["url4-specs"]
     settings_class = ClaudeFrontendSettings
 
     def __init__(self) -> None:
         self._server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
+
+    def customize_schema(self, schema: dict) -> dict:
+        props = schema.get("properties", {})
+        # Populate active_spec enum from the url4-specs plugin
+        if "active_spec" in props and hasattr(self, "_app") and self._app:
+            specs_plugin = self._app.state.plugins.active_plugins.get("url4-specs")
+            if specs_plugin and specs_plugin.settings:
+                spec_names = list(specs_plugin.settings.specs.keys())
+                if spec_names:
+                    props["active_spec"]["enum"] = spec_names
+        return schema
 
     def preflight(self) -> tuple[bool, str]:
         ok, reason = super().preflight()
@@ -69,10 +82,11 @@ class ClaudeFrontendPlugin(Plugin):
         routes: RouteRegistry,
     ) -> None:
         settings: ClaudeFrontendSettings = self.settings  # type: ignore[assignment]
+        self._app = app  # store for customize_schema
 
         # Build a standalone FastAPI app with proxy routes
         frontend_app = FastAPI(title="claude-frontend")
-        router = create_router(settings)
+        router = create_router(settings, app)
         frontend_app.include_router(router)
 
         # Instrument with OTEL if tracing extras are installed.
@@ -83,11 +97,10 @@ class ClaudeFrontendPlugin(Plugin):
         except ImportError:
             pass
 
-        # Start HTTP server in a background thread (plain HTTP — mitmproxy
-        # handles TLS termination on the client side)
+        # Start HTTP server in a background thread
         config = uvicorn.Config(
             frontend_app,
-            host="127.0.0.1",
+            host=settings.listen_host,
             port=settings.listen_port,
             log_level="info",
         )
@@ -97,28 +110,16 @@ class ClaudeFrontendPlugin(Plugin):
         )
         self._thread.start()
 
-        # Wait for the server to be listening before continuing (so
-        # mitmproxy-intercept can immediately route traffic to us)
-        if not _wait_for_port(settings.listen_port):
+        # Wait for the server to be listening before continuing
+        if not _wait_for_port(settings.listen_port, host=settings.listen_host):
             logger.warning("claude-frontend server may not be ready yet")
-
-        # Register in the frontend registry
-        app.state.frontends.register(
-            FrontendEntry(
-                plugin_name=self.name,
-                domains=settings.domains,
-                host="127.0.0.1",
-                port=settings.listen_port,
-                scheme="http",
-            )
-        )
 
         # Clean up on shutdown
         hooks.register("app.shutdown", self._on_shutdown, plugin_name=self.name)
         logger.info(
-            "claude-frontend listening on http://127.0.0.1:%d (domains: %s)",
+            "claude-frontend listening on http://%s:%d",
+            settings.listen_host,
             settings.listen_port,
-            settings.domains,
         )
 
     def _run_server(self) -> None:
