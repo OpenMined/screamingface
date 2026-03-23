@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from screamingface.plugins.url4_executor.highlight import tokenize
 
 

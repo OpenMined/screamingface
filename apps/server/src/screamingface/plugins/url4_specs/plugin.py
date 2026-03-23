@@ -24,9 +24,15 @@ class Url4Spec(BaseModel):
         examples=[
             '("https://example.com", "extract main content")',
             '("https://api.example.com/data.json", "parse as JSON")',
-            "(http://localhost:8000/api/v1/users, http://localhost:8000/api/v1/roles)!audit permissions",
-            "(https://github.com/user/repo/raw/main/README.md, https://github.com/user/repo/raw/main/CHANGELOG.md)!extract breaking changes",
-            "((http://localhost:3000/config.json, http://localhost:3000/schema.json), https://docs.example.com/api-spec)!validate config against spec",
+            "(http://localhost:8000/api/v1/users, http://localhost:8000/api/v1/roles)"
+            "!audit permissions",
+            "(https://github.com/user/repo/raw/main/README.md,"
+            " https://github.com/user/repo/raw/main/CHANGELOG.md)"
+            "!extract breaking changes",
+            "((http://localhost:3000/config.json,"
+            " http://localhost:3000/schema.json),"
+            " https://docs.example.com/api-spec)"
+            "!validate config against spec",
         ],
         json_schema_extra={"x-placeholder": "(url, intent)"},
     )

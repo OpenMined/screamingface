@@ -88,7 +88,8 @@ def check(
         return (name, False, f"request error: {exc}")
 
     if resp.status_code != expect_status:
-        return (name, False, f"status {resp.status_code}, expected {expect_status} — body: {resp.text[:200]}")
+        body = resp.text[:200]
+        return (name, False, f"status {resp.status_code}, expected {expect_status} — body: {body}")
 
     if expect_contains is not None and expect_contains not in resp.text:
         return (name, False, f"body missing {expect_contains!r}: {resp.text[:200]}")
