@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
-from screamingface.plugins.claude_backend.models import ClaudeRunRequest
+from screamingface.plugins.claude_backend.models import ClaudeProfile, ClaudeRunRequest
 from screamingface.plugins.claude_backend.plugin import ClaudeBackendSettings
 from screamingface.plugins.claude_backend.runner import build_args
 
@@ -364,7 +364,7 @@ def test_profile_settings_defaults() -> None:
 
 def test_profile_invalid_name_rejected() -> None:
     with pytest.raises(Exception, match="Invalid profile name"):
-        ClaudeBackendSettings(profiles={"INVALID NAME!": {}})
+        ClaudeBackendSettings(profiles={"INVALID NAME!": ClaudeProfile()})
 
 
 # ---------------------------------------------------------------------------
