@@ -9,16 +9,17 @@
     "ssl_keyfile": null
   },
   "plugins": [
-    "claude-backend",
     "tracing",
     "url4-executor",
-    "claude-env-intercept",
     "url4-specs",
-    "claude-frontend"
+    "claude-frontend",
+    "claude-env-intercept",
+    "claude-backend"
   ],
   "plugin_config": {
     "claude-frontend": {
-      "active_spec": "all-docs",
+      "active_spec": "anthropic-cookbook",
+      "active_specs": [],
       "upstream_url": "https://api.anthropic.com",
       "listen_host": "127.0.0.1",
       "listen_port": 9101,
@@ -49,17 +50,27 @@
       "permission_mode": null,
       "dangerously_skip_permissions": false,
       "profiles": {
-        "default": {}
-      },
-      "default_profile": null
-    },
-    "url4-executor": {
-      "profiles": {
-        "all-docs": {
-          "expression": "(https://localhost:8000/url4?q=(https://docs.a.com, https://docs.b.com),https://localhost:8000/url4?q=(https://docs.c.com, https://docs.d.com))"
+        "default": {
+          "context": null,
+          "system_prompt": null,
+          "append_system_prompt": null,
+          "model": null,
+          "output_format": null,
+          "max_budget_usd": null,
+          "effort": null,
+          "tools": null,
+          "allowed_tools": null,
+          "disallowed_tools": null,
+          "mcp_config": null,
+          "permission_mode": null,
+          "add_dirs": null,
+          "fallback_model": null,
+          "dangerously_skip_permissions": false,
+          "no_session_persistence": true,
+          "timeout_seconds": null
         }
       },
-      "default_profile": "all-docs"
+      "default_profile": null
     },
     "url4-specs": {
       "specs": {
@@ -74,6 +85,12 @@
         },
         "simple-test": {
           "expression": "Hello from url4 spec"
+        },
+        "httpbin-robots": {
+          "expression": "(https://httpbin.org/robots.txt)!http://localhost:8000/claude/default?prompt=Summarize%20this%20robots.txt"
+        },
+        "anthropic-cookbook": {
+          "expression": "(https://raw.githubusercontent.com/anthropics/anthropic-cookbook/main/README.md)!http://localhost:8000/claude/default?prompt=Give%20me%20main%20idea"
         }
       }
     }
