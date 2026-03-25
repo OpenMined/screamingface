@@ -74,6 +74,9 @@ export interface ElectronAPI {
     write: (config: Record<string, unknown>) => Promise<void>;
     onChanged: (callback: (config: Record<string, unknown>) => void) => () => void;
   };
+  claude: {
+    launch: (baseUrl: string) => Promise<void>;
+  };
 }
 
 declare global {

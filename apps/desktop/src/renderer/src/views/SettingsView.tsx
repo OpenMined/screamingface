@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Terminal } from 'lucide-react';
 import validator from '@rjsf/validator-ajv8';
 import type { RJSFSchema } from '@rjsf/utils';
 import { useServerStatus } from '../hooks/use-server-status';
@@ -494,6 +494,26 @@ export function SettingsView() {
                           omitExtraData
                           uiSchema={{ 'ui:submitButtonOptions': { norender: true } }}
                         />
+                      )}
+                      {name === 'claude-frontend' && (
+                        <div className="mt-3 border-t border-border/50 pt-3">
+                          <button
+                            onClick={() => {
+                              const settings = {
+                                ...pluginLiveSettings[name],
+                                ...config.plugin_config[name],
+                              };
+                              const host = (settings.listen_host as string) || '127.0.0.1';
+                              const port = (settings.listen_port as number) || 9101;
+                              window.electronAPI.claude.launch(`http://${host}:${port}`);
+                            }}
+                            disabled={serverStatus !== 'ready'}
+                            className="flex items-center gap-1.5 rounded-md bg-chart-4/15 px-3 py-1.5 text-xs font-medium text-chart-4 transition-colors hover:bg-chart-4/25 disabled:opacity-40 disabled:pointer-events-none"
+                          >
+                            <Terminal size={14} />
+                            Launch Claude
+                          </button>
+                        </div>
                       )}
                     </div>
                   )}

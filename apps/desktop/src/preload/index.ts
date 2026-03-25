@@ -46,6 +46,9 @@ const api: ElectronAPI = {
     write: (config) => ipcRenderer.invoke('config:write', config),
     onChanged: (cb) => onEvent('config:changed', cb),
   },
+  claude: {
+    launch: (baseUrl) => ipcRenderer.invoke('claude:launch', baseUrl),
+  },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);
