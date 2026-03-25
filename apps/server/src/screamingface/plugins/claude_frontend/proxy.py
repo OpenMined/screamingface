@@ -192,8 +192,7 @@ def create_router(
         if resolved_context:
             wrapped = (
                 "Please be accurate and keep this information "
-                "constantly in your context:\n\n"
-                + resolved_context
+                "constantly in your context:\n\n" + resolved_context
             )
             existing = body.get("system")
             if existing is None:

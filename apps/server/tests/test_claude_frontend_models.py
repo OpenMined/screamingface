@@ -335,9 +335,7 @@ def proxy_app_no_context() -> FastAPI:
     return app
 
 
-_INJECT_PREFIX = (
-    "Please be accurate and keep this information constantly in your context:\n\n"
-)
+_INJECT_PREFIX = "Please be accurate and keep this information constantly in your context:\n\n"
 
 
 class TestProxyContextInjection:
