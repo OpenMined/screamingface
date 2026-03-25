@@ -92,22 +92,27 @@ def create_router(settings: ClaudeBackendSettings) -> APIRouter:
         profile_name: str,
         prompt: str,
         context: str | None = None,
+        raw_context: str | None = None,
     ) -> JSONResponse | StreamingResponse:
         prof = settings.profiles.get(profile_name)
         if not prof:
             raise HTTPException(status_code=404, detail=f"Unknown profile: {profile_name!r}")
 
-        # Resolve context via url4 engine
+        # raw_context is already resolved — use directly, skip url4
+        # context is a url4 expression — resolve via url4 engine
         resolved_context = ""
-        context_expr = context or prof.context
-        if context_expr:
-            from screamingface.plugins.url4_executor.url4 import resolve_str
+        if raw_context:
+            resolved_context = raw_context
+        else:
+            context_expr = context or prof.context
+            if context_expr:
+                from screamingface.plugins.url4_executor.url4 import resolve_str
 
-            try:
-                resolved_context = await resolve_str(context_expr)
-            except Exception as exc:
-                logger.warning("Context resolution failed: %s", exc, exc_info=True)
-                raise HTTPException(status_code=502, detail=f"Context resolution failed: {exc}")
+                try:
+                    resolved_context = await resolve_str(context_expr)
+                except Exception as exc:
+                    logger.warning("Context resolution failed: %s", exc, exc_info=True)
+                    raise HTTPException(status_code=502, detail=f"Context resolution failed: {exc}")
 
         full_prompt = f"{resolved_context}\n\n{prompt}" if resolved_context else prompt
 
@@ -138,16 +143,18 @@ def create_router(settings: ClaudeBackendSettings) -> APIRouter:
         profile_name: str,
         prompt: str,
         context: str | None = None,
+        raw_context: str | None = None,
     ) -> JSONResponse | StreamingResponse:
-        return await _handle_profile(profile_name, prompt, context)
+        return await _handle_profile(profile_name, prompt, context, raw_context)
 
     @router.post("/claude/{profile_name}", response_model=None, operation_id="claude_profile_post")
     async def claude_profile_post(
         profile_name: str,
         prompt: str,
         context: str | None = None,
+        raw_context: str | None = None,
     ) -> JSONResponse | StreamingResponse:
-        return await _handle_profile(profile_name, prompt, context)
+        return await _handle_profile(profile_name, prompt, context, raw_context)
 
     return router
 

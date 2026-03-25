@@ -97,7 +97,62 @@ def _record_trace_id(request: Request) -> str | None:
     return trace_id
 
 
-def create_router(settings: ClaudeFrontendSettings, app: Any = None) -> APIRouter:
+def _trace_request_context(body: dict[str, Any]) -> None:
+    """Create child spans for each system block and message in the request."""
+    tracer = _get_tracer()
+    if not tracer:
+        return
+
+    # System blocks
+    system = body.get("system")
+    if isinstance(system, list):
+        for i, block in enumerate(system):
+            with tracer.start_as_current_span(f"system[{i}]") as span:
+                if isinstance(block, dict):
+                    span.set_attribute("type", block.get("type", "?"))
+                    text = block.get("text", "")
+                    span.set_attribute("text_length", len(text))
+                    span.set_attribute("text", text)
+                    if "cache_control" in block:
+                        span.set_attribute("cache_control", str(block["cache_control"]))
+    elif isinstance(system, str):
+        with tracer.start_as_current_span("system") as span:
+            span.set_attribute("text_length", len(system))
+            span.set_attribute("text", system)
+
+    # Messages
+    messages = body.get("messages", [])
+    for i, msg in enumerate(messages):
+        role = msg.get("role", "?")
+        with tracer.start_as_current_span(f"message[{i}] {role}") as span:
+            content = msg.get("content")
+            if isinstance(content, str):
+                span.set_attribute("content_length", len(content))
+                span.set_attribute("content", content)
+            elif isinstance(content, list):
+                span.set_attribute("block_count", len(content))
+                for j, block in enumerate(content):
+                    btype = block.get("type", "?") if isinstance(block, dict) else "?"
+                    span.set_attribute(f"block[{j}].type", btype)
+                    if btype == "text":
+                        text = block.get("text", "")
+                        span.set_attribute(f"block[{j}].text_length", len(text))
+                        span.set_attribute(f"block[{j}].text", text)
+                    elif btype == "thinking":
+                        span.set_attribute(
+                            f"block[{j}].thinking_length",
+                            len(block.get("thinking", "")),
+                        )
+                        span.set_attribute(f"block[{j}].has_signature", "signature" in block)
+                    elif btype in ("tool_use", "tool_result"):
+                        span.set_attribute(f"block[{j}].summary", str(block)[:500])
+
+
+def create_router(
+    settings: ClaudeFrontendSettings,
+    app: Any = None,
+    plugin: Any = None,
+) -> APIRouter:
     upstream_url = settings.upstream_url.rstrip("/")
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
     logger.info("Proxy SSL context using certifi CA: %s", certifi.where())
@@ -130,32 +185,30 @@ def create_router(settings: ClaudeFrontendSettings, app: Any = None) -> APIRoute
     async def proxy_messages(request: Request) -> Response:
         body = await request.json()
 
-        # Resolve active_spec and prepend to system prompt
-        spec_name = settings.active_spec
-        if spec_name and app:
-            try:
-                specs_plugin = app.state.plugins.active_plugins.get("url4-specs")
-                if specs_plugin and specs_plugin.settings:
-                    spec = specs_plugin.settings.specs.get(spec_name)
-                    if spec and spec.expression:
-                        from screamingface.plugins.url4_executor.url4 import resolve_str
+        # Resolve url4 context lazily (first request triggers fetch, then cached).
+        # Append as a new block at the END so Claude Code's own instructions
+        # retain priority and billing/cache blocks stay untouched.
+        resolved_context = plugin.resolve_context() if plugin else None
+        if resolved_context:
+            wrapped = (
+                "Please be accurate and keep this information "
+                "constantly in your context:\n\n"
+                + resolved_context
+            )
+            existing = body.get("system")
+            if existing is None:
+                body["system"] = [{"type": "text", "text": wrapped}]
+            elif isinstance(existing, str):
+                body["system"] = existing + "\n\n" + wrapped
+            elif isinstance(existing, list):
+                existing.append({"type": "text", "text": wrapped})
+            logger.info(
+                "Injected cached url4 context (%d chars) into system prompt",
+                len(resolved_context),
+            )
 
-                        resolved = await resolve_str(spec.expression)
-                        if resolved:
-                            existing = body.get("system", "")
-                            if isinstance(existing, list):
-                                existing.insert(0, {"type": "text", "text": resolved + "\n\n"})
-                            else:
-                                body["system"] = (
-                                    resolved + "\n\n" + existing if existing else resolved
-                                )
-                            logger.info(
-                                "Injected spec %r (%d chars) into system prompt",
-                                spec_name,
-                                len(resolved),
-                            )
-            except Exception:
-                logger.warning("Failed to resolve spec %r", spec_name, exc_info=True)
+        # Trace each system block and message as child spans
+        _trace_request_context(body)
 
         headers = _build_headers(request)
         # Preserve query params (e.g. ?beta=true) that Claude Code sends
@@ -174,6 +227,15 @@ def create_router(settings: ClaudeFrontendSettings, app: Any = None) -> APIRoute
         _set_span_headers("request.headers", _redact_headers(headers))
 
         is_streaming = body.get("stream", False)
+        # Debug: dump full request body to temp file for inspection
+        import tempfile
+        from pathlib import Path
+
+        debug_dir = Path(tempfile.gettempdir()) / "sf-proxy-debug"
+        debug_dir.mkdir(exist_ok=True)
+        debug_file = debug_dir / "last_request.json"
+        debug_file.write_text(json.dumps(body, indent=2, ensure_ascii=False))
+        logger.info("PROXY >>> dumped request body to %s", debug_file)
         logger.info(
             "PROXY >>> forwarding to %s | stream=%s | sys_len=%s | msgs=%s | trace=%s",
             url,

@@ -76,11 +76,12 @@ def test_empty_intent_no_dispatch(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_intent_non_url_rejected(client: TestClient) -> None:
-    """Plain text intent (not a URL) returns 400."""
+def test_intent_non_url_returns_combined_text(client: TestClient) -> None:
+    """Plain text intent (LLM mode) returns intent + resolved sources."""
     resp = client.get("/url4", params={"q": "hello!summarize"})
-    assert resp.status_code == 400
-    assert "backend URL" in resp.json()["detail"]
+    assert resp.status_code == 200
+    assert "summarize" in resp.text
+    assert "hello" in resp.text
 
 
 # ---------------------------------------------------------------------------

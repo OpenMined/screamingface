@@ -28,5 +28,5 @@ class Url4ExecutorPlugin(Plugin):
         classes: ClassRegistry,
         routes: RouteRegistry,
     ) -> None:
-        router = create_router()
+        router = create_router(app)
         routes.add_router(self.name, router, prefix="")

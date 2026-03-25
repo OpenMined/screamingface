@@ -13,6 +13,7 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
+import httpx
 import uvicorn
 from fastapi import FastAPI
 from pydantic import Field
@@ -38,30 +39,51 @@ class ClaudeFrontendSettings(PluginSettings):
         default=None,
         description="Active url4-spec to resolve and prepend as system context.",
     )
+    active_specs: list[str] = Field(
+        default_factory=list,
+        description="Multiple url4-specs to resolve and prepend as system context.",
+    )
     upstream_url: str = "https://api.anthropic.com"
     listen_host: str = "127.0.0.1"
     listen_port: int = 9101
+    resolve_timeout: float = Field(
+        default=300.0,
+        description="Max seconds to wait for url4 spec resolution on first request.",
+    )
 
 
 class ClaudeFrontendPlugin(Plugin):
     name = "claude-frontend"
     description = "Transparent proxy between Claude Code and the Anthropic API"
-    depends = ["url4-specs"]
+    depends = ["url4-specs", "url4-executor"]
     settings_class = ClaudeFrontendSettings
 
     def __init__(self) -> None:
         self._server: uvicorn.Server | None = None
         self._thread: threading.Thread | None = None
+        self._cache: dict[str, str] = {}  # spec_name → resolved text
+        self._resolved_context: str | None = None
+        self._active_key: str | None = None  # tracks which specs produced the cache
+        self._lock = threading.Lock()
+
+    def _get_spec_names(self) -> list[str] | None:
+        if not hasattr(self, "_app") or not self._app:
+            return None
+        specs_plugin = self._app.state.plugins.active_plugins.get("url4-specs")
+        if specs_plugin and specs_plugin.settings:
+            names = list(specs_plugin.settings.specs.keys())
+            if names:
+                return names
+        return None
 
     def customize_schema(self, schema: dict) -> dict:
         props = schema.get("properties", {})
-        # Populate active_spec enum from the url4-specs plugin
-        if "active_spec" in props and hasattr(self, "_app") and self._app:
-            specs_plugin = self._app.state.plugins.active_plugins.get("url4-specs")
-            if specs_plugin and specs_plugin.settings:
-                spec_names = list(specs_plugin.settings.specs.keys())
-                if spec_names:
-                    props["active_spec"]["enum"] = spec_names
+        spec_names = self._get_spec_names()
+        if spec_names:
+            if "active_spec" in props:
+                props["active_spec"]["enum"] = spec_names
+            if "active_specs" in props:
+                props["active_specs"]["items"] = {"enum": spec_names}
         return schema
 
     def preflight(self) -> tuple[bool, str]:
@@ -74,6 +96,118 @@ class ClaudeFrontendPlugin(Plugin):
             return False, "Claude Code CLI not found in PATH"
         return True, ""
 
+    def _collect_spec_names(self) -> list[str]:
+        """Merge active_spec and active_specs into a deduplicated list."""
+        settings: ClaudeFrontendSettings = self.settings  # type: ignore[assignment]
+        names: list[str] = []
+        if settings.active_spec:
+            names.append(settings.active_spec)
+        if settings.active_specs:
+            for name in settings.active_specs:
+                if name not in names:
+                    names.append(name)
+        return names
+
+    def _get_spec_urls(self) -> list[tuple[str, str]]:
+        """Get (name, expression_url) pairs for active specs."""
+        spec_names = self._collect_spec_names()
+        if not spec_names or not hasattr(self, "_app") or not self._app:
+            return []
+
+        specs_plugin = self._app.state.plugins.active_plugins.get("url4-specs")
+        if not specs_plugin or not specs_plugin.settings:
+            return []
+
+        result: list[tuple[str, str]] = []
+        for name in spec_names:
+            spec = specs_plugin.settings.specs.get(name)
+            if spec and spec.expression:
+                result.append((name, spec.expression))
+        return result
+
+    def resolve_context(self) -> str | None:
+        """Resolve active specs lazily. Called on first request.
+
+        - Checks if current active specs match what's cached
+        - If cache hit (same specs) → return cached
+        - If cache miss (new/changed specs) → fetch, cache, return
+        - Thread-safe via lock
+        """
+        spec_urls = self._get_spec_urls()
+        if not spec_urls:
+            return None
+
+        # Build a cache key from the spec names
+        active_key = ",".join(name for name, _ in spec_urls)
+
+        # Fast path: already resolved for these exact specs
+        if self._active_key == active_key and self._resolved_context is not None:
+            return self._resolved_context
+
+        with self._lock:
+            # Double-check after acquiring lock
+            if self._active_key == active_key and self._resolved_context is not None:
+                return self._resolved_context
+
+            settings: ClaudeFrontendSettings = self.settings  # type: ignore[assignment]
+            timeout = settings.resolve_timeout
+            resolved_parts: list[str] = []
+
+            for name, url in spec_urls:
+                # Check per-spec cache first
+                if name in self._cache:
+                    resolved_parts.append(self._cache[name])
+                    logger.info("Cache hit for spec %r (%d chars)", name, len(self._cache[name]))
+                    continue
+
+                # Fetch and cache
+                try:
+                    result = self._fetch_sync(url, timeout)
+                    if result:
+                        self._cache[name] = result
+                        resolved_parts.append(result)
+                        logger.info("Resolved spec %r (%d chars)", name, len(result))
+                except Exception:
+                    logger.warning("Failed to resolve spec %r", name, exc_info=True)
+
+            if resolved_parts:
+                self._resolved_context = "\n\n".join(resolved_parts)
+                self._active_key = active_key
+                logger.info(
+                    "Cached %d chars of resolved url4 context",
+                    len(self._resolved_context),
+                )
+            else:
+                self._resolved_context = None
+                self._active_key = active_key
+
+            return self._resolved_context
+
+    def _fetch_sync(self, expression: str, timeout: float) -> str:
+        """Resolve a url4 expression by calling the local /url4 endpoint."""
+        cfg = getattr(self._app.state, "config", None) if self._app else None
+        port = cfg.server.port if cfg else 8000
+        ssl = cfg.server.ssl if cfg else False
+        scheme = "https" if ssl else "http"
+        base = f"{scheme}://localhost:{port}"
+
+        result_holder: list[str] = []
+
+        def _run() -> None:
+            loop = asyncio.new_event_loop()
+            try:
+                result_holder.append(loop.run_until_complete(_fetch(base, expression)))
+            finally:
+                loop.close()
+
+        thread = threading.Thread(target=_run, name="url4-fetch", daemon=True)
+        thread.start()
+        thread.join(timeout=timeout)
+
+        if not result_holder:
+            raise TimeoutError(f"Spec resolution timed out after {timeout}s for {expression[:100]}")
+        return result_holder[0]
+
     def setup(
         self,
         app: FastAPI,
@@ -82,11 +216,12 @@ class ClaudeFrontendPlugin(Plugin):
         routes: RouteRegistry,
     ) -> None:
         settings: ClaudeFrontendSettings = self.settings  # type: ignore[assignment]
-        self._app = app  # store for customize_schema
+        self._app = app  # store for customize_schema and spec lookup
 
-        # Build a standalone FastAPI app with proxy routes
+        # Build a standalone FastAPI app with proxy routes.
+        # Pass `self` so the router can call resolve_context() lazily.
         frontend_app = FastAPI(title="claude-frontend")
-        router = create_router(settings, app)
+        router = create_router(settings, app, plugin=self)
         frontend_app.include_router(router)
 
         # Instrument with OTEL if tracing extras are installed.
@@ -140,6 +275,14 @@ class ClaudeFrontendPlugin(Plugin):
             self._thread.join(timeout=5)
         self._server = None
         self._thread = None
+
+
+async def _fetch(base_url: str, expression: str) -> str:
+    """Call the local /url4 endpoint with a url4 expression and return plain text."""
+    async with httpx.AsyncClient(timeout=300, verify=False) as client:
+        resp = await client.get(f"{base_url}/url4", params={"q": expression})
+        resp.raise_for_status()
+        return resp.text
 
 
 def _wait_for_port(port: int, host: str = "127.0.0.1", timeout: float = 5.0) -> bool:
