@@ -22,7 +22,7 @@ from pathlib import Path
 
 import httpx
 
-SERVER_DIR = Path(__file__).resolve().parents[1]  # apps/server/
+SERVER_DIR = Path(__file__).resolve().parents[5]  # apps/server/
 
 # Inline config: only enable the plugins we need, point upstream at httpbin
 E2E_CONFIG = json.dumps(
