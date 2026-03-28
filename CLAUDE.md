@@ -52,14 +52,17 @@ If a task involves copy, design, or positioning and you're unsure which audience
 
 ## Git Workflow
 
+### Before Writing Any Code
+
+- **Create a feature branch first.** Before any file edits or implementation, create and switch to a branch named `SF-{n}-{description}` (e.g. `SF-28-refactor-tracing`). Derive `{n}` from the Asana ticket's SF field value.
+- **Never work directly on `main`** — the `.githooks/pre-commit` hook enforces this.
+- If no Asana ticket exists, create one via the `/asana` command (default project `1213628819033917`), and set its `SF` custom field (GID `1213702745960748`) to the next sequential number.
+  - To find the next SF number: query project tasks with `opt_fields=custom_fields.display_value`, find the highest existing `SF-N` value, and use `N+1`.
+
 ### Commit Rules
 
 - **Before every commit**, ask the user for the associated Asana ticket.
-- If no ticket exists, create one via the `/asana` command (default project `1213628819033917`), and set its `SF` custom field (GID `1213702745960748`) to the next sequential number.
-  - To find the next SF number: query project tasks with `opt_fields=custom_fields.display_value`, find the highest existing `SF-N` value, and use `N+1`.
-- **Branch naming:** `SF-{n}-{description}` (e.g. `SF-22-fix-auth-bug`). Derive from the ticket's SF field value.
 - If on the wrong branch, ask to create/switch to the correct one before committing.
-- **Never commit directly to `main`** — the `.githooks/pre-commit` hook enforces this.
 - Include the Asana task permalink in the commit message body.
 
 ### Setup (one-time)

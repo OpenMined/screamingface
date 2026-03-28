@@ -13,6 +13,8 @@ import httpx
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from screamingface.core.tracing import current_span, get_tracer, set_span_headers, traced_http
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -44,62 +46,9 @@ def _truncate(text: str, limit: int = 4000) -> str:
     return text[:limit] + f"\n... ({len(text) - limit} more chars)"
 
 
-def _get_tracer():  # type: ignore[no-untyped-def]
-    try:
-        from opentelemetry import trace
-
-        return trace.get_tracer("screamingface.proxy")
-    except ImportError:
-        return None
-
-
-def _set_span_attrs(attrs: dict[str, Any], span=None) -> None:  # type: ignore[no-untyped-def]
-    try:
-        from opentelemetry import trace
-
-        span = span or trace.get_current_span()
-        if span and span.is_recording():
-            for k, v in attrs.items():
-                span.set_attribute(k, v)
-    except ImportError:
-        pass
-
-
-def _set_span_headers(prefix: str, headers: dict[str, str], span=None) -> None:  # type: ignore[no-untyped-def]
-    try:
-        from opentelemetry import trace
-
-        span = span or trace.get_current_span()
-        if span and span.is_recording():
-            for k, v in headers.items():
-                span.set_attribute(f"{prefix}.{k}", v)
-    except ImportError:
-        pass
-
-
-def _start_client_span(tracer, name: str):  # type: ignore[no-untyped-def]
-    from opentelemetry.trace import SpanKind
-
-    return tracer.start_as_current_span(name, kind=SpanKind.CLIENT)
-
-
-def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-def]
-    from opentelemetry.trace import SpanKind
-
-    return tracer.start_span(name, kind=SpanKind.CLIENT)
-
-
-def _record_trace_id(request: Request) -> str | None:
-    """Extract x-sf-trace-id header and record it on the current span."""
-    trace_id = request.headers.get("x-sf-trace-id")
-    if trace_id:
-        _set_span_attrs({"sf.trace_id": trace_id})
-    return trace_id
-
-
 def _trace_request_context(body: dict[str, Any]) -> None:
     """Create child spans for each system block and message in the request."""
-    tracer = _get_tracer()
+    tracer = get_tracer()
     if not tracer:
         return
 
@@ -216,14 +165,14 @@ def create_router(
         if qs:
             url = f"{url}?{qs}"
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
-        tracer = _get_tracer()
 
-        # Record trace ID on the server span
-        trace_id = _record_trace_id(request)
-
-        # Server span: just record the raw request body
-        _set_span_attrs({"request.body": _truncate(json.dumps(body))})
-        _set_span_headers("request.headers", _redact_headers(headers))
+        # Record trace ID + request attrs on the server span
+        trace_id = request.headers.get("x-sf-trace-id")
+        server = current_span()
+        if trace_id:
+            server.set_attribute("sf.trace_id", trace_id)
+        server.set_attribute("request.body", _truncate(json.dumps(body)))
+        set_span_headers(server, "request.headers", _redact_headers(headers))
 
         is_streaming = body.get("stream", False)
         # Debug: dump full request body to temp file for inspection
@@ -251,92 +200,76 @@ def create_router(
 
         if is_streaming:
             client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
-            upstream_span = _start_client_span_detached(tracer, f"POST {url}") if tracer else None
-            if upstream_span:
-                _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
-                if trace_id:
-                    _set_span_attrs({"sf.trace_id": trace_id}, upstream_span)
-                _set_span_headers("request.headers", _redact_headers(headers), upstream_span)
-                _set_span_attrs({"request.body": _truncate(json.dumps(body))}, upstream_span)
 
             async def stream_response():
                 chunks: list[bytes] = []
-                try:
-                    logger.info("STREAM >>> opening upstream connection to Anthropic")
-                    async with client.stream("POST", url, json=body, headers=headers) as resp:
-                        logger.info(
-                            "STREAM >>> upstream responded: status=%s content-type=%s",
-                            resp.status_code,
-                            resp.headers.get("content-type", "?"),
-                        )
-                        if upstream_span:
-                            _set_span_attrs({"http.status_code": resp.status_code}, upstream_span)
-                            _set_span_headers(
-                                "response.headers",
-                                dict(resp.headers),
-                                upstream_span,
+                async with traced_http(
+                    "POST",
+                    url,
+                    request_headers=_redact_headers(headers),
+                    request_body=_truncate(json.dumps(body)),
+                    trace_id=trace_id,
+                ) as client_span:
+                    try:
+                        logger.info("STREAM >>> opening upstream connection to Anthropic")
+                        async with client.stream("POST", url, json=body, headers=headers) as resp:
+                            logger.info(
+                                "STREAM >>> upstream responded: status=%s content-type=%s",
+                                resp.status_code,
+                                resp.headers.get("content-type", "?"),
                             )
-                        chunk_count = 0
-                        async for chunk in resp.aiter_bytes():
-                            chunk_count += 1
-                            chunks.append(chunk)
-                            if chunk_count <= 3:
-                                logger.info(
-                                    "STREAM >>> chunk #%d (%d bytes): %s",
-                                    chunk_count,
-                                    len(chunk),
-                                    chunk[:200],
-                                )
-                            yield chunk
-                        logger.info(
-                            "STREAM >>> finished: %d chunks, %d total bytes",
-                            chunk_count,
-                            sum(len(c) for c in chunks),
-                        )
-                        logger.info("[E2E-TRACE] PROXY response status=%d", resp.status_code)
-                except Exception as exc:
-                    logger.error("STREAM >>> ERROR during streaming: %s", exc, exc_info=True)
-                    raise
-                finally:
-                    if chunks:
-                        raw = b"".join(chunks).decode(errors="replace")
-                        if upstream_span:
-                            _set_span_attrs({"response.body": _truncate(raw)}, upstream_span)
-                        _set_span_attrs({"response.body": _truncate(raw)})
-                    if upstream_span:
-                        upstream_span.end()
-                    await client.aclose()
-                    logger.info("STREAM >>> client closed")
+                            client_span.set_attribute("http.status_code", resp.status_code)
+                            set_span_headers(client_span, "response.headers", dict(resp.headers))
+                            chunk_count = 0
+                            async for chunk in resp.aiter_bytes():
+                                chunk_count += 1
+                                chunks.append(chunk)
+                                if chunk_count <= 3:
+                                    logger.info(
+                                        "STREAM >>> chunk #%d (%d bytes): %s",
+                                        chunk_count,
+                                        len(chunk),
+                                        chunk[:200],
+                                    )
+                                yield chunk
+                            logger.info(
+                                "STREAM >>> finished: %d chunks, %d total bytes",
+                                chunk_count,
+                                sum(len(c) for c in chunks),
+                            )
+                            logger.info(
+                                "[E2E-TRACE] PROXY response status=%d",
+                                resp.status_code,
+                            )
+                    except Exception as exc:
+                        logger.error("STREAM >>> ERROR during streaming: %s", exc, exc_info=True)
+                        raise
+                    finally:
+                        if chunks:
+                            raw = b"".join(chunks).decode(errors="replace")
+                            client_span.set_attribute("response.body", _truncate(raw))
+                            current_span().set_attribute("response.body", _truncate(raw))
+                        await client.aclose()
+                        logger.info("STREAM >>> client closed")
 
             return StreamingResponse(stream_response(), media_type="text/event-stream")
         else:
-            if tracer:
-                with _start_client_span(tracer, f"POST {url}") as span:
-                    _set_span_attrs({"http.method": "POST", "http.url": url}, span)
-                    if trace_id:
-                        _set_span_attrs({"sf.trace_id": trace_id}, span)
-                    _set_span_headers("request.headers", _redact_headers(headers), span)
-                    _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
-                    async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
-                        resp = await client.post(url, json=body, headers=headers)
-                    _set_span_attrs(
-                        {
-                            "http.status_code": resp.status_code,
-                            "response.body": _truncate(resp.text),
-                        },
-                        span,
-                    )
-                    _set_span_headers("response.headers", dict(resp.headers), span)
-            else:
+            async with traced_http(
+                "POST",
+                url,
+                request_headers=_redact_headers(headers),
+                request_body=_truncate(json.dumps(body)),
+                trace_id=trace_id,
+            ) as client_span:
                 async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                     resp = await client.post(url, json=body, headers=headers)
-            _set_span_attrs(
-                {
-                    "response.body": _truncate(resp.text),
-                    "http.status_code": resp.status_code,
-                },
-            )
-            _set_span_headers("response.headers", dict(resp.headers))
+                client_span.set_attribute("http.status_code", resp.status_code)
+                client_span.set_attribute("response.body", _truncate(resp.text))
+                set_span_headers(client_span, "response.headers", dict(resp.headers))
+            server = current_span()
+            server.set_attribute("http.status_code", resp.status_code)
+            server.set_attribute("response.body", _truncate(resp.text))
+            set_span_headers(server, "response.headers", dict(resp.headers))
             logger.info("[E2E-TRACE] PROXY response status=%d", resp.status_code)
             return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
@@ -347,51 +280,38 @@ def create_router(
         url = f"{upstream_url}/v1/{path}"
         method = request.method
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
-        tracer = _get_tracer()
 
-        trace_id = _record_trace_id(request)
+        trace_id = request.headers.get("x-sf-trace-id")
+        server = current_span()
+        if trace_id:
+            server.set_attribute("sf.trace_id", trace_id)
+        set_span_headers(server, "request.headers", _redact_headers(headers))
 
         body = await request.body()
+        body_text = _truncate(body.decode(errors="replace")) if body else None
+        if body_text:
+            server.set_attribute("request.body", body_text)
+
         kwargs: dict[str, Any] = {"headers": headers}
         if body:
             kwargs["content"] = body
 
-        _set_span_headers("request.headers", _redact_headers(headers))
-        if body:
-            _set_span_attrs({"request.body": _truncate(body.decode(errors="replace"))})
-
-        if tracer:
-            with _start_client_span(tracer, f"{method} {url}") as span:
-                _set_span_attrs({"http.method": method, "http.url": url}, span)
-                if trace_id:
-                    _set_span_attrs({"sf.trace_id": trace_id}, span)
-                _set_span_headers("request.headers", _redact_headers(headers), span)
-                if body:
-                    _set_span_attrs(
-                        {"request.body": _truncate(body.decode(errors="replace"))},
-                        span,
-                    )
-                async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
-                    resp = await client.request(method, url, **kwargs)
-                _set_span_attrs(
-                    {
-                        "http.status_code": resp.status_code,
-                        "response.body": _truncate(resp.text),
-                    },
-                    span,
-                )
-                _set_span_headers("response.headers", dict(resp.headers), span)
-        else:
+        async with traced_http(
+            method,
+            url,
+            request_headers=_redact_headers(headers),
+            request_body=body_text,
+            trace_id=trace_id,
+        ) as client_span:
             async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                 resp = await client.request(method, url, **kwargs)
+            client_span.set_attribute("http.status_code", resp.status_code)
+            client_span.set_attribute("response.body", _truncate(resp.text))
+            set_span_headers(client_span, "response.headers", dict(resp.headers))
 
-        _set_span_attrs(
-            {
-                "response.body": _truncate(resp.text),
-                "http.status_code": resp.status_code,
-            },
-        )
-        _set_span_headers("response.headers", dict(resp.headers))
+        server.set_attribute("http.status_code", resp.status_code)
+        server.set_attribute("response.body", _truncate(resp.text))
+        set_span_headers(server, "response.headers", dict(resp.headers))
 
         content_type = resp.headers.get("content-type", "")
         if "text/event-stream" in content_type:
@@ -414,7 +334,9 @@ def create_router(
         url = f"{upstream_url}/api/{path}"
         method = request.method
         timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
-        _record_trace_id(request)
+        trace_id = request.headers.get("x-sf-trace-id")
+        if trace_id:
+            current_span().set_attribute("sf.trace_id", trace_id)
         _log_dns("api.anthropic.com")
         logger.info("Passthrough %s %s → upstream %s", method, f"/api/{path}", url)
 
