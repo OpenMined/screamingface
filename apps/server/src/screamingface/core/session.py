@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime
-from typing import Annotated, Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -97,10 +97,7 @@ class CanonicalMessage(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-SessionDataT = TypeVar("SessionDataT", bound=BaseModel)
-
-
-class SessionMetadata(BaseModel, Generic[SessionDataT]):
+class SessionMetadata[SessionDataT: BaseModel](BaseModel):
     """Generic session envelope — tool-agnostic base.
 
     The ``data`` field holds provider-specific payload typed by the

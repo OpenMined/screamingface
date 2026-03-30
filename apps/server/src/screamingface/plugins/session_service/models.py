@@ -9,7 +9,6 @@ from screamingface.core.session import (  # noqa: F401
     CanonicalContentBlock,
     CanonicalMessage,
     ImageContent,
-    SessionDataT,
     SessionMetadata,
     TextContent,
     ThinkingContent,
