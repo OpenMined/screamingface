@@ -50,12 +50,19 @@ class ClaudeFrontendSettings(PluginSettings):
         default=300.0,
         description="Max seconds to wait for url4 spec resolution on first request.",
     )
+    session_service_url: str | None = Field(
+        default=None,
+        description=(
+            "URL of the session service (e.g. http://localhost:9200)."
+            " Enables session persistence when set."
+        ),
+    )
 
 
 class ClaudeFrontendPlugin(Plugin):
     name = "claude-frontend"
     description = "Transparent proxy between Claude Code and the Anthropic API"
-    depends = ["url4-specs", "url4-executor"]
+    depends = ["claude", "url4-specs", "url4-executor"]
     settings_class = ClaudeFrontendSettings
 
     def __init__(self) -> None:
@@ -221,7 +228,7 @@ class ClaudeFrontendPlugin(Plugin):
         # Build a standalone FastAPI app with proxy routes.
         # Pass `self` so the router can call resolve_context() lazily.
         frontend_app = FastAPI(title="claude-frontend")
-        router = create_router(settings, app, plugin=self)
+        router = create_router(settings, app, plugin=self, hooks=hooks)
         frontend_app.include_router(router)
 
         # Instrument with OTEL if tracing extras are installed.

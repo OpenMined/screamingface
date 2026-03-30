@@ -148,12 +148,97 @@ def _trace_request_context(body: dict[str, Any]) -> None:
                         span.set_attribute(f"block[{j}].summary", str(block)[:500])
 
 
+def _parse_sse_response(raw: str) -> dict[str, Any] | None:
+    """Reconstruct an Anthropic Messages response from SSE stream data.
+
+    Parses message_start, content_block_start/delta/stop, and message_delta
+    events to build a response dict equivalent to a non-streaming response.
+    """
+    response: dict[str, Any] = {}
+    content_blocks: list[dict[str, Any]] = []
+    current_block: dict[str, Any] = {}
+
+    for line in raw.split("\n"):
+        line = line.strip()
+        if not line.startswith("data: "):
+            continue
+        data_str = line[6:]
+        if data_str == "[DONE]":
+            break
+        try:
+            event = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+
+        etype = event.get("type")
+
+        if etype == "message_start":
+            msg = event.get("message", {})
+            response.update(
+                {
+                    "id": msg.get("id"),
+                    "type": msg.get("type", "message"),
+                    "role": msg.get("role", "assistant"),
+                    "model": msg.get("model"),
+                    "usage": msg.get("usage", {}),
+                }
+            )
+
+        elif etype == "content_block_start":
+            current_block = dict(event.get("content_block", {}))
+
+        elif etype == "content_block_delta":
+            delta = event.get("delta", {})
+            dtype = delta.get("type")
+            if dtype == "text_delta":
+                current_block.setdefault("text", "")
+                current_block["text"] += delta.get("text", "")
+            elif dtype == "thinking_delta":
+                current_block.setdefault("thinking", "")
+                current_block["thinking"] += delta.get("thinking", "")
+            elif dtype == "signature_delta":
+                current_block.setdefault("signature", "")
+                current_block["signature"] += delta.get("signature", "")
+            elif dtype == "input_json_delta":
+                current_block.setdefault("_input_json", "")
+                current_block["_input_json"] += delta.get("partial_json", "")
+
+        elif etype == "content_block_stop":
+            # Finalize tool_use input from accumulated JSON
+            if "_input_json" in current_block:
+                try:
+                    current_block["input"] = json.loads(current_block.pop("_input_json"))
+                except json.JSONDecodeError:
+                    current_block["input"] = {}
+                    current_block.pop("_input_json", None)
+            content_blocks.append(current_block)
+            current_block = {}
+
+        elif etype == "message_delta":
+            delta = event.get("delta", {})
+            if "stop_reason" in delta:
+                response["stop_reason"] = delta["stop_reason"]
+            usage = event.get("usage", {})
+            if usage:
+                existing_usage = response.get("usage", {})
+                existing_usage.update(usage)
+                response["usage"] = existing_usage
+
+    if not response:
+        return None
+
+    response["content"] = content_blocks
+    return response
+
+
 def create_router(
     settings: ClaudeFrontendSettings,
     app: Any = None,
     plugin: Any = None,
+    hooks: Any = None,
 ) -> APIRouter:
     upstream_url = settings.upstream_url.rstrip("/")
+    session_service_url = settings.session_service_url
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
     logger.info("Proxy SSL context using certifi CA: %s", certifi.where())
 
@@ -184,6 +269,29 @@ def create_router(
     @router.post("/v1/messages", response_model=None, operation_id="proxy_messages")
     async def proxy_messages(request: Request) -> Response:
         body = await request.json()
+
+        # --- Session enrichment (before url4 injection) ---
+        session_id = request.headers.get("x-session-id")
+        original_user_msg = None
+        if session_id and session_service_url and hooks:
+            # Save the current user message before enrichment
+            msgs = body.get("messages", [])
+            if msgs:
+                original_user_msg = msgs[-1].copy() if isinstance(msgs[-1], dict) else msgs[-1]
+            try:
+                results = await hooks.emit_async(
+                    "session.enrich_request",
+                    body=body,
+                    session_id=session_id,
+                    session_service_url=session_service_url,
+                )
+                # Take the first non-None result from hook callbacks
+                for result in results:
+                    if result is not None:
+                        body = result
+                        break
+            except Exception:
+                logger.warning("Session enrichment failed for %s", session_id, exc_info=True)
 
         # Resolve url4 context lazily (first request triggers fetch, then cached).
         # Append as a new block at the END so Claude Code's own instructions
@@ -303,6 +411,26 @@ def create_router(
                         if upstream_span:
                             _set_span_attrs({"response.body": _truncate(raw)}, upstream_span)
                         _set_span_attrs({"response.body": _truncate(raw)})
+
+                        # --- Session save (streaming) ---
+                        if session_id and session_service_url and hooks and original_user_msg:
+                            response_data = _parse_sse_response(raw)
+                            if response_data:
+                                try:
+                                    await hooks.emit_async(
+                                        "session.save_response",
+                                        session_id=session_id,
+                                        session_service_url=session_service_url,
+                                        user_message_body=original_user_msg,
+                                        response_body=response_data,
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        "Session save (stream) failed for %s",
+                                        session_id,
+                                        exc_info=True,
+                                    )
+
                     if upstream_span:
                         upstream_span.end()
                     await client.aclose()
@@ -338,7 +466,22 @@ def create_router(
             )
             _set_span_headers("response.headers", dict(resp.headers))
             logger.info("[E2E-TRACE] PROXY response status=%d", resp.status_code)
-            return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+            # --- Session save (non-streaming) ---
+            response_data = resp.json()
+            if session_id and session_service_url and hooks and original_user_msg:
+                try:
+                    await hooks.emit_async(
+                        "session.save_response",
+                        session_id=session_id,
+                        session_service_url=session_service_url,
+                        user_message_body=original_user_msg,
+                        response_body=response_data,
+                    )
+                except Exception:
+                    logger.warning("Session save failed for %s", session_id, exc_info=True)
+
+            return JSONResponse(content=response_data, status_code=resp.status_code)
 
     @router.get("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_get")
     @router.post("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_post")
