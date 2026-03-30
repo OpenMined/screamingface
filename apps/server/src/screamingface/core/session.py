@@ -97,7 +97,7 @@ class CanonicalMessage(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-SessionDataT = TypeVar("SessionDataT", bound=BaseModel, default=BaseModel)
+SessionDataT = TypeVar("SessionDataT", bound=BaseModel)
 
 
 class SessionMetadata(BaseModel, Generic[SessionDataT]):
