@@ -190,28 +190,28 @@ class ClaudeBackendPlugin(Plugin):
         """
         try:
             from screamingface.core.session import (
+                CanonicalContentBlock,
                 CanonicalMessage,
                 TextContent,
             )
 
             # Build canonical user message from the raw request content
             user_content_raw = user_message_body.get("content", "")
+            blocks: list[CanonicalContentBlock] = []
             if isinstance(user_content_raw, str):
-                user_content = [TextContent(text=user_content_raw)]
+                blocks.append(TextContent(text=user_content_raw))
             else:
-                # Content is a list of blocks — store as-is with text extraction
-                user_content = []
                 for block in user_content_raw:
                     if isinstance(block, dict) and block.get("type") == "text":
-                        user_content.append(TextContent(text=block["text"]))
+                        blocks.append(TextContent(text=block["text"]))
                     elif isinstance(block, dict):
-                        user_content.append(TextContent(text=str(block)))
-                if not user_content:
-                    user_content = [TextContent(text=str(user_content_raw))]
+                        blocks.append(TextContent(text=str(block)))
+                if not blocks:
+                    blocks.append(TextContent(text=str(user_content_raw)))
 
             user_msg = CanonicalMessage(
                 role="user",
-                content=user_content,
+                content=blocks,
                 provider="anthropic",
             )
 
