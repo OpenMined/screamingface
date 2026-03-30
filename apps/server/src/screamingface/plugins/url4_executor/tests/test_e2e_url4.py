@@ -20,7 +20,7 @@ from urllib.parse import quote
 
 import httpx
 
-SERVER_DIR = Path(__file__).resolve().parents[1]  # apps/server/
+SERVER_DIR = Path(__file__).resolve().parents[5]  # apps/server/
 SERVER_CMD = [
     "sf",
     "run",

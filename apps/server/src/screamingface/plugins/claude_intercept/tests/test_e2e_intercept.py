@@ -16,7 +16,7 @@ from pathlib import Path
 TIMEOUT = 60  # total test timeout in seconds
 SERVER_CMD = ["sf", "run"]
 CLAUDE_CMD = ["claude", "-p", "Say exactly: E2E_TEST_OK", "--output-format", "text"]
-SERVER_DIR = Path(__file__).resolve().parents[1]  # apps/server/
+SERVER_DIR = Path(__file__).resolve().parents[5]  # apps/server/
 
 
 class LogCollector:
