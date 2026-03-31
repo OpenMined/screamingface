@@ -235,7 +235,13 @@ class ClaudeFrontendPlugin(Plugin):
         try:
             from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-            FastAPIInstrumentor.instrument_app(frontend_app)
+            def _tag_plugin(span, scope):  # type: ignore[no-untyped-def]
+                if span and span.is_recording():
+                    span.set_attribute("sf.plugin", "claude-frontend")
+
+            FastAPIInstrumentor.instrument_app(
+                frontend_app, server_request_hook=_tag_plugin
+            )
         except ImportError:
             pass
 

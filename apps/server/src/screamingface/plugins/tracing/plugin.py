@@ -235,6 +235,7 @@ def _server_request_hook(span, scope) -> None:  # type: ignore[no-untyped-def]
     """Add useful attributes to the server span from the ASGI scope."""
     if not span or not span.is_recording():
         return
+    span.set_attribute("sf.plugin", "main")
     path = scope.get("path", "")
     if path == "/health":
         # Mark as internal so the filtering processor can drop it
