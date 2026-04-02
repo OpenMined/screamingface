@@ -36,7 +36,10 @@ class ClaudeInterpreter(Url4Interpreter):
         tmp_dir = tempfile.mkdtemp(prefix="sf_claude_")
         try:
             _exit_code, stdout, _stderr, _duration = await run_claude(
-                args, combined, timeout, cwd=tmp_dir,
+                args,
+                combined,
+                timeout,
+                cwd=tmp_dir,
             )
             return stdout
         finally:

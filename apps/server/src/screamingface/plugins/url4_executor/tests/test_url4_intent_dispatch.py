@@ -83,7 +83,7 @@ def test_intent_text_with_fetched_source(client: TestClient) -> None:
 
 def test_intent_quoted_text(client: TestClient) -> None:
     """Quoted text intent has quotes stripped."""
-    resp = client.get("/ensemble", params={"q": "hello!\"summarize\""})
+    resp = client.get("/ensemble", params={"q": 'hello!"summarize"'})
     assert resp.status_code == 200
     assert "summarize" in resp.text
     assert '"' not in resp.text

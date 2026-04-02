@@ -45,12 +45,17 @@ class ClaudeFrontendSettings(PluginSettings):
     listen_port: int = 9101
     session_service_url: str | None = Field(
         default=None,
-        description="URL of the session service (e.g. http://127.0.0.1:9200). Enables session persistence.",
+        description=(
+            "URL of the session service (e.g. http://127.0.0.1:9200). Enables session persistence."
+        ),
     )
     backend_url: str | None = Field(
         default=None,
-        description="URL of the main SF server for url4/data/backend calls (e.g. http://127.0.0.1:8000). "
-        "When set (per-session mode), proxy uses HTTP calls instead of in-process.",
+        description=(
+            "URL of the main SF server for url4/data/backend calls"
+            " (e.g. http://127.0.0.1:8000). When set (per-session mode),"
+            " proxy uses HTTP calls instead of in-process."
+        ),
     )
     resolve_timeout: float = Field(
         default=300.0,

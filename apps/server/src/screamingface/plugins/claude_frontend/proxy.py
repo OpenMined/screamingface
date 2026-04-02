@@ -111,13 +111,17 @@ def _trace_request_context(body: dict[str, Any]) -> None:
     _t = _truncate  # alias for readability
 
     # Request-level attributes on the current (server) span
-    _set_span_attrs({
-        "anthropic.model": body.get("model", "?"),
-        "anthropic.max_tokens": body.get("max_tokens", 0),
-        "anthropic.stream": body.get("stream", False),
-        "anthropic.system_block_count": len(body.get("system", [])) if isinstance(body.get("system"), list) else (1 if body.get("system") else 0),
-        "anthropic.message_count": len(body.get("messages", [])),
-    })
+    _set_span_attrs(
+        {
+            "anthropic.model": body.get("model", "?"),
+            "anthropic.max_tokens": body.get("max_tokens", 0),
+            "anthropic.stream": body.get("stream", False),
+            "anthropic.system_block_count": len(body.get("system", []))
+            if isinstance(body.get("system"), list)
+            else (1 if body.get("system") else 0),
+            "anthropic.message_count": len(body.get("messages", [])),
+        }
+    )
 
     # System blocks
     system = body.get("system")
@@ -322,7 +326,6 @@ def _replace_last_user_message(messages: list[dict[str, Any]], new_text: str) ->
         return
 
 
-
 def create_router(
     settings: ClaudeFrontendSettings,
     app: Any = None,
@@ -397,9 +400,7 @@ def create_router(
             if last_user_text:
                 tracer = _get_tracer()
                 span_ctx = (
-                    tracer.start_as_current_span("url4.$prompt")
-                    if tracer
-                    else _nullcontext()
+                    tracer.start_as_current_span("url4.$prompt") if tracer else _nullcontext()
                 )
                 with span_ctx as prompt_span:
                     try:
@@ -409,11 +410,15 @@ def create_router(
                             prompt_span.set_attribute("url4.user_text_length", len(last_user_text))
 
                         # Determine backend: HTTP to main server, or in-process
-                        backend_url = settings.backend_url.rstrip("/") if settings.backend_url else None
+                        backend_url = (
+                            settings.backend_url.rstrip("/") if settings.backend_url else None
+                        )
 
                         # Store user prompt as blob on the backend server
                         if backend_url:
-                            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), verify=False) as dc:
+                            async with httpx.AsyncClient(
+                                timeout=httpx.Timeout(30.0), verify=False
+                            ) as dc:
                                 blob_resp = await dc.post(
                                     f"{backend_url}/data",
                                     content=last_user_text.encode("utf-8"),
@@ -423,29 +428,43 @@ def create_router(
                                 blob_key = blob_resp.json()["key"]
                         else:
                             from screamingface.plugins.data_store.routes import store_blob
-                            blob_key = store_blob(last_user_text.encode("utf-8"), "text/plain; charset=utf-8")
+
+                            blob_key = store_blob(
+                                last_user_text.encode("utf-8"), "text/plain; charset=utf-8"
+                            )
 
                         blob_url = f"/data/{blob_key}"
                         substituted = raw_expression.replace("$prompt", blob_url)
 
                         if prompt_span and prompt_span.is_recording():
                             prompt_span.set_attribute("url4.blob_url", blob_url)
-                            prompt_span.set_attribute("url4.substituted_expression", _truncate(substituted))
+                            prompt_span.set_attribute(
+                                "url4.substituted_expression", _truncate(substituted)
+                            )
 
                         # Resolve the full expression via /ensemble endpoint
                         if backend_url:
-                            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0), verify=False) as ec:
-                                ens_resp = await ec.get(f"{backend_url}/ensemble", params={"q": substituted})
+                            async with httpx.AsyncClient(
+                                timeout=httpx.Timeout(300.0), verify=False
+                            ) as ec:
+                                ens_resp = await ec.get(
+                                    f"{backend_url}/ensemble", params={"q": substituted}
+                                )
                                 ens_resp.raise_for_status()
                                 final_text = ens_resp.text
                         else:
-                            from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
+                            from screamingface.plugins.url4_executor.interpreter import (
+                                Url4Interpreter,
+                            )
+
                             interpreter = Url4Interpreter(app=app)
                             final_text = await interpreter.evaluate(substituted)
 
                         if prompt_span and prompt_span.is_recording():
                             prompt_span.set_attribute("url4.final_text_length", len(final_text))
-                            prompt_span.set_attribute("url4.final_text_preview", _truncate(final_text, 1000))
+                            prompt_span.set_attribute(
+                                "url4.final_text_preview", _truncate(final_text, 1000)
+                            )
                             prompt_span.set_attribute("url4.status", "ok")
 
                         if final_text:
@@ -462,6 +481,7 @@ def create_router(
                             prompt_span.set_attribute("url4.error", str(exc))
                             prompt_span.record_exception(exc)
                         import traceback as _tb
+
                         logger.warning("$prompt substitution failed", exc_info=True)
                         tb_str = "".join(_tb.format_exception(exc))
                         spec_name = settings.active_spec or "unknown"
@@ -469,7 +489,9 @@ def create_router(
                             f"[url4 error] Resolution failed for spec '{spec_name}'",
                             "",
                             f"Expression: {_truncate(raw_expression, 200)}",
-                            f"Substituted: {_truncate(substituted, 200)}" if "substituted" in dir() else "",
+                            f"Substituted: {_truncate(substituted, 200)}"
+                            if "substituted" in dir()
+                            else "",
                             "",
                             f"Error: {exc.__class__.__name__}: {exc}",
                             "",
@@ -493,6 +515,7 @@ def create_router(
                 resolved_context = plugin.resolve_context() if plugin else None
             except Exception as exc:
                 import traceback as _tb
+
                 logger.warning("Static context resolution failed", exc_info=True)
                 tb_str = "".join(_tb.format_exception(exc))
                 spec_name = settings.active_spec or "unknown"
@@ -540,7 +563,9 @@ def create_router(
         if tracer:
             with tracer.start_as_current_span("anthropic.request_body") as body_span:
                 body_span.set_attribute("sf.plugin", _PLUGIN_NAME)
-                body_span.set_attribute("description", "Final request body sent to Anthropic API (after url4 injection)")
+                body_span.set_attribute(
+                    "description", "Final request body sent to Anthropic API (after url4 injection)"
+                )
                 _trace_request_context(body)
         else:
             _trace_request_context(body)
@@ -587,7 +612,11 @@ def create_router(
 
         if is_streaming:
             client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
-            upstream_span = _start_client_span_detached(tracer, "anthropic.POST /v1/messages") if tracer else None
+            upstream_span = (
+                _start_client_span_detached(tracer, "anthropic.POST /v1/messages")
+                if tracer
+                else None
+            )
             if upstream_span:
                 _set_span_attrs({"sf.plugin": _PLUGIN_NAME}, upstream_span)
                 _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
@@ -595,7 +624,9 @@ def create_router(
                     _set_span_attrs({"sf.trace_id": trace_id}, upstream_span)
                 _set_span_headers("request.headers", _redact_headers(headers), upstream_span)
                 _set_span_attrs({"request.body": _truncate(json.dumps(body))}, upstream_span)
-                logger.info("TRACE: created upstream span %s", upstream_span.get_span_context().span_id)
+                logger.info(
+                    "TRACE: created upstream span %s", upstream_span.get_span_context().span_id
+                )
 
             async def stream_response():
                 chunks: list[bytes] = []
