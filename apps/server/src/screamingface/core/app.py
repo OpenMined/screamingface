@@ -255,10 +255,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/plugins/{name}/settings")
     async def plugin_settings(name: str) -> dict:
-        """Return current resolved settings for a plugin."""
+        """Return current resolved settings for a plugin.
+
+        Re-reads sf.json on each call so changes from the desktop UI
+        are visible immediately without a server restart.
+        """
         plugin = app.state.plugins.active_plugins.get(name)
-        if not plugin or not plugin.settings:
+        if not plugin or not plugin.settings_class:
             raise HTTPException(404, f"Plugin {name!r} not found or has no settings")
+        # Re-read from config file for fresh data
+        from screamingface.core.config import load_config
+
+        fresh_config = load_config()
+        raw = fresh_config.plugin_config.get(name, {})
+        try:
+            fresh_settings = plugin.settings_class(**raw)
+        except Exception:
+            # Fall back to in-memory if parsing fails
+            if not plugin.settings:
+                raise HTTPException(404, f"Plugin {name!r} has no settings")
+            return plugin.settings.model_dump()
+        return fresh_settings.model_dump()
+
+    @app.post("/plugins/{name}/settings")
+    async def update_plugin_settings(name: str, request: Request) -> dict:
+        """Update a plugin's in-memory settings at runtime."""
+        plugin = app.state.plugins.active_plugins.get(name)
+        if not plugin or not plugin.settings_class:
+            raise HTTPException(404, f"Plugin {name!r} not found or has no settings")
+        data = await request.json()
+        plugin.settings = plugin.settings_class(**data)
+        # Also update the in-memory config so other code sees the change
+        app.state.config.plugin_config[name] = data
         return plugin.settings.model_dump()
 
     @app.post("/plugins/{name}/settings/validate")

@@ -60,7 +60,7 @@ class Url4SpecsPlugin(Plugin):
         props = schema.get("properties", {})
         if "specs" in props:
             props["specs"]["x-copy-link"] = {
-                "path": "/url4",
+                "path": "/ensemble",
                 "param": "q",
                 "field": "expression",
             }

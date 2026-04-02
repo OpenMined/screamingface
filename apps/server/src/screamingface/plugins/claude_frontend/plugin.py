@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import socket
 import threading
 import time
@@ -39,13 +40,18 @@ class ClaudeFrontendSettings(PluginSettings):
         default=None,
         description="Active url4-spec to resolve and prepend as system context.",
     )
-    active_specs: list[str] = Field(
-        default_factory=list,
-        description="Multiple url4-specs to resolve and prepend as system context.",
-    )
     upstream_url: str = "https://api.anthropic.com"
     listen_host: str = "127.0.0.1"
     listen_port: int = 9101
+    session_service_url: str | None = Field(
+        default=None,
+        description="URL of the session service (e.g. http://127.0.0.1:9200). Enables session persistence.",
+    )
+    backend_url: str | None = Field(
+        default=None,
+        description="URL of the main SF server for url4/data/backend calls (e.g. http://127.0.0.1:8000). "
+        "When set (per-session mode), proxy uses HTTP calls instead of in-process.",
+    )
     resolve_timeout: float = Field(
         default=300.0,
         description="Max seconds to wait for url4 spec resolution on first request.",
@@ -79,11 +85,8 @@ class ClaudeFrontendPlugin(Plugin):
     def customize_schema(self, schema: dict) -> dict:
         props = schema.get("properties", {})
         spec_names = self._get_spec_names()
-        if spec_names:
-            if "active_spec" in props:
-                props["active_spec"]["enum"] = spec_names
-            if "active_specs" in props:
-                props["active_specs"]["items"] = {"enum": spec_names}
+        if spec_names and "active_spec" in props:
+            props["active_spec"]["enum"] = spec_names
         return schema
 
     def preflight(self) -> tuple[bool, str]:
@@ -97,16 +100,11 @@ class ClaudeFrontendPlugin(Plugin):
         return True, ""
 
     def _collect_spec_names(self) -> list[str]:
-        """Merge active_spec and active_specs into a deduplicated list."""
+        """Return the active spec as a single-element list, or empty."""
         settings: ClaudeFrontendSettings = self.settings  # type: ignore[assignment]
-        names: list[str] = []
         if settings.active_spec:
-            names.append(settings.active_spec)
-        if settings.active_specs:
-            for name in settings.active_specs:
-                if name not in names:
-                    names.append(name)
-        return names
+            return [settings.active_spec]
+        return []
 
     def _get_spec_urls(self) -> list[tuple[str, str]]:
         """Get (name, expression_url) pairs for active specs."""
@@ -125,6 +123,13 @@ class ClaudeFrontendPlugin(Plugin):
                 result.append((name, spec.expression))
         return result
 
+    def get_active_expression(self) -> str | None:
+        """Return the raw URL4 expression for the active spec, without resolving it."""
+        spec_urls = self._get_spec_urls()
+        if not spec_urls:
+            return None
+        return spec_urls[0][1]
+
     def resolve_context(self) -> str | None:
         """Resolve active specs lazily. Called on first request.
 
@@ -132,8 +137,11 @@ class ClaudeFrontendPlugin(Plugin):
         - If cache hit (same specs) → return cached
         - If cache miss (new/changed specs) → fetch, cache, return
         - Thread-safe via lock
+        - Skips specs containing $prompt (handled by proxy_messages instead)
         """
         spec_urls = self._get_spec_urls()
+        # Skip $prompt specs — they need per-request substitution in the proxy
+        spec_urls = [(n, e) for n, e in spec_urls if "$prompt" not in e]
         if not spec_urls:
             return None
 
@@ -183,13 +191,21 @@ class ClaudeFrontendPlugin(Plugin):
 
             return self._resolved_context
 
-    def _fetch_sync(self, expression: str, timeout: float) -> str:
-        """Resolve a url4 expression by calling the local /url4 endpoint."""
+    def _get_backend_url(self) -> str:
+        """Return the base URL for backend/ensemble/data calls."""
+        settings: ClaudeFrontendSettings = self.settings  # type: ignore[assignment]
+        if settings.backend_url:
+            return settings.backend_url.rstrip("/")
+        # Fallback: same server (non-session mode)
         cfg = getattr(self._app.state, "config", None) if self._app else None
         port = cfg.server.port if cfg else 8000
-        ssl = cfg.server.ssl if cfg else False
-        scheme = "https" if ssl else "http"
-        base = f"{scheme}://localhost:{port}"
+        use_ssl = cfg.server.ssl if cfg else False
+        scheme = "https" if use_ssl else "http"
+        return f"{scheme}://localhost:{port}"
+
+    def _fetch_sync(self, expression: str, timeout: float) -> str:
+        """Resolve a url4 expression by calling the /ensemble endpoint."""
+        base = self._get_backend_url()
 
         result_holder: list[str] = []
 
@@ -218,44 +234,53 @@ class ClaudeFrontendPlugin(Plugin):
         settings: ClaudeFrontendSettings = self.settings  # type: ignore[assignment]
         self._app = app  # store for customize_schema and spec lookup
 
-        # Build a standalone FastAPI app with proxy routes.
-        # Pass `self` so the router can call resolve_context() lazily.
-        frontend_app = FastAPI(title="claude-frontend")
-        router = create_router(settings, app, plugin=self)
-        frontend_app.include_router(router)
+        # Only launch the proxy daemon thread in per-session mode.
+        # In the main server the plugin stays active (for settings/discovery)
+        # but doesn't bind a port — sessions spawn their own instances.
+        is_session = bool(os.environ.get("_SF_SESSION_ID"))
 
-        # Instrument with OTEL if tracing extras are installed.
-        try:
-            from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        if is_session:
+            # Build a standalone FastAPI app with proxy routes.
+            # Pass `self` so the router can call resolve_context() lazily.
+            frontend_app = FastAPI(title="claude-frontend")
+            router = create_router(settings, app, plugin=self, hooks=hooks)
+            frontend_app.include_router(router)
 
-            FastAPIInstrumentor.instrument_app(frontend_app)
-        except ImportError:
-            pass
+            # Instrument with OTEL if tracing extras are installed.
+            try:
+                from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-        # Start HTTP server in a background thread
-        config = uvicorn.Config(
-            frontend_app,
-            host=settings.listen_host,
-            port=settings.listen_port,
-            log_level="info",
-        )
-        self._server = uvicorn.Server(config)
-        self._thread = threading.Thread(
-            target=self._run_server, daemon=True, name="claude-frontend"
-        )
-        self._thread.start()
+                FastAPIInstrumentor.instrument_app(frontend_app)
+            except ImportError:
+                pass
 
-        # Wait for the server to be listening before continuing
-        if not _wait_for_port(settings.listen_port, host=settings.listen_host):
-            logger.warning("claude-frontend server may not be ready yet")
+            # Start HTTP server in a background thread
+            config = uvicorn.Config(
+                frontend_app,
+                host=settings.listen_host,
+                port=settings.listen_port,
+                log_level="info",
+            )
+            self._server = uvicorn.Server(config)
+            self._thread = threading.Thread(
+                target=self._run_server, daemon=True, name="claude-frontend"
+            )
+            self._thread.start()
+
+            # Wait for the server to be listening before continuing
+            if not _wait_for_port(settings.listen_port, host=settings.listen_host):
+                logger.warning("claude-frontend server may not be ready yet")
+
+            logger.info(
+                "claude-frontend listening on http://%s:%d",
+                settings.listen_host,
+                settings.listen_port,
+            )
+        else:
+            logger.info("claude-frontend registered (proxy launches per-session only)")
 
         # Clean up on shutdown
         hooks.register("app.shutdown", self._on_shutdown, plugin_name=self.name)
-        logger.info(
-            "claude-frontend listening on http://%s:%d",
-            settings.listen_host,
-            settings.listen_port,
-        )
 
     def _run_server(self) -> None:
         loop = asyncio.new_event_loop()
@@ -278,9 +303,9 @@ class ClaudeFrontendPlugin(Plugin):
 
 
 async def _fetch(base_url: str, expression: str) -> str:
-    """Call the local /url4 endpoint with a url4 expression and return plain text."""
+    """Call the local /ensemble endpoint with a url4 expression and return plain text."""
     async with httpx.AsyncClient(timeout=300, verify=False) as client:
-        resp = await client.get(f"{base_url}/url4", params={"q": expression})
+        resp = await client.get(f"{base_url}/ensemble", params={"q": expression})
         resp.raise_for_status()
         return resp.text
 

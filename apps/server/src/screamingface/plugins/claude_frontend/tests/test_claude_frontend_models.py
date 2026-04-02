@@ -313,6 +313,11 @@ class _FakePlugin:
     def __init__(self, context: str | None = None) -> None:
         self._context = context
 
+    def get_active_expression(self) -> str | None:
+        if self._context:
+            return "static-spec"  # Non-$prompt expression → triggers resolve_context()
+        return None
+
     def resolve_context(self) -> str | None:
         return self._context
 

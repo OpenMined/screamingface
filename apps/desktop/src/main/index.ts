@@ -3,6 +3,7 @@ import { join } from 'path';
 import { is } from '@electron-toolkit/utils';
 import { registerAllHandlers } from './ipc';
 import { log } from './debug-log';
+import { sessionManager } from './services/session-manager';
 
 let mainWindow: BrowserWindow | null = null;
 let phoenixWindow: BrowserWindow | null = null;
@@ -113,6 +114,16 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
+  });
+});
+
+let isQuitting = false;
+app.on('before-quit', (event) => {
+  if (isQuitting) return;
+  isQuitting = true;
+  event.preventDefault();
+  sessionManager.terminateAll().finally(() => {
+    app.quit();
   });
 });
 

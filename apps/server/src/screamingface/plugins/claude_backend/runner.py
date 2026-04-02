@@ -102,10 +102,13 @@ async def run_claude(
     args: list[str],
     prompt: str,
     timeout: float,
+    cwd: str | None = None,
 ) -> tuple[int, str, str, float]:
-    """Run the Claude CLI and return (exit_code, stdout, stderr, duration_seconds)."""
-    # Force CLI to talk directly to Anthropic — explicitly override any
-    # ANTHROPIC_BASE_URL that may leak via launchctl, config files, etc.
+    """Run the Claude CLI and return (exit_code, stdout, stderr, duration_seconds).
+
+    Uses asyncio.create_subprocess_exec (not shell) — args are passed as a list,
+    preventing shell injection.
+    """
     env = dict(os.environ)
     env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
     start = time.monotonic()
@@ -115,6 +118,7 @@ async def run_claude(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
+        cwd=cwd,
     )
     stdout_bytes, stderr_bytes = await asyncio.wait_for(
         proc.communicate(prompt.encode()),

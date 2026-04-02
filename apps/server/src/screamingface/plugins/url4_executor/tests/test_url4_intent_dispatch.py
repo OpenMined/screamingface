@@ -1,10 +1,9 @@
-"""Tests for url4-executor intent dispatch to backend URLs."""
+"""Tests for url4-executor intent handling via Url4Interpreter."""
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -17,21 +16,7 @@ from screamingface.core.config import AppConfig
 # ---------------------------------------------------------------------------
 
 _FETCH_PATCH = "screamingface.plugins.url4_executor.url4._fetch_url"
-_HTTPX_CLIENT = "screamingface.plugins.url4_executor.routes.httpx.AsyncClient"
-
-
-def _mock_httpx_response(text: str = "", status_code: int = 200) -> httpx.Response:
-    """Create a fake httpx.Response."""
-    return httpx.Response(status_code=status_code, text=text)
-
-
-def _mock_async_client(response: httpx.Response) -> AsyncMock:
-    """Create a mock httpx.AsyncClient that returns the given response on GET."""
-    client = AsyncMock()
-    client.get = AsyncMock(return_value=response)
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=False)
-    return client
+_INTENT_FETCH_PATCH = "screamingface.plugins.url4_executor.interpreter._fetch_url"
 
 
 # ---------------------------------------------------------------------------
@@ -59,98 +44,83 @@ def client(app: FastAPI) -> TestClient:
 
 
 def test_no_intent_plain_text(client: TestClient) -> None:
-    resp = client.get("/url4", params={"q": "hello"})
+    resp = client.get("/ensemble", params={"q": "hello"})
     assert resp.status_code == 200
     assert resp.text == "hello"
 
 
 def test_empty_intent_no_dispatch(client: TestClient) -> None:
     """q=hello! (empty intent) treated as no intent."""
-    resp = client.get("/url4", params={"q": "hello!"})
+    resp = client.get("/ensemble", params={"q": "hello!"})
     assert resp.status_code == 200
     assert resp.text == "hello"
 
 
 # ---------------------------------------------------------------------------
-# Intent must be a URL
+# Text intent — combines intent + sources
 # ---------------------------------------------------------------------------
 
 
-def test_intent_non_url_returns_combined_text(client: TestClient) -> None:
-    """Plain text intent (LLM mode) returns intent + resolved sources."""
-    resp = client.get("/url4", params={"q": "hello!summarize"})
+def test_intent_text_returns_combined(client: TestClient) -> None:
+    """Plain text intent returns intent + resolved sources."""
+    resp = client.get("/ensemble", params={"q": "hello!summarize"})
     assert resp.status_code == 200
     assert "summarize" in resp.text
     assert "hello" in resp.text
 
 
-# ---------------------------------------------------------------------------
-# Intent dispatch to backend URL
-# ---------------------------------------------------------------------------
-
-
-def test_intent_dispatch_to_backend(client: TestClient) -> None:
-    """Resolved content dispatched to backend URL with context param."""
-    mock_resp = _mock_httpx_response(text="Backend answer")
-    mock_client = _mock_async_client(mock_resp)
-
-    with patch(_HTTPX_CLIENT, return_value=mock_client):
+def test_intent_text_with_fetched_source(client: TestClient) -> None:
+    """Text intent with fetched source URL."""
+    with patch(_FETCH_PATCH, new_callable=AsyncMock, return_value="fetched docs"):
         resp = client.get(
-            "/url4",
-            params={"q": "hello!http://localhost:8000/claude/default?prompt=summarize"},
+            "/ensemble",
+            params={"q": "(http://example.com)!summarize this"},
         )
-
     assert resp.status_code == 200
-    assert resp.text == "Backend answer"
-
-    # Verify the backend was called with context appended
-    call_url = mock_client.get.call_args[0][0]
-    assert "prompt=summarize" in call_url
-    assert "context=hello" in call_url
+    assert "summarize this" in resp.text
+    assert "fetched docs" in resp.text
 
 
-def test_intent_dispatch_with_fetched_url(client: TestClient) -> None:
-    """Fetches resource URL, then dispatches resolved content to backend."""
-    mock_resp = _mock_httpx_response(text="Analysis result")
-    mock_client = _mock_async_client(mock_resp)
+def test_intent_quoted_text(client: TestClient) -> None:
+    """Quoted text intent has quotes stripped."""
+    resp = client.get("/ensemble", params={"q": "hello!\"summarize\""})
+    assert resp.status_code == 200
+    assert "summarize" in resp.text
+    assert '"' not in resp.text
 
+
+# ---------------------------------------------------------------------------
+# URL intent — fetches the URL
+# ---------------------------------------------------------------------------
+
+
+def test_intent_http_url_fetches(client: TestClient) -> None:
+    """HTTP URL intent is fetched and returned."""
     with (
-        patch(_FETCH_PATCH, new_callable=AsyncMock, return_value="fetched docs"),
-        patch(_HTTPX_CLIENT, return_value=mock_client),
+        patch(_FETCH_PATCH, new_callable=AsyncMock, return_value="source text"),
+        patch(_INTENT_FETCH_PATCH, new_callable=AsyncMock, return_value="backend answer"),
     ):
         resp = client.get(
-            "/url4",
-            params={
-                "q": "(http://example.com)!http://localhost:8000/claude/default?prompt=analyze"
-            },
+            "/ensemble",
+            params={"q": "hello!http://localhost:8000/claude/default?prompt=test"},
         )
-
     assert resp.status_code == 200
-    assert resp.text == "Analysis result"
-
-    call_url = mock_client.get.call_args[0][0]
-    assert "prompt=analyze" in call_url
-    assert "context=fetched+docs" in call_url
+    assert "backend answer" in resp.text
 
 
-def test_intent_no_source(client: TestClient) -> None:
-    """Empty source with backend URL — dispatches without context."""
-    mock_resp = _mock_httpx_response(text="No context response")
-    mock_client = _mock_async_client(mock_resp)
-
-    with patch(_HTTPX_CLIENT, return_value=mock_client):
+def test_intent_http_url_with_sources(client: TestClient) -> None:
+    """HTTP URL intent combined with resolved sources."""
+    with (
+        patch(_FETCH_PATCH, new_callable=AsyncMock, return_value="fetched docs"),
+        patch(_INTENT_FETCH_PATCH, new_callable=AsyncMock, return_value="backend result"),
+    ):
         resp = client.get(
-            "/url4",
-            params={"q": "!http://localhost:8000/claude/default?prompt=hello"},
+            "/ensemble",
+            params={"q": "(http://example.com)!http://backend.com/api"},
         )
-
     assert resp.status_code == 200
-    assert resp.text == "No context response"
-
-    call_url = mock_client.get.call_args[0][0]
-    assert "prompt=hello" in call_url
-    # No context param since source was empty
-    assert "context=" not in call_url
+    assert "backend result" in resp.text
+    assert "fetched docs" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -158,36 +128,18 @@ def test_intent_no_source(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_intent_backend_error_502(client: TestClient) -> None:
-    """Backend returns error status -> HTTP 502."""
-    mock_resp = _mock_httpx_response(text="Internal error", status_code=500)
-    mock_client = _mock_async_client(mock_resp)
-
-    with patch(_HTTPX_CLIENT, return_value=mock_client):
+def test_intent_fetch_error_502(client: TestClient) -> None:
+    """Failed URL fetch → 502."""
+    with patch(
+        _INTENT_FETCH_PATCH,
+        new_callable=AsyncMock,
+        side_effect=Exception("connection refused"),
+    ):
         resp = client.get(
-            "/url4",
-            params={"q": "hello!http://localhost:8000/claude/default?prompt=test"},
+            "/ensemble",
+            params={"q": "hello!http://localhost:8000/bad-endpoint"},
         )
-
     assert resp.status_code == 502
-    assert "500" in resp.json()["detail"]
-
-
-def test_intent_backend_timeout_504(client: TestClient) -> None:
-    """Backend times out -> HTTP 504."""
-    mock_client = AsyncMock()
-    mock_client.get = AsyncMock(side_effect=httpx.TimeoutException("read timeout"))
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=False)
-
-    with patch(_HTTPX_CLIENT, return_value=mock_client):
-        resp = client.get(
-            "/url4",
-            params={"q": "hello!http://localhost:8000/claude/default?prompt=test"},
-        )
-
-    assert resp.status_code == 504
-    assert "timed out" in resp.json()["detail"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -195,23 +147,14 @@ def test_intent_backend_timeout_504(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_intent_ast_mode(client: TestClient) -> None:
-    """ast=true returns JSON with ast, result, intent, and response."""
-    mock_resp = _mock_httpx_response(text="Backend output")
-    mock_client = _mock_async_client(mock_resp)
-
-    with patch(_HTTPX_CLIENT, return_value=mock_client):
-        resp = client.get(
-            "/url4",
-            params={
-                "q": "hello!http://localhost:8000/claude/default?prompt=test",
-                "ast": "true",
-            },
-        )
-
+def test_ast_mode_with_text_intent(client: TestClient) -> None:
+    """ast=true returns JSON with ast and result."""
+    resp = client.get(
+        "/ensemble",
+        params={"q": "hello!summarize", "ast": "true"},
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["ast"] == {"type": "text", "value": "hello"}
-    assert data["result"] == "hello"
-    assert data["intent"] == "http://localhost:8000/claude/default?prompt=test"
-    assert data["response"] == "Backend output"
+    assert "summarize" in data["result"]
+    assert "hello" in data["result"]

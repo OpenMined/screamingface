@@ -29,6 +29,13 @@ class ClaudeBackendSettings(PluginSettings):
     )
     default_model: str | None = None
     default_effort: str = "medium"
+    interpreter_system_prompt: str = Field(
+        default=(
+            "You are a helpful assistant. Answer the user's question based only on "
+            "the provided context. Be concise and factual."
+        ),
+        description="System prompt used by the /claude?q= url4 interpreter endpoint.",
+    )
     timeout_seconds: float = 300.0
     max_budget_usd: float | None = None
     permission_mode: str | None = None
@@ -79,5 +86,5 @@ class ClaudeBackendPlugin(Plugin):
         classes: ClassRegistry,
         routes: RouteRegistry,
     ) -> None:
-        router = create_router(self.settings)  # type: ignore[arg-type]
+        router = create_router(self.settings, app)  # type: ignore[arg-type]
         routes.add_router(self.name, router, prefix="")

@@ -2,19 +2,21 @@
 
 A url4 context value is either:
 - A plain string (returned as-is)
-- A URL (fetched via HTTP GET)
+- An absolute URL (fetched via HTTP GET)
+- A relative URL /path (fetched via in-process ASGI)
 - A parenthesized list: (item1, item2, item3)
 
 Items in a list can be URLs, raw strings, or nested lists (recursively
-resolved). All results are concatenated with newlines.
-
-This module has no ScreamingFace-specific dependencies.
+resolved). All results are concatenated with newlines. List items are
+resolved in parallel.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import quote, urlparse, urlunparse
 
 import httpx
@@ -41,10 +43,13 @@ GRAMMAR = r"""
 
     atom
         = url
+        | relurl
         | text
         ;
 
     url = value:/https?:\/\/(?:[^\s,()]|\([^()]*\))+/ ;
+
+    relurl = value:/\/(?:[^\s,()]|\([^()]*\))*/ ;
 
     text = value:/[^,()]+/ ;
 """
@@ -60,6 +65,11 @@ class Url4Url:
 
 
 @dataclass(frozen=True)
+class Url4RelUrl:
+    value: str
+
+
+@dataclass(frozen=True)
 class Url4Text:
     value: str
 
@@ -69,7 +79,7 @@ class Url4List:
     items: tuple[Url4Node, ...]
 
 
-Url4Node = Url4Url | Url4Text | Url4List
+Url4Node = Url4Url | Url4RelUrl | Url4Text | Url4List
 
 # ---------------------------------------------------------------------------
 # TatSu semantics — transforms raw AST into typed dataclasses
@@ -80,13 +90,16 @@ class Url4Semantics:
     def url(self, ast):
         return Url4Url(value=ast.value.strip())
 
+    def relurl(self, ast):
+        return Url4RelUrl(value=ast.value.strip())
+
     def text(self, ast):
         return Url4Text(value=ast.value.strip())
 
     def group(self, ast):
         elems = ast.elems if isinstance(ast.elems, list) else [ast.elems] if ast.elems else []
         # Filter out comma separator tokens from join operator
-        nodes = [e for e in elems if isinstance(e, Url4Url | Url4Text | Url4List)]
+        nodes = [e for e in elems if isinstance(e, Url4Url | Url4RelUrl | Url4Text | Url4List)]
         return Url4List(items=tuple(nodes))
 
     def context(self, ast):
@@ -113,21 +126,23 @@ def parse(context: str) -> Url4Node:
 # ---------------------------------------------------------------------------
 
 
-async def resolve(node: Url4Node) -> str:
+async def resolve(node: Url4Node, app: Any = None) -> str:
     """Recursively resolve an AST node to a string."""
     if isinstance(node, Url4Text):
         return node.value
     if isinstance(node, Url4Url):
         return await _fetch_url(node.value)
+    if isinstance(node, Url4RelUrl):
+        return await _fetch_relative(app, node.value)
     if isinstance(node, Url4List):
-        results = [await resolve(item) for item in node.items]
+        results = list(await asyncio.gather(*[resolve(item, app) for item in node.items]))
         return "\n".join(results)
     raise TypeError(f"Unknown node type: {type(node)}")
 
 
-async def resolve_str(context: str) -> str:
+async def resolve_str(context: str, app: Any = None) -> str:
     """Parse a url4 context string and resolve it to a string."""
-    return await resolve(parse(context))
+    return await resolve(parse(context), app)
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +155,17 @@ def _sanitize_url(url: str) -> str:
     parsed = urlparse(url)
     safe_query = quote(parsed.query, safe="=&+%")
     return urlunparse(parsed._replace(query=safe_query))
+
+
+async def _fetch_relative(app: Any, path: str) -> str:
+    """Fetch a relative path via in-process ASGI transport (no network hop)."""
+    if not app:
+        raise ValueError(f"Cannot resolve relative URL {path!r} without app context")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+        resp = await client.get(path)
+        resp.raise_for_status()
+        return resp.text
 
 
 async def _fetch_url(url: str) -> str:
