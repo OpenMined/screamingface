@@ -119,14 +119,7 @@ class ClaudeFrontendPlugin(Plugin):
         return schema
 
     def preflight(self) -> tuple[bool, str]:
-        ok, reason = super().preflight()
-        if not ok:
-            return ok, reason
-        import shutil
-
-        if not shutil.which("claude"):
-            return False, "Claude Code CLI not found in PATH"
-        return True, ""
+        return super().preflight()
 
     def _collect_spec_names(self) -> list[str]:
         """Return the active spec as a single-element list, or empty."""
