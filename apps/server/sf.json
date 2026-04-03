@@ -12,21 +12,18 @@
     "tracing",
     "url4-executor",
     "url4-specs",
+    "claude-backend",
     "claude-frontend",
-    "claude-env-intercept",
-    "claude-backend"
+    "data-store"
   ],
   "plugin_config": {
     "claude-frontend": {
       "active_spec": "anthropic-cookbook",
-      "active_specs": [],
       "upstream_url": "https://api.anthropic.com",
       "listen_host": "127.0.0.1",
       "listen_port": 9101,
-      "domains": [
-        "api.anthropic.com"
-      ],
-      "default_spec": "all-docs"
+      "session_service_url": "http://127.0.0.1:9200",
+      "resolve_timeout": 300
     },
     "mitmproxy-intercept": {
       "rules": [
@@ -87,10 +84,19 @@
           "expression": "Hello from url4 spec"
         },
         "httpbin-robots": {
-          "expression": "(https://httpbin.org/robots.txt)!http://localhost:8000/claude/default?prompt=Summarize%20this%20robots.txt"
+          "expression": "(https://httpbin.org/robots.txt)!'Summarize this robots.txt'"
         },
         "anthropic-cookbook": {
-          "expression": "(https://raw.githubusercontent.com/anthropics/anthropic-cookbook/main/README.md)!http://localhost:8000/claude/default?prompt=Give%20me%20main%20idea"
+          "expression": "(https://raw.githubusercontent.com/anthropics/anthropic-cookbook/main/README.md)!$prompt"
+        },
+        "cat-breeds": {
+          "expression": "(https://raw.githubusercontent.com/multimandan/PetSave/refs/heads/master/cat-breeds.txt)!$prompt"
+        },
+        "cat-breeds-2": {
+          "expression": "(https://raw.githubusercontent.com/multimandan/PetSave/refs/heads/master/cat-breeds.txt, $prompt)!'Answer the user question using the provided context'"
+        },
+        "cat-breeds-3sources": {
+          "expression": "/claude?q=%28https://raw.githubusercontent.com/phiggins/phiggins_coding_challenge/master/examples/cat_breeds.csv%2Chttps://raw.githubusercontent.com/prasertcbs/basic-dataset/master/cat.csv%2Chttps://raw.githubusercontent.com/multimandan/PetSave/refs/heads/master/cat-breeds.txt%29%21$prompt"
         }
       }
     }

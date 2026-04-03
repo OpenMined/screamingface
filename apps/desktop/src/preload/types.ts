@@ -8,6 +8,18 @@ export interface ServerInfo {
 
 export type ServerStatus = 'stopped' | 'starting' | 'ready' | 'error' | 'restarting';
 export type VenvStatus = 'unknown' | 'checking' | 'missing' | 'creating' | 'ready' | 'error';
+export type SessionStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
+
+export type SessionType = 'claude' | 'codex' | 'gemini' | 'claude-desktop';
+
+export interface SessionInfo {
+  id: string;
+  type: SessionType;
+  port: number;
+  status: SessionStatus;
+  createdAt: string;
+  workingDir: string;
+}
 
 export interface PluginManifest {
   id: string;
@@ -73,6 +85,20 @@ export interface ElectronAPI {
     read: () => Promise<Record<string, unknown>>;
     write: (config: Record<string, unknown>) => Promise<void>;
     onChanged: (callback: (config: Record<string, unknown>) => void) => () => void;
+  };
+  session: {
+    pickDir: () => Promise<string | null>;
+    create: (
+      type: SessionType,
+      workingDir: string,
+      pluginConfig?: Record<string, Record<string, unknown>>,
+    ) => Promise<SessionInfo>;
+    list: () => Promise<SessionInfo[]>;
+    terminate: (id: string) => Promise<void>;
+    terminateAll: () => Promise<void>;
+    remove: (id: string) => Promise<void>;
+    onSessionsChanged: (callback: (sessions: SessionInfo[]) => void) => () => void;
+    onLog: (callback: (id: string, line: string) => void) => () => void;
   };
 }
 

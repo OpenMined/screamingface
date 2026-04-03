@@ -54,6 +54,10 @@ def run(
         bool,
         typer.Option("--subprocess", help="Subprocess mode (structured ready event, no reload)"),
     ] = False,
+    session_id: Annotated[
+        str | None,
+        typer.Option("--session-id", help="Fixed session ID for this server instance"),
+    ] = None,
 ) -> None:
     """Start the ScreamingFace server."""
     import uvicorn
@@ -76,6 +80,10 @@ def run(
     if subprocess_mode:
         cfg.server.reload = False
         os.environ["_SF_SUBPROCESS"] = "1"
+
+    # Fixed session ID: every request through this instance uses this session
+    if session_id is not None:
+        os.environ["_SF_SESSION_ID"] = session_id
 
     # Check if any enabled plugin requires a specific port
     required_port_by_plugin: int | None = None

@@ -46,6 +46,23 @@ const api: ElectronAPI = {
     write: (config) => ipcRenderer.invoke('config:write', config),
     onChanged: (cb) => onEvent('config:changed', cb),
   },
+  session: {
+    pickDir: () => ipcRenderer.invoke('session:pickDir'),
+    create: (type, workingDir, pluginConfig?) =>
+      ipcRenderer.invoke('session:create', type, workingDir, pluginConfig),
+    list: () => ipcRenderer.invoke('session:list'),
+    terminate: (id) => ipcRenderer.invoke('session:terminate', id),
+    terminateAll: () => ipcRenderer.invoke('session:terminateAll'),
+    remove: (id) => ipcRenderer.invoke('session:remove', id),
+    onSessionsChanged: (cb) => onEvent('session:sessionsChanged', cb),
+    onLog: (cb) => {
+      const handler = (_event: Electron.IpcRendererEvent, id: string, line: string): void => {
+        cb(id, line);
+      };
+      ipcRenderer.on('session:log', handler);
+      return () => ipcRenderer.removeListener('session:log', handler);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);

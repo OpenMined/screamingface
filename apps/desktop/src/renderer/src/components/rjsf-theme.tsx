@@ -25,6 +25,7 @@ import {
 } from 'react';
 import { Check, ChevronDown, Copy, Plus } from 'lucide-react';
 import { Url4Viewer } from './Url4Viewer';
+import { SpecSelector } from './SpecSelector';
 
 // ---------------------------------------------------------------------------
 // Error boundary — catches render crashes inside RJSF
@@ -530,9 +531,24 @@ const templates: Partial<TemplatesType> = {
     WrapIfAdditionalTemplate as ComponentType<WrapIfAdditionalTemplateProps>,
 };
 
+function SpecSelectorWidget(props: WidgetProps) {
+  const { value, onChange, options } = props;
+  const fallbackNames = (options?.enumOptions as { value: string }[] | undefined)?.map(
+    (o) => o.value,
+  );
+  return (
+    <SpecSelector
+      value={value ?? null}
+      onChange={(v: string | null) => onChange(v ?? undefined)}
+      fallbackNames={fallbackNames}
+    />
+  );
+}
+
 const widgets: RegistryWidgetsType = {
   CheckboxWidget: CheckboxWidget as ComponentType<WidgetProps>,
   SelectWidget: SelectWidget as ComponentType<WidgetProps>,
+  SpecSelectorWidget: SpecSelectorWidget as ComponentType<WidgetProps>,
 };
 
 // ---------------------------------------------------------------------------

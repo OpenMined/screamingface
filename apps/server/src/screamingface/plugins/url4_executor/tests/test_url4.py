@@ -121,20 +121,20 @@ def test_parse_example_3() -> None:
 def test_parse_example_4() -> None:
     """(url4_url, url4_url) — nested url4 URLs with balanced parens."""
     node = parse(
-        "(https://localhost:8000/url4?context=(https://docs.a.com, https://docs.b.com),"
-        " https://localhost:8000/url4?context=(https://docs.c.com, https://docs.d.com))"
+        "(https://localhost:8000/ensemble?context=(https://docs.a.com, https://docs.b.com),"
+        " https://localhost:8000/ensemble?context=(https://docs.c.com, https://docs.d.com))"
     )
     assert isinstance(node, Url4List)
     assert len(node.items) == 2
     assert isinstance(node.items[0], Url4Url)
     assert (
         node.items[0].value
-        == "https://localhost:8000/url4?context=(https://docs.a.com, https://docs.b.com)"
+        == "https://localhost:8000/ensemble?context=(https://docs.a.com, https://docs.b.com)"
     )
     assert isinstance(node.items[1], Url4Url)
     assert (
         node.items[1].value
-        == "https://localhost:8000/url4?context=(https://docs.c.com, https://docs.d.com)"
+        == "https://localhost:8000/ensemble?context=(https://docs.c.com, https://docs.d.com)"
     )
 
 
@@ -224,20 +224,20 @@ def test_parse_example_9() -> None:
 def test_parse_example_10() -> None:
     """(url4_url, url4_url) — nested url4 URLs with text inside balanced parens."""
     node = parse(
-        "(https://localhost:8000/url4?context=(Background:, https://wiki.internal/project-overview),"
-        " https://localhost:8000/url4?context=(Recent changes:, https://api.github.com/repos/org/repo/commits))"
+        "(https://localhost:8000/ensemble?context=(Background:, https://wiki.internal/project-overview),"
+        " https://localhost:8000/ensemble?context=(Recent changes:, https://api.github.com/repos/org/repo/commits))"
     )
     assert isinstance(node, Url4List)
     assert len(node.items) == 2
     assert isinstance(node.items[0], Url4Url)
     assert (
         node.items[0].value
-        == "https://localhost:8000/url4?context=(Background:, https://wiki.internal/project-overview)"
+        == "https://localhost:8000/ensemble?context=(Background:, https://wiki.internal/project-overview)"
     )
     assert isinstance(node.items[1], Url4Url)
     assert (
         node.items[1].value
-        == "https://localhost:8000/url4?context=(Recent changes:, https://api.github.com/repos/org/repo/commits)"
+        == "https://localhost:8000/ensemble?context=(Recent changes:, https://api.github.com/repos/org/repo/commits)"
     )
 
 
@@ -335,9 +335,9 @@ async def test_resolve_str_list_mixed() -> None:
 async def test_resolve_str_example_4() -> None:
     """Nested url4 URLs resolve as single URL fetches."""
     responses = {
-        "https://localhost:8000/url4?context="
+        "https://localhost:8000/ensemble?context="
         "(https://docs.a.com, https://docs.b.com)": "content-ab",
-        "https://localhost:8000/url4?context="
+        "https://localhost:8000/ensemble?context="
         "(https://docs.c.com, https://docs.d.com)": "content-cd",
     }
 
@@ -346,8 +346,8 @@ async def test_resolve_str_example_4() -> None:
 
     with patch(PATCH_TARGET, side_effect=mock_fetch):
         result = await resolve_str(
-            "(https://localhost:8000/url4?context=(https://docs.a.com, https://docs.b.com),"
-            " https://localhost:8000/url4?context=(https://docs.c.com, https://docs.d.com))"
+            "(https://localhost:8000/ensemble?context=(https://docs.a.com, https://docs.b.com),"
+            " https://localhost:8000/ensemble?context=(https://docs.c.com, https://docs.d.com))"
         )
         assert result == "content-ab\ncontent-cd"
 
@@ -356,9 +356,9 @@ async def test_resolve_str_example_4() -> None:
 async def test_resolve_str_example_10() -> None:
     """Nested url4 URLs with text inside balanced parens resolve correctly."""
     responses = {
-        "https://localhost:8000/url4?context="
+        "https://localhost:8000/ensemble?context="
         "(Background:, https://wiki.internal/project-overview)": "bg-content",
-        "https://localhost:8000/url4?context="
+        "https://localhost:8000/ensemble?context="
         "(Recent changes:, https://api.github.com/repos/org/repo/commits)": "changes-content",
     }
 
@@ -367,7 +367,7 @@ async def test_resolve_str_example_10() -> None:
 
     with patch(PATCH_TARGET, side_effect=mock_fetch):
         result = await resolve_str(
-            "(https://localhost:8000/url4?context=(Background:, https://wiki.internal/project-overview),"
-            " https://localhost:8000/url4?context=(Recent changes:, https://api.github.com/repos/org/repo/commits))"
+            "(https://localhost:8000/ensemble?context=(Background:, https://wiki.internal/project-overview),"
+            " https://localhost:8000/ensemble?context=(Recent changes:, https://api.github.com/repos/org/repo/commits))"
         )
         assert result == "bg-content\nchanges-content"

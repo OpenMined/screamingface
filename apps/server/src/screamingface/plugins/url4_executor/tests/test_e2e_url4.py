@@ -76,7 +76,7 @@ def check(
     name: str,
     client: httpx.Client,
     *,
-    path: str = "/url4",
+    path: str = "/ensemble",
     params: dict | None = None,
     expect_status: int = 200,
     expect_contains: str | None = None,

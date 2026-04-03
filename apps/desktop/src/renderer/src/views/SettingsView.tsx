@@ -390,6 +390,11 @@ export function SettingsView() {
                             {meta.description}
                           </p>
                         )}
+                        {name === 'claude-frontend' && (
+                          <p className="text-[10px] leading-tight text-chart-3/80">
+                            Settings here are defaults for new sessions — override per session in the Sessions tab
+                          </p>
+                        )}
                         {meta?.requires_root && (
                           <p className="text-[10px] leading-tight text-amber-500">
                             Requires root privileges — the app will prompt for your password when
@@ -492,7 +497,12 @@ export function SettingsView() {
                             }
                           }}
                           omitExtraData
-                          uiSchema={{ 'ui:submitButtonOptions': { norender: true } }}
+                          uiSchema={{
+                            'ui:submitButtonOptions': { norender: true },
+                            ...(name === 'claude-frontend' ? {
+                              active_spec: { 'ui:widget': 'SpecSelectorWidget' },
+                            } : {}),
+                          }}
                         />
                       )}
                     </div>

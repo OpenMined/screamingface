@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import type { View } from '@/components/layout/Sidebar';
 import { DashboardView } from '@/views/DashboardView';
+import { SessionsView } from '@/views/SessionsView';
 import { SettingsView } from '@/views/SettingsView';
 import { PluginView } from '@/views/PluginView';
 import { PluginHost } from '@/components/plugins/PluginHost';
@@ -35,6 +36,7 @@ export function App() {
 
   const renderView = () => {
     if (currentView === 'dashboard') return <DashboardView />;
+    if (currentView === 'sessions') return <SessionsView />;
     if (currentView === 'settings') return <SettingsView />;
 
     if (currentView.startsWith('plugin:')) {

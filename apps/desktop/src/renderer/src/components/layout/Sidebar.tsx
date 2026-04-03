@@ -2,12 +2,13 @@ import {
   LayoutDashboard,
   Settings,
   Puzzle,
+  Terminal,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { PluginManifest } from '../../../../preload/types';
 
-export type View = 'dashboard' | 'settings' | `plugin:${string}`;
+export type View = 'dashboard' | 'sessions' | 'settings' | `plugin:${string}`;
 
 interface NavItem {
   id: View;
@@ -17,6 +18,7 @@ interface NavItem {
 
 const coreItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'sessions', label: 'Sessions', icon: Terminal },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
