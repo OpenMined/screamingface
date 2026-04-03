@@ -43,6 +43,10 @@ select = ["E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "src/screamingface/plugins"]
+markers = [
+    "e2e: end-to-end test using subprocess server",
+    "e2e_live: e2e test requiring real Anthropic API key",
+]
 
 [dependency-groups]
 dev = [
@@ -58,4 +62,5 @@ dev = [
     "arize-phoenix>=8.0",
     "arize-phoenix-otel>=0.6",
     "pytest-cov>=7.1.0",
+    "pytest-timeout>=2.3",
 ]

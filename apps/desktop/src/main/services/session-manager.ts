@@ -1,6 +1,6 @@
 import { ChildProcess, spawn, execFile } from 'child_process';
 import { join } from 'path';
-import { writeFileSync, readFileSync, unlinkSync, chmodSync, existsSync } from 'fs';
+import { writeFileSync, readFileSync, unlinkSync, chmodSync, existsSync, mkdirSync } from 'fs';
 import { tmpdir } from 'os';
 import net from 'net';
 import { randomUUID } from 'crypto';
@@ -36,6 +36,7 @@ interface ActiveSession {
   status: SessionStatus;
   createdAt: Date;
   workingDir: string;
+  pluginConfig: Record<string, Record<string, unknown>>;
   proxy: ChildProcess | null;
   proxyReady: ReadyEvent | null;
   scriptPath: string | null;
@@ -140,6 +141,11 @@ class SessionManager extends EventEmitter {
     const id = randomUUID();
     const port = await this.allocatePort();
 
+    // Ensure workingDir exists (e.g. /tmp/sf-<uuid> default)
+    if (!existsSync(workingDir)) {
+      mkdirSync(workingDir, { recursive: true });
+    }
+
     const session: ActiveSession = {
       id,
       type,
@@ -147,6 +153,7 @@ class SessionManager extends EventEmitter {
       status: 'starting',
       createdAt: new Date(),
       workingDir,
+      pluginConfig: pluginConfig || {},
       proxy: null,
       proxyReady: null,
       scriptPath: null,
@@ -437,6 +444,50 @@ end tell`;
     this.emitSessionsChanged();
   }
 
+  updateSession(
+    id: string,
+    workingDir: string,
+    pluginConfig?: Record<string, Record<string, unknown>>,
+  ): SessionInfo {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error(`Session ${id} not found`);
+    if (session.status !== 'stopped' && session.status !== 'error') {
+      throw new Error('Can only edit stopped or error sessions');
+    }
+    session.workingDir = workingDir;
+    session.pluginConfig = pluginConfig || {};
+    if (!existsSync(workingDir)) {
+      mkdirSync(workingDir, { recursive: true });
+    }
+    this.emitSessionsChanged();
+    return this.toSessionInfo(session);
+  }
+
+  async restartSession(id: string): Promise<SessionInfo> {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error(`Session ${id} not found`);
+    if (session.status !== 'stopped' && session.status !== 'error') {
+      throw new Error('Can only restart stopped or error sessions');
+    }
+    session.port = await this.allocatePort();
+    session.status = 'starting';
+    session.createdAt = new Date();
+    this.emitSessionsChanged();
+
+    try {
+      await this.spawnProxy(session, session.pluginConfig);
+      this.openTerminal(session);
+      session.status = 'running';
+      this.emitSessionsChanged();
+    } catch (err) {
+      session.status = 'error';
+      this.emitSessionsChanged();
+      throw err;
+    }
+
+    return this.toSessionInfo(session);
+  }
+
   private toSessionInfo(s: ActiveSession): SessionInfo {
     return {
       id: s.id,
@@ -445,6 +496,7 @@ end tell`;
       status: s.status,
       createdAt: s.createdAt.toISOString(),
       workingDir: s.workingDir,
+      pluginConfig: s.pluginConfig,
     };
   }
 

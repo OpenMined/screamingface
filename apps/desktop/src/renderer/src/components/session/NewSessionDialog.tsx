@@ -1,22 +1,28 @@
 import { useState, useEffect, useCallback } from 'react';
 import validator from '@rjsf/validator-ajv8';
 import type { RJSFSchema } from '@rjsf/utils';
-import { FolderOpen, X, Rocket } from 'lucide-react';
+import { FolderOpen, X, Rocket, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ThemedForm } from '@/components/rjsf-theme';
 import { inlineRefs } from '@/components/rjsf-utils';
 import { useServerStatus } from '@/hooks/use-server-status';
-import type { SessionType } from '../../../../preload/types';
+import type { SessionInfo, SessionType } from '../../../../preload/types';
 
-/** Fields managed by session-manager or not applicable per-session — hidden from the user. */
-const HIDDEN_FRONTEND_FIELDS = [
+/** Fields managed by session-manager — removed entirely from the schema. */
+const REMOVED_FIELDS = [
   'listen_host',
   'listen_port',
   'session_service_url',
+  'backend_url',
+  'resolve_timeout',
 ];
+
+/** Fields to show first, in this order. */
+const TOP_FIELDS = ['embed_target', 'embed_mode', 'system_prompt'];
 
 interface Props {
   type: SessionType;
+  editSession?: SessionInfo;
   onLaunch: (
     type: SessionType,
     workingDir: string,
@@ -34,19 +40,36 @@ function typeLabel(type: SessionType): string {
   }
 }
 
-/** Build a uiSchema that hides specific fields. */
-function hideFields(fields: string[]): Record<string, unknown> {
-  const ui: Record<string, unknown> = {
-    'ui:submitButtonOptions': { norender: true },
-  };
-  for (const f of fields) {
-    ui[f] = { 'ui:widget': 'hidden' };
+/** Remove fields from JSON schema and reorder so TOP_FIELDS come first. */
+function cleanSchema(schema: RJSFSchema): RJSFSchema {
+  const props = { ...(schema.properties || {}) };
+  for (const f of REMOVED_FIELDS) {
+    delete props[f];
   }
-  return ui;
+
+  // Reorder: TOP_FIELDS first, then the rest in original order
+  const ordered: Record<string, unknown> = {};
+  for (const f of TOP_FIELDS) {
+    if (props[f]) {
+      ordered[f] = props[f];
+      delete props[f];
+    }
+  }
+  for (const [k, v] of Object.entries(props)) {
+    ordered[k] = v;
+  }
+
+  return { ...schema, properties: ordered };
 }
 
-export function NewSessionDialog({ type, onLaunch, onClose }: Props) {
-  const [workingDir, setWorkingDir] = useState<string | null>(null);
+export function NewSessionDialog({ type, editSession, onLaunch, onClose }: Props) {
+  const isEdit = !!editSession;
+
+  const [workingDir, setWorkingDir] = useState<string | null>(() => {
+    if (editSession) return editSession.workingDir;
+    const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    return `/tmp/sf-${id}`;
+  });
 
   // Plugin schemas and form data
   const [frontendSchema, setFrontendSchema] = useState<RJSFSchema | null>(null);
@@ -79,11 +102,20 @@ export function NewSessionDialog({ type, onLaunch, onClose }: Props) {
       .then(([schemaRes, settingsRes]) => {
         const feSchema = schemaRes.ok ? schemaRes.json() : null;
         const feSettings = settingsRes.ok ? settingsRes.json() : null;
-        if (feSchema?.properties) setFrontendSchema(inlineRefs(feSchema));
-        if (feSettings) setFrontendData(feSettings as Record<string, unknown>);
+        if (feSchema?.properties) setFrontendSchema(cleanSchema(inlineRefs(feSchema)));
+
+        // For edit mode: merge saved config over server defaults
+        if (editSession?.pluginConfig?.['claude-frontend']) {
+          setFrontendData({
+            ...(feSettings || {}),
+            ...editSession.pluginConfig['claude-frontend'],
+          });
+        } else if (feSettings) {
+          setFrontendData(feSettings as Record<string, unknown>);
+        }
       })
       .finally(() => setLoading(false));
-  }, [serverUrl, serverFetch]);
+  }, [serverUrl, serverFetch, editSession]);
 
   const handlePickDir = async () => {
     const dir = await window.electronAPI.session.pickDir();
@@ -92,9 +124,9 @@ export function NewSessionDialog({ type, onLaunch, onClose }: Props) {
 
   const handleLaunch = () => {
     if (!workingDir) return;
-    // Strip fields that are managed by session-manager or not applicable per-session
+    // Strip fields that are managed by session-manager
     const cleanedFrontend = { ...frontendData };
-    for (const f of HIDDEN_FRONTEND_FIELDS) {
+    for (const f of REMOVED_FIELDS) {
       delete cleanedFrontend[f];
     }
     onLaunch(type, workingDir, {
@@ -110,7 +142,7 @@ export function NewSessionDialog({ type, onLaunch, onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <h2 className="text-base font-semibold text-foreground">
-            New {typeLabel(type)} Session
+            {isEdit ? 'Edit' : 'New'} {typeLabel(type)} Session
           </h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
@@ -164,8 +196,10 @@ export function NewSessionDialog({ type, onLaunch, onClose }: Props) {
                   }}
                   omitExtraData
                   uiSchema={{
-                    ...hideFields(HIDDEN_FRONTEND_FIELDS),
+                    'ui:submitButtonOptions': { norender: true },
+                    'ui:order': [...TOP_FIELDS, '*'],
                     active_spec: { 'ui:widget': 'SpecSelectorWidget' },
+                    system_prompt: { 'ui:widget': 'textarea', 'ui:options': { rows: 4 }, classNames: 'w-full' },
                   }}
                 />
               </div>
@@ -184,8 +218,17 @@ export function NewSessionDialog({ type, onLaunch, onClose }: Props) {
             onClick={handleLaunch}
             disabled={!canLaunch}
           >
-            <Rocket className="mr-1.5 h-3.5 w-3.5" />
-            Launch Session
+            {isEdit ? (
+              <>
+                <Save className="mr-1.5 h-3.5 w-3.5" />
+                Save &amp; Restart
+              </>
+            ) : (
+              <>
+                <Rocket className="mr-1.5 h-3.5 w-3.5" />
+                Launch Session
+              </>
+            )}
           </Button>
         </div>
       </div>

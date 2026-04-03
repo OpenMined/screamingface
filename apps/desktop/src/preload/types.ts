@@ -19,6 +19,7 @@ export interface SessionInfo {
   status: SessionStatus;
   createdAt: string;
   workingDir: string;
+  pluginConfig?: Record<string, Record<string, unknown>>;
 }
 
 export interface PluginManifest {
@@ -97,6 +98,12 @@ export interface ElectronAPI {
     terminate: (id: string) => Promise<void>;
     terminateAll: () => Promise<void>;
     remove: (id: string) => Promise<void>;
+    update: (
+      id: string,
+      workingDir: string,
+      pluginConfig?: Record<string, Record<string, unknown>>,
+    ) => Promise<SessionInfo>;
+    restart: (id: string) => Promise<SessionInfo>;
     onSessionsChanged: (callback: (sessions: SessionInfo[]) => void) => () => void;
     onLog: (callback: (id: string, line: string) => void) => () => void;
   };

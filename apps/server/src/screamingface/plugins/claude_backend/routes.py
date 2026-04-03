@@ -121,6 +121,23 @@ def create_router(settings: ClaudeBackendSettings, app: Any = None) -> APIRouter
         except Exception as exc:
             logger.warning("Claude url4 evaluation failed: %s", exc, exc_info=True)
             raise HTTPException(status_code=502, detail=f"Claude url4 evaluation failed: {exc}")
+
+        # Record result on the FastAPI auto-instrumented span
+        try:
+            from opentelemetry import trace
+
+            span = trace.get_current_span()
+            if span and span.is_recording():
+                span.set_attribute("sf.plugin", "claude-backend")
+                span.set_attribute("url4.expression", q[:500])
+                span.set_attribute("url4.result_length", len(result))
+                preview = result[:4000]
+                if len(result) > 4000:
+                    preview += f"\n... ({len(result) - 4000} more chars)"
+                span.set_attribute("url4.response_body", preview)
+        except ImportError:
+            pass
+
         return PlainTextResponse(content=result)
 
     async def _handle_profile(

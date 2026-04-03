@@ -42,9 +42,33 @@ export function useSessions() {
     });
   }, []);
 
+  const updateSession = useCallback(
+    async (
+      id: string,
+      workingDir: string,
+      pluginConfig?: Record<string, Record<string, unknown>>,
+    ) => {
+      return window.electronAPI.session.update(id, workingDir, pluginConfig);
+    },
+    [],
+  );
+
+  const restartSession = useCallback(async (id: string) => {
+    return window.electronAPI.session.restart(id);
+  }, []);
+
   const clearLogs = useCallback((id: string) => {
     setLogs((prev) => ({ ...prev, [id]: [] }));
   }, []);
 
-  return { sessions, logs, createSession, terminateSession, removeSession, clearLogs };
+  return {
+    sessions,
+    logs,
+    createSession,
+    terminateSession,
+    removeSession,
+    updateSession,
+    restartSession,
+    clearLogs,
+  };
 }

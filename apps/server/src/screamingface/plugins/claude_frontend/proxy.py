@@ -326,6 +326,43 @@ def _replace_last_user_message(messages: list[dict[str, Any]], new_text: str) ->
         return
 
 
+def _inject_system_context(body: dict[str, Any], text: str) -> None:
+    """Inject *text* into the request body's system prompt.
+
+    Handles the three formats Anthropic accepts:
+    - None → create a new list with a single text block
+    - str  → concatenate with ``\\n\\n``
+    - list → append as a new text block
+    """
+    existing = body.get("system")
+    if existing is None:
+        body["system"] = [{"type": "text", "text": text}]
+    elif isinstance(existing, str):
+        body["system"] = existing + "\n\n" + text
+    elif isinstance(existing, list):
+        existing.append({"type": "text", "text": text})
+
+
+def _embed_context(
+    body: dict[str, Any],
+    resolved_context: str,
+    settings: ClaudeFrontendSettings,
+) -> None:
+    """Embed resolved url4 context into the request body per settings."""
+    if settings.embed_target == "user":
+        messages = body.get("messages", [])
+        last_user_text = _extract_last_user_text(messages)
+        if last_user_text:
+            if settings.embed_mode == "concat":
+                combined = f"{last_user_text}\n\n{resolved_context}"
+            else:  # replace
+                combined = resolved_context
+            _replace_last_user_message(messages, combined)
+    else:  # system
+        wrapped = f"{settings.system_prompt}\n\n{resolved_context}"
+        _inject_system_context(body, wrapped)
+
+
 def create_router(
     settings: ClaudeFrontendSettings,
     app: Any = None,
@@ -373,19 +410,33 @@ def create_router(
             msgs = body.get("messages", [])
             if msgs:
                 original_user_msg = msgs[-1].copy() if isinstance(msgs[-1], dict) else msgs[-1]
-            try:
-                results = await hooks.emit_async(
-                    "session.enrich_request",
-                    body=body,
-                    session_id=session_id,
-                    session_service_url=session_service_url,
+            tracer = _get_tracer()
+            enrich_ctx = (
+                tracer.start_as_current_span("session.enrich_request") if tracer else _nullcontext()
+            )
+            with enrich_ctx:
+                _set_span_attrs(
+                    {
+                        "session.id": session_id,
+                        "session.service_url": session_service_url,
+                    }
                 )
-                for result in results:
-                    if result is not None:
-                        body = result
-                        break
-            except Exception:
-                logger.warning("Session enrichment failed for %s", session_id, exc_info=True)
+                try:
+                    results = await hooks.emit_async(
+                        "session.enrich_request",
+                        body=body,
+                        session_id=session_id,
+                        session_service_url=session_service_url,
+                    )
+                    modified = False
+                    for result in results:
+                        if result is not None:
+                            body = result
+                            modified = True
+                            break
+                    _set_span_attrs({"session.modified": modified})
+                except Exception:
+                    logger.warning("Session enrichment failed for %s", session_id, exc_info=True)
 
         # --- URL4 context injection ---
         # If the active spec contains $prompt, substitute the user's last message
@@ -416,16 +467,36 @@ def create_router(
 
                         # Store user prompt as blob on the backend server
                         if backend_url:
-                            async with httpx.AsyncClient(
-                                timeout=httpx.Timeout(30.0), verify=False
-                            ) as dc:
-                                blob_resp = await dc.post(
-                                    f"{backend_url}/data",
-                                    content=last_user_text.encode("utf-8"),
-                                    headers={"content-type": "text/plain; charset=utf-8"},
+                            blob_url_target = f"{backend_url}/data"
+                            blob_span_ctx = (
+                                _start_client_span(tracer, "POST /data")
+                                if tracer
+                                else _nullcontext()
+                            )
+                            with blob_span_ctx:
+                                _set_span_attrs(
+                                    {
+                                        "http.method": "POST",
+                                        "http.url": blob_url_target,
+                                    }
                                 )
-                                blob_resp.raise_for_status()
-                                blob_key = blob_resp.json()["key"]
+                                async with httpx.AsyncClient(
+                                    timeout=httpx.Timeout(30.0), verify=False
+                                ) as dc:
+                                    blob_resp = await dc.post(
+                                        blob_url_target,
+                                        content=last_user_text.encode("utf-8"),
+                                        headers={"content-type": "text/plain; charset=utf-8"},
+                                    )
+                                    blob_resp.raise_for_status()
+                                    blob_key = blob_resp.json()["key"]
+                                _set_span_attrs(
+                                    {
+                                        "http.status_code": blob_resp.status_code,
+                                        "data.key": blob_key,
+                                        "data.size": len(last_user_text),
+                                    }
+                                )
                         else:
                             from screamingface.plugins.data_store.routes import store_blob
 
@@ -444,14 +515,36 @@ def create_router(
 
                         # Resolve the full expression via /ensemble endpoint
                         if backend_url:
-                            async with httpx.AsyncClient(
-                                timeout=httpx.Timeout(300.0), verify=False
-                            ) as ec:
-                                ens_resp = await ec.get(
-                                    f"{backend_url}/ensemble", params={"q": substituted}
+                            ens_url = f"{backend_url}/ensemble"
+                            ens_span_ctx = (
+                                _start_client_span(tracer, "GET /ensemble")
+                                if tracer
+                                else _nullcontext()
+                            )
+                            with ens_span_ctx:
+                                _set_span_attrs(
+                                    {
+                                        "http.method": "GET",
+                                        "http.url": ens_url,
+                                        "url4.expression": _truncate(substituted, 500),
+                                    }
                                 )
-                                ens_resp.raise_for_status()
-                                final_text = ens_resp.text
+                                async with httpx.AsyncClient(
+                                    timeout=httpx.Timeout(300.0), verify=False
+                                ) as ec:
+                                    ens_resp = await ec.get(ens_url, params={"q": substituted})
+                                    ens_resp.raise_for_status()
+                                    final_text = ens_resp.text
+                                body_preview = final_text[:4000]
+                                if len(final_text) > 4000:
+                                    body_preview += f"\n... ({len(final_text) - 4000} more chars)"
+                                _set_span_attrs(
+                                    {
+                                        "http.status_code": ens_resp.status_code,
+                                        "url4.result_length": len(final_text),
+                                        "url4.response_body": body_preview,
+                                    }
+                                )
                         else:
                             from screamingface.plugins.url4_executor.interpreter import (
                                 Url4Interpreter,
@@ -468,12 +561,13 @@ def create_router(
                             prompt_span.set_attribute("url4.status", "ok")
 
                         if final_text:
-                            combined = f"{last_user_text}\n\n{final_text}"
-                            _replace_last_user_message(messages, combined)
+                            _embed_context(body, final_text, settings)
                             logger.info(
-                                "$prompt: blob=%s resolved %d chars → appended to user message",
+                                "$prompt: blob=%s resolved %d chars → target=%s mode=%s",
                                 blob_key,
                                 len(final_text),
+                                settings.embed_target,
+                                settings.embed_mode,
                             )
                     except Exception as exc:
                         if prompt_span and prompt_span.is_recording():
@@ -541,20 +635,12 @@ def create_router(
                 }
                 return JSONResponse(content=error_response, status_code=200)
             if resolved_context:
-                wrapped = (
-                    "Please be accurate and keep this information "
-                    "constantly in your context:\n\n" + resolved_context
-                )
-                existing = body.get("system")
-                if existing is None:
-                    body["system"] = [{"type": "text", "text": wrapped}]
-                elif isinstance(existing, str):
-                    body["system"] = existing + "\n\n" + wrapped
-                elif isinstance(existing, list):
-                    existing.append({"type": "text", "text": wrapped})
+                _embed_context(body, resolved_context, settings)
                 logger.info(
-                    "Injected cached url4 context (%d chars) into system prompt",
+                    "Injected cached url4 context (%d chars) embed_target=%s embed_mode=%s",
                     len(resolved_context),
+                    settings.embed_target,
+                    settings.embed_mode,
                 )
 
         # Trace the FINAL request body (after all modifications) as child spans.
@@ -677,20 +763,34 @@ def create_router(
                         if session_id and session_service_url and hooks and original_user_msg:
                             response_data = _parse_sse_response(raw)
                             if response_data:
-                                try:
-                                    await hooks.emit_async(
-                                        "session.save_response",
-                                        session_id=session_id,
-                                        session_service_url=session_service_url,
-                                        user_message_body=original_user_msg,
-                                        response_body=response_data,
+                                save_tracer = _get_tracer()
+                                save_ctx = (
+                                    save_tracer.start_as_current_span("session.save_response")
+                                    if save_tracer
+                                    else _nullcontext()
+                                )
+                                with save_ctx:
+                                    _set_span_attrs(
+                                        {
+                                            "session.id": session_id,
+                                            "session.service_url": session_service_url,
+                                            "session.streaming": True,
+                                        }
                                     )
-                                except Exception:
-                                    logger.warning(
-                                        "Session save (stream) failed for %s",
-                                        session_id,
-                                        exc_info=True,
-                                    )
+                                    try:
+                                        await hooks.emit_async(
+                                            "session.save_response",
+                                            session_id=session_id,
+                                            session_service_url=session_service_url,
+                                            user_message_body=original_user_msg,
+                                            response_body=response_data,
+                                        )
+                                    except Exception:
+                                        logger.warning(
+                                            "Session save (stream) failed for %s",
+                                            session_id,
+                                            exc_info=True,
+                                        )
 
                     if upstream_span:
                         upstream_span.end()
@@ -731,16 +831,30 @@ def create_router(
             # --- Session save (non-streaming) ---
             response_data = resp.json()
             if session_id and session_service_url and hooks and original_user_msg:
-                try:
-                    await hooks.emit_async(
-                        "session.save_response",
-                        session_id=session_id,
-                        session_service_url=session_service_url,
-                        user_message_body=original_user_msg,
-                        response_body=response_data,
+                save_tracer = _get_tracer()
+                save_ctx = (
+                    save_tracer.start_as_current_span("session.save_response")
+                    if save_tracer
+                    else _nullcontext()
+                )
+                with save_ctx:
+                    _set_span_attrs(
+                        {
+                            "session.id": session_id,
+                            "session.service_url": session_service_url,
+                            "session.streaming": False,
+                        }
                     )
-                except Exception:
-                    logger.warning("Session save failed for %s", session_id, exc_info=True)
+                    try:
+                        await hooks.emit_async(
+                            "session.save_response",
+                            session_id=session_id,
+                            session_service_url=session_service_url,
+                            user_message_body=original_user_msg,
+                            response_body=response_data,
+                        )
+                    except Exception:
+                        logger.warning("Session save failed for %s", session_id, exc_info=True)
 
             return JSONResponse(content=response_data, status_code=resp.status_code)
 
