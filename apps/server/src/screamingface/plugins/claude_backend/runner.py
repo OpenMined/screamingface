@@ -106,9 +106,66 @@ async def run_claude(
 ) -> tuple[int, str, str, float]:
     """Run the Claude CLI and return (exit_code, stdout, stderr, duration_seconds).
 
-    Uses asyncio.create_subprocess_exec (not shell) — args are passed as a list,
-    preventing shell injection.
+    When *cwd* is None, creates a temporary ``/tmp/sf-<uuid>`` directory so
+    Claude never picks up project context (CLAUDE.md, git, etc.).  The
+    directory is removed after the process exits.
     """
+    import shutil
+    import uuid
+
+    tmp_cwd: str | None = None
+    if cwd is None:
+        tmp_cwd = f"/tmp/sf-{uuid.uuid4().hex[:12]}"
+        os.makedirs(tmp_cwd, exist_ok=True)
+        cwd = tmp_cwd
+
+    env = dict(os.environ)
+    env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
+    start = time.monotonic()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            cwd=cwd,
+        )
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(prompt.encode()),
+            timeout=timeout,
+        )
+        duration = time.monotonic() - start
+        return (
+            proc.returncode or 0,
+            stdout_bytes.decode(),
+            stderr_bytes.decode(),
+            duration,
+        )
+    finally:
+        if tmp_cwd:
+            shutil.rmtree(tmp_cwd, ignore_errors=True)
+
+
+async def stream_claude(
+    args: list[str],
+    prompt: str,
+    timeout: float,
+    cwd: str | None = None,
+) -> AsyncGenerator[str, None]:
+    """Stream stdout lines from the Claude CLI, ending with a done event.
+
+    When *cwd* is None, creates a temporary ``/tmp/sf-<uuid>`` directory.
+    """
+    import shutil
+    import uuid
+
+    tmp_cwd: str | None = None
+    if cwd is None:
+        tmp_cwd = f"/tmp/sf-{uuid.uuid4().hex[:12]}"
+        os.makedirs(tmp_cwd, exist_ok=True)
+        cwd = tmp_cwd
+
     env = dict(os.environ)
     env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
     start = time.monotonic()
@@ -119,35 +176,6 @@ async def run_claude(
         stderr=asyncio.subprocess.PIPE,
         env=env,
         cwd=cwd,
-    )
-    stdout_bytes, stderr_bytes = await asyncio.wait_for(
-        proc.communicate(prompt.encode()),
-        timeout=timeout,
-    )
-    duration = time.monotonic() - start
-    return (
-        proc.returncode or 0,
-        stdout_bytes.decode(),
-        stderr_bytes.decode(),
-        duration,
-    )
-
-
-async def stream_claude(
-    args: list[str],
-    prompt: str,
-    timeout: float,
-) -> AsyncGenerator[str, None]:
-    """Stream stdout lines from the Claude CLI, ending with a done event."""
-    env = dict(os.environ)
-    env["ANTHROPIC_BASE_URL"] = "https://api.anthropic.com"
-    start = time.monotonic()
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
     )
     assert proc.stdin is not None
     assert proc.stdout is not None
@@ -181,3 +209,6 @@ async def stream_claude(
         )
         + "\n"
     )
+
+    if tmp_cwd:
+        shutil.rmtree(tmp_cwd, ignore_errors=True)

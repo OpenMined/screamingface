@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, Square, X, Terminal, Circle, FolderOpen, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Square, X, Terminal, Circle, FolderOpen, ChevronDown, ChevronRight, Pencil, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ServerLogs } from '@/components/server/ServerLogs';
 import { NewSessionDialog } from '@/components/session/NewSessionDialog';
 import { useSessions } from '@/hooks/use-sessions';
-import type { SessionStatus, SessionType } from '../../../preload/types';
+import type { SessionInfo, SessionStatus, SessionType } from '../../../preload/types';
 
 const SESSION_TYPES: { type: SessionType; label: string }[] = [
   { type: 'claude', label: 'Claude Code' },
@@ -55,8 +55,9 @@ function typeLabel(type: SessionType): string {
 }
 
 export function SessionsView() {
-  const { sessions, logs, createSession, terminateSession, removeSession, clearLogs } = useSessions();
+  const { sessions, logs, createSession, terminateSession, removeSession, updateSession, restartSession, clearLogs } = useSessions();
   const [dialogType, setDialogType] = useState<SessionType | null>(null);
+  const [editingSession, setEditingSession] = useState<SessionInfo | null>(null);
 
   const activeSessions = sessions.filter((s) => s.status !== 'stopped');
   const stoppedSessions = sessions.filter((s) => s.status === 'stopped');
@@ -66,18 +67,30 @@ export function SessionsView() {
     workingDir: string,
     pluginConfig: Record<string, Record<string, unknown>>,
   ) => {
+    if (editingSession) {
+      await updateSession(editingSession.id, workingDir, pluginConfig);
+      await restartSession(editingSession.id);
+      setEditingSession(null);
+    } else {
+      setDialogType(null);
+      await createSession(type, workingDir, pluginConfig);
+    }
+  };
+
+  const handleCloseDialog = () => {
     setDialogType(null);
-    await createSession(type, workingDir, pluginConfig);
+    setEditingSession(null);
   };
 
   return (
     <div className="flex h-full flex-col">
-      {/* New session dialog */}
-      {dialogType && (
+      {/* New / Edit session dialog */}
+      {(dialogType || editingSession) && (
         <NewSessionDialog
-          type={dialogType}
+          type={editingSession?.type || dialogType!}
+          editSession={editingSession ?? undefined}
           onLaunch={handleLaunch}
-          onClose={() => setDialogType(null)}
+          onClose={handleCloseDialog}
         />
       )}
 
@@ -151,6 +164,8 @@ export function SessionsView() {
                       logs={logs[s.id] || []}
                       onClearLogs={() => clearLogs(s.id)}
                       onRemove={() => removeSession(s.id)}
+                      onEdit={() => setEditingSession(s)}
+                      onRestart={() => restartSession(s.id)}
                     />
                   ))}
                 </div>
@@ -169,12 +184,16 @@ function SessionCard({
   onClearLogs,
   onStop,
   onRemove,
+  onEdit,
+  onRestart,
 }: {
   session: { id: string; type: SessionType; port: number; status: SessionStatus; workingDir: string; createdAt: string };
   logs: string[];
   onClearLogs: () => void;
   onStop?: () => void;
   onRemove?: () => void;
+  onEdit?: () => void;
+  onRestart?: () => void;
 }) {
   const [showLogs, setShowLogs] = useState(false);
 
@@ -231,6 +250,28 @@ function SessionCard({
             title="Stop session"
           >
             <Square className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        {onEdit && (session.status === 'stopped' || session.status === 'error') && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onEdit}
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
+            title="Edit settings"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        {onRestart && (session.status === 'stopped' || session.status === 'error') && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRestart}
+            className="h-8 w-8 text-green-400 hover:text-green-300"
+            title="Restart session"
+          >
+            <Play className="h-3.5 w-3.5" />
           </Button>
         )}
         {onRemove && (

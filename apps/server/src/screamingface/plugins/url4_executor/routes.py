@@ -57,6 +57,20 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
             logger.warning("url4 evaluation failed: %s", exc, exc_info=True)
             raise HTTPException(status_code=502, detail=f"url4 evaluation failed: {exc}")
 
+        # Record result on the FastAPI auto-instrumented span
+        from screamingface.plugins.url4_executor._tracing import set_span_attrs
+
+        preview = result[:4000]
+        if len(result) > 4000:
+            preview += f"\n... ({len(result) - 4000} more chars)"
+        set_span_attrs(
+            {
+                "url4.expression": q[:500],
+                "url4.result_length": len(result),
+                "url4.response_body": preview,
+            }
+        )
+
         if ast:
             source_expr, intent = split_intent(q)
             tree = parse(source_expr) if source_expr else None

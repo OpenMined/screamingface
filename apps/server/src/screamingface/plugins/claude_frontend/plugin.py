@@ -12,7 +12,7 @@ import os
 import socket
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import httpx
 import uvicorn
@@ -61,6 +61,30 @@ class ClaudeFrontendSettings(PluginSettings):
         default=300.0,
         description="Max seconds to wait for url4 spec resolution on first request.",
     )
+    embed_target: Literal["system", "user"] = Field(
+        default="user",
+        description=(
+            "Where to inject url4-resolved context: "
+            "'system' (prepend to system prompt) or 'user' (inject into user message)."
+        ),
+    )
+    embed_mode: Literal["concat", "replace"] = Field(
+        default="concat",
+        description=(
+            "How to embed in user message: "
+            "'concat' (original prompt + context) or 'replace' (context only). "
+            "Only used when embed_target is 'user'."
+        ),
+    )
+    system_prompt: str = Field(
+        default=(
+            "You are a helpful assistant. Answer the user's question based only on "
+            "the provided context. Be concise and factual."
+        ),
+        description=(
+            "System prompt prepended to the resolved context when embed_target is 'system'."
+        ),
+    )
 
 
 class ClaudeFrontendPlugin(Plugin):
@@ -95,14 +119,7 @@ class ClaudeFrontendPlugin(Plugin):
         return schema
 
     def preflight(self) -> tuple[bool, str]:
-        ok, reason = super().preflight()
-        if not ok:
-            return ok, reason
-        import shutil
-
-        if not shutil.which("claude"):
-            return False, "Claude Code CLI not found in PATH"
-        return True, ""
+        return super().preflight()
 
     def _collect_spec_names(self) -> list[str]:
         """Return the active spec as a single-element list, or empty."""

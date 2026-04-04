@@ -159,22 +159,52 @@ def _sanitize_url(url: str) -> str:
 
 async def _fetch_relative(app: Any, path: str) -> str:
     """Fetch a relative path via in-process ASGI transport (no network hop)."""
+    from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
+
     if not app:
         raise ValueError(f"Cannot resolve relative URL {path!r} without app context")
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
-        resp = await client.get(path)
-        resp.raise_for_status()
-        return resp.text
+    with traced("url4.fetch_relative", kind="client"):
+        set_span_attrs({"http.method": "GET", "url4.path": path})
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://localhost") as client:
+            resp = await client.get(path)
+            resp.raise_for_status()
+            body = resp.text
+            preview = body[:4000]
+            if len(body) > 4000:
+                preview += f"\n... ({len(body) - 4000} more chars)"
+            set_span_attrs(
+                {
+                    "http.status_code": resp.status_code,
+                    "url4.response_length": len(body),
+                    "url4.response_body": preview,
+                }
+            )
+            return body
 
 
 async def _fetch_url(url: str) -> str:
     """Fetch a URL via HTTP GET and return the response body as text."""
+    from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
+
     safe_url = _sanitize_url(url)
     logger.info("url4: fetching %s", safe_url[:200])
-    timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
-    # verify=False for self-signed certs on localhost
-    async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
-        resp = await client.get(safe_url)
-        resp.raise_for_status()
-        return resp.text
+    with traced("url4.fetch", kind="client"):
+        set_span_attrs({"http.method": "GET", "http.url": safe_url[:500]})
+        timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+        # verify=False for self-signed certs on localhost
+        async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+            resp = await client.get(safe_url)
+            resp.raise_for_status()
+            body = resp.text
+            preview = body[:4000]
+            if len(body) > 4000:
+                preview += f"\n... ({len(body) - 4000} more chars)"
+            set_span_attrs(
+                {
+                    "http.status_code": resp.status_code,
+                    "url4.response_length": len(body),
+                    "url4.response_body": preview,
+                }
+            )
+            return body

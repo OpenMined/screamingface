@@ -39,7 +39,7 @@ jobs:
       - name: Lint (ruff format)
         run: uv run ruff format --check
 
-      - name: Run tests with coverage
+      - name: Run unit tests with coverage
         run: |
           uv run pytest \
             --tb=short \
@@ -47,14 +47,32 @@ jobs:
             --cov=screamingface \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
+            -m "not e2e and not e2e_live" \
             -v
 
-      - name: Test report
+      - name: Run e2e tests
+        run: |
+          uv run pytest tests/e2e/ \
+            --tb=short \
+            --junitxml=results-e2e.xml \
+            --timeout=120 \
+            -m "e2e" \
+            -v
+
+      - name: Unit test report
         uses: dorny/test-reporter@v2
         if: always()
         with:
-          name: Test Results
+          name: Unit Test Results
           path: apps/server/results.xml
+          reporter: java-junit
+
+      - name: E2E test report
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: E2E Test Results
+          path: apps/server/results-e2e.xml
           reporter: java-junit
 
       - name: Coverage report

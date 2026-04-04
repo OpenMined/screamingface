@@ -324,7 +324,10 @@ class _FakePlugin:
 
 @pytest.fixture
 def proxy_app_with_context() -> FastAPI:
-    settings = ClaudeFrontendSettings(upstream_url="https://api.anthropic.com")
+    settings = ClaudeFrontendSettings(
+        upstream_url="https://api.anthropic.com",
+        embed_target="system",
+    )
     app = FastAPI()
     router = create_router(settings, plugin=_FakePlugin("cached url4 docs"))
     app.include_router(router)
@@ -340,7 +343,11 @@ def proxy_app_no_context() -> FastAPI:
     return app
 
 
-_INJECT_PREFIX = "Please be accurate and keep this information constantly in your context:\n\n"
+_DEFAULT_SYS_PROMPT = (
+    "You are a helpful assistant. Answer the user's question based only on "
+    "the provided context. Be concise and factual."
+)
+_INJECT_PREFIX = _DEFAULT_SYS_PROMPT + "\n\n"
 
 
 class TestProxyContextInjection:

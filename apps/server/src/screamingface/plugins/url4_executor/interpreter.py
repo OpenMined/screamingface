@@ -51,15 +51,52 @@ class Url4Interpreter:
 
     async def evaluate(self, expr: str) -> str:
         """Full evaluation pipeline."""
-        source_expr, raw_intent = split_intent(expr.strip())
+        from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
 
-        # Resolve sources (parallel fetch of URLs, concatenate text)
-        sources = await resolve_str(source_expr, self.app) if source_expr else ""
+        with traced("url4.evaluate"):
+            set_span_attrs(
+                {
+                    "url4.expression": expr[:500],
+                }
+            )
 
-        # Resolve intent (text / relative URL / absolute URL)
-        intent = await resolve_intent(raw_intent, self.app) if raw_intent else None
+            source_expr, raw_intent = split_intent(expr.strip())
+            set_span_attrs({"url4.has_intent": raw_intent is not None})
 
-        return await self.process(sources, intent)
+            # Resolve sources (parallel fetch of URLs, concatenate text)
+            with traced("url4.resolve_sources"):
+                sources = await resolve_str(source_expr, self.app) if source_expr else ""
+                src_preview = sources[:4000]
+                if len(sources) > 4000:
+                    src_preview += f"\n... ({len(sources) - 4000} more chars)"
+                set_span_attrs(
+                    {
+                        "url4.sources_length": len(sources),
+                        "url4.response_body": src_preview,
+                    }
+                )
+
+            # Resolve intent (text / relative URL / absolute URL)
+            with traced("url4.resolve_intent"):
+                intent = await resolve_intent(raw_intent, self.app) if raw_intent else None
+                set_span_attrs(
+                    {
+                        "url4.intent_length": len(intent) if intent else 0,
+                        "url4.response_body": intent[:4000] if intent else "",
+                    }
+                )
+
+            result = await self.process(sources, intent)
+            result_preview = result[:4000]
+            if len(result) > 4000:
+                result_preview += f"\n... ({len(result) - 4000} more chars)"
+            set_span_attrs(
+                {
+                    "url4.result_length": len(result),
+                    "url4.response_body": result_preview,
+                }
+            )
+            return result
 
     async def process(self, sources: str, intent: str | None) -> str:
         """Process resolved sources and intent. Override in subclasses.

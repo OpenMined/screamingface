@@ -33,6 +33,17 @@ export function registerSessionHandlers(): void {
     sessionManager.removeSession(id);
   });
 
+  ipcMain.handle(
+    'session:update',
+    (_event, id: string, workingDir: string, pluginConfig?: Record<string, Record<string, unknown>>) => {
+      return sessionManager.updateSession(id, workingDir, pluginConfig);
+    },
+  );
+
+  ipcMain.handle('session:restart', (_event, id: string) => {
+    return sessionManager.restartSession(id);
+  });
+
   // Forward session state changes to all renderer windows
   sessionManager.on('sessionsChanged', (sessions) => {
     for (const win of BrowserWindow.getAllWindows()) {

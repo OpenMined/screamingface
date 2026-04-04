@@ -54,6 +54,9 @@ const api: ElectronAPI = {
     terminate: (id) => ipcRenderer.invoke('session:terminate', id),
     terminateAll: () => ipcRenderer.invoke('session:terminateAll'),
     remove: (id) => ipcRenderer.invoke('session:remove', id),
+    update: (id, workingDir, pluginConfig?) =>
+      ipcRenderer.invoke('session:update', id, workingDir, pluginConfig),
+    restart: (id) => ipcRenderer.invoke('session:restart', id),
     onSessionsChanged: (cb) => onEvent('session:sessionsChanged', cb),
     onLog: (cb) => {
       const handler = (_event: Electron.IpcRendererEvent, id: string, line: string): void => {

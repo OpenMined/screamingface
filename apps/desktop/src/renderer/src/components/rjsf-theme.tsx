@@ -545,9 +545,33 @@ function SpecSelectorWidget(props: WidgetProps) {
   );
 }
 
+function TextareaWidget(props: WidgetProps) {
+  const { id, value, onChange, onBlur, onFocus, disabled, readonly, rawErrors, options } = props;
+  const hasError = rawErrors && rawErrors.length > 0;
+  const rows = (options?.rows as number) || 3;
+  return (
+    <textarea
+      id={id}
+      value={value ?? ''}
+      rows={rows}
+      disabled={disabled}
+      readOnly={readonly}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={(e) => onBlur(id, e.target.value)}
+      onFocus={(e) => onFocus(id, e.target.value)}
+      className={`w-full rounded-md border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 resize-y ${
+        hasError
+          ? 'border-destructive bg-destructive/5 focus:ring-destructive'
+          : 'border-input bg-background focus:ring-ring'
+      }`}
+    />
+  );
+}
+
 const widgets: RegistryWidgetsType = {
   CheckboxWidget: CheckboxWidget as ComponentType<WidgetProps>,
   SelectWidget: SelectWidget as ComponentType<WidgetProps>,
+  TextareaWidget: TextareaWidget as ComponentType<WidgetProps>,
   SpecSelectorWidget: SpecSelectorWidget as ComponentType<WidgetProps>,
 };
 
