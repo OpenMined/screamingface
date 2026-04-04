@@ -100,7 +100,7 @@ class TestCatBreedSources:
 
 
 @pytest.fixture(scope="module")
-def cat_proxy(otlp_collector: OTLPCollector):
+def cat_proxy(otlp_collector: OTLPCollector):  # type: ignore[misc]
     """Start a proxy with the cat-breeds-3sources spec pointing at Claude."""
     internal_port = ServerManager.find_free_port()
     proxy_port = ServerManager.find_free_port()

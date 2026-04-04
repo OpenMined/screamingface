@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Generator
 
 import pytest
 
@@ -31,10 +32,10 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 @pytest.fixture(scope="session")
-def otlp_collector() -> OTLPCollector:
+def otlp_collector() -> Generator[OTLPCollector, None, None]:
     collector = OTLPCollector()
     collector.start()
-    yield collector  # type: ignore[misc]
+    yield collector
     collector.stop()
 
 
@@ -127,11 +128,11 @@ def proxy_server_config(
 
 
 @pytest.fixture(scope="session")
-def sf_server(main_server_config: dict) -> ServerManager:
+def sf_server(main_server_config: dict) -> Generator[ServerManager, None, None]:
     """Main SF server (url4-executor, data-store). Started once per session."""
     mgr = ServerManager(main_server_config)
     mgr.start(timeout=30)
-    yield mgr  # type: ignore[misc]
+    yield mgr
     mgr.stop()
 
 
@@ -140,7 +141,7 @@ def proxy_server(
     proxy_server_config: dict,
     sf_server: ServerManager,  # noqa: ARG001 — ensure main server starts first
     proxy_server_port: int,
-) -> ServerManager:
+) -> Generator[ServerManager, None, None]:
     """Session proxy (claude-frontend → httpbin). Started once per session."""
     mgr = ServerManager(proxy_server_config, session_id="e2e-test")
     mgr.start(timeout=30)
@@ -148,7 +149,7 @@ def proxy_server(
     if not ServerManager.wait_for_port(proxy_server_port):
         mgr.stop()
         raise RuntimeError(f"Proxy not listening on port {proxy_server_port}")
-    yield mgr  # type: ignore[misc]
+    yield mgr
     mgr.stop()
 
 
@@ -166,9 +167,9 @@ def proxy_url(proxy_server_port: int) -> str:
 def claude_client(
     proxy_url: str,
     proxy_server: ServerManager,  # noqa: ARG001 — ensures servers are running
-) -> ClaudeCodeClient:
+) -> Generator[ClaudeCodeClient, None, None]:
     client = ClaudeCodeClient(proxy_url=proxy_url)
-    yield client  # type: ignore[misc]
+    yield client
     client.reset()
 
 
