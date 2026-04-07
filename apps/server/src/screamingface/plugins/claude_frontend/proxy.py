@@ -14,9 +14,9 @@ import httpx
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
-logger = logging.getLogger(__name__)
-
 from screamingface.plugins.claude_frontend.context_filter import apply_context_filter
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings

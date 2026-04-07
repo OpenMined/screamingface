@@ -22,7 +22,6 @@ from screamingface.plugins.claude_frontend.context_filter import (
     parse_filter_entries,
 )
 
-
 # ----------------------------------------------------------------------------
 # Fixture
 # ----------------------------------------------------------------------------
@@ -59,8 +58,16 @@ def _fixture_full_body() -> dict:
             {"type": "text", "text": "Be concise."},
         ],
         "tools": [
-            {"name": "Read", "description": "Reads a file", "input_schema": {"type": "object"}},
-            {"name": "Bash", "description": "Runs a shell command", "input_schema": {"type": "object"}},
+            {
+                "name": "Read",
+                "description": "Reads a file",
+                "input_schema": {"type": "object"},
+            },
+            {
+                "name": "Bash",
+                "description": "Runs a shell command",
+                "input_schema": {"type": "object"},
+            },
         ],
         "messages": [
             # 0
