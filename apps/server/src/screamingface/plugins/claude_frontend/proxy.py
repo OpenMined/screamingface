@@ -463,9 +463,9 @@ def create_router(
                         # Serialize the filtered slice as JSON. The data-store
                         # is content-addressed (sha256), so identical filtered
                         # contexts dedupe naturally.
-                        context_bytes = json.dumps(
-                            filtered_context, ensure_ascii=False
-                        ).encode("utf-8")
+                        context_bytes = json.dumps(filtered_context, ensure_ascii=False).encode(
+                            "utf-8"
+                        )
                         message_count = len(filtered_context.get("messages", []))
 
                         if prompt_span and prompt_span.is_recording():

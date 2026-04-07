@@ -74,9 +74,7 @@ def _wait_for_prompt_span(
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         candidates = [
-            s
-            for s in collector.find_spans(name="url4.$prompt")
-            if s.start_time_ns >= after_unix_ns
+            s for s in collector.find_spans(name="url4.$prompt") if s.start_time_ns >= after_unix_ns
         ]
         if candidates:
             # Return the latest span by start time (most recent request)
@@ -292,9 +290,7 @@ class TestCustomFilters:
         sf_server: ServerManager,
     ) -> None:
         """['user:text,tool_result', 'assistant:text,tool_call'] full reflection slice."""
-        proxy_url, _ = custom_proxy_factory(
-            ["user:text,tool_result", "assistant:text,tool_call"]
-        )
+        proxy_url, _ = custom_proxy_factory(["user:text,tool_result", "assistant:text,tool_call"])
         client = ClaudeCodeClient(proxy_url=proxy_url)
 
         # Drive a multi-turn exchange ending with tool_result so the filter
@@ -351,9 +347,7 @@ class TestCustomFilters:
         sf_server: ServerManager,
     ) -> None:
         """system:* tools:* user:* assistant:* — everything is captured."""
-        proxy_url, _ = custom_proxy_factory(
-            ["system:*", "tools:*", "user:*", "assistant:*"]
-        )
+        proxy_url, _ = custom_proxy_factory(["system:*", "tools:*", "user:*", "assistant:*"])
         client = ClaudeCodeClient(proxy_url=proxy_url)
 
         cutoff = _now_ns()
@@ -403,9 +397,7 @@ class TestCustomFilters:
 
         time.sleep(2)
         prompt_spans = [
-            s
-            for s in otlp_collector.find_spans(name="url4.$prompt")
-            if s.start_time_ns >= cutoff
+            s for s in otlp_collector.find_spans(name="url4.$prompt") if s.start_time_ns >= cutoff
         ]
         assert prompt_spans == [], (
             f"Empty filter should skip $prompt processing, but got "

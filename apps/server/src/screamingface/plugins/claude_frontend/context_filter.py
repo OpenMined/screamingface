@@ -126,9 +126,7 @@ def _expand_types(scope: str, raw_types: list[str]) -> set[str]:
         if token in valid:
             resolved.add(token)
             continue
-        logger.warning(
-            "context_filter: unknown block type %r in scope %r — skipping", token, scope
-        )
+        logger.warning("context_filter: unknown block type %r in scope %r — skipping", token, scope)
     return resolved
 
 
@@ -147,9 +145,7 @@ def parse_filter_entries(entries: list[str]) -> ParsedFilter:
             continue
 
         if ":" not in entry:
-            logger.warning(
-                "context_filter: malformed entry %r (missing ':') — skipping", entry
-            )
+            logger.warning("context_filter: malformed entry %r (missing ':') — skipping", entry)
             continue
 
         scope_raw, types_raw = entry.split(":", 1)

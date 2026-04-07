@@ -369,9 +369,7 @@ class TestApplyContextFilter:
 
     def test_combined_reflection_filter(self):
         body = _fixture_full_body()
-        out = apply_context_filter(
-            body, ["user:text,tool_result", "assistant:text,tool_call"]
-        )
+        out = apply_context_filter(body, ["user:text,tool_result", "assistant:text,tool_call"])
         user_types = {b["type"] for b in _user_blocks(out)}
         assert user_types == {"text", "tool_result"}
         asst_types = {b["type"] for b in _assistant_blocks(out)}
@@ -398,9 +396,7 @@ class TestApplyContextFilter:
 
     def test_full_dump(self):
         body = _fixture_full_body()
-        out = apply_context_filter(
-            body, ["system:*", "tools:*", "user:*", "assistant:*"]
-        )
+        out = apply_context_filter(body, ["system:*", "tools:*", "user:*", "assistant:*"])
         assert "system" in out
         assert "tools" in out
         assert "messages" in out
@@ -411,8 +407,7 @@ class TestApplyContextFilter:
         assert "assistant" in roles
         # String-shorthand turn 5 preserved as string
         shorthand = [
-            m for m in out["messages"]
-            if m["role"] == "user" and isinstance(m.get("content"), str)
+            m for m in out["messages"] if m["role"] == "user" and isinstance(m.get("content"), str)
         ]
         assert len(shorthand) == 1
         assert shorthand[0]["content"] == "hi"
@@ -437,8 +432,7 @@ class TestApplyContextFilter:
         body = _fixture_full_body()
         out = apply_context_filter(body, ["user:text"])
         shorthand = [
-            m for m in out["messages"]
-            if m["role"] == "user" and isinstance(m.get("content"), str)
+            m for m in out["messages"] if m["role"] == "user" and isinstance(m.get("content"), str)
         ]
         assert len(shorthand) == 1
         assert shorthand[0]["content"] == "hi"
@@ -447,17 +441,12 @@ class TestApplyContextFilter:
         body = _fixture_full_body()
         out = apply_context_filter(body, ["user:image"])
         # The string-shorthand turn must NOT appear (it's text-only)
-        shorthand = [
-            m for m in out.get("messages", [])
-            if isinstance(m.get("content"), str)
-        ]
+        shorthand = [m for m in out.get("messages", []) if isinstance(m.get("content"), str)]
         assert shorthand == []
 
     def test_message_role_other_than_user_assistant_dropped(self):
         body = _fixture_full_body()
-        out = apply_context_filter(
-            body, ["system:*", "tools:*", "user:*", "assistant:*"]
-        )
+        out = apply_context_filter(body, ["system:*", "tools:*", "user:*", "assistant:*"])
         assert all(m["role"] in ("user", "assistant") for m in out["messages"])
 
     def test_unknown_block_type_in_body_dropped_silently(self):

@@ -213,11 +213,12 @@ def _post_through_proxy(app: FastAPI, body: dict[str, Any]) -> httpx.Response:
         async def evaluate(self, _expression: str) -> str:
             return "REFLECTED"
 
-    with patch(
-        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=upstream_response
-    ), patch(
-        "screamingface.plugins.url4_executor.interpreter.Url4Interpreter",
-        _FakeInterpreter,
+    with (
+        patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=upstream_response),
+        patch(
+            "screamingface.plugins.url4_executor.interpreter.Url4Interpreter",
+            _FakeInterpreter,
+        ),
     ):
         client = TestClient(app)
         return client.post(
@@ -259,9 +260,7 @@ def test_filter_default_user_text_stores_user_text_only() -> None:
 
 
 def test_filter_reflection_includes_tool_calls_and_results() -> None:
-    app = _make_filter_app(
-        context_filter=["user:text,tool_result", "assistant:text,tool_call"]
-    )
+    app = _make_filter_app(context_filter=["user:text,tool_result", "assistant:text,tool_call"])
     resp = _post_through_proxy(app, _multi_turn_body())
     assert resp.status_code == 200
 
@@ -287,9 +286,7 @@ def test_filter_reflection_includes_tool_calls_and_results() -> None:
 
 
 def test_filter_full_dump_includes_system_and_tools() -> None:
-    app = _make_filter_app(
-        context_filter=["system:*", "tools:*", "user:*", "assistant:*"]
-    )
+    app = _make_filter_app(context_filter=["system:*", "tools:*", "user:*", "assistant:*"])
     resp = _post_through_proxy(app, _multi_turn_body())
     assert resp.status_code == 200
 
