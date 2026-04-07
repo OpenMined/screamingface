@@ -16,6 +16,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
 
+from screamingface.plugins.claude_frontend.context_filter import apply_context_filter
+
 if TYPE_CHECKING:
     from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings
 
@@ -446,30 +448,51 @@ def create_router(
         raw_expression = plugin.get_active_expression() if plugin else None
 
         if raw_expression and "$prompt" in raw_expression:
-            messages = body.get("messages", [])
-            last_user_text = _extract_last_user_text(messages)
-            if last_user_text:
+            # Apply the configured context filter to the inbound request body.
+            # The filter returns a curated dict mirroring the parts of the body
+            # the session opted into (default: just user text). An empty dict
+            # signals "nothing to capture" — skip the whole $prompt flow.
+            filtered_context = apply_context_filter(body, settings.context_filter)
+            if filtered_context:
                 tracer = _get_tracer()
                 span_ctx = (
                     tracer.start_as_current_span("url4.$prompt") if tracer else _nullcontext()
                 )
                 with span_ctx as prompt_span:
                     try:
+                        # Serialize the filtered slice as JSON. The data-store
+                        # is content-addressed (sha256), so identical filtered
+                        # contexts dedupe naturally.
+                        context_bytes = json.dumps(
+                            filtered_context, ensure_ascii=False
+                        ).encode("utf-8")
+                        message_count = len(filtered_context.get("messages", []))
+
                         if prompt_span and prompt_span.is_recording():
                             prompt_span.set_attribute("sf.plugin", _PLUGIN_NAME)
                             prompt_span.set_attribute("url4.raw_expression", raw_expression)
-                            prompt_span.set_attribute("url4.user_text_length", len(last_user_text))
+                            prompt_span.set_attribute(
+                                "context.filter", ",".join(settings.context_filter)
+                            )
+                            prompt_span.set_attribute("context.size_bytes", len(context_bytes))
+                            prompt_span.set_attribute("context.message_count", message_count)
+                            prompt_span.set_attribute(
+                                "context.has_system", "system" in filtered_context
+                            )
+                            prompt_span.set_attribute(
+                                "context.has_tools", "tools" in filtered_context
+                            )
 
                         # Determine backend: HTTP to main server, or in-process
                         backend_url = (
                             settings.backend_url.rstrip("/") if settings.backend_url else None
                         )
 
-                        # Store user prompt as blob on the backend server
+                        # Store filtered context as a JSON blob on the backend server
                         if backend_url:
                             blob_url_target = f"{backend_url}/data"
                             blob_span_ctx = (
-                                _start_client_span(tracer, "POST /data")
+                                _start_client_span(tracer, "POST /data (prompt context)")
                                 if tracer
                                 else _nullcontext()
                             )
@@ -485,8 +508,8 @@ def create_router(
                                 ) as dc:
                                     blob_resp = await dc.post(
                                         blob_url_target,
-                                        content=last_user_text.encode("utf-8"),
-                                        headers={"content-type": "text/plain; charset=utf-8"},
+                                        content=context_bytes,
+                                        headers={"content-type": "application/json"},
                                     )
                                     blob_resp.raise_for_status()
                                     blob_key = blob_resp.json()["key"]
@@ -494,15 +517,16 @@ def create_router(
                                     {
                                         "http.status_code": blob_resp.status_code,
                                         "data.key": blob_key,
-                                        "data.size": len(last_user_text),
+                                        "data.size": len(context_bytes),
                                     }
                                 )
                         else:
                             from screamingface.plugins.data_store.routes import store_blob
 
-                            blob_key = store_blob(
-                                last_user_text.encode("utf-8"), "text/plain; charset=utf-8"
-                            )
+                            blob_key = store_blob(context_bytes, "application/json")
+
+                        if prompt_span and prompt_span.is_recording():
+                            prompt_span.set_attribute("context.key", blob_key)
 
                         blob_url = f"/data/{blob_key}"
                         substituted = raw_expression.replace("$prompt", blob_url)

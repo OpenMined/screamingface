@@ -12,15 +12,16 @@ import os
 import socket
 import threading
 import time
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 import httpx
 import uvicorn
 from fastapi import FastAPI
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
+from screamingface.plugins.claude_frontend.context_filter import parse_filter_entries
 from screamingface.plugins.claude_frontend.proxy import create_router
 
 if TYPE_CHECKING:
@@ -85,6 +86,48 @@ class ClaudeFrontendSettings(PluginSettings):
             "System prompt prepended to the resolved context when embed_target is 'system'."
         ),
     )
+    context_filter: list[
+        Annotated[
+            str,
+            Field(
+                title="Allow-rule",
+                description=(
+                    "Format: <scope>:<types>. Scope = system | tools | user | "
+                    "assistant. Types = '*' or comma-separated block types / "
+                    "aliases (tool_call, tool_result, thinking). Examples: "
+                    "user:text · user:text,tool_result · assistant:tool_call · "
+                    "system:* · tools:*"
+                ),
+            ),
+        ]
+    ] = Field(
+        default_factory=lambda: ["user:text,tool_result"],
+        title="Context Filter (allow-list)",
+        description=(
+            "ALLOW-LIST — only message parts matching one of these entries are "
+            "forwarded to the url4-executor as $prompt. Everything else is "
+            "dropped before the blob is created. Empty list = nothing is sent. "
+            "Default ['user:text,tool_result'] forwards everything the user "
+            "sent: original prompts plus tool results (e.g. file contents "
+            "returned by Read) across all turns."
+        ),
+        examples=[
+            ["user:text,tool_result"],
+            ["user:text,tool_result", "assistant:text,tool_call"],
+            ["assistant:tool_call"],
+            ["system:*", "user:*", "assistant:*", "tools:*"],
+        ],
+    )
+
+    @field_validator("context_filter")
+    @classmethod
+    def _validate_context_filter(cls, v: list[str]) -> list[str]:
+        # Run the parser once at startup so any unknown scopes/types surface
+        # as warnings. The parser itself never raises — it warn-and-skips.
+        # We keep the raw entries on the settings so the proxy applies them
+        # consistently (and the parser is cheap to re-run per request).
+        parse_filter_entries(v)
+        return v
 
 
 class ClaudeFrontendPlugin(Plugin):
