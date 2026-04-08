@@ -133,6 +133,12 @@ class ClaudeBackendApiPlugin(Plugin):
     )
     depends: list[str] = ["llm-base"]
     conflicts: list[str] = ["claude-backend"]
+    # Registered for url4 backend-call dispatch via /claude()!<intent>.
+    # The url4 resolver walks active plugins looking for one whose
+    # backend_call_paths contains the target path and calls its
+    # handle_backend_call method. This is how SF-79 Stage B wires fan-out
+    # calls to the underlying llm-base Backend.
+    backend_call_paths: list[str] = ["/claude"]
     settings_class = ClaudeBackendApiSettings
 
     def customize_schema(self, schema: dict) -> dict:
@@ -154,3 +160,27 @@ class ClaudeBackendApiPlugin(Plugin):
     ) -> None:
         router = create_router(self.settings, app)  # type: ignore[arg-type]
         routes.add_router(self.name, router, prefix="")
+
+    async def handle_backend_call(self, intent: str, *, app: FastAPI) -> str:
+        """Dispatch a url4 backend-call to the direct Anthropic API.
+
+        Constructs a :class:`ClaudeBackendApiInterpreter` and delegates to
+        its ``process(sources="", intent=...)`` method — the same path the
+        existing ``GET /claude?q=`` route uses. Reusing the interpreter
+        means the backend-call dispatch inherits every behavior it already
+        has (default model, system prompt, timeout, auth strategy).
+        """
+        # Lazy import to avoid a circular dependency at module load.
+        from screamingface.plugins.claude_backend_api.interpreter import (
+            ClaudeBackendApiInterpreter,
+        )
+
+        interpreter = ClaudeBackendApiInterpreter(
+            app=app,
+            settings=self.settings,  # type: ignore[arg-type]
+        )
+        # process() takes (sources, intent). For a bare /claude()!<intent>
+        # call, sources is empty — there's no auxiliary context beyond the
+        # intent itself. The interpreter concatenates intent + sources as
+        # ``intent\n\nsources`` so empty sources gives us just the intent.
+        return await interpreter.process(sources="", intent=intent)

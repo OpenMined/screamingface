@@ -202,17 +202,65 @@ async def resolve(node: Url4Node, app: Any = None) -> str:
         results = list(await asyncio.gather(*[resolve(item, app) for item in node.items]))
         return "\n".join(results)
     if isinstance(node, Url4BackendCall):
-        # Stage B will implement dispatch. For now, the parser accepts
-        # the new form but the resolver refuses to execute it so we don't
-        # silently fall back to a URL fetch that would hit a nonexistent
-        # route.
-        raise NotImplementedError(
-            f"Backend call {node.path}() is not yet executable. "
-            "Stage B of SF-79 wires the dispatch through the llm-base "
-            "Backend abstraction. For now, only parser-level AST "
-            "inspection is supported."
-        )
+        return await _dispatch_backend_call(node, app)
     raise TypeError(f"Unknown node type: {type(node)}")
+
+
+async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
+    """Dispatch a :class:`Url4BackendCall` through an active plugin.
+
+    Walks ``app.state.plugins.active_plugins`` looking for one whose
+    :attr:`backend_call_paths` contains ``node.path``, flattens the
+    intent into a plain string, then awaits the plugin's
+    ``handle_backend_call(intent, app=app)`` method.
+
+    Error modes:
+
+    - No *app* available (e.g. resolver called without a FastAPI context)
+      → raises :class:`RuntimeError`.
+    - No active plugin handles ``node.path`` → raises :class:`RuntimeError`
+      with the list of known backend_call_paths so the user knows what's
+      available.
+    - Target plugin has no ``handle_backend_call`` override → raises
+      whatever the plugin base's default raises (``NotImplementedError``).
+    - Target plugin raises during dispatch → propagated unchanged so the
+      ensemble layer above can catch provider-specific errors.
+    """
+    if app is None:
+        raise RuntimeError(
+            f"Cannot dispatch backend call {node.path}() without an app "
+            "context. Backend-call resolution needs access to the active "
+            "plugin registry via app.state.plugins."
+        )
+
+    # Flatten the intent node to a string. For a text intent this is a
+    # no-op; for a relurl intent this fetches the blob body; for a URL
+    # intent this fetches the remote URL.
+    if node.intent is None:
+        intent_text = ""
+    else:
+        intent_text = await resolve(node.intent, app)
+
+    # Find the plugin that registered this path.
+    plugins_registry = getattr(getattr(app, "state", None), "plugins", None)
+    if plugins_registry is None:
+        raise RuntimeError(
+            f"Cannot dispatch backend call {node.path}(): app.state.plugins is not set."
+        )
+
+    known_paths: list[str] = []
+    for plugin in plugins_registry.active_plugins.values():
+        paths = getattr(plugin, "backend_call_paths", [])
+        known_paths.extend(paths)
+        if node.path in paths:
+            return await plugin.handle_backend_call(intent_text, app=app)
+
+    raise RuntimeError(
+        f"No active plugin handles the backend call {node.path}(). "
+        f"Known backend_call_paths across active plugins: {known_paths!r}. "
+        "Activate a plugin that declares this path in its "
+        "backend_call_paths attribute."
+    )
 
 
 async def resolve_str(context: str, app: Any = None) -> str:

@@ -377,33 +377,161 @@ def test_parse_mixed_list_backend_call_and_fetch() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Backend-call resolver tests — Stage B is not yet implemented
+# Backend-call resolver tests — Stage B dispatch
 # ---------------------------------------------------------------------------
 #
-# Stage A commits to parsing but NOT execution. The resolver raises
-# NotImplementedError when it encounters a Url4BackendCall. Stage B lands
-# the dispatch and removes this guard.
+# Stage B wires Url4BackendCall resolution through the active plugin
+# registry. The resolver walks ``app.state.plugins.active_plugins`` looking
+# for one whose ``backend_call_paths`` contains the target path and calls
+# its ``handle_backend_call`` method.
+#
+# These tests use a minimal fake plugin registry so they don't need the
+# real FastAPI + llm-base stack.
+
+
+class _FakePluginRegistry:
+    """Minimal stand-in for screamingface.core.registry.PluginRegistry.
+
+    Only implements the attribute the resolver touches: active_plugins is
+    a dict of name → plugin-like object.
+    """
+
+    def __init__(self, active: dict) -> None:
+        self.active_plugins = active
+
+
+class _FakeAppState:
+    def __init__(self, plugins: _FakePluginRegistry) -> None:
+        self.plugins = plugins
+
+
+class _FakeApp:
+    def __init__(self, plugins: _FakePluginRegistry) -> None:
+        self.state = _FakeAppState(plugins)
+
+
+class _FakeDispatchPlugin:
+    """Minimal plugin stub with the two attributes the resolver inspects."""
+
+    def __init__(self, name: str, paths: list[str], response: str) -> None:
+        self.name = name
+        self.backend_call_paths = paths
+        self._response = response
+        self.calls: list[tuple[str, object]] = []
+
+    async def handle_backend_call(self, intent: str, *, app) -> str:
+        self.calls.append((intent, app))
+        return self._response
 
 
 @pytest.mark.anyio
-async def test_resolve_backend_call_raises_not_implemented() -> None:
+async def test_resolve_backend_call_dispatches_to_matching_plugin() -> None:
+    plugin = _FakeDispatchPlugin(name="claude-backend-api", paths=["/claude"], response="Four")
+    app = _FakeApp(_FakePluginRegistry({"claude-backend-api": plugin}))
+    node = Url4BackendCall(path="/claude", intent=Url4Text(value="What is 2+2?"))
+
+    result = await resolve(node, app=app)
+
+    assert result == "Four"
+    assert plugin.calls == [("What is 2+2?", app)]
+
+
+@pytest.mark.anyio
+async def test_resolve_backend_call_flattens_relurl_intent() -> None:
+    """When the intent is a Url4RelUrl, the resolver fetches it first
+    (via in-process ASGI) and hands the body to the plugin as a string.
+    That's how $prompt substitution works: /claude()!/data/<key> becomes
+    'whatever is in the blob' as the intent string."""
+    plugin = _FakeDispatchPlugin(name="claude-backend-api", paths=["/claude"], response="ok")
+    app = _FakeApp(_FakePluginRegistry({"claude-backend-api": plugin}))
+    node = Url4BackendCall(path="/claude", intent=Url4RelUrl(value="/data/abc"))
+
+    with patch(
+        "screamingface.plugins.url4_executor.url4._fetch_relative",
+        new_callable=AsyncMock,
+        return_value="user's question from the blob",
+    ):
+        await resolve(node, app=app)
+
+    assert plugin.calls == [("user's question from the blob", app)]
+
+
+@pytest.mark.anyio
+async def test_resolve_backend_call_empty_intent_is_empty_string() -> None:
+    plugin = _FakeDispatchPlugin(name="claude-backend-api", paths=["/claude"], response="ok")
+    app = _FakeApp(_FakePluginRegistry({"claude-backend-api": plugin}))
+    node = Url4BackendCall(path="/claude", intent=None)
+
+    await resolve(node, app=app)
+
+    assert plugin.calls == [("", app)]
+
+
+@pytest.mark.anyio
+async def test_resolve_backend_call_no_app_raises() -> None:
     node = Url4BackendCall(path="/claude", intent=Url4Text(value="hi"))
-    with pytest.raises(NotImplementedError, match="Stage B"):
-        await resolve(node)
+    with pytest.raises(RuntimeError, match="without an app context"):
+        await resolve(node, app=None)
 
 
 @pytest.mark.anyio
-async def test_resolve_list_with_backend_call_raises_not_implemented() -> None:
-    """A list containing a backend call cannot be fully resolved until
-    Stage B, because at least one element needs dispatch support."""
+async def test_resolve_backend_call_no_matching_plugin_raises() -> None:
+    app = _FakeApp(_FakePluginRegistry({}))
+    node = Url4BackendCall(path="/claude", intent=Url4Text(value="hi"))
+
+    with pytest.raises(RuntimeError, match="No active plugin handles"):
+        await resolve(node, app=app)
+
+
+@pytest.mark.anyio
+async def test_resolve_backend_call_error_lists_known_paths() -> None:
+    """Error message includes the set of known backend_call_paths from
+    active plugins so the user can see what IS available."""
+    other_plugin = _FakeDispatchPlugin(name="other", paths=["/codex", "/gemini"], response="x")
+    app = _FakeApp(_FakePluginRegistry({"other": other_plugin}))
+    node = Url4BackendCall(path="/claude", intent=Url4Text(value="hi"))
+
+    with pytest.raises(RuntimeError, match="/codex") as exc_info:
+        await resolve(node, app=app)
+    assert "/gemini" in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_resolve_list_with_backend_call_dispatches() -> None:
+    """A list mixing plain text and backend calls resolves each element
+    through its appropriate path. Proves fan-out across N backend calls
+    works — this is the foundation the ensemble reducer builds on."""
+    plugin = _FakeDispatchPlugin(name="claude-backend-api", paths=["/claude"], response="LLM reply")
+    app = _FakeApp(_FakePluginRegistry({"claude-backend-api": plugin}))
     node = Url4List(
         items=(
             Url4Text(value="plain text"),
             Url4BackendCall(path="/claude", intent=Url4Text(value="hi")),
+            Url4BackendCall(path="/claude", intent=Url4Text(value="bye")),
         )
     )
-    with pytest.raises(NotImplementedError, match="Stage B"):
-        await resolve(node)
+
+    result = await resolve(node, app=app)
+
+    # Results joined with newlines (standard Url4List resolver behavior)
+    assert result == "plain text\nLLM reply\nLLM reply"
+    # Both backend calls dispatched in order
+    assert plugin.calls == [("hi", app), ("bye", app)]
+
+
+@pytest.mark.anyio
+async def test_resolve_fanout_list_of_three_backend_calls() -> None:
+    """The target ensemble fan-out shape. Three backend calls to the
+    same backend, collected in order. This is the Stage B foundation
+    that Stage C's ensemble executor builds fan-out-reduce on top of."""
+    plugin = _FakeDispatchPlugin(name="claude-backend-api", paths=["/claude"], response="response")
+    app = _FakeApp(_FakePluginRegistry({"claude-backend-api": plugin}))
+    node = parse("(/claude()!a, /claude()!b, /claude()!c)")
+
+    result = await resolve(node, app=app)
+
+    assert result == "response\nresponse\nresponse"
+    assert [call[0] for call in plugin.calls] == ["a", "b", "c"]
 
 
 # ---------------------------------------------------------------------------
