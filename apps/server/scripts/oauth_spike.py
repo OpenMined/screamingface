@@ -115,7 +115,7 @@ def read_keychain_credentials() -> dict:
 
     # Pretty-print findings with redacted secrets
     print()
-    ok(f"Keychain entry found and parsed")
+    ok("Keychain entry found and parsed")
     print(f"     accessToken:      {redact(creds['accessToken'])}")
     print(f"     refreshToken:     {redact(creds['refreshToken'])}")
     print(f"     expiresAt:        {creds['expiresAt']}  ({_fmt_expiry(creds['expiresAt'])})")
@@ -126,8 +126,7 @@ def read_keychain_credentials() -> dict:
     # Sanity-check: token format
     if not creds["accessToken"].startswith("sk-ant-oat"):
         print(
-            f"  ⚠️  accessToken does not start with 'sk-ant-oat' — got "
-            f"{creds['accessToken'][:12]!r}"
+            f"  ⚠️  accessToken does not start with 'sk-ant-oat' — got {creds['accessToken'][:12]!r}"
         )
     if not creds["refreshToken"].startswith("sk-ant-ort"):
         print(
@@ -164,9 +163,7 @@ def _fmt_expiry(ms: int) -> str:
 # ----------------------------------------------------------------------------
 
 
-def call_messages_api(
-    access_token: str, *, model: str = "claude-sonnet-4-5"
-) -> dict | None:
+def call_messages_api(access_token: str, *, model: str = "claude-sonnet-4-5") -> dict | None:
     """Send a one-shot Messages API request.
 
     Returns the parsed response on 200, or None if the call hit a non-fatal
@@ -194,7 +191,7 @@ def call_messages_api(
 
     print(f"  URL:    POST {ANTHROPIC_MESSAGES_URL}")
     print(f"  Model:  {model}")
-    print(f"  Headers:")
+    print("  Headers:")
     for k, v in headers.items():
         print(f"    {k}: {redact(v) if k == 'Authorization' else v}")
     print(f"  Body: {json.dumps(body, indent=2).replace(chr(10), chr(10) + '    ')}")
@@ -358,16 +355,14 @@ def test_refresh(refresh_token: str, refresh_info: dict) -> dict | None:
     }
 
     print(f"  POST {refresh_info['url']}")
-    print(f"  Body (refresh_token redacted):")
+    print("  Body (refresh_token redacted):")
     redacted_body = {**body, "refresh_token": redact(body["refresh_token"])}
     for k, v in redacted_body.items():
         print(f"    {k}: {v}")
 
     try:
         with httpx.Client(timeout=httpx.Timeout(30.0)) as client:
-            resp = client.post(
-                refresh_info["url"], json=body, headers=refresh_info["headers"]
-            )
+            resp = client.post(refresh_info["url"], json=body, headers=refresh_info["headers"])
     except httpx.RequestError as exc:
         print(f"\n  ❌ HTTP request failed: {exc}")
         return None
@@ -376,7 +371,7 @@ def test_refresh(refresh_token: str, refresh_info: dict) -> dict | None:
     print(f"  Status: {resp.status_code}")
 
     if resp.status_code != 200:
-        print(f"  ❌ Refresh failed.")
+        print("  ❌ Refresh failed.")
         print(f"     Response headers: {dict(resp.headers)}")
         print(f"     Response body: {resp.text[:1000]}")
         print(
