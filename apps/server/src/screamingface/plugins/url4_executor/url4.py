@@ -42,6 +42,36 @@ GRAMMAR = r"""
     group = '(' elems:','%{ context } ')' ;
 
     atom
+        = backend_call
+        | url
+        | relurl
+        | text
+        ;
+
+    # Backend-call form: /path()!<intent>
+    #
+    # Recognizes a plugin/backend invocation shorthand where ``/path`` is
+    # the backend route (e.g. ``/claude``, ``/codex``, ``/gemini``), ``()``
+    # marks it as a backend call (not a URL fetch), and ``!<intent>`` is
+    # the LLM instruction for that backend.
+    #
+    # The intent is any atom EXCEPT another backend_call — a trailing
+    # ``!intent!more`` is parsed with ``!more`` as the intent text, not as
+    # a nested call.
+    backend_call = path:backend_path '(' ')' [ '!' intent:atom_no_bc ] ;
+
+    # Path prefix for a backend_call: starts with /, continues until
+    # the first '(' or ',' or whitespace or '!'. Also excludes URL
+    # query/fragment chars ('?', '&', '#') so that URLs like
+    # ``/claude?q=()`` don't get captured as backend_call paths — those
+    # stay as regular URL fetches (Url4RelUrl).
+    backend_path = /\/[^\s,()!?&#]+/ ;
+
+    # atom alternatives used INSIDE a backend_call intent — excludes
+    # backend_call itself to avoid ambiguous nesting. ``/claude()!a`` is a
+    # single backend_call; ``/claude()!/other()!b`` puts ``/other()!b`` as
+    # the intent (a relurl, since intent can't contain another backend_call).
+    atom_no_bc
         = url
         | relurl
         | text
@@ -79,7 +109,26 @@ class Url4List:
     items: tuple[Url4Node, ...]
 
 
-Url4Node = Url4Url | Url4RelUrl | Url4Text | Url4List
+@dataclass(frozen=True)
+class Url4BackendCall:
+    """A backend-invocation node: ``/path()!<intent>``.
+
+    This is the shorthand for "invoke the plugin mounted at ``path`` as a
+    backend LLM call, passing ``intent`` as the instruction." Distinct from
+    a :class:`Url4RelUrl`, which is a URL fetch via in-process ASGI GET.
+
+    The distinction matters at execution time: a :class:`Url4RelUrl`
+    becomes an HTTP GET and the response body is concatenated into the
+    source text, whereas a :class:`Url4BackendCall` becomes a single LLM
+    invocation via the llm-base ``Backend`` abstraction and the response
+    is a structured assistant message.
+    """
+
+    path: str
+    intent: Url4Node | None = None
+
+
+Url4Node = Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall
 
 # ---------------------------------------------------------------------------
 # TatSu semantics — transforms raw AST into typed dataclasses
@@ -96,10 +145,25 @@ class Url4Semantics:
     def text(self, ast):
         return Url4Text(value=ast.value.strip())
 
+    def backend_call(self, ast):
+        # ast.path is the backend_path rule's matched value (e.g. "/claude").
+        # ast.intent is None when the optional ``!<intent>`` tail is absent,
+        # or the semantics-produced node (Url4Url / Url4RelUrl / Url4Text)
+        # when present.
+        return Url4BackendCall(path=ast.path.strip(), intent=ast.intent)
+
+    def backend_path(self, ast):
+        # TatSu returns the matched string directly for a regex rule
+        return ast
+
     def group(self, ast):
         elems = ast.elems if isinstance(ast.elems, list) else [ast.elems] if ast.elems else []
         # Filter out comma separator tokens from join operator
-        nodes = [e for e in elems if isinstance(e, Url4Url | Url4RelUrl | Url4Text | Url4List)]
+        nodes = [
+            e
+            for e in elems
+            if isinstance(e, Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall)
+        ]
         return Url4List(items=tuple(nodes))
 
     def context(self, ast):
@@ -137,6 +201,17 @@ async def resolve(node: Url4Node, app: Any = None) -> str:
     if isinstance(node, Url4List):
         results = list(await asyncio.gather(*[resolve(item, app) for item in node.items]))
         return "\n".join(results)
+    if isinstance(node, Url4BackendCall):
+        # Stage B will implement dispatch. For now, the parser accepts
+        # the new form but the resolver refuses to execute it so we don't
+        # silently fall back to a URL fetch that would hit a nonexistent
+        # route.
+        raise NotImplementedError(
+            f"Backend call {node.path}() is not yet executable. "
+            "Stage B of SF-79 wires the dispatch through the llm-base "
+            "Backend abstraction. For now, only parser-level AST "
+            "inspection is supported."
+        )
     raise TypeError(f"Unknown node type: {type(node)}")
 
 
