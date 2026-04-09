@@ -53,7 +53,18 @@ class GeminiFrontendSettings(PluginSettings):
     )
     backend_url: str | None = Field(
         default=None,
-        description="URL of the main SF server for url4/data/backend calls.",
+        description=(
+            "SF server URL used for $prompt substitution — stores user text "
+            "on /data and resolves url4 expressions via /ensemble. "
+            "Set automatically in per-session mode."
+        ),
+    )
+    default_backend_path: str = Field(
+        default="/gemini",
+        description=(
+            "Default backend path for ensemble fan-out (e.g. /gemini). "
+            "Used when resolving $prompt expressions through this frontend."
+        ),
     )
     resolve_timeout: float = Field(
         default=300.0,
