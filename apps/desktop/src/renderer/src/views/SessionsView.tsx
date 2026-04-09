@@ -10,6 +10,8 @@ import {
   ChevronRight,
   Pencil,
   Play,
+  Download,
+  ExternalLink,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ServerLogs } from '@/components/server/ServerLogs';
@@ -18,10 +20,40 @@ import { useSessions } from '@/hooks/use-sessions';
 import { useServerStatus } from '@/hooks/use-server-status';
 import type { SessionInfo, SessionStatus, SessionType } from '../../../preload/types';
 
-const ALL_SESSION_TYPES: { type: SessionType; label: string; frontendPlugin: string }[] = [
-  { type: 'claude', label: 'Claude Code', frontendPlugin: 'claude-frontend' },
-  { type: 'codex', label: 'Codex', frontendPlugin: 'codex-frontend' },
-  { type: 'gemini', label: 'Gemini CLI', frontendPlugin: 'gemini-frontend' },
+interface SessionTypeInfo {
+  type: SessionType;
+  label: string;
+  frontendPlugin: string;
+  installCommand: string;
+  installUrl: string;
+  description: string;
+}
+
+const ALL_SESSION_TYPES: SessionTypeInfo[] = [
+  {
+    type: 'claude',
+    label: 'Claude Code',
+    frontendPlugin: 'claude-frontend',
+    installCommand: 'npm install -g @anthropic-ai/claude-code',
+    installUrl: 'https://docs.anthropic.com/en/docs/claude-code',
+    description: 'AI coding assistant by Anthropic',
+  },
+  {
+    type: 'codex',
+    label: 'Codex',
+    frontendPlugin: 'codex-frontend',
+    installCommand: 'npm install -g @openai/codex',
+    installUrl: 'https://github.com/openai/codex',
+    description: 'AI coding agent by OpenAI',
+  },
+  {
+    type: 'gemini',
+    label: 'Gemini CLI',
+    frontendPlugin: 'gemini-frontend',
+    installCommand: 'npm install -g @anthropic-ai/gemini-cli',
+    installUrl: 'https://github.com/anthropics/gemini-cli',
+    description: 'AI coding assistant by Google',
+  },
 ];
 
 function statusColor(status: SessionStatus): string {
@@ -80,9 +112,10 @@ export function SessionsView() {
   const { status: serverStatus, info: serverInfo } = useServerStatus();
   const [dialogType, setDialogType] = useState<SessionType | null>(null);
   const [editingSession, setEditingSession] = useState<SessionInfo | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<SessionTypeInfo | null>(null);
   const [activePlugins, setActivePlugins] = useState<Record<string, unknown>>({});
 
-  // Fetch active plugins from server to determine which session types to show
+  // Fetch active plugins from server to determine which session types are available
   const serverUrl = serverInfo
     ? `${serverInfo.scheme}://${serverInfo.host === '0.0.0.0' ? 'localhost' : serverInfo.host}:${serverInfo.port}`
     : null;
@@ -101,8 +134,15 @@ export function SessionsView() {
     fetchPlugins();
   }, [fetchPlugins]);
 
-  // Only show session types whose frontend plugin is active on the server
-  const SESSION_TYPES = ALL_SESSION_TYPES.filter((t) => t.frontendPlugin in activePlugins);
+  const isAvailable = (t: SessionTypeInfo) => t.frontendPlugin in activePlugins;
+
+  const handleSessionButton = (t: SessionTypeInfo) => {
+    if (isAvailable(t)) {
+      setDialogType(t.type);
+    } else {
+      setInstallPrompt(t);
+    }
+  };
 
   const activeSessions = sessions.filter((s) => s.status !== 'stopped');
   const stoppedSessions = sessions.filter((s) => s.status === 'stopped');
@@ -139,6 +179,86 @@ export function SessionsView() {
         />
       )}
 
+      {/* Install prompt overlay */}
+      {installPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setInstallPrompt(null)}
+        >
+          <div
+            className="relative w-[420px] overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Gradient accent bar */}
+            <div className="h-1 bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500" />
+
+            <div className="p-6">
+              {/* Icon + title */}
+              <div className="mb-4 flex items-start gap-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted">
+                  <Download className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">
+                    {installPrompt.label} is not installed
+                  </h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {installPrompt.description}
+                  </p>
+                </div>
+              </div>
+
+              {/* Install command */}
+              <div className="mb-4 rounded-lg bg-muted/50 p-3">
+                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Install via terminal
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 rounded bg-background px-3 py-2 font-mono text-xs text-foreground">
+                    {installPrompt.installCommand}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 text-xs"
+                    onClick={() => {
+                      navigator.clipboard.writeText(installPrompt.installCommand);
+                    }}
+                  >
+                    Copy
+                  </Button>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-between">
+                <button
+                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => window.open(installPrompt.installUrl, '_blank')}
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Documentation
+                </button>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setInstallPrompt(null)}>
+                    Close
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setInstallPrompt(null);
+                      fetchPlugins();
+                    }}
+                  >
+                    I've installed it
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <div>
@@ -148,12 +268,21 @@ export function SessionsView() {
           </p>
         </div>
         <div className="flex gap-2">
-          {SESSION_TYPES.map((t) => (
-            <Button key={t.type} variant="outline" size="sm" onClick={() => setDialogType(t.type)}>
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
-              {t.label}
-            </Button>
-          ))}
+          {ALL_SESSION_TYPES.map((t) => {
+            const available = isAvailable(t);
+            return (
+              <Button
+                key={t.type}
+                variant="outline"
+                size="sm"
+                className={available ? '' : 'opacity-40 border-dashed'}
+                onClick={() => handleSessionButton(t)}
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                {t.label}
+              </Button>
+            );
+          })}
         </div>
       </div>
 
@@ -167,17 +296,21 @@ export function SessionsView() {
               Start a new session to launch a CLI tool in an external terminal
             </p>
             <div className="flex gap-2">
-              {SESSION_TYPES.map((t) => (
-                <Button
-                  key={t.type}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setDialogType(t.type)}
-                >
-                  <Plus className="mr-1.5 h-3.5 w-3.5" />
-                  {t.label}
-                </Button>
-              ))}
+              {ALL_SESSION_TYPES.map((t) => {
+                const available = isAvailable(t);
+                return (
+                  <Button
+                    key={t.type}
+                    variant="outline"
+                    size="sm"
+                    className={available ? '' : 'opacity-40 border-dashed'}
+                    onClick={() => handleSessionButton(t)}
+                  >
+                    <Plus className="mr-1.5 h-3.5 w-3.5" />
+                    {t.label}
+                  </Button>
+                );
+              })}
             </div>
           </div>
         ) : (
