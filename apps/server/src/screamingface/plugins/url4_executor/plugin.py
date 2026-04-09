@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 class Url4ExecutorPlugin(Plugin):
     name = "url4-executor"
     description = "url4 protocol engine — parsing, resolution, and HTTP endpoint"
+    tags: list[str] = ["product:url4"]
     depends: list[str] = []
     settings_class = None
 

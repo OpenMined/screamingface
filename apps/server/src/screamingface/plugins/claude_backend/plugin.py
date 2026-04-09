@@ -65,6 +65,7 @@ class ClaudeBackendSettings(PluginSettings):
 class ClaudeBackendPlugin(Plugin):
     name = "claude-backend"
     description = "REST wrapper for the local Claude Code CLI"
+    tags: list[str] = ["product:claude"]
     depends: list[str] = ["url4-executor"]
     settings_class = ClaudeBackendSettings
     system_deps = ["claude"]

@@ -58,6 +58,7 @@ class ClaudeInterceptSettings(PluginSettings):
 class ClaudeInterceptPlugin(Plugin):
     name = "claude-intercept"
     description = "Transparent DNS/SSL proxy — redirects AI API traffic through ScreamingFace"
+    tags: list[str] = ["product:claude"]
     settings_class = ClaudeInterceptSettings
     system_deps = ["mkcert"]
     depends = ["claude-frontend"]

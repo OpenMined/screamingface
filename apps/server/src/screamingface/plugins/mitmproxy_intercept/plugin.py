@@ -109,6 +109,7 @@ def _resolve_rules(
 class MitmproxyInterceptPlugin(Plugin):
     name = "mitmproxy-intercept"
     description = "Transparent traffic interception via mitmproxy --mode local (requires sudo)"
+    tags: list[str] = ["product:system"]
     settings_class = MitmproxyInterceptSettings
     system_deps: list[str] = []
     conflicts = ["claude-intercept", "claude-env-intercept"]
