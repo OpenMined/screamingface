@@ -471,7 +471,11 @@ export function SettingsView() {
                                       {meta.description}
                                     </p>
                                   )}
-                                  {name === 'claude-frontend' && (
+                                  {[
+                                    'claude-frontend',
+                                    'codex-frontend',
+                                    'gemini-frontend',
+                                  ].includes(name) && (
                                     <p className="text-[10px] leading-tight text-chart-3/80">
                                       Settings here are defaults for new sessions — override per
                                       session in the Sessions tab
