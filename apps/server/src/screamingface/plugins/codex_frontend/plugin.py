@@ -112,8 +112,7 @@ class CodexFrontendPlugin(Plugin):
     def preflight(self) -> tuple[bool, str]:
         if not shutil.which("codex"):
             return False, (
-                "Codex CLI not found in PATH. "
-                "Install it with: npm install -g @openai/codex"
+                "Codex CLI not found in PATH. Install it with: npm install -g @openai/codex"
             )
         return True, ""
 

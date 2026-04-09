@@ -97,27 +97,35 @@ class TestParseSSEResponse:
             return f"data: {json.dumps(data)}\n"
 
         raw = (
-            _evt({
-                "type": "response.created",
-                "response": {"id": "resp_1", "model": "o4-mini", "status": "in_progress"},
-            })
-            + _evt({
-                "type": "response.output_item.added",
-                "item": {"type": "message", "role": "assistant"},
-            })
+            _evt(
+                {
+                    "type": "response.created",
+                    "response": {"id": "resp_1", "model": "o4-mini", "status": "in_progress"},
+                }
+            )
+            + _evt(
+                {
+                    "type": "response.output_item.added",
+                    "item": {"type": "message", "role": "assistant"},
+                }
+            )
             + _evt({"type": "response.output_text.delta", "delta": "Hello"})
             + _evt({"type": "response.output_text.delta", "delta": " world"})
-            + _evt({
-                "type": "response.output_item.done",
-                "item": {"type": "message", "role": "assistant"},
-            })
-            + _evt({
-                "type": "response.completed",
-                "response": {
-                    "status": "completed",
-                    "usage": {"input_tokens": 5, "output_tokens": 2},
-                },
-            })
+            + _evt(
+                {
+                    "type": "response.output_item.done",
+                    "item": {"type": "message", "role": "assistant"},
+                }
+            )
+            + _evt(
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "usage": {"input_tokens": 5, "output_tokens": 2},
+                    },
+                }
+            )
             + "data: [DONE]\n"
         )
         result = _parse_sse_response(raw)
