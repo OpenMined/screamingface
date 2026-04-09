@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from screamingface.plugins.url4_executor.url4 import (
+    Url4BackendCall,
     Url4List,
+    Url4RelUrl,
     Url4Text,
     Url4Url,
     parse,
@@ -256,6 +258,280 @@ def test_parse_list_strips_item_whitespace() -> None:
     assert url_item.value == "http://a.com"
     assert isinstance(text_item, Url4Text)
     assert text_item.value == "hello"
+
+
+# ---------------------------------------------------------------------------
+# Backend-call tests — /path()!<intent> form
+# ---------------------------------------------------------------------------
+#
+# The backend_call syntax is the new shorthand for "invoke a plugin as a
+# backend LLM call, with <intent> as its instruction." It parses into a
+# Url4BackendCall AST node distinct from Url4RelUrl (which stays a URL fetch).
+#
+# Stage A (SF-79) implements only the parser-level recognition. Execution
+# (Stage B) is tested separately — here we only assert AST shape.
+
+
+def test_parse_backend_call_without_intent() -> None:
+    node = parse("/claude()")
+    assert isinstance(node, Url4BackendCall)
+    assert node.path == "/claude"
+    assert node.intent is None
+
+
+def test_parse_backend_call_with_text_intent() -> None:
+    node = parse("/claude()!hello")
+    assert isinstance(node, Url4BackendCall)
+    assert node.path == "/claude"
+    assert isinstance(node.intent, Url4Text)
+    assert node.intent.value == "hello"
+
+
+def test_parse_backend_call_with_relurl_intent() -> None:
+    """The common frontend-substituted shape: /claude()!/data/<blob-key>."""
+    node = parse("/claude()!/data/abc123")
+    assert isinstance(node, Url4BackendCall)
+    assert node.path == "/claude"
+    assert isinstance(node.intent, Url4RelUrl)
+    assert node.intent.value == "/data/abc123"
+
+
+def test_parse_backend_call_with_url_intent() -> None:
+    """Edge case: the intent can be an absolute URL. Not the common shape,
+    but the grammar should accept it without special-casing."""
+    node = parse("/claude()!https://example.com/data")
+    assert isinstance(node, Url4BackendCall)
+    assert isinstance(node.intent, Url4Url)
+    assert node.intent.value == "https://example.com/data"
+
+
+def test_parse_backend_call_with_variable_intent() -> None:
+    """The $prompt variable shape. Parser treats the literal '$prompt'
+    string as Url4Text — the frontend substitutes it to a /data/<key>
+    reference BEFORE the parser runs on the substituted expression."""
+    node = parse("/codex()!$prompt")
+    assert isinstance(node, Url4BackendCall)
+    assert node.path == "/codex"
+    assert isinstance(node.intent, Url4Text)
+    assert node.intent.value == "$prompt"
+
+
+def test_parse_backend_call_different_paths() -> None:
+    """Parser must accept every backend path, not just /claude."""
+    for path in ("/claude", "/codex", "/gemini", "/qwen", "/ollama"):
+        node = parse(f"{path}()!test")
+        assert isinstance(node, Url4BackendCall)
+        assert node.path == path
+
+
+def test_parse_list_of_backend_calls_fanout_shape() -> None:
+    """The target spec's fan-out shape: a parenthesized list where every
+    element is a backend call to a different backend with the same intent."""
+    node = parse("(/claude()!$prompt,/codex()!$prompt,/gemini()!$prompt)")
+    assert isinstance(node, Url4List)
+    assert len(node.items) == 3
+
+    for item, expected_path in zip(node.items, ["/claude", "/codex", "/gemini"], strict=True):
+        assert isinstance(item, Url4BackendCall)
+        assert item.path == expected_path
+        assert isinstance(item.intent, Url4Text)
+        assert item.intent.value == "$prompt"
+
+
+def test_parse_list_of_backend_calls_different_intents() -> None:
+    """Each element of a fan-out list can have its own distinct intent.
+    This shape is used for deterministic manual testing and e2e tests
+    that want to assert the reducer received three specific responses."""
+    node = parse("(/claude()!hello, /claude()!world, /claude()!again)")
+    assert isinstance(node, Url4List)
+    assert len(node.items) == 3
+    intents = [item.intent.value for item in node.items]  # type: ignore[union-attr]
+    assert intents == ["hello", "world", "again"]
+
+
+def test_parse_backend_call_does_not_shadow_regular_relurl() -> None:
+    """Regression: /claude (no parens) must still parse as a Url4RelUrl,
+    not as a Url4BackendCall. The backend_call alternative only matches
+    when () is present immediately after the path."""
+    node = parse("/claude")
+    assert isinstance(node, Url4RelUrl)
+    assert node.value == "/claude"
+
+
+def test_parse_backend_call_does_not_shadow_querystring_relurl() -> None:
+    """Regression: /claude?q=... still parses as a Url4RelUrl (URL fetch),
+    not as a backend call — there are no () after the path."""
+    node = parse("/claude?q=(https://ex.com)!summarize")
+    assert isinstance(node, Url4RelUrl)
+    assert node.value == "/claude?q=(https://ex.com)!summarize"
+
+
+def test_parse_mixed_list_backend_call_and_fetch() -> None:
+    """A list can contain both backend calls and plain URL fetches.
+    This isn't a common shape but the grammar shouldn't reject it."""
+    node = parse("(/claude()!hi, /data/abc, https://example.com)")
+    assert isinstance(node, Url4List)
+    assert isinstance(node.items[0], Url4BackendCall)
+    assert isinstance(node.items[1], Url4RelUrl)
+    assert isinstance(node.items[2], Url4Url)
+
+
+# ---------------------------------------------------------------------------
+# Backend-call resolver tests — Stage B dispatch
+# ---------------------------------------------------------------------------
+#
+# Stage B wires Url4BackendCall resolution through the active plugin
+# registry. The resolver walks ``app.state.plugins.active_plugins`` looking
+# for one whose ``backend_call_paths`` contains the target path and calls
+# its ``handle_backend_call`` method.
+#
+# These tests use a minimal fake plugin registry so they don't need the
+# real FastAPI + llm-base stack.
+
+
+class _FakePluginRegistry:
+    """Minimal stand-in for screamingface.core.registry.PluginRegistry.
+
+    Only implements the attribute the resolver touches: active_plugins is
+    a dict of name → plugin-like object.
+    """
+
+    def __init__(self, active: dict) -> None:
+        self.active_plugins = active
+
+
+class _FakeAppState:
+    def __init__(self, plugins: _FakePluginRegistry) -> None:
+        self.plugins = plugins
+
+
+class _FakeApp:
+    def __init__(self, plugins: _FakePluginRegistry) -> None:
+        self.state = _FakeAppState(plugins)
+
+
+class _FakeDispatchPlugin:
+    """Minimal plugin stub with the two attributes the resolver inspects."""
+
+    def __init__(self, name: str, paths: list[str], response: str) -> None:
+        self.name = name
+        self.backend_call_paths = paths
+        self._response = response
+        self.calls: list[tuple[str, object]] = []
+
+    async def handle_backend_call(self, intent: str, *, app) -> str:
+        self.calls.append((intent, app))
+        return self._response
+
+
+@pytest.mark.anyio
+async def test_resolve_backend_call_dispatches_to_matching_plugin() -> None:
+    plugin = _FakeDispatchPlugin(name="claude-backend-api", paths=["/claude"], response="Four")
+    app = _FakeApp(_FakePluginRegistry({"claude-backend-api": plugin}))
+    node = Url4BackendCall(path="/claude", intent=Url4Text(value="What is 2+2?"))
+
+    result = await resolve(node, app=app)
+
+    assert result == "Four"
+    assert plugin.calls == [("What is 2+2?", app)]
+
+
+@pytest.mark.anyio
+async def test_resolve_backend_call_flattens_relurl_intent() -> None:
+    """When the intent is a Url4RelUrl, the resolver fetches it first
+    (via in-process ASGI) and hands the body to the plugin as a string.
+    That's how $prompt substitution works: /claude()!/data/<key> becomes
+    'whatever is in the blob' as the intent string."""
+    plugin = _FakeDispatchPlugin(name="claude-backend-api", paths=["/claude"], response="ok")
+    app = _FakeApp(_FakePluginRegistry({"claude-backend-api": plugin}))
+    node = Url4BackendCall(path="/claude", intent=Url4RelUrl(value="/data/abc"))
+
+    with patch(
+        "screamingface.plugins.url4_executor.url4._fetch_relative",
+        new_callable=AsyncMock,
+        return_value="user's question from the blob",
+    ):
+        await resolve(node, app=app)
+
+    assert plugin.calls == [("user's question from the blob", app)]
+
+
+@pytest.mark.anyio
+async def test_resolve_backend_call_empty_intent_is_empty_string() -> None:
+    plugin = _FakeDispatchPlugin(name="claude-backend-api", paths=["/claude"], response="ok")
+    app = _FakeApp(_FakePluginRegistry({"claude-backend-api": plugin}))
+    node = Url4BackendCall(path="/claude", intent=None)
+
+    await resolve(node, app=app)
+
+    assert plugin.calls == [("", app)]
+
+
+@pytest.mark.anyio
+async def test_resolve_backend_call_no_app_raises() -> None:
+    node = Url4BackendCall(path="/claude", intent=Url4Text(value="hi"))
+    with pytest.raises(RuntimeError, match="without an app context"):
+        await resolve(node, app=None)
+
+
+@pytest.mark.anyio
+async def test_resolve_backend_call_no_matching_plugin_raises() -> None:
+    app = _FakeApp(_FakePluginRegistry({}))
+    node = Url4BackendCall(path="/claude", intent=Url4Text(value="hi"))
+
+    with pytest.raises(RuntimeError, match="No active plugin handles"):
+        await resolve(node, app=app)
+
+
+@pytest.mark.anyio
+async def test_resolve_backend_call_error_lists_known_paths() -> None:
+    """Error message includes the set of known backend_call_paths from
+    active plugins so the user can see what IS available."""
+    other_plugin = _FakeDispatchPlugin(name="other", paths=["/codex", "/gemini"], response="x")
+    app = _FakeApp(_FakePluginRegistry({"other": other_plugin}))
+    node = Url4BackendCall(path="/claude", intent=Url4Text(value="hi"))
+
+    with pytest.raises(RuntimeError, match="/codex") as exc_info:
+        await resolve(node, app=app)
+    assert "/gemini" in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_resolve_list_with_backend_call_dispatches() -> None:
+    """A list mixing plain text and backend calls resolves each element
+    through its appropriate path. Proves fan-out across N backend calls
+    works — this is the foundation the ensemble reducer builds on."""
+    plugin = _FakeDispatchPlugin(name="claude-backend-api", paths=["/claude"], response="LLM reply")
+    app = _FakeApp(_FakePluginRegistry({"claude-backend-api": plugin}))
+    node = Url4List(
+        items=(
+            Url4Text(value="plain text"),
+            Url4BackendCall(path="/claude", intent=Url4Text(value="hi")),
+            Url4BackendCall(path="/claude", intent=Url4Text(value="bye")),
+        )
+    )
+
+    result = await resolve(node, app=app)
+
+    # Results joined with newlines (standard Url4List resolver behavior)
+    assert result == "plain text\nLLM reply\nLLM reply"
+    # Both backend calls dispatched in order
+    assert plugin.calls == [("hi", app), ("bye", app)]
+
+
+@pytest.mark.anyio
+async def test_resolve_fanout_list_of_three_backend_calls() -> None:
+    """The target ensemble fan-out shape. Three backend calls to the
+    same backend, collected in order. This is the Stage B foundation
+    that Stage C's ensemble executor builds fan-out-reduce on top of."""
+    plugin = _FakeDispatchPlugin(name="claude-backend-api", paths=["/claude"], response="response")
+    app = _FakeApp(_FakePluginRegistry({"claude-backend-api": plugin}))
+    node = parse("(/claude()!a, /claude()!b, /claude()!c)")
+
+    result = await resolve(node, app=app)
+
+    assert result == "response\nresponse\nresponse"
+    assert [call[0] for call in plugin.calls] == ["a", "b", "c"]
 
 
 # ---------------------------------------------------------------------------

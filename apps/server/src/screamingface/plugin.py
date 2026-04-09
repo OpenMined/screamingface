@@ -62,6 +62,16 @@ class Plugin:
     required_port: int | None = None
     settings: PluginSettings | None = None
 
+    # Paths this plugin handles when it's the target of a url4 backend_call
+    # (``/<path>()!<intent>`` form). The url4 resolver walks active plugins
+    # looking for one whose ``backend_call_paths`` contains the target path
+    # and calls its :meth:`handle_backend_call`. Plugins that don't support
+    # backend-call dispatch leave this empty.
+    #
+    # Example: ``ClaudeBackendApiPlugin`` declares ``["/claude"]`` so that
+    # ``/claude()!hello`` dispatches to it.
+    backend_call_paths: list[str] = []
+
     def preflight(self) -> tuple[bool, str]:
         """Check if this plugin can activate. Return (ok, reason).
 
@@ -90,6 +100,33 @@ class Plugin:
 
     def teardown(self) -> None:
         """Called when the plugin is deactivated. Clean up resources here."""
+
+    async def handle_backend_call(self, intent: str, *, app: FastAPI) -> str:
+        """Handle a url4 backend-call dispatch.
+
+        Called by the url4 resolver when it encounters a ``/<path>()!<intent>``
+        node whose path is in this plugin's :attr:`backend_call_paths`.
+        The *intent* has already been flattened to a string by the resolver
+        (text literals are passed as-is; ``/data/<key>`` relurls are fetched
+        and their body becomes the intent string; etc.).
+
+        Implementations typically construct their plugin-specific
+        Url4Interpreter and delegate to :meth:`process`, or call directly
+        into the llm-base ``Backend.run()`` method with a single-user-turn
+        :class:`CoreMessage`.
+
+        Return value: the assistant's response as a plain string. The
+        resolver returns this as the result of evaluating the
+        Url4BackendCall node.
+
+        Default implementation raises :class:`NotImplementedError`. Plugins
+        that declare non-empty ``backend_call_paths`` MUST override this.
+        """
+        raise NotImplementedError(
+            f"Plugin {self.name!r} declares backend_call_paths="
+            f"{self.backend_call_paths!r} but does not override "
+            f"handle_backend_call(). This is a plugin implementation bug."
+        )
 
     def cleanup_stale(self) -> None:
         """Remove leftover side effects from a previously active instance.
