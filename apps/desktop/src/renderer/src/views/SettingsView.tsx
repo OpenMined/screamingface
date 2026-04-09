@@ -525,7 +525,9 @@ export function SettingsView() {
                           omitExtraData
                           uiSchema={{
                             'ui:submitButtonOptions': { norender: true },
-                            ...(name === 'claude-frontend'
+                            ...(['claude-frontend', 'codex-frontend', 'gemini-frontend'].includes(
+                              name,
+                            )
                               ? {
                                   active_spec: { 'ui:widget': 'SpecSelectorWidget' },
                                 }
