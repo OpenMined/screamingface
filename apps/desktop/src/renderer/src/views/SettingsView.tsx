@@ -446,14 +446,6 @@ export function SettingsView() {
                     const schema = pluginSchemas[name];
                     return (
                       <div key={name}>
-                        {showHeader && (
-                          <div className="flex items-center gap-2 mt-3 mb-1 first:mt-0">
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">
-                              {letter}
-                            </span>
-                            <div className="h-px flex-1 bg-border/30" />
-                          </div>
-                        )}
                         <div className="rounded-md bg-secondary">
                           <div
                             className={`flex items-center justify-between px-3 py-2 select-none ${hasSettings ? 'cursor-pointer' : ''}`}
