@@ -224,10 +224,33 @@ export function SettingsView() {
     markDirty();
   };
 
-  const updatePlugins = (plugins: string[]) => {
-    setConfig((prev) => ({ ...prev, plugins }));
+  const updatePlugins = async (plugins: string[]) => {
+    if (initialLoadRef.current) {
+      setConfig((prev) => ({ ...prev, plugins }));
+      return;
+    }
 
-    if (initialLoadRef.current) return;
+    // Validate via server before saving (preflight checks, conflict detection)
+    if (serverStatus === 'ready') {
+      try {
+        const res = await serverFetch(`${serverUrlRef.current}/config/validate`, {
+          method: 'POST',
+          body: JSON.stringify({ plugins }),
+        });
+        const data = res.json();
+        if (!data.valid && data.errors?.length) {
+          const msgs = data.errors.map(
+            (e: { plugin: string; error: string }) => `${e.plugin}: ${e.error}`,
+          );
+          toast(msgs.join('\n'), 'error', 5000);
+          return; // Don't save — validation failed
+        }
+      } catch {
+        // Server unreachable — skip validation, allow save
+      }
+    }
+
+    setConfig((prev) => ({ ...prev, plugins }));
 
     // Plugin changes require a server restart — save immediately (skip debounce)
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -392,7 +415,8 @@ export function SettingsView() {
                         )}
                         {name === 'claude-frontend' && (
                           <p className="text-[10px] leading-tight text-chart-3/80">
-                            Settings here are defaults for new sessions — override per session in the Sessions tab
+                            Settings here are defaults for new sessions — override per session in
+                            the Sessions tab
                           </p>
                         )}
                         {meta?.requires_root && (
@@ -401,16 +425,18 @@ export function SettingsView() {
                             starting the server
                           </p>
                         )}
-                        {meta?.depends && meta.depends.length > 0 && (() => {
-                          const unmet = meta.depends!.filter(
-                            (dep) => !config.plugins.includes(dep) && !serverPlugins?.[dep],
-                          );
-                          return unmet.length > 0 ? (
-                            <p className="text-[10px] leading-tight text-amber-500">
-                              Depends on: {unmet.join(', ')} (will be auto-added at startup)
-                            </p>
-                          ) : null;
-                        })()}
+                        {meta?.depends &&
+                          meta.depends.length > 0 &&
+                          (() => {
+                            const unmet = meta.depends!.filter(
+                              (dep) => !config.plugins.includes(dep) && !serverPlugins?.[dep],
+                            );
+                            return unmet.length > 0 ? (
+                              <p className="text-[10px] leading-tight text-amber-500">
+                                Depends on: {unmet.join(', ')} (will be auto-added at startup)
+                              </p>
+                            ) : null;
+                          })()}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 ml-2 shrink-0">
@@ -499,9 +525,11 @@ export function SettingsView() {
                           omitExtraData
                           uiSchema={{
                             'ui:submitButtonOptions': { norender: true },
-                            ...(name === 'claude-frontend' ? {
-                              active_spec: { 'ui:widget': 'SpecSelectorWidget' },
-                            } : {}),
+                            ...(name === 'claude-frontend'
+                              ? {
+                                  active_spec: { 'ui:widget': 'SpecSelectorWidget' },
+                                }
+                              : {}),
                           }}
                         />
                       )}
