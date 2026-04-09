@@ -235,7 +235,7 @@ export function SettingsView() {
       try {
         const res = await serverFetch(`${serverUrlRef.current}/config/validate`, {
           method: 'POST',
-          body: JSON.stringify({ plugins }),
+          body: JSON.stringify({ plugins, current_plugins: configRef.current.plugins }),
         });
         const data = res.json();
         if (!data.valid && data.errors?.length) {

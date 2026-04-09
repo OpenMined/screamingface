@@ -308,21 +308,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def validate_config(request: Request) -> dict:
         """Validate a proposed sf.json config before saving.
 
-        Checks each plugin in the proposed ``plugins`` list:
-        - Is it a known/discovered plugin?
-        - Does it pass preflight (CLI tool installed, deps met)?
-        - Are there conflicts with other proposed plugins?
+        Only validates **newly added** plugins — removals are always
+        allowed. Pass both ``plugins`` (proposed list) and
+        ``current_plugins`` (what's in sf.json now) so the endpoint
+        can diff them.
 
         Returns ``{"valid": true}`` or ``{"valid": false, "errors": [...]}``.
-        The desktop app should call this before writing sf.json.
         """
         body = await request.json()
-        proposed_plugins = body.get("plugins", [])
+        proposed_plugins: list[str] = body.get("plugins", [])
+        current_plugins: list[str] = body.get("current_plugins", [])
         errors: list[dict[str, str]] = []
+
+        # Only validate plugins being added, not ones already present
+        added = set(proposed_plugins) - set(current_plugins)
 
         discovered = app.state.plugins.discovered_plugins
 
-        for name in proposed_plugins:
+        for name in added:
             if name not in discovered:
                 errors.append({
                     "plugin": name,
