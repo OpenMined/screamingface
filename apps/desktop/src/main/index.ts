@@ -32,6 +32,10 @@ function createWindow(): void {
     mainWindow?.webContents.openDevTools({ mode: 'detach' });
   });
 
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
@@ -128,7 +132,10 @@ app.on('before-quit', (event) => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  // In dev mode, always quit — no reason to linger in the dock when the
+  // Vite dev server has stopped. In production, follow macOS convention
+  // and keep the app alive for reactivation via the dock icon.
+  if (process.platform !== 'darwin' || is.dev) {
     app.quit();
   }
 });

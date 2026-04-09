@@ -62,7 +62,7 @@ function StatusDot({ status }: { status: PluginStatus }) {
     missing: 'Not found on server',
   }[status];
 
-  return <span className={`inline-block h-2 w-2 rounded-full ${color}`} title={title} />;
+  return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`} title={title} />;
 }
 
 function buildServerUrl(config: AppConfig): string {
