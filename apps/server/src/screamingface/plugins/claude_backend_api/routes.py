@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "claude-sonnet-4-5"
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 # The six fields we silently ignore because they're subprocess-only.
 _CLI_ONLY_FIELDS = (

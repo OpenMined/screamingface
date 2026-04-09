@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # Final fallback model if neither the request nor the plugin settings
 # specify one. Matches the plan's locked-in default.
-_DEFAULT_MODEL = "claude-sonnet-4-5"
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 class ClaudeBackendApiInterpreter(Url4Interpreter):

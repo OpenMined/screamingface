@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
@@ -60,7 +60,7 @@ class ClaudeBackendApiSettings(PluginSettings):
         default=None,
         description=(
             "Default Claude model for requests that don't specify one. "
-            "Falls back to 'claude-sonnet-4-5' if still unset at call time."
+            "Falls back to 'claude-sonnet-4-6' if still unset at call time."
         ),
     )
     default_effort: str = Field(
@@ -104,9 +104,9 @@ class ClaudeBackendApiSettings(PluginSettings):
         default_factory=dict,
         description="Named pre-configured Claude execution profiles.",
     )
-    default_profile: str | None = Field(
-        default=None,
-        description="Profile to use when none is specified.",
+    default_profile: str = Field(
+        default="default",
+        description="Profile to use when none is specified. Must exist in profiles.",
     )
 
     @field_validator("profiles")
@@ -121,6 +121,16 @@ class ClaudeBackendApiSettings(PluginSettings):
                 )
                 raise ValueError(msg)
         return v
+
+    @model_validator(mode="after")
+    def _validate_default_profile(self) -> ClaudeBackendApiSettings:
+        if self.default_profile and self.profiles and self.default_profile not in self.profiles:
+            msg = (
+                f"default_profile {self.default_profile!r} not found in profiles. "
+                f"Available: {list(self.profiles.keys())}"
+            )
+            raise ValueError(msg)
+        return self
 
 
 class ClaudeBackendApiPlugin(Plugin):

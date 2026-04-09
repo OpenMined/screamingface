@@ -12,9 +12,10 @@
     "tracing",
     "url4-executor",
     "url4-specs",
-    "claude-backend",
     "claude-frontend",
-    "data-store"
+    "data-store",
+    "llm-base",
+    "claude-backend-api"
   ],
   "plugin_config": {
     "claude-frontend": {
@@ -68,6 +69,36 @@
         }
       },
       "default_profile": null
+    },
+    "claude-backend-api": {
+      "default_model": "claude-sonnet-4-6",
+      "default_effort": "medium",
+      "timeout_seconds": 300,
+      "max_budget_usd": null,
+      "permission_mode": null,
+      "dangerously_skip_permissions": false,
+      "profiles": {
+        "default": {
+          "context": null,
+          "system_prompt": null,
+          "append_system_prompt": null,
+          "model": null,
+          "output_format": null,
+          "max_budget_usd": null,
+          "effort": null,
+          "tools": null,
+          "allowed_tools": null,
+          "disallowed_tools": null,
+          "mcp_config": null,
+          "permission_mode": null,
+          "add_dirs": null,
+          "fallback_model": null,
+          "dangerously_skip_permissions": false,
+          "no_session_persistence": true,
+          "timeout_seconds": null
+        }
+      },
+      "default_profile": "default"
     },
     "url4-specs": {
       "specs": {
