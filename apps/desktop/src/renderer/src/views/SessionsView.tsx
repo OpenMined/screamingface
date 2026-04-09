@@ -1,15 +1,27 @@
-import { useState, useEffect } from 'react';
-import { Plus, Square, X, Terminal, Circle, FolderOpen, ChevronDown, ChevronRight, Pencil, Play } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Plus,
+  Square,
+  X,
+  Terminal,
+  Circle,
+  FolderOpen,
+  ChevronDown,
+  ChevronRight,
+  Pencil,
+  Play,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ServerLogs } from '@/components/server/ServerLogs';
 import { NewSessionDialog } from '@/components/session/NewSessionDialog';
 import { useSessions } from '@/hooks/use-sessions';
+import { useServerStatus } from '@/hooks/use-server-status';
 import type { SessionInfo, SessionStatus, SessionType } from '../../../preload/types';
 
-const SESSION_TYPES: { type: SessionType; label: string }[] = [
-  { type: 'claude', label: 'Claude Code' },
-  { type: 'codex', label: 'Codex' },
-  { type: 'gemini', label: 'Gemini CLI' },
+const ALL_SESSION_TYPES: { type: SessionType; label: string; frontendPlugin: string }[] = [
+  { type: 'claude', label: 'Claude Code', frontendPlugin: 'claude-frontend' },
+  { type: 'codex', label: 'Codex', frontendPlugin: 'codex-frontend' },
+  { type: 'gemini', label: 'Gemini CLI', frontendPlugin: 'gemini-frontend' },
 ];
 
 function statusColor(status: SessionStatus): string {
@@ -51,13 +63,46 @@ function shortDir(dir: string): string {
 }
 
 function typeLabel(type: SessionType): string {
-  return SESSION_TYPES.find((t) => t.type === type)?.label || type;
+  return ALL_SESSION_TYPES.find((t) => t.type === type)?.label || type;
 }
 
 export function SessionsView() {
-  const { sessions, logs, createSession, terminateSession, removeSession, updateSession, restartSession, clearLogs } = useSessions();
+  const {
+    sessions,
+    logs,
+    createSession,
+    terminateSession,
+    removeSession,
+    updateSession,
+    restartSession,
+    clearLogs,
+  } = useSessions();
+  const { status: serverStatus, info: serverInfo } = useServerStatus();
   const [dialogType, setDialogType] = useState<SessionType | null>(null);
   const [editingSession, setEditingSession] = useState<SessionInfo | null>(null);
+  const [activePlugins, setActivePlugins] = useState<Record<string, unknown>>({});
+
+  // Fetch active plugins from server to determine which session types to show
+  const serverUrl = serverInfo
+    ? `${serverInfo.scheme}://${serverInfo.host === '0.0.0.0' ? 'localhost' : serverInfo.host}:${serverInfo.port}`
+    : null;
+
+  const fetchPlugins = useCallback(async () => {
+    if (!serverUrl || serverStatus !== 'ready') return;
+    try {
+      const res = await window.electronAPI.server.fetch(`${serverUrl}/plugins`);
+      if (res.ok) setActivePlugins(JSON.parse(res.body));
+    } catch {
+      /* server not ready */
+    }
+  }, [serverUrl, serverStatus]);
+
+  useEffect(() => {
+    fetchPlugins();
+  }, [fetchPlugins]);
+
+  // Only show session types whose frontend plugin is active on the server
+  const SESSION_TYPES = ALL_SESSION_TYPES.filter((t) => t.frontendPlugin in activePlugins);
 
   const activeSessions = sessions.filter((s) => s.status !== 'stopped');
   const stoppedSessions = sessions.filter((s) => s.status === 'stopped');
@@ -123,7 +168,12 @@ export function SessionsView() {
             </p>
             <div className="flex gap-2">
               {SESSION_TYPES.map((t) => (
-                <Button key={t.type} variant="outline" size="sm" onClick={() => setDialogType(t.type)}>
+                <Button
+                  key={t.type}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDialogType(t.type)}
+                >
                   <Plus className="mr-1.5 h-3.5 w-3.5" />
                   {t.label}
                 </Button>
@@ -187,7 +237,14 @@ function SessionCard({
   onEdit,
   onRestart,
 }: {
-  session: { id: string; type: SessionType; port: number; status: SessionStatus; workingDir: string; createdAt: string };
+  session: {
+    id: string;
+    type: SessionType;
+    port: number;
+    status: SessionStatus;
+    workingDir: string;
+    createdAt: string;
+  };
   logs: string[];
   onClearLogs: () => void;
   onStop?: () => void;
