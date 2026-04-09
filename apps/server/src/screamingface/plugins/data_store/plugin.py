@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 class DataStorePlugin(Plugin):
     name = "data-store"
     description = "In-memory key-value data store — turn user data into fetchable URLs for URL4"
+    tags: list[str] = ["product:system"]
     depends: list[str] = []
     settings_class = None
 

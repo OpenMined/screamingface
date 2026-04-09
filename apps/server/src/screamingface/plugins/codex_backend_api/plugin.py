@@ -132,6 +132,7 @@ class CodexBackendApiPlugin(Plugin):
         "from the Codex CLI credential store (~/.codex/auth.json). "
         "Same route shapes as claude-backend-api but at /codex/* prefix."
     )
+    tags: list[str] = ["product:openai"]
     depends: list[str] = ["llm-base"]
     conflicts: list[str] = []
     backend_call_paths: list[str] = ["/codex"]

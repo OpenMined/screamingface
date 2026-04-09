@@ -90,6 +90,7 @@ class ClaudeFrontendSettings(PluginSettings):
 class ClaudeFrontendPlugin(Plugin):
     name = "claude-frontend"
     description = "Transparent proxy between Claude Code and the Anthropic API"
+    tags: list[str] = ["product:claude"]
     depends = ["url4-specs", "url4-executor"]
     settings_class = ClaudeFrontendSettings
 

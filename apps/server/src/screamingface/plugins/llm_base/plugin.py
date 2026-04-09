@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 class LlmBasePlugin(Plugin):
     name = "llm-base"
+    tags: list[str] = ["product:system"]
     description = (
         "Shared ABCs and types for multi-backend LLM providers "
         "(Anthropic, OpenAI, Gemini, Qwen, Ollama, …). Provides CoreMessage, "
