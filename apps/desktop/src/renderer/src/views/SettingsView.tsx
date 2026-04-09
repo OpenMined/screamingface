@@ -423,276 +423,277 @@ export function SettingsView() {
               };
 
               return groupOrder.map((group) => (
-                <div key={group} className="mb-3">
-                  <div className={`flex items-center gap-2 mb-1.5 px-1`}>
+                <div key={group} className="mb-4">
+                  <div className="flex items-center gap-2 mb-2 px-1">
                     <span
                       className={`text-[10px] font-bold uppercase tracking-widest ${GROUP_COLORS[group]?.split(' ').pop() || 'text-muted-foreground/50'}`}
                     >
                       {group}
                     </span>
-                    <div
-                      className={`h-px flex-1 bg-gradient-to-r ${GROUP_COLORS[group]?.split(' ').slice(0, 2).join(' ') || 'from-border/30 to-transparent'}`}
-                    />
                     <span className="text-[9px] text-muted-foreground/30">
                       {groups[group].length}
                     </span>
                   </div>
-                  {groups[group].map((name) => {
-                    const i = config.plugins.indexOf(name);
-                    const pluginStatus = getPluginStatus(name);
-                    const meta = getPluginMeta(name);
-                    const hasSettings = serverPlugins?.[name]?.has_settings === true;
-                    const isExpanded = hasSettings && expandedPlugin === name;
-                    const schema = pluginSchemas[name];
-                    return (
-                      <div key={name}>
-                        <div className="rounded-md bg-secondary">
-                          <div
-                            className={`flex items-center justify-between px-3 py-2 select-none ${hasSettings ? 'cursor-pointer' : ''}`}
-                            onClick={
-                              hasSettings
-                                ? () => setExpandedPlugin(isExpanded ? null : name)
-                                : undefined
-                            }
-                          >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              {hasSettings ? (
-                                <StatusDot status={pluginStatus} />
-                              ) : (
-                                <span className="inline-block h-2 w-2" />
-                              )}
-                              <div className="min-w-0">
-                                <span className="font-mono text-xs text-foreground">{name}</span>
-                                {meta?.version && (
-                                  <span className="ml-2 text-[10px] text-muted-foreground">
-                                    v{meta.version}
+                  <div className="space-y-1.5">
+                    {groups[group].map((name) => {
+                      const i = config.plugins.indexOf(name);
+                      const pluginStatus = getPluginStatus(name);
+                      const meta = getPluginMeta(name);
+                      const hasSettings = serverPlugins?.[name]?.has_settings === true;
+                      const isExpanded = hasSettings && expandedPlugin === name;
+                      const schema = pluginSchemas[name];
+                      return (
+                        <div key={name}>
+                          <div className="rounded-md bg-secondary">
+                            <div
+                              className={`flex items-center justify-between px-3 py-2 select-none ${hasSettings ? 'cursor-pointer' : ''}`}
+                              onClick={
+                                hasSettings
+                                  ? () => setExpandedPlugin(isExpanded ? null : name)
+                                  : undefined
+                              }
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {hasSettings ? (
+                                  <StatusDot status={pluginStatus} />
+                                ) : (
+                                  <span className="inline-block h-2 w-2" />
+                                )}
+                                <div className="min-w-0">
+                                  <span className="font-mono text-xs text-foreground">{name}</span>
+                                  {meta?.version && (
+                                    <span className="ml-2 text-[10px] text-muted-foreground">
+                                      v{meta.version}
+                                    </span>
+                                  )}
+                                  {meta?.description && (
+                                    <p className="text-[10px] leading-tight text-muted-foreground/70 truncate">
+                                      {meta.description}
+                                    </p>
+                                  )}
+                                  {name === 'claude-frontend' && (
+                                    <p className="text-[10px] leading-tight text-chart-3/80">
+                                      Settings here are defaults for new sessions — override per
+                                      session in the Sessions tab
+                                    </p>
+                                  )}
+                                  {meta?.requires_root && (
+                                    <p className="text-[10px] leading-tight text-amber-500">
+                                      Requires root privileges — the app will prompt for your
+                                      password when starting the server
+                                    </p>
+                                  )}
+                                  {meta?.depends &&
+                                    meta.depends.length > 0 &&
+                                    (() => {
+                                      const unmet = meta.depends!.filter(
+                                        (dep) =>
+                                          !config.plugins.includes(dep) && !serverPlugins?.[dep],
+                                      );
+                                      return unmet.length > 0 ? (
+                                        <p className="text-[10px] leading-tight text-amber-500">
+                                          Depends on: {unmet.join(', ')} (will be auto-added at
+                                          startup)
+                                        </p>
+                                      ) : null;
+                                    })()}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 ml-2 shrink-0">
+                                {hasSettings && (
+                                  <span className="p-1 text-muted-foreground">
+                                    {isExpanded ? (
+                                      <ChevronDown size={14} />
+                                    ) : (
+                                      <ChevronRight size={14} />
+                                    )}
                                   </span>
                                 )}
-                                {meta?.description && (
-                                  <p className="text-[10px] leading-tight text-muted-foreground/70 truncate">
-                                    {meta.description}
-                                  </p>
-                                )}
-                                {name === 'claude-frontend' && (
-                                  <p className="text-[10px] leading-tight text-chart-3/80">
-                                    Settings here are defaults for new sessions — override per
-                                    session in the Sessions tab
-                                  </p>
-                                )}
-                                {meta?.requires_root && (
-                                  <p className="text-[10px] leading-tight text-amber-500">
-                                    Requires root privileges — the app will prompt for your password
-                                    when starting the server
-                                  </p>
-                                )}
-                                {meta?.depends &&
-                                  meta.depends.length > 0 &&
-                                  (() => {
-                                    const unmet = meta.depends!.filter(
-                                      (dep) =>
-                                        !config.plugins.includes(dep) && !serverPlugins?.[dep],
-                                    );
-                                    return unmet.length > 0 ? (
-                                      <p className="text-[10px] leading-tight text-amber-500">
-                                        Depends on: {unmet.join(', ')} (will be auto-added at
-                                        startup)
-                                      </p>
-                                    ) : null;
-                                  })()}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    // Warn if other enabled plugins depend on this one
+                                    const dependents = config.plugins.filter((p) => {
+                                      const pMeta = getPluginMeta(p);
+                                      return pMeta?.depends?.includes(name);
+                                    });
+                                    if (dependents.length > 0) {
+                                      const ok = window.confirm(
+                                        `${dependents.join(', ')} depend${dependents.length === 1 ? 's' : ''} on ${name}. Remove anyway?`,
+                                      );
+                                      if (!ok) return;
+                                    }
+                                    if (expandedPlugin === name) setExpandedPlugin(null);
+                                    updatePlugins(config.plugins.filter((_, j) => j !== i));
+                                  }}
+                                  className="text-xs text-muted-foreground transition-colors hover:text-destructive"
+                                >
+                                  Remove
+                                </button>
                               </div>
                             </div>
-                            <div className="flex items-center gap-1 ml-2 shrink-0">
-                              {hasSettings && (
-                                <span className="p-1 text-muted-foreground">
-                                  {isExpanded ? (
-                                    <ChevronDown size={14} />
-                                  ) : (
-                                    <ChevronRight size={14} />
-                                  )}
-                                </span>
-                              )}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  // Warn if other enabled plugins depend on this one
+                            {isExpanded && (
+                              <div className="border-t border-border/50 px-4 py-4">
+                                {/* Dependency map */}
+                                {(() => {
+                                  const deps = meta?.depends || [];
+                                  const conflicts = meta?.conflicts || [];
                                   const dependents = config.plugins.filter((p) => {
                                     const pMeta = getPluginMeta(p);
                                     return pMeta?.depends?.includes(name);
                                   });
-                                  if (dependents.length > 0) {
-                                    const ok = window.confirm(
-                                      `${dependents.join(', ')} depend${dependents.length === 1 ? 's' : ''} on ${name}. Remove anyway?`,
-                                    );
-                                    if (!ok) return;
-                                  }
-                                  if (expandedPlugin === name) setExpandedPlugin(null);
-                                  updatePlugins(config.plugins.filter((_, j) => j !== i));
-                                }}
-                                className="text-xs text-muted-foreground transition-colors hover:text-destructive"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                          {isExpanded && (
-                            <div className="border-t border-border/50 px-4 py-4">
-                              {/* Dependency map */}
-                              {(() => {
-                                const deps = meta?.depends || [];
-                                const conflicts = meta?.conflicts || [];
-                                const dependents = config.plugins.filter((p) => {
-                                  const pMeta = getPluginMeta(p);
-                                  return pMeta?.depends?.includes(name);
-                                });
-                                if (
-                                  deps.length === 0 &&
-                                  conflicts.length === 0 &&
-                                  dependents.length === 0
-                                )
-                                  return null;
-                                return (
-                                  <div className="mb-4 rounded-lg bg-background/80 ring-1 ring-border/40 p-3">
-                                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
-                                      Dependencies
-                                    </p>
-                                    <div className="flex items-center gap-3 flex-wrap">
-                                      {deps.length > 0 && (
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-[10px] text-muted-foreground/50">
-                                            needs
-                                          </span>
-                                          {deps.map((d) => (
-                                            <span
-                                              key={d}
-                                              className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] ${
-                                                config.plugins.includes(d)
-                                                  ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'
-                                                  : 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20'
-                                              }`}
-                                            >
+                                  if (
+                                    deps.length === 0 &&
+                                    conflicts.length === 0 &&
+                                    dependents.length === 0
+                                  )
+                                    return null;
+                                  return (
+                                    <div className="mb-4 rounded-lg bg-background/80 ring-1 ring-border/40 p-3">
+                                      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                                        Dependencies
+                                      </p>
+                                      <div className="flex items-center gap-3 flex-wrap">
+                                        {deps.length > 0 && (
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-[10px] text-muted-foreground/50">
+                                              needs
+                                            </span>
+                                            {deps.map((d) => (
                                               <span
-                                                className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${
+                                                key={d}
+                                                className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] ${
                                                   config.plugins.includes(d)
-                                                    ? 'bg-emerald-400'
-                                                    : 'bg-amber-400'
+                                                    ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'
+                                                    : 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20'
                                                 }`}
-                                              />
-                                              {d}
+                                              >
+                                                <span
+                                                  className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${
+                                                    config.plugins.includes(d)
+                                                      ? 'bg-emerald-400'
+                                                      : 'bg-amber-400'
+                                                  }`}
+                                                />
+                                                {d}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {dependents.length > 0 && (
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-[10px] text-muted-foreground/50">
+                                              used by
                                             </span>
-                                          ))}
-                                        </div>
-                                      )}
-                                      {dependents.length > 0 && (
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-[10px] text-muted-foreground/50">
-                                            used by
-                                          </span>
-                                          {dependents.map((d) => (
-                                            <span
-                                              key={d}
-                                              className="inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 font-mono text-[10px] text-blue-400 ring-1 ring-blue-500/20"
-                                            >
-                                              <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-blue-400" />
-                                              {d}
+                                            {dependents.map((d) => (
+                                              <span
+                                                key={d}
+                                                className="inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 font-mono text-[10px] text-blue-400 ring-1 ring-blue-500/20"
+                                              >
+                                                <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-blue-400" />
+                                                {d}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {conflicts.length > 0 && (
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="text-[10px] text-muted-foreground/50">
+                                              conflicts
                                             </span>
-                                          ))}
-                                        </div>
-                                      )}
-                                      {conflicts.length > 0 && (
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-[10px] text-muted-foreground/50">
-                                            conflicts
-                                          </span>
-                                          {conflicts.map((c) => (
-                                            <span
-                                              key={c}
-                                              className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 font-mono text-[10px] text-red-400 ring-1 ring-red-500/20"
-                                            >
-                                              <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-red-400" />
-                                              {c}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      )}
+                                            {conflicts.map((c) => (
+                                              <span
+                                                key={c}
+                                                className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 font-mono text-[10px] text-red-400 ring-1 ring-red-500/20"
+                                              >
+                                                <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-red-400" />
+                                                {c}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                );
-                              })()}
-                              {schemaLoading[name] && (
-                                <p className="text-xs text-muted-foreground">Loading settings...</p>
-                              )}
-                              {schemaErrors[name] && !schemaLoading[name] && (
-                                <p className="text-xs text-muted-foreground/60 italic">
-                                  No configurable settings or server not reachable
-                                </p>
-                              )}
-                              {schema && !schemaLoading[name] && (
-                                <ThemedForm
-                                  schema={schema}
-                                  formData={{
-                                    ...pluginLiveSettings[name],
-                                    ...config.plugin_config[name],
-                                  }}
-                                  formContext={{
-                                    serverUrl,
-                                    serverFetch,
-                                    addDictEntry: (path: string[], entryName: string) => {
-                                      setConfig((prev) => {
-                                        const base = {
-                                          ...pluginLiveSettings[name],
-                                          ...prev.plugin_config[name],
-                                        };
-                                        let target: Record<string, unknown> = base;
-                                        for (const key of path) {
-                                          target[key] = {
-                                            ...(target[key] as Record<string, unknown>),
+                                  );
+                                })()}
+                                {schemaLoading[name] && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Loading settings...
+                                  </p>
+                                )}
+                                {schemaErrors[name] && !schemaLoading[name] && (
+                                  <p className="text-xs text-muted-foreground/60 italic">
+                                    No configurable settings or server not reachable
+                                  </p>
+                                )}
+                                {schema && !schemaLoading[name] && (
+                                  <ThemedForm
+                                    schema={schema}
+                                    formData={{
+                                      ...pluginLiveSettings[name],
+                                      ...config.plugin_config[name],
+                                    }}
+                                    formContext={{
+                                      serverUrl,
+                                      serverFetch,
+                                      addDictEntry: (path: string[], entryName: string) => {
+                                        setConfig((prev) => {
+                                          const base = {
+                                            ...pluginLiveSettings[name],
+                                            ...prev.plugin_config[name],
                                           };
-                                          target = target[key] as Record<string, unknown>;
-                                        }
-                                        target[entryName] = {};
-                                        return {
-                                          ...prev,
-                                          plugin_config: { ...prev.plugin_config, [name]: base },
-                                        };
-                                      });
-                                      markDirty();
-                                    },
-                                  }}
-                                  validator={validator}
-                                  liveValidate
-                                  onChange={({ formData, errors }) => {
-                                    setConfig((prev) => ({
-                                      ...prev,
-                                      plugin_config: {
-                                        ...prev.plugin_config,
-                                        [name]: formData,
+                                          let target: Record<string, unknown> = base;
+                                          for (const key of path) {
+                                            target[key] = {
+                                              ...(target[key] as Record<string, unknown>),
+                                            };
+                                            target = target[key] as Record<string, unknown>;
+                                          }
+                                          target[entryName] = {};
+                                          return {
+                                            ...prev,
+                                            plugin_config: { ...prev.plugin_config, [name]: base },
+                                          };
+                                        });
+                                        markDirty();
                                       },
-                                    }));
-                                    if (!errors || errors.length === 0) {
-                                      markDirty();
-                                    }
-                                  }}
-                                  omitExtraData
-                                  uiSchema={{
-                                    'ui:submitButtonOptions': { norender: true },
-                                    ...([
-                                      'claude-frontend',
-                                      'codex-frontend',
-                                      'gemini-frontend',
-                                    ].includes(name)
-                                      ? {
-                                          active_spec: { 'ui:widget': 'SpecSelectorWidget' },
-                                        }
-                                      : {}),
-                                  }}
-                                />
-                              )}
-                            </div>
-                          )}
+                                    }}
+                                    validator={validator}
+                                    liveValidate
+                                    onChange={({ formData, errors }) => {
+                                      setConfig((prev) => ({
+                                        ...prev,
+                                        plugin_config: {
+                                          ...prev.plugin_config,
+                                          [name]: formData,
+                                        },
+                                      }));
+                                      if (!errors || errors.length === 0) {
+                                        markDirty();
+                                      }
+                                    }}
+                                    omitExtraData
+                                    uiSchema={{
+                                      'ui:submitButtonOptions': { norender: true },
+                                      ...([
+                                        'claude-frontend',
+                                        'codex-frontend',
+                                        'gemini-frontend',
+                                      ].includes(name)
+                                        ? {
+                                            active_spec: { 'ui:widget': 'SpecSelectorWidget' },
+                                          }
+                                        : {}),
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               ));
             })()
