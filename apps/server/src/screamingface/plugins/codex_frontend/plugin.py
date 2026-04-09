@@ -53,8 +53,16 @@ class CodexFrontendSettings(PluginSettings):
     backend_url: str | None = Field(
         default=None,
         description=(
-            "URL of the main SF server for url4/data/backend calls."
-            " When set (per-session mode), proxy uses HTTP calls instead of in-process."
+            "SF server URL used for $prompt substitution — stores user text "
+            "on /data and resolves url4 expressions via /ensemble. "
+            "Set automatically in per-session mode."
+        ),
+    )
+    default_backend_path: str = Field(
+        default="/codex",
+        description=(
+            "Default backend path for ensemble fan-out (e.g. /codex). "
+            "Used when resolving $prompt expressions through this frontend."
         ),
     )
     resolve_timeout: float = Field(
