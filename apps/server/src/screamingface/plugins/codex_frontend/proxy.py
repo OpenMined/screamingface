@@ -198,12 +198,14 @@ def _parse_sse_response(raw: str) -> dict[str, Any] | None:
 
         if etype == "response.created":
             resp_data = event.get("response", {})
-            response.update({
-                "id": resp_data.get("id"),
-                "object": "response",
-                "model": resp_data.get("model"),
-                "status": resp_data.get("status"),
-            })
+            response.update(
+                {
+                    "id": resp_data.get("id"),
+                    "object": "response",
+                    "model": resp_data.get("model"),
+                    "status": resp_data.get("status"),
+                }
+            )
         elif etype == "response.output_item.added":
             current_item = event.get("item", {})
             current_text = ""
@@ -218,10 +220,12 @@ def _parse_sse_response(raw: str) -> dict[str, Any] | None:
             current_text = ""
         elif etype == "response.completed":
             resp_data = event.get("response", {})
-            response.update({
-                "status": resp_data.get("status", "completed"),
-                "usage": resp_data.get("usage", {}),
-            })
+            response.update(
+                {
+                    "status": resp_data.get("status", "completed"),
+                    "usage": resp_data.get("usage", {}),
+                }
+            )
 
     if not response:
         return None
@@ -289,9 +293,7 @@ def create_router(
             last_user_text = _extract_last_user_text(body)
             if last_user_text:
                 try:
-                    backend_url = (
-                        settings.backend_url.rstrip("/") if settings.backend_url else None
-                    )
+                    backend_url = settings.backend_url.rstrip("/") if settings.backend_url else None
 
                     if backend_url:
                         blob_url_target = f"{backend_url}/data"
@@ -404,9 +406,7 @@ def create_router(
             client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
             tracer = _get_tracer()
             upstream_span = (
-                _start_client_span_detached(tracer, "openai.POST /v1/responses")
-                if tracer
-                else None
+                _start_client_span_detached(tracer, "openai.POST /v1/responses") if tracer else None
             )
 
             async def stream_response():
@@ -453,10 +453,12 @@ def create_router(
             async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                 resp = await client.post(url, json=body, headers=headers)
 
-            _set_span_attrs({
-                "response.body": _truncate(resp.text),
-                "http.status_code": resp.status_code,
-            })
+            _set_span_attrs(
+                {
+                    "response.body": _truncate(resp.text),
+                    "http.status_code": resp.status_code,
+                }
+            )
 
             response_data = resp.json()
 
