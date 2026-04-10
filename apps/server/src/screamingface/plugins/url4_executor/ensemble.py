@@ -87,16 +87,26 @@ class EnsembleInterpreter(Url4Interpreter):
         with traced("url4.evaluate"):
             set_span_attrs({"url4.expression": expr[:500]})
 
-            source_expr, raw_intent = split_intent(expr.strip())
-            set_span_attrs({"url4.has_intent": raw_intent is not None})
+            source_expr, raw_intent, broadcast = split_intent(expr.strip())
+            set_span_attrs(
+                {
+                    "url4.has_intent": raw_intent is not None,
+                    "url4.broadcast": broadcast,
+                }
+            )
 
             source_node = parse(source_expr) if source_expr else None
+
+            # SF-93: intent broadcasting — apply intent per-source
+            if broadcast and raw_intent and source_node is not None:
+                set_span_attrs({"url4.ensemble": False, "url4.broadcast_mode": True})
+                return await self._broadcast_evaluate(source_node, raw_intent)
 
             if source_node is not None and self._is_fanout(source_node) and raw_intent:
                 set_span_attrs({"url4.ensemble": True})
                 return await self._ensemble_evaluate(source_node, raw_intent)
 
-            # Not ensemble — fall through to base behavior.
+            # Not ensemble and not broadcast — fall through to base behavior.
             set_span_attrs({"url4.ensemble": False})
 
             with traced("url4.resolve_sources"):
@@ -133,6 +143,52 @@ class EnsembleInterpreter(Url4Interpreter):
                 }
             )
             return result
+
+    # ------------------------------------------------------------------
+    # SF-93: Intent broadcasting — !* operator
+    # ------------------------------------------------------------------
+
+    async def _broadcast_evaluate(self, source_node: Url4Node, raw_intent: str) -> str:
+        """Apply the intent independently to each source, collect results.
+
+        ``(a, b, c)!*'intent'`` → resolve each source, apply intent to
+        each one separately, return newline-joined results.
+
+        For a ``Url4List``, each item is resolved independently and the
+        intent is applied via the base interpreter's ``process(sources, intent)``.
+        For a non-list source, this is equivalent to a normal ``!`` (one
+        application).
+        """
+        from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
+        from screamingface.plugins.url4_executor.interpreter import resolve_intent
+
+        with traced("url4.broadcast"):
+            # Resolve the intent (could be a literal, relurl, etc.)
+            intent_text = await resolve_intent(raw_intent, self.app) if raw_intent else ""
+
+            # Get the list of source nodes
+            if isinstance(source_node, Url4List):
+                items = list(source_node.items)
+            else:
+                items = [source_node]
+
+            set_span_attrs(
+                {
+                    "url4.broadcast.item_count": len(items),
+                    "url4.broadcast.intent_length": len(intent_text),
+                }
+            )
+
+            # Resolve each source and apply intent independently
+            async def _apply_one(item: Url4Node) -> str:
+                source_text = await resolve(item, self.app)
+                return await self.process(source_text, intent_text)
+
+            results = list(await asyncio.gather(*[_apply_one(item) for item in items]))
+
+            combined = "\n".join(results)
+            set_span_attrs({"url4.broadcast.result_count": len(results)})
+            return combined
 
     # ------------------------------------------------------------------
     # Ensemble internals

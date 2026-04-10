@@ -88,7 +88,7 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
         )
 
         if ast:
-            source_expr, intent = split_intent(q)
+            source_expr, intent, _broadcast = split_intent(q)
             tree = parse(source_expr) if source_expr else None
             return JSONResponse(
                 content={
