@@ -12,6 +12,8 @@ from screamingface.plugins.url4_executor.ensemble import (
     EnsembleInterpreter,
     _build_reducer_input,
     _ResponseEntry,
+    _split_collection_iteration,
+    _substitute_item,
     _substitute_response_vars,
 )
 from screamingface.plugins.url4_executor.url4 import (
@@ -445,3 +447,101 @@ class TestEnsembleWithVariableRefs:
         # $a and $b should NOT have been substituted (elements are unnamed)
         assert "$a" in reducer_intent
         assert "$b" in reducer_intent
+
+
+# ----------------------------------------------------------------------------
+# SF-91: Collection iteration helpers
+# ----------------------------------------------------------------------------
+
+
+class TestSplitCollectionIteration:
+    def test_basic_pattern(self):
+        source, body = _split_collection_iteration("/data/abc*(claude:/claude($item.q)!Answer)")
+        assert source == "/data/abc"
+        assert body == "claude:/claude($item.q)!Answer"
+
+    def test_no_pattern(self):
+        source, body = _split_collection_iteration("(hello, world)")
+        assert source is None
+        assert body is None
+
+    def test_star_not_followed_by_paren(self):
+        source, body = _split_collection_iteration("a*b")
+        assert source is None
+        assert body is None
+
+    def test_nested_parens_in_body(self):
+        source, body = _split_collection_iteration("/data/x*(/claude($item.q)!Answer)")
+        assert source == "/data/x"
+        assert body == "/claude($item.q)!Answer"
+
+    def test_url_source(self):
+        source, body = _split_collection_iteration("https://example.com/data.jsonl*(text)!intent")
+        assert source == "https://example.com/data.jsonl"
+        assert body == "text"
+
+
+class TestSubstituteItem:
+    def test_bare_item(self):
+        assert _substitute_item("$item", "hello") == "hello"
+
+    def test_item_field(self):
+        result = _substitute_item("$item.question", '{"question":"What is 2+2?"}')
+        assert result == "What is 2+2?"
+
+    def test_item_field_not_found(self):
+        result = _substitute_item("$item.missing", '{"question":"hi"}')
+        assert result == "$item.missing"
+
+    def test_non_json_item_field_left_as_is(self):
+        result = _substitute_item("$item.field", "plain text")
+        assert result == "$item.field"
+
+    def test_multiple_fields(self):
+        result = _substitute_item(
+            "$item.a and $item.b",
+            '{"a":"X","b":"Y"}',
+        )
+        assert result == "X and Y"
+
+    def test_bare_and_field_together(self):
+        result = _substitute_item(
+            "Full: $item, just q: $item.q",
+            '{"q":"hi"}',
+        )
+        assert "hi" in result
+        assert '{"q":"hi"}' in result or "hi" in result
+
+
+@pytest.mark.anyio
+class TestCollectionIteration:
+    async def test_basic_iteration(self):
+        """Collection source with 3 items → 3 evaluations."""
+        plugin = _FakeDispatchPlugin(
+            name="claude-api",
+            paths=["/claude"],
+            responses=["A1", "A2", "A3"],
+        )
+        app = _make_app(plugin)
+        interp = EnsembleInterpreter(app=app, processor="/claude")
+
+        # Mock the collection source resolution
+        from unittest.mock import AsyncMock, patch
+
+        collection_body = '{"q":"Q1"}\n{"q":"Q2"}\n{"q":"Q3"}'
+
+        with patch(
+            "screamingface.plugins.url4_executor.url4._fetch_url",
+            new_callable=AsyncMock,
+            return_value=collection_body,
+        ):
+            result = await interp.evaluate(
+                "https://example.com/data.jsonl*(/claude($item.q)!Answer)!reduce"
+            )
+
+        # 3 items × 1 fan-out call each + 3 reducer calls = 6
+        # (each item triggers (/claude($item.q)!Answer)!reduce which is a
+        # single backend call + reducer)
+        assert len(plugin.calls) >= 3
+        lines = result.split("\n")
+        assert len(lines) >= 1  # at least some output

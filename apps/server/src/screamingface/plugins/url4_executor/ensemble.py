@@ -95,6 +95,15 @@ class EnsembleInterpreter(Url4Interpreter):
                 }
             )
 
+            # SF-91: Check for collection iteration pattern before parsing.
+            # source*(body) detected by finding '*(' at depth 0.
+            collection_source, iteration_body = _split_collection_iteration(source_expr)
+            if collection_source is not None and iteration_body is not None:
+                set_span_attrs({"url4.collection_iteration": True})
+                return await self._collection_iterate(
+                    collection_source, iteration_body, raw_intent or ""
+                )
+
             source_node = parse(source_expr) if source_expr else None
 
             # SF-93: intent broadcasting — apply intent per-source
@@ -143,6 +152,54 @@ class EnsembleInterpreter(Url4Interpreter):
                 }
             )
             return result
+
+    # ------------------------------------------------------------------
+    # SF-91: Collection iteration — source*(body)!intent
+    # ------------------------------------------------------------------
+
+    async def _collection_iterate(
+        self, collection_source: str, iteration_body: str, intent: str
+    ) -> str:
+        """Iterate over a collection, applying the body expression to each item.
+
+        1. Resolve the collection source (fetch URL/blob).
+        2. Parse the body as a collection (JSON array, JSONL, CSV).
+        3. For each item, substitute ``$item`` and ``$item.field`` in the
+           body expression AND the intent.
+        4. Evaluate the substituted expression for each item (which may
+           trigger ensemble fan-out-reduce internally).
+        5. Collect all results into a newline-joined output.
+        """
+        from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
+        from screamingface.plugins.url4_executor.collection_parser import parse_collection
+        from screamingface.plugins.url4_executor.url4 import resolve_str
+
+        with traced("url4.collection_iterate"):
+            # 1. Resolve collection source
+            collection_body = await resolve_str(collection_source, self.app)
+            items = parse_collection(collection_body)
+
+            set_span_attrs({"url4.collection.item_count": len(items)})
+
+            if not items:
+                return ""
+
+            # 2. For each item, substitute $item and evaluate
+            async def _process_one(item_json: str) -> str:
+                # Substitute $item references in the body expression
+                substituted_body = _substitute_item(iteration_body, item_json)
+                # Build the full expression: (substituted_body)!intent
+                if intent:
+                    full_expr = f"({substituted_body})!{intent}"
+                else:
+                    full_expr = f"({substituted_body})"
+                # Recursively evaluate — this may trigger ensemble fan-out
+                return await self.evaluate(full_expr)
+
+            results = list(await asyncio.gather(*[_process_one(item) for item in items]))
+
+            set_span_attrs({"url4.collection.result_count": len(results)})
+            return "\n".join(results)
 
     # ------------------------------------------------------------------
     # SF-93: Intent broadcasting — !* operator
@@ -385,3 +442,87 @@ def _substitute_response_vars(instruction: str, entries: list[_ResponseEntry]) -
                 instruction = instruction.replace(var, entry.text.strip())
 
     return instruction
+
+
+def _split_collection_iteration(source_expr: str) -> tuple[str | None, str | None]:
+    """Detect the ``source*(body)`` collection iteration pattern.
+
+    Scans for ``*(`` at depth 0 in the source expression. If found,
+    splits into (collection_source, iteration_body) where the body
+    includes the parenthesized content (without the outer parens).
+
+    Returns ``(None, None)`` if the pattern is not found.
+
+    Examples::
+
+        _split_collection_iteration("/data/abc*(claude:/claude($item.q)!Answer)")
+            → ("/data/abc", "claude:/claude($item.q)!Answer")
+
+        _split_collection_iteration("(hello, world)")
+            → (None, None)   # no *( pattern
+    """
+    depth = 0
+    for i, ch in enumerate(source_expr):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "*" and depth == 0:
+            # Check if followed by (
+            if i + 1 < len(source_expr) and source_expr[i + 1] == "(":
+                collection_source = source_expr[:i].strip()
+                # Extract body between the *( and the matching )
+                body_start = i + 2  # skip *(
+                # Find the matching closing paren
+                body_depth = 1
+                j = body_start
+                while j < len(source_expr) and body_depth > 0:
+                    if source_expr[j] == "(":
+                        body_depth += 1
+                    elif source_expr[j] == ")":
+                        body_depth -= 1
+                    j += 1
+                if body_depth == 0:
+                    body = source_expr[body_start : j - 1]  # exclude closing )
+                    return collection_source, body
+    return None, None
+
+
+def _substitute_item(template: str, item_json: str) -> str:
+    """Replace ``$item`` and ``$item.field`` in *template* with values
+    from *item_json*.
+
+    - ``$item`` alone is replaced with the full item string.
+    - ``$item.field`` is replaced with the field value from the parsed
+      JSON object. If the item isn't a JSON object or the field doesn't
+      exist, ``$item.field`` is left as-is.
+    """
+    import json as _json
+    import re
+
+    # First handle $item.field references (more specific, must come first)
+    field_pattern = re.compile(r"\$item\.([a-zA-Z_][a-zA-Z0-9_]*)")
+    parsed_item = None
+
+    def _field_replacer(match: re.Match) -> str:
+        nonlocal parsed_item
+        if parsed_item is None:
+            try:
+                parsed_item = _json.loads(item_json)
+            except (_json.JSONDecodeError, TypeError):
+                parsed_item = {}
+        field = match.group(1)
+        if isinstance(parsed_item, dict) and field in parsed_item:
+            val = parsed_item[field]
+            return val if isinstance(val, str) else _json.dumps(val)
+        return match.group(0)  # leave as-is if field not found
+
+    result = field_pattern.sub(_field_replacer, template)
+
+    # Then handle bare $item (NOT followed by a dot+fieldname).
+    # Use a regex so "$item.field" (where field wasn't found) doesn't
+    # get its "$item" portion replaced by the bare handler.
+    bare_pattern = re.compile(r"\$item(?!\.[a-zA-Z_])")
+    result = bare_pattern.sub(item_json, result)
+
+    return result
