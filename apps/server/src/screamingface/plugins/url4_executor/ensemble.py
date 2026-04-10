@@ -195,6 +195,14 @@ class EnsembleInterpreter(Url4Interpreter):
                 )
                 for item, resp in zip(items, responses, strict=True)
             ]
+
+            # SF-90: substitute $name variable references in the reducer
+            # instruction with the actual response text from named fan-out
+            # elements. This is executor-level substitution, NOT frontend
+            # precompilation ($prompt/$reducer are precompiled; $claude etc
+            # are bound at executor time after fan-out completes).
+            reducer_instruction = _substitute_response_vars(reducer_instruction, response_entries)
+
             reducer_input = _build_reducer_input(response_entries, reducer_instruction)
 
             set_span_attrs({"url4.ensemble.reducer_input_length": len(reducer_input)})
@@ -286,3 +294,38 @@ def _build_reducer_input(responses: list[_ResponseEntry], instruction: str) -> s
     parts.append(instruction)
 
     return "\n".join(parts)
+
+
+def _substitute_response_vars(instruction: str, entries: list[_ResponseEntry]) -> str:
+    """Replace ``$name`` tokens in the instruction with actual response text.
+
+    SF-90: executor-level variable substitution. After the fan-out stage
+    produces N named responses, any ``$name`` reference in the reducer
+    instruction is replaced with the corresponding response text.
+
+    Only entries with a non-None ``name`` participate. Unnamed entries
+    are skipped. Unknown ``$name`` references (no matching entry) are
+    left as-is so the LLM sees them as literal text.
+
+    This is distinct from frontend precompilation (``$prompt``, ``$reducer``)
+    which happens before the executor. Here we're binding runtime results.
+
+    Example::
+
+        entries = [
+            _ResponseEntry(text="Four", name="claude"),
+            _ResponseEntry(text="4", name="codex"),
+        ]
+        instruction = "Combine $claude and $codex into one answer"
+        → "Combine Four and 4 into one answer"
+    """
+    if not instruction:
+        return instruction
+
+    for entry in entries:
+        if entry.name is not None:
+            var = f"${entry.name}"
+            if var in instruction:
+                instruction = instruction.replace(var, entry.text.strip())
+
+    return instruction

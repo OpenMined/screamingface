@@ -12,6 +12,7 @@ from screamingface.plugins.url4_executor.ensemble import (
     EnsembleInterpreter,
     _build_reducer_input,
     _ResponseEntry,
+    _substitute_response_vars,
 )
 from screamingface.plugins.url4_executor.url4 import (
     Url4BackendCall,
@@ -358,3 +359,89 @@ class TestEnsembleEvaluate:
 
         assert result == "REDUCED"
         assert len(plugin.calls) == 2  # 1 fan-out + 1 reducer
+
+
+# ----------------------------------------------------------------------------
+# SF-90: Variable reference substitution
+# ----------------------------------------------------------------------------
+
+
+class TestSubstituteResponseVars:
+    def test_basic_substitution(self):
+        entries = [
+            _ResponseEntry(text="Four", name="claude"),
+            _ResponseEntry(text="4", name="codex"),
+        ]
+        result = _substitute_response_vars("Combine $claude and $codex", entries)
+        assert result == "Combine Four and 4"
+
+    def test_no_names_no_substitution(self):
+        entries = [_ResponseEntry(text="text")]
+        result = _substitute_response_vars("$claude stays", entries)
+        assert result == "$claude stays"
+
+    def test_unknown_var_left_as_is(self):
+        entries = [_ResponseEntry(text="ok", name="claude")]
+        result = _substitute_response_vars("$codex is unknown", entries)
+        assert result == "$codex is unknown"
+
+    def test_empty_instruction(self):
+        entries = [_ResponseEntry(text="x", name="claude")]
+        assert _substitute_response_vars("", entries) == ""
+
+    def test_multiple_occurrences(self):
+        entries = [_ResponseEntry(text="YES", name="a")]
+        result = _substitute_response_vars("$a and $a again", entries)
+        assert result == "YES and YES again"
+
+    def test_preserves_precompilation_vars(self):
+        """$prompt and $reducer are precompiled BEFORE the executor
+        sees the expression. They should never appear here, but if
+        they leak through they must not be mangled."""
+        entries = [_ResponseEntry(text="x", name="claude")]
+        result = _substitute_response_vars("$prompt and $reducer and $claude", entries)
+        assert "$prompt" in result
+        assert "$reducer" in result
+        assert "x" in result
+
+
+@pytest.mark.anyio
+class TestEnsembleWithVariableRefs:
+    async def test_variable_refs_resolved_in_reducer_intent(self):
+        """Full ensemble: named fan-out elements → $name vars in reducer
+        instruction get replaced with actual response text."""
+        plugin = _FakeDispatchPlugin(
+            name="claude-api",
+            paths=["/claude"],
+            responses=["HELLO", "GOODBYE", "MERGED"],
+        )
+        app = _make_app(plugin)
+        interp = EnsembleInterpreter(app=app, processor="/claude")
+
+        await interp.evaluate(
+            "(first:50:/claude()!say hi,second:50:/claude()!say bye)!Combine $first and $second"
+        )
+
+        # The reducer (3rd call) should see the substituted instruction
+        reducer_intent = plugin.calls[2][0]
+        assert "HELLO" in reducer_intent
+        assert "GOODBYE" in reducer_intent
+        assert "$first" not in reducer_intent
+        assert "$second" not in reducer_intent
+
+    async def test_unnamed_elements_dont_create_vars(self):
+        """Unnamed fan-out elements don't contribute to variable substitution."""
+        plugin = _FakeDispatchPlugin(
+            name="claude-api",
+            paths=["/claude"],
+            responses=["X", "Y", "REDUCED"],
+        )
+        app = _make_app(plugin)
+        interp = EnsembleInterpreter(app=app, processor="/claude")
+
+        await interp.evaluate("(/claude()!a,/claude()!b)!$a and $b stay literal")
+
+        reducer_intent = plugin.calls[2][0]
+        # $a and $b should NOT have been substituted (elements are unnamed)
+        assert "$a" in reducer_intent
+        assert "$b" in reducer_intent
