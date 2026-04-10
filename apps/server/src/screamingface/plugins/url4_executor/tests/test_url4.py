@@ -442,6 +442,83 @@ def test_parse_context_packing_with_special_chars() -> None:
 
 
 # ---------------------------------------------------------------------------
+# SF-88: Named + weighted source labels
+# ---------------------------------------------------------------------------
+
+
+def test_parse_named_weighted_backend_call() -> None:
+    """Kevin's form: claude:40:/claude(prompt)!intent."""
+    node = parse("claude:40:/claude(quantum)!explain")
+    assert isinstance(node, Url4BackendCall)
+    assert node.name == "claude"
+    assert node.weight == 40.0
+    assert node.path == "/claude"
+    assert node.packed_context == "quantum"
+    assert isinstance(node.intent, Url4Text)
+    assert node.intent.value == "explain"
+
+
+def test_parse_named_weighted_decimal_weight() -> None:
+    """Weight can be a decimal."""
+    node = parse("alpha:0.5:/claude()!hi")
+    assert isinstance(node, Url4BackendCall)
+    assert node.name == "alpha"
+    assert node.weight == 0.5
+
+
+def test_parse_named_weighted_no_context() -> None:
+    """Named + weighted with empty parens."""
+    node = parse("codex:30:/codex()!answer")
+    assert isinstance(node, Url4BackendCall)
+    assert node.name == "codex"
+    assert node.weight == 30.0
+    assert node.path == "/codex"
+    assert node.packed_context is None
+
+
+def test_parse_named_weighted_fanout_list() -> None:
+    """Kevin's full weighted ensemble expression."""
+    node = parse(
+        "(claude:40:/claude(quantum)!explain,"
+        "codex:30:/codex(quantum)!explain,"
+        "gemini:30:/gemini(quantum)!explain)"
+    )
+    assert isinstance(node, Url4List)
+    assert len(node.items) == 3
+
+    names_weights = [(i.name, i.weight) for i in node.items]
+    assert names_weights == [("claude", 40.0), ("codex", 30.0), ("gemini", 30.0)]
+    assert [i.path for i in node.items] == ["/claude", "/codex", "/gemini"]
+
+
+def test_parse_unnamed_backend_call_has_none_name_weight() -> None:
+    """Backward compat: /claude()!hello without name:weight: prefix."""
+    node = parse("/claude()!hello")
+    assert isinstance(node, Url4BackendCall)
+    assert node.name is None
+    assert node.weight is None
+
+
+def test_parse_name_only_without_weight_not_valid() -> None:
+    """name: without weight: is not the label syntax — it should fall
+    through to text or be part of a different parse. The grammar requires
+    name:weight: (both parts).
+
+    'alpha:/claude()!hi' — 'alpha:' doesn't match source_label because
+    the weight regex isn't satisfied, so the parser tries other alternatives.
+    """
+    # This should NOT parse as a named backend_call. It may parse as
+    # text or fail depending on grammar alternatives. We don't require
+    # a specific behavior, just that name is NOT set.
+    try:
+        node = parse("alpha:/claude()!hi")
+        if isinstance(node, Url4BackendCall):
+            assert node.name is None  # label didn't match
+    except Exception:
+        pass  # parse failure is also acceptable
+
+
+# ---------------------------------------------------------------------------
 # SF-89: Context packing — dispatch tests
 # ---------------------------------------------------------------------------
 

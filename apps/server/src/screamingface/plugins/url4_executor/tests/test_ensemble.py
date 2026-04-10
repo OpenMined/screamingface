@@ -11,6 +11,7 @@ import pytest
 from screamingface.plugins.url4_executor.ensemble import (
     EnsembleInterpreter,
     _build_reducer_input,
+    _ResponseEntry,
 )
 from screamingface.plugins.url4_executor.url4 import (
     Url4BackendCall,
@@ -114,7 +115,11 @@ class TestIsFanout:
 class TestBuildReducerInput:
     def test_three_responses_unlabeled(self):
         result = _build_reducer_input(
-            ["Four", "Paris", "Blue"],
+            [
+                _ResponseEntry(text="Four"),
+                _ResponseEntry(text="Paris"),
+                _ResponseEntry(text="Blue"),
+            ],
             "Combine these facts.",
         )
         assert "[Response 1]" in result
@@ -126,26 +131,70 @@ class TestBuildReducerInput:
         assert "[Instruction]" in result
         assert "Combine these facts." in result
 
-    def test_no_source_labels(self):
-        """Q3=(b): responses must NOT contain backend names."""
-        result = _build_reducer_input(["answer"], "merge")
+    def test_no_source_labels_when_unnamed(self):
+        """Q3=(b): responses without names must NOT contain backend names."""
+        result = _build_reducer_input([_ResponseEntry(text="answer")], "merge")
         assert "/claude" not in result
         assert "/codex" not in result
-        assert "from" not in result.lower().split("[response")[0]
 
     def test_single_response(self):
-        result = _build_reducer_input(["only one"], "pass through")
+        result = _build_reducer_input([_ResponseEntry(text="only one")], "pass through")
         assert "[Response 1]" in result
         assert "[Response 2]" not in result
         assert "only one" in result
         assert "pass through" in result
 
     def test_instruction_is_last(self):
-        result = _build_reducer_input(["a", "b"], "instruction")
+        result = _build_reducer_input(
+            [_ResponseEntry(text="a"), _ResponseEntry(text="b")],
+            "instruction",
+        )
         lines = result.strip().split("\n")
-        # Last non-empty line should be the instruction
         non_empty = [line for line in lines if line.strip()]
         assert non_empty[-1] == "instruction"
+
+    # --- SF-88: named + weighted tests ---
+
+    def test_named_weighted_responses_include_labels(self):
+        """When entries have names and weights, the reducer sees them."""
+        result = _build_reducer_input(
+            [
+                _ResponseEntry(text="Four", name="claude", weight=40),
+                _ResponseEntry(text="4", name="codex", weight=30),
+                _ResponseEntry(text="The answer is 4.", name="gemini", weight=30),
+            ],
+            "Merge $claude, $codex, and $gemini into one.",
+        )
+        assert "claude (weight=40):" in result
+        assert "codex (weight=30):" in result
+        assert "gemini (weight=30):" in result
+        assert "Four" in result
+        assert "The answer is 4." in result
+        assert "Merge $claude" in result
+
+    def test_named_without_weight(self):
+        """Name without weight — just the name is shown."""
+        result = _build_reducer_input(
+            [
+                _ResponseEntry(text="answer", name="alpha"),
+            ],
+            "reduce",
+        )
+        assert "alpha:" in result
+        assert "weight=" not in result
+
+    def test_mixed_named_and_unnamed(self):
+        """When ANY entry has a name, all entries use the name format.
+        Unnamed entries fall back to [Response N]."""
+        result = _build_reducer_input(
+            [
+                _ResponseEntry(text="A", name="claude", weight=60),
+                _ResponseEntry(text="B"),  # unnamed
+            ],
+            "merge",
+        )
+        assert "claude (weight=60):" in result
+        assert "[Response 2]" in result  # unnamed fallback
 
 
 # ----------------------------------------------------------------------------

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
@@ -184,9 +185,17 @@ class EnsembleInterpreter(Url4Interpreter):
         with traced("url4.ensemble.reduce"):
             set_span_attrs({"url4.ensemble.processor": self._processor})
 
-            # Build the reducer input: each fan-out response as a separate
-            # part, plus the instruction as the final part (Q2=ii, Q3=b).
-            reducer_input = _build_reducer_input(responses, reducer_instruction)
+            # Build the reducer input. Pair each response with its AST
+            # node so the builder can extract name/weight metadata (SF-88).
+            response_entries = [
+                _ResponseEntry(
+                    text=resp,
+                    name=item.name if isinstance(item, Url4BackendCall) else None,
+                    weight=item.weight if isinstance(item, Url4BackendCall) else None,
+                )
+                for item, resp in zip(items, responses, strict=True)
+            ]
+            reducer_input = _build_reducer_input(response_entries, reducer_instruction)
 
             set_span_attrs({"url4.ensemble.reducer_input_length": len(reducer_input)})
 
@@ -215,19 +224,24 @@ class EnsembleInterpreter(Url4Interpreter):
             return result
 
 
-def _build_reducer_input(responses: list[str], instruction: str) -> str:
+@dataclass
+class _ResponseEntry:
+    """A fan-out response paired with its source metadata."""
+
+    text: str
+    name: str | None = None
+    weight: float | None = None
+
+
+def _build_reducer_input(responses: list[_ResponseEntry], instruction: str) -> str:
     """Format the N fan-out responses + the reducer instruction.
 
-    Q2 = (ii): each response as a separate section. Since the dispatch
-    chain is string-based (handle_backend_call takes str), we format
-    them as clearly delimited sections. The backend's interpreter will
-    place this entire string as the user message content.
+    Q2 = (ii): each response as a separate section.
+    Q3 = (b): unlabeled by default — BUT when names and/or weights are
+    present (SF-88), they are included so the reducer can reference
+    individual responses by name and weight them proportionally.
 
-    Q3 = (b): unlabeled — no source backend names.
-
-    The format:
-
-    ::
+    Without names/weights::
 
         [Response 1]
         Two plus two equals four.
@@ -235,17 +249,37 @@ def _build_reducer_input(responses: list[str], instruction: str) -> str:
         [Response 2]
         4
 
-        [Response 3]
+        [Instruction]
+        Synthesize these.
+
+    With names/weights (Kevin's weighted consensus form)::
+
+        claude (weight=40):
+        Two plus two equals four.
+
+        codex (weight=30):
+        4
+
+        gemini (weight=30):
         The answer is 4.
 
         [Instruction]
-        Synthesize these responses into the best, single coherent response.
+        Merge $claude, $codex, and $gemini into a single, weighted answer.
     """
+    has_labels = any(r.name is not None for r in responses)
     parts: list[str] = []
 
-    for i, text in enumerate(responses, 1):
-        parts.append(f"[Response {i}]")
-        parts.append(text.strip())
+    for i, entry in enumerate(responses, 1):
+        if has_labels and entry.name:
+            if entry.weight is not None:
+                header = f"{entry.name} (weight={entry.weight:g}):"
+            else:
+                header = f"{entry.name}:"
+        else:
+            header = f"[Response {i}]"
+
+        parts.append(header)
+        parts.append(entry.text.strip())
         parts.append("")  # blank line separator
 
     parts.append("[Instruction]")

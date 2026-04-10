@@ -48,27 +48,29 @@ GRAMMAR = r"""
         | text
         ;
 
-    # Backend-call form: /path(context)!<intent>
+    # Backend-call form: [name:weight:]path(context)!<intent>
     #
-    # Recognizes a plugin/backend invocation shorthand where ``/path`` is
-    # the backend route (e.g. ``/claude``, ``/codex``, ``/gemini``),
-    # ``(context)`` carries optional inline context (the "sources" for
-    # the backend — a prompt, a /data/<key> reference, or any text),
-    # and ``!<intent>`` is the LLM instruction for that backend.
+    # Recognizes a plugin/backend invocation shorthand where:
+    # - ``name:weight:`` is an optional prefix labeling the source
+    #   (e.g. ``claude:40:`` for 40% weight). Used by the ensemble
+    #   reducer to format weighted responses. (SF-88)
+    # - ``/path`` is the backend route (``/claude``, ``/codex``, etc.)
+    # - ``(context)`` carries optional inline context (SF-89)
+    # - ``!<intent>`` is the LLM instruction for that backend
     #
-    # The context inside parens is optional. Empty parens ``()`` mean
-    # "no inline context" (same as Stage A behavior). Non-empty parens
-    # ``('What is quantum computing?')`` pass the content as the
-    # ``sources`` argument to the backend's ``process()`` method.
-    #
-    # The intent is any atom EXCEPT another backend_call — a trailing
-    # ``!intent!more`` is parsed with ``!more`` as the intent text, not as
-    # a nested call.
+    # The intent is any atom EXCEPT another backend_call.
     backend_call
-        = path:backend_path
+        = [ label:source_label ] path:backend_path
           '(' [ packed_context:backend_context ] ')'
           [ '!' intent:atom_no_bc ]
         ;
+
+    # Optional name:weight: prefix for named/weighted fan-out.
+    # Format: name:weight: where name is [a-zA-Z_][a-zA-Z0-9_]* and
+    # weight is an integer or decimal number.
+    # The trailing colon before the path is included so /path is
+    # unambiguous (path always starts with /).
+    source_label = name:/[a-zA-Z_][a-zA-Z0-9_]*/ ':' weight:/[0-9]+(?:\.[0-9]+)?/ ':' ;
 
     # Content inside backend call parens. Matches any non-paren chars
     # (including commas, bangs, slashes, etc.) as raw text. Nested parens
@@ -127,28 +129,27 @@ class Url4List:
 
 @dataclass(frozen=True)
 class Url4BackendCall:
-    """A backend-invocation node: ``/path(context)!<intent>``.
+    """A backend-invocation node: ``[name:weight:]path(context)!<intent>``.
 
     This is the shorthand for "invoke the plugin mounted at ``path`` as a
     backend LLM call, passing ``packed_context`` as the sources and
     ``intent`` as the instruction." Distinct from a :class:`Url4RelUrl`,
     which is a URL fetch via in-process ASGI GET.
 
-    The distinction matters at execution time: a :class:`Url4RelUrl`
-    becomes an HTTP GET and the response body is concatenated into the
-    source text, whereas a :class:`Url4BackendCall` becomes a single LLM
-    invocation via the llm-base ``Backend`` abstraction and the response
-    is a structured assistant message.
-
     ``packed_context`` is the raw text inside the parens (SF-89 context
-    packing). Empty string or None means "no inline context" (equivalent
-    to the Stage A ``/path()`` form). Non-empty means the text is passed
-    as the ``sources`` argument alongside the ``intent``.
+    packing). Empty string or None means "no inline context."
+
+    ``name`` and ``weight`` are optional labels from the ``name:weight:``
+    prefix (SF-88 named + weighted sources). When present, the ensemble
+    reducer formats the response with the name and weight so the LLM
+    can weight responses proportionally.
     """
 
     path: str
     packed_context: str | None = None
     intent: Url4Node | None = None
+    name: str | None = None
+    weight: float | None = None
 
 
 Url4Node = Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall
@@ -169,20 +170,39 @@ class Url4Semantics:
         return Url4Text(value=ast.value.strip())
 
     def backend_call(self, ast):
-        # ast.path is the backend_path rule's matched value (e.g. "/claude").
-        # ast.packed_context is the raw text inside the parens (SF-89), or
-        # None if the parens were empty.
-        # ast.intent is None when the optional ``!<intent>`` tail is absent,
-        # or the semantics-produced node (Url4Url / Url4RelUrl / Url4Text)
-        # when present.
+        # ast.label is the source_label semantics result (a dict with
+        # name + weight), or None when no prefix was present.
+        # ast.path is the backend_path rule's matched value.
+        # ast.packed_context is the raw text inside the parens (SF-89).
+        # ast.intent is the intent node or None.
         packed = getattr(ast, "packed_context", None)
         if isinstance(packed, str):
             packed = packed.strip() or None
+
+        label = getattr(ast, "label", None)
+        name = None
+        weight = None
+        if label and isinstance(label, dict):
+            name = label.get("name")
+            weight_str = label.get("weight")
+            if weight_str is not None:
+                try:
+                    weight = float(weight_str)
+                except (ValueError, TypeError):
+                    weight = None
+
         return Url4BackendCall(
             path=ast.path.strip(),
             packed_context=packed,
             intent=ast.intent,
+            name=name,
+            weight=weight,
         )
+
+    def source_label(self, ast):
+        # TatSu gives us an AST object with .name and .weight attrs
+        # from the regex captures.
+        return {"name": ast.name, "weight": ast.weight}
 
     def backend_context(self, ast):
         # TatSu returns the matched string directly for a regex rule.
