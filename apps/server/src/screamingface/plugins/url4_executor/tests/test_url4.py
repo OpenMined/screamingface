@@ -841,3 +841,91 @@ async def test_resolve_str_example_10() -> None:
             " https://localhost:8000/ensemble?context=(Recent changes:, https://api.github.com/repos/org/repo/commits))"
         )
         assert result == "bg-content\nchanges-content"
+
+
+# ---------------------------------------------------------------------------
+# SF-92: Source expansion — *source
+# ---------------------------------------------------------------------------
+
+
+def test_parse_expanded_source_url() -> None:
+    """*https://... parses as Url4ExpandedSource with inner Url4Url."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    node = parse("*https://example.com/data.jsonl")
+    assert isinstance(node, Url4ExpandedSource)
+    assert isinstance(node.inner, Url4Url)
+    assert node.inner.value == "https://example.com/data.jsonl"
+
+
+def test_parse_expanded_source_relurl() -> None:
+    """*/data/<key> parses as expanded source with inner relurl."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    node = parse("*/data/abc123")
+    assert isinstance(node, Url4ExpandedSource)
+    assert isinstance(node.inner, Url4RelUrl)
+    assert node.inner.value == "/data/abc123"
+
+
+def test_parse_expanded_source_in_group() -> None:
+    """(*source) inside a group — the common form."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    node = parse("(*https://example.com/data.jsonl)")
+    assert isinstance(node, Url4List)
+    assert len(node.items) == 1
+    assert isinstance(node.items[0], Url4ExpandedSource)
+
+
+def test_parse_expanded_source_mixed_with_regular() -> None:
+    """(*source, regular_text) — expansion + regular source in same group."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    node = parse("(*https://example.com/data.jsonl, hello)")
+    assert isinstance(node, Url4List)
+    assert isinstance(node.items[0], Url4ExpandedSource)
+    assert isinstance(node.items[1], Url4Text)
+
+
+@pytest.mark.anyio
+async def test_resolve_expanded_source_jsonl() -> None:
+    """*source fetches the URL, parses as JSONL, joins items."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    jsonl_body = '{"q":"What is 2+2?"}\n{"q":"Capital?"}\n{"q":"Color?"}'
+
+    with patch(PATCH_TARGET, new_callable=AsyncMock, return_value=jsonl_body):
+        node = Url4ExpandedSource(inner=Url4Url(value="https://example.com/data.jsonl"))
+        result = await resolve(node)
+
+    lines = result.split("\n")
+    assert len(lines) == 3
+    assert "2+2" in lines[0]
+    assert "Capital" in lines[1]
+
+
+@pytest.mark.anyio
+async def test_resolve_expanded_source_json_array() -> None:
+    """*source with a JSON array body."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    json_body = '["alpha", "beta", "gamma"]'
+
+    with patch(PATCH_TARGET, new_callable=AsyncMock, return_value=json_body):
+        node = Url4ExpandedSource(inner=Url4Url(value="https://example.com/data.json"))
+        result = await resolve(node)
+
+    assert result == "alpha\nbeta\ngamma"
+
+
+@pytest.mark.anyio
+async def test_resolve_expanded_source_empty_collection() -> None:
+    """*source with an empty collection body → empty string."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    with patch(PATCH_TARGET, new_callable=AsyncMock, return_value="[]"):
+        node = Url4ExpandedSource(inner=Url4Url(value="https://example.com/empty.json"))
+        result = await resolve(node)
+
+    assert result == ""

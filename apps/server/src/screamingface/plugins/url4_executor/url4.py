@@ -43,7 +43,22 @@ GRAMMAR = r"""
 
     atom
         = backend_call
+        | expanded_source
         | url
+        | relurl
+        | text
+        ;
+
+    # SF-92: Source expansion — *source expands a collection into
+    # individual sources. The * prefix tells the executor to fetch
+    # the source, parse it as a collection (JSON/JSONL/CSV), and
+    # treat each item as a separate source.
+    expanded_source = '*' inner:expandable_atom ;
+
+    # Atoms that can follow * — same as atom minus expanded_source
+    # itself (no **source) and minus backend_call (no */claude()).
+    expandable_atom
+        = url
         | relurl
         | text
         ;
@@ -152,7 +167,20 @@ class Url4BackendCall:
     weight: float | None = None
 
 
-Url4Node = Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall
+@dataclass(frozen=True)
+class Url4ExpandedSource:
+    """SF-92: Source expansion — ``*source`` expands a collection.
+
+    The executor fetches ``inner``, parses it as a collection
+    (JSON array, JSONL, or CSV), and treats each item as a separate
+    source. The expanded items replace this node in the AST during
+    resolution.
+    """
+
+    inner: Url4Node
+
+
+Url4Node = Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall | Url4ExpandedSource
 
 # ---------------------------------------------------------------------------
 # TatSu semantics — transforms raw AST into typed dataclasses
@@ -204,6 +232,12 @@ class Url4Semantics:
         # from the regex captures.
         return {"name": ast.name, "weight": ast.weight}
 
+    def expanded_source(self, ast):
+        return Url4ExpandedSource(inner=ast.inner)
+
+    def expandable_atom(self, ast):
+        return ast
+
     def backend_context(self, ast):
         # TatSu returns the matched string directly for a regex rule.
         return ast
@@ -218,7 +252,10 @@ class Url4Semantics:
         nodes = [
             e
             for e in elems
-            if isinstance(e, Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall)
+            if isinstance(
+                e,
+                Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall | Url4ExpandedSource,
+            )
         ]
         return Url4List(items=tuple(nodes))
 
@@ -259,6 +296,8 @@ async def resolve(node: Url4Node, app: Any = None) -> str:
         return "\n".join(results)
     if isinstance(node, Url4BackendCall):
         return await _dispatch_backend_call(node, app)
+    if isinstance(node, Url4ExpandedSource):
+        return await _resolve_expanded_source(node, app)
     raise TypeError(f"Unknown node type: {type(node)}")
 
 
@@ -322,6 +361,32 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
         "Activate a plugin that declares this path in its "
         "backend_call_paths attribute."
     )
+
+
+async def _resolve_expanded_source(node: Url4ExpandedSource, app: Any) -> str:
+    """SF-92: Resolve a ``*source`` expansion.
+
+    1. Resolve the inner source node to a string (fetch URL/blob body).
+    2. Parse the body as a collection (JSON array, JSONL, or CSV).
+    3. Each item becomes a ``Url4Text`` node.
+    4. Resolve all items (they're just text), join with newlines.
+
+    The expansion converts ``*source`` into the equivalent of writing
+    out each item manually: ``(item1, item2, item3, ...)``.
+    """
+    from screamingface.plugins.url4_executor.collection_parser import parse_collection
+
+    # Fetch the inner source
+    body = await resolve(node.inner, app)
+
+    # Parse as collection
+    items = parse_collection(body)
+    if not items:
+        return ""
+
+    # Each item becomes a resolved text value — join with newlines
+    # (same as Url4List resolution behavior)
+    return "\n".join(items)
 
 
 async def resolve_str(context: str, app: Any = None) -> str:

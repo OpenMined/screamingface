@@ -12,6 +12,7 @@ from screamingface.plugins.url4_executor.ensemble import EnsembleInterpreter
 from screamingface.plugins.url4_executor.highlight import tokenize
 from screamingface.plugins.url4_executor.url4 import (
     Url4BackendCall,
+    Url4ExpandedSource,
     Url4List,
     Url4RelUrl,
     Url4Url,
@@ -29,9 +30,17 @@ def _ast_to_dict(node) -> dict | str:
         return {"type": "relurl", "value": node.value}
     if isinstance(node, Url4BackendCall):
         result: dict = {"type": "backend_call", "path": node.path}
+        if node.packed_context:
+            result["packed_context"] = node.packed_context
+        if node.name:
+            result["name"] = node.name
+        if node.weight is not None:
+            result["weight"] = node.weight
         if node.intent is not None:
             result["intent"] = _ast_to_dict(node.intent)
         return result
+    if isinstance(node, Url4ExpandedSource):
+        return {"type": "expanded_source", "inner": _ast_to_dict(node.inner)}
     if isinstance(node, Url4List):
         return {"type": "list", "items": [_ast_to_dict(item) for item in node.items]}
     # Url4Text
