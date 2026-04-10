@@ -377,6 +377,123 @@ def test_parse_mixed_list_backend_call_and_fetch() -> None:
 
 
 # ---------------------------------------------------------------------------
+# SF-89: Context packing — /backend('context')!intent
+# ---------------------------------------------------------------------------
+
+
+def test_parse_context_packing_text() -> None:
+    """The target form from Kevin's spec: /claude('prompt text')!intent."""
+    node = parse("/claude(What is quantum computing?)!Explain clearly")
+    assert isinstance(node, Url4BackendCall)
+    assert node.path == "/claude"
+    assert node.packed_context == "What is quantum computing?"
+    assert isinstance(node.intent, Url4Text)
+    assert node.intent.value == "Explain clearly"
+
+
+def test_parse_context_packing_with_data_ref() -> None:
+    """Context can be a /data/<key> reference — common after precompilation."""
+    node = parse("/claude(/data/abc123)!Explain")
+    assert isinstance(node, Url4BackendCall)
+    assert node.packed_context == "/data/abc123"
+
+
+def test_parse_context_packing_empty_parens_no_context() -> None:
+    """Empty parens: packed_context should be None (backward compat)."""
+    node = parse("/claude()!hello")
+    assert isinstance(node, Url4BackendCall)
+    assert node.packed_context is None
+    assert isinstance(node.intent, Url4Text)
+    assert node.intent.value == "hello"
+
+
+def test_parse_context_packing_no_intent() -> None:
+    """Context without intent — just /claude('text') with no ! afterward."""
+    node = parse("/claude(some context)")
+    assert isinstance(node, Url4BackendCall)
+    assert node.packed_context == "some context"
+    assert node.intent is None
+
+
+def test_parse_context_packing_in_fanout_list() -> None:
+    """Kevin's weighted ensemble form (without weights — those are SF-88).
+    Each element has context packing."""
+    node = parse(
+        "(/claude(What is quantum computing?)!Explain,"
+        "/codex(What is quantum computing?)!Explain,"
+        "/gemini(What is quantum computing?)!Explain)"
+    )
+    assert isinstance(node, Url4List)
+    assert len(node.items) == 3
+    for item in node.items:
+        assert isinstance(item, Url4BackendCall)
+        assert item.packed_context == "What is quantum computing?"
+        assert isinstance(item.intent, Url4Text)
+        assert item.intent.value == "Explain"
+
+
+def test_parse_context_packing_with_special_chars() -> None:
+    """Context can contain bangs, slashes, commas (since the regex
+    matches everything except parens inside the backend_context)."""
+    node = parse("/claude(What is 2+2? answer: 4, right!)!confirm")
+    assert isinstance(node, Url4BackendCall)
+    assert "2+2" in node.packed_context
+    assert "answer: 4, right!" in node.packed_context
+
+
+# ---------------------------------------------------------------------------
+# SF-89: Context packing — dispatch tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_resolve_context_packing_passes_sources_to_plugin() -> None:
+    """When /claude('context')!intent dispatches, the plugin receives
+    sources='context' AND intent='intent' — not just intent."""
+    plugin = _FakeDispatchPlugin(name="claude-api", paths=["/claude"], response="ok")
+    app = _FakeApp(_FakePluginRegistry({"claude-api": plugin}))
+    node = Url4BackendCall(
+        path="/claude",
+        packed_context="What is quantum computing?",
+        intent=Url4Text(value="Explain clearly"),
+    )
+
+    await resolve(node, app=app)
+
+    assert len(plugin.calls) == 1
+    intent, sources, _ = plugin.calls[0]
+    assert intent == "Explain clearly"
+    assert sources == "What is quantum computing?"
+
+
+@pytest.mark.anyio
+async def test_resolve_context_packing_empty_context_passes_empty_sources() -> None:
+    """Empty parens /claude()!intent passes sources='' (backward compat)."""
+    plugin = _FakeDispatchPlugin(name="claude-api", paths=["/claude"], response="ok")
+    app = _FakeApp(_FakePluginRegistry({"claude-api": plugin}))
+    node = Url4BackendCall(path="/claude", packed_context=None, intent=Url4Text(value="hello"))
+
+    await resolve(node, app=app)
+
+    _, sources, _ = plugin.calls[0]
+    assert sources == ""
+
+
+@pytest.mark.anyio
+async def test_resolve_context_packing_no_intent_passes_empty_intent() -> None:
+    """Just /claude('context') with no intent → intent='' sources='context'."""
+    plugin = _FakeDispatchPlugin(name="claude-api", paths=["/claude"], response="ok")
+    app = _FakeApp(_FakePluginRegistry({"claude-api": plugin}))
+    node = Url4BackendCall(path="/claude", packed_context="some context", intent=None)
+
+    await resolve(node, app=app)
+
+    intent, sources, _ = plugin.calls[0]
+    assert intent == ""
+    assert sources == "some context"
+
+
+# ---------------------------------------------------------------------------
 # Backend-call resolver tests — Stage B dispatch
 # ---------------------------------------------------------------------------
 #
@@ -417,10 +534,10 @@ class _FakeDispatchPlugin:
         self.name = name
         self.backend_call_paths = paths
         self._response = response
-        self.calls: list[tuple[str, object]] = []
+        self.calls: list[tuple[str, str, object]] = []
 
-    async def handle_backend_call(self, intent: str, *, app) -> str:
-        self.calls.append((intent, app))
+    async def handle_backend_call(self, intent: str, *, sources: str = "", app) -> str:
+        self.calls.append((intent, sources, app))
         return self._response
 
 
@@ -433,7 +550,7 @@ async def test_resolve_backend_call_dispatches_to_matching_plugin() -> None:
     result = await resolve(node, app=app)
 
     assert result == "Four"
-    assert plugin.calls == [("What is 2+2?", app)]
+    assert plugin.calls == [("What is 2+2?", "", app)]
 
 
 @pytest.mark.anyio
@@ -453,7 +570,7 @@ async def test_resolve_backend_call_flattens_relurl_intent() -> None:
     ):
         await resolve(node, app=app)
 
-    assert plugin.calls == [("user's question from the blob", app)]
+    assert plugin.calls == [("user's question from the blob", "", app)]
 
 
 @pytest.mark.anyio
@@ -464,7 +581,7 @@ async def test_resolve_backend_call_empty_intent_is_empty_string() -> None:
 
     await resolve(node, app=app)
 
-    assert plugin.calls == [("", app)]
+    assert plugin.calls == [("", "", app)]
 
 
 @pytest.mark.anyio
@@ -516,7 +633,7 @@ async def test_resolve_list_with_backend_call_dispatches() -> None:
     # Results joined with newlines (standard Url4List resolver behavior)
     assert result == "plain text\nLLM reply\nLLM reply"
     # Both backend calls dispatched in order
-    assert plugin.calls == [("hi", app), ("bye", app)]
+    assert plugin.calls == [("hi", "", app), ("bye", "", app)]
 
 
 @pytest.mark.anyio

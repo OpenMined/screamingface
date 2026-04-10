@@ -48,17 +48,33 @@ GRAMMAR = r"""
         | text
         ;
 
-    # Backend-call form: /path()!<intent>
+    # Backend-call form: /path(context)!<intent>
     #
     # Recognizes a plugin/backend invocation shorthand where ``/path`` is
-    # the backend route (e.g. ``/claude``, ``/codex``, ``/gemini``), ``()``
-    # marks it as a backend call (not a URL fetch), and ``!<intent>`` is
-    # the LLM instruction for that backend.
+    # the backend route (e.g. ``/claude``, ``/codex``, ``/gemini``),
+    # ``(context)`` carries optional inline context (the "sources" for
+    # the backend — a prompt, a /data/<key> reference, or any text),
+    # and ``!<intent>`` is the LLM instruction for that backend.
+    #
+    # The context inside parens is optional. Empty parens ``()`` mean
+    # "no inline context" (same as Stage A behavior). Non-empty parens
+    # ``('What is quantum computing?')`` pass the content as the
+    # ``sources`` argument to the backend's ``process()`` method.
     #
     # The intent is any atom EXCEPT another backend_call — a trailing
     # ``!intent!more`` is parsed with ``!more`` as the intent text, not as
     # a nested call.
-    backend_call = path:backend_path '(' ')' [ '!' intent:atom_no_bc ] ;
+    backend_call
+        = path:backend_path
+          '(' [ packed_context:backend_context ] ')'
+          [ '!' intent:atom_no_bc ]
+        ;
+
+    # Content inside backend call parens. Matches any non-paren chars
+    # (including commas, bangs, slashes, etc.) as raw text. Nested parens
+    # are NOT supported in context packing Phase 1 — use /data/<key>
+    # references for complex content.
+    backend_context = /[^()]+/ ;
 
     # Path prefix for a backend_call: starts with /, continues until
     # the first '(' or ',' or whitespace or '!'. Also excludes URL
@@ -111,20 +127,27 @@ class Url4List:
 
 @dataclass(frozen=True)
 class Url4BackendCall:
-    """A backend-invocation node: ``/path()!<intent>``.
+    """A backend-invocation node: ``/path(context)!<intent>``.
 
     This is the shorthand for "invoke the plugin mounted at ``path`` as a
-    backend LLM call, passing ``intent`` as the instruction." Distinct from
-    a :class:`Url4RelUrl`, which is a URL fetch via in-process ASGI GET.
+    backend LLM call, passing ``packed_context`` as the sources and
+    ``intent`` as the instruction." Distinct from a :class:`Url4RelUrl`,
+    which is a URL fetch via in-process ASGI GET.
 
     The distinction matters at execution time: a :class:`Url4RelUrl`
     becomes an HTTP GET and the response body is concatenated into the
     source text, whereas a :class:`Url4BackendCall` becomes a single LLM
     invocation via the llm-base ``Backend`` abstraction and the response
     is a structured assistant message.
+
+    ``packed_context`` is the raw text inside the parens (SF-89 context
+    packing). Empty string or None means "no inline context" (equivalent
+    to the Stage A ``/path()`` form). Non-empty means the text is passed
+    as the ``sources`` argument alongside the ``intent``.
     """
 
     path: str
+    packed_context: str | None = None
     intent: Url4Node | None = None
 
 
@@ -147,10 +170,23 @@ class Url4Semantics:
 
     def backend_call(self, ast):
         # ast.path is the backend_path rule's matched value (e.g. "/claude").
+        # ast.packed_context is the raw text inside the parens (SF-89), or
+        # None if the parens were empty.
         # ast.intent is None when the optional ``!<intent>`` tail is absent,
         # or the semantics-produced node (Url4Url / Url4RelUrl / Url4Text)
         # when present.
-        return Url4BackendCall(path=ast.path.strip(), intent=ast.intent)
+        packed = getattr(ast, "packed_context", None)
+        if isinstance(packed, str):
+            packed = packed.strip() or None
+        return Url4BackendCall(
+            path=ast.path.strip(),
+            packed_context=packed,
+            intent=ast.intent,
+        )
+
+    def backend_context(self, ast):
+        # TatSu returns the matched string directly for a regex rule.
+        return ast
 
     def backend_path(self, ast):
         # TatSu returns the matched string directly for a regex rule
@@ -241,6 +277,11 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
     else:
         intent_text = await resolve(node.intent, app)
 
+    # SF-89 context packing: if the backend call had non-empty parens,
+    # the packed_context becomes the "sources" argument. The backend's
+    # interpreter.process(sources, intent) uses both.
+    sources_text = node.packed_context or ""
+
     # Find the plugin that registered this path.
     plugins_registry = getattr(getattr(app, "state", None), "plugins", None)
     if plugins_registry is None:
@@ -253,7 +294,7 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
         paths = getattr(plugin, "backend_call_paths", [])
         known_paths.extend(paths)
         if node.path in paths:
-            return await plugin.handle_backend_call(intent_text, app=app)
+            return await plugin.handle_backend_call(intent_text, sources=sources_text, app=app)
 
     raise RuntimeError(
         f"No active plugin handles the backend call {node.path}(). "
