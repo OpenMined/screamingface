@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import https from 'https';
 import http from 'http';
 import { serverProcess } from '../services/server-process';
+import { backendStatusService } from '../services/backend-status';
 
 interface FetchInit {
   method?: string;
@@ -71,6 +72,17 @@ export function registerServerHandlers(): void {
   serverProcess.on('status', (status) => {
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send('server:statusChanged', status);
+    }
+
+    // Start/stop backend status polling based on server state
+    if (status === 'ready') {
+      const { info } = serverProcess.getStatus();
+      if (info) {
+        const host = info.host === '0.0.0.0' ? '127.0.0.1' : info.host;
+        backendStatusService.start(`${info.scheme}://${host}:${info.port}`);
+      }
+    } else if (status === 'stopped' || status === 'error') {
+      backendStatusService.stop();
     }
   });
 

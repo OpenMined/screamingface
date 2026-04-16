@@ -1,0 +1,60 @@
+# Codex named/weighted sources + variable references
+
+- id: codex_named_sources
+  description: "Codex named sources with $name references"
+  ticket: SF-83
+  backends: [codex, claude]
+  expression: >-
+    (expert:1:/codex()!What is 2+2? Just the number.,
+    novice:1:/codex()!What is 1+1? Just the number.)
+    !The expert said $expert and the novice said $novice. Repeat both.
+  params:
+    processor: /claude
+  expect:
+    min_length: 5
+    judge:
+      question: "Does the response mention two different numbers from expert and novice?"
+
+- id: codex_named_different_tasks
+  description: "Codex named sources — different tasks"
+  ticket: SF-83
+  backends: [codex, claude]
+  expression: >-
+    (translator:1:/codex()!Translate hello to French. One word.,
+    definer:1:/codex()!Define hello in one sentence.)
+    !The translator said $translator and the definer said $definer. Combine.
+  params:
+    processor: /claude
+  expect:
+    min_length: 10
+    judge:
+      question: "Does the response include a French translation and a definition of hello?"
+
+- id: codex_variable_substitution
+  description: "Codex variable reference in reducer"
+  ticket: SF-83
+  backends: [codex, claude]
+  expression: >-
+    (fact:1:/codex()!Capital of Germany? One word.)
+    !You were told the answer is $fact. Repeat it.
+  params:
+    processor: /claude
+  expect:
+    max_length: 1000
+    judge:
+      question: "Does the response mention Berlin?"
+
+- id: codex_variable_multi
+  description: "Codex multiple variable references"
+  ticket: SF-83
+  backends: [codex, claude]
+  expression: >-
+    (city:1:/codex()!Capital of Italy? One word.,
+    food:1:/codex()!Name a famous Italian dish. One word.)
+    !The capital is $city and a famous dish is $food. Confirm both.
+  params:
+    processor: /claude
+  expect:
+    min_length: 10
+    judge:
+      question: "Does the response mention Rome and a famous Italian dish?"

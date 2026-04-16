@@ -11,6 +11,7 @@ dependencies = [
     "pydantic-settings>=2.0",
     "mitmproxy>=11.0",
     "TatSu>=5.12",
+    "curl_cffi>=0.15",
 ]
 
 [project.scripts]
@@ -63,4 +64,5 @@ dev = [
     "arize-phoenix-otel>=0.6",
     "pytest-cov>=7.1.0",
     "pytest-timeout>=2.3",
+    "pyyaml>=6.0",
 ]

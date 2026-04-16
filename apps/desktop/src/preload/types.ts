@@ -42,6 +42,28 @@ export interface DiscoveredPlugin {
   conflicts?: string[];
 }
 
+export type BackendAction = 'healthy' | 'reauth' | 'rate_limited' | 'degraded';
+
+export interface BackendHealth {
+  authenticated: boolean;
+  model?: string;
+  tokens_remaining?: number | null;
+  requests_remaining?: number | null;
+  rate_limit?: Record<string, unknown>;
+  error?: string | null;
+  action: BackendAction;
+  cli_command?: string | null;
+  help_text?: string | null;
+}
+
+export type BackendStatusMap = Record<string, BackendHealth>;
+
+export interface BackendAlert {
+  backend: string;
+  type: 'reauth' | 'rate_limited' | 'recovered';
+  health: BackendHealth;
+}
+
 export interface ElectronAPI {
   popup: {
     open: (url: string, title?: string) => Promise<void>;
@@ -86,6 +108,13 @@ export interface ElectronAPI {
     read: () => Promise<Record<string, unknown>>;
     write: (config: Record<string, unknown>) => Promise<void>;
     onChanged: (callback: (config: Record<string, unknown>) => void) => () => void;
+  };
+  backends: {
+    getStatus: () => Promise<BackendStatusMap>;
+    refresh: () => Promise<BackendStatusMap>;
+    authenticate: (backend: string) => Promise<void>;
+    onStatusChanged: (callback: (status: BackendStatusMap) => void) => () => void;
+    onAlert: (callback: (alert: BackendAlert) => void) => () => void;
   };
   session: {
     pickDir: () => Promise<string | null>;

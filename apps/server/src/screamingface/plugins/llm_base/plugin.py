@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from screamingface.plugin import Plugin
+from screamingface.plugins.llm_base.routes import create_router
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -42,6 +43,6 @@ class LlmBasePlugin(Plugin):
         classes: ClassRegistry,
         routes: RouteRegistry,
     ) -> None:
-        # Nothing to register — the plugin exposes its API via Python
-        # imports, not via FastAPI routes or hooks.
-        pass
+        if routes is not None:
+            router = create_router(app)
+            routes.add_router(self.name, router, prefix="")

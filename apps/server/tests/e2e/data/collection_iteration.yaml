@@ -1,0 +1,50 @@
+# SF-91: Collection iteration — source*(body)!intent
+# Tests require a data-store blob created at runtime via setup_blob.
+
+- id: collection_jsonl_iteration
+  description: "JSONL collection iteration with $item.question"
+  ticket: SF-91
+  backends: [claude]
+  setup_blob:
+    content: |
+      {"question":"What is 2+2? One word."}
+      {"question":"Capital of France? One word."}
+      {"question":"Color of sky? One word."}
+    content_type: application/jsonl
+  expression: "/data/{blob_key}*(/claude($item.question)!Answer briefly)"
+  expect:
+    min_results: 2
+    min_length: 5
+    judge:
+      question: "Does the response contain answers to multiple questions, including at least two of: 4, Paris, blue?"
+
+- id: collection_json_array
+  description: "JSON array collection iteration with bare $item"
+  ticket: SF-91
+  backends: [claude]
+  setup_blob:
+    content: '["What is 1+1?","What is 3+3?"]'
+    content_type: application/json
+  expression: "/data/{blob_key}*(/claude($item)!Reply with just the number.)"
+  expect:
+    min_results: 1
+    min_length: 1
+    judge:
+      question: "Does the response contain the numbers 2 and 6 (answers to 1+1 and 3+3)?"
+
+- id: collection_plain_text
+  description: "Plain text collection iteration — one line per item"
+  ticket: SF-91
+  backends: [claude]
+  setup_blob:
+    content: |
+      apple
+      banana
+      cherry
+    content_type: text/plain
+  expression: "/data/{blob_key}*(/claude($item)!What color is this fruit? One word.)"
+  expect:
+    min_results: 2
+    min_length: 5
+    judge:
+      question: "Does the response contain color names associated with fruits (e.g. red for apple, yellow for banana, red for cherry)?"

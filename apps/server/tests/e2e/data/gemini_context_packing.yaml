@@ -1,0 +1,58 @@
+# Gemini context packing — /gemini('context')!intent
+# Mirrors context_packing.yaml (Claude) for parity.
+
+- id: gemini_context_city
+  description: "Context packing — extract city from packed context"
+  ticket: SF-84
+  backends: [gemini]
+  expression: "/gemini(The capital of France is Paris.)!What city was mentioned? One word."
+  expect:
+    max_length: 1000
+    judge:
+      question: "Does the response identify Paris as the mentioned city?"
+
+- id: gemini_context_number
+  description: "Context packing — extract number from packed context"
+  ticket: SF-84
+  backends: [gemini]
+  expression: "/gemini(The answer to life is 42.)!What number was mentioned? Just the number."
+  expect:
+    max_length: 1000
+    judge:
+      question: "Does the response contain the number 42?"
+
+- id: gemini_context_empty_parens
+  description: "Empty parens — /gemini()!intent"
+  ticket: SF-84
+  backends: [gemini]
+  expression: "/gemini()!What color is the sky on a clear day? One word."
+  expect:
+    max_length: 1000
+    judge:
+      question: "Does the response identify blue as the color of the sky?"
+
+- id: gemini_context_long_passage
+  description: "Context packing — answer from a longer context passage"
+  ticket: SF-84
+  backends: [gemini]
+  expression: >-
+    /gemini(Albert Einstein was born in Ulm, Germany in 1879.
+    He developed the theory of relativity and won the Nobel Prize in 1921.)
+    !In what year was he born? Just the number.
+  expect:
+    max_length: 1000
+    judge:
+      question: "Does the response contain 1879 as Einstein's birth year?"
+
+- id: gemini_context_multiple_facts
+  description: "Context packing — pick specific fact from context with multiple facts"
+  ticket: SF-84
+  backends: [gemini]
+  expression: >-
+    /gemini(The population of Tokyo is 14 million.
+    The population of Paris is 2 million.
+    The population of London is 9 million.)
+    !Which city has the smallest population? One word.
+  expect:
+    max_length: 1000
+    contains_any: ["Paris", "paris"]

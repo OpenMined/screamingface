@@ -15,7 +15,9 @@
     "claude-frontend",
     "data-store",
     "llm-base",
-    "claude-backend-api"
+    "claude-backend-api",
+    "codex-backend-api",
+    "gemini-backend-api"
   ],
   "plugin_config": {
     "claude-frontend": {

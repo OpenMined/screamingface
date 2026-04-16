@@ -51,7 +51,11 @@ class TestToProviderFormatBasic:
         body = adapter.to_provider_format(
             messages, model="claude-sonnet-4-5", system="You are helpful."
         )
-        assert body["system"] == "You are helpful."
+        # System is now an array with billing header + user system text
+        assert isinstance(body["system"], list)
+        assert body["system"][0]["type"] == "text"
+        assert "x-anthropic-billing-header" in body["system"][0]["text"]
+        assert body["system"][1] == {"type": "text", "text": "You are helpful."}
 
     def test_system_role_messages_merged_into_top_level(self, adapter: AnthropicAdapter):
         """CoreMessage(role="system", …) entries get hoisted into the
@@ -63,8 +67,12 @@ class TestToProviderFormatBasic:
         ]
         body = adapter.to_provider_format(messages, model="claude-sonnet-4-5")
 
-        # Both system messages merged with \n\n separator
-        assert body["system"] == "rule 1\n\nrule 2"
+        # Billing header + two system chunks
+        assert isinstance(body["system"], list)
+        assert len(body["system"]) == 3
+        assert "x-anthropic-billing-header" in body["system"][0]["text"]
+        assert body["system"][1]["text"] == "rule 1"
+        assert body["system"][2]["text"] == "rule 2"
         # Only the user message remains in messages array
         assert len(body["messages"]) == 1
         assert body["messages"][0]["role"] == "user"
@@ -76,7 +84,9 @@ class TestToProviderFormatBasic:
             CoreMessage(role="user", content="hi"),
         ]
         body = adapter.to_provider_format(messages, model="claude-sonnet-4-5", system="from arg")
-        assert body["system"] == "from arg\n\nfrom message"
+        assert isinstance(body["system"], list)
+        assert body["system"][1]["text"] == "from arg"
+        assert body["system"][2]["text"] == "from message"
 
     def test_max_tokens_passed_through(self, adapter: AnthropicAdapter):
         messages = [CoreMessage(role="user", content="hi")]
