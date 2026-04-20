@@ -17,7 +17,8 @@
     "llm-base",
     "claude-backend-api",
     "codex-backend-api",
-    "codex-frontend"
+    "codex-frontend",
+    "ollama-frontend"
   ],
   "plugin_config": {
     "claude-frontend": {
@@ -28,12 +29,26 @@
       "session_service_url": "http://127.0.0.1:9200",
       "resolve_timeout": 300
     },
+    "ollama-frontend": {
+      "active_spec": null,
+      "upstream_url": "http://localhost:11434",
+      "listen_host": "127.0.0.1",
+      "listen_port": 9103,
+      "embed_target": "system",
+      "embed_mode": "concat",
+      "resolve_timeout": 300
+    },
     "mitmproxy-intercept": {
       "rules": [
         {
           "domain": "api.anthropic.com",
           "frontend": "claude-frontend",
           "process_filter": "claude"
+        },
+        {
+          "domain": "localhost:11434",
+          "frontend": "ollama-frontend",
+          "process_filter": "ollama"
         }
       ],
       "proxy_port": 8888,
