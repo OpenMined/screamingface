@@ -88,9 +88,23 @@ def test_streaming_ndjson_relay() -> None:
     client = TestClient(_app(settings, plugin=_FakePlugin()))
 
     chunks = [
-        json.dumps({"model": "llama3", "message": {"role": "assistant", "content": "He"}, "done": False}).encode() + b"\n",
-        json.dumps({"model": "llama3", "message": {"role": "assistant", "content": "llo"}, "done": False}).encode() + b"\n",
-        json.dumps({"model": "llama3", "message": {"role": "assistant", "content": ""}, "done": True, "done_reason": "stop"}).encode() + b"\n",
+        json.dumps(
+            {"model": "llama3", "message": {"role": "assistant", "content": "He"}, "done": False}
+        ).encode()
+        + b"\n",
+        json.dumps(
+            {"model": "llama3", "message": {"role": "assistant", "content": "llo"}, "done": False}
+        ).encode()
+        + b"\n",
+        json.dumps(
+            {
+                "model": "llama3",
+                "message": {"role": "assistant", "content": ""},
+                "done": True,
+                "done_reason": "stop",
+            }
+        ).encode()
+        + b"\n",
     ]
 
     class _FakeStreamCtx:
@@ -142,7 +156,9 @@ def test_inject_system_insert_when_absent() -> None:
     client = TestClient(_app(settings, plugin=plugin))
 
     with patch(
-        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=_ok_json(_default_ollama_body())
+        "httpx.AsyncClient.post",
+        new_callable=AsyncMock,
+        return_value=_ok_json(_default_ollama_body()),
     ) as mock_post:
         client.post(
             "/api/chat",
@@ -170,7 +186,9 @@ def test_inject_system_concat_with_existing() -> None:
     client = TestClient(_app(settings, plugin=plugin))
 
     with patch(
-        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=_ok_json(_default_ollama_body())
+        "httpx.AsyncClient.post",
+        new_callable=AsyncMock,
+        return_value=_ok_json(_default_ollama_body()),
     ) as mock_post:
         client.post(
             "/api/chat",
@@ -200,7 +218,9 @@ def test_inject_user_replace() -> None:
     client = TestClient(_app(settings, plugin=plugin))
 
     with patch(
-        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=_ok_json(_default_ollama_body())
+        "httpx.AsyncClient.post",
+        new_callable=AsyncMock,
+        return_value=_ok_json(_default_ollama_body()),
     ) as mock_post:
         client.post(
             "/api/chat",
@@ -273,7 +293,9 @@ def test_authorization_forwarded_other_stripped() -> None:
     client = TestClient(_app(settings, plugin=_FakePlugin()))
 
     with patch(
-        "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=_ok_json(_default_ollama_body())
+        "httpx.AsyncClient.post",
+        new_callable=AsyncMock,
+        return_value=_ok_json(_default_ollama_body()),
     ) as mock_post:
         client.post(
             "/api/chat",

@@ -470,9 +470,7 @@ def create_router(
                     async with client.stream("POST", url, json=body, headers=headers) as resp:
                         if upstream_span:
                             _set_span_attrs({"http.status_code": resp.status_code}, upstream_span)
-                            _set_span_headers(
-                                "response.headers", dict(resp.headers), upstream_span
-                            )
+                            _set_span_headers("response.headers", dict(resp.headers), upstream_span)
                         async for chunk in resp.aiter_bytes():
                             chunks.append(chunk)
                             yield chunk

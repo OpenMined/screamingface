@@ -71,9 +71,7 @@ class OllamaFrontendSettings(PluginSettings):
     )
     embed_mode: Literal["concat", "replace"] = Field(
         default="concat",
-        description=(
-            "How to embed: 'concat' (original + context) or 'replace' (context only)."
-        ),
+        description=("How to embed: 'concat' (original + context) or 'replace' (context only)."),
     )
     system_prompt: str = Field(
         default=(
@@ -187,9 +185,7 @@ class OllamaFrontendPlugin(Plugin):
             if resolved_parts:
                 self._resolved_context = "\n\n".join(resolved_parts)
                 self._active_key = active_key
-                logger.info(
-                    "Cached %d chars of resolved url4 context", len(self._resolved_context)
-                )
+                logger.info("Cached %d chars of resolved url4 context", len(self._resolved_context))
             else:
                 self._resolved_context = None
                 self._active_key = active_key
