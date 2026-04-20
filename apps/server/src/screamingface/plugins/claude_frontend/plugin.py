@@ -129,6 +129,11 @@ class ClaudeFrontendPlugin(Plugin):
     def preflight(self) -> tuple[bool, str]:
         import shutil
 
+        # Skip the CLI check in test subprocesses (ServerManager sets this).
+        # The proxy itself doesn't need the Claude CLI — the check exists to
+        # prevent a confusing runtime for end-users who haven't installed it.
+        if os.environ.get("_SF_SUBPROCESS"):
+            return True, ""
         if not shutil.which("claude"):
             return False, (
                 "Claude CLI not found in PATH. "
