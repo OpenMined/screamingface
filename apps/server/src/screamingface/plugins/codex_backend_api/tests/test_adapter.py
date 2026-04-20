@@ -223,6 +223,7 @@ class TestFromProviderResponse:
             "usage": {"input_tokens": 5, "output_tokens": 2, "total_tokens": 7},
         }
         msg = adapter.from_provider_response(data)
+        assert msg.provider_metadata is not None
         assert msg.provider_metadata["openai.id"] == "resp_test"
         assert msg.provider_metadata["openai.model"] == "o4-mini"
         assert msg.provider_metadata["openai.status"] == "completed"
@@ -230,7 +231,7 @@ class TestFromProviderResponse:
 
     def test_non_dict_raises(self):
         with pytest.raises(AdapterError, match="not a dict"):
-            adapter.from_provider_response("not a dict")
+            adapter.from_provider_response("not a dict")  # type: ignore[arg-type]
 
     def test_empty_output_raises(self):
         with pytest.raises(AdapterError, match="empty 'output'"):

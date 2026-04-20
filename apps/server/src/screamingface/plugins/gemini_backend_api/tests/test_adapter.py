@@ -8,6 +8,7 @@ from screamingface.plugins.gemini_backend_api.adapter import GeminiAdapter
 from screamingface.plugins.llm_base.errors import AdapterError
 from screamingface.plugins.llm_base.messages import (
     CoreMessage,
+    TextPart,
     ToolCallPart,
     ToolDefinition,
 )
@@ -75,7 +76,10 @@ class TestFromProviderResponse:
         }
         msg = adapter.from_provider_response(data)
         assert msg.role == "assistant"
-        assert msg.content[0].text == "Hello!"
+        assert isinstance(msg.content, list)
+        part = msg.content[0]
+        assert isinstance(part, TextPart)
+        assert part.text == "Hello!"
 
     def test_function_call_response(self):
         data = {
@@ -97,6 +101,7 @@ class TestFromProviderResponse:
             ],
         }
         msg = adapter.from_provider_response(data)
+        assert isinstance(msg.content, list)
         part = msg.content[0]
         assert isinstance(part, ToolCallPart)
         assert part.tool_name == "get_weather"
@@ -104,7 +109,7 @@ class TestFromProviderResponse:
 
     def test_non_dict_raises(self):
         with pytest.raises(AdapterError):
-            adapter.from_provider_response("not dict")
+            adapter.from_provider_response("not dict")  # type: ignore[arg-type]
 
     def test_empty_candidates_raises(self):
         with pytest.raises(AdapterError):

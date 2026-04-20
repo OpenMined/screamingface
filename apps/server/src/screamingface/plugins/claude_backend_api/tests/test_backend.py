@@ -77,6 +77,7 @@ class TestRunSuccessPath:
 
         assert isinstance(result, CoreMessage)
         assert result.role == "assistant"
+        assert isinstance(result.content, list)
         assert isinstance(result.content[0], TextPart)
         assert result.content[0].text == "pong"
 
@@ -228,6 +229,8 @@ class TestRun401Recovery:
 
         assert call_count["n"] == 2
         auth.invalidate_cache.assert_called_once()
+        assert isinstance(result.content, list)
+        assert isinstance(result.content[0], TextPart)
         assert result.content[0].text == "pong"
 
     async def test_double_401_raises_auth_error(self):
