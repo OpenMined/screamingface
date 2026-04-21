@@ -327,40 +327,47 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         for name in added:
             if name not in discovered:
-                errors.append({
-                    "plugin": name,
-                    "error": f"Plugin {name!r} is not installed or not found.",
-                })
+                errors.append(
+                    {
+                        "plugin": name,
+                        "error": f"Plugin {name!r} is not installed or not found.",
+                    }
+                )
                 continue
 
             try:
                 instance = app.state.plugins.load_plugin(name)
             except Exception as exc:
-                errors.append({
-                    "plugin": name,
-                    "error": f"Failed to load plugin {name!r}: {exc}",
-                })
+                errors.append(
+                    {
+                        "plugin": name,
+                        "error": f"Failed to load plugin {name!r}: {exc}",
+                    }
+                )
                 continue
 
             # Run preflight check
             ok, reason = instance.preflight()
             if not ok:
-                errors.append({
-                    "plugin": name,
-                    "error": reason,
-                })
+                errors.append(
+                    {
+                        "plugin": name,
+                        "error": reason,
+                    }
+                )
                 continue
 
             # Check conflicts with other proposed plugins
             for conflict in instance.conflicts:
                 if conflict in proposed_plugins:
-                    errors.append({
-                        "plugin": name,
-                        "error": (
-                            f"Conflicts with {conflict!r} — "
-                            f"only one can be active at a time."
-                        ),
-                    })
+                    errors.append(
+                        {
+                            "plugin": name,
+                            "error": (
+                                f"Conflicts with {conflict!r} — only one can be active at a time."
+                            ),
+                        }
+                    )
 
         if errors:
             return {"valid": False, "errors": errors}

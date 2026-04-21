@@ -144,11 +144,14 @@ def proxy_server(
 ) -> Generator[ServerManager, None, None]:
     """Session proxy (claude-frontend → httpbin). Started once per session."""
     mgr = ServerManager(proxy_server_config, session_id="e2e-test")
-    mgr.start(timeout=30)
+    mgr.start(timeout=60)
     # Wait for the proxy port to be listening
-    if not ServerManager.wait_for_port(proxy_server_port):
+    if not ServerManager.wait_for_port(proxy_server_port, timeout=60):
+        last_logs = "\n".join(mgr.logs.dump_last()) if mgr.logs else "<no logs>"
         mgr.stop()
-        raise RuntimeError(f"Proxy not listening on port {proxy_server_port}")
+        raise RuntimeError(
+            f"Proxy not listening on port {proxy_server_port}\nLast server log lines:\n{last_logs}"
+        )
     yield mgr
     mgr.stop()
 

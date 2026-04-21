@@ -91,7 +91,12 @@ class EnsembleInterpreter(Url4Interpreter):
 
             source_node = parse(source_expr) if source_expr else None
 
-            if source_node is not None and self._is_fanout(source_node) and raw_intent:
+            if (
+                source_node is not None
+                and isinstance(source_node, Url4List)
+                and self._is_fanout(source_node)
+                and raw_intent
+            ):
                 set_span_attrs({"url4.ensemble": True})
                 return await self._ensemble_evaluate(source_node, raw_intent)
 

@@ -108,8 +108,12 @@ class ServerManager:
         return self._proc.pid if self._proc else None
 
     @staticmethod
-    def wait_for_port(port: int, host: str = "127.0.0.1", timeout: float = 15) -> bool:
-        """Poll until a TCP port is accepting connections."""
+    def wait_for_port(port: int, host: str = "127.0.0.1", timeout: float = 60) -> bool:
+        """Poll until a TCP port is accepting connections.
+
+        Default 60s — frontend plugin threads bind their port *after* the main
+        server emits ready, so in cold CI environments this can lag noticeably.
+        """
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:

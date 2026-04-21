@@ -6,6 +6,8 @@ No real network calls or Anthropic API — everything is mocked.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from screamingface.plugins.url4_executor.ensemble import (
@@ -64,7 +66,7 @@ class _FakeDispatchPlugin:
         return resp
 
 
-def _make_app(*plugins: _FakeDispatchPlugin) -> _FakeApp:
+def _make_app(*plugins: Any) -> _FakeApp:
     registry = _FakePluginRegistry({p.name: p for p in plugins})
     return _FakeApp(registry)
 

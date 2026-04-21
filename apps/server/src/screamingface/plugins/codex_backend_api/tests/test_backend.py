@@ -81,6 +81,7 @@ class TestRunSuccess:
         )
         assert result.role == "assistant"
         assert isinstance(result.content, list)
+        assert isinstance(result.content[0], TextPart)
         assert result.content[0].text == "pong"
 
     @pytest.mark.anyio
@@ -213,6 +214,8 @@ class TestRun401Recovery:
             [CoreMessage(role="user", content=[TextPart(text="ping")])],
             model="o4-mini",
         )
+        assert isinstance(result.content, list)
+        assert isinstance(result.content[0], TextPart)
         assert result.content[0].text == "pong"
         auth.invalidate_cache.assert_called_once()
 

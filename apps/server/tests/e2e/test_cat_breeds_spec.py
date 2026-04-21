@@ -146,10 +146,14 @@ def cat_proxy(otlp_collector: OTLPCollector):  # type: ignore[misc]
     }
 
     mgr = ServerManager(config, session_id="e2e-cat-breeds")
-    mgr.start(timeout=30)
-    if not ServerManager.wait_for_port(proxy_port):
+    mgr.start(timeout=60)
+    if not ServerManager.wait_for_port(proxy_port, timeout=60):
+        last_logs = "\n".join(mgr.logs.dump_last()) if mgr.logs else "<no logs>"
         mgr.stop()
-        raise RuntimeError(f"Cat breeds proxy not listening on port {proxy_port}")
+        raise RuntimeError(
+            f"Cat breeds proxy not listening on port {proxy_port}\n"
+            f"Last server log lines:\n{last_logs}"
+        )
     yield mgr, proxy_port
     mgr.stop()
 

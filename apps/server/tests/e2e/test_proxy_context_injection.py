@@ -64,11 +64,14 @@ def static_proxy(static_proxy_config, proxy_server_port):
     from tests.e2e.infrastructure.server_manager import ServerManager
 
     mgr = ServerManager(static_proxy_config, session_id="e2e-static")
-    mgr.start(timeout=30)
+    mgr.start(timeout=60)
     listen_port = proxy_server_port + 100
-    if not ServerManager.wait_for_port(listen_port):
+    if not ServerManager.wait_for_port(listen_port, timeout=60):
+        last_logs = "\n".join(mgr.logs.dump_last()) if mgr.logs else "<no logs>"
         mgr.stop()
-        raise RuntimeError(f"Static proxy not listening on port {listen_port}")
+        raise RuntimeError(
+            f"Static proxy not listening on port {listen_port}\nLast server log lines:\n{last_logs}"
+        )
     yield mgr, listen_port
     mgr.stop()
 
