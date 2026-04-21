@@ -2,8 +2,21 @@
 
 Each `*.yaml` file in this directory defines test cases for the
 YAML-driven parametrized runner (`test_url4_matrix.py`). All files
-are loaded and merged automatically — add a new file to add a new
-topic.
+are loaded and merged automatically (recursively) — add a new file
+to add a new topic.
+
+## Folder layout
+
+Fixtures are organised by the backend they exercise so the association
+is visible at a glance:
+
+- `claude/`, `codex/`, `gemini/` — single-provider fixtures
+- `multi/` — cross-provider ensemble tests (e.g. `multi_backend.yaml`)
+- `other/` — non-live fixtures that don't need a backend (e.g. parser/routing only)
+
+Within a provider folder, filenames name the topic (e.g.
+`codex/backend_calls.yaml`) — no need to prefix the filename with the
+provider since the folder already carries that information.
 
 ## YAML schema
 

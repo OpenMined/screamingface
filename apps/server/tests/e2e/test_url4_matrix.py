@@ -58,6 +58,8 @@ MIN_TOKEN_CAPACITY = 1000
 def _load_matrix() -> list[dict[str, Any]]:
     """Load and merge all ``*.yaml`` files from the data directory.
 
+    Files are discovered recursively so fixtures can live in per-provider
+    subfolders (``claude/``, ``codex/``, ``gemini/``, ``multi/``, ``other/``).
     Each file is a YAML list of test cases.  Files are loaded in sorted
     order so test IDs are deterministic across runs.  Duplicate IDs
     across files are caught at load time.
@@ -65,7 +67,8 @@ def _load_matrix() -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     seen_ids: dict[str, str] = {}  # id -> source file
 
-    for path in sorted(DATA_DIR.glob("*.yaml")):
+    for path in sorted(DATA_DIR.rglob("*.yaml")):
+        rel = path.relative_to(DATA_DIR)
         with path.open() as fh:
             file_cases = yaml.safe_load(fh)
         if not file_cases:
@@ -74,9 +77,9 @@ def _load_matrix() -> list[dict[str, Any]]:
             cid = case["id"]
             if cid in seen_ids:
                 raise ValueError(
-                    f"Duplicate test id {cid!r} in {path.name} (first seen in {seen_ids[cid]})"
+                    f"Duplicate test id {cid!r} in {rel} (first seen in {seen_ids[cid]})"
                 )
-            seen_ids[cid] = path.name
+            seen_ids[cid] = str(rel)
         cases.extend(file_cases)
 
     return cases
