@@ -253,7 +253,9 @@ class GeminiBackend(Backend):
                     wait = retry_delay + 0.5
                     logger.info(
                         "gemini-backend-api: 429, retrying in %.1fs (attempt %d/%d)",
-                        wait, attempt + 1, MAX_429_RETRIES,
+                        wait,
+                        attempt + 1,
+                        MAX_429_RETRIES,
                     )
                     await asyncio.sleep(wait)
                     continue

@@ -97,9 +97,7 @@ class TestAdapterRoundTrip:
                 headers=headers,
             )
 
-        assert resp.status_code in (200, 429), (
-            f"API returned {resp.status_code}: {resp.text[:300]}"
-        )
+        assert resp.status_code in (200, 429), f"API returned {resp.status_code}: {resp.text[:300]}"
 
         if resp.status_code == 200:
             result = adapter.from_provider_response(resp.json())
