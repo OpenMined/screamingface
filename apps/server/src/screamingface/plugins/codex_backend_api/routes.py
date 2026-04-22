@@ -369,6 +369,6 @@ def _record_span_success(result: CoreMessage, duration: float, stdout: str) -> N
 
 def _otel_attr_value(value: Any) -> Any:
     """Coerce a value to something OTEL spans accept as an attribute."""
-    if isinstance(value, (str, bool, int, float)):
+    if isinstance(value, str | bool | int | float):
         return value
     return json.dumps(value)
