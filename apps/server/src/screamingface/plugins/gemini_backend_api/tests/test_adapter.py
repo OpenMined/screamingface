@@ -59,9 +59,7 @@ class TestToProviderFormat:
             CoreMessage(role="system", content="From list"),
             CoreMessage(role="user", content="Hi"),
         ]
-        body = adapter.to_provider_format(
-            msgs, model="gemini-2.5-flash", system="From arg"
-        )
+        body = adapter.to_provider_format(msgs, model="gemini-2.5-flash", system="From arg")
         combined = body["systemInstruction"]["parts"][0]["text"]
         assert "From arg" in combined
         assert "From list" in combined
