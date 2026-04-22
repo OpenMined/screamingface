@@ -91,7 +91,10 @@ class TestConstants:
         assert GOOGLE_TOKEN_URL == "https://oauth2.googleapis.com/token"
 
     def test_client_id(self):
-        assert OAUTH_CLIENT_ID == "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
+        assert (
+            OAUTH_CLIENT_ID
+            == "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"
+        )
 
     def test_client_secret(self):
         assert OAUTH_CLIENT_SECRET == "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"

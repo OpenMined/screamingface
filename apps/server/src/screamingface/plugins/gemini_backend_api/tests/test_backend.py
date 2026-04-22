@@ -5,7 +5,6 @@ Mocks the auth strategy and httpx so every test is hermetic.
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -20,7 +19,6 @@ from screamingface.plugins.gemini_backend_api.backend import (
 )
 from screamingface.plugins.llm_base.errors import AuthError, BackendError
 from screamingface.plugins.llm_base.messages import CoreMessage, TextPart
-
 
 # ----------------------------------------------------------------------------
 # Helpers
@@ -80,7 +78,11 @@ def _api_key_success_response() -> httpx.Response:
                     "finishReason": "STOP",
                 }
             ],
-            "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 1, "totalTokenCount": 6},
+            "usageMetadata": {
+                "promptTokenCount": 5,
+                "candidatesTokenCount": 1,
+                "totalTokenCount": 6,
+            },
         },
     )
 
@@ -97,7 +99,11 @@ def _code_assist_success_response() -> httpx.Response:
                         "finishReason": "STOP",
                     }
                 ],
-                "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 1, "totalTokenCount": 6},
+                "usageMetadata": {
+                    "promptTokenCount": 5,
+                    "candidatesTokenCount": 1,
+                    "totalTokenCount": 6,
+                },
             },
             "traceId": "trace-123",
         },
@@ -142,9 +148,7 @@ class TestApiKeyRunSuccessPath:
         factory, fake_client = _mock_factory(_api_key_success_response())
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
-        await backend.run(
-            [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-        )
+        await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
 
         fake_client.post.assert_called_once()
         args, kwargs = fake_client.post.call_args
@@ -156,9 +160,7 @@ class TestApiKeyRunSuccessPath:
         factory, fake_client = _mock_factory(_api_key_success_response())
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
-        await backend.run(
-            [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-        )
+        await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
 
         args, kwargs = fake_client.post.call_args
         headers = kwargs["headers"]
@@ -198,9 +200,7 @@ class TestOAuthRunSuccessPath:
         )
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
-        await backend.run(
-            [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-        )
+        await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
 
         # Second call is generateContent (first was loadCodeAssist)
         assert fake_client.post.call_count == 2
@@ -217,9 +217,7 @@ class TestOAuthRunSuccessPath:
         )
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
-        await backend.run(
-            [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-        )
+        await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
 
         generate_call = fake_client.post.call_args_list[1]
         body = generate_call.kwargs["json"]
@@ -254,9 +252,7 @@ class TestOAuthRunSuccessPath:
         )
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
-        await backend.run(
-            [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-        )
+        await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
 
         # First call should be loadCodeAssist
         setup_call = fake_client.post.call_args_list[0]
@@ -274,9 +270,7 @@ class TestOAuthRunSuccessPath:
         )
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
-        await backend.run(
-            [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-        )
+        await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
         await backend.run(
             [CoreMessage(role="user", content="ping again")], model="gemini-2.5-flash"
         )
@@ -301,7 +295,12 @@ class TestRunErrorPaths:
             "error": {
                 "code": 429,
                 "message": "Rate limited",
-                "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "0.1s"}],
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                        "retryDelay": "0.1s",
+                    }
+                ],
             }
         }
         factory, fake_client = _sequenced_factory(
@@ -324,7 +323,12 @@ class TestRunErrorPaths:
             "error": {
                 "code": 429,
                 "message": "Rate limited",
-                "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "0.1s"}],
+                "details": [
+                    {
+                        "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                        "retryDelay": "0.1s",
+                    }
+                ],
             }
         }
         resp = httpx.Response(429, json=error_body)
@@ -332,9 +336,7 @@ class TestRunErrorPaths:
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
         with pytest.raises(BackendError, match="rate limit") as exc_info:
-            await backend.run(
-                [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-            )
+            await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
         assert exc_info.value.status == 429
 
     async def test_403_raises_auth_error(self):
@@ -343,9 +345,7 @@ class TestRunErrorPaths:
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
         with pytest.raises(AuthError, match="403"):
-            await backend.run(
-                [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-            )
+            await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
 
     async def test_500_raises_backend_error(self):
         auth = _mock_auth({"x-goog-api-key": "test-key"}, is_api_key=True)
@@ -353,9 +353,7 @@ class TestRunErrorPaths:
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
         with pytest.raises(BackendError) as exc_info:
-            await backend.run(
-                [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-            )
+            await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
         assert exc_info.value.status == 500
 
     async def test_timeout_raises_backend_error(self):
@@ -372,9 +370,7 @@ class TestRunErrorPaths:
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
         with pytest.raises(BackendError, match="timed out"):
-            await backend.run(
-                [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-            )
+            await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
 
 
 @pytest.mark.anyio
@@ -400,9 +396,7 @@ class TestRun401Recovery:
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
         with pytest.raises(AuthError, match="re-authenticate"):
-            await backend.run(
-                [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-            )
+            await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
 
 
 # ============================================================================
@@ -440,9 +434,7 @@ class TestHealth:
     async def test_health_auth_failure(self):
         auth = MagicMock()
         auth.is_api_key_auth = MagicMock(return_value=False)
-        auth.get_authorization_header = AsyncMock(
-            side_effect=AuthError("No token found")
-        )
+        auth.get_authorization_header = AsyncMock(side_effect=AuthError("No token found"))
         backend = GeminiBackend(auth=auth, http_client_factory=MagicMock())
 
         status = await backend.health()
@@ -452,9 +444,7 @@ class TestHealth:
 
     async def test_health_rate_limited_429(self):
         auth = _mock_auth({"x-goog-api-key": "test-key"}, is_api_key=True)
-        factory, _ = _mock_factory(
-            httpx.Response(429, json={"error": {"message": "Rate limited"}})
-        )
+        factory, _ = _mock_factory(httpx.Response(429, json={"error": {"message": "Rate limited"}}))
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
         status = await backend.health()
@@ -492,9 +482,7 @@ class TestCodeAssistSetup:
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
         with pytest.raises(BackendError, match="loadCodeAssist"):
-            await backend.run(
-                [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-            )
+            await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
 
     async def test_setup_network_error_raises_backend_error(self):
         auth = _mock_auth({"Authorization": "Bearer ya29.test"}, is_api_key=False)
@@ -510,6 +498,4 @@ class TestCodeAssistSetup:
         backend = GeminiBackend(auth=auth, http_client_factory=factory)
 
         with pytest.raises(BackendError, match="unreachable"):
-            await backend.run(
-                [CoreMessage(role="user", content="ping")], model="gemini-2.5-flash"
-            )
+            await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")

@@ -18,6 +18,17 @@ from screamingface.plugins.llm_base.errors import AuthError, BackendError
 from screamingface.plugins.llm_base.messages import CoreMessage, TextPart
 
 
+@pytest.fixture(autouse=True)
+def _force_api_key_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Route OpenAIBackend.run() through the api.openai.com httpx path.
+
+    Without OPENAI_API_KEY set, the backend routes to chatgpt.com via
+    curl_cffi which bypasses the injected http_client_factory and makes
+    a real network call. Setting a dummy key keeps the test hermetic.
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-real")
+
+
 def _mock_auth(headers: dict[str, str]) -> MagicMock:
     """Build a fake AuthStrategy that returns the given headers."""
     auth = MagicMock()
@@ -141,7 +152,7 @@ class TestRunErrors:
         factory, _ = _mock_factory(httpx.Response(403, text="Forbidden"))
         backend = OpenAIBackend(auth=auth, http_client_factory=factory)
 
-        with pytest.raises(AuthError, match="403 Forbidden"):
+        with pytest.raises(AuthError, match=r"Forbidden \(403\)"):
             await backend.run(
                 [CoreMessage(role="user", content=[TextPart(text="ping")])],
                 model="o4-mini",
@@ -222,7 +233,7 @@ class TestRun401Recovery:
         factory, _ = _mock_factory(httpx.Response(401, text="Unauthorized"))
         backend = OpenAIBackend(auth=auth, http_client_factory=factory)
 
-        with pytest.raises(AuthError, match="twice in a row"):
+        with pytest.raises(AuthError, match="failed twice"):
             await backend.run(
                 [CoreMessage(role="user", content=[TextPart(text="ping")])],
                 model="o4-mini",
