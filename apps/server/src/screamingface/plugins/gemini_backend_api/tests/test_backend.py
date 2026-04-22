@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false, reportOptionalSubscript=false, reportOperatorIssue=false
 """Unit tests for gemini-backend-api GeminiBackend.
 
 Mocks the auth strategy and httpx so every test is hermetic.

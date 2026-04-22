@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """Unit tests for codex-backend-api OpenAIBackend.
 
 Mocks the auth strategy and httpx so every test is hermetic.

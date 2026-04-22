@@ -1,3 +1,4 @@
+# pyright: reportOptionalSubscript=false, reportArgumentType=false
 """Unit tests for codex-backend-api OpenAIResponsesAdapter.
 
 Tests CoreMessage <-> OpenAI Responses API format conversions.

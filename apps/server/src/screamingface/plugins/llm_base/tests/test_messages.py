@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """Unit tests for the CoreMessage pydantic types.
 
 Pure pydantic round-trips. No FastAPI, no httpx, no I/O.
