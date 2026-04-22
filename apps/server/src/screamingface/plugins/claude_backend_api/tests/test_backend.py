@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false, reportOperatorIssue=false, reportOptionalMemberAccess=false
 """Unit tests for claude-backend-api AnthropicBackend.
 
 Mocks the auth strategy and httpx so every test is hermetic.

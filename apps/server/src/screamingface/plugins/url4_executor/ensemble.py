@@ -40,7 +40,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 
 from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
 from screamingface.plugins.url4_executor.url4 import (
@@ -252,7 +252,7 @@ class EnsembleInterpreter(Url4Interpreter):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _is_fanout(node: Url4Node) -> bool:
+    def _is_fanout(node: Url4Node) -> TypeGuard[Url4List]:
         """Return True if *node* is a Url4List where every item is a
         Url4BackendCall."""
         if not isinstance(node, Url4List):

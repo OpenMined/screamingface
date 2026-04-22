@@ -311,7 +311,7 @@ class TestEnsembleEvaluate:
 
         plugin = _FakeDispatchPlugin(name="claude-api", paths=["/claude"], responses=["ok"])
         failing = _FailingPlugin()
-        app = _make_app(plugin, failing)
+        app = _make_app(plugin, failing)  # pyright: ignore[reportArgumentType]
         interp = EnsembleInterpreter(app=app, processor="/claude")
 
         with pytest.raises(RuntimeError, match="backend exploded"):

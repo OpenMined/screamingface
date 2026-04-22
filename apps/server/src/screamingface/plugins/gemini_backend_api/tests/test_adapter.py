@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false, reportOptionalSubscript=false, reportArgumentType=false
 """Tests for gemini-backend-api GeminiAdapter."""
 
 from __future__ import annotations

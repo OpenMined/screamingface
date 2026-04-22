@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false, reportOperatorIssue=false
 """Tests for the url4 spec — TatSu parser + async resolver."""
 
 from __future__ import annotations
