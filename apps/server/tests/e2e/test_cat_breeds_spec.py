@@ -116,7 +116,7 @@ def cat_proxy(otlp_collector: OTLPCollector):  # type: ignore[misc]
         "plugins": [
             "tracing",
             "claude-frontend",
-            "claude-backend",
+            "claude-backend-api",
             "url4-specs",
             "url4-executor",
             "data-store",
@@ -132,8 +132,8 @@ def cat_proxy(otlp_collector: OTLPCollector):  # type: ignore[misc]
                 "listen_host": "127.0.0.1",
                 "listen_port": proxy_port,
             },
-            "claude-backend": {
-                "default_model": "claude-sonnet-4-20250514",
+            "claude-backend-api": {
+                "default_model": "claude-sonnet-4-6",
             },
             "url4-specs": {
                 "specs": {

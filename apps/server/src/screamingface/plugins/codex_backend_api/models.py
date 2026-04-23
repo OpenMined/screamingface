@@ -1,25 +1,27 @@
 """Request/response/profile models for codex-backend-api.
 
-Re-exports the same wire-format models used by claude-backend-api.
-The ensemble fan-out system sends identical request shapes to all
-backends, so the models must be byte-for-byte compatible.
-
-If codex ever needs a different wire format, this module becomes the
-owning location by defining custom classes here.
+Re-exports the shared wire-format models from :mod:`backend_api_base`.
 """
 
 from __future__ import annotations
 
-from screamingface.plugins.claude_backend.models import (
+from screamingface.plugins.backend_api_base.models import (
+    BackendProfile,
     ClaudeProfile,
     ClaudeRunRequest,
     ClaudeRunResponse,
     FileInput,
+    RunRequest,
+    RunResponse,
 )
 
 __all__ = [
+    "BackendProfile",
+    "FileInput",
+    "RunRequest",
+    "RunResponse",
+    # Legacy aliases (one-release back-compat)
     "ClaudeProfile",
     "ClaudeRunRequest",
     "ClaudeRunResponse",
-    "FileInput",
 ]

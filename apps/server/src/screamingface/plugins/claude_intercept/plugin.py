@@ -193,13 +193,10 @@ class ClaudeInterceptPlugin(Plugin):
         self._teardown_common()
 
     def _teardown_common(self) -> None:
-        """Shared cleanup logic for both shutdown hook and explicit teardown."""
+        """Full teardown: uninstall in-process DNS shim then run the
+        on-disk cleanup shared with stale recovery."""
         dns.uninstall()
-        remove_entries()
-        flush_dns()
-        self._teardown_port_forward()
-        remove_node_ca_trust()
-        clear_state()
+        _cleanup_host_state()
 
     def _setup_port_forward(self, server_port: int) -> None:
         """Set up pfctl to forward port 443 → server_port on loopback (macOS)."""
@@ -250,14 +247,24 @@ def _resolve_via_dns(domain: str, dns_server: str = "8.8.8.8") -> str | None:
     return None
 
 
+def _cleanup_host_state() -> None:
+    """Undo the on-disk host mutations (hosts entries, port forward, CA trust).
+
+    Used by both the live-teardown path (plugin shutdown) and the stale
+    recovery path (crashed server) — the only difference between those
+    paths is whether the in-process DNS shim also needs uninstalling.
+    """
+    remove_entries()
+    flush_dns()
+    ClaudeInterceptPlugin._teardown_port_forward()
+    remove_node_ca_trust()
+    clear_state()
+
+
 def _cleanup_stale() -> None:
     """Clean up leftover state from a crashed server."""
     state = load_state()
     if state is None:
         return
     logger.info("Cleaning up stale intercept state (PID %d is dead)", state.pid)
-    remove_entries()
-    flush_dns()
-    ClaudeInterceptPlugin._teardown_port_forward()
-    remove_node_ca_trust()
-    clear_state()
+    _cleanup_host_state()

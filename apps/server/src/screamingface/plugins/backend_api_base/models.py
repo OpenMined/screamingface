@@ -1,4 +1,13 @@
-"""Request and response schemas for the claude-backend plugin."""
+"""Request/response/profile shapes shared by every *_backend_api plugin.
+
+The ensemble fan-out system sends byte-identical HTTP requests to every
+direct-API backend (claude, codex, gemini, ollama, …). These models are
+that wire contract.
+
+Legacy ``Claude*`` aliases are re-exported for one release so existing
+``sf.json`` profiles and callers keep working. New code should use the
+unprefixed names.
+"""
 
 from __future__ import annotations
 
@@ -9,8 +18,8 @@ from pydantic import AliasChoices, BaseModel, Field
 from screamingface.models import AliasedModel
 
 
-class ClaudeProfile(BaseModel):
-    """A named pre-configured Claude execution endpoint."""
+class BackendProfile(BaseModel):
+    """A named pre-configured backend execution endpoint."""
 
     context: str | None = Field(
         default=None,
@@ -42,7 +51,6 @@ class ClaudeProfile(BaseModel):
 
 
 def _alias(short: str) -> dict:
-    """Helper to create validation + serialization alias config for a field."""
     return {
         "validation_alias": AliasChoices(short),
         "serialization_alias": short,
@@ -54,7 +62,7 @@ class FileInput(AliasedModel):
     content: str = Field(**_alias("c"))
 
 
-class ClaudeRunRequest(AliasedModel):
+class RunRequest(AliasedModel):
     prompt: str = Field(**_alias("p"))
     model: str | None = Field(default=None, **_alias("m"))
     system_prompt: str | None = Field(default=None, **_alias("sp"))
@@ -78,9 +86,27 @@ class ClaudeRunRequest(AliasedModel):
     timeout_seconds: float | None = Field(default=None, **_alias("ts"))
 
 
-class ClaudeRunResponse(AliasedModel):
+class RunResponse(AliasedModel):
     exit_code: int = Field(**_alias("ec"))
     stdout: str = Field(**_alias("so"))
     stderr: str = Field(**_alias("se"))
     duration_seconds: float = Field(**_alias("ds"))
     result: dict | list | str | None = Field(default=None, **_alias("r"))
+
+
+# Legacy aliases — kept for one release to avoid churning every call
+# site in a single PR. New code should import the unprefixed names.
+ClaudeProfile = BackendProfile
+ClaudeRunRequest = RunRequest
+ClaudeRunResponse = RunResponse
+
+
+__all__ = [
+    "BackendProfile",
+    "FileInput",
+    "RunRequest",
+    "RunResponse",
+    "ClaudeProfile",
+    "ClaudeRunRequest",
+    "ClaudeRunResponse",
+]

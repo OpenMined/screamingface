@@ -25,7 +25,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
-from screamingface.plugins.ollama_backend_api.models import ClaudeProfile
+from screamingface.plugins.ollama_backend_api.models import BackendProfile
 from screamingface.plugins.ollama_backend_api.routes import create_router
 
 if TYPE_CHECKING:
@@ -107,7 +107,7 @@ class OllamaBackendApiSettings(PluginSettings):
             "silently ignored by the direct-API backend."
         ),
     )
-    profiles: dict[str, ClaudeProfile] = Field(
+    profiles: dict[str, BackendProfile] = Field(
         default_factory=dict,
         description="Named pre-configured execution profiles.",
     )
@@ -118,7 +118,7 @@ class OllamaBackendApiSettings(PluginSettings):
 
     @field_validator("profiles")
     @classmethod
-    def _validate_profile_keys(cls, v: dict[str, ClaudeProfile]) -> dict[str, ClaudeProfile]:
+    def _validate_profile_keys(cls, v: dict[str, BackendProfile]) -> dict[str, BackendProfile]:
         for key in v:
             if not _PROFILE_NAME_RE.match(key):
                 msg = (
@@ -148,7 +148,7 @@ class OllamaBackendApiPlugin(Plugin):
         "at /ollama/* prefix."
     )
     tags: list[str] = ["product:ollama"]
-    depends: list[str] = ["llm-base"]
+    depends: list[str] = ["llm-base", "backend-api-base"]
     conflicts: list[str] = []
     backend_call_paths: list[str] = ["/ollama"]
     settings_class = OllamaBackendApiSettings
