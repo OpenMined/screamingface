@@ -90,7 +90,7 @@ class CodexFrontendPlugin(Plugin):
     name = "codex-frontend"
     description = "Transparent proxy between Codex CLI and the OpenAI API"
     tags: list[str] = ["product:openai"]
-    depends: list[str] = ["url4-specs", "url4-executor"]
+    depends: list[str] = ["url4-specs", "url4-executor", "frontend-base"]
     settings_class = CodexFrontendSettings
 
     def __init__(self) -> None:

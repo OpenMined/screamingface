@@ -19,6 +19,8 @@ import httpx
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from screamingface.plugins.frontend_base import make_tracer, redact_headers, truncate
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -36,31 +38,19 @@ FORWARD_HEADERS = {
 _SENSITIVE_HEADERS = {"authorization", "x-goog-api-key"}
 _PLUGIN_NAME = "gemini-frontend"
 
+_tracer = make_tracer(_PLUGIN_NAME)
+
 
 def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
-    return {
-        k: (v[:8] + "…" if k.lower() in _SENSITIVE_HEADERS and len(v) > 8 else v)
-        for k, v in headers.items()
-    }
+    return redact_headers(headers, _SENSITIVE_HEADERS)
 
 
-def _truncate(text: str, limit: int = 4000) -> str:
-    if len(text) <= limit:
-        return text
-    return text[:limit] + f"\n... ({len(text) - limit} more chars)"
+def _truncate(text: str, limit: int | None = None) -> str:
+    return truncate(text) if limit is None else truncate(text, limit=limit)
 
 
 def _set_span_attrs(attrs: dict[str, Any]) -> None:
-    try:
-        from opentelemetry import trace
-
-        span = trace.get_current_span()
-        if span and span.is_recording():
-            span.set_attribute("sf.plugin", _PLUGIN_NAME)
-            for k, v in attrs.items():
-                span.set_attribute(k, v)
-    except ImportError:
-        pass
+    _tracer.set_attrs(attrs)
 
 
 # ---------------------------------------------------------------------------

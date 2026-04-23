@@ -12,6 +12,8 @@ import httpx
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from screamingface.plugins.frontend_base import make_tracer, redact_headers, truncate
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -25,55 +27,29 @@ FORWARD_HEADERS = {
 }
 
 _SENSITIVE_HEADERS = {"authorization"}
-
 _PLUGIN_NAME = "ollama-frontend"
+
+_tracer = make_tracer(_PLUGIN_NAME)
 
 
 def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
-    return {
-        k: (v[:8] + "…" if k.lower() in _SENSITIVE_HEADERS and len(v) > 8 else v)
-        for k, v in headers.items()
-    }
+    return redact_headers(headers, _SENSITIVE_HEADERS)
 
 
-def _truncate(text: str, limit: int = 4000) -> str:
-    if len(text) <= limit:
-        return text
-    return text[:limit] + f"\n... ({len(text) - limit} more chars)"
+def _truncate(text: str, limit: int | None = None) -> str:
+    return truncate(text) if limit is None else truncate(text, limit=limit)
 
 
 def _get_tracer():  # type: ignore[no-untyped-def]
-    try:
-        from opentelemetry import trace
-
-        return trace.get_tracer(f"screamingface.{_PLUGIN_NAME}")
-    except ImportError:
-        return None
+    return _tracer._tracer  # type: ignore[attr-defined]
 
 
-def _set_span_attrs(attrs: dict[str, Any], span=None) -> None:  # type: ignore[no-untyped-def]
-    try:
-        from opentelemetry import trace
-
-        span = span or trace.get_current_span()
-        if span and span.is_recording():
-            span.set_attribute("sf.plugin", _PLUGIN_NAME)
-            for k, v in attrs.items():
-                span.set_attribute(k, v)
-    except ImportError:
-        pass
+def _set_span_attrs(attrs: dict[str, Any], span: Any = None) -> None:
+    _tracer.set_attrs(attrs, span=span)
 
 
-def _set_span_headers(prefix: str, headers: dict[str, str], span=None) -> None:  # type: ignore[no-untyped-def]
-    try:
-        from opentelemetry import trace
-
-        span = span or trace.get_current_span()
-        if span and span.is_recording():
-            for k, v in headers.items():
-                span.set_attribute(f"{prefix}.{k}", v)
-    except ImportError:
-        pass
+def _set_span_headers(prefix: str, headers: dict[str, str], span: Any = None) -> None:
+    _tracer.set_headers(prefix, headers, span=span)
 
 
 def _start_client_span(tracer, name: str):  # type: ignore[no-untyped-def]
@@ -91,7 +67,7 @@ def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-d
 def _record_trace_id(request: Request) -> str | None:
     trace_id = request.headers.get("x-sf-trace-id")
     if trace_id:
-        _set_span_attrs({"sf.trace_id": trace_id})
+        _tracer.record_trace_id(trace_id)
     return trace_id
 
 
