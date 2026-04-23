@@ -20,7 +20,8 @@
     "claude-backend-api",
     "codex-backend-api",
     "gemini-backend-api",
-    "ollama-backend-api"
+    "ollama-backend-api",
+    "gemini-frontend"
   ],
   "plugin_config": {
     "claude-frontend": {

@@ -27,6 +27,7 @@ class FrontendBasePlugin(Plugin):
         "hooks, or settings — other plugins import from it so every "
         "frontend emits OTEL spans the same way."
     )
+    tags: list[str] = ["product:system"]
     depends: list[str] = []
     settings_class = None
 

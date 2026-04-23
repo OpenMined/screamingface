@@ -70,6 +70,7 @@ class GeminiBackendApiSettings(PluginSettings):
 class GeminiBackendApiPlugin(Plugin):
     name = "gemini-backend-api"
     description = "Direct Google AI Gemini API backend for ensemble fan-out"
+    tags: list[str] = ["product:gemini"]
     depends: list[str] = ["llm-base", "backend-api-base"]
     conflicts: list[str] = []
     backend_call_paths: list[str] = ["/gemini"]
