@@ -53,6 +53,7 @@ class Url4SpecsSettings(PluginSettings):
 class Url4SpecsPlugin(Plugin):
     name = "url4-specs"
     description = "Named URL4 expression library with copyable links"
+    tags: list[str] = ["product:url4"]
     depends: list[str] = []
     settings_class = Url4SpecsSettings
 

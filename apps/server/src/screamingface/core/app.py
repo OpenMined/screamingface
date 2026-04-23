@@ -304,6 +304,75 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(422, detail=str(exc)) from exc
 
+    @app.post("/config/validate")
+    async def validate_config(request: Request) -> dict:
+        """Validate a proposed sf.json config before saving.
+
+        Only validates **newly added** plugins — removals are always
+        allowed. Pass both ``plugins`` (proposed list) and
+        ``current_plugins`` (what's in sf.json now) so the endpoint
+        can diff them.
+
+        Returns ``{"valid": true}`` or ``{"valid": false, "errors": [...]}``.
+        """
+        body = await request.json()
+        proposed_plugins: list[str] = body.get("plugins", [])
+        current_plugins: list[str] = body.get("current_plugins", [])
+        errors: list[dict[str, str]] = []
+
+        # Only validate plugins being added, not ones already present
+        added = set(proposed_plugins) - set(current_plugins)
+
+        discovered = app.state.plugins.discovered_plugins
+
+        for name in added:
+            if name not in discovered:
+                errors.append(
+                    {
+                        "plugin": name,
+                        "error": f"Plugin {name!r} is not installed or not found.",
+                    }
+                )
+                continue
+
+            try:
+                instance = app.state.plugins.load_plugin(name)
+            except Exception as exc:
+                errors.append(
+                    {
+                        "plugin": name,
+                        "error": f"Failed to load plugin {name!r}: {exc}",
+                    }
+                )
+                continue
+
+            # Run preflight check
+            ok, reason = instance.preflight()
+            if not ok:
+                errors.append(
+                    {
+                        "plugin": name,
+                        "error": reason,
+                    }
+                )
+                continue
+
+            # Check conflicts with other proposed plugins
+            for conflict in instance.conflicts:
+                if conflict in proposed_plugins:
+                    errors.append(
+                        {
+                            "plugin": name,
+                            "error": (
+                                f"Conflicts with {conflict!r} — only one can be active at a time."
+                            ),
+                        }
+                    )
+
+        if errors:
+            return {"valid": False, "errors": errors}
+        return {"valid": True}
+
     # Discover and activate plugins
     plugin_registry.discover()
     if config.plugins:

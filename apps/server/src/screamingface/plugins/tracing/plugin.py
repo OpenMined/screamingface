@@ -34,6 +34,7 @@ class TracingSettings(PluginSettings):
 class TracingPlugin(Plugin):
     name = "tracing"
     description = "Lightweight local tracing via OpenTelemetry + Phoenix"
+    tags: list[str] = ["product:system"]
     settings_class = TracingSettings
 
     def preflight(self) -> tuple[bool, str]:
