@@ -79,4 +79,3 @@ class AuthStrategy(ABC):
         returns 401, under the assumption that the cached token went
         bad mid-request (rare race with a concurrent refresh).
         """
-
