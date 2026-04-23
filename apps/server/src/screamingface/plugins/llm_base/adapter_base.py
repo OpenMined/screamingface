@@ -24,7 +24,54 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from screamingface.plugins.llm_base.messages import CoreMessage, ToolDefinition
+from screamingface.plugins.llm_base.messages import CoreMessage, TextPart, ToolDefinition
+
+
+def extract_system_text(system: str | list | None) -> str | None:
+    """Normalize a ``system`` argument to a plain string or ``None``.
+
+    Adapters all accept ``system`` as either a bare string (the simple
+    case most callers use) or a list of content blocks (Anthropic's
+    structured shape, when a billing header or similar needs to be
+    appended as its own block). This helper turns either form into the
+    flat concatenation every adapter ultimately wants when building
+    provider-specific request bodies.
+
+    Returns ``None`` for ``None`` / empty inputs.
+    """
+    if system is None:
+        return None
+    if isinstance(system, str):
+        return system or None
+    # list form: concatenate every .text on TextPart-like dicts
+    chunks: list[str] = []
+    for block in system:
+        if isinstance(block, dict):
+            text = block.get("text")
+            if isinstance(text, str):
+                chunks.append(text)
+        elif isinstance(block, TextPart):
+            chunks.append(block.text)
+        elif isinstance(block, str):
+            chunks.append(block)
+    joined = "\n\n".join(chunks).strip()
+    return joined or None
+
+
+def collect_provider_metadata(source: dict, keys: tuple[str, ...], *, prefix: str) -> dict:
+    """Pull the listed ``keys`` from ``source`` into a provider-prefixed dict.
+
+    Used by adapters to propagate vendor-specific response fields
+    (usage counts, stop reasons, response IDs, …) onto the returned
+    :class:`CoreMessage`'s ``provider_metadata``. Keys not present in
+    ``source`` are skipped. The returned dict has ``f"{prefix}.{key}"``
+    entries so consumers can disambiguate across providers.
+    """
+    out: dict = {}
+    for key in keys:
+        if key in source:
+            out[f"{prefix}.{key}"] = source[key]
+    return out
 
 
 class Adapter(ABC):
