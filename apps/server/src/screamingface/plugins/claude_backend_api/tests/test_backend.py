@@ -249,7 +249,7 @@ class TestRun401Recovery:
 
         backend = AnthropicBackend(auth=auth, http_client_factory=factory)
 
-        with pytest.raises(AuthError, match="twice in a row"):
+        with pytest.raises(AuthError, match="twice"):
             await backend.run(
                 [CoreMessage(role="user", content="ping")],
                 model="claude-sonnet-4-5",

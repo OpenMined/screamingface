@@ -16,16 +16,19 @@ from __future__ import annotations
 import json
 import logging
 import os
-import ssl
 import uuid
 
-import certifi
 import httpx
 
 from screamingface.plugins.codex_backend_api.adapter import OpenAIResponsesAdapter
 from screamingface.plugins.codex_backend_api.auth import CodexOAuth
-from screamingface.plugins.llm_base.backend_base import Backend, HealthStatus
+from screamingface.plugins.llm_base.backend_base import (
+    Backend,
+    HealthStatus,
+    post_with_default_retry,
+)
 from screamingface.plugins.llm_base.errors import AuthError, BackendError
+from screamingface.plugins.llm_base.http import default_http_factory
 from screamingface.plugins.llm_base.messages import CoreMessage, ToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -58,15 +61,7 @@ class OpenAIBackend(Backend):
     ) -> None:
         self._auth = auth or CodexOAuth()
         self._adapter = adapter or OpenAIResponsesAdapter()
-        self._http_factory = http_client_factory or self._default_http_factory
-
-    @staticmethod
-    def _default_http_factory():
-        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-        return httpx.AsyncClient(
-            timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0),
-            verify=ssl_ctx,
-        )
+        self._http_factory = http_client_factory or default_http_factory
 
     def _has_api_key(self) -> bool:
         return bool(os.environ.get("OPENAI_API_KEY"))
@@ -352,39 +347,15 @@ class OpenAIBackend(Backend):
     # ------------------------------------------------------------------
 
     async def _post_with_retry(self, body: dict) -> dict:
-        headers = await self._auth.get_authorization_header()
-        headers["content-type"] = "application/json"
-        resp = await self._do_post(body, headers)
-
-        if resp.status_code == 401:
-            self._auth.invalidate_cache()
-            headers = await self._auth.get_authorization_header()
-            headers["content-type"] = "application/json"
-            resp = await self._do_post(body, headers)
-            if resp.status_code == 401:
-                raise AuthError("Authentication failed twice. Run 'codex login'.")
-
-        if resp.status_code == 200:
-            return resp.json()
-        if resp.status_code == 429:
-            retry_after_raw = resp.headers.get("retry-after")
-            retry_after = float(retry_after_raw) if retry_after_raw else None
-            raise BackendError("Rate limited (429)", status=429, retry_after=retry_after)
-        if resp.status_code == 403:
-            raise AuthError(f"Forbidden (403): {resp.text[:300]}")
-        raise BackendError(
-            f"OpenAI error {resp.status_code}: {resp.text[:500]}",
-            status=resp.status_code,
+        """Delegate to the shared POST-with-401-retry helper."""
+        return await post_with_default_retry(
+            auth=self._auth,
+            http_factory=self._http_factory,
+            url=OPENAI_RESPONSES_URL,
+            body=body,
+            provider_name="OpenAI",
+            auth_login_cmd="codex login",
         )
-
-    async def _do_post(self, body: dict, headers: dict[str, str]) -> httpx.Response:
-        try:
-            async with self._http_factory() as client:
-                return await client.post(OPENAI_RESPONSES_URL, json=body, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise BackendError(f"Request timed out: {exc}", status=None) from exc
-        except httpx.RequestError as exc:
-            raise BackendError(f"Request failed: {exc}", status=None) from exc
 
 
 def _extract_openai_rate_limits(headers: httpx.Headers) -> dict[str, str | int | float]:
