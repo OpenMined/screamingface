@@ -1,37 +1,31 @@
-"""Codex CLI OAuth auth strategy -- reads tokens from ~/.codex/auth.json.
+"""Codex CLI OAuth auth strategy — reads tokens from ``~/.codex/auth.json``.
 
-The Codex CLI stores its OAuth credentials as a plain JSON file on disk
-(unlike Claude Code which uses the OS keychain). The file is written by
-``codex auth login`` and contains:
+The shared caching + locking + refresh flow lives in
+:class:`~screamingface.plugins.llm_base.oauth_base.OAuthStrategy`.
+This module supplies the Codex-specific pieces:
 
-.. code-block:: json
+1. ``_read_credential`` — load ``~/.codex/auth.json`` and extract the
+   ``tokens`` sub-dict.
+2. ``_is_expired`` — decode the JWT ``exp`` claim (unix epoch in
+   *seconds*) and compare against the 60-second proactive refresh
+   window.
+3. ``_refresh_credential`` — POST to ``https://auth.openai.com/oauth/token``
+   with ``{grant_type: "refresh_token", refresh_token, client_id}``
+   and write back atomically.
+4. ``_build_headers`` — ``{"Authorization": "Bearer <access_token>"}``.
 
-    {
-        "OPENAI_API_KEY": null,
-        "tokens": {
-            "id_token": "<jwt>",
-            "access_token": "<jwt>",
-            "refresh_token": "<rt_...>",
-            "account_id": "<uuid>"
-        },
-        "last_refresh": "<iso-timestamp>"
-    }
+``_header_override`` returns an explicit ``OPENAI_API_KEY`` as a Bearer
+header when set, bypassing the OAuth flow entirely.
 
-The access token is a RS256-signed JWT with an ``exp`` claim (unix epoch
-in seconds). We decode the JWT payload to check expiry -- no ``pyjwt``
-dependency needed, just base64.
-
-Refresh flow:
-  POST https://auth.openai.com/oauth/token
-  Body: {grant_type: "refresh_token", refresh_token, client_id}
-
-Concurrency: same asyncio.Lock + double-checked locking pattern as
-ClaudeCodeOAuth.
+Codex's JWT tokens carry ChatGPT scopes; the backend uses
+``chatgpt.com/backend-api/codex/responses`` directly. The RFC 8693
+token-exchange path to swap for an ``api.openai.com``-scoped token
+(see :meth:`CodexOAuth._do_token_exchange`) is retained for future use
+but not on the default path.
 """
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import logging
@@ -42,8 +36,8 @@ from pathlib import Path
 
 import httpx
 
-from screamingface.plugins.llm_base.auth_base import AuthStrategy
 from screamingface.plugins.llm_base.errors import AuthError, CredentialNotFoundError
+from screamingface.plugins.llm_base.oauth_base import OAuthStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -51,40 +45,36 @@ AUTH_FILE_PATH = Path.home() / ".codex" / "auth.json"
 OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
 OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
-# RFC 8693 token exchange constants -- the Codex CLI's id_token has
-# ChatGPT scopes only. To call the API we must exchange it for an
-# API-capable access token via the token exchange grant type.
+# RFC 8693 token exchange — the Codex CLI's id_token has ChatGPT scopes
+# only. Exchanging for an API-capable token is preserved as a subclass
+# method for future use; the default path uses the raw ChatGPT token
+# against chatgpt.com/backend-api/codex/responses.
 TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
 TOKEN_EXCHANGE_SUBJECT_TYPE = "urn:ietf:params:oauth:token-type:id_token"
 
-# Proactive refresh window -- refresh when the token has less than this
-# many seconds of validity remaining.
+# Retained at module scope for test imports / external callers. The
+# effective value lives on :attr:`OAuthStrategy.refresh_window_seconds`.
 REFRESH_WINDOW_SECONDS = 60
 
 
 def _decode_jwt_exp(token: str) -> float | None:
-    """Extract the ``exp`` claim from a JWT without signature verification.
-
-    Returns the expiry as a unix epoch in seconds, or None if decoding
-    fails. We only need the expiry timestamp, not verification.
-    """
+    """Return the unsigned JWT ``exp`` claim (seconds since epoch), or None."""
     parts = token.split(".")
     if len(parts) < 2:
         return None
     payload_b64 = parts[1]
-    # Add padding if missing (base64url requires length % 4 == 0)
     padding = 4 - len(payload_b64) % 4
     if padding != 4:
         payload_b64 += "=" * padding
     try:
         payload = json.loads(base64.urlsafe_b64decode(payload_b64))
         return float(payload["exp"])
-    except (json.JSONDecodeError, KeyError, ValueError, Exception):
+    except Exception:
         return None
 
 
-class CodexOAuth(AuthStrategy):
-    """Reads Codex CLI's OAuth token from ~/.codex/auth.json.
+class CodexOAuth(OAuthStrategy):
+    """Reads Codex CLI's OAuth token from ``~/.codex/auth.json``.
 
     Args:
         auth_file: Path to the credential file. Defaults to
@@ -99,88 +89,32 @@ class CodexOAuth(AuthStrategy):
         auth_file: Path | None = None,
         http_client_factory=None,
     ) -> None:
+        super().__init__()
         self._auth_file = auth_file or AUTH_FILE_PATH
         self._http_factory = http_client_factory or (
             lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0))
         )
-        self._cached: dict | None = None  # raw tokens from auth.json
-        self._api_token: str | None = None  # exchanged API-capable token
-        self._api_token_exp: float = 0  # expiry of the API token
-        self._lock = asyncio.Lock()
+        # API-token exchange state (RFC 8693 path, optional)
+        self._api_token: str | None = None
+        self._api_token_exp: float = 0
 
     # ------------------------------------------------------------------
-    # Public API
+    # OAuthStrategy hooks
     # ------------------------------------------------------------------
 
-    async def get_authorization_header(self) -> dict[str, str]:
-        """Build headers for an outbound OpenAI API call.
-
-        Returns ``{"Authorization": "Bearer <token>"}``.
-
-        Token resolution order:
-        1. ``OPENAI_API_KEY`` env var (explicit API key, most reliable)
-        2. Token exchange: swap the id_token from ~/.codex/auth.json for
-           an API-scoped access token via RFC 8693. The raw access_token
-           from the file has ChatGPT scopes only — it cannot call the
-           API directly.
-        """
-        # Check for explicit API key first (most reliable path)
+    def _header_override(self) -> dict[str, str] | None:
         api_key = os.environ.get("OPENAI_API_KEY")
         if api_key:
             return {"Authorization": f"Bearer {api_key}"}
+        return None
 
-        # OAuth path: use the raw ChatGPT access_token directly.
-        # The chatgpt.com/backend-api/codex endpoint accepts ChatGPT JWTs.
-        # Token exchange (for api.openai.com) fails for personal accounts.
-        if self._cached is not None and not self._is_expired(self._cached):
-            return self._build_headers(self._cached)
-
-        async with self._lock:
-            if self._cached is None:
-                self._cached = self._read_from_file()
-            if self._is_expired(self._cached):
-                self._cached = await self._do_refresh(self._cached)
-
-        return self._build_headers(self._cached)
-
-    async def refresh(self) -> None:
-        """Force-refresh the cached credential."""
-        async with self._lock:
-            if self._cached is None:
-                self._cached = self._read_from_file()
-            self._cached = await self._do_refresh(self._cached)
-
-    def get_account_id(self) -> str:
-        """Return the chatgpt_account_id from the cached tokens."""
-        if self._cached is None:
-            self._cached = self._read_from_file()
-        return self._cached.get("account_id", "")
-
-    def invalidate_cache(self) -> None:
-        """Drop the in-memory cache without touching the file on disk."""
-        self._cached = None
-        self._api_token = None
-        self._api_token_exp = 0
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _read_from_file(self) -> dict:
-        """Read and parse ~/.codex/auth.json.
-
-        Raises:
-            CredentialNotFoundError: File does not exist.
-            AuthError: File exists but doesn't parse as expected.
-        """
+    def _read_credential(self) -> dict:
         if not self._auth_file.exists():
             raise CredentialNotFoundError(
                 "No Codex OAuth token found. Run 'codex auth login' to authenticate."
             )
-
         try:
-            raw = self._auth_file.read_text(encoding="utf-8")
-            data = json.loads(raw)
+            data = json.loads(self._auth_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise AuthError(
                 f"Codex credential file is not readable or not valid JSON: {exc}. "
@@ -192,67 +126,33 @@ class CodexOAuth(AuthStrategy):
                 "Codex credential file is missing the 'tokens' key. "
                 "Try running 'codex auth login' again."
             )
-
         tokens = data["tokens"]
         if not isinstance(tokens, dict):
             raise AuthError(
                 "Codex credential file 'tokens' is not a dict. "
                 "Try running 'codex auth login' again."
             )
-
-        required = {"access_token", "refresh_token"}
-        missing = required - set(tokens.keys())
+        missing = {"access_token", "refresh_token"} - set(tokens.keys())
         if missing:
             raise AuthError(
                 f"Codex credential file missing required keys: "
                 f"{sorted(missing)}. Try running 'codex auth login' again."
             )
-
         return tokens
 
-    def _is_expired(self, tokens: dict) -> bool:
-        """Return True if the access token should be refreshed.
-
-        Decodes the JWT ``exp`` claim from the access token. Refreshes
-        when the token has less than REFRESH_WINDOW_SECONDS remaining.
-        """
-        access_token = tokens.get("access_token", "")
-        exp = _decode_jwt_exp(access_token)
+    def _is_expired(self, creds: dict) -> bool:
+        exp = _decode_jwt_exp(creds.get("access_token", ""))
         if exp is None:
             return True
-        return time.time() >= exp - REFRESH_WINDOW_SECONDS
+        return time.time() >= exp - self.refresh_window_seconds
 
-    def _is_id_token_expired(self, tokens: dict) -> bool:
-        """Return True if the id_token is expired or missing.
+    def _build_headers(self, creds: dict) -> dict[str, str]:
+        return {"Authorization": f"Bearer {creds['access_token']}"}
 
-        The id_token is needed for token exchange and may expire before
-        the access_token.
-        """
-        id_token = tokens.get("id_token", "")
-        if not id_token:
-            return True
-        exp = _decode_jwt_exp(id_token)
-        if exp is None:
-            return True
-        return time.time() >= exp - REFRESH_WINDOW_SECONDS
-
-    def _build_headers(self, tokens: dict) -> dict[str, str]:
-        """Build the authorization header from validated tokens."""
-        return {
-            "Authorization": f"Bearer {tokens['access_token']}",
-        }
-
-    async def _do_refresh(self, tokens: dict) -> dict:
-        """POST to the refresh endpoint and write back on success.
-
-        Must be called while holding self._lock.
-
-        Raises:
-            AuthError: Refresh failed.
-        """
+    async def _refresh_credential(self, creds: dict) -> dict:
         body = {
             "grant_type": "refresh_token",
-            "refresh_token": tokens["refresh_token"],
+            "refresh_token": creds["refresh_token"],
             "client_id": OAUTH_CLIENT_ID,
         }
         headers = {"content-type": "application/json"}
@@ -270,7 +170,6 @@ class CodexOAuth(AuthStrategy):
                 "Codex OAuth token expired and could not be refreshed. "
                 "Run 'codex auth login' to re-authenticate."
             )
-
         if resp.status_code != 200:
             raise AuthError(
                 f"OAuth refresh failed with status {resp.status_code}: "
@@ -281,21 +180,18 @@ class CodexOAuth(AuthStrategy):
             data = resp.json()
         except json.JSONDecodeError as exc:
             raise AuthError(f"OAuth refresh response is not valid JSON: {exc}") from exc
-
-        if "access_token" not in data:
-            raise AuthError("OAuth refresh response missing 'access_token' field")
-        if "refresh_token" not in data:
-            raise AuthError("OAuth refresh response missing 'refresh_token' field")
+        for required_field in ("access_token", "refresh_token"):
+            if required_field not in data:
+                raise AuthError(f"OAuth refresh response missing '{required_field}' field")
 
         new_tokens = {
             "access_token": data["access_token"],
             "refresh_token": data["refresh_token"],
-            # Use fresh id_token from refresh if provided, else keep old
-            "id_token": data.get("id_token") or tokens.get("id_token"),
-            "account_id": tokens.get("account_id"),
+            "id_token": data.get("id_token") or creds.get("id_token"),
+            "account_id": creds.get("account_id"),
         }
-
         self._write_to_file(new_tokens)
+
         exp = _decode_jwt_exp(data["access_token"])
         if exp:
             logger.info(
@@ -304,21 +200,40 @@ class CodexOAuth(AuthStrategy):
             )
         return new_tokens
 
+    # ------------------------------------------------------------------
+    # Codex-specific extras
+    # ------------------------------------------------------------------
+
+    def invalidate_cache(self) -> None:
+        super().invalidate_cache()
+        self._api_token = None
+        self._api_token_exp = 0
+
+    def get_account_id(self) -> str:
+        """Return the ``chatgpt_account_id`` from the cached tokens."""
+        if self._cached is None:
+            self._cached = self._read_credential()
+        return self._cached.get("account_id", "")
+
+    # Backward-compat alias — legacy tests still call ``_read_from_file``.
+    _read_from_file = _read_credential
+
+    def _is_id_token_expired(self, tokens: dict) -> bool:
+        """True if the id_token (used by the RFC 8693 exchange) is stale."""
+        id_token = tokens.get("id_token", "")
+        if not id_token:
+            return True
+        exp = _decode_jwt_exp(id_token)
+        if exp is None:
+            return True
+        return time.time() >= exp - self.refresh_window_seconds
+
     async def _do_token_exchange(self, tokens: dict) -> tuple[str, float]:
-        """Exchange the id_token for an API-capable access token.
+        """RFC 8693: swap the id_token for an API-scoped access token.
 
-        The Codex CLI's OAuth tokens have ChatGPT scopes only (openid,
-        profile, email, offline_access). To call the OpenAI API we must
-        perform an RFC 8693 token exchange: swap the id_token for a
-        token with API scopes (model.request, etc.).
-
-        Must be called while holding self._lock.
-
-        Returns:
-            (api_access_token, expiry_timestamp)
-
-        Raises:
-            AuthError: Exchange failed.
+        Preserved for future use against ``api.openai.com``; not on the
+        default path (which uses the raw ChatGPT token against
+        chatgpt.com).
         """
         id_token = tokens.get("id_token")
         if not id_token:
@@ -327,8 +242,6 @@ class CodexOAuth(AuthStrategy):
                 "token exchange. Run 'codex auth login' again."
             )
 
-        # Token exchange uses form-encoded body with OpenAI's custom
-        # `requested_token` field (not the standard RFC 8693 `audience`).
         body = {
             "grant_type": TOKEN_EXCHANGE_GRANT_TYPE,
             "client_id": OAUTH_CLIENT_ID,
@@ -351,7 +264,6 @@ class CodexOAuth(AuthStrategy):
                 f"Token exchange failed with status {resp.status_code}: "
                 f"{resp.text[:500]}. Run 'codex auth login' to re-authenticate."
             )
-
         try:
             data = resp.json()
         except json.JSONDecodeError as exc:
@@ -361,10 +273,8 @@ class CodexOAuth(AuthStrategy):
         if not api_token:
             raise AuthError("Token exchange response missing 'access_token' field")
 
-        # Determine expiry from the new token
         exp = _decode_jwt_exp(api_token)
         if exp is None:
-            # If we can't decode exp, use expires_in from response
             expires_in = data.get("expires_in", 3600)
             exp = time.time() + float(expires_in)
 
@@ -375,12 +285,8 @@ class CodexOAuth(AuthStrategy):
         return api_token, exp
 
     def _write_to_file(self, tokens: dict) -> None:
-        """Write updated tokens back to the credential file atomically.
-
-        Uses write-to-temp-then-rename for crash safety.
-        """
+        """Atomic write-then-rename, preserving any non-``tokens`` fields."""
         data: dict = {}
-        # Preserve existing file structure (OPENAI_API_KEY, etc.)
         if self._auth_file.exists():
             try:
                 data = json.loads(self._auth_file.read_text(encoding="utf-8"))
@@ -398,7 +304,6 @@ class CodexOAuth(AuthStrategy):
                 json.dump(data, f, indent=2)
             os.replace(tmp_path, self._auth_file)
         except Exception:
-            # Clean up temp file on failure
             try:
                 os.unlink(tmp_path)
             except OSError:

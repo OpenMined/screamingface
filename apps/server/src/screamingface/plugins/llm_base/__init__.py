@@ -36,7 +36,11 @@ Concrete helpers:
 
 from __future__ import annotations
 
-from screamingface.plugins.llm_base.adapter_base import Adapter
+from screamingface.plugins.llm_base.adapter_base import (
+    Adapter,
+    collect_provider_metadata,
+    extract_system_text,
+)
 from screamingface.plugins.llm_base.auth_base import AuthStrategy
 from screamingface.plugins.llm_base.backend_base import (
     Backend,
@@ -74,15 +78,20 @@ from screamingface.plugins.llm_base.messages import (
     ToolResultPart,
     extract_text,
 )
+from screamingface.plugins.llm_base.oauth_base import OAuthStrategy
 
 __all__ = [
     # ABCs
     "AuthStrategy",
+    "OAuthStrategy",
     "Backend",
     "CredentialStore",
     "Adapter",
     "HealthStatus",
     "post_with_default_retry",
+    # Adapter helpers
+    "collect_provider_metadata",
+    "extract_system_text",
     # Concrete credential stores
     "LinuxLibsecretStore",
     "MacOSKeychainStore",

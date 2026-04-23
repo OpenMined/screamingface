@@ -5,34 +5,30 @@ Every detail here was validated by the SF-77 spike
 ``apps/server/docs/oauth-spike-findings.md``). Do not change without
 re-running the spike or at least understanding the spike's findings.
 
-The flow:
+The flow — caching, double-checked locking, proactive refresh — lives
+in :class:`~screamingface.plugins.llm_base.oauth_base.OAuthStrategy`.
+This module just implements the four provider-specific hooks:
 
-1. Read the JSON credential from the credential store at service name
-   ``"Claude Code-credentials"``. This is where Claude Code's
-   ``claude auth login`` command writes.
-2. Parse the JSON, extract ``claudeAiOauth.{accessToken, refreshToken,
-   expiresAt, scopes, subscriptionType}``.
-3. If ``expiresAt`` is within 60 seconds of now, proactively refresh by
-   POSTing to ``https://console.anthropic.com/v1/oauth/token`` with
-   ``{grant_type: "refresh_token", refresh_token, client_id}``.
-4. Convert the refresh response (snake_case, ``expires_in`` seconds) to
-   the keychain shape (camelCase, ``expiresAt`` ms) and write back to
-   the credential store.
-5. Build the outbound headers for ``/v1/messages`` calls:
-   - ``Authorization: Bearer <accessToken>``
-   - ``anthropic-version: 2023-06-01``
-   - ``anthropic-beta: oauth-2025-04-20``  (REQUIRED — without it the
-     scope check rejects even a valid token)
+1. ``_read_credential`` — read the JSON blob Claude Code writes under
+   ``"Claude Code-credentials"`` in the platform credential store.
+2. ``_is_expired`` — compare ``expiresAt`` (unix epoch in milliseconds)
+   against the 60-second proactive refresh window.
+3. ``_refresh_credential`` — POST to
+   ``https://console.anthropic.com/v1/oauth/token`` with
+   ``{grant_type: "refresh_token", refresh_token, client_id}`` and
+   convert the OAuth 2.0 response shape (snake_case, ``expires_in``
+   seconds) back to the keychain shape (camelCase, ``expiresAt`` ms).
+4. ``_build_headers`` — the three required Anthropic headers:
+   ``Authorization: Bearer``, ``anthropic-version``, ``anthropic-beta``.
+   The beta header is REQUIRED — the spike proved its absence causes
+   scope rejection.
 
-Concurrency: a per-instance asyncio.Lock protects the refresh path so
-two concurrent coroutines don't both fire a refresh and race on the
-credential store. Uses double-checked locking to avoid unnecessary lock
-acquisition on the common (cache-hit) path.
+Concurrency note lives on the base class — a per-instance
+``asyncio.Lock`` with double-checked locking.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -40,22 +36,22 @@ import time
 
 import httpx
 
-from screamingface.plugins.llm_base.auth_base import AuthStrategy
 from screamingface.plugins.llm_base.credential_store import (
     CredentialStore,
     get_credential_store,
 )
 from screamingface.plugins.llm_base.errors import AuthError, CredentialNotFoundError
+from screamingface.plugins.llm_base.oauth_base import OAuthStrategy
 
 logger = logging.getLogger(__name__)
 
-# These constants are the load-bearing values validated by the SF-77 spike.
+# Constants validated by the SF-77 spike.
 KEYCHAIN_SERVICE = "Claude Code-credentials"
 OAUTH_REFRESH_URL = "https://console.anthropic.com/v1/oauth/token"
 OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"  # public Claude Code OAuth app
 ANTHROPIC_VERSION = "2023-06-01"
-# Beta features: oauth is required for OAuth bearer tokens, claude-code
-# gives access to the Claude Code rate limit pool (separate from API key pool).
+# Beta features: ``oauth-2025-04-20`` is required for OAuth bearer tokens,
+# ``claude-code-*`` gives access to the Claude Code rate-limit pool.
 ANTHROPIC_BETA = ",".join(
     [
         "claude-code-20250219",
@@ -65,13 +61,13 @@ ANTHROPIC_BETA = ",".join(
     ]
 )
 
-# Proactive refresh window — refresh when the token has less than this
-# many seconds of validity remaining. 60s matches the plan's locked-in
-# decision and mirrors Claude Code's own behavior.
+# Retained at module level so existing tests and callers keep working.
+# The value lives on :class:`OAuthStrategy.refresh_window_seconds`; we
+# just re-export it here.
 REFRESH_WINDOW_SECONDS = 60
 
 
-class ClaudeCodeOAuth(AuthStrategy):
+class ClaudeCodeOAuth(OAuthStrategy):
     """Reads Claude Code's OAuth token from the platform credential store.
 
     Args:
@@ -91,76 +87,18 @@ class ClaudeCodeOAuth(AuthStrategy):
         account: str | None = None,
         http_client_factory=None,
     ) -> None:
+        super().__init__()
         self._store = credential_store or get_credential_store()
         self._account = account if account is not None else os.environ.get("USER", "")
         self._http_factory = http_client_factory or (
             lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0))
         )
-        self._cached: dict | None = None
-        self._lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
-    # Public API
+    # OAuthStrategy hooks
     # ------------------------------------------------------------------
 
-    async def get_authorization_header(self) -> dict[str, str]:
-        """Build the full header set for an outbound /v1/messages call.
-
-        Returns the three headers every OAuth-authenticated Anthropic
-        Messages call needs: ``Authorization`` (Bearer), ``anthropic-version``,
-        ``anthropic-beta``. The beta header is required — the spike
-        proved its absence causes scope rejection.
-
-        Handles caching, proactive refresh, and the credential-missing
-        hard-fail path.
-        """
-        # Fast path: cache hit and not expired
-        if self._cached is not None and not self._is_expired(self._cached):
-            return self._build_headers(self._cached)
-
-        # Slow path: read + maybe refresh, under lock
-        async with self._lock:
-            # Double-check inside the lock — another coroutine may have
-            # refreshed while we were waiting.
-            if self._cached is None:
-                self._cached = self._read_from_store()
-            if self._is_expired(self._cached):
-                self._cached = await self._do_refresh(self._cached)
-
-        return self._build_headers(self._cached)
-
-    async def refresh(self) -> None:
-        """Force-refresh the cached credential.
-
-        Used by ``POST /backends/claude-backend-api/refresh`` in Phase 5
-        and as the on-401 recovery path in the Anthropic backend.
-        """
-        async with self._lock:
-            if self._cached is None:
-                self._cached = self._read_from_store()
-            self._cached = await self._do_refresh(self._cached)
-
-    def invalidate_cache(self) -> None:
-        """Drop the in-memory cache without touching the credential store.
-
-        Used as the on-401 recovery path: the backend catches a 401 from
-        /v1/messages, calls invalidate_cache(), then retries once. The
-        next get_authorization_header() call re-reads from the store and
-        refreshes if needed.
-        """
-        self._cached = None
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _read_from_store(self) -> dict:
-        """Read the credential store and parse the JSON payload.
-
-        Raises:
-            CredentialNotFoundError: The credential store has no entry.
-            AuthError: The entry exists but doesn't parse as expected.
-        """
+    def _read_credential(self) -> dict:
         raw = self._store.read(KEYCHAIN_SERVICE, self._account)
         if raw is None:
             raise CredentialNotFoundError(
@@ -182,8 +120,7 @@ class ClaudeCodeOAuth(AuthStrategy):
             )
 
         creds = outer["claudeAiOauth"]
-        required = {"accessToken", "refreshToken", "expiresAt"}
-        missing = required - set(creds.keys())
+        missing = {"accessToken", "refreshToken", "expiresAt"} - set(creds.keys())
         if missing:
             raise AuthError(
                 f"Claude Code credential store entry missing required keys: "
@@ -192,35 +129,19 @@ class ClaudeCodeOAuth(AuthStrategy):
         return creds
 
     def _is_expired(self, creds: dict) -> bool:
-        """Return True if the token should be refreshed.
-
-        Uses the 60-second proactive refresh window — we refresh when
-        the token has less than REFRESH_WINDOW_SECONDS of validity
-        remaining, not when it's already expired.
-
-        The ``expiresAt`` field is a unix epoch in **milliseconds** (not
-        seconds), per the spike-validated Claude Code format.
-        """
+        """expiresAt is unix epoch in **milliseconds** — spike-validated."""
         expires_at_ms = creds.get("expiresAt", 0)
         now_ms = time.time() * 1000
-        return now_ms >= expires_at_ms - (REFRESH_WINDOW_SECONDS * 1000)
+        return now_ms >= expires_at_ms - (self.refresh_window_seconds * 1000)
 
     def _build_headers(self, creds: dict) -> dict[str, str]:
-        """Build the three required headers from a validated credential."""
         return {
             "Authorization": f"Bearer {creds['accessToken']}",
             "anthropic-version": ANTHROPIC_VERSION,
             "anthropic-beta": ANTHROPIC_BETA,
         }
 
-    async def _do_refresh(self, creds: dict) -> dict:
-        """POST to the refresh endpoint and write back on success.
-
-        Must be called while holding self._lock.
-
-        Raises:
-            AuthError: Refresh failed (401, network, 5xx after retries).
-        """
+    async def _refresh_credential(self, creds: dict) -> dict:
         body = {
             "grant_type": "refresh_token",
             "refresh_token": creds["refreshToken"],
@@ -239,7 +160,6 @@ class ClaudeCodeOAuth(AuthStrategy):
                 "Claude Code OAuth token expired and could not be refreshed. "
                 "Run 'claude auth login' to re-authenticate."
             )
-
         if resp.status_code != 200:
             raise AuthError(
                 f"OAuth refresh failed with status {resp.status_code}: "
@@ -259,34 +179,24 @@ class ClaudeCodeOAuth(AuthStrategy):
         )
         return new_creds
 
+    # ------------------------------------------------------------------
+    # Keychain-shape plumbing
+    # ------------------------------------------------------------------
+
     def _convert_refresh_response(self, data: dict, *, old_creds: dict) -> dict:
-        """Convert the OAuth 2.0 refresh response to keychain shape.
+        """Convert the OAuth 2.0 refresh response to Claude Code keychain shape.
 
-        The refresh endpoint returns standard OAuth 2.0 fields:
-          - access_token (string)
-          - refresh_token (string, may be rotated)
-          - expires_in (SECONDS)
-          - token_type ("Bearer")
-          - scope (space-separated string)
-
-        The keychain stores:
-          - accessToken (string)
-          - refreshToken (string)
-          - expiresAt (MILLISECONDS since epoch)
-          - scopes (list of strings)
-          - subscriptionType, rateLimitTier (preserved from old creds)
+        Refresh endpoint returns standard OAuth 2.0 fields (snake_case,
+        ``expires_in`` seconds); the keychain stores camelCase with
+        ``expiresAt`` in milliseconds. ``subscriptionType``/``rateLimitTier``
+        are preserved from the old credential since the refresh response
+        doesn't include them.
         """
-        if "access_token" not in data:
-            raise AuthError("OAuth refresh response missing 'access_token' field")
-        if "refresh_token" not in data:
-            raise AuthError("OAuth refresh response missing 'refresh_token' field")
-        if "expires_in" not in data:
-            raise AuthError("OAuth refresh response missing 'expires_in' field")
+        for required_field in ("access_token", "refresh_token", "expires_in"):
+            if required_field not in data:
+                raise AuthError(f"OAuth refresh response missing '{required_field}' field")
 
-        # Convert seconds → milliseconds relative to now
         expires_at_ms = int((time.time() + int(data["expires_in"])) * 1000)
-
-        # scope is a space-separated string; scopes is a list
         scope_str = data.get("scope", "")
         scopes = scope_str.split() if scope_str else old_creds.get("scopes", [])
 
@@ -295,15 +205,11 @@ class ClaudeCodeOAuth(AuthStrategy):
             "refreshToken": data["refresh_token"],
             "expiresAt": expires_at_ms,
             "scopes": scopes,
-            # Preserve metadata the refresh response doesn't include
             "subscriptionType": old_creds.get("subscriptionType", "max"),
             "rateLimitTier": old_creds.get("rateLimitTier", "default_claude_max_5x"),
         }
 
     def _write_to_store(self, creds: dict) -> None:
-        """Write the updated credential back to the platform store.
-
-        Preserves the outer wrapper shape the CLI expects.
-        """
+        """Write the updated credential back, preserving the CLI's wrapper."""
         value = json.dumps({"claudeAiOauth": creds})
         self._store.write(KEYCHAIN_SERVICE, self._account, value)
