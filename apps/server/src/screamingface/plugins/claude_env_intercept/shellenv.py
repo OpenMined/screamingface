@@ -102,16 +102,6 @@ def current_exports() -> dict[str, str]:
 
 def _strip_marker_block(content: str) -> str:
     """Remove everything between (and including) the marker lines."""
-    lines = content.splitlines(keepends=True)
-    result: list[str] = []
-    inside = False
-    for line in lines:
-        if line.rstrip() == MARKER_BEGIN:
-            inside = True
-            continue
-        if line.rstrip() == MARKER_END:
-            inside = False
-            continue
-        if not inside:
-            result.append(line)
-    return "".join(result)
+    from screamingface.core.marker_utils import strip_marker_block
+
+    return strip_marker_block(content, MARKER_BEGIN, MARKER_END)

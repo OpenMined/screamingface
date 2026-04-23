@@ -30,8 +30,8 @@ from screamingface.plugins.llm_base.messages import CoreMessage, TextPart
 from screamingface.plugins.ollama_backend_api.auth import OllamaAuth
 from screamingface.plugins.ollama_backend_api.backend import OllamaBackend
 from screamingface.plugins.ollama_backend_api.models import (
-    ClaudeRunRequest,
-    ClaudeRunResponse,
+    RunRequest,
+    RunResponse,
 )
 from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
 from screamingface.plugins.url4_executor.url4 import resolve_str
@@ -83,7 +83,7 @@ def create_router(settings: OllamaBackendApiSettings, app: Any = None) -> APIRou
         )
 
     async def _execute(
-        request: ClaudeRunRequest,
+        request: RunRequest,
     ) -> JSONResponse | StreamingResponse:
         if request.output_format == "stream-json":
             raise HTTPException(
@@ -137,7 +137,7 @@ def create_router(settings: OllamaBackendApiSettings, app: Any = None) -> APIRou
                 except json.JSONDecodeError:
                     parsed_result = None
 
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=0,
                 stdout=stdout,
                 stderr="",
@@ -150,7 +150,7 @@ def create_router(settings: OllamaBackendApiSettings, app: Any = None) -> APIRou
         except (CredentialNotFoundError, AuthError) as exc:
             duration = time.monotonic() - start
             logger.warning("ollama-backend-api auth failure: %s", exc)
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=1,
                 stdout="",
                 stderr=str(exc),
@@ -163,7 +163,7 @@ def create_router(settings: OllamaBackendApiSettings, app: Any = None) -> APIRou
             duration = time.monotonic() - start
             logger.warning("ollama-backend-api backend error: %s", exc)
             status = 429 if exc.status == 429 else 502
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=1,
                 stdout="",
                 stderr=str(exc),
@@ -174,7 +174,7 @@ def create_router(settings: OllamaBackendApiSettings, app: Any = None) -> APIRou
 
     @router.post("/ollama/run", response_model=None, operation_id="ollama_run")
     async def ollama_run(
-        request: ClaudeRunRequest,
+        request: RunRequest,
     ) -> JSONResponse | StreamingResponse:
         return await _execute(request)
 
@@ -255,7 +255,7 @@ def create_router(settings: OllamaBackendApiSettings, app: Any = None) -> APIRou
 
         full_prompt = f"{resolved_context}\n\n{prompt}" if resolved_context else prompt
 
-        run_request = ClaudeRunRequest(
+        run_request = RunRequest(
             prompt=full_prompt,
             model=prof.model,
             system_prompt=prof.system_prompt,
@@ -329,7 +329,7 @@ def _extract_text(msg: CoreMessage) -> str:
     return "".join(chunks)
 
 
-def _record_ignored_fields(request: ClaudeRunRequest) -> None:
+def _record_ignored_fields(request: RunRequest) -> None:
     """Record which CLI-only fields were present so the drop is observable."""
     try:
         from opentelemetry import trace

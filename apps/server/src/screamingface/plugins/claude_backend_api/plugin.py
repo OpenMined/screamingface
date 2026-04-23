@@ -28,7 +28,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
-from screamingface.plugins.claude_backend_api.models import ClaudeProfile
+from screamingface.plugins.claude_backend_api.models import BackendProfile
 from screamingface.plugins.claude_backend_api.routes import create_router
 
 if TYPE_CHECKING:
@@ -100,7 +100,7 @@ class ClaudeBackendApiSettings(PluginSettings):
             "silently ignored by the direct-API backend."
         ),
     )
-    profiles: dict[str, ClaudeProfile] = Field(
+    profiles: dict[str, BackendProfile] = Field(
         default_factory=dict,
         description="Named pre-configured Claude execution profiles.",
     )
@@ -111,7 +111,7 @@ class ClaudeBackendApiSettings(PluginSettings):
 
     @field_validator("profiles")
     @classmethod
-    def _validate_profile_keys(cls, v: dict[str, ClaudeProfile]) -> dict[str, ClaudeProfile]:
+    def _validate_profile_keys(cls, v: dict[str, BackendProfile]) -> dict[str, BackendProfile]:
         for key in v:
             if not _PROFILE_NAME_RE.match(key):
                 msg = (
@@ -141,8 +141,8 @@ class ClaudeBackendApiPlugin(Plugin):
         "store instead of shelling out to the claude CLI. Same routes, "
         "same request/response shapes, same profile config."
     )
-    depends: list[str] = ["llm-base"]
-    conflicts: list[str] = ["claude-backend"]
+    depends: list[str] = ["llm-base", "backend-api-base"]
+    conflicts: list[str] = []
     # Registered for url4 backend-call dispatch via /claude()!<intent>.
     # The url4 resolver walks active plugins looking for one whose
     # backend_call_paths contains the target path and calls its

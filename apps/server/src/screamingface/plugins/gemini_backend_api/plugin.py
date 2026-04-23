@@ -9,7 +9,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
-from screamingface.plugins.gemini_backend_api.models import ClaudeProfile
+from screamingface.plugins.gemini_backend_api.models import BackendProfile
 from screamingface.plugins.gemini_backend_api.routes import create_router
 
 if TYPE_CHECKING:
@@ -44,12 +44,12 @@ class GeminiBackendApiSettings(PluginSettings):
     max_budget_usd: float | None = Field(default=None)
     permission_mode: str | None = Field(default=None)
     dangerously_skip_permissions: bool = Field(default=False)
-    profiles: dict[str, ClaudeProfile] = Field(default_factory=dict)
+    profiles: dict[str, BackendProfile] = Field(default_factory=dict)
     default_profile: str = Field(default="default")
 
     @field_validator("profiles")
     @classmethod
-    def _validate_profile_keys(cls, v: dict[str, ClaudeProfile]) -> dict[str, ClaudeProfile]:
+    def _validate_profile_keys(cls, v: dict[str, BackendProfile]) -> dict[str, BackendProfile]:
         for key in v:
             if not _PROFILE_NAME_RE.match(key):
                 msg = f"Invalid profile name {key!r}"
@@ -70,7 +70,7 @@ class GeminiBackendApiSettings(PluginSettings):
 class GeminiBackendApiPlugin(Plugin):
     name = "gemini-backend-api"
     description = "Direct Google AI Gemini API backend for ensemble fan-out"
-    depends: list[str] = ["llm-base"]
+    depends: list[str] = ["llm-base", "backend-api-base"]
     conflicts: list[str] = []
     backend_call_paths: list[str] = ["/gemini"]
     settings_class = GeminiBackendApiSettings

@@ -18,6 +18,9 @@ class TestPluginMetadata:
     def test_depends_on_llm_base(self):
         assert "llm-base" in CodexBackendApiPlugin.depends
 
+    def test_depends_on_backend_api_base(self):
+        assert "backend-api-base" in CodexBackendApiPlugin.depends
+
     def test_no_conflicts(self):
         # codex-backend-api coexists with claude-backend-api
         assert CodexBackendApiPlugin.conflicts == []
@@ -38,13 +41,13 @@ class TestSettings:
         assert s.interpreter_system_prompt
 
     def test_profile_name_validator_accepts_valid_names(self):
-        from screamingface.plugins.codex_backend_api.models import ClaudeProfile
+        from screamingface.plugins.codex_backend_api.models import BackendProfile
 
         s = CodexBackendApiSettings(
             profiles={
-                "default": ClaudeProfile(),
-                "code-review": ClaudeProfile(),
-                "reviewer_1": ClaudeProfile(),
+                "default": BackendProfile(),
+                "code-review": BackendProfile(),
+                "reviewer_1": BackendProfile(),
             }
         )
         assert set(s.profiles.keys()) == {"default", "code-review", "reviewer_1"}
@@ -52,19 +55,19 @@ class TestSettings:
     def test_profile_name_validator_rejects_invalid_names(self):
         import pytest
 
-        from screamingface.plugins.codex_backend_api.models import ClaudeProfile
+        from screamingface.plugins.codex_backend_api.models import BackendProfile
 
         with pytest.raises(ValueError, match="Invalid profile name"):
-            CodexBackendApiSettings(profiles={"Default": ClaudeProfile()})
+            CodexBackendApiSettings(profiles={"Default": BackendProfile()})
 
         with pytest.raises(ValueError, match="Invalid profile name"):
-            CodexBackendApiSettings(profiles={"-bad": ClaudeProfile()})
+            CodexBackendApiSettings(profiles={"-bad": BackendProfile()})
 
         with pytest.raises(ValueError, match="Invalid profile name"):
-            CodexBackendApiSettings(profiles={"a.b": ClaudeProfile()})
+            CodexBackendApiSettings(profiles={"a.b": BackendProfile()})
 
 
-class TestEnvPrefixIndependence:
+class TestEnvPrefix:
     def test_env_prefix_is_codex(self):
         config = CodexBackendApiSettings.model_config
         assert config.get("env_prefix") == "SF_CODEX_BACKEND_API__"
@@ -75,10 +78,3 @@ class TestEnvPrefixIndependence:
         assert CodexBackendApiSettings.model_config.get(
             "env_prefix"
         ) != ClaudeBackendApiSettings.model_config.get("env_prefix")
-
-    def test_env_prefix_differs_from_claude_backend(self):
-        from screamingface.plugins.claude_backend.plugin import ClaudeBackendSettings
-
-        assert CodexBackendApiSettings.model_config.get(
-            "env_prefix"
-        ) != ClaudeBackendSettings.model_config.get("env_prefix")

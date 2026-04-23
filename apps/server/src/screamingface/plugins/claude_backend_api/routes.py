@@ -40,8 +40,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from screamingface.plugins.claude_backend_api.backend import AnthropicBackend
 from screamingface.plugins.claude_backend_api.models import (
-    ClaudeRunRequest,
-    ClaudeRunResponse,
+    RunRequest,
+    RunResponse,
 )
 from screamingface.plugins.llm_base.errors import (
     AuthError,
@@ -106,7 +106,7 @@ def create_router(settings: ClaudeBackendApiSettings, app: Any = None) -> APIRou
         )
 
     async def _execute(
-        request: ClaudeRunRequest,
+        request: RunRequest,
     ) -> JSONResponse | StreamingResponse:
         # Reject streaming in Phase 1 — not yet implemented.
         if request.output_format == "stream-json":
@@ -168,7 +168,7 @@ def create_router(settings: ClaudeBackendApiSettings, app: Any = None) -> APIRou
                 except json.JSONDecodeError:
                     parsed_result = None
 
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=0,
                 stdout=stdout,
                 stderr="",
@@ -181,7 +181,7 @@ def create_router(settings: ClaudeBackendApiSettings, app: Any = None) -> APIRou
         except (CredentialNotFoundError, AuthError) as exc:
             duration = time.monotonic() - start
             logger.warning("claude-backend-api auth failure: %s", exc)
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=1,
                 stdout="",
                 stderr=str(exc),
@@ -194,7 +194,7 @@ def create_router(settings: ClaudeBackendApiSettings, app: Any = None) -> APIRou
             duration = time.monotonic() - start
             logger.warning("claude-backend-api backend error: %s", exc)
             status = 429 if exc.status == 429 else 502
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=1,
                 stdout="",
                 stderr=str(exc),
@@ -205,7 +205,7 @@ def create_router(settings: ClaudeBackendApiSettings, app: Any = None) -> APIRou
 
     @router.post("/claude/run", response_model=None, operation_id="claude_run")
     async def claude_run(
-        request: ClaudeRunRequest,
+        request: RunRequest,
     ) -> JSONResponse | StreamingResponse:
         return await _execute(request)
 
@@ -288,7 +288,7 @@ def create_router(settings: ClaudeBackendApiSettings, app: Any = None) -> APIRou
 
         full_prompt = f"{resolved_context}\n\n{prompt}" if resolved_context else prompt
 
-        run_request = ClaudeRunRequest(
+        run_request = RunRequest(
             prompt=full_prompt,
             model=prof.model,
             system_prompt=prof.system_prompt,
@@ -363,7 +363,7 @@ def _extract_text(msg: CoreMessage) -> str:
     return "".join(chunks)
 
 
-def _record_ignored_fields(request: ClaudeRunRequest) -> None:
+def _record_ignored_fields(request: RunRequest) -> None:
     """Record which CLI-only fields were present so the drop is observable."""
     try:
         from opentelemetry import trace

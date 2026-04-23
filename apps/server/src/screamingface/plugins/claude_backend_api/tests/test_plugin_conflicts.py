@@ -27,8 +27,8 @@ class TestPluginMetadata:
     def test_depends_on_llm_base(self):
         assert "llm-base" in ClaudeBackendApiPlugin.depends
 
-    def test_conflicts_with_claude_backend(self):
-        assert "claude-backend" in ClaudeBackendApiPlugin.conflicts
+    def test_depends_on_backend_api_base(self):
+        assert "backend-api-base" in ClaudeBackendApiPlugin.depends
 
     def test_settings_class_set(self):
         assert ClaudeBackendApiPlugin.settings_class is ClaudeBackendApiSettings
@@ -44,13 +44,13 @@ class TestSettings:
         assert s.interpreter_system_prompt
 
     def test_profile_name_validator_accepts_valid_names(self):
-        from screamingface.plugins.claude_backend_api.models import ClaudeProfile
+        from screamingface.plugins.claude_backend_api.models import BackendProfile
 
         s = ClaudeBackendApiSettings(
             profiles={
-                "default": ClaudeProfile(),
-                "code-review": ClaudeProfile(),
-                "reviewer_1": ClaudeProfile(),
+                "default": BackendProfile(),
+                "code-review": BackendProfile(),
+                "reviewer_1": BackendProfile(),
             }
         )
         assert set(s.profiles.keys()) == {"default", "code-review", "reviewer_1"}
@@ -58,34 +58,22 @@ class TestSettings:
     def test_profile_name_validator_rejects_invalid_names(self):
         import pytest
 
-        from screamingface.plugins.claude_backend_api.models import ClaudeProfile
+        from screamingface.plugins.claude_backend_api.models import BackendProfile
 
         # Capitalized
         with pytest.raises(ValueError, match="Invalid profile name"):
-            ClaudeBackendApiSettings(profiles={"Default": ClaudeProfile()})
+            ClaudeBackendApiSettings(profiles={"Default": BackendProfile()})
 
         # Leading dash
         with pytest.raises(ValueError, match="Invalid profile name"):
-            ClaudeBackendApiSettings(profiles={"-bad": ClaudeProfile()})
+            ClaudeBackendApiSettings(profiles={"-bad": BackendProfile()})
 
         # Contains period
         with pytest.raises(ValueError, match="Invalid profile name"):
-            ClaudeBackendApiSettings(profiles={"a.b": ClaudeProfile()})
+            ClaudeBackendApiSettings(profiles={"a.b": BackendProfile()})
 
 
-class TestEnvPrefixIndependence:
-    """Ensure the env prefix is different from claude-backend so the two
-    plugins can be configured independently even if both are defined
-    (only one will be active, per the conflicts declaration)."""
-
-    def test_env_prefix_differs_from_claude_backend(self):
-        # Rebuild the settings class's config to read the prefix
+class TestEnvPrefix:
+    def test_env_prefix_is_namespaced(self):
         config = ClaudeBackendApiSettings.model_config
         assert config.get("env_prefix") == "SF_CLAUDE_BACKEND_API__"
-
-    def test_env_prefix_does_not_collide_with_claude_backend(self):
-        from screamingface.plugins.claude_backend.plugin import ClaudeBackendSettings
-
-        assert ClaudeBackendApiSettings.model_config.get(
-            "env_prefix"
-        ) != ClaudeBackendSettings.model_config.get("env_prefix")

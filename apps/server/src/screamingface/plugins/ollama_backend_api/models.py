@@ -1,17 +1,27 @@
-"""Request/response schemas for ollama-backend-api.
+"""Request/response/profile models for ollama-backend-api.
 
-Re-exports the shared request/response/profile models from
-``claude_backend_api.models`` — ollama-backend-api accepts exactly the
-same wire shapes on its routes so that sf.json configuration and client
-code stay uniform across all *_backend_api plugins.
+Re-exports the shared wire-format models from :mod:`backend_api_base`.
 """
 
 from __future__ import annotations
 
-from screamingface.plugins.claude_backend_api.models import (
+from screamingface.plugins.backend_api_base.models import (
+    BackendProfile,
     ClaudeProfile,
     ClaudeRunRequest,
     ClaudeRunResponse,
+    FileInput,
+    RunRequest,
+    RunResponse,
 )
 
-__all__ = ["ClaudeProfile", "ClaudeRunRequest", "ClaudeRunResponse"]
+__all__ = [
+    "BackendProfile",
+    "FileInput",
+    "RunRequest",
+    "RunResponse",
+    # Legacy aliases (one-release back-compat)
+    "ClaudeProfile",
+    "ClaudeRunRequest",
+    "ClaudeRunResponse",
+]

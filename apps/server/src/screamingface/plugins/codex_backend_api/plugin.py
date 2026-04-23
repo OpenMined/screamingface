@@ -23,7 +23,7 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
-from screamingface.plugins.codex_backend_api.models import ClaudeProfile
+from screamingface.plugins.codex_backend_api.models import BackendProfile
 from screamingface.plugins.codex_backend_api.routes import create_router
 
 if TYPE_CHECKING:
@@ -92,7 +92,7 @@ class CodexBackendApiSettings(PluginSettings):
             "silently ignored by the direct-API backend."
         ),
     )
-    profiles: dict[str, ClaudeProfile] = Field(
+    profiles: dict[str, BackendProfile] = Field(
         default_factory=dict,
         description="Named pre-configured execution profiles.",
     )
@@ -103,7 +103,7 @@ class CodexBackendApiSettings(PluginSettings):
 
     @field_validator("profiles")
     @classmethod
-    def _validate_profile_keys(cls, v: dict[str, ClaudeProfile]) -> dict[str, ClaudeProfile]:
+    def _validate_profile_keys(cls, v: dict[str, BackendProfile]) -> dict[str, BackendProfile]:
         for key in v:
             if not _PROFILE_NAME_RE.match(key):
                 msg = (
@@ -132,7 +132,7 @@ class CodexBackendApiPlugin(Plugin):
         "from the Codex CLI credential store (~/.codex/auth.json). "
         "Same route shapes as claude-backend-api but at /codex/* prefix."
     )
-    depends: list[str] = ["llm-base"]
+    depends: list[str] = ["llm-base", "backend-api-base"]
     conflicts: list[str] = []
     backend_call_paths: list[str] = ["/codex"]
     settings_class = CodexBackendApiSettings

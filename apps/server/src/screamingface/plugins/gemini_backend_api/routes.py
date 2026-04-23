@@ -12,8 +12,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from screamingface.plugins.gemini_backend_api.backend import GeminiBackend
 from screamingface.plugins.gemini_backend_api.models import (
-    ClaudeRunRequest,
-    ClaudeRunResponse,
+    RunRequest,
+    RunResponse,
 )
 from screamingface.plugins.llm_base.errors import (
     AuthError,
@@ -65,7 +65,7 @@ def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRou
             status_code=http_status,
         )
 
-    async def _execute(request: ClaudeRunRequest) -> JSONResponse | StreamingResponse:
+    async def _execute(request: RunRequest) -> JSONResponse | StreamingResponse:
         if request.output_format == "stream-json":
             raise HTTPException(status_code=501, detail="stream-json not yet implemented")
 
@@ -102,7 +102,7 @@ def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRou
                 except json.JSONDecodeError:
                     parsed_result = None
 
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=0,
                 stdout=stdout,
                 stderr="",
@@ -113,7 +113,7 @@ def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRou
 
         except (CredentialNotFoundError, AuthError) as exc:
             duration = time.monotonic() - start
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=1,
                 stdout="",
                 stderr=str(exc),
@@ -125,7 +125,7 @@ def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRou
         except BackendError as exc:
             duration = time.monotonic() - start
             status = 429 if exc.status == 429 else 502
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=1,
                 stdout="",
                 stderr=str(exc),
@@ -135,7 +135,7 @@ def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRou
             return JSONResponse(content=resp.model_dump(by_alias=True), status_code=status)
 
     @router.post("/gemini/run", response_model=None, operation_id="gemini_run")
-    async def gemini_run(request: ClaudeRunRequest) -> JSONResponse | StreamingResponse:
+    async def gemini_run(request: RunRequest) -> JSONResponse | StreamingResponse:
         return await _execute(request)
 
     @router.get("/gemini", response_model=None, operation_id="gemini_url4")
@@ -189,7 +189,7 @@ def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRou
 
         full_prompt = f"{resolved_context}\n\n{prompt}" if resolved_context else prompt
 
-        run_request = ClaudeRunRequest(
+        run_request = RunRequest(
             prompt=full_prompt,
             model=prof.model,
             system_prompt=prof.system_prompt,

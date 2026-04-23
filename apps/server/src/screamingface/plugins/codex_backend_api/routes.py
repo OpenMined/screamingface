@@ -23,8 +23,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from screamingface.plugins.codex_backend_api.backend import OpenAIBackend
 from screamingface.plugins.codex_backend_api.models import (
-    ClaudeRunRequest,
-    ClaudeRunResponse,
+    RunRequest,
+    RunResponse,
 )
 from screamingface.plugins.llm_base.errors import (
     AuthError,
@@ -79,7 +79,7 @@ def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRout
         )
 
     async def _execute(
-        request: ClaudeRunRequest,
+        request: RunRequest,
     ) -> JSONResponse | StreamingResponse:
         if request.output_format == "stream-json":
             raise HTTPException(
@@ -133,7 +133,7 @@ def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRout
                 except json.JSONDecodeError:
                     parsed_result = None
 
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=0,
                 stdout=stdout,
                 stderr="",
@@ -146,7 +146,7 @@ def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRout
         except (CredentialNotFoundError, AuthError) as exc:
             duration = time.monotonic() - start
             logger.warning("codex-backend-api auth failure: %s", exc)
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=1,
                 stdout="",
                 stderr=str(exc),
@@ -159,7 +159,7 @@ def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRout
             duration = time.monotonic() - start
             logger.warning("codex-backend-api backend error: %s", exc)
             status = 429 if exc.status == 429 else 502
-            resp = ClaudeRunResponse(
+            resp = RunResponse(
                 exit_code=1,
                 stdout="",
                 stderr=str(exc),
@@ -170,7 +170,7 @@ def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRout
 
     @router.post("/codex/run", response_model=None, operation_id="codex_run")
     async def codex_run(
-        request: ClaudeRunRequest,
+        request: RunRequest,
     ) -> JSONResponse | StreamingResponse:
         return await _execute(request)
 
@@ -251,7 +251,7 @@ def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRout
 
         full_prompt = f"{resolved_context}\n\n{prompt}" if resolved_context else prompt
 
-        run_request = ClaudeRunRequest(
+        run_request = RunRequest(
             prompt=full_prompt,
             model=prof.model,
             system_prompt=prof.system_prompt,
@@ -325,7 +325,7 @@ def _extract_text(msg: CoreMessage) -> str:
     return "".join(chunks)
 
 
-def _record_ignored_fields(request: ClaudeRunRequest) -> None:
+def _record_ignored_fields(request: RunRequest) -> None:
     """Record which CLI-only fields were present so the drop is observable."""
     try:
         from opentelemetry import trace
