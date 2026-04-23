@@ -138,6 +138,18 @@ class CoreMessage(BaseModel):
 # ----------------------------------------------------------------------------
 
 
+def extract_text(msg: CoreMessage) -> str:
+    """Return the concatenation of every :class:`TextPart` in ``msg.content``.
+
+    Short-circuits on the bare-string content shorthand. Parts that are
+    not TextPart (image, tool-call, tool-result, reasoning) are skipped —
+    callers who need those should walk ``msg.content`` directly.
+    """
+    if isinstance(msg.content, str):
+        return msg.content
+    return "".join(p.text for p in msg.content if isinstance(p, TextPart))
+
+
 class ToolDefinition(BaseModel):
     """Schema describing a tool the model may call.
 

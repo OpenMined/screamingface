@@ -38,7 +38,17 @@ from __future__ import annotations
 
 from screamingface.plugins.llm_base.adapter_base import Adapter
 from screamingface.plugins.llm_base.auth_base import AuthStrategy
-from screamingface.plugins.llm_base.backend_base import Backend
+from screamingface.plugins.llm_base.backend_base import (
+    Backend,
+    HealthStatus,
+    post_with_default_retry,
+)
+from screamingface.plugins.llm_base.constants import (
+    CLI_ONLY_FIELDS,
+    DEFAULT_MAX_TOKENS,
+    PROMPT_PREVIEW_LIMIT,
+    STDOUT_PREVIEW_LIMIT,
+)
 from screamingface.plugins.llm_base.credential_store import (
     CredentialStore,
     LinuxLibsecretStore,
@@ -53,6 +63,7 @@ from screamingface.plugins.llm_base.errors import (
     CredentialNotFoundError,
     LlmBaseError,
 )
+from screamingface.plugins.llm_base.http import default_http_factory, make_http_factory
 from screamingface.plugins.llm_base.messages import (
     CoreMessage,
     ImagePart,
@@ -61,6 +72,7 @@ from screamingface.plugins.llm_base.messages import (
     ToolCallPart,
     ToolDefinition,
     ToolResultPart,
+    extract_text,
 )
 
 __all__ = [
@@ -69,6 +81,8 @@ __all__ = [
     "Backend",
     "CredentialStore",
     "Adapter",
+    "HealthStatus",
+    "post_with_default_retry",
     # Concrete credential stores
     "LinuxLibsecretStore",
     "MacOSKeychainStore",
@@ -82,6 +96,15 @@ __all__ = [
     "ToolResultPart",
     "ReasoningPart",
     "ToolDefinition",
+    "extract_text",
+    # Constants
+    "CLI_ONLY_FIELDS",
+    "DEFAULT_MAX_TOKENS",
+    "PROMPT_PREVIEW_LIMIT",
+    "STDOUT_PREVIEW_LIMIT",
+    # HTTP
+    "default_http_factory",
+    "make_http_factory",
     # Errors
     "LlmBaseError",
     "AuthError",

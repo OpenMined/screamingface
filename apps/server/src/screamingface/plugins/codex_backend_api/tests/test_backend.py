@@ -153,7 +153,7 @@ class TestRunErrors:
         factory, _ = _mock_factory(httpx.Response(403, text="Forbidden"))
         backend = OpenAIBackend(auth=auth, http_client_factory=factory)
 
-        with pytest.raises(AuthError, match=r"Forbidden \(403\)"):
+        with pytest.raises(AuthError, match="403 Forbidden"):
             await backend.run(
                 [CoreMessage(role="user", content=[TextPart(text="ping")])],
                 model="o4-mini",
