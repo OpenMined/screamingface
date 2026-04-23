@@ -136,6 +136,12 @@ def matrix_server(
             "claude-backend-api": {
                 "default_model": "claude-sonnet-4-6",
             },
+            "gemini-backend-api": {
+                # Flash-lite has a larger daily cap on Code Assist than
+                # full flash; using it for tests avoids the per-day
+                # quota exhaustion that blocks the matrix suite.
+                "default_model": "gemini-2.5-flash-lite",
+            },
         },
     }
     mgr = ServerManager(config)

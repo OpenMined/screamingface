@@ -15,6 +15,7 @@
     "claude-frontend",
     "data-store",
     "llm-base",
+    "frontend-base",
     "backend-api-base",
     "claude-backend-api",
     "codex-backend-api",
