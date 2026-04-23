@@ -49,7 +49,13 @@ class HealthStatus:
 class Backend(ABC):
     """Abstract contract for a provider backend."""
 
-    async def health(self) -> HealthStatus:
+    async def health(self, model: str | None = None) -> HealthStatus:  # noqa: ARG002
+        """Probe the provider for auth validity and rate-limit capacity.
+
+        Concrete backends should override. The ``model`` hint lets the
+        probe target the model the user will actually be calling — when
+        it's None the backend picks its own (usually cheapest) probe model.
+        """
         return HealthStatus(authenticated=False, error="health() not implemented")
 
     @abstractmethod

@@ -65,3 +65,18 @@ class AuthStrategy(ABC):
             AuthError: Refresh failed in a way the user must fix
                 (refresh token expired, invalid_grant, etc.).
         """
+
+    def invalidate_cache(self) -> None:
+        """Drop any cached credential so the next
+        :meth:`get_authorization_header` forces a fresh read or refresh.
+
+        Default is a no-op — strategies that don't cache (e.g. plain
+        API-key readers) inherit this trivially. OAuth strategies
+        override to clear their in-memory cache *and* the credential
+        store entry if it's detectably stale.
+
+        Called by the shared POST-with-retry helper when the provider
+        returns 401, under the assumption that the cached token went
+        bad mid-request (rare race with a concurrent refresh).
+        """
+
