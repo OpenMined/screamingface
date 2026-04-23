@@ -135,15 +135,59 @@ class GeminiBackend(Backend):
         return await self._health_oauth()
 
     async def _health_oauth(self) -> HealthStatus:
+        """OAuth health probe: loadCodeAssist + minimal generateContent.
+
+        ``loadCodeAssist`` alone isn't quota-metered, so a bare call to it
+        can't detect ``generateContent`` 429s. We do a 1-token
+        ``generateContent`` probe afterwards so the health response
+        surfaces rate-limit state (and downstream tests can skip
+        cleanly instead of timing out on retries).
+        """
         try:
             await self._ensure_setup()
         except BackendError as exc:
             if exc.status in (401, 403):
                 return HealthStatus(authenticated=False, error=str(exc))
             return HealthStatus(authenticated=True, error=str(exc))
-        except (AuthError, Exception) as exc:
+        except AuthError as exc:
             return HealthStatus(authenticated=False, error=str(exc))
-        return HealthStatus(authenticated=True)
+        except Exception as exc:
+            return HealthStatus(authenticated=False, error=str(exc))
+
+        # Minimal generateContent probe — same pattern as _health_api_key.
+        try:
+            headers = await self._auth.get_authorization_header()
+        except Exception as exc:
+            return HealthStatus(authenticated=False, error=str(exc))
+        headers["content-type"] = "application/json"
+
+        probe_body = self._wrap_code_assist_request(
+            "gemini-2.5-flash",
+            {
+                "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+                "generationConfig": {"maxOutputTokens": 1},
+            },
+        )
+        url = f"{self._code_assist_base_url()}:generateContent"
+        try:
+            async with self._http_factory() as client:
+                resp = await client.post(url, json=probe_body, headers=headers)
+        except Exception as exc:
+            return HealthStatus(authenticated=True, error=f"API unreachable: {exc}")
+
+        if resp.status_code == 200:
+            return HealthStatus(authenticated=True)
+        if resp.status_code == 429:
+            return HealthStatus(authenticated=True, error="rate limited")
+        if resp.status_code in (401, 403):
+            return HealthStatus(
+                authenticated=False,
+                error=f"API rejected credentials (HTTP {resp.status_code}): {resp.text[:300]}",
+            )
+        return HealthStatus(
+            authenticated=True,
+            error=f"Unexpected API status {resp.status_code}: {resp.text[:300]}",
+        )
 
     async def _health_api_key(self, model: str) -> HealthStatus:
         try:
