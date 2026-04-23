@@ -1,4 +1,15 @@
-"""Claude API proxy router — streaming and non-streaming support."""
+"""Claude API proxy router — streaming and non-streaming support.
+
+The hot path is :func:`proxy_messages`. Its three responsibilities are
+implemented as focused helpers and orchestrated from a thin handler:
+
+- Session enrichment + save — :mod:`._session`
+- URL4 ``$prompt`` / static context resolution — :mod:`._url4_context`
+- Upstream forwarding (streaming + non-streaming) — inline below
+
+All tracing, SSE reconstruction, and message-surgery utilities live in
+this file (they're small and specific to the Anthropic wire format).
+"""
 
 from __future__ import annotations
 
@@ -13,6 +24,13 @@ import certifi
 import httpx
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+
+from screamingface.plugins.claude_frontend._session import SessionHook
+from screamingface.plugins.claude_frontend._url4_context import (
+    resolve_prompt_expression,
+    resolve_static_context,
+)
+from screamingface.plugins.llm_base.constants import PROMPT_PREVIEW_LIMIT
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +49,11 @@ FORWARD_HEADERS = {
 
 _SENSITIVE_HEADERS = {"x-api-key", "authorization"}
 
+_PLUGIN_NAME = "claude-frontend"
+
+# Always-on request dumps are noisy; opt-in via env var.
+_DEBUG_DUMP_ENV = "SF_PROXY_DEBUG_DUMP"
+
 
 def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
     return {
@@ -39,13 +62,10 @@ def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
     }
 
 
-def _truncate(text: str, limit: int = 4000) -> str:
+def _truncate(text: str, limit: int = PROMPT_PREVIEW_LIMIT) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n... ({len(text) - limit} more chars)"
-
-
-_PLUGIN_NAME = "claude-frontend"
 
 
 def _get_tracer():  # type: ignore[no-untyped-def]
@@ -103,14 +123,13 @@ def _record_trace_id(request: Request) -> str | None:
 
 
 def _trace_request_context(body: dict[str, Any]) -> None:
-    """Create child spans for each system block and message in the final request to Anthropic."""
+    """Create child spans for each system block and message in the final request."""
     tracer = _get_tracer()
     if not tracer:
         return
 
-    _t = _truncate  # alias for readability
+    _t = _truncate
 
-    # Request-level attributes on the current (server) span
     _set_span_attrs(
         {
             "anthropic.model": body.get("model", "?"),
@@ -123,7 +142,6 @@ def _trace_request_context(body: dict[str, Any]) -> None:
         }
     )
 
-    # System blocks
     system = body.get("system")
     if isinstance(system, list):
         for i, block in enumerate(system):
@@ -142,7 +160,6 @@ def _trace_request_context(body: dict[str, Any]) -> None:
             span.set_attribute("text_length", len(system))
             span.set_attribute("text", _t(system, 1000))
 
-    # Messages — each as a child span with role, content preview, and block breakdown
     messages = body.get("messages", [])
     for i, msg in enumerate(messages):
         role = msg.get("role", "?")
@@ -183,11 +200,7 @@ def _trace_request_context(body: dict[str, Any]) -> None:
 
 
 def _parse_sse_response(raw: str) -> dict[str, Any] | None:
-    """Reconstruct an Anthropic Messages response from SSE stream data.
-
-    Parses message_start, content_block_start/delta/stop, and message_delta
-    events to build a response dict equivalent to a non-streaming response.
-    """
+    """Reconstruct an Anthropic Messages response from SSE stream data."""
     response: dict[str, Any] = {}
     content_blocks: list[dict[str, Any]] = []
     current_block: dict[str, Any] = {}
@@ -205,7 +218,6 @@ def _parse_sse_response(raw: str) -> dict[str, Any] | None:
             continue
 
         etype = event.get("type")
-
         if etype == "message_start":
             msg = event.get("message", {})
             response.update(
@@ -263,13 +275,9 @@ def _parse_sse_response(raw: str) -> dict[str, Any] | None:
 def _extract_last_user_text(messages: list[dict[str, Any]]) -> str | None:
     """Extract the user's actual prompt from the last user message.
 
-    Claude Code packs system-reminder blocks (MCP instructions, skills, etc.)
-    as text blocks inside the user message alongside the real prompt.  We only
-    want the user's text — skip any block whose text starts with
-    ``<system-reminder>``.
-
-    Returns None only if the last user message has no eligible text blocks
-    (pure tool_result submission with no user text).
+    Claude Code packs ``<system-reminder>`` blocks (MCP instructions,
+    skills, etc.) inside user messages alongside the real prompt. We
+    skip any text block starting with ``<system-reminder>``.
     """
     for msg in reversed(messages):
         if msg.get("role") != "user":
@@ -295,22 +303,16 @@ def _replace_last_user_message(messages: list[dict[str, Any]], new_text: str) ->
     """Replace only the user's actual text in the last user message.
 
     Preserves ``<system-reminder>`` blocks, ``cache_control`` markers,
-    ``tool_result`` blocks, and any other content blocks — only the last
-    non-system-reminder text block is swapped.
+    ``tool_result`` blocks, and any other content blocks.
     """
     for i in range(len(messages) - 1, -1, -1):
         if messages[i].get("role") != "user":
             continue
         content = messages[i].get("content")
-
-        # String shorthand — replace directly
         if isinstance(content, str):
             messages[i] = {"role": "user", "content": new_text}
             return
-
-        # Array of blocks — find and replace only the user's text block
         if isinstance(content, list):
-            # Walk backwards to find the last non-system-reminder text block
             for j in range(len(content) - 1, -1, -1):
                 block = content[j]
                 if (
@@ -320,20 +322,11 @@ def _replace_last_user_message(messages: list[dict[str, Any]], new_text: str) ->
                 ):
                     content[j] = {"type": "text", "text": new_text}
                     return
-
-            # No eligible text block found — append as new block
             content.append({"type": "text", "text": new_text})
         return
 
 
 def _inject_system_context(body: dict[str, Any], text: str) -> None:
-    """Inject *text* into the request body's system prompt.
-
-    Handles the three formats Anthropic accepts:
-    - None → create a new list with a single text block
-    - str  → concatenate with ``\\n\\n``
-    - list → append as a new text block
-    """
     existing = body.get("system")
     if existing is None:
         body["system"] = [{"type": "text", "text": text}]
@@ -348,17 +341,17 @@ def _embed_context(
     resolved_context: str,
     settings: ClaudeFrontendSettings,
 ) -> None:
-    """Embed resolved url4 context into the request body per settings."""
+    """Embed resolved url4 context per plugin settings."""
     if settings.embed_target == "user":
         messages = body.get("messages", [])
         last_user_text = _extract_last_user_text(messages)
         if last_user_text:
             if settings.embed_mode == "concat":
                 combined = f"{last_user_text}\n\n{resolved_context}"
-            else:  # replace
+            else:
                 combined = resolved_context
             _replace_last_user_message(messages, combined)
-    else:  # system
+    else:
         wrapped = f"{settings.system_prompt}\n\n{resolved_context}"
         _inject_system_context(body, wrapped)
 
@@ -374,14 +367,13 @@ def create_router(
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
     logger.info("Proxy SSL context using certifi CA: %s", certifi.where())
 
-    # Diagnostic: check DNS override at request time
     import socket as _sock
 
     def _log_dns(domain: str) -> None:
         try:
             results = _sock.getaddrinfo(domain, 443, _sock.AF_INET)
             logger.info("DNS probe for %s → %s", domain, results[0][4][0])
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — diagnostic only
             logger.warning("DNS probe for %s failed: %s", domain, e)
 
     router = APIRouter(tags=["claude-frontend"])
@@ -402,286 +394,70 @@ def create_router(
     async def proxy_messages(request: Request) -> Response:
         body = await request.json()
 
-        # --- Session enrichment (before url4 injection) ---
-        # Prefer env-var session ID (per-session proxy) over header (legacy)
-        session_id = os.environ.get("_SF_SESSION_ID") or request.headers.get("x-session-id")
-        original_user_msg = None
-        if session_id and session_service_url and hooks:
-            msgs = body.get("messages", [])
-            if msgs:
-                original_user_msg = msgs[-1].copy() if isinstance(msgs[-1], dict) else msgs[-1]
-            tracer = _get_tracer()
-            enrich_ctx = (
-                tracer.start_as_current_span("session.enrich_request") if tracer else _nullcontext()
-            )
-            with enrich_ctx:
-                _set_span_attrs(
-                    {
-                        "session.id": session_id,
-                        "session.service_url": session_service_url,
-                    }
-                )
-                try:
-                    results = await hooks.emit_async(
-                        "session.enrich_request",
-                        body=body,
-                        session_id=session_id,
-                        session_service_url=session_service_url,
-                    )
-                    modified = False
-                    for result in results:
-                        if result is not None:
-                            body = result
-                            modified = True
-                            break
-                    _set_span_attrs({"session.modified": modified})
-                except Exception:
-                    logger.warning("Session enrichment failed for %s", session_id, exc_info=True)
+        # Stage 1: session enrichment
+        session = SessionHook.from_request(
+            session_id=os.environ.get("_SF_SESSION_ID") or request.headers.get("x-session-id"),
+            service_url=session_service_url,
+            hooks=hooks,
+        )
+        body = await session.enrich(body, tracer=_get_tracer())
 
-        # --- URL4 context injection ---
-        # If the active spec contains $prompt, substitute the user's last message
-        # text inline (quoted for url4 grammar), resolve the full expression via
-        # the url4-executor, and replace the last user message with the result.
-        # Otherwise fall back to the original behavior (append to system prompt).
+        # Stage 2: url4 context injection (either path may short-circuit)
         raw_expression = plugin.get_active_expression() if plugin else None
-
         if raw_expression and "$prompt" in raw_expression:
-            messages = body.get("messages", [])
-            last_user_text = _extract_last_user_text(messages)
+            last_user_text = _extract_last_user_text(body.get("messages", []))
             if last_user_text:
-                tracer = _get_tracer()
-                span_ctx = (
-                    tracer.start_as_current_span("url4.$prompt") if tracer else _nullcontext()
+                short_circuit = await resolve_prompt_expression(
+                    body,
+                    raw_expression=raw_expression,
+                    settings=settings,
+                    plugin=plugin,
+                    app=app,
+                    tracer=_get_tracer(),
+                    last_user_text=last_user_text,
+                    embed_context=_embed_context,
+                    _start_client_span=_start_client_span,
+                    _set_span_attrs=_set_span_attrs,
                 )
-                with span_ctx as prompt_span:
-                    try:
-                        if prompt_span and prompt_span.is_recording():
-                            prompt_span.set_attribute("sf.plugin", _PLUGIN_NAME)
-                            prompt_span.set_attribute("url4.raw_expression", raw_expression)
-                            prompt_span.set_attribute("url4.user_text_length", len(last_user_text))
-
-                        # Determine backend: HTTP to main server, or in-process
-                        backend_url = (
-                            settings.backend_url.rstrip("/") if settings.backend_url else None
-                        )
-
-                        # Store user prompt as blob on the backend server
-                        if backend_url:
-                            blob_url_target = f"{backend_url}/data"
-                            blob_span_ctx = (
-                                _start_client_span(tracer, "POST /data")
-                                if tracer
-                                else _nullcontext()
-                            )
-                            with blob_span_ctx:
-                                _set_span_attrs(
-                                    {
-                                        "http.method": "POST",
-                                        "http.url": blob_url_target,
-                                    }
-                                )
-                                async with httpx.AsyncClient(
-                                    timeout=httpx.Timeout(30.0), verify=False
-                                ) as dc:
-                                    blob_resp = await dc.post(
-                                        blob_url_target,
-                                        content=last_user_text.encode("utf-8"),
-                                        headers={"content-type": "text/plain; charset=utf-8"},
-                                    )
-                                    blob_resp.raise_for_status()
-                                    blob_key = blob_resp.json()["key"]
-                                _set_span_attrs(
-                                    {
-                                        "http.status_code": blob_resp.status_code,
-                                        "data.key": blob_key,
-                                        "data.size": len(last_user_text),
-                                    }
-                                )
-                        else:
-                            from screamingface.plugins.data_store.routes import store_blob
-
-                            blob_key = store_blob(
-                                last_user_text.encode("utf-8"), "text/plain; charset=utf-8"
-                            )
-
-                        blob_url = f"/data/{blob_key}"
-                        substituted = raw_expression.replace("$prompt", blob_url)
-
-                        if prompt_span and prompt_span.is_recording():
-                            prompt_span.set_attribute("url4.blob_url", blob_url)
-                            prompt_span.set_attribute(
-                                "url4.substituted_expression", _truncate(substituted)
-                            )
-
-                        # Resolve the full expression via /ensemble endpoint
-                        if backend_url:
-                            ens_url = f"{backend_url}/ensemble"
-                            ens_span_ctx = (
-                                _start_client_span(tracer, "GET /ensemble")
-                                if tracer
-                                else _nullcontext()
-                            )
-                            with ens_span_ctx:
-                                _set_span_attrs(
-                                    {
-                                        "http.method": "GET",
-                                        "http.url": ens_url,
-                                        "url4.expression": _truncate(substituted, 500),
-                                    }
-                                )
-                                async with httpx.AsyncClient(
-                                    timeout=httpx.Timeout(300.0), verify=False
-                                ) as ec:
-                                    ens_resp = await ec.get(ens_url, params={"q": substituted})
-                                    ens_resp.raise_for_status()
-                                    final_text = ens_resp.text
-                                body_preview = final_text[:4000]
-                                if len(final_text) > 4000:
-                                    body_preview += f"\n... ({len(final_text) - 4000} more chars)"
-                                _set_span_attrs(
-                                    {
-                                        "http.status_code": ens_resp.status_code,
-                                        "url4.result_length": len(final_text),
-                                        "url4.response_body": body_preview,
-                                    }
-                                )
-                        else:
-                            from screamingface.plugins.url4_executor.interpreter import (
-                                Url4Interpreter,
-                            )
-
-                            interpreter = Url4Interpreter(app=app)
-                            final_text = await interpreter.evaluate(substituted)
-
-                        if prompt_span and prompt_span.is_recording():
-                            prompt_span.set_attribute("url4.final_text_length", len(final_text))
-                            prompt_span.set_attribute(
-                                "url4.final_text_preview", _truncate(final_text, 1000)
-                            )
-                            prompt_span.set_attribute("url4.status", "ok")
-
-                        if final_text:
-                            _embed_context(body, final_text, settings)
-                            logger.info(
-                                "$prompt: blob=%s resolved %d chars → target=%s mode=%s",
-                                blob_key,
-                                len(final_text),
-                                settings.embed_target,
-                                settings.embed_mode,
-                            )
-                    except Exception as exc:
-                        if prompt_span and prompt_span.is_recording():
-                            prompt_span.set_attribute("url4.status", "error")
-                            prompt_span.set_attribute("url4.error", str(exc))
-                            prompt_span.record_exception(exc)
-                        import traceback as _tb
-
-                        logger.warning("$prompt substitution failed", exc_info=True)
-                        tb_str = "".join(_tb.format_exception(exc))
-                        spec_name = settings.active_spec or "unknown"
-                        error_lines = [
-                            f"[url4 error] Resolution failed for spec '{spec_name}'",
-                            "",
-                            f"Expression: {_truncate(raw_expression, 200)}",
-                            f"Substituted: {_truncate(substituted, 200)}"
-                            if "substituted" in dir()
-                            else "",
-                            "",
-                            f"Error: {exc.__class__.__name__}: {exc}",
-                            "",
-                            "Traceback:",
-                            tb_str,
-                        ]
-                        error_response = {
-                            "id": f"sf_error_{id(exc):x}",
-                            "type": "message",
-                            "role": "assistant",
-                            "content": [{"type": "text", "text": "\n".join(error_lines)}],
-                            "model": body.get("model", "unknown"),
-                            "stop_reason": "end_turn",
-                            "stop_sequence": None,
-                            "usage": {"input_tokens": 0, "output_tokens": 0},
-                        }
-                        return JSONResponse(content=error_response, status_code=200)
+                if short_circuit is not None:
+                    return short_circuit
         elif raw_expression:
-            # No $prompt — resolve statically and append to system prompt
-            try:
-                resolved_context = plugin.resolve_context() if plugin else None
-            except Exception as exc:
-                import traceback as _tb
+            short_circuit = resolve_static_context(
+                body,
+                raw_expression=raw_expression,
+                settings=settings,
+                plugin=plugin,
+                embed_context=_embed_context,
+            )
+            if short_circuit is not None:
+                return short_circuit
 
-                logger.warning("Static context resolution failed", exc_info=True)
-                tb_str = "".join(_tb.format_exception(exc))
-                spec_name = settings.active_spec or "unknown"
-                error_lines = [
-                    f"[url4 error] Static context resolution failed for spec '{spec_name}'",
-                    "",
-                    f"Expression: {_truncate(raw_expression, 200)}",
-                    "",
-                    f"Error: {exc.__class__.__name__}: {exc}",
-                    "",
-                    "Traceback:",
-                    tb_str,
-                ]
-                error_response = {
-                    "id": f"sf_error_{id(exc):x}",
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "\n".join(error_lines)}],
-                    "model": body.get("model", "unknown"),
-                    "stop_reason": "end_turn",
-                    "stop_sequence": None,
-                    "usage": {"input_tokens": 0, "output_tokens": 0},
-                }
-                return JSONResponse(content=error_response, status_code=200)
-            if resolved_context:
-                _embed_context(body, resolved_context, settings)
-                logger.info(
-                    "Injected cached url4 context (%d chars) embed_target=%s embed_mode=%s",
-                    len(resolved_context),
-                    settings.embed_target,
-                    settings.embed_mode,
-                )
-
-        # Trace the FINAL request body (after all modifications) as child spans.
-        # This is exactly what gets sent to api.anthropic.com.
+        # Stage 3: trace the final body and forward to Anthropic
         tracer = _get_tracer()
         if tracer:
             with tracer.start_as_current_span("anthropic.request_body") as body_span:
                 body_span.set_attribute("sf.plugin", _PLUGIN_NAME)
                 body_span.set_attribute(
-                    "description", "Final request body sent to Anthropic API (after url4 injection)"
+                    "description",
+                    "Final request body sent to Anthropic API (after url4 injection)",
                 )
                 _trace_request_context(body)
         else:
             _trace_request_context(body)
 
         headers = _build_headers(request)
-        # Preserve query params (e.g. ?beta=true) that Claude Code sends
         qs = str(request.url.query)
         url = f"{upstream_url}/v1/messages"
         if qs:
             url = f"{url}?{qs}"
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
-        tracer = _get_tracer()
-
-        # Record trace ID on the server span
         trace_id = _record_trace_id(request)
 
-        # Server span: just record the raw request body
         _set_span_attrs({"request.body": _truncate(json.dumps(body))})
         _set_span_headers("request.headers", _redact_headers(headers))
 
         is_streaming = body.get("stream", False)
-        # Debug: dump full request body to temp file for inspection
-        import tempfile
-        from pathlib import Path
-
-        debug_dir = Path(tempfile.gettempdir()) / "sf-proxy-debug"
-        debug_dir.mkdir(exist_ok=True)
-        debug_file = debug_dir / "last_request.json"
-        debug_file.write_text(json.dumps(body, indent=2, ensure_ascii=False))
-        logger.info("PROXY >>> dumped request body to %s", debug_file)
+        _maybe_dump_request(body)
         logger.info(
             "PROXY >>> forwarding to %s | stream=%s | sys_len=%s | msgs=%s | trace=%s",
             url,
@@ -697,166 +473,26 @@ def create_router(
         )
 
         if is_streaming:
-            client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
-            upstream_span = (
-                _start_client_span_detached(tracer, "anthropic.POST /v1/messages")
-                if tracer
-                else None
+            return await _forward_streaming(
+                url=url,
+                headers=headers,
+                body=body,
+                timeout=timeout,
+                ssl_ctx=ssl_ctx,
+                tracer=tracer,
+                trace_id=trace_id,
+                session=session,
             )
-            if upstream_span:
-                _set_span_attrs({"sf.plugin": _PLUGIN_NAME}, upstream_span)
-                _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
-                if trace_id:
-                    _set_span_attrs({"sf.trace_id": trace_id}, upstream_span)
-                _set_span_headers("request.headers", _redact_headers(headers), upstream_span)
-                _set_span_attrs({"request.body": _truncate(json.dumps(body))}, upstream_span)
-                logger.info(
-                    "TRACE: created upstream span %s", upstream_span.get_span_context().span_id
-                )
-
-            async def stream_response():
-                chunks: list[bytes] = []
-                try:
-                    logger.info("STREAM >>> opening upstream connection to Anthropic")
-                    async with client.stream("POST", url, json=body, headers=headers) as resp:
-                        logger.info(
-                            "STREAM >>> upstream responded: status=%s content-type=%s",
-                            resp.status_code,
-                            resp.headers.get("content-type", "?"),
-                        )
-                        if upstream_span:
-                            _set_span_attrs({"http.status_code": resp.status_code}, upstream_span)
-                            _set_span_headers(
-                                "response.headers",
-                                dict(resp.headers),
-                                upstream_span,
-                            )
-                        chunk_count = 0
-                        async for chunk in resp.aiter_bytes():
-                            chunk_count += 1
-                            chunks.append(chunk)
-                            if chunk_count <= 3:
-                                logger.info(
-                                    "STREAM >>> chunk #%d (%d bytes): %s",
-                                    chunk_count,
-                                    len(chunk),
-                                    chunk[:200],
-                                )
-                            yield chunk
-                        logger.info(
-                            "STREAM >>> finished: %d chunks, %d total bytes",
-                            chunk_count,
-                            sum(len(c) for c in chunks),
-                        )
-                        logger.info("[E2E-TRACE] PROXY response status=%d", resp.status_code)
-                except Exception as exc:
-                    logger.error("STREAM >>> ERROR during streaming: %s", exc, exc_info=True)
-                    raise
-                finally:
-                    if chunks:
-                        raw = b"".join(chunks).decode(errors="replace")
-                        if upstream_span:
-                            _set_span_attrs({"response.body": _truncate(raw)}, upstream_span)
-                        _set_span_attrs({"response.body": _truncate(raw)})
-
-                        # --- Session save (streaming) ---
-                        if session_id and session_service_url and hooks and original_user_msg:
-                            response_data = _parse_sse_response(raw)
-                            if response_data:
-                                save_tracer = _get_tracer()
-                                save_ctx = (
-                                    save_tracer.start_as_current_span("session.save_response")
-                                    if save_tracer
-                                    else _nullcontext()
-                                )
-                                with save_ctx:
-                                    _set_span_attrs(
-                                        {
-                                            "session.id": session_id,
-                                            "session.service_url": session_service_url,
-                                            "session.streaming": True,
-                                        }
-                                    )
-                                    try:
-                                        await hooks.emit_async(
-                                            "session.save_response",
-                                            session_id=session_id,
-                                            session_service_url=session_service_url,
-                                            user_message_body=original_user_msg,
-                                            response_body=response_data,
-                                        )
-                                    except Exception:
-                                        logger.warning(
-                                            "Session save (stream) failed for %s",
-                                            session_id,
-                                            exc_info=True,
-                                        )
-
-                    if upstream_span:
-                        upstream_span.end()
-                    await client.aclose()
-                    logger.info("STREAM >>> client closed")
-
-            return StreamingResponse(stream_response(), media_type="text/event-stream")
-        else:
-            if tracer:
-                with _start_client_span(tracer, f"POST {url}") as span:
-                    _set_span_attrs({"http.method": "POST", "http.url": url}, span)
-                    if trace_id:
-                        _set_span_attrs({"sf.trace_id": trace_id}, span)
-                    _set_span_headers("request.headers", _redact_headers(headers), span)
-                    _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
-                    async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
-                        resp = await client.post(url, json=body, headers=headers)
-                    _set_span_attrs(
-                        {
-                            "http.status_code": resp.status_code,
-                            "response.body": _truncate(resp.text),
-                        },
-                        span,
-                    )
-                    _set_span_headers("response.headers", dict(resp.headers), span)
-            else:
-                async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
-                    resp = await client.post(url, json=body, headers=headers)
-            _set_span_attrs(
-                {
-                    "response.body": _truncate(resp.text),
-                    "http.status_code": resp.status_code,
-                },
-            )
-            _set_span_headers("response.headers", dict(resp.headers))
-            logger.info("[E2E-TRACE] PROXY response status=%d", resp.status_code)
-
-            # --- Session save (non-streaming) ---
-            response_data = resp.json()
-            if session_id and session_service_url and hooks and original_user_msg:
-                save_tracer = _get_tracer()
-                save_ctx = (
-                    save_tracer.start_as_current_span("session.save_response")
-                    if save_tracer
-                    else _nullcontext()
-                )
-                with save_ctx:
-                    _set_span_attrs(
-                        {
-                            "session.id": session_id,
-                            "session.service_url": session_service_url,
-                            "session.streaming": False,
-                        }
-                    )
-                    try:
-                        await hooks.emit_async(
-                            "session.save_response",
-                            session_id=session_id,
-                            session_service_url=session_service_url,
-                            user_message_body=original_user_msg,
-                            response_body=response_data,
-                        )
-                    except Exception:
-                        logger.warning("Session save failed for %s", session_id, exc_info=True)
-
-            return JSONResponse(content=response_data, status_code=resp.status_code)
+        return await _forward_unary(
+            url=url,
+            headers=headers,
+            body=body,
+            timeout=timeout,
+            ssl_ctx=ssl_ctx,
+            tracer=tracer,
+            trace_id=trace_id,
+            session=session,
+        )
 
     @router.get("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_get")
     @router.post("/v1/{path:path}", response_model=None, operation_id="proxy_catchall_post")
@@ -866,9 +502,7 @@ def create_router(
         method = request.method
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
         tracer = _get_tracer()
-
         trace_id = _record_trace_id(request)
-
         body = await request.body()
         kwargs: dict[str, Any] = {"headers": headers}
         if body:
@@ -904,10 +538,7 @@ def create_router(
                 resp = await client.request(method, url, **kwargs)
 
         _set_span_attrs(
-            {
-                "response.body": _truncate(resp.text),
-                "http.status_code": resp.status_code,
-            },
+            {"response.body": _truncate(resp.text), "http.status_code": resp.status_code}
         )
         _set_span_headers("response.headers", dict(resp.headers))
 
@@ -927,7 +558,7 @@ def create_router(
         operation_id="proxy_passthrough",
     )
     async def proxy_passthrough(request: Request, path: str) -> Response:
-        """Forward /api/* requests to the real upstream (Claude Code telemetry, OAuth, etc.)."""
+        """Forward /api/* requests to the real upstream (telemetry, OAuth, etc.)."""
         headers = _build_headers(request)
         url = f"{upstream_url}/api/{path}"
         method = request.method
@@ -954,3 +585,140 @@ def create_router(
         )
 
     return router
+
+
+# ---------------------------------------------------------------------------
+# Stage 3 helpers — upstream forwarding
+# ---------------------------------------------------------------------------
+
+
+def _maybe_dump_request(body: dict[str, Any]) -> None:
+    """Dump the outgoing request body to /tmp for debugging — opt-in."""
+    if not os.environ.get(_DEBUG_DUMP_ENV):
+        return
+    import tempfile
+    from pathlib import Path
+
+    debug_dir = Path(tempfile.gettempdir()) / "sf-proxy-debug"
+    debug_dir.mkdir(exist_ok=True)
+    debug_file = debug_dir / "last_request.json"
+    debug_file.write_text(json.dumps(body, indent=2, ensure_ascii=False))
+    logger.info("PROXY >>> dumped request body to %s", debug_file)
+
+
+async def _forward_streaming(
+    *,
+    url: str,
+    headers: dict[str, str],
+    body: dict[str, Any],
+    timeout: httpx.Timeout,
+    ssl_ctx: ssl.SSLContext,
+    tracer: Any,
+    trace_id: str | None,
+    session: SessionHook,
+) -> StreamingResponse:
+    """Stream Anthropic's SSE response through, saving the session turn on completion."""
+    client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
+    upstream_span = (
+        _start_client_span_detached(tracer, "anthropic.POST /v1/messages") if tracer else None
+    )
+    if upstream_span:
+        _set_span_attrs({"sf.plugin": _PLUGIN_NAME}, upstream_span)
+        _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
+        if trace_id:
+            _set_span_attrs({"sf.trace_id": trace_id}, upstream_span)
+        _set_span_headers("request.headers", _redact_headers(headers), upstream_span)
+        _set_span_attrs({"request.body": _truncate(json.dumps(body))}, upstream_span)
+        logger.info("TRACE: created upstream span %s", upstream_span.get_span_context().span_id)
+
+    async def stream_response():
+        chunks: list[bytes] = []
+        try:
+            logger.info("STREAM >>> opening upstream connection to Anthropic")
+            async with client.stream("POST", url, json=body, headers=headers) as resp:
+                logger.info(
+                    "STREAM >>> upstream responded: status=%s content-type=%s",
+                    resp.status_code,
+                    resp.headers.get("content-type", "?"),
+                )
+                if upstream_span:
+                    _set_span_attrs({"http.status_code": resp.status_code}, upstream_span)
+                    _set_span_headers("response.headers", dict(resp.headers), upstream_span)
+                chunk_count = 0
+                async for chunk in resp.aiter_bytes():
+                    chunk_count += 1
+                    chunks.append(chunk)
+                    if chunk_count <= 3:
+                        logger.info(
+                            "STREAM >>> chunk #%d (%d bytes): %s",
+                            chunk_count,
+                            len(chunk),
+                            chunk[:200],
+                        )
+                    yield chunk
+                logger.info(
+                    "STREAM >>> finished: %d chunks, %d total bytes",
+                    chunk_count,
+                    sum(len(c) for c in chunks),
+                )
+                logger.info("[E2E-TRACE] PROXY response status=%d", resp.status_code)
+        except Exception as exc:
+            logger.error("STREAM >>> ERROR during streaming: %s", exc, exc_info=True)
+            raise
+        finally:
+            if chunks:
+                raw = b"".join(chunks).decode(errors="replace")
+                if upstream_span:
+                    _set_span_attrs({"response.body": _truncate(raw)}, upstream_span)
+                _set_span_attrs({"response.body": _truncate(raw)})
+                if session.enabled:
+                    response_data = _parse_sse_response(raw)
+                    if response_data:
+                        await session.save(response_data, streaming=True, tracer=_get_tracer())
+            if upstream_span:
+                upstream_span.end()
+            await client.aclose()
+            logger.info("STREAM >>> client closed")
+
+    return StreamingResponse(stream_response(), media_type="text/event-stream")
+
+
+async def _forward_unary(
+    *,
+    url: str,
+    headers: dict[str, str],
+    body: dict[str, Any],
+    timeout: httpx.Timeout,
+    ssl_ctx: ssl.SSLContext,
+    tracer: Any,
+    trace_id: str | None,
+    session: SessionHook,
+) -> JSONResponse:
+    """Non-streaming POST, parse JSON, save session turn."""
+    span_ctx = _start_client_span(tracer, f"POST {url}") if tracer else _nullcontext()
+    with span_ctx as span:
+        if tracer and span:
+            _set_span_attrs({"http.method": "POST", "http.url": url}, span)
+            if trace_id:
+                _set_span_attrs({"sf.trace_id": trace_id}, span)
+            _set_span_headers("request.headers", _redact_headers(headers), span)
+            _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
+        async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
+            resp = await client.post(url, json=body, headers=headers)
+        if tracer and span:
+            _set_span_attrs(
+                {
+                    "http.status_code": resp.status_code,
+                    "response.body": _truncate(resp.text),
+                },
+                span,
+            )
+            _set_span_headers("response.headers", dict(resp.headers), span)
+
+    _set_span_attrs({"response.body": _truncate(resp.text), "http.status_code": resp.status_code})
+    _set_span_headers("response.headers", dict(resp.headers))
+    logger.info("[E2E-TRACE] PROXY response status=%d", resp.status_code)
+
+    response_data = resp.json()
+    await session.save(response_data, streaming=False, tracer=_get_tracer())
+    return JSONResponse(content=response_data, status_code=resp.status_code)
