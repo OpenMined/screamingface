@@ -141,7 +141,6 @@ class ClaudeBackendApiPlugin(Plugin):
         "store instead of shelling out to the claude CLI. Same routes, "
         "same request/response shapes, same profile config."
     )
-    tags: list[str] = ["product:claude"]
     depends: list[str] = ["llm-base"]
     conflicts: list[str] = ["claude-backend"]
     # Registered for url4 backend-call dispatch via /claude()!<intent>.
@@ -172,14 +171,20 @@ class ClaudeBackendApiPlugin(Plugin):
         router = create_router(self.settings, app)  # type: ignore[arg-type]
         routes.add_router(self.name, router, prefix="")
 
-    async def handle_backend_call(self, intent: str, *, app: FastAPI) -> str:
+    async def handle_backend_call(self, intent: str, *, sources: str = "", app: FastAPI) -> str:
         """Dispatch a url4 backend-call to the direct Anthropic API.
 
         Constructs a :class:`ClaudeBackendApiInterpreter` and delegates to
-        its ``process(sources="", intent=...)`` method — the same path the
+        its ``process(sources, intent)`` method — the same path the
         existing ``GET /claude?q=`` route uses. Reusing the interpreter
         means the backend-call dispatch inherits every behavior it already
         has (default model, system prompt, timeout, auth strategy).
+
+        SF-89 context packing: when the backend call had non-empty parens
+        (``/claude('What is quantum computing?')!Explain``), the *sources*
+        argument carries the packed context text. The interpreter's
+        ``process()`` method concatenates ``intent + "\\n\\n" + sources``
+        so the LLM sees the context followed by the instruction.
         """
         # Lazy import to avoid a circular dependency at module load.
         from screamingface.plugins.claude_backend_api.interpreter import (
@@ -190,8 +195,4 @@ class ClaudeBackendApiPlugin(Plugin):
             app=app,
             settings=self.settings,  # type: ignore[arg-type]
         )
-        # process() takes (sources, intent). For a bare /claude()!<intent>
-        # call, sources is empty — there's no auxiliary context beyond the
-        # intent itself. The interpreter concatenates intent + sources as
-        # ``intent\n\nsources`` so empty sources gives us just the intent.
-        return await interpreter.process(sources="", intent=intent)
+        return await interpreter.process(sources=sources, intent=intent)

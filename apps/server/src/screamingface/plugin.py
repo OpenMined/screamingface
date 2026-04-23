@@ -101,26 +101,32 @@ class Plugin:
     def teardown(self) -> None:
         """Called when the plugin is deactivated. Clean up resources here."""
 
-    async def handle_backend_call(self, intent: str, *, app: FastAPI) -> str:
+    async def handle_backend_call(self, intent: str, *, sources: str = "", app: FastAPI) -> str:
         """Handle a url4 backend-call dispatch.
 
-        Called by the url4 resolver when it encounters a ``/<path>()!<intent>``
-        node whose path is in this plugin's :attr:`backend_call_paths`.
-        The *intent* has already been flattened to a string by the resolver
-        (text literals are passed as-is; ``/data/<key>`` relurls are fetched
-        and their body becomes the intent string; etc.).
+        Called by the url4 resolver when it encounters a
+        ``/<path>(context)!<intent>`` node whose path is in this plugin's
+        :attr:`backend_call_paths`.
+
+        Args:
+            intent: The flattened intent string (text literals as-is;
+                ``/data/<key>`` relurls fetched; etc.).
+            sources: The packed context from inside the parens (SF-89).
+                Empty string when the parens were empty (``/path()``).
+                Non-empty when the parens carried inline context
+                (``/path('What is quantum computing?')``).
+            app: The FastAPI app instance.
 
         Implementations typically construct their plugin-specific
-        Url4Interpreter and delegate to :meth:`process`, or call directly
-        into the llm-base ``Backend.run()`` method with a single-user-turn
-        :class:`CoreMessage`.
+        Url4Interpreter and delegate to ``process(sources, intent)``,
+        or call directly into the llm-base ``Backend.run()`` method
+        with a single-user-turn :class:`CoreMessage`.
 
-        Return value: the assistant's response as a plain string. The
-        resolver returns this as the result of evaluating the
-        Url4BackendCall node.
+        Return value: the assistant's response as a plain string.
 
-        Default implementation raises :class:`NotImplementedError`. Plugins
-        that declare non-empty ``backend_call_paths`` MUST override this.
+        Default implementation raises :class:`NotImplementedError`.
+        Plugins that declare non-empty ``backend_call_paths`` MUST
+        override this.
         """
         raise NotImplementedError(
             f"Plugin {self.name!r} declares backend_call_paths="

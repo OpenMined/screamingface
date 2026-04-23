@@ -132,7 +132,6 @@ class CodexBackendApiPlugin(Plugin):
         "from the Codex CLI credential store (~/.codex/auth.json). "
         "Same route shapes as claude-backend-api but at /codex/* prefix."
     )
-    tags: list[str] = ["product:openai"]
     depends: list[str] = ["llm-base"]
     conflicts: list[str] = []
     backend_call_paths: list[str] = ["/codex"]
@@ -158,11 +157,11 @@ class CodexBackendApiPlugin(Plugin):
         router = create_router(self.settings, app)  # type: ignore[arg-type]
         routes.add_router(self.name, router, prefix="")
 
-    async def handle_backend_call(self, intent: str, *, app: FastAPI) -> str:
+    async def handle_backend_call(self, intent: str, *, sources: str = "", app: FastAPI) -> str:
         """Dispatch a url4 backend-call to the OpenAI API.
 
         Constructs a :class:`CodexBackendApiInterpreter` and delegates to
-        its ``process(sources="", intent=...)`` method.
+        its ``process(sources, intent)`` method.
         """
         from screamingface.plugins.codex_backend_api.interpreter import (
             CodexBackendApiInterpreter,
@@ -172,4 +171,4 @@ class CodexBackendApiPlugin(Plugin):
             app=app,
             settings=self.settings,  # type: ignore[arg-type]
         )
-        return await interpreter.process(sources="", intent=intent)
+        return await interpreter.process(sources=sources, intent=intent)

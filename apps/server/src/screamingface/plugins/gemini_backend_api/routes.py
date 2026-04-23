@@ -47,6 +47,24 @@ def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRou
     router = APIRouter(tags=["gemini-backend-api"])
     _backend = GeminiBackend()
 
+    @router.get("/gemini/health", response_model=None, operation_id="gemini_health")
+    async def gemini_health() -> JSONResponse:
+        """Check Gemini backend health: OAuth validity and rate limits."""
+        model = settings.default_model or "gemini-2.5-flash"
+        status = await _backend.health(model=model)
+        http_status = 200 if status.authenticated else 503
+        return JSONResponse(
+            content={
+                "authenticated": status.authenticated,
+                "model": model,
+                "tokens_remaining": status.tokens_remaining,
+                "requests_remaining": status.requests_remaining,
+                "rate_limit": status.rate_limit,
+                "error": status.error,
+            },
+            status_code=http_status,
+        )
+
     async def _execute(request: ClaudeRunRequest) -> JSONResponse | StreamingResponse:
         if request.output_format == "stream-json":
             raise HTTPException(status_code=501, detail="stream-json not yet implemented")

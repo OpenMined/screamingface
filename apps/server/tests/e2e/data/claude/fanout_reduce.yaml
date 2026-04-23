@@ -1,0 +1,95 @@
+# SF-79: Fan-out-reduce — (call1, call2, call3)!reducer ?processor=
+
+- id: fanout_three_way
+  description: "Three-way fan-out with reducer — combine 3 facts"
+  ticket: SF-79
+  backends: [claude]
+  expression: >-
+    (/claude()!What is 2+2? One word.,
+    /claude()!Capital of France? One word.,
+    /claude()!Color of the sky? One word.)
+    !Combine these three facts into a single sentence.
+  params:
+    processor: /claude
+  expect:
+    min_length: 15
+    max_length: 500
+    judge:
+      question: "Does the response combine at least two of these three facts: 4, Paris, blue — into a coherent sentence?"
+
+- id: fanout_two_way
+  description: "Two-way fan-out — compare two answers"
+  ticket: SF-79
+  backends: [claude]
+  expression: >-
+    (/claude()!Name one prime number under 10. Just the number.,
+    /claude()!Name a different prime number under 10. Just the number.)
+    !List both numbers separated by a comma.
+  params:
+    processor: /claude
+  expect:
+    min_length: 3
+    pattern: "\\d"
+    judge:
+      question: "Does the response contain two prime numbers that are both less than 10?"
+
+- id: fanout_single_element
+  description: "Degenerate N=1 fan-out — single call + reducer"
+  ticket: SF-79
+  backends: [claude]
+  expression: "(/claude()!Say hello in one word.)!Pass through exactly."
+  params:
+    processor: /claude
+  expect:
+    min_length: 2
+    max_length: 200
+    judge:
+      question: "Does the response contain a greeting word like hello or hi?"
+
+- id: fanout_disagreement
+  description: "Fan-out with conflicting answers — reducer must synthesize"
+  ticket: SF-79
+  backends: [claude]
+  expression: >-
+    (/claude()!Argue that cats are better pets. Two sentences.,
+    /claude()!Argue that dogs are better pets. Two sentences.)
+    !Summarize both arguments fairly in one sentence.
+  params:
+    processor: /claude
+  expect:
+    min_length: 20
+    max_length: 500
+    judge:
+      question: "Does the response mention both cats and dogs, presenting arguments for each?"
+
+- id: context_plus_fanout
+  description: "Fan-out where each call uses context packing"
+  ticket: SF-79
+  backends: [claude]
+  expression: >-
+    (/claude(Earth is the third planet.)!What number planet is mentioned? Just the number.,
+    /claude(Mars is the fourth planet.)!What number planet is mentioned? Just the number.)
+    !Add these two numbers together. Just the final number.
+  params:
+    processor: /claude
+  expect:
+    min_length: 1
+    max_length: 100
+    judge:
+      question: "Does the response contain the number 7 (3+4)?"
+
+- id: factual_consensus
+  description: "Multiple calls to the same factual question — consensus check"
+  ticket: SF-79
+  backends: [claude]
+  expression: >-
+    (/claude()!What is the chemical symbol for water? Just the symbol.,
+    /claude()!What is the chemical formula for water? Just the formula.)
+    !Do both answers agree? Reply with the formula.
+  params:
+    processor: /claude
+  expect:
+    min_length: 1
+    max_length: 200
+    judge:
+      question: "Does the response contain H2O as the chemical formula for water?"

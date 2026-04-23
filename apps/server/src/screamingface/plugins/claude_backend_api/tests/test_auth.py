@@ -116,9 +116,10 @@ class TestConstants:
         assert ANTHROPIC_VERSION == "2023-06-01"
 
     def test_anthropic_beta_header_present(self):
-        # Critical: without this header the OAuth scope check rejects
-        # even valid tokens. Verified by the SF-77 spike.
-        assert ANTHROPIC_BETA == "oauth-2025-04-20"
+        # Must include oauth beta for scope check + claude-code beta
+        # for CLI rate limit pool access.
+        assert "oauth-2025-04-20" in ANTHROPIC_BETA
+        assert "claude-code-20250219" in ANTHROPIC_BETA
 
     def test_refresh_window(self):
         assert REFRESH_WINDOW_SECONDS == 60

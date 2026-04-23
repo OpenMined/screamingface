@@ -70,7 +70,6 @@ class GeminiBackendApiSettings(PluginSettings):
 class GeminiBackendApiPlugin(Plugin):
     name = "gemini-backend-api"
     description = "Direct Google AI Gemini API backend for ensemble fan-out"
-    tags: list[str] = ["product:gemini"]
     depends: list[str] = ["llm-base"]
     conflicts: list[str] = []
     backend_call_paths: list[str] = ["/gemini"]
@@ -96,7 +95,7 @@ class GeminiBackendApiPlugin(Plugin):
         router = create_router(self.settings, app)  # type: ignore[arg-type]
         routes.add_router(self.name, router, prefix="")
 
-    async def handle_backend_call(self, intent: str, *, app: FastAPI) -> str:
+    async def handle_backend_call(self, intent: str, *, sources: str = "", app: FastAPI) -> str:
         from screamingface.plugins.gemini_backend_api.interpreter import (
             GeminiBackendApiInterpreter,
         )
@@ -105,4 +104,4 @@ class GeminiBackendApiPlugin(Plugin):
             app=app,
             settings=self.settings,  # type: ignore[arg-type]
         )
-        return await interpreter.process(sources="", intent=intent)
+        return await interpreter.process(sources=sources, intent=intent)

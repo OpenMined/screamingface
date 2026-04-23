@@ -60,6 +60,24 @@ def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRout
 
     _backend = OpenAIBackend()
 
+    @router.get("/codex/health", response_model=None, operation_id="codex_health")
+    async def codex_health() -> JSONResponse:
+        """Check Codex backend health: OAuth validity and rate limits."""
+        model = settings.default_model or "o4-mini"
+        status = await _backend.health(model=model)
+        http_status = 200 if status.authenticated else 503
+        return JSONResponse(
+            content={
+                "authenticated": status.authenticated,
+                "model": model,
+                "tokens_remaining": status.tokens_remaining,
+                "requests_remaining": status.requests_remaining,
+                "rate_limit": status.rate_limit,
+                "error": status.error,
+            },
+            status_code=http_status,
+        )
+
     async def _execute(
         request: ClaudeRunRequest,
     ) -> JSONResponse | StreamingResponse:

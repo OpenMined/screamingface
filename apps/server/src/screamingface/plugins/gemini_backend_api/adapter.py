@@ -1,16 +1,21 @@
 """Adapter between CoreMessage lists and Google AI Gemini API shape.
 
-Gemini API endpoint: POST /v1beta/models/{model}:generateContent
+Supports two response formats:
 
-Request body:
+1. Standard API (generativelanguage.googleapis.com):
+   - candidates: [{content: {parts: [{text: "..."}], role: "model"}, finishReason}]
+   - usageMetadata: {promptTokenCount, candidatesTokenCount, totalTokenCount}
+
+2. Code Assist API (cloudcode-pa.googleapis.com):
+   - response: {candidates: [...], usageMetadata: {...}}
+   - traceId: "..."
+   The backend unwraps the envelope before passing to this adapter.
+
+Request body (standard format, used by both paths):
   - contents: [{role: "user"|"model", parts: [{text: "..."}]}]
   - systemInstruction: {parts: [{text: "..."}]}
   - generationConfig: {maxOutputTokens, temperature}
   - tools: [{functionDeclarations: [...]}]
-
-Response body:
-  - candidates: [{content: {parts: [{text: "..."}], role: "model"}, finishReason}]
-  - usageMetadata: {promptTokenCount, candidatesTokenCount, totalTokenCount}
 """
 
 from __future__ import annotations

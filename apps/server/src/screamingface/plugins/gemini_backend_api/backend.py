@@ -1,22 +1,41 @@
-"""GeminiBackend — httpx POST to generativelanguage.googleapis.com."""
+"""GeminiBackend — dual-path backend for Google Gemini models.
+
+OAuth path (oauth-personal):
+  → cloudcode-pa.googleapis.com/v1internal (Code Assist API)
+  → Requires loadCodeAssist setup, request envelope wrapping
+
+API key path (GOOGLE_API_KEY / GEMINI_API_KEY):
+  → generativelanguage.googleapis.com/v1beta (standard public API)
+  → Standard GenerateContent request format
+"""
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import ssl
+import uuid
 
 import certifi
 import httpx
 
 from screamingface.plugins.gemini_backend_api.adapter import GeminiAdapter
 from screamingface.plugins.gemini_backend_api.auth import GeminiAuth
-from screamingface.plugins.llm_base.backend_base import Backend
+from screamingface.plugins.llm_base.backend_base import Backend, HealthStatus
 from screamingface.plugins.llm_base.errors import AuthError, BackendError
 from screamingface.plugins.llm_base.messages import CoreMessage, ToolDefinition
 
 logger = logging.getLogger(__name__)
 
+# Standard public API (API-key auth only)
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+# Code Assist API (OAuth auth)
+CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
+CODE_ASSIST_API_VERSION = "v1internal"
+
+MAX_429_RETRIES = 3
 
 
 class GeminiBackend(Backend):
@@ -30,6 +49,10 @@ class GeminiBackend(Backend):
         self._auth = auth or GeminiAuth()
         self._adapter = adapter or GeminiAdapter()
         self._http_factory = http_client_factory or self._default_http_factory
+        # Code Assist session state (OAuth path only)
+        self._project_id: str | None = None
+        self._session_id: str = str(uuid.uuid4())
+        self._setup_lock = asyncio.Lock()
 
     @staticmethod
     def _default_http_factory():
@@ -37,6 +60,121 @@ class GeminiBackend(Backend):
         return httpx.AsyncClient(
             timeout=httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0),
             verify=ssl_ctx,
+        )
+
+    def _code_assist_base_url(self) -> str:
+        return f"{CODE_ASSIST_ENDPOINT}/{CODE_ASSIST_API_VERSION}"
+
+    async def _ensure_setup(self) -> None:
+        """Call loadCodeAssist to get projectId (OAuth path only)."""
+        if self._project_id is not None:
+            return
+        async with self._setup_lock:
+            if self._project_id is not None:
+                return
+            headers = await self._auth.get_authorization_header()
+            headers["content-type"] = "application/json"
+            url = f"{self._code_assist_base_url()}:loadCodeAssist"
+            body = {
+                "metadata": {
+                    "ideType": "IDE_UNSPECIFIED",
+                    "platform": "PLATFORM_UNSPECIFIED",
+                    "pluginType": "GEMINI",
+                },
+            }
+            try:
+                async with self._http_factory() as client:
+                    resp = await client.post(url, json=body, headers=headers)
+            except httpx.RequestError as exc:
+                raise BackendError(
+                    f"Code Assist API unreachable during setup: {exc}", status=None
+                ) from exc
+
+            if resp.status_code != 200:
+                raise BackendError(
+                    f"loadCodeAssist failed ({resp.status_code}): {resp.text[:500]}",
+                    status=resp.status_code,
+                )
+
+            data = resp.json()
+            self._project_id = data.get("cloudaicompanionProject")
+            tier_name = data.get("currentTier", {}).get("name", "unknown")
+            logger.info(
+                "gemini-backend-api: Code Assist session ready, project=%s, tier=%s",
+                self._project_id,
+                tier_name,
+            )
+
+    def _wrap_code_assist_request(self, model: str, inner_body: dict) -> dict:
+        """Wrap a standard GenerateContent body in the Code Assist envelope."""
+        return {
+            "model": model,
+            "project": self._project_id,
+            "user_prompt_id": str(uuid.uuid4()),
+            "request": {
+                **inner_body,
+                "session_id": self._session_id,
+            },
+        }
+
+    @staticmethod
+    def _unwrap_code_assist_response(data: dict) -> dict:
+        """Unwrap Code Assist response envelope → standard GenerateContent response."""
+        if "response" in data:
+            return data["response"]
+        return data
+
+    async def health(self, model: str = "gemini-2.5-flash") -> HealthStatus:
+        """Check auth validity.
+
+        For OAuth: calls loadCodeAssist (no rate-limited generation needed).
+        For API key: makes a minimal generateContent call.
+        """
+        if self._auth.is_api_key_auth():
+            return await self._health_api_key(model)
+        return await self._health_oauth()
+
+    async def _health_oauth(self) -> HealthStatus:
+        try:
+            await self._ensure_setup()
+        except BackendError as exc:
+            if exc.status in (401, 403):
+                return HealthStatus(authenticated=False, error=str(exc))
+            return HealthStatus(authenticated=True, error=str(exc))
+        except (AuthError, Exception) as exc:
+            return HealthStatus(authenticated=False, error=str(exc))
+        return HealthStatus(authenticated=True)
+
+    async def _health_api_key(self, model: str) -> HealthStatus:
+        try:
+            headers = await self._auth.get_authorization_header()
+        except Exception as exc:
+            return HealthStatus(authenticated=False, error=str(exc))
+
+        headers["content-type"] = "application/json"
+        body = {
+            "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+            "generationConfig": {"maxOutputTokens": 1},
+        }
+        url = f"{GEMINI_API_BASE}/models/{model}:generateContent"
+        try:
+            async with self._http_factory() as client:
+                resp = await client.post(url, json=body, headers=headers)
+        except Exception as exc:
+            return HealthStatus(authenticated=True, error=f"API unreachable: {exc}")
+
+        if resp.status_code == 200:
+            return HealthStatus(authenticated=True)
+        if resp.status_code == 429:
+            return HealthStatus(authenticated=True, error="rate limited")
+        if resp.status_code in (401, 403):
+            return HealthStatus(
+                authenticated=False,
+                error=f"API rejected credentials (HTTP {resp.status_code}): {resp.text[:300]}",
+            )
+        return HealthStatus(
+            authenticated=True,
+            error=f"Unexpected API status {resp.status_code}: {resp.text[:300]}",
         )
 
     async def run(
@@ -59,59 +197,105 @@ class GeminiBackend(Backend):
             temperature=temperature,
         )
 
-        # Extract model from body (adapter stores it as _model)
         api_model = body.pop("_model", model)
-        url = f"{GEMINI_API_BASE}/models/{api_model}:generateContent"
 
-        response_data = await self._post_with_retry(body, url)
+        if self._auth.is_api_key_auth():
+            response_data = await self._run_api_key(body, api_model)
+        else:
+            response_data = await self._run_oauth(body, api_model)
+
         return self._adapter.from_provider_response(response_data)
+
+    async def _run_api_key(self, body: dict, model: str) -> dict:
+        """Standard path: generativelanguage.googleapis.com with API key."""
+        url = f"{GEMINI_API_BASE}/models/{model}:generateContent"
+        return await self._post_with_retry(body, url)
+
+    async def _run_oauth(self, body: dict, model: str) -> dict:
+        """Code Assist path: cloudcode-pa.googleapis.com with OAuth."""
+        await self._ensure_setup()
+        wrapped = self._wrap_code_assist_request(model, body)
+        url = f"{self._code_assist_base_url()}:generateContent"
+        raw = await self._post_with_retry(wrapped, url)
+        return self._unwrap_code_assist_response(raw)
 
     async def _post_with_retry(self, body: dict, url: str) -> dict:
         headers = await self._auth.get_authorization_header()
         headers["content-type"] = "application/json"
-        resp = await self._do_post(body, headers, url)
 
-        if resp.status_code == 401:
-            logger.warning("gemini-backend-api: 401, retrying once")
-            self._auth.invalidate_cache()
-            headers = await self._auth.get_authorization_header()
-            headers["content-type"] = "application/json"
+        for attempt in range(MAX_429_RETRIES + 1):
             resp = await self._do_post(body, headers, url)
+
+            if resp.status_code == 200:
+                try:
+                    return resp.json()
+                except ValueError as exc:
+                    raise BackendError(
+                        f"Gemini returned 200 but body is not JSON: {exc}",
+                        status=200,
+                    ) from exc
+
             if resp.status_code == 401:
+                if attempt == 0:
+                    logger.warning("gemini-backend-api: 401, refreshing token and retrying")
+                    self._auth.invalidate_cache()
+                    headers = await self._auth.get_authorization_header()
+                    headers["content-type"] = "application/json"
+                    continue
                 raise AuthError(
-                    "Authentication failed twice against Google AI API. Check your GOOGLE_API_KEY."
+                    "Authentication failed twice against Gemini API. "
+                    "Run 'gemini' in your terminal to re-authenticate."
                 )
 
-        if resp.status_code == 200:
-            try:
-                return resp.json()
-            except ValueError as exc:
+            if resp.status_code == 429:
+                retry_delay = self._parse_retry_delay(resp)
+                if attempt < MAX_429_RETRIES and retry_delay is not None:
+                    wait = retry_delay + 0.5
+                    logger.info(
+                        "gemini-backend-api: 429, retrying in %.1fs (attempt %d/%d)",
+                        wait,
+                        attempt + 1,
+                        MAX_429_RETRIES,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
                 raise BackendError(
-                    f"Gemini returned 200 but body is not JSON: {exc}",
-                    status=200,
-                ) from exc
+                    "Gemini rate limit exceeded (429).",
+                    status=429,
+                    retry_after=retry_delay,
+                )
 
-        if resp.status_code == 429:
-            retry_after_raw = resp.headers.get("retry-after")
-            retry_after: float | None = None
-            if retry_after_raw:
-                try:
-                    retry_after = float(retry_after_raw)
-                except ValueError:
-                    retry_after = None
+            if resp.status_code == 403:
+                raise AuthError(f"Gemini returned 403 Forbidden: {resp.text[:500]}")
+
             raise BackendError(
-                "Gemini rate limit exceeded (429).",
-                status=429,
-                retry_after=retry_after,
+                f"Gemini API error {resp.status_code}: {resp.text[:500]}",
+                status=resp.status_code,
             )
 
-        if resp.status_code == 403:
-            raise AuthError(f"Gemini returned 403 Forbidden: {resp.text[:500]}")
+        # Should not reach here, but just in case
+        raise BackendError("Gemini API: max retries exceeded", status=429)
 
-        raise BackendError(
-            f"Gemini API error {resp.status_code}: {resp.text[:500]}",
-            status=resp.status_code,
-        )
+    @staticmethod
+    def _parse_retry_delay(resp: httpx.Response) -> float | None:
+        """Extract retry delay from 429 response (Code Assist or standard)."""
+        # Try Code Assist format: error.details[].retryDelay
+        try:
+            data = resp.json()
+            detail = data if "error" in data else json.loads(data.get("detail", "{}"))
+            for d in detail.get("error", {}).get("details", []):
+                if "retryDelay" in d:
+                    return float(d["retryDelay"].rstrip("s"))
+        except Exception:
+            pass
+        # Try standard retry-after header
+        raw = resp.headers.get("retry-after")
+        if raw:
+            try:
+                return float(raw)
+            except ValueError:
+                pass
+        return None
 
     async def _do_post(self, body: dict, headers: dict[str, str], url: str) -> httpx.Response:
         try:

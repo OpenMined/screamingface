@@ -43,22 +43,55 @@ GRAMMAR = r"""
 
     atom
         = backend_call
+        | expanded_source
         | url
         | relurl
         | text
         ;
 
-    # Backend-call form: /path()!<intent>
+    # SF-92: Source expansion — *source expands a collection into
+    # individual sources. The * prefix tells the executor to fetch
+    # the source, parse it as a collection (JSON/JSONL/CSV), and
+    # treat each item as a separate source.
+    expanded_source = '*' inner:expandable_atom ;
+
+    # Atoms that can follow * — same as atom minus expanded_source
+    # itself (no **source) and minus backend_call (no */claude()).
+    expandable_atom
+        = url
+        | relurl
+        | text
+        ;
+
+    # Backend-call form: [name:weight:]path(context)!<intent>
     #
-    # Recognizes a plugin/backend invocation shorthand where ``/path`` is
-    # the backend route (e.g. ``/claude``, ``/codex``, ``/gemini``), ``()``
-    # marks it as a backend call (not a URL fetch), and ``!<intent>`` is
-    # the LLM instruction for that backend.
+    # Recognizes a plugin/backend invocation shorthand where:
+    # - ``name:weight:`` is an optional prefix labeling the source
+    #   (e.g. ``claude:40:`` for 40% weight). Used by the ensemble
+    #   reducer to format weighted responses. (SF-88)
+    # - ``/path`` is the backend route (``/claude``, ``/codex``, etc.)
+    # - ``(context)`` carries optional inline context (SF-89)
+    # - ``!<intent>`` is the LLM instruction for that backend
     #
-    # The intent is any atom EXCEPT another backend_call — a trailing
-    # ``!intent!more`` is parsed with ``!more`` as the intent text, not as
-    # a nested call.
-    backend_call = path:backend_path '(' ')' [ '!' intent:atom_no_bc ] ;
+    # The intent is any atom EXCEPT another backend_call.
+    backend_call
+        = [ label:source_label ] path:backend_path
+          '(' [ packed_context:backend_context ] ')'
+          [ '!' intent:atom_no_bc ]
+        ;
+
+    # Optional name:weight: prefix for named/weighted fan-out.
+    # Format: name:weight: where name is [a-zA-Z_][a-zA-Z0-9_]* and
+    # weight is an integer or decimal number.
+    # The trailing colon before the path is included so /path is
+    # unambiguous (path always starts with /).
+    source_label = name:/[a-zA-Z_][a-zA-Z0-9_]*/ ':' weight:/[0-9]+(?:\.[0-9]+)?/ ':' ;
+
+    # Content inside backend call parens. Matches any non-paren chars
+    # (including commas, bangs, slashes, etc.) as raw text. Nested parens
+    # are NOT supported in context packing Phase 1 — use /data/<key>
+    # references for complex content.
+    backend_context = /[^()]+/ ;
 
     # Path prefix for a backend_call: starts with /, continues until
     # the first '(' or ',' or whitespace or '!'. Also excludes URL
@@ -111,24 +144,43 @@ class Url4List:
 
 @dataclass(frozen=True)
 class Url4BackendCall:
-    """A backend-invocation node: ``/path()!<intent>``.
+    """A backend-invocation node: ``[name:weight:]path(context)!<intent>``.
 
     This is the shorthand for "invoke the plugin mounted at ``path`` as a
-    backend LLM call, passing ``intent`` as the instruction." Distinct from
-    a :class:`Url4RelUrl`, which is a URL fetch via in-process ASGI GET.
+    backend LLM call, passing ``packed_context`` as the sources and
+    ``intent`` as the instruction." Distinct from a :class:`Url4RelUrl`,
+    which is a URL fetch via in-process ASGI GET.
 
-    The distinction matters at execution time: a :class:`Url4RelUrl`
-    becomes an HTTP GET and the response body is concatenated into the
-    source text, whereas a :class:`Url4BackendCall` becomes a single LLM
-    invocation via the llm-base ``Backend`` abstraction and the response
-    is a structured assistant message.
+    ``packed_context`` is the raw text inside the parens (SF-89 context
+    packing). Empty string or None means "no inline context."
+
+    ``name`` and ``weight`` are optional labels from the ``name:weight:``
+    prefix (SF-88 named + weighted sources). When present, the ensemble
+    reducer formats the response with the name and weight so the LLM
+    can weight responses proportionally.
     """
 
     path: str
+    packed_context: str | None = None
     intent: Url4Node | None = None
+    name: str | None = None
+    weight: float | None = None
 
 
-Url4Node = Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall
+@dataclass(frozen=True)
+class Url4ExpandedSource:
+    """SF-92: Source expansion — ``*source`` expands a collection.
+
+    The executor fetches ``inner``, parses it as a collection
+    (JSON array, JSONL, or CSV), and treats each item as a separate
+    source. The expanded items replace this node in the AST during
+    resolution.
+    """
+
+    inner: Url4Node
+
+
+Url4Node = Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall | Url4ExpandedSource
 
 # ---------------------------------------------------------------------------
 # TatSu semantics — transforms raw AST into typed dataclasses
@@ -146,11 +198,49 @@ class Url4Semantics:
         return Url4Text(value=ast.value.strip())
 
     def backend_call(self, ast):
-        # ast.path is the backend_path rule's matched value (e.g. "/claude").
-        # ast.intent is None when the optional ``!<intent>`` tail is absent,
-        # or the semantics-produced node (Url4Url / Url4RelUrl / Url4Text)
-        # when present.
-        return Url4BackendCall(path=ast.path.strip(), intent=ast.intent)
+        # ast.label is the source_label semantics result (a dict with
+        # name + weight), or None when no prefix was present.
+        # ast.path is the backend_path rule's matched value.
+        # ast.packed_context is the raw text inside the parens (SF-89).
+        # ast.intent is the intent node or None.
+        packed = getattr(ast, "packed_context", None)
+        if isinstance(packed, str):
+            packed = packed.strip() or None
+
+        label = getattr(ast, "label", None)
+        name = None
+        weight = None
+        if label and isinstance(label, dict):
+            name = label.get("name")
+            weight_str = label.get("weight")
+            if weight_str is not None:
+                try:
+                    weight = float(weight_str)
+                except (ValueError, TypeError):
+                    weight = None
+
+        return Url4BackendCall(
+            path=ast.path.strip(),
+            packed_context=packed,
+            intent=ast.intent,
+            name=name,
+            weight=weight,
+        )
+
+    def source_label(self, ast):
+        # TatSu gives us an AST object with .name and .weight attrs
+        # from the regex captures.
+        return {"name": ast.name, "weight": ast.weight}
+
+    def expanded_source(self, ast):
+        return Url4ExpandedSource(inner=ast.inner)
+
+    def expandable_atom(self, ast):
+        return ast
+
+    def backend_context(self, ast):
+        # TatSu returns the matched string directly for a regex rule.
+        return ast
 
     def backend_path(self, ast):
         # TatSu returns the matched string directly for a regex rule
@@ -162,7 +252,10 @@ class Url4Semantics:
         nodes = [
             e
             for e in elems
-            if isinstance(e, Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall)
+            if isinstance(
+                e,
+                Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall | Url4ExpandedSource,
+            )
         ]
         return Url4List(items=tuple(nodes))
 
@@ -203,6 +296,8 @@ async def resolve(node: Url4Node, app: Any = None) -> str:
         return "\n".join(results)
     if isinstance(node, Url4BackendCall):
         return await _dispatch_backend_call(node, app)
+    if isinstance(node, Url4ExpandedSource):
+        return await _resolve_expanded_source(node, app)
     raise TypeError(f"Unknown node type: {type(node)}")
 
 
@@ -241,6 +336,11 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
     else:
         intent_text = await resolve(node.intent, app)
 
+    # SF-89 context packing: if the backend call had non-empty parens,
+    # the packed_context becomes the "sources" argument. The backend's
+    # interpreter.process(sources, intent) uses both.
+    sources_text = node.packed_context or ""
+
     # Find the plugin that registered this path.
     plugins_registry = getattr(getattr(app, "state", None), "plugins", None)
     if plugins_registry is None:
@@ -253,7 +353,7 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
         paths = getattr(plugin, "backend_call_paths", [])
         known_paths.extend(paths)
         if node.path in paths:
-            return await plugin.handle_backend_call(intent_text, app=app)
+            return await plugin.handle_backend_call(intent_text, sources=sources_text, app=app)
 
     raise RuntimeError(
         f"No active plugin handles the backend call {node.path}(). "
@@ -261,6 +361,32 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
         "Activate a plugin that declares this path in its "
         "backend_call_paths attribute."
     )
+
+
+async def _resolve_expanded_source(node: Url4ExpandedSource, app: Any) -> str:
+    """SF-92: Resolve a ``*source`` expansion.
+
+    1. Resolve the inner source node to a string (fetch URL/blob body).
+    2. Parse the body as a collection (JSON array, JSONL, or CSV).
+    3. Each item becomes a ``Url4Text`` node.
+    4. Resolve all items (they're just text), join with newlines.
+
+    The expansion converts ``*source`` into the equivalent of writing
+    out each item manually: ``(item1, item2, item3, ...)``.
+    """
+    from screamingface.plugins.url4_executor.collection_parser import parse_collection
+
+    # Fetch the inner source
+    body = await resolve(node.inner, app)
+
+    # Parse as collection
+    items = parse_collection(body)
+    if not items:
+        return ""
+
+    # Each item becomes a resolved text value — join with newlines
+    # (same as Url4List resolution behavior)
+    return "\n".join(items)
 
 
 async def resolve_str(context: str, app: Any = None) -> str:

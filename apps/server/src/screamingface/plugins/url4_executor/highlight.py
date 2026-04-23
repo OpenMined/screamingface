@@ -15,7 +15,7 @@ def tokenize(expr: str) -> list[dict]:
 
     Returns a list of dicts with keys: type, value, depth.
     """
-    source, intent = split_intent(expr)
+    source, intent, _broadcast = split_intent(expr)
     ast = parse(source)
     tokens = _walk(ast, depth=0)
     if intent is not None:

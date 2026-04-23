@@ -54,7 +54,16 @@ KEYCHAIN_SERVICE = "Claude Code-credentials"
 OAUTH_REFRESH_URL = "https://console.anthropic.com/v1/oauth/token"
 OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"  # public Claude Code OAuth app
 ANTHROPIC_VERSION = "2023-06-01"
-ANTHROPIC_BETA = "oauth-2025-04-20"  # REQUIRED on every call with an OAuth bearer
+# Beta features: oauth is required for OAuth bearer tokens, claude-code
+# gives access to the Claude Code rate limit pool (separate from API key pool).
+ANTHROPIC_BETA = ",".join(
+    [
+        "claude-code-20250219",
+        "oauth-2025-04-20",
+        "interleaved-thinking-2025-05-14",
+        "prompt-caching-scope-2026-01-05",
+    ]
+)
 
 # Proactive refresh window — refresh when the token has less than this
 # many seconds of validity remaining. 60s matches the plan's locked-in

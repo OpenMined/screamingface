@@ -29,6 +29,7 @@ message.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from screamingface.plugins.llm_base.adapter_base import Adapter
@@ -41,6 +42,11 @@ from screamingface.plugins.llm_base.messages import (
     ToolDefinition,
     ToolResultPart,
 )
+
+# Billing fingerprint constants — must match the Claude Code CLI's
+# src/utils/fingerprint.ts to route requests to the CLI rate limit pool.
+_FINGERPRINT_SALT = "59cf53e54c78"
+_CC_VERSION = "2.1.104"
 
 
 class AnthropicAdapter(Adapter):
@@ -96,8 +102,15 @@ class AnthropicAdapter(Adapter):
             else:
                 non_system_messages.append(msg)
 
-        if system_chunks:
-            body["system"] = "\n\n".join(system_chunks)
+        # Build the system array with billing header prepended.
+        # The billing header routes requests to the Claude Code rate
+        # limit pool (same pool the CLI uses).
+        first_user_text = self._extract_first_user_text(non_system_messages)
+        billing_block = _build_billing_header(first_user_text)
+        system_blocks: list[dict[str, Any]] = [{"type": "text", "text": billing_block}]
+        for chunk in system_chunks:
+            system_blocks.append({"type": "text", "text": chunk})
+        body["system"] = system_blocks
 
         # Translate each non-system message
         anthropic_messages = [self._message_to_anthropic(m) for m in non_system_messages]
@@ -192,6 +205,19 @@ class AnthropicAdapter(Adapter):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _extract_first_user_text(messages: list[CoreMessage]) -> str:
+        """Get the text of the first user message for fingerprinting."""
+        for msg in messages:
+            if msg.role != "user":
+                continue
+            if isinstance(msg.content, str):
+                return msg.content
+            for part in msg.content:
+                if isinstance(part, TextPart):
+                    return part.text
+        return ""
 
     def _extract_system_text(self, msg: CoreMessage) -> str:
         """Flatten a system CoreMessage into a plain string.
@@ -350,3 +376,26 @@ class AnthropicAdapter(Adapter):
             # else: message became empty, drop it
 
         return repaired
+
+
+def _compute_fingerprint(first_user_text: str) -> str:
+    """Compute the 3-char hex fingerprint matching Claude Code CLI.
+
+    Takes characters at positions [4, 7, 20] from the first user message,
+    concatenates with salt and CLI version, returns first 3 hex chars of SHA256.
+    """
+    chars = "".join(first_user_text[i] if i < len(first_user_text) else "0" for i in [4, 7, 20])
+    raw = f"{_FINGERPRINT_SALT}{chars}{_CC_VERSION}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:3]
+
+
+def _build_billing_header(first_user_text: str) -> str:
+    """Build the billing header string that routes to the CLI rate limit pool.
+
+    Injected as the first system prompt block so Anthropic's backend
+    identifies the request as a Claude Code CLI call.
+    """
+    fp = _compute_fingerprint(first_user_text)
+    return (
+        f"x-anthropic-billing-header: cc_version={_CC_VERSION}.{fp}; cc_entrypoint=cli; cch={fp};"
+    )

@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false, reportOperatorIssue=false
 """Tests for the url4 spec — TatSu parser + async resolver."""
 
 from __future__ import annotations
@@ -377,6 +378,200 @@ def test_parse_mixed_list_backend_call_and_fetch() -> None:
 
 
 # ---------------------------------------------------------------------------
+# SF-89: Context packing — /backend('context')!intent
+# ---------------------------------------------------------------------------
+
+
+def test_parse_context_packing_text() -> None:
+    """The target form from Kevin's spec: /claude('prompt text')!intent."""
+    node = parse("/claude(What is quantum computing?)!Explain clearly")
+    assert isinstance(node, Url4BackendCall)
+    assert node.path == "/claude"
+    assert node.packed_context == "What is quantum computing?"
+    assert isinstance(node.intent, Url4Text)
+    assert node.intent.value == "Explain clearly"
+
+
+def test_parse_context_packing_with_data_ref() -> None:
+    """Context can be a /data/<key> reference — common after precompilation."""
+    node = parse("/claude(/data/abc123)!Explain")
+    assert isinstance(node, Url4BackendCall)
+    assert node.packed_context == "/data/abc123"
+
+
+def test_parse_context_packing_empty_parens_no_context() -> None:
+    """Empty parens: packed_context should be None (backward compat)."""
+    node = parse("/claude()!hello")
+    assert isinstance(node, Url4BackendCall)
+    assert node.packed_context is None
+    assert isinstance(node.intent, Url4Text)
+    assert node.intent.value == "hello"
+
+
+def test_parse_context_packing_no_intent() -> None:
+    """Context without intent — just /claude('text') with no ! afterward."""
+    node = parse("/claude(some context)")
+    assert isinstance(node, Url4BackendCall)
+    assert node.packed_context == "some context"
+    assert node.intent is None
+
+
+def test_parse_context_packing_in_fanout_list() -> None:
+    """Kevin's weighted ensemble form (without weights — those are SF-88).
+    Each element has context packing."""
+    node = parse(
+        "(/claude(What is quantum computing?)!Explain,"
+        "/codex(What is quantum computing?)!Explain,"
+        "/gemini(What is quantum computing?)!Explain)"
+    )
+    assert isinstance(node, Url4List)
+    assert len(node.items) == 3
+    for item in node.items:
+        assert isinstance(item, Url4BackendCall)
+        assert item.packed_context == "What is quantum computing?"
+        assert isinstance(item.intent, Url4Text)
+        assert item.intent.value == "Explain"
+
+
+def test_parse_context_packing_with_special_chars() -> None:
+    """Context can contain bangs, slashes, commas (since the regex
+    matches everything except parens inside the backend_context)."""
+    node = parse("/claude(What is 2+2? answer: 4, right!)!confirm")
+    assert isinstance(node, Url4BackendCall)
+    assert "2+2" in node.packed_context
+    assert "answer: 4, right!" in node.packed_context
+
+
+# ---------------------------------------------------------------------------
+# SF-88: Named + weighted source labels
+# ---------------------------------------------------------------------------
+
+
+def test_parse_named_weighted_backend_call() -> None:
+    """Kevin's form: claude:40:/claude(prompt)!intent."""
+    node = parse("claude:40:/claude(quantum)!explain")
+    assert isinstance(node, Url4BackendCall)
+    assert node.name == "claude"
+    assert node.weight == 40.0
+    assert node.path == "/claude"
+    assert node.packed_context == "quantum"
+    assert isinstance(node.intent, Url4Text)
+    assert node.intent.value == "explain"
+
+
+def test_parse_named_weighted_decimal_weight() -> None:
+    """Weight can be a decimal."""
+    node = parse("alpha:0.5:/claude()!hi")
+    assert isinstance(node, Url4BackendCall)
+    assert node.name == "alpha"
+    assert node.weight == 0.5
+
+
+def test_parse_named_weighted_no_context() -> None:
+    """Named + weighted with empty parens."""
+    node = parse("codex:30:/codex()!answer")
+    assert isinstance(node, Url4BackendCall)
+    assert node.name == "codex"
+    assert node.weight == 30.0
+    assert node.path == "/codex"
+    assert node.packed_context is None
+
+
+def test_parse_named_weighted_fanout_list() -> None:
+    """Kevin's full weighted ensemble expression."""
+    node = parse(
+        "(claude:40:/claude(quantum)!explain,"
+        "codex:30:/codex(quantum)!explain,"
+        "gemini:30:/gemini(quantum)!explain)"
+    )
+    assert isinstance(node, Url4List)
+    assert len(node.items) == 3
+
+    names_weights = [(i.name, i.weight) for i in node.items]
+    assert names_weights == [("claude", 40.0), ("codex", 30.0), ("gemini", 30.0)]
+    assert [i.path for i in node.items] == ["/claude", "/codex", "/gemini"]
+
+
+def test_parse_unnamed_backend_call_has_none_name_weight() -> None:
+    """Backward compat: /claude()!hello without name:weight: prefix."""
+    node = parse("/claude()!hello")
+    assert isinstance(node, Url4BackendCall)
+    assert node.name is None
+    assert node.weight is None
+
+
+def test_parse_name_only_without_weight_not_valid() -> None:
+    """name: without weight: is not the label syntax — it should fall
+    through to text or be part of a different parse. The grammar requires
+    name:weight: (both parts).
+
+    'alpha:/claude()!hi' — 'alpha:' doesn't match source_label because
+    the weight regex isn't satisfied, so the parser tries other alternatives.
+    """
+    # This should NOT parse as a named backend_call. It may parse as
+    # text or fail depending on grammar alternatives. We don't require
+    # a specific behavior, just that name is NOT set.
+    try:
+        node = parse("alpha:/claude()!hi")
+        if isinstance(node, Url4BackendCall):
+            assert node.name is None  # label didn't match
+    except Exception:
+        pass  # parse failure is also acceptable
+
+
+# ---------------------------------------------------------------------------
+# SF-89: Context packing — dispatch tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_resolve_context_packing_passes_sources_to_plugin() -> None:
+    """When /claude('context')!intent dispatches, the plugin receives
+    sources='context' AND intent='intent' — not just intent."""
+    plugin = _FakeDispatchPlugin(name="claude-api", paths=["/claude"], response="ok")
+    app = _FakeApp(_FakePluginRegistry({"claude-api": plugin}))
+    node = Url4BackendCall(
+        path="/claude",
+        packed_context="What is quantum computing?",
+        intent=Url4Text(value="Explain clearly"),
+    )
+
+    await resolve(node, app=app)
+
+    assert len(plugin.calls) == 1
+    intent, sources, _ = plugin.calls[0]
+    assert intent == "Explain clearly"
+    assert sources == "What is quantum computing?"
+
+
+@pytest.mark.anyio
+async def test_resolve_context_packing_empty_context_passes_empty_sources() -> None:
+    """Empty parens /claude()!intent passes sources='' (backward compat)."""
+    plugin = _FakeDispatchPlugin(name="claude-api", paths=["/claude"], response="ok")
+    app = _FakeApp(_FakePluginRegistry({"claude-api": plugin}))
+    node = Url4BackendCall(path="/claude", packed_context=None, intent=Url4Text(value="hello"))
+
+    await resolve(node, app=app)
+
+    _, sources, _ = plugin.calls[0]
+    assert sources == ""
+
+
+@pytest.mark.anyio
+async def test_resolve_context_packing_no_intent_passes_empty_intent() -> None:
+    """Just /claude('context') with no intent → intent='' sources='context'."""
+    plugin = _FakeDispatchPlugin(name="claude-api", paths=["/claude"], response="ok")
+    app = _FakeApp(_FakePluginRegistry({"claude-api": plugin}))
+    node = Url4BackendCall(path="/claude", packed_context="some context", intent=None)
+
+    await resolve(node, app=app)
+
+    intent, sources, _ = plugin.calls[0]
+    assert intent == ""
+    assert sources == "some context"
+
+
+# ---------------------------------------------------------------------------
 # Backend-call resolver tests — Stage B dispatch
 # ---------------------------------------------------------------------------
 #
@@ -417,10 +612,10 @@ class _FakeDispatchPlugin:
         self.name = name
         self.backend_call_paths = paths
         self._response = response
-        self.calls: list[tuple[str, object]] = []
+        self.calls: list[tuple[str, str, object]] = []
 
-    async def handle_backend_call(self, intent: str, *, app) -> str:
-        self.calls.append((intent, app))
+    async def handle_backend_call(self, intent: str, *, sources: str = "", app) -> str:
+        self.calls.append((intent, sources, app))
         return self._response
 
 
@@ -433,7 +628,7 @@ async def test_resolve_backend_call_dispatches_to_matching_plugin() -> None:
     result = await resolve(node, app=app)
 
     assert result == "Four"
-    assert plugin.calls == [("What is 2+2?", app)]
+    assert plugin.calls == [("What is 2+2?", "", app)]
 
 
 @pytest.mark.anyio
@@ -453,7 +648,7 @@ async def test_resolve_backend_call_flattens_relurl_intent() -> None:
     ):
         await resolve(node, app=app)
 
-    assert plugin.calls == [("user's question from the blob", app)]
+    assert plugin.calls == [("user's question from the blob", "", app)]
 
 
 @pytest.mark.anyio
@@ -464,7 +659,7 @@ async def test_resolve_backend_call_empty_intent_is_empty_string() -> None:
 
     await resolve(node, app=app)
 
-    assert plugin.calls == [("", app)]
+    assert plugin.calls == [("", "", app)]
 
 
 @pytest.mark.anyio
@@ -516,7 +711,7 @@ async def test_resolve_list_with_backend_call_dispatches() -> None:
     # Results joined with newlines (standard Url4List resolver behavior)
     assert result == "plain text\nLLM reply\nLLM reply"
     # Both backend calls dispatched in order
-    assert plugin.calls == [("hi", app), ("bye", app)]
+    assert plugin.calls == [("hi", "", app), ("bye", "", app)]
 
 
 @pytest.mark.anyio
@@ -647,3 +842,91 @@ async def test_resolve_str_example_10() -> None:
             " https://localhost:8000/ensemble?context=(Recent changes:, https://api.github.com/repos/org/repo/commits))"
         )
         assert result == "bg-content\nchanges-content"
+
+
+# ---------------------------------------------------------------------------
+# SF-92: Source expansion — *source
+# ---------------------------------------------------------------------------
+
+
+def test_parse_expanded_source_url() -> None:
+    """*https://... parses as Url4ExpandedSource with inner Url4Url."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    node = parse("*https://example.com/data.jsonl")
+    assert isinstance(node, Url4ExpandedSource)
+    assert isinstance(node.inner, Url4Url)
+    assert node.inner.value == "https://example.com/data.jsonl"
+
+
+def test_parse_expanded_source_relurl() -> None:
+    """*/data/<key> parses as expanded source with inner relurl."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    node = parse("*/data/abc123")
+    assert isinstance(node, Url4ExpandedSource)
+    assert isinstance(node.inner, Url4RelUrl)
+    assert node.inner.value == "/data/abc123"
+
+
+def test_parse_expanded_source_in_group() -> None:
+    """(*source) inside a group — the common form."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    node = parse("(*https://example.com/data.jsonl)")
+    assert isinstance(node, Url4List)
+    assert len(node.items) == 1
+    assert isinstance(node.items[0], Url4ExpandedSource)
+
+
+def test_parse_expanded_source_mixed_with_regular() -> None:
+    """(*source, regular_text) — expansion + regular source in same group."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    node = parse("(*https://example.com/data.jsonl, hello)")
+    assert isinstance(node, Url4List)
+    assert isinstance(node.items[0], Url4ExpandedSource)
+    assert isinstance(node.items[1], Url4Text)
+
+
+@pytest.mark.anyio
+async def test_resolve_expanded_source_jsonl() -> None:
+    """*source fetches the URL, parses as JSONL, joins items."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    jsonl_body = '{"q":"What is 2+2?"}\n{"q":"Capital?"}\n{"q":"Color?"}'
+
+    with patch(PATCH_TARGET, new_callable=AsyncMock, return_value=jsonl_body):
+        node = Url4ExpandedSource(inner=Url4Url(value="https://example.com/data.jsonl"))
+        result = await resolve(node)
+
+    lines = result.split("\n")
+    assert len(lines) == 3
+    assert "2+2" in lines[0]
+    assert "Capital" in lines[1]
+
+
+@pytest.mark.anyio
+async def test_resolve_expanded_source_json_array() -> None:
+    """*source with a JSON array body."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    json_body = '["alpha", "beta", "gamma"]'
+
+    with patch(PATCH_TARGET, new_callable=AsyncMock, return_value=json_body):
+        node = Url4ExpandedSource(inner=Url4Url(value="https://example.com/data.json"))
+        result = await resolve(node)
+
+    assert result == "alpha\nbeta\ngamma"
+
+
+@pytest.mark.anyio
+async def test_resolve_expanded_source_empty_collection() -> None:
+    """*source with an empty collection body → empty string."""
+    from screamingface.plugins.url4_executor.url4 import Url4ExpandedSource
+
+    with patch(PATCH_TARGET, new_callable=AsyncMock, return_value="[]"):
+        node = Url4ExpandedSource(inner=Url4Url(value="https://example.com/empty.json"))
+        result = await resolve(node)
+
+    assert result == ""

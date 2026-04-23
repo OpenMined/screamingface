@@ -79,6 +79,32 @@ def create_router(settings: ClaudeBackendApiSettings, app: Any = None) -> APIRou
     # per-request state; the auth strategy handles its own locking.
     _backend = AnthropicBackend()
 
+    @router.get("/claude/health", response_model=None, operation_id="claude_health")
+    async def claude_health() -> JSONResponse:
+        """Check backend health: OAuth validity and rate limit capacity.
+
+        Returns a JSON object with:
+        - ``authenticated`` (bool): whether the OAuth token is valid
+        - ``tokens_remaining`` (int|null): remaining token capacity
+        - ``requests_remaining`` (int|null): remaining request capacity
+        - ``rate_limit`` (dict): full rate limit info from Anthropic headers
+        - ``error`` (str|null): human-readable error when something is wrong
+        """
+        model = settings.default_model or "claude-sonnet-4-6"
+        status = await _backend.health(model=model)
+        http_status = 200 if status.authenticated else 503
+        return JSONResponse(
+            content={
+                "authenticated": status.authenticated,
+                "model": model,
+                "tokens_remaining": status.tokens_remaining,
+                "requests_remaining": status.requests_remaining,
+                "rate_limit": status.rate_limit,
+                "error": status.error,
+            },
+            status_code=http_status,
+        )
+
     async def _execute(
         request: ClaudeRunRequest,
     ) -> JSONResponse | StreamingResponse:

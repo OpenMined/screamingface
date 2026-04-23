@@ -60,7 +60,7 @@ class Url4Interpreter:
                 }
             )
 
-            source_expr, raw_intent = split_intent(expr.strip())
+            source_expr, raw_intent, _broadcast = split_intent(expr.strip())
             set_span_attrs({"url4.has_intent": raw_intent is not None})
 
             # Resolve sources (parallel fetch of URLs, concatenate text)

@@ -46,6 +46,13 @@ const api: ElectronAPI = {
     write: (config) => ipcRenderer.invoke('config:write', config),
     onChanged: (cb) => onEvent('config:changed', cb),
   },
+  backends: {
+    getStatus: () => ipcRenderer.invoke('backends:getStatus'),
+    refresh: () => ipcRenderer.invoke('backends:refresh'),
+    authenticate: (backend) => ipcRenderer.invoke('backends:authenticate', backend),
+    onStatusChanged: (cb) => onEvent('backends:statusChanged', cb),
+    onAlert: (cb) => onEvent('backends:alert', cb),
+  },
   session: {
     pickDir: () => ipcRenderer.invoke('session:pickDir'),
     create: (type, workingDir, pluginConfig?) =>

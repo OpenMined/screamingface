@@ -56,7 +56,6 @@ OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 # API-capable access token via the token exchange grant type.
 TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange"
 TOKEN_EXCHANGE_SUBJECT_TYPE = "urn:ietf:params:oauth:token-type:id_token"
-TOKEN_EXCHANGE_AUDIENCE = "https://api.openai.com/v1"
 
 # Proactive refresh window -- refresh when the token has less than this
 # many seconds of validity remaining.
@@ -116,18 +115,23 @@ class CodexOAuth(AuthStrategy):
     async def get_authorization_header(self) -> dict[str, str]:
         """Build headers for an outbound OpenAI API call.
 
-        Returns ``{"Authorization": "Bearer <access_token>"}``.
+        Returns ``{"Authorization": "Bearer <token>"}``.
 
-        The Codex CLI's OAuth tokens have ChatGPT scopes. For direct API
-        access, the user should set ``OPENAI_API_KEY`` (checked first)
-        or have a Codex Pro plan whose tokens carry API scopes.
+        Token resolution order:
+        1. ``OPENAI_API_KEY`` env var (explicit API key, most reliable)
+        2. Token exchange: swap the id_token from ~/.codex/auth.json for
+           an API-scoped access token via RFC 8693. The raw access_token
+           from the file has ChatGPT scopes only — it cannot call the
+           API directly.
         """
         # Check for explicit API key first (most reliable path)
         api_key = os.environ.get("OPENAI_API_KEY")
         if api_key:
             return {"Authorization": f"Bearer {api_key}"}
 
-        # OAuth path: use the access_token from ~/.codex/auth.json
+        # OAuth path: use the raw ChatGPT access_token directly.
+        # The chatgpt.com/backend-api/codex endpoint accepts ChatGPT JWTs.
+        # Token exchange (for api.openai.com) fails for personal accounts.
         if self._cached is not None and not self._is_expired(self._cached):
             return self._build_headers(self._cached)
 
@@ -145,6 +149,12 @@ class CodexOAuth(AuthStrategy):
             if self._cached is None:
                 self._cached = self._read_from_file()
             self._cached = await self._do_refresh(self._cached)
+
+    def get_account_id(self) -> str:
+        """Return the chatgpt_account_id from the cached tokens."""
+        if self._cached is None:
+            self._cached = self._read_from_file()
+        return self._cached.get("account_id", "")
 
     def invalidate_cache(self) -> None:
         """Drop the in-memory cache without touching the file on disk."""
@@ -317,13 +327,14 @@ class CodexOAuth(AuthStrategy):
                 "token exchange. Run 'codex auth login' again."
             )
 
-        # RFC 8693 token exchange uses form-encoded body, not JSON
+        # Token exchange uses form-encoded body with OpenAI's custom
+        # `requested_token` field (not the standard RFC 8693 `audience`).
         body = {
             "grant_type": TOKEN_EXCHANGE_GRANT_TYPE,
+            "client_id": OAUTH_CLIENT_ID,
+            "requested_token": "openai-api-key",
             "subject_token": id_token,
             "subject_token_type": TOKEN_EXCHANGE_SUBJECT_TYPE,
-            "audience": TOKEN_EXCHANGE_AUDIENCE,
-            "client_id": OAUTH_CLIENT_ID,
         }
         headers = {"content-type": "application/x-www-form-urlencoded"}
 

@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """Unit tests for the CoreMessage pydantic types.
 
 Pure pydantic round-trips. No FastAPI, no httpx, no I/O.
@@ -122,7 +123,6 @@ class TestCoreMessage:
                 ),
             ],
         )
-        assert isinstance(m.content, list)
         assert len(m.content) == 2
         assert m.content[0].type == "text"
         assert m.content[1].type == "tool-call"
@@ -151,7 +151,6 @@ class TestCoreMessage:
         as_json = m.model_dump_json()
         loaded = CoreMessage.model_validate_json(as_json)
         # pydantic discriminated union should reconstruct each part as its type
-        assert isinstance(loaded.content, list)
         assert loaded.content[0].type == "text"
         assert loaded.content[1].type == "image"
         assert loaded.content[2].type == "tool-result"

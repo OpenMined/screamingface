@@ -3,6 +3,7 @@ import { Activity } from 'lucide-react';
 import { ServerStatusCard } from '@/components/server/ServerStatusCard';
 import { ServerControls } from '@/components/server/ServerControls';
 import { ServerLogs } from '@/components/server/ServerLogs';
+import { BackendStatusPanel } from '@/components/server/BackendStatusPanel';
 import { VenvStatusCard } from '@/components/venv/VenvStatusCard';
 import { VenvSetup } from '@/components/venv/VenvSetup';
 import { useServerStatus } from '@/hooks/use-server-status';
@@ -81,6 +82,7 @@ export function DashboardView() {
               </button>
             )}
           </div>
+          <BackendStatusPanel />
           <ServerLogs logs={server.logs} onClear={server.clearLogs} />
         </>
       )}

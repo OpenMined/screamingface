@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Final fallback model if neither the request nor the plugin settings
 # specify one.
-_DEFAULT_MODEL = "o4-mini"
+_DEFAULT_MODEL = "gpt-5.4"
 
 
 class CodexBackendApiInterpreter(Url4Interpreter):
