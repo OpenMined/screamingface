@@ -132,9 +132,9 @@ class GeminiBackend(Backend):
         """
         if self._auth.is_api_key_auth():
             return await self._health_api_key(model)
-        return await self._health_oauth()
+        return await self._health_oauth(model)
 
-    async def _health_oauth(self) -> HealthStatus:
+    async def _health_oauth(self, model: str = "gemini-2.5-flash") -> HealthStatus:
         """OAuth health probe: loadCodeAssist + minimal generateContent.
 
         ``loadCodeAssist`` alone isn't quota-metered, so a bare call to it
@@ -162,7 +162,7 @@ class GeminiBackend(Backend):
         headers["content-type"] = "application/json"
 
         probe_body = self._wrap_code_assist_request(
-            "gemini-2.5-flash",
+            model,
             {
                 "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
                 "generationConfig": {"maxOutputTokens": 1},
