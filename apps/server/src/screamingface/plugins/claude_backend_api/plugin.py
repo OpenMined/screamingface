@@ -141,6 +141,7 @@ class ClaudeBackendApiPlugin(Plugin):
         "store instead of shelling out to the claude CLI. Same routes, "
         "same request/response shapes, same profile config."
     )
+    tags: list[str] = ["product:claude"]
     depends: list[str] = ["llm-base", "backend-api-base"]
     conflicts: list[str] = []
     # Registered for url4 backend-call dispatch via /claude()!<intent>.

@@ -475,6 +475,7 @@ export function SettingsView() {
                                     'claude-frontend',
                                     'codex-frontend',
                                     'gemini-frontend',
+                                    'ollama-frontend',
                                   ].includes(name) && (
                                     <p className="text-[10px] leading-tight text-chart-3/80">
                                       Settings here are defaults for new sessions — override per

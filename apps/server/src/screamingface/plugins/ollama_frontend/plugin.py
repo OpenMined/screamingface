@@ -87,6 +87,7 @@ class OllamaFrontendSettings(PluginSettings):
 class OllamaFrontendPlugin(Plugin):
     name = "ollama-frontend"
     description = "Transparent proxy between local clients and a local/remote Ollama server"
+    tags: list[str] = ["product:ollama"]
     depends = ["url4-specs", "url4-executor", "frontend-base"]
     settings_class = OllamaFrontendSettings
 

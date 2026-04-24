@@ -30,6 +30,7 @@ class BackendApiBasePlugin(Plugin):
         "settings — other plugins import from it to stay aligned on the "
         "HTTP contract used across the ensemble."
     )
+    tags: list[str] = ["product:system"]
     depends: list[str] = []
     settings_class = None
 

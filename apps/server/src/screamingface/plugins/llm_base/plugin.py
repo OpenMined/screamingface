@@ -33,6 +33,7 @@ class LlmBasePlugin(Plugin):
         "CredentialStore. No routes or settings of its own — other plugins "
         "import from it and build concrete provider backends on top."
     )
+    tags: list[str] = ["product:system"]
     depends: list[str] = []
     settings_class = None
 
