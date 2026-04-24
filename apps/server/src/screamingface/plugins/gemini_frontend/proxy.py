@@ -217,7 +217,7 @@ def create_router(
                             blob_resp.raise_for_status()
                             blob_key = blob_resp.json()["key"]
                     else:
-                        from screamingface.plugins.data_store.routes import store_blob
+                        from screamingface.plugins.data_store.storage import store_blob
 
                         blob_key = store_blob(
                             last_user_text.encode("utf-8"),

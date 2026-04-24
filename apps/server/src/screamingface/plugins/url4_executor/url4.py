@@ -342,11 +342,9 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
     sources_text = node.packed_context or ""
 
     # Find the plugin that registered this path.
-    plugins_registry = getattr(getattr(app, "state", None), "plugins", None)
-    if plugins_registry is None:
-        raise RuntimeError(
-            f"Cannot dispatch backend call {node.path}(): app.state.plugins is not set."
-        )
+    from screamingface.core.helpers import get_plugins_registry
+
+    plugins_registry = get_plugins_registry(app)
 
     known_paths: list[str] = []
     for plugin in plugins_registry.active_plugins.values():
