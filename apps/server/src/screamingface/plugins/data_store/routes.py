@@ -1,26 +1,21 @@
-"""Routes for the data-store plugin — store and retrieve blobs by key."""
+"""Routes for the data-store plugin — store and retrieve blobs by key.
+
+The storage itself lives in :mod:`.storage` so other plugins can use
+``store_blob`` / ``get_blob`` without reaching into a ``.routes``
+module (routes are FastAPI implementation detail, not public API).
+"""
 
 from __future__ import annotations
-
-import hashlib
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
-# Module-level store so it can be accessed in-process by other plugins
-_store: dict[str, tuple[bytes, str]] = {}
+from screamingface.plugins.data_store.storage import get_blob, store_blob
 
-
-def store_blob(data: bytes, content_type: str = "application/octet-stream") -> str:
-    """Store a blob in-process and return its content-addressed key."""
-    key = hashlib.sha256(data).hexdigest()[:16]
-    _store[key] = (data, content_type)
-    return key
-
-
-def get_blob(key: str) -> tuple[bytes, str] | None:
-    """Retrieve a blob by key. Returns (data, content_type) or None."""
-    return _store.get(key)
+# Re-export for back-compat: older callers imported ``store_blob`` /
+# ``get_blob`` from this module directly. New code should import from
+# :mod:`.storage`.
+__all__ = ["create_router", "get_blob", "store_blob"]
 
 
 def create_router() -> APIRouter:
@@ -49,7 +44,7 @@ def create_router() -> APIRouter:
 
     @router.get("/data/{key}", response_model=None, operation_id="data_store_get")
     async def get_blob_route(key: str) -> Response:
-        entry = _store.get(key)
+        entry = get_blob(key)
         if entry is None:
             raise HTTPException(status_code=404, detail="Not found")
         body, content_type = entry

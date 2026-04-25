@@ -117,7 +117,7 @@ async def _store_prompt_blob(
         return blob_key
 
     # In-process fallback
-    from screamingface.plugins.data_store.routes import store_blob
+    from screamingface.plugins.data_store.storage import store_blob
 
     return store_blob(text.encode("utf-8"), "text/plain; charset=utf-8")
 
