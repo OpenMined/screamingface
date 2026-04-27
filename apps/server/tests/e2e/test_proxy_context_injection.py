@@ -15,7 +15,7 @@ pytestmark = pytest.mark.e2e
 
 
 @pytest.fixture(scope="session")
-def static_proxy_config(otlp_collector, proxy_server_port):
+def static_proxy_config(otlp_collector, proxy_server_port, httpbin_url):
     """Proxy config using a static spec (no $prompt) for system-prompt injection."""
     from tests.e2e.infrastructure.server_manager import ServerManager
 
@@ -41,7 +41,7 @@ def static_proxy_config(otlp_collector, proxy_server_port):
             },
             "claude-frontend": {
                 "active_spec": "httpbin-robots",
-                "upstream_url": "https://httpbin.org/anything",
+                "upstream_url": f"{httpbin_url}/anything",
                 "listen_host": "127.0.0.1",
                 "listen_port": proxy_server_port + 100,
                 "embed_target": "system",
@@ -49,8 +49,9 @@ def static_proxy_config(otlp_collector, proxy_server_port):
             "url4-specs": {
                 "specs": {
                     "httpbin-robots": {
-                        "expression": "(https://httpbin.org/robots.txt)!"
-                        "'You are an API testing assistant'",
+                        "expression": (
+                            f"({httpbin_url}/robots.txt)!'You are an API testing assistant'"
+                        ),
                     },
                 },
             },

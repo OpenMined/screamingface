@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from tests.e2e.infrastructure.claude_code_client import ClaudeCodeClient
+from tests.e2e.infrastructure.local_httpbin import LocalHttpbin
 from tests.e2e.infrastructure.otlp_collector import OTLPCollector
 from tests.e2e.infrastructure.server_manager import ServerManager
 
@@ -165,12 +166,32 @@ def main_server_config(otlp_collector: OTLPCollector, main_server_port: int) -> 
 
 
 @pytest.fixture(scope="session")
+def local_httpbin() -> Generator[LocalHttpbin, None, None]:
+    """In-process httpbin mock — replaces httpbin.org for e2e tests.
+
+    Eliminates the JSONDecodeError / 502 / DNS flake class that
+    httpbin.org occasionally inflicts on CI.
+    """
+    hb = LocalHttpbin()
+    hb.start()
+    yield hb
+    hb.stop()
+
+
+@pytest.fixture(scope="session")
+def httpbin_url(local_httpbin: LocalHttpbin) -> str:
+    """Base URL of the local httpbin mock, e.g. ``http://127.0.0.1:54321``."""
+    return local_httpbin.base_url
+
+
+@pytest.fixture(scope="session")
 def proxy_server_config(
     otlp_collector: OTLPCollector,
     main_server_port: int,
     proxy_server_port: int,
+    httpbin_url: str,
 ) -> dict:
-    """Config for the session proxy (claude-frontend → httpbin echo)."""
+    """Config for the session proxy (claude-frontend → local httpbin echo)."""
     return {
         "version": "0.1.0",
         "server": {
@@ -193,17 +214,17 @@ def proxy_server_config(
             },
             "claude-frontend": {
                 "active_spec": "test-prompt-spec",
-                "upstream_url": "https://httpbin.org/anything",
+                "upstream_url": f"{httpbin_url}/anything",
                 "listen_host": "127.0.0.1",
                 "listen_port": proxy_server_port,
             },
             "url4-specs": {
                 "specs": {
                     "test-static-spec": {
-                        "expression": "(https://httpbin.org/robots.txt)!'Be helpful'",
+                        "expression": f"({httpbin_url}/robots.txt)!'Be helpful'",
                     },
                     "test-prompt-spec": {
-                        "expression": "(https://httpbin.org/robots.txt)!$prompt",
+                        "expression": f"({httpbin_url}/robots.txt)!$prompt",
                     },
                 },
             },

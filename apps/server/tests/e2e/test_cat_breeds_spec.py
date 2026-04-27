@@ -100,7 +100,7 @@ class TestCatBreedSources:
 
 
 @pytest.fixture(scope="module")
-def cat_proxy(otlp_collector: OTLPCollector):  # type: ignore[misc]
+def cat_proxy(otlp_collector: OTLPCollector, httpbin_url: str):  # type: ignore[misc]
     """Start a proxy with the cat-breeds-3sources spec pointing at Claude."""
     internal_port = ServerManager.find_free_port()
     proxy_port = ServerManager.find_free_port()
@@ -128,7 +128,7 @@ def cat_proxy(otlp_collector: OTLPCollector):  # type: ignore[misc]
             },
             "claude-frontend": {
                 "active_spec": "cat-breeds-3sources",
-                "upstream_url": "https://httpbin.org/anything",
+                "upstream_url": f"{httpbin_url}/anything",
                 "listen_host": "127.0.0.1",
                 "listen_port": proxy_port,
             },
