@@ -43,6 +43,16 @@ class GeminiBackendApiSettings(PluginSettings):
             "disables fallback."
         ),
     )
+    max_total_429_wait_seconds: float = Field(
+        default=30.0,
+        description=(
+            "Cap on cumulative sleep across 429 retries within a single "
+            "request. Past this budget the backend raises BackendError(429) "
+            "instead of continuing to obey provider retry-after, so request-"
+            "level timeouts (e.g. 45s in tests) surface a clean error rather "
+            "than an httpx ReadTimeout."
+        ),
+    )
     default_effort: str = Field(default="medium")
     interpreter_system_prompt: str = Field(
         default=(
