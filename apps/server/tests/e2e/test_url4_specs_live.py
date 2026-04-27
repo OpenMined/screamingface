@@ -17,11 +17,11 @@ pytestmark = [pytest.mark.e2e, pytest.mark.timeout(30)]
 class TestUrl4SpecsLive:
     """Tests that evaluate url4 specs against real external URLs."""
 
-    def test_single_url_resolution(self, sf_server: ServerManager):
+    def test_single_url_resolution(self, sf_server: ServerManager, httpbin_url: str):
         """Single URL expression resolves to non-empty content."""
         resp = httpx.get(
             f"{sf_server.base_url}/ensemble",
-            params={"q": "https://httpbin.org/robots.txt"},
+            params={"q": f"{httpbin_url}/robots.txt"},
             timeout=15,
         )
 
@@ -29,9 +29,9 @@ class TestUrl4SpecsLive:
         assert len(resp.text.strip()) > 0
         assert "User-agent" in resp.text
 
-    def test_multiple_urls_parallel(self, sf_server: ServerManager):
+    def test_multiple_urls_parallel(self, sf_server: ServerManager, httpbin_url: str):
         """Parenthesized group of URLs resolved in parallel."""
-        expr = "(https://httpbin.org/robots.txt, https://httpbin.org/user-agent)"
+        expr = f"({httpbin_url}/robots.txt, {httpbin_url}/user-agent)"
         resp = httpx.get(
             f"{sf_server.base_url}/ensemble",
             params={"q": expr},
@@ -41,9 +41,9 @@ class TestUrl4SpecsLive:
         assert resp.status_code == 200
         assert "User-agent" in resp.text
 
-    def test_mixed_text_and_url(self, sf_server: ServerManager):
+    def test_mixed_text_and_url(self, sf_server: ServerManager, httpbin_url: str):
         """Mix of text atoms and URL atoms in a group."""
-        expr = "(context preamble, https://httpbin.org/robots.txt)"
+        expr = f"(context preamble, {httpbin_url}/robots.txt)"
         resp = httpx.get(
             f"{sf_server.base_url}/ensemble",
             params={"q": expr},
@@ -54,9 +54,9 @@ class TestUrl4SpecsLive:
         assert "context preamble" in resp.text
         assert "User-agent" in resp.text
 
-    def test_resolution_idempotency(self, sf_server: ServerManager):
+    def test_resolution_idempotency(self, sf_server: ServerManager, httpbin_url: str):
         """Same expression resolves to same content across runs."""
-        expr = "https://httpbin.org/robots.txt"
+        expr = f"{httpbin_url}/robots.txt"
 
         resp1 = httpx.get(
             f"{sf_server.base_url}/ensemble",
@@ -95,9 +95,9 @@ class TestUrl4SpecsLive:
         assert resp.status_code == 200
         assert "test blob content" in resp.text
 
-    def test_intent_with_text(self, sf_server: ServerManager):
+    def test_intent_with_text(self, sf_server: ServerManager, httpbin_url: str):
         """Expression with text intent (quoted string after !)."""
-        expr = "(https://httpbin.org/robots.txt)!'Summarize this'"
+        expr = f"({httpbin_url}/robots.txt)!'Summarize this'"
         resp = httpx.get(
             f"{sf_server.base_url}/ensemble",
             params={"q": expr},

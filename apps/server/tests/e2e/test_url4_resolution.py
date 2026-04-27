@@ -38,11 +38,11 @@ class TestUrl4Resolution:
         assert "echo" in resp.text
         assert "hello" in resp.text
 
-    def test_resolve_http_url(self, sf_server: ServerManager):
+    def test_resolve_http_url(self, sf_server: ServerManager, httpbin_url: str):
         """Fetches a real URL and returns its content."""
         resp = httpx.get(
             f"{sf_server.base_url}/ensemble",
-            params={"q": "https://httpbin.org/robots.txt"},
+            params={"q": f"{httpbin_url}/robots.txt"},
             timeout=15,
         )
 
