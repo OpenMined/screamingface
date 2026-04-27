@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from screamingface.plugins.backend_api_base.models import RunRequest, RunResponse
 from screamingface.plugins.llm_base.backend_base import Backend
 from screamingface.plugins.llm_base.constants import (
+    CLI_ONLY_FIELD_DEFAULTS,
     CLI_ONLY_FIELDS,
     DEFAULT_MAX_TOKENS,
     PROMPT_PREVIEW_LIMIT,
@@ -215,6 +216,7 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
 
     @router.post(f"{prefix}/run", response_model=None, operation_id=f"{op}_run")
     async def run_endpoint(request: RunRequest) -> JSONResponse | StreamingResponse:
+        _reject_cli_only_fields(request, cfg.name)
         return await _execute(request)
 
     @router.get(prefix, response_model=None, operation_id=f"{op}_url4")
@@ -344,6 +346,35 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _reject_cli_only_fields(request: RunRequest, plugin_name: str) -> None:
+    """Raise HTTP 422 when a direct API request sets CLI-only fields.
+
+    Direct ``*_backend_api`` plugins talk to provider HTTP APIs — they
+    have no CLI subprocess that could honor sandbox flags, MCP configs,
+    or tool allow/deny lists. Silently dropping these fields used to
+    leave callers thinking their toggles took effect. Reject explicitly
+    instead so the surprise is visible at the boundary.
+
+    Profile-driven paths (``GET/POST /<plugin>/<profile_name>``) bypass
+    this check so existing ``sf.json`` profiles keep working.
+    """
+    offending = [
+        f for f in CLI_ONLY_FIELDS if getattr(request, f, None) != CLI_ONLY_FIELD_DEFAULTS[f]
+    ]
+    if not offending:
+        return
+    raise HTTPException(
+        status_code=422,
+        detail=(
+            f"{plugin_name} does not accept CLI-only fields: "
+            f"{', '.join(offending)}. These flags only apply to the "
+            f"matching CLI tool (e.g. claude-cli) — direct API backends "
+            f"have no subprocess to honor them. Remove the field(s) or "
+            f"call the CLI-frontend plugin instead."
+        ),
+    )
 
 
 def _record_ignored_fields(request: RunRequest, plugin_name: str) -> None:

@@ -22,6 +22,22 @@ CLI_ONLY_FIELDS: tuple[str, ...] = (
     "disallowed_tools",
 )
 
+# Default values for each CLI-only field on RunRequest. A request is
+# rejected at the route boundary when any of these is set to a value
+# other than the default. Kept here (not derived from RunRequest at
+# import time) to avoid a circular import between llm_base and
+# backend_api_base.
+CLI_ONLY_FIELD_DEFAULTS: dict[str, object] = {
+    "add_dirs": None,
+    "mcp_config": None,
+    "permission_mode": None,
+    "dangerously_skip_permissions": False,
+    "no_session_persistence": True,
+    "tools": None,
+    "allowed_tools": None,
+    "disallowed_tools": None,
+}
+
 # Default max_tokens for a single backend run when the caller doesn't
 # specify one. Chosen empirically to cover the cookbook examples
 # without consuming the whole 200k-token context.
