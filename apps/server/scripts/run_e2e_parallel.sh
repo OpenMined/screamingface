@@ -7,8 +7,7 @@
 # Usage:  scripts/run_e2e_parallel.sh [extra pytest args...]
 #
 # Exit code is non-zero if any phase failed.
-
-set -u
+# Compatible with bash 3.2 (default on macOS) — no associative arrays.
 
 cd "$(dirname "$0")/.."
 
@@ -22,41 +21,41 @@ run_phase() {
   local provider=$1
   local log="$LOG_DIR/$provider.log"
   echo "[start] $provider -> $log"
-  uv run pytest tests/e2e --provider="$provider" -v "${EXTRA[@]}" \
-    > "$log" 2>&1
+  if [ ${#EXTRA[@]} -gt 0 ]; then
+    uv run pytest tests/e2e --provider="$provider" -v "${EXTRA[@]}" > "$log" 2>&1
+  else
+    uv run pytest tests/e2e --provider="$provider" -v > "$log" 2>&1
+  fi
   local rc=$?
   echo "[done ] $provider rc=$rc"
   return $rc
 }
 
 # --- Phase 1: parallel provider queues ---
-declare -A PIDS
-for p in claude codex gemini; do
-  run_phase "$p" &
-  PIDS[$p]=$!
-done
+run_phase claude  & PID_CLAUDE=$!
+run_phase codex   & PID_CODEX=$!
+run_phase gemini  & PID_GEMINI=$!
 
 PHASE1_RC=0
-for p in claude codex gemini; do
-  if ! wait "${PIDS[$p]}"; then
-    PHASE1_RC=1
-    echo "[fail ] $p — see $LOG_DIR/$p.log"
-  fi
-done
+wait "$PID_CLAUDE" || { PHASE1_RC=1; echo "[fail ] claude — see $LOG_DIR/claude.log"; }
+wait "$PID_CODEX"  || { PHASE1_RC=1; echo "[fail ] codex  — see $LOG_DIR/codex.log"; }
+wait "$PID_GEMINI" || { PHASE1_RC=1; echo "[fail ] gemini — see $LOG_DIR/gemini.log"; }
 
 # --- Phase 2: multi/other (only after Phase 1 done) ---
 echo "[start] phase2 (multi)"
-run_phase "multi"
+run_phase multi
 PHASE2_RC=$?
 
 # --- Summary ---
 echo
 echo "=== Summary ==="
 for p in claude codex gemini multi; do
-  tail -n 3 "$LOG_DIR/$p.log" | sed "s|^|[$p] |"
+  if [ -f "$LOG_DIR/$p.log" ]; then
+    tail -n 3 "$LOG_DIR/$p.log" | sed "s|^|[$p] |"
+  fi
 done
 
-if [[ $PHASE1_RC -ne 0 || $PHASE2_RC -ne 0 ]]; then
+if [ $PHASE1_RC -ne 0 ] || [ $PHASE2_RC -ne 0 ]; then
   echo "FAIL (phase1=$PHASE1_RC phase2=$PHASE2_RC). Logs in $LOG_DIR"
   exit 1
 fi
