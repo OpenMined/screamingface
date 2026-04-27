@@ -102,7 +102,6 @@ def build_health_probe_body() -> dict:
 def post_responses_sync(
     body: dict,
     headers: dict[str, str],
-    *,
     timeout: float = 300.0,
     url: str = CHATGPT_RESPONSES_URL,
 ) -> tuple[int, str, dict]:

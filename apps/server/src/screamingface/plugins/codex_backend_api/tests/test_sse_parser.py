@@ -1,3 +1,4 @@
+# pyright: reportAttributeAccessIssue=false
 """Unit tests for the OpenAI Responses SSE parser."""
 
 from __future__ import annotations
