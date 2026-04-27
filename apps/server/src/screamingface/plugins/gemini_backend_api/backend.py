@@ -45,6 +45,7 @@ class GeminiBackend(Backend):
         auth: GeminiAuth | None = None,
         adapter: GeminiAdapter | None = None,
         http_client_factory=None,
+        fallback_models: list[str] | None = None,
     ) -> None:
         self._auth = auth or GeminiAuth()
         self._adapter = adapter or GeminiAdapter()
@@ -53,6 +54,11 @@ class GeminiBackend(Backend):
         self._project_id: str | None = None
         self._session_id: str = str(uuid.uuid4())
         self._setup_lock = asyncio.Lock()
+        # 429 cascade fallback chain — when the configured model returns
+        # quota-exhausted 429s, try the next model in this list before
+        # giving up. Each model has its own quota bucket on Code Assist.
+        # Empty list = no fallback (legacy behavior).
+        self._fallback_models = fallback_models or []
 
     @staticmethod
     def _default_http_factory():
@@ -242,13 +248,44 @@ class GeminiBackend(Backend):
         )
 
         api_model = body.pop("_model", model)
+        is_api_key = self._auth.is_api_key_auth()
 
-        if self._auth.is_api_key_auth():
-            response_data = await self._run_api_key(body, api_model)
-        else:
-            response_data = await self._run_oauth(body, api_model)
+        # Build the model-attempt chain: the configured model first, then
+        # any fallback models (deduplicated, preserving order). When the
+        # configured model returns 429 QUOTA_EXHAUSTED, the next entry's
+        # quota bucket may still be intact.
+        chain: list[str] = [api_model]
+        for fb in self._fallback_models:
+            if fb not in chain:
+                chain.append(fb)
 
-        return self._adapter.from_provider_response(response_data)
+        last_429: BackendError | None = None
+        for attempt_model in chain:
+            try:
+                if is_api_key:
+                    response_data = await self._run_api_key(body, attempt_model)
+                else:
+                    response_data = await self._run_oauth(body, attempt_model)
+                if attempt_model != api_model:
+                    logger.warning(
+                        "gemini-backend-api: %s 429-exhausted, served from fallback %s",
+                        api_model,
+                        attempt_model,
+                    )
+                return self._adapter.from_provider_response(response_data)
+            except BackendError as exc:
+                if exc.status != 429:
+                    raise
+                last_429 = exc
+                logger.info(
+                    "gemini-backend-api: 429 on %s, trying next model in chain",
+                    attempt_model,
+                )
+                continue
+
+        # Whole chain exhausted; surface the last 429.
+        assert last_429 is not None
+        raise last_429
 
     async def _run_api_key(self, body: dict, model: str) -> dict:
         """Standard path: generativelanguage.googleapis.com with API key."""

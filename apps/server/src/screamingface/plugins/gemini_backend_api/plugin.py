@@ -33,6 +33,16 @@ class GeminiBackendApiSettings(PluginSettings):
         default=None,
         description="Default Gemini model. Falls back to 'gemini-2.5-flash'.",
     )
+    fallback_models: list[str] = Field(
+        default_factory=lambda: ["gemini-2.5-pro", "gemini-2.5-flash-lite"],
+        description=(
+            "Fallback chain when the configured model returns "
+            "QUOTA_EXHAUSTED 429. Each model has its own quota bucket "
+            "on Code Assist, so flash → pro → flash-lite usually "
+            "self-heals during a single-model burnout. Empty list "
+            "disables fallback."
+        ),
+    )
     default_effort: str = Field(default="medium")
     interpreter_system_prompt: str = Field(
         default=(

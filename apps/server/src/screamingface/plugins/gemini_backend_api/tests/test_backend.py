@@ -555,3 +555,113 @@ class TestCodeAssistSetup:
 
         with pytest.raises(BackendError, match="unreachable"):
             await backend.run([CoreMessage(role="user", content="ping")], model="gemini-2.5-flash")
+
+
+@pytest.mark.anyio
+class TestModelFallback:
+    """SF-114: when configured model 429s, fall back to next in chain."""
+
+    async def test_first_model_429_second_model_succeeds(self):
+        """flash 429 → pro succeeds → returns pro's response."""
+        auth = _mock_auth({"x-goog-api-key": "test-key"}, is_api_key=True)
+        factory, fake_client = _sequenced_factory(
+            httpx.Response(429, json={"error": {"message": "Quota exhausted"}}),
+            _api_key_success_response(),
+        )
+        backend = GeminiBackend(
+            auth=auth,
+            http_client_factory=factory,
+            fallback_models=["gemini-2.5-pro"],
+        )
+
+        result = await backend.run(
+            [CoreMessage(role="user", content=[TextPart(text="ping")])],
+            model="gemini-2.5-flash",
+        )
+
+        assert isinstance(result, CoreMessage)
+        assert result.content[0].text == "pong"
+        # Two POSTs: one to flash (429), one to pro (200).
+        assert fake_client.post.call_count == 2
+        first_url = fake_client.post.call_args_list[0].args[0]
+        second_url = fake_client.post.call_args_list[1].args[0]
+        assert "gemini-2.5-flash" in first_url
+        assert "gemini-2.5-pro" in second_url
+
+    async def test_chain_exhausted_raises_last_429(self):
+        """Every model in the chain 429s — surface the last error."""
+        auth = _mock_auth({"x-goog-api-key": "test-key"}, is_api_key=True)
+        factory, _ = _mock_factory(
+            httpx.Response(429, json={"error": {"message": "Quota exhausted"}})
+        )
+        backend = GeminiBackend(
+            auth=auth,
+            http_client_factory=factory,
+            fallback_models=["gemini-2.5-pro", "gemini-2.5-flash-lite"],
+        )
+
+        with pytest.raises(BackendError) as exc_info:
+            await backend.run(
+                [CoreMessage(role="user", content=[TextPart(text="ping")])],
+                model="gemini-2.5-flash",
+            )
+        assert exc_info.value.status == 429
+
+    async def test_dedup_chain_does_not_retry_same_model(self):
+        """Configured model already in fallback list — only tried once."""
+        auth = _mock_auth({"x-goog-api-key": "test-key"}, is_api_key=True)
+        factory, fake_client = _mock_factory(
+            httpx.Response(429, json={"error": {"message": "Quota exhausted"}})
+        )
+        backend = GeminiBackend(
+            auth=auth,
+            http_client_factory=factory,
+            fallback_models=["gemini-2.5-flash", "gemini-2.5-pro"],
+        )
+
+        with pytest.raises(BackendError):
+            await backend.run(
+                [CoreMessage(role="user", content=[TextPart(text="ping")])],
+                model="gemini-2.5-flash",
+            )
+        # 2 distinct models attempted (flash, pro), each retried up to
+        # MAX_429_RETRIES+1 by _post_with_retry. flash should appear
+        # exactly once in the unique-attempt set.
+        urls_attempted = {call.args[0] for call in fake_client.post.call_args_list}
+        assert sum("gemini-2.5-flash:" in u for u in urls_attempted) == 1
+        assert any("gemini-2.5-pro" in u for u in urls_attempted)
+
+    async def test_non_429_error_no_fallback(self):
+        """500 from configured model — do NOT try fallback (real outage)."""
+        auth = _mock_auth({"x-goog-api-key": "test-key"}, is_api_key=True)
+        factory, fake_client = _mock_factory(httpx.Response(500, text="internal"))
+        backend = GeminiBackend(
+            auth=auth,
+            http_client_factory=factory,
+            fallback_models=["gemini-2.5-pro"],
+        )
+
+        with pytest.raises(BackendError) as exc_info:
+            await backend.run(
+                [CoreMessage(role="user", content=[TextPart(text="ping")])],
+                model="gemini-2.5-flash",
+            )
+        assert exc_info.value.status == 500
+        # Exactly one URL should appear (the original — no fallback).
+        urls = {c.args[0] for c in fake_client.post.call_args_list}
+        assert all("gemini-2.5-flash" in u for u in urls)
+
+    async def test_no_fallback_chain_legacy_behavior(self):
+        """Empty fallback_models — single attempt, raise on 429."""
+        auth = _mock_auth({"x-goog-api-key": "test-key"}, is_api_key=True)
+        factory, _ = _mock_factory(
+            httpx.Response(429, json={"error": {"message": "Quota exhausted"}})
+        )
+        backend = GeminiBackend(auth=auth, http_client_factory=factory)  # no fallback
+
+        with pytest.raises(BackendError) as exc_info:
+            await backend.run(
+                [CoreMessage(role="user", content=[TextPart(text="ping")])],
+                model="gemini-2.5-flash",
+            )
+        assert exc_info.value.status == 429
