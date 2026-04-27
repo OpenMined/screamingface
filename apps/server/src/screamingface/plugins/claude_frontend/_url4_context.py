@@ -88,6 +88,7 @@ def _build_error_response(
 async def _store_prompt_blob(
     text: str,
     *,
+    app: Any,
     backend_url: str | None,
     tracer: Any,
     _start_client_span: Any,
@@ -116,10 +117,8 @@ async def _store_prompt_blob(
             )
         return blob_key
 
-    # In-process fallback
-    from screamingface.plugins.data_store.storage import store_blob
-
-    return store_blob(text.encode("utf-8"), "text/plain; charset=utf-8")
+    # In-process fallback — use the app-scoped BlobStore.
+    return app.state.blob_store.store(text.encode("utf-8"), "text/plain; charset=utf-8")
 
 
 async def _resolve_expression(
@@ -196,6 +195,7 @@ async def resolve_prompt_expression(
 
             blob_key = await _store_prompt_blob(
                 last_user_text,
+                app=app,
                 backend_url=backend_url,
                 tracer=tracer,
                 _start_client_span=_start_client_span,

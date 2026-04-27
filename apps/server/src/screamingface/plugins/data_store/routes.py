@@ -1,8 +1,9 @@
 """Routes for the data-store plugin — store and retrieve blobs by key.
 
-The storage itself lives in :mod:`.storage` so other plugins can use
-``store_blob`` / ``get_blob`` without reaching into a ``.routes``
-module (routes are FastAPI implementation detail, not public API).
+The :class:`BlobStore` itself lives in :mod:`.storage`; the per-app
+instance is attached to ``app.state.blob_store`` by
+:meth:`DataStorePlugin.setup`. These handlers reach it via
+``request.app.state.blob_store``.
 """
 
 from __future__ import annotations
@@ -10,12 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
-from screamingface.plugins.data_store.storage import get_blob, store_blob
-
-# Re-export for back-compat: older callers imported ``store_blob`` /
-# ``get_blob`` from this module directly. New code should import from
-# :mod:`.storage`.
-__all__ = ["create_router", "get_blob", "store_blob"]
+__all__ = ["create_router"]
 
 
 def create_router() -> APIRouter:
@@ -27,7 +23,7 @@ def create_router() -> APIRouter:
         if not body:
             raise HTTPException(status_code=400, detail="Empty body")
         content_type = request.headers.get("content-type", "application/octet-stream")
-        key = store_blob(body, content_type)
+        key = request.app.state.blob_store.store(body, content_type)
 
         try:
             from opentelemetry import trace
@@ -43,13 +39,12 @@ def create_router() -> APIRouter:
         return JSONResponse(content={"key": key, "url": f"/data/{key}"})
 
     @router.get("/data/{key}", response_model=None, operation_id="data_store_get")
-    async def get_blob_route(key: str) -> Response:
-        entry = get_blob(key)
+    async def get_blob_route(key: str, request: Request) -> Response:
+        entry = request.app.state.blob_store.get(key)
         if entry is None:
             raise HTTPException(status_code=404, detail="Not found")
         body, content_type = entry
 
-        # Add truncated body preview to the current OTEL span (auto-created by FastAPI)
         try:
             from opentelemetry import trace
 

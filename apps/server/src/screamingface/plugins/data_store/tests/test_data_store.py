@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
-from screamingface.plugins.data_store.routes import get_blob, store_blob
+from screamingface.plugins.data_store.storage import BlobStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -27,39 +27,42 @@ def client(app: FastAPI) -> TestClient:
 
 
 # ---------------------------------------------------------------------------
-# In-process API (store_blob / get_blob)
+# In-process API — BlobStore class is used directly. The data-store
+# plugin attaches a single instance to ``app.state.blob_store`` which
+# is exercised via the HTTP route tests below.
 # ---------------------------------------------------------------------------
 
 
-def test_store_blob_returns_key() -> None:
-    key = store_blob(b"hello world")
+def test_blobstore_returns_key() -> None:
+    store = BlobStore()
+    key = store.store(b"hello world")
     assert isinstance(key, str)
     assert len(key) == 16
 
 
-def test_store_blob_content_addressed() -> None:
-    k1 = store_blob(b"same content")
-    k2 = store_blob(b"same content")
-    assert k1 == k2
+def test_blobstore_content_addressed() -> None:
+    store = BlobStore()
+    assert store.store(b"same content") == store.store(b"same content")
 
 
-def test_store_blob_different_content() -> None:
-    k1 = store_blob(b"aaa")
-    k2 = store_blob(b"bbb")
-    assert k1 != k2
+def test_blobstore_different_content() -> None:
+    store = BlobStore()
+    assert store.store(b"aaa") != store.store(b"bbb")
 
 
-def test_get_blob_returns_data() -> None:
-    key = store_blob(b"test data", "text/plain")
-    result = get_blob(key)
-    assert result is not None
-    data, ct = result
-    assert data == b"test data"
-    assert ct == "text/plain"
+def test_blobstore_get_returns_data() -> None:
+    store = BlobStore()
+    key = store.store(b"test data", "text/plain")
+    result = store.get(key)
+    assert result == (b"test data", "text/plain")
 
 
-def test_get_blob_missing_key() -> None:
-    assert get_blob("nonexistent_key_") is None
+def test_blobstore_get_missing_key() -> None:
+    assert BlobStore().get("nonexistent_key_") is None
+
+
+def test_plugin_attaches_blob_store_to_app_state(app: FastAPI) -> None:
+    assert isinstance(app.state.blob_store, BlobStore)
 
 
 # ---------------------------------------------------------------------------
