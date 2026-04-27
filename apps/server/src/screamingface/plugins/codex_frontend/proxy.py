@@ -288,9 +288,7 @@ def create_router(
                             blob_resp.raise_for_status()
                             blob_key = blob_resp.json()["key"]
                     else:
-                        from screamingface.plugins.data_store.storage import store_blob
-
-                        blob_key = store_blob(
+                        blob_key = request.app.state.blob_store.store(
                             last_user_text.encode("utf-8"), "text/plain; charset=utf-8"
                         )
 

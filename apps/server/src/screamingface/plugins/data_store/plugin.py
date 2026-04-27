@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from screamingface.plugin import Plugin
 from screamingface.plugins.data_store.routes import create_router
+from screamingface.plugins.data_store.storage import BlobStore
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -29,5 +30,6 @@ class DataStorePlugin(Plugin):
         classes: ClassRegistry,
         routes: RouteRegistry,
     ) -> None:
+        app.state.blob_store = BlobStore()
         router = create_router()
         routes.add_router(self.name, router, prefix="")

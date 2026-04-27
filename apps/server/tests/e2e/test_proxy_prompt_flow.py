@@ -55,11 +55,12 @@ class TestPromptSubstitution:
 
     def test_blob_dedup(self):
         """Same prompt text → same blob key (SHA-256 content hash)."""
-        from screamingface.plugins.data_store.routes import store_blob
+        from screamingface.plugins.data_store.storage import BlobStore
 
-        key1 = store_blob(b"What breed for apartments?", "text/plain")
-        key2 = store_blob(b"What breed for apartments?", "text/plain")
-        key3 = store_blob(b"Different prompt", "text/plain")
+        store = BlobStore()
+        key1 = store.store(b"What breed for apartments?", "text/plain")
+        key2 = store.store(b"What breed for apartments?", "text/plain")
+        key3 = store.store(b"Different prompt", "text/plain")
 
         assert key1 == key2, f"dedup failed: {key1} != {key2}"
         assert key1 != key3, f"different content same key: {key1} == {key3}"
