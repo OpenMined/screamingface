@@ -665,3 +665,101 @@ class TestModelFallback:
                 model="gemini-2.5-flash",
             )
         assert exc_info.value.status == 429
+
+
+@pytest.mark.anyio
+class TestMaxTotalRetryWait:
+    """SF-116: cumulative 429-retry sleep is capped per request.
+
+    Without the cap, a sequence of long retry-after headers can stack
+    until the request-level timeout (45s in tests) fires as a confusing
+    httpx ReadTimeout instead of a clean BackendError(429).
+    """
+
+    @staticmethod
+    def _retry_response(delay_s: float) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={
+                "error": {
+                    "code": 429,
+                    "message": "Rate limited",
+                    "details": [
+                        {
+                            "@type": "type.googleapis.com/google.rpc.RetryInfo",
+                            "retryDelay": f"{delay_s}s",
+                        }
+                    ],
+                }
+            },
+        )
+
+    async def test_total_wait_exceeded_raises_immediately(self, monkeypatch):
+        """Second retry-after would push cumulative wait past cap → raise.
+
+        cap=10s. First retry-after=6s (sleep 6.5s, total=6.5).
+        Second retry-after=6s (next sleep 6.5s; 6.5+6.5=13 > 10 → raise).
+        Asserts only one sleep happened.
+        """
+        sleeps: list[float] = []
+
+        async def fake_sleep(s):
+            sleeps.append(s)
+
+        monkeypatch.setattr(
+            "screamingface.plugins.gemini_backend_api.backend.asyncio.sleep",
+            fake_sleep,
+        )
+
+        auth = _mock_auth({"x-goog-api-key": "test-key"}, is_api_key=True)
+        factory, _ = _mock_factory(self._retry_response(6.0))
+        backend = GeminiBackend(
+            auth=auth,
+            http_client_factory=factory,
+            max_total_wait_seconds=10.0,
+        )
+
+        with pytest.raises(BackendError) as ei:
+            await backend.run(
+                [CoreMessage(role="user", content=[TextPart(text="ping")])],
+                model="gemini-2.5-flash",
+            )
+        assert ei.value.status == 429
+        assert "cumulative retry" in str(ei.value)
+        assert len(sleeps) == 1, f"expected exactly one sleep before cap; got {sleeps}"
+
+    async def test_under_cap_retries_normally(self, monkeypatch):
+        """Cumulative wait stays under cap — retries proceed until exhausted."""
+        sleeps: list[float] = []
+
+        async def fake_sleep(s):
+            sleeps.append(s)
+
+        monkeypatch.setattr(
+            "screamingface.plugins.gemini_backend_api.backend.asyncio.sleep",
+            fake_sleep,
+        )
+
+        auth = _mock_auth({"x-goog-api-key": "test-key"}, is_api_key=True)
+        factory, _ = _mock_factory(self._retry_response(0.1))
+        backend = GeminiBackend(
+            auth=auth,
+            http_client_factory=factory,
+            max_total_wait_seconds=30.0,
+        )
+
+        with pytest.raises(BackendError):
+            await backend.run(
+                [CoreMessage(role="user", content=[TextPart(text="ping")])],
+                model="gemini-2.5-flash",
+            )
+        # MAX_429_RETRIES = 3 → up to 3 sleeps before final raise
+        assert len(sleeps) == 3
+        assert all(abs(s - 0.6) < 1e-6 for s in sleeps)  # 0.1 + 0.5 jitter
+
+    async def test_default_cap_is_30_seconds(self):
+        """Default constructor value matches MAX_TOTAL_429_WAIT_SECONDS."""
+        auth = _mock_auth({"x-goog-api-key": "test-key"}, is_api_key=True)
+        factory, _ = _mock_factory(httpx.Response(200, json={}))
+        backend = GeminiBackend(auth=auth, http_client_factory=factory)
+        assert backend._max_total_wait_seconds == 30.0

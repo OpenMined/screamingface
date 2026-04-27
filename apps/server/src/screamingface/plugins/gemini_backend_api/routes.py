@@ -20,7 +20,10 @@ _DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRouter:
-    backend = GeminiBackend(fallback_models=list(settings.fallback_models))
+    backend = GeminiBackend(
+        fallback_models=list(settings.fallback_models),
+        max_total_wait_seconds=settings.max_total_429_wait_seconds,
+    )
 
     def build_interpreter() -> Any:
         from screamingface.plugins.gemini_backend_api.interpreter import (

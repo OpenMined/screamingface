@@ -37,6 +37,13 @@ CODE_ASSIST_API_VERSION = "v1internal"
 
 MAX_429_RETRIES = 3
 
+# Cap on cumulative 429-retry sleep within a single request. The
+# request-level test timeout is 45s; if we obey provider retry-after
+# headers without a cap, multiple long delays stack and surface as
+# httpx.ReadTimeout instead of a clean BackendError(429). Stop early
+# once the next sleep would exceed this budget.
+MAX_TOTAL_429_WAIT_SECONDS = 30.0
+
 
 class GeminiBackend(Backend):
     def __init__(
@@ -46,6 +53,7 @@ class GeminiBackend(Backend):
         adapter: GeminiAdapter | None = None,
         http_client_factory=None,
         fallback_models: list[str] | None = None,
+        max_total_wait_seconds: float = MAX_TOTAL_429_WAIT_SECONDS,
     ) -> None:
         self._auth = auth or GeminiAuth()
         self._adapter = adapter or GeminiAdapter()
@@ -59,6 +67,7 @@ class GeminiBackend(Backend):
         # giving up. Each model has its own quota bucket on Code Assist.
         # Empty list = no fallback (legacy behavior).
         self._fallback_models = fallback_models or []
+        self._max_total_wait_seconds = max_total_wait_seconds
 
     @staticmethod
     def _default_http_factory():
@@ -303,6 +312,7 @@ class GeminiBackend(Backend):
     async def _post_with_retry(self, body: dict, url: str) -> dict:
         headers = await self._auth.get_authorization_header()
         headers["content-type"] = "application/json"
+        total_waited = 0.0
 
         for attempt in range(MAX_429_RETRIES + 1):
             resp = await self._do_post(body, headers, url)
@@ -332,6 +342,22 @@ class GeminiBackend(Backend):
                 retry_delay = self._parse_retry_delay(resp)
                 if attempt < MAX_429_RETRIES and retry_delay is not None:
                     wait = retry_delay + 0.5
+                    if total_waited + wait > self._max_total_wait_seconds:
+                        logger.warning(
+                            "gemini-backend-api: 429 retry-after %.1fs would exceed "
+                            "max_total_wait %.1fs (already waited %.1fs); raising",
+                            wait,
+                            self._max_total_wait_seconds,
+                            total_waited,
+                        )
+                        raise BackendError(
+                            f"Gemini rate limit exceeded (429); cumulative retry "
+                            f"wait would exceed {self._max_total_wait_seconds:.0f}s "
+                            f"budget (next retry-after={wait:.1f}s, "
+                            f"already waited={total_waited:.1f}s).",
+                            status=429,
+                            retry_after=retry_delay,
+                        )
                     logger.info(
                         "gemini-backend-api: 429, retrying in %.1fs (attempt %d/%d)",
                         wait,
@@ -339,6 +365,7 @@ class GeminiBackend(Backend):
                         MAX_429_RETRIES,
                     )
                     await asyncio.sleep(wait)
+                    total_waited += wait
                     continue
                 raise BackendError(
                     "Gemini rate limit exceeded (429).",
