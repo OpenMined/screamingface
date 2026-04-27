@@ -4,26 +4,115 @@ from __future__ import annotations
 
 import os
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
+import yaml
 
 from tests.e2e.infrastructure.claude_code_client import ClaudeCodeClient
 from tests.e2e.infrastructure.otlp_collector import OTLPCollector
 from tests.e2e.infrastructure.server_manager import ServerManager
 
 # ---------------------------------------------------------------------------
-# Auto-skip e2e_live tests without API key
+# Provider partitioning (for parallel e2e runs by provider queue)
 # ---------------------------------------------------------------------------
+
+_PROVIDERS = ("claude", "codex", "gemini", "multi", "other")
+_DATA_DIR = Path(__file__).parent / "data"
+
+# Files that target a specific provider exclusively. Files not listed are
+# considered provider-agnostic and run only in the "multi" phase.
+_PROVIDER_BY_FILE: dict[str, str] = {
+    "test_proxy_context_injection.py": "claude",
+    "test_proxy_multi_turn.py": "claude",
+    "test_proxy_prompt_flow.py": "claude",
+    "test_trace_structure.py": "claude",
+    "test_cat_breeds_spec.py": "claude",
+    "test_url4_specs_live.py": "claude",
+    "test_ensemble_features.py": "claude",
+    "test_url4_resolution.py": "claude",
+    # test_url4_matrix.py is classified per-test-id below.
+}
+
+
+def _build_matrix_id_map() -> dict[str, str]:
+    """Map every YAML matrix test id to its provider folder."""
+    out: dict[str, str] = {}
+    if not _DATA_DIR.exists():
+        return out
+    for path in _DATA_DIR.rglob("*.yaml"):
+        rel = path.relative_to(_DATA_DIR)
+        provider = rel.parts[0] if len(rel.parts) > 1 else "other"
+        try:
+            cases = yaml.safe_load(path.read_text()) or []
+        except Exception:
+            continue
+        for case in cases:
+            cid = case.get("id")
+            if cid:
+                out[cid] = provider
+    return out
+
+
+_MATRIX_ID_PROVIDER = _build_matrix_id_map()
+
+
+def _provider_for_item(item: pytest.Item) -> str:
+    """Classify a collected test item to a provider bucket."""
+    fname = Path(str(item.fspath)).name
+    if fname == "test_url4_matrix.py":
+        # Param id is wrapped in [brackets] at the end of nodeid
+        nodeid = item.nodeid
+        if "[" in nodeid and nodeid.endswith("]"):
+            param = nodeid.rsplit("[", 1)[1][:-1]
+            return _MATRIX_ID_PROVIDER.get(param, "multi")
+        return "multi"
+    return _PROVIDER_BY_FILE.get(fname, "multi")
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--provider",
+        action="store",
+        default=None,
+        choices=[*_PROVIDERS, "all"],
+        help=(
+            "Run only e2e tests classified to the given provider queue. "
+            "Used by scripts/run_e2e_parallel.sh to shard execution."
+        ),
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    # 1) Auto-skip live tests without API key
     has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    if has_api_key:
+    if not has_api_key:
+        skip_live = pytest.mark.skip(reason="ANTHROPIC_API_KEY not set")
+        for item in items:
+            if "e2e_live" in item.keywords:
+                item.add_marker(skip_live)
+
+    # 2) Provider filter — deselect items not in the requested queue
+    selected_provider = config.getoption("--provider")
+    if not selected_provider or selected_provider == "all":
         return
-    skip_marker = pytest.mark.skip(reason="ANTHROPIC_API_KEY not set")
+
+    # The "multi" queue absorbs anything provider-agnostic ("other") too.
+    multi_buckets = {"multi", "other"}
+    keep, drop = [], []
     for item in items:
-        if "e2e_live" in item.keywords:
-            item.add_marker(skip_marker)
+        bucket = _provider_for_item(item)
+        if selected_provider == "multi":
+            matched = bucket in multi_buckets
+        else:
+            matched = bucket == selected_provider
+        if matched:
+            keep.append(item)
+        else:
+            drop.append(item)
+    if drop:
+        config.hook.pytest_deselected(items=drop)
+        items[:] = keep
 
 
 # ---------------------------------------------------------------------------
