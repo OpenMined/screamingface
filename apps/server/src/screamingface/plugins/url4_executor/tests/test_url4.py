@@ -642,7 +642,7 @@ async def test_resolve_backend_call_flattens_relurl_intent() -> None:
     node = Url4BackendCall(path="/claude", intent=Url4RelUrl(value="/data/abc"))
 
     with patch(
-        "screamingface.plugins.url4_executor.url4._fetch_relative",
+        "screamingface.plugins.url4_executor.url4_resolve._fetch_relative",
         new_callable=AsyncMock,
         return_value="user's question from the blob",
     ):
@@ -733,7 +733,7 @@ async def test_resolve_fanout_list_of_three_backend_calls() -> None:
 # Resolver tests (async — mock _fetch_url)
 # ---------------------------------------------------------------------------
 
-PATCH_TARGET = "screamingface.plugins.url4_executor.url4._fetch_url"
+PATCH_TARGET = "screamingface.plugins.url4_executor.url4_resolve._fetch_url"
 
 
 @pytest.mark.anyio

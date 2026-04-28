@@ -11,11 +11,8 @@ import logging
 from typing import Any
 
 from screamingface.plugins.url4_executor.decoder import split_intent
-from screamingface.plugins.url4_executor.url4 import (
-    _fetch_relative,
-    _fetch_url,
-    resolve_str,
-)
+from screamingface.plugins.url4_executor.url4 import resolve_str
+from screamingface.plugins.url4_executor.url4_resolve import _fetch_relative, _fetch_url
 
 logger = logging.getLogger(__name__)
 

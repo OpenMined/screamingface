@@ -226,7 +226,8 @@ class EnsembleInterpreter(Url4Interpreter):
         """
         from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
         from screamingface.plugins.url4_executor.interpreter import resolve_intent
-        from screamingface.plugins.url4_executor.url4 import Url4Text, _dispatch_backend_call
+        from screamingface.plugins.url4_executor.url4 import Url4Text
+        from screamingface.plugins.url4_executor.url4_resolve import _dispatch_backend_call
 
         with traced("url4.ensemble.resolve_intent"):
             reducer_instruction = await resolve_intent(raw_intent, self.app) if raw_intent else ""

@@ -65,7 +65,7 @@ def test_url4_list_with_strings(client: TestClient) -> None:
 
 def test_url4_list_with_url(client: TestClient) -> None:
     with patch(
-        "screamingface.plugins.url4_executor.url4._fetch_url",
+        "screamingface.plugins.url4_executor.url4_resolve._fetch_url",
         new_callable=AsyncMock,
         return_value="fetched data",
     ):
@@ -77,7 +77,7 @@ def test_url4_list_with_url(client: TestClient) -> None:
 
 def test_url4_nested(client: TestClient) -> None:
     with patch(
-        "screamingface.plugins.url4_executor.url4._fetch_url",
+        "screamingface.plugins.url4_executor.url4_resolve._fetch_url",
         new_callable=AsyncMock,
         return_value="from url",
     ):
@@ -104,7 +104,7 @@ def test_url4_ast_plain_string(client: TestClient) -> None:
 
 def test_url4_ast_list(client: TestClient) -> None:
     with patch(
-        "screamingface.plugins.url4_executor.url4._fetch_url",
+        "screamingface.plugins.url4_executor.url4_resolve._fetch_url",
         new_callable=AsyncMock,
         return_value="fetched",
     ):
