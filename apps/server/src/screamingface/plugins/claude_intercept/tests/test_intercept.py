@@ -974,13 +974,15 @@ class TestInterceptE2E:
             # Stub socket.getaddrinfo for DNS resolution
             patch("socket.getaddrinfo", return_value=fake_addr),
             # Prevent claude-frontend from starting a real server
-            patch("screamingface.plugins.claude_frontend.plugin.uvicorn.Config"),
+            # (uvicorn + _wait_for_port were moved to frontend_base.plugin_base
+            # during SF-135 — claude_frontend.plugin is now a thin subclass.)
+            patch("screamingface.plugins.frontend_base.plugin_base.uvicorn.Config"),
             patch(
-                "screamingface.plugins.claude_frontend.plugin.uvicorn.Server",
+                "screamingface.plugins.frontend_base.plugin_base.uvicorn.Server",
                 return_value=mock_server,
             ),
             patch(
-                "screamingface.plugins.claude_frontend.plugin._wait_for_port",
+                "screamingface.plugins.frontend_base.plugin_base._wait_for_port",
                 return_value=True,
             ),
         ):

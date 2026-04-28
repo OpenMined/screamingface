@@ -20,6 +20,10 @@ plugin only so other plugins can declare ``depends = ["frontend-base"]``.
 
 from __future__ import annotations
 
+from screamingface.plugins.frontend_base.plugin_base import (
+    FrontendPluginBase,
+    FrontendSettingsBase,
+)
 from screamingface.plugins.frontend_base.tracing import (
     ProxyTracer,
     make_tracer,
@@ -28,6 +32,8 @@ from screamingface.plugins.frontend_base.tracing import (
 )
 
 __all__ = [
+    "FrontendPluginBase",
+    "FrontendSettingsBase",
     "ProxyTracer",
     "make_tracer",
     "redact_headers",
