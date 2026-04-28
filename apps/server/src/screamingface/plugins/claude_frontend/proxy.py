@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import ssl
-from contextlib import nullcontext as _nullcontext
 from typing import TYPE_CHECKING, Any
 
 import certifi
@@ -56,55 +55,19 @@ _DEBUG_DUMP_ENV = "SF_PROXY_DEBUG_DUMP"
 _tracer = make_tracer(_PLUGIN_NAME)
 
 
-def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
-    return redact_headers(headers, _SENSITIVE_HEADERS)
-
-
-def _truncate(text: str, limit: int | None = None) -> str:
-    return truncate(text) if limit is None else truncate(text, limit=limit)
-
-
-def _get_tracer():  # type: ignore[no-untyped-def]
-    return _tracer._tracer  # type: ignore[attr-defined]
-
-
-def _set_span_attrs(attrs: dict[str, Any], span: Any = None) -> None:
-    _tracer.set_attrs(attrs, span=span)
-
-
-def _set_span_headers(prefix: str, headers: dict[str, str], span: Any = None) -> None:
-    _tracer.set_headers(prefix, headers, span=span)
-
-
-def _start_client_span(tracer, name: str):  # type: ignore[no-untyped-def]
-    from opentelemetry.trace import SpanKind
-
-    return tracer.start_as_current_span(name, kind=SpanKind.CLIENT)
-
-
-def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-def]
-    from opentelemetry.trace import SpanKind
-
-    return tracer.start_span(name, kind=SpanKind.CLIENT)
-
-
 def _record_trace_id(request: Request) -> str | None:
     """Extract x-sf-trace-id header and record it on the current span."""
     trace_id = request.headers.get("x-sf-trace-id")
-    if trace_id:
-        _tracer.record_trace_id(trace_id)
+    _tracer.record_trace_id(trace_id)
     return trace_id
 
 
 def _trace_request_context(body: dict[str, Any]) -> None:
     """Create child spans for each system block and message in the final request."""
-    tracer = _get_tracer()
-    if not tracer:
+    if not _tracer.enabled:
         return
 
-    _t = _truncate
-
-    _set_span_attrs(
+    _tracer.set_attrs(
         {
             "anthropic.model": body.get("model", "?"),
             "anthropic.max_tokens": body.get("max_tokens", 0),
@@ -119,58 +82,65 @@ def _trace_request_context(body: dict[str, Any]) -> None:
     system = body.get("system")
     if isinstance(system, list):
         for i, block in enumerate(system):
-            with tracer.start_as_current_span(f"system[{i}]") as span:
-                span.set_attribute("sf.plugin", _PLUGIN_NAME)
+            with _tracer.start_current_span(f"system[{i}]") as span:
                 if isinstance(block, dict):
-                    span.set_attribute("type", block.get("type", "?"))
                     text = block.get("text", "")
-                    span.set_attribute("text_length", len(text))
-                    span.set_attribute("text", _t(text, 1000))
+                    attrs: dict[str, Any] = {
+                        "type": block.get("type", "?"),
+                        "text_length": len(text),
+                        "text": truncate(text, limit=1000),
+                    }
                     if "cache_control" in block:
-                        span.set_attribute("cache_control", str(block["cache_control"]))
+                        attrs["cache_control"] = str(block["cache_control"])
+                    _tracer.set_attrs(attrs, span=span)
     elif isinstance(system, str):
-        with tracer.start_as_current_span("system") as span:
-            span.set_attribute("sf.plugin", _PLUGIN_NAME)
-            span.set_attribute("text_length", len(system))
-            span.set_attribute("text", _t(system, 1000))
+        with _tracer.start_current_span("system") as span:
+            _tracer.set_attrs(
+                {"text_length": len(system), "text": truncate(system, limit=1000)},
+                span=span,
+            )
 
     messages = body.get("messages", [])
     for i, msg in enumerate(messages):
         role = msg.get("role", "?")
-        with tracer.start_as_current_span(f"message[{i}] {role}") as span:
-            span.set_attribute("sf.plugin", _PLUGIN_NAME)
-            span.set_attribute("role", role)
+        with _tracer.start_current_span(f"message[{i}] {role}") as span:
+            _tracer.set_attrs({"role": role}, span=span)
             content = msg.get("content")
             if isinstance(content, str):
-                span.set_attribute("content_length", len(content))
-                span.set_attribute("content", _t(content, 1000))
+                _tracer.set_attrs(
+                    {"content_length": len(content), "content": truncate(content, limit=1000)},
+                    span=span,
+                )
             elif isinstance(content, list):
-                span.set_attribute("block_count", len(content))
+                _tracer.set_attrs({"block_count": len(content)}, span=span)
                 for j, block in enumerate(content):
                     btype = block.get("type", "?") if isinstance(block, dict) else "?"
-                    span.set_attribute(f"block[{j}].type", btype)
+                    block_attrs: dict[str, Any] = {f"block[{j}].type": btype}
                     if btype == "text":
                         text = block.get("text", "")
-                        span.set_attribute(f"block[{j}].text_length", len(text))
-                        span.set_attribute(f"block[{j}].text", _t(text, 1000))
+                        block_attrs[f"block[{j}].text_length"] = len(text)
+                        block_attrs[f"block[{j}].text"] = truncate(text, limit=1000)
                     elif btype == "thinking":
                         thinking = block.get("thinking", "")
-                        span.set_attribute(f"block[{j}].thinking_length", len(thinking))
-                        span.set_attribute(f"block[{j}].thinking", _t(thinking, 1000))
-                        span.set_attribute(f"block[{j}].has_signature", "signature" in block)
+                        block_attrs[f"block[{j}].thinking_length"] = len(thinking)
+                        block_attrs[f"block[{j}].thinking"] = truncate(thinking, limit=1000)
+                        block_attrs[f"block[{j}].has_signature"] = "signature" in block
                     elif btype == "tool_use":
-                        span.set_attribute(f"block[{j}].tool_name", block.get("name", "?"))
-                        span.set_attribute(f"block[{j}].tool_id", block.get("id", "?"))
+                        block_attrs[f"block[{j}].tool_name"] = block.get("name", "?")
+                        block_attrs[f"block[{j}].tool_id"] = block.get("id", "?")
                         inp = json.dumps(block.get("input", {}))
-                        span.set_attribute(f"block[{j}].input", _t(inp, 1000))
+                        block_attrs[f"block[{j}].input"] = truncate(inp, limit=1000)
                     elif btype == "tool_result":
-                        span.set_attribute(f"block[{j}].tool_use_id", block.get("tool_use_id", "?"))
-                        span.set_attribute(f"block[{j}].is_error", block.get("is_error", False))
+                        block_attrs[f"block[{j}].tool_use_id"] = block.get("tool_use_id", "?")
+                        block_attrs[f"block[{j}].is_error"] = block.get("is_error", False)
                         rc = block.get("content", "")
                         if isinstance(rc, str):
-                            span.set_attribute(f"block[{j}].content", _t(rc, 1000))
+                            block_attrs[f"block[{j}].content"] = truncate(rc, limit=1000)
                         elif isinstance(rc, list):
-                            span.set_attribute(f"block[{j}].content", _t(json.dumps(rc), 1000))
+                            block_attrs[f"block[{j}].content"] = truncate(
+                                json.dumps(rc), limit=1000
+                            )
+                    _tracer.set_attrs(block_attrs, span=span)
 
 
 def _parse_sse_response(raw: str) -> dict[str, Any] | None:
@@ -374,7 +344,7 @@ def create_router(
             service_url=session_service_url,
             hooks=hooks,
         )
-        body = await session.enrich(body, tracer=_get_tracer())
+        body = await session.enrich(body, tracer=_tracer)
 
         # Stage 2: url4 context injection (either path may short-circuit)
         raw_expression = plugin.get_active_expression() if plugin else None
@@ -387,11 +357,9 @@ def create_router(
                     settings=settings,
                     plugin=plugin,
                     app=app,
-                    tracer=_get_tracer(),
+                    tracer=_tracer,
                     last_user_text=last_user_text,
                     embed_context=_embed_context,
-                    _start_client_span=_start_client_span,
-                    _set_span_attrs=_set_span_attrs,
                 )
                 if short_circuit is not None:
                     return short_circuit
@@ -407,13 +375,14 @@ def create_router(
                 return short_circuit
 
         # Stage 3: trace the final body and forward to Anthropic
-        tracer = _get_tracer()
-        if tracer:
-            with tracer.start_as_current_span("anthropic.request_body") as body_span:
-                body_span.set_attribute("sf.plugin", _PLUGIN_NAME)
-                body_span.set_attribute(
-                    "description",
-                    "Final request body sent to Anthropic API (after url4 injection)",
+        if _tracer.enabled:
+            with _tracer.start_current_span("anthropic.request_body") as body_span:
+                _tracer.set_attrs(
+                    {
+                        "description": "Final request body sent to Anthropic API "
+                        "(after url4 injection)",
+                    },
+                    span=body_span,
                 )
                 _trace_request_context(body)
         else:
@@ -427,8 +396,8 @@ def create_router(
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
         trace_id = _record_trace_id(request)
 
-        _set_span_attrs({"request.body": _truncate(json.dumps(body))})
-        _set_span_headers("request.headers", _redact_headers(headers))
+        _tracer.set_attrs({"request.body": truncate(json.dumps(body))})
+        _tracer.set_headers("request.headers", redact_headers(headers, _SENSITIVE_HEADERS))
 
         is_streaming = body.get("stream", False)
         _maybe_dump_request(body)
@@ -453,7 +422,6 @@ def create_router(
                 body=body,
                 timeout=timeout,
                 ssl_ctx=ssl_ctx,
-                tracer=tracer,
                 trace_id=trace_id,
                 session=session,
             )
@@ -463,7 +431,6 @@ def create_router(
             body=body,
             timeout=timeout,
             ssl_ctx=ssl_ctx,
-            tracer=tracer,
             trace_id=trace_id,
             session=session,
         )
@@ -475,46 +442,49 @@ def create_router(
         url = f"{upstream_url}/v1/{path}"
         method = request.method
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
-        tracer = _get_tracer()
         trace_id = _record_trace_id(request)
         body = await request.body()
         kwargs: dict[str, Any] = {"headers": headers}
         if body:
             kwargs["content"] = body
 
-        _set_span_headers("request.headers", _redact_headers(headers))
+        _tracer.set_headers("request.headers", redact_headers(headers, _SENSITIVE_HEADERS))
         if body:
-            _set_span_attrs({"request.body": _truncate(body.decode(errors="replace"))})
+            _tracer.set_attrs({"request.body": truncate(body.decode(errors="replace"))})
 
-        if tracer:
-            with _start_client_span(tracer, f"{method} {url}") as span:
-                _set_span_attrs({"http.method": method, "http.url": url}, span)
+        if _tracer.enabled:
+            with _tracer.start_client_span(f"{method} {url}") as span:
+                _tracer.set_attrs({"http.method": method, "http.url": url}, span=span)
                 if trace_id:
-                    _set_span_attrs({"sf.trace_id": trace_id}, span)
-                _set_span_headers("request.headers", _redact_headers(headers), span)
+                    _tracer.set_attrs({"sf.trace_id": trace_id}, span=span)
+                _tracer.set_headers(
+                    "request.headers",
+                    redact_headers(headers, _SENSITIVE_HEADERS),
+                    span=span,
+                )
                 if body:
-                    _set_span_attrs(
-                        {"request.body": _truncate(body.decode(errors="replace"))},
-                        span,
+                    _tracer.set_attrs(
+                        {"request.body": truncate(body.decode(errors="replace"))},
+                        span=span,
                     )
                 async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                     resp = await client.request(method, url, **kwargs)
-                _set_span_attrs(
+                _tracer.set_attrs(
                     {
                         "http.status_code": resp.status_code,
-                        "response.body": _truncate(resp.text),
+                        "response.body": truncate(resp.text),
                     },
-                    span,
+                    span=span,
                 )
-                _set_span_headers("response.headers", dict(resp.headers), span)
+                _tracer.set_headers("response.headers", dict(resp.headers), span=span)
         else:
             async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                 resp = await client.request(method, url, **kwargs)
 
-        _set_span_attrs(
-            {"response.body": _truncate(resp.text), "http.status_code": resp.status_code}
+        _tracer.set_attrs(
+            {"response.body": truncate(resp.text), "http.status_code": resp.status_code}
         )
-        _set_span_headers("response.headers", dict(resp.headers))
+        _tracer.set_headers("response.headers", dict(resp.headers))
 
         content_type = resp.headers.get("content-type", "")
         if "text/event-stream" in content_type:
@@ -587,22 +557,20 @@ async def _forward_streaming(
     body: dict[str, Any],
     timeout: httpx.Timeout,
     ssl_ctx: ssl.SSLContext,
-    tracer: Any,
     trace_id: str | None,
     session: SessionHook,
 ) -> StreamingResponse:
     """Stream Anthropic's SSE response through, saving the session turn on completion."""
     client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
-    upstream_span = (
-        _start_client_span_detached(tracer, "anthropic.POST /v1/messages") if tracer else None
-    )
+    upstream_span = _tracer.start_client_span_detached("anthropic.POST /v1/messages")
     if upstream_span:
-        _set_span_attrs({"sf.plugin": _PLUGIN_NAME}, upstream_span)
-        _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
+        _tracer.set_attrs({"http.method": "POST", "http.url": url}, span=upstream_span)
         if trace_id:
-            _set_span_attrs({"sf.trace_id": trace_id}, upstream_span)
-        _set_span_headers("request.headers", _redact_headers(headers), upstream_span)
-        _set_span_attrs({"request.body": _truncate(json.dumps(body))}, upstream_span)
+            _tracer.set_attrs({"sf.trace_id": trace_id}, span=upstream_span)
+        _tracer.set_headers(
+            "request.headers", redact_headers(headers, _SENSITIVE_HEADERS), span=upstream_span
+        )
+        _tracer.set_attrs({"request.body": truncate(json.dumps(body))}, span=upstream_span)
         logger.info("TRACE: created upstream span %s", upstream_span.get_span_context().span_id)
 
     async def stream_response():
@@ -616,8 +584,8 @@ async def _forward_streaming(
                     resp.headers.get("content-type", "?"),
                 )
                 if upstream_span:
-                    _set_span_attrs({"http.status_code": resp.status_code}, upstream_span)
-                    _set_span_headers("response.headers", dict(resp.headers), upstream_span)
+                    _tracer.set_attrs({"http.status_code": resp.status_code}, span=upstream_span)
+                    _tracer.set_headers("response.headers", dict(resp.headers), span=upstream_span)
                 chunk_count = 0
                 async for chunk in resp.aiter_bytes():
                     chunk_count += 1
@@ -643,12 +611,12 @@ async def _forward_streaming(
             if chunks:
                 raw = b"".join(chunks).decode(errors="replace")
                 if upstream_span:
-                    _set_span_attrs({"response.body": _truncate(raw)}, upstream_span)
-                _set_span_attrs({"response.body": _truncate(raw)})
+                    _tracer.set_attrs({"response.body": truncate(raw)}, span=upstream_span)
+                _tracer.set_attrs({"response.body": truncate(raw)})
                 if session.enabled:
                     response_data = _parse_sse_response(raw)
                     if response_data:
-                        await session.save(response_data, streaming=True, tracer=_get_tracer())
+                        await session.save(response_data, streaming=True, tracer=_tracer)
             if upstream_span:
                 upstream_span.end()
             await client.aclose()
@@ -664,35 +632,35 @@ async def _forward_unary(
     body: dict[str, Any],
     timeout: httpx.Timeout,
     ssl_ctx: ssl.SSLContext,
-    tracer: Any,
     trace_id: str | None,
     session: SessionHook,
 ) -> JSONResponse:
     """Non-streaming POST, parse JSON, save session turn."""
-    span_ctx = _start_client_span(tracer, f"POST {url}") if tracer else _nullcontext()
-    with span_ctx as span:
-        if tracer and span:
-            _set_span_attrs({"http.method": "POST", "http.url": url}, span)
+    with _tracer.start_client_span(f"POST {url}") as span:
+        if span:
+            _tracer.set_attrs({"http.method": "POST", "http.url": url}, span=span)
             if trace_id:
-                _set_span_attrs({"sf.trace_id": trace_id}, span)
-            _set_span_headers("request.headers", _redact_headers(headers), span)
-            _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
+                _tracer.set_attrs({"sf.trace_id": trace_id}, span=span)
+            _tracer.set_headers(
+                "request.headers", redact_headers(headers, _SENSITIVE_HEADERS), span=span
+            )
+            _tracer.set_attrs({"request.body": truncate(json.dumps(body))}, span=span)
         async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
             resp = await client.post(url, json=body, headers=headers)
-        if tracer and span:
-            _set_span_attrs(
+        if span:
+            _tracer.set_attrs(
                 {
                     "http.status_code": resp.status_code,
-                    "response.body": _truncate(resp.text),
+                    "response.body": truncate(resp.text),
                 },
-                span,
+                span=span,
             )
-            _set_span_headers("response.headers", dict(resp.headers), span)
+            _tracer.set_headers("response.headers", dict(resp.headers), span=span)
 
-    _set_span_attrs({"response.body": _truncate(resp.text), "http.status_code": resp.status_code})
-    _set_span_headers("response.headers", dict(resp.headers))
+    _tracer.set_attrs({"response.body": truncate(resp.text), "http.status_code": resp.status_code})
+    _tracer.set_headers("response.headers", dict(resp.headers))
     logger.info("[E2E-TRACE] PROXY response status=%d", resp.status_code)
 
     response_data = resp.json()
-    await session.save(response_data, streaming=False, tracer=_get_tracer())
+    await session.save(response_data, streaming=False, tracer=_tracer)
     return JSONResponse(content=response_data, status_code=resp.status_code)

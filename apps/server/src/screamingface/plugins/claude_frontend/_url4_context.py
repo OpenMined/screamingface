@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import logging
 import traceback
-from contextlib import nullcontext as _nullcontext
 from typing import Any
 
 import httpx
@@ -91,15 +90,15 @@ async def _store_prompt_blob(
     app: Any,
     backend_url: str | None,
     tracer: Any,
-    _start_client_span: Any,
-    _set_span_attrs: Any,
 ) -> str:
-    """Store the user prompt text as a blob and return its key."""
+    """Store the user prompt text as a blob and return its key.
+
+    ``tracer`` is a :class:`frontend_base.ProxyTracer`.
+    """
     if backend_url:
         blob_url_target = f"{backend_url}/data"
-        blob_span_ctx = _start_client_span(tracer, "POST /data") if tracer else _nullcontext()
-        with blob_span_ctx:
-            _set_span_attrs({"http.method": "POST", "http.url": blob_url_target})
+        with tracer.start_client_span("POST /data"):
+            tracer.set_attrs({"http.method": "POST", "http.url": blob_url_target})
             async with httpx.AsyncClient(timeout=httpx.Timeout(30.0), verify=False) as dc:
                 blob_resp = await dc.post(
                     blob_url_target,
@@ -108,7 +107,7 @@ async def _store_prompt_blob(
                 )
                 blob_resp.raise_for_status()
                 blob_key = blob_resp.json()["key"]
-            _set_span_attrs(
+            tracer.set_attrs(
                 {
                     "http.status_code": blob_resp.status_code,
                     "data.key": blob_key,
@@ -127,15 +126,12 @@ async def _resolve_expression(
     app: Any,
     backend_url: str | None,
     tracer: Any,
-    _start_client_span: Any,
-    _set_span_attrs: Any,
 ) -> str:
     """Evaluate a url4 expression and return the final text."""
     if backend_url:
         ens_url = f"{backend_url}/ensemble"
-        ens_span_ctx = _start_client_span(tracer, "GET /ensemble") if tracer else _nullcontext()
-        with ens_span_ctx:
-            _set_span_attrs(
+        with tracer.start_client_span("GET /ensemble"):
+            tracer.set_attrs(
                 {
                     "http.method": "GET",
                     "http.url": ens_url,
@@ -146,7 +142,7 @@ async def _resolve_expression(
                 ens_resp = await ec.get(ens_url, params={"q": expression})
                 ens_resp.raise_for_status()
                 final_text = ens_resp.text
-            _set_span_attrs(
+            tracer.set_attrs(
                 {
                     "http.status_code": ens_resp.status_code,
                     "url4.result_length": len(final_text),
@@ -172,24 +168,25 @@ async def resolve_prompt_expression(
     tracer: Any,
     last_user_text: str,
     embed_context: Any,
-    _start_client_span: Any,
-    _set_span_attrs: Any,
 ) -> JSONResponse | None:
     """Substitute ``$prompt``, resolve, embed the result back into body.
 
-    Returns ``None`` on success (body mutated in place) or a
-    :class:`JSONResponse` if anything in the pipeline raises; the
-    proxy uses that return value to short-circuit with a fake-200
-    error response.
+    ``tracer`` is a :class:`frontend_base.ProxyTracer`. Returns ``None``
+    on success (body mutated in place) or a :class:`JSONResponse` if
+    anything in the pipeline raises; the proxy uses that return value
+    to short-circuit with a fake-200 error response.
     """
-    span_ctx = tracer.start_as_current_span("url4.$prompt") if tracer else _nullcontext()
     substituted: str | None = None
-    with span_ctx as prompt_span:
+    with tracer.start_current_span("url4.$prompt") as prompt_span:
         try:
             if prompt_span and prompt_span.is_recording():
-                prompt_span.set_attribute("sf.plugin", "claude-frontend")
-                prompt_span.set_attribute("url4.raw_expression", raw_expression)
-                prompt_span.set_attribute("url4.user_text_length", len(last_user_text))
+                tracer.set_attrs(
+                    {
+                        "url4.raw_expression": raw_expression,
+                        "url4.user_text_length": len(last_user_text),
+                    },
+                    span=prompt_span,
+                )
 
             backend_url = settings.backend_url.rstrip("/") if settings.backend_url else None
 
@@ -198,29 +195,35 @@ async def resolve_prompt_expression(
                 app=app,
                 backend_url=backend_url,
                 tracer=tracer,
-                _start_client_span=_start_client_span,
-                _set_span_attrs=_set_span_attrs,
             )
             blob_url = f"/data/{blob_key}"
             substituted = raw_expression.replace("$prompt", blob_url)
 
             if prompt_span and prompt_span.is_recording():
-                prompt_span.set_attribute("url4.blob_url", blob_url)
-                prompt_span.set_attribute("url4.substituted_expression", _truncate(substituted))
+                tracer.set_attrs(
+                    {
+                        "url4.blob_url": blob_url,
+                        "url4.substituted_expression": _truncate(substituted),
+                    },
+                    span=prompt_span,
+                )
 
             final_text = await _resolve_expression(
                 substituted,
                 app=app,
                 backend_url=backend_url,
                 tracer=tracer,
-                _start_client_span=_start_client_span,
-                _set_span_attrs=_set_span_attrs,
             )
 
             if prompt_span and prompt_span.is_recording():
-                prompt_span.set_attribute("url4.final_text_length", len(final_text))
-                prompt_span.set_attribute("url4.final_text_preview", _truncate(final_text, 1000))
-                prompt_span.set_attribute("url4.status", "ok")
+                tracer.set_attrs(
+                    {
+                        "url4.final_text_length": len(final_text),
+                        "url4.final_text_preview": _truncate(final_text, 1000),
+                        "url4.status": "ok",
+                    },
+                    span=prompt_span,
+                )
 
             if final_text:
                 embed_context(body, final_text, settings)

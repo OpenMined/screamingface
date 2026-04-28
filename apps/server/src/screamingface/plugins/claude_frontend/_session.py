@@ -77,7 +77,7 @@ class SessionHook:
             self.original_user_msg = last.copy() if isinstance(last, dict) else last
 
         enrich_ctx = (
-            tracer.start_as_current_span("session.enrich_request") if tracer else _nullcontext()
+            tracer.start_current_span("session.enrich_request") if tracer else _nullcontext()
         )
         with enrich_ctx:
             _record_session_attrs(self.session_id, self.service_url)
@@ -114,9 +114,7 @@ class SessionHook:
         if not self.enabled or response_data is None or self.original_user_msg is None:
             return
 
-        save_ctx = (
-            tracer.start_as_current_span("session.save_response") if tracer else _nullcontext()
-        )
+        save_ctx = tracer.start_current_span("session.save_response") if tracer else _nullcontext()
         with save_ctx:
             _record_session_attrs(self.session_id, self.service_url, streaming=streaming)
             try:
