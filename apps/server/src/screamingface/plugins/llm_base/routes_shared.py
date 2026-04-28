@@ -30,13 +30,16 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from screamingface.plugins.backend_api_base.models import RunRequest, RunResponse
+from screamingface.plugins.llm_base._route_telemetry import (
+    record_ignored_fields,
+    record_span_success,
+    record_url4_span,
+)
 from screamingface.plugins.llm_base.backend_base import Backend
 from screamingface.plugins.llm_base.constants import (
     CLI_ONLY_FIELD_DEFAULTS,
     CLI_ONLY_FIELDS,
     DEFAULT_MAX_TOKENS,
-    PROMPT_PREVIEW_LIMIT,
-    STDOUT_PREVIEW_LIMIT,
 )
 from screamingface.plugins.llm_base.errors import (
     AuthError,
@@ -147,7 +150,7 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
                 ),
             )
 
-        _record_ignored_fields(request, cfg.name)
+        record_ignored_fields(request, cfg.name)
 
         timeout = request.timeout_seconds or settings.timeout_seconds
         model = request.model or settings.default_model or cfg.default_model
@@ -187,7 +190,7 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
                 duration_seconds=round(duration, 3),
                 result=parsed,
             )
-            _record_span_success(result, duration, stdout, cfg.name, cfg.span_prefix)
+            record_span_success(result, duration, stdout, cfg.name, cfg.span_prefix)
             return JSONResponse(content=resp.model_dump(by_alias=True))
 
         except (CredentialNotFoundError, AuthError) as exc:
@@ -236,7 +239,7 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
                 detail=f"url4 evaluation failed: {exc}",
             ) from exc
 
-        _record_url4_span(q, result, cfg.name)
+        record_url4_span(q, result, cfg.name)
         return PlainTextResponse(content=result)
 
     async def _handle_profile(
@@ -375,82 +378,3 @@ def _reject_cli_only_fields(request: RunRequest, plugin_name: str) -> None:
             f"call the CLI-frontend plugin instead."
         ),
     )
-
-
-def _record_ignored_fields(request: RunRequest, plugin_name: str) -> None:
-    """Record which CLI-only fields were present on an OTEL span."""
-    try:
-        from opentelemetry import trace
-    except ImportError:
-        return
-
-    span = trace.get_current_span()
-    if not (span and span.is_recording()):
-        return
-
-    attr_prefix = plugin_name.replace("-", "_")
-    for field_name in CLI_ONLY_FIELDS:
-        value = getattr(request, field_name, None)
-        if value:  # truthy — non-empty list/str or True
-            span.set_attribute(f"{attr_prefix}.ignored_field.{field_name}", True)
-
-
-def _record_span_success(
-    result: CoreMessage,
-    duration: float,
-    stdout: str,
-    plugin_name: str,
-    span_prefix: str,
-) -> None:
-    """Record success-path attributes on the current OTEL span."""
-    try:
-        from opentelemetry import trace
-    except ImportError:
-        return
-
-    span = trace.get_current_span()
-    if not (span and span.is_recording()):
-        return
-
-    span.set_attribute("sf.plugin", plugin_name)
-    span.set_attribute(f"{span_prefix}.exit_code", 0)
-    span.set_attribute(f"{span_prefix}.duration_seconds", round(duration, 3))
-    span.set_attribute(f"{span_prefix}.stdout_length", len(stdout))
-    preview = stdout[:STDOUT_PREVIEW_LIMIT]
-    if len(stdout) > STDOUT_PREVIEW_LIMIT:
-        preview += f"\n... ({len(stdout) - STDOUT_PREVIEW_LIMIT} more chars)"
-    span.set_attribute(f"{span_prefix}.stdout_preview", preview)
-
-    if result.provider_metadata:
-        for key, value in result.provider_metadata.items():
-            try:
-                span.set_attribute(key, _otel_attr_value(value))
-            except Exception:
-                pass
-
-
-def _record_url4_span(q: str, result: str, plugin_name: str) -> None:
-    """Record url4-endpoint attributes on the current OTEL span."""
-    try:
-        from opentelemetry import trace
-    except ImportError:
-        return
-
-    span = trace.get_current_span()
-    if not (span and span.is_recording()):
-        return
-
-    span.set_attribute("sf.plugin", plugin_name)
-    span.set_attribute("url4.expression", q[:500])
-    span.set_attribute("url4.result_length", len(result))
-    preview = result[:PROMPT_PREVIEW_LIMIT]
-    if len(result) > PROMPT_PREVIEW_LIMIT:
-        preview += f"\n... ({len(result) - PROMPT_PREVIEW_LIMIT} more chars)"
-    span.set_attribute("url4.response_body", preview)
-
-
-def _otel_attr_value(value: Any) -> Any:
-    """Coerce a value to something OTEL spans accept."""
-    if isinstance(value, str | bool | int | float):
-        return value
-    return json.dumps(value)
