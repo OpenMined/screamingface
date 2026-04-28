@@ -58,6 +58,36 @@ def extract_system_text(system: str | list | None) -> str | None:
     return joined or None
 
 
+def serialize_tool_output(output: object) -> str:
+    """Stringify a :class:`ToolResultPart.output` for providers that expect a string.
+
+    String outputs are passed through unchanged; everything else is
+    JSON-encoded. Used by claude (Anthropic ``tool_result.content``)
+    and codex (OpenAI Responses ``function_call_output.output``).
+    """
+    import json as _json
+
+    if isinstance(output, str):
+        return output
+    return _json.dumps(output)
+
+
+def parts_to_text(parts: object, *, separator: str = "") -> str:
+    """Concatenate every ``TextPart.text`` in *parts*, dropping non-text parts.
+
+    Used by adapters when converting a ``CoreMessage.content`` list to
+    a flat string for providers that don't accept content-block arrays
+    (e.g. Codex's user content shorthand).
+    """
+    if not parts:
+        return ""
+    chunks: list[str] = []
+    for part in parts:  # type: ignore[union-attr]
+        if isinstance(part, TextPart):
+            chunks.append(part.text)
+    return separator.join(chunks)
+
+
 def collect_provider_metadata(
     source: dict,
     keys: tuple[str, ...],

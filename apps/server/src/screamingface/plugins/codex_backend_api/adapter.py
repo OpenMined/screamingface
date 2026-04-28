@@ -30,6 +30,8 @@ from screamingface.plugins.llm_base.adapter_base import (
     Adapter,
     collect_provider_metadata,
     extract_system_text,
+    parts_to_text,
+    serialize_tool_output,
 )
 from screamingface.plugins.llm_base.errors import AdapterError
 from screamingface.plugins.llm_base.messages import (
@@ -208,12 +210,11 @@ class OpenAIResponsesAdapter(Adapter):
                     if text:
                         items.append({"role": "user", "content": text})
                 for tr in tool_results:
-                    output = tr.output if isinstance(tr.output, str) else json.dumps(tr.output)
                     items.append(
                         {
                             "type": "function_call_output",
                             "call_id": tr.tool_call_id,
-                            "output": output,
+                            "output": serialize_tool_output(tr.output),
                         }
                     )
                 return items if items else None
@@ -244,13 +245,10 @@ class OpenAIResponsesAdapter(Adapter):
         text = self._parts_to_text(msg.content)
         return {"role": msg.role, "content": text} if text else None
 
-    def _parts_to_text(self, parts: list) -> str:
+    @staticmethod
+    def _parts_to_text(parts: list) -> str:
         """Extract concatenated text from a list of content parts."""
-        chunks = []
-        for part in parts:
-            if isinstance(part, TextPart):
-                chunks.append(part.text)
-        return "".join(chunks)
+        return parts_to_text(parts)
 
     def _tool_to_openai(self, tool: ToolDefinition) -> dict[str, Any]:
         """Translate a ToolDefinition to OpenAI's function-wrapped shape."""
