@@ -24,7 +24,9 @@ import httpx
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from screamingface.plugins.claude_frontend._observability import trace_request_context
 from screamingface.plugins.claude_frontend._session import SessionHook
+from screamingface.plugins.claude_frontend._sse import parse_sse_response
 from screamingface.plugins.claude_frontend._url4_context import (
     resolve_prompt_expression,
     resolve_static_context,
@@ -63,157 +65,8 @@ def _record_trace_id(request: Request) -> str | None:
 
 
 def _trace_request_context(body: dict[str, Any]) -> None:
-    """Create child spans for each system block and message in the final request."""
-    if not _tracer.enabled:
-        return
-
-    _tracer.set_attrs(
-        {
-            "anthropic.model": body.get("model", "?"),
-            "anthropic.max_tokens": body.get("max_tokens", 0),
-            "anthropic.stream": body.get("stream", False),
-            "anthropic.system_block_count": len(body.get("system", []))
-            if isinstance(body.get("system"), list)
-            else (1 if body.get("system") else 0),
-            "anthropic.message_count": len(body.get("messages", [])),
-        }
-    )
-
-    system = body.get("system")
-    if isinstance(system, list):
-        for i, block in enumerate(system):
-            with _tracer.start_current_span(f"system[{i}]") as span:
-                if isinstance(block, dict):
-                    text = block.get("text", "")
-                    attrs: dict[str, Any] = {
-                        "type": block.get("type", "?"),
-                        "text_length": len(text),
-                        "text": truncate(text, limit=1000),
-                    }
-                    if "cache_control" in block:
-                        attrs["cache_control"] = str(block["cache_control"])
-                    _tracer.set_attrs(attrs, span=span)
-    elif isinstance(system, str):
-        with _tracer.start_current_span("system") as span:
-            _tracer.set_attrs(
-                {"text_length": len(system), "text": truncate(system, limit=1000)},
-                span=span,
-            )
-
-    messages = body.get("messages", [])
-    for i, msg in enumerate(messages):
-        role = msg.get("role", "?")
-        with _tracer.start_current_span(f"message[{i}] {role}") as span:
-            _tracer.set_attrs({"role": role}, span=span)
-            content = msg.get("content")
-            if isinstance(content, str):
-                _tracer.set_attrs(
-                    {"content_length": len(content), "content": truncate(content, limit=1000)},
-                    span=span,
-                )
-            elif isinstance(content, list):
-                _tracer.set_attrs({"block_count": len(content)}, span=span)
-                for j, block in enumerate(content):
-                    btype = block.get("type", "?") if isinstance(block, dict) else "?"
-                    block_attrs: dict[str, Any] = {f"block[{j}].type": btype}
-                    if btype == "text":
-                        text = block.get("text", "")
-                        block_attrs[f"block[{j}].text_length"] = len(text)
-                        block_attrs[f"block[{j}].text"] = truncate(text, limit=1000)
-                    elif btype == "thinking":
-                        thinking = block.get("thinking", "")
-                        block_attrs[f"block[{j}].thinking_length"] = len(thinking)
-                        block_attrs[f"block[{j}].thinking"] = truncate(thinking, limit=1000)
-                        block_attrs[f"block[{j}].has_signature"] = "signature" in block
-                    elif btype == "tool_use":
-                        block_attrs[f"block[{j}].tool_name"] = block.get("name", "?")
-                        block_attrs[f"block[{j}].tool_id"] = block.get("id", "?")
-                        inp = json.dumps(block.get("input", {}))
-                        block_attrs[f"block[{j}].input"] = truncate(inp, limit=1000)
-                    elif btype == "tool_result":
-                        block_attrs[f"block[{j}].tool_use_id"] = block.get("tool_use_id", "?")
-                        block_attrs[f"block[{j}].is_error"] = block.get("is_error", False)
-                        rc = block.get("content", "")
-                        if isinstance(rc, str):
-                            block_attrs[f"block[{j}].content"] = truncate(rc, limit=1000)
-                        elif isinstance(rc, list):
-                            block_attrs[f"block[{j}].content"] = truncate(
-                                json.dumps(rc), limit=1000
-                            )
-                    _tracer.set_attrs(block_attrs, span=span)
-
-
-def _parse_sse_response(raw: str) -> dict[str, Any] | None:
-    """Reconstruct an Anthropic Messages response from SSE stream data."""
-    response: dict[str, Any] = {}
-    content_blocks: list[dict[str, Any]] = []
-    current_block: dict[str, Any] = {}
-
-    for line in raw.split("\n"):
-        line = line.strip()
-        if not line.startswith("data: "):
-            continue
-        data_str = line[6:]
-        if data_str == "[DONE]":
-            break
-        try:
-            event = json.loads(data_str)
-        except json.JSONDecodeError:
-            continue
-
-        etype = event.get("type")
-        if etype == "message_start":
-            msg = event.get("message", {})
-            response.update(
-                {
-                    "id": msg.get("id"),
-                    "type": msg.get("type", "message"),
-                    "role": msg.get("role", "assistant"),
-                    "model": msg.get("model"),
-                    "usage": msg.get("usage", {}),
-                }
-            )
-        elif etype == "content_block_start":
-            current_block = dict(event.get("content_block", {}))
-        elif etype == "content_block_delta":
-            delta = event.get("delta", {})
-            dtype = delta.get("type")
-            if dtype == "text_delta":
-                current_block.setdefault("text", "")
-                current_block["text"] += delta.get("text", "")
-            elif dtype == "thinking_delta":
-                current_block.setdefault("thinking", "")
-                current_block["thinking"] += delta.get("thinking", "")
-            elif dtype == "signature_delta":
-                current_block.setdefault("signature", "")
-                current_block["signature"] += delta.get("signature", "")
-            elif dtype == "input_json_delta":
-                current_block.setdefault("_input_json", "")
-                current_block["_input_json"] += delta.get("partial_json", "")
-        elif etype == "content_block_stop":
-            if "_input_json" in current_block:
-                try:
-                    current_block["input"] = json.loads(current_block.pop("_input_json"))
-                except json.JSONDecodeError:
-                    current_block["input"] = {}
-                    current_block.pop("_input_json", None)
-            content_blocks.append(current_block)
-            current_block = {}
-        elif etype == "message_delta":
-            delta = event.get("delta", {})
-            if "stop_reason" in delta:
-                response["stop_reason"] = delta["stop_reason"]
-            usage = event.get("usage", {})
-            if usage:
-                existing_usage = response.get("usage", {})
-                existing_usage.update(usage)
-                response["usage"] = existing_usage
-
-    if not response:
-        return None
-
-    response["content"] = content_blocks
-    return response
+    """Thin wrapper preserving the existing call site name."""
+    trace_request_context(body, _tracer)
 
 
 def _extract_last_user_text(messages: list[dict[str, Any]]) -> str | None:
@@ -614,7 +467,7 @@ async def _forward_streaming(
                     _tracer.set_attrs({"response.body": truncate(raw)}, span=upstream_span)
                 _tracer.set_attrs({"response.body": truncate(raw)})
                 if session.enabled:
-                    response_data = _parse_sse_response(raw)
+                    response_data = parse_sse_response(raw)
                     if response_data:
                         await session.save(response_data, streaming=True, tracer=_tracer)
             if upstream_span:
