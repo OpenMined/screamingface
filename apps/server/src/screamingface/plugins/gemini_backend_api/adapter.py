@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from screamingface.plugins.llm_base.adapter_base import Adapter
+from screamingface.plugins.llm_base.adapter_base import Adapter, extract_system_text
 from screamingface.plugins.llm_base.errors import AdapterError
 from screamingface.plugins.llm_base.messages import (
     CoreMessage,
@@ -126,10 +126,9 @@ class GeminiAdapter(Adapter):
             provider_metadata=provider_metadata or None,
         )
 
-    def _extract_text(self, msg: CoreMessage) -> str:
-        if isinstance(msg.content, str):
-            return msg.content
-        return "\n\n".join(p.text for p in msg.content if isinstance(p, TextPart))
+    @staticmethod
+    def _extract_text(msg: CoreMessage) -> str:
+        return extract_system_text(msg.content) or ""
 
     def _message_to_gemini(self, msg: CoreMessage) -> dict[str, Any] | None:
         # Gemini uses "user" and "model" roles

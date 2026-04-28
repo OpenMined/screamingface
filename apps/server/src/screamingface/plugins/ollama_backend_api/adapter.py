@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from screamingface.plugins.llm_base.adapter_base import Adapter
+from screamingface.plugins.llm_base.adapter_base import Adapter, collect_provider_metadata
 from screamingface.plugins.llm_base.errors import AdapterError
 from screamingface.plugins.llm_base.messages import (
     ContentPart,
@@ -130,10 +130,9 @@ class OllamaAdapter(Adapter):
             "eval_count",
             "eval_duration",
         )
-        provider_metadata: dict[str, Any] = {}
-        for key in metadata_keys:
-            if key in data and data[key] is not None:
-                provider_metadata[f"ollama.{key}"] = data[key]
+        provider_metadata = collect_provider_metadata(
+            data, metadata_keys, prefix="ollama", skip_none=True
+        )
 
         return CoreMessage(
             role="assistant",
