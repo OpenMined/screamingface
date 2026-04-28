@@ -85,12 +85,15 @@ def _mock_frontend_server():
     mock_server.serve = _noop_serve
     return (
         patch("shutil.which", return_value="/usr/bin/claude"),
-        patch("screamingface.plugins.claude_frontend.plugin.uvicorn.Config"),
+        patch("screamingface.plugins.frontend_base.plugin_base.uvicorn.Config"),
         patch(
-            "screamingface.plugins.claude_frontend.plugin.uvicorn.Server",
+            "screamingface.plugins.frontend_base.plugin_base.uvicorn.Server",
             return_value=mock_server,
         ),
-        patch("screamingface.plugins.claude_frontend.plugin._wait_for_port", return_value=True),
+        patch(
+            "screamingface.plugins.frontend_base.plugin_base._wait_for_port",
+            return_value=True,
+        ),
     )
 
 
