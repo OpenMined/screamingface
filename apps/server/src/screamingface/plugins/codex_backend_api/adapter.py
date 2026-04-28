@@ -26,7 +26,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from screamingface.plugins.llm_base.adapter_base import Adapter
+from screamingface.plugins.llm_base.adapter_base import (
+    Adapter,
+    collect_provider_metadata,
+    extract_system_text,
+)
 from screamingface.plugins.llm_base.errors import AdapterError
 from screamingface.plugins.llm_base.messages import (
     CoreMessage,
@@ -164,11 +168,9 @@ class OpenAIResponsesAdapter(Adapter):
                     )
                 )
 
-        # Provider metadata
-        provider_metadata: dict[str, Any] = {}
-        for key in ("id", "model", "usage"):
-            if key in data:
-                provider_metadata[f"openai.{key}"] = data[key]
+        provider_metadata = collect_provider_metadata(
+            data, ("id", "model", "usage"), prefix="openai"
+        )
         status = data.get("status")
         if status:
             provider_metadata["openai.status"] = status
@@ -183,15 +185,10 @@ class OpenAIResponsesAdapter(Adapter):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _extract_system_text(self, msg: CoreMessage) -> str:
+    @staticmethod
+    def _extract_system_text(msg: CoreMessage) -> str:
         """Flatten a system CoreMessage into a plain string."""
-        if isinstance(msg.content, str):
-            return msg.content
-        chunks = []
-        for part in msg.content:
-            if isinstance(part, TextPart):
-                chunks.append(part.text)
-        return "\n\n".join(chunks)
+        return extract_system_text(msg.content) or ""
 
     def _message_to_responses(
         self, msg: CoreMessage

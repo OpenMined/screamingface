@@ -58,7 +58,13 @@ def extract_system_text(system: str | list | None) -> str | None:
     return joined or None
 
 
-def collect_provider_metadata(source: dict, keys: tuple[str, ...], *, prefix: str) -> dict:
+def collect_provider_metadata(
+    source: dict,
+    keys: tuple[str, ...],
+    *,
+    prefix: str,
+    skip_none: bool = False,
+) -> dict:
     """Pull the listed ``keys`` from ``source`` into a provider-prefixed dict.
 
     Used by adapters to propagate vendor-specific response fields
@@ -66,11 +72,19 @@ def collect_provider_metadata(source: dict, keys: tuple[str, ...], *, prefix: st
     :class:`CoreMessage`'s ``provider_metadata``. Keys not present in
     ``source`` are skipped. The returned dict has ``f"{prefix}.{key}"``
     entries so consumers can disambiguate across providers.
+
+    Pass ``skip_none=True`` to also drop keys whose value is ``None``
+    (Ollama's response carries explicit ``None`` for fields that
+    weren't filled in for that response shape).
     """
     out: dict = {}
     for key in keys:
-        if key in source:
-            out[f"{prefix}.{key}"] = source[key]
+        if key not in source:
+            continue
+        value = source[key]
+        if skip_none and value is None:
+            continue
+        out[f"{prefix}.{key}"] = value
     return out
 
 

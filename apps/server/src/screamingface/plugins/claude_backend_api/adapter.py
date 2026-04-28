@@ -32,7 +32,11 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from screamingface.plugins.llm_base.adapter_base import Adapter
+from screamingface.plugins.llm_base.adapter_base import (
+    Adapter,
+    collect_provider_metadata,
+    extract_system_text,
+)
 from screamingface.plugins.llm_base.errors import AdapterError
 from screamingface.plugins.llm_base.messages import (
     CoreMessage,
@@ -191,10 +195,11 @@ class AnthropicAdapter(Adapter):
 
         # Carry over the Anthropic-level metadata as provider_metadata on
         # the returned message. Useful for observability downstream.
-        provider_metadata: dict[str, Any] = {}
-        for key in ("id", "model", "stop_reason", "stop_sequence", "usage"):
-            if key in data:
-                provider_metadata[f"anthropic.{key}"] = data[key]
+        provider_metadata = collect_provider_metadata(
+            data,
+            ("id", "model", "stop_reason", "stop_sequence", "usage"),
+            prefix="anthropic",
+        )
 
         return CoreMessage(
             role="assistant",
@@ -219,19 +224,10 @@ class AnthropicAdapter(Adapter):
                     return part.text
         return ""
 
-    def _extract_system_text(self, msg: CoreMessage) -> str:
-        """Flatten a system CoreMessage into a plain string.
-
-        Anthropic's ``system`` field is a string or a list of text blocks;
-        we use the string form for simplicity.
-        """
-        if isinstance(msg.content, str):
-            return msg.content
-        chunks = []
-        for part in msg.content:
-            if isinstance(part, TextPart):
-                chunks.append(part.text)
-        return "\n\n".join(chunks)
+    @staticmethod
+    def _extract_system_text(msg: CoreMessage) -> str:
+        """Flatten a system CoreMessage into a plain string."""
+        return extract_system_text(msg.content) or ""
 
     def _message_to_anthropic(self, msg: CoreMessage) -> dict[str, Any]:
         """Translate a single non-system CoreMessage to Anthropic shape."""
