@@ -22,8 +22,14 @@ from screamingface.plugins.backend_api_base.models import (
     RunRequest,
     RunResponse,
 )
+from screamingface.plugins.backend_api_base.plugin_base import (
+    BackendApiPluginBase,
+    BackendApiSettingsBase,
+)
 
 __all__ = [
+    "BackendApiPluginBase",
+    "BackendApiSettingsBase",
     "BackendProfile",
     "FileInput",
     "RunRequest",
