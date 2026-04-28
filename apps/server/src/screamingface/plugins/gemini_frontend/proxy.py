@@ -19,7 +19,7 @@ import httpx
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from screamingface.plugins.frontend_base import make_tracer, redact_headers, truncate
+from screamingface.plugins.frontend_base import make_tracer, truncate
 
 logger = logging.getLogger(__name__)
 
@@ -39,18 +39,6 @@ _SENSITIVE_HEADERS = {"authorization", "x-goog-api-key"}
 _PLUGIN_NAME = "gemini-frontend"
 
 _tracer = make_tracer(_PLUGIN_NAME)
-
-
-def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
-    return redact_headers(headers, _SENSITIVE_HEADERS)
-
-
-def _truncate(text: str, limit: int | None = None) -> str:
-    return truncate(text) if limit is None else truncate(text, limit=limit)
-
-
-def _set_span_attrs(attrs: dict[str, Any]) -> None:
-    _tracer.set_attrs(attrs)
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +154,7 @@ def create_router(
         method = request.method
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
 
-        _set_span_attrs({"http.url": url, "http.method": method})
+        _tracer.set_attrs({"http.url": url, "http.method": method})
 
         if method == "GET":
             async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
@@ -312,10 +300,10 @@ def create_router(
             async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                 resp = await client.post(url, json=body, headers=headers)
 
-            _set_span_attrs(
+            _tracer.set_attrs(
                 {
                     "http.status_code": resp.status_code,
-                    "response.body": _truncate(resp.text),
+                    "response.body": truncate(resp.text),
                 }
             )
 

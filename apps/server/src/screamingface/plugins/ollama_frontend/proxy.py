@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from contextlib import nullcontext as _nullcontext
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -32,55 +31,20 @@ _PLUGIN_NAME = "ollama-frontend"
 _tracer = make_tracer(_PLUGIN_NAME)
 
 
-def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
-    return redact_headers(headers, _SENSITIVE_HEADERS)
-
-
-def _truncate(text: str, limit: int | None = None) -> str:
-    return truncate(text) if limit is None else truncate(text, limit=limit)
-
-
-def _get_tracer():  # type: ignore[no-untyped-def]
-    return _tracer._tracer  # type: ignore[attr-defined]
-
-
-def _set_span_attrs(attrs: dict[str, Any], span: Any = None) -> None:
-    _tracer.set_attrs(attrs, span=span)
-
-
-def _set_span_headers(prefix: str, headers: dict[str, str], span: Any = None) -> None:
-    _tracer.set_headers(prefix, headers, span=span)
-
-
-def _start_client_span(tracer, name: str):  # type: ignore[no-untyped-def]
-    from opentelemetry.trace import SpanKind
-
-    return tracer.start_as_current_span(name, kind=SpanKind.CLIENT)
-
-
-def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-def]
-    from opentelemetry.trace import SpanKind
-
-    return tracer.start_span(name, kind=SpanKind.CLIENT)
-
-
 def _record_trace_id(request: Request) -> str | None:
     trace_id = request.headers.get("x-sf-trace-id")
-    if trace_id:
-        _tracer.record_trace_id(trace_id)
+    _tracer.record_trace_id(trace_id)
     return trace_id
 
 
 def _trace_request_context(body: dict[str, Any]) -> None:
     """Record request-level attributes and per-message child spans."""
-    tracer = _get_tracer()
-    if not tracer:
+    if not _tracer.enabled:
         return
 
-    _t = _truncate
     messages = body.get("messages", [])
 
-    _set_span_attrs(
+    _tracer.set_attrs(
         {
             "ollama.model": body.get("model", "?"),
             "ollama.stream": body.get("stream", True),
@@ -91,17 +55,18 @@ def _trace_request_context(body: dict[str, Any]) -> None:
 
     for i, msg in enumerate(messages):
         role = msg.get("role", "?") if isinstance(msg, dict) else "?"
-        with tracer.start_as_current_span(f"message[{i}] {role}") as span:
-            span.set_attribute("sf.plugin", _PLUGIN_NAME)
-            span.set_attribute("role", role)
+        with _tracer.start_current_span(f"message[{i}] {role}") as span:
+            _tracer.set_attrs({"role": role}, span=span)
             if isinstance(msg, dict):
                 content = msg.get("content", "")
                 if isinstance(content, str):
-                    span.set_attribute("content_length", len(content))
-                    span.set_attribute("content", _t(content, 1000))
+                    _tracer.set_attrs(
+                        {"content_length": len(content), "content": truncate(content, limit=1000)},
+                        span=span,
+                    )
                 tool_calls = msg.get("tool_calls") or []
                 if tool_calls:
-                    span.set_attribute("tool_calls_count", len(tool_calls))
+                    _tracer.set_attrs({"tool_calls_count": len(tool_calls)}, span=span)
 
 
 def _parse_ndjson_response(raw: str) -> dict[str, Any] | None:
@@ -231,12 +196,8 @@ def create_router(
             msgs = body.get("messages", [])
             if msgs:
                 original_user_msg = msgs[-1].copy() if isinstance(msgs[-1], dict) else msgs[-1]
-            tracer = _get_tracer()
-            enrich_ctx = (
-                tracer.start_as_current_span("session.enrich_request") if tracer else _nullcontext()
-            )
-            with enrich_ctx:
-                _set_span_attrs(
+            with _tracer.start_current_span("session.enrich_request"):
+                _tracer.set_attrs(
                     {"session.id": session_id, "session.service_url": session_service_url}
                 )
                 try:
@@ -252,7 +213,7 @@ def create_router(
                             body = result
                             modified = True
                             break
-                    _set_span_attrs({"session.modified": modified})
+                    _tracer.set_attrs({"session.modified": modified})
                 except Exception:
                     logger.warning("Session enrichment failed for %s", session_id, exc_info=True)
 
@@ -263,12 +224,8 @@ def create_router(
             messages = body.get("messages", [])
             last_user_text = _extract_last_user_text(messages)
             if last_user_text:
-                tracer = _get_tracer()
-                span_ctx = (
-                    tracer.start_as_current_span("url4.$prompt") if tracer else _nullcontext()
-                )
                 substituted = raw_expression  # fallback for error formatting
-                with span_ctx as prompt_span:
+                with _tracer.start_current_span("url4.$prompt") as prompt_span:
                     try:
                         if prompt_span and prompt_span.is_recording():
                             prompt_span.set_attribute("sf.plugin", _PLUGIN_NAME)
@@ -318,11 +275,11 @@ def create_router(
                         if prompt_span and prompt_span.is_recording():
                             prompt_span.set_attribute("url4.blob_url", blob_url)
                             prompt_span.set_attribute(
-                                "url4.substituted_expression", _truncate(substituted)
+                                "url4.substituted_expression", truncate(substituted)
                             )
                             prompt_span.set_attribute("url4.final_text_length", len(final_text))
                             prompt_span.set_attribute(
-                                "url4.final_text_preview", _truncate(final_text, 1000)
+                                "url4.final_text_preview", truncate(final_text, 1000)
                             )
                             prompt_span.set_attribute("url4.status", "ok")
 
@@ -347,8 +304,8 @@ def create_router(
                         spec_name = settings.active_spec or "unknown"
                         error_text = (
                             f"[url4 error] Resolution failed for spec '{spec_name}'\n\n"
-                            f"Expression: {_truncate(raw_expression, 200)}\n"
-                            f"Substituted: {_truncate(substituted, 200)}\n\n"
+                            f"Expression: {truncate(raw_expression, 200)}\n"
+                            f"Substituted: {truncate(substituted, 200)}\n\n"
                             f"Error: {exc.__class__.__name__}: {exc}\n\n"
                             f"Traceback:\n{tb_str}"
                         )
@@ -371,7 +328,7 @@ def create_router(
                 spec_name = settings.active_spec or "unknown"
                 error_text = (
                     f"[url4 error] Static context resolution failed for spec '{spec_name}'\n\n"
-                    f"Expression: {_truncate(raw_expression, 200)}\n\n"
+                    f"Expression: {truncate(raw_expression, 200)}\n\n"
                     f"Error: {exc.__class__.__name__}: {exc}\n\n"
                     f"Traceback:\n{tb_str}"
                 )
@@ -393,12 +350,11 @@ def create_router(
                 )
 
         # Trace the FINAL request body
-        tracer = _get_tracer()
-        if tracer:
-            with tracer.start_as_current_span("ollama.request_body") as body_span:
-                body_span.set_attribute("sf.plugin", _PLUGIN_NAME)
-                body_span.set_attribute(
-                    "description", "Final request body sent to Ollama (after url4 injection)"
+        if _tracer.enabled:
+            with _tracer.start_current_span("ollama.request_body") as body_span:
+                _tracer.set_attrs(
+                    {"description": "Final request body sent to Ollama (after url4 injection)"},
+                    span=body_span,
                 )
                 _trace_request_context(body)
         else:
@@ -412,8 +368,8 @@ def create_router(
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
         trace_id = _record_trace_id(request)
 
-        _set_span_attrs({"request.body": _truncate(json.dumps(body))})
-        _set_span_headers("request.headers", _redact_headers(headers))
+        _tracer.set_attrs({"request.body": truncate(json.dumps(body))})
+        _tracer.set_headers("request.headers", redact_headers(headers, _SENSITIVE_HEADERS))
 
         # Ollama defaults stream=true when not specified
         is_streaming = body.get("stream", True)
@@ -427,24 +383,29 @@ def create_router(
 
         if is_streaming:
             client = httpx.AsyncClient(timeout=timeout)
-            upstream_span = (
-                _start_client_span_detached(tracer, "ollama.POST /api/chat") if tracer else None
-            )
+            upstream_span = _tracer.start_client_span_detached("ollama.POST /api/chat")
             if upstream_span:
-                _set_span_attrs({"sf.plugin": _PLUGIN_NAME}, upstream_span)
-                _set_span_attrs({"http.method": "POST", "http.url": url}, upstream_span)
+                _tracer.set_attrs({"http.method": "POST", "http.url": url}, span=upstream_span)
                 if trace_id:
-                    _set_span_attrs({"sf.trace_id": trace_id}, upstream_span)
-                _set_span_headers("request.headers", _redact_headers(headers), upstream_span)
-                _set_span_attrs({"request.body": _truncate(json.dumps(body))}, upstream_span)
+                    _tracer.set_attrs({"sf.trace_id": trace_id}, span=upstream_span)
+                _tracer.set_headers(
+                    "request.headers",
+                    redact_headers(headers, _SENSITIVE_HEADERS),
+                    span=upstream_span,
+                )
+                _tracer.set_attrs({"request.body": truncate(json.dumps(body))}, span=upstream_span)
 
             async def stream_response():
                 chunks: list[bytes] = []
                 try:
                     async with client.stream("POST", url, json=body, headers=headers) as resp:
                         if upstream_span:
-                            _set_span_attrs({"http.status_code": resp.status_code}, upstream_span)
-                            _set_span_headers("response.headers", dict(resp.headers), upstream_span)
+                            _tracer.set_attrs(
+                                {"http.status_code": resp.status_code}, span=upstream_span
+                            )
+                            _tracer.set_headers(
+                                "response.headers", dict(resp.headers), span=upstream_span
+                            )
                         async for chunk in resp.aiter_bytes():
                             chunks.append(chunk)
                             yield chunk
@@ -455,21 +416,15 @@ def create_router(
                     if chunks:
                         raw = b"".join(chunks).decode(errors="replace")
                         if upstream_span:
-                            _set_span_attrs({"response.body": _truncate(raw)}, upstream_span)
-                        _set_span_attrs({"response.body": _truncate(raw)})
+                            _tracer.set_attrs({"response.body": truncate(raw)}, span=upstream_span)
+                        _tracer.set_attrs({"response.body": truncate(raw)})
 
                         # Session save
                         if session_id and session_service_url and hooks and original_user_msg:
                             response_data = _parse_ndjson_response(raw)
                             if response_data:
-                                save_tracer = _get_tracer()
-                                save_ctx = (
-                                    save_tracer.start_as_current_span("session.save_response")
-                                    if save_tracer
-                                    else _nullcontext()
-                                )
-                                with save_ctx:
-                                    _set_span_attrs(
+                                with _tracer.start_current_span("session.save_response"):
+                                    _tracer.set_attrs(
                                         {
                                             "session.id": session_id,
                                             "session.service_url": session_service_url,
@@ -498,39 +453,35 @@ def create_router(
             return StreamingResponse(stream_response(), media_type="application/x-ndjson")
 
         # Non-streaming
-        if tracer:
-            with _start_client_span(tracer, f"POST {url}") as span:
-                _set_span_attrs({"http.method": "POST", "http.url": url}, span)
+        if _tracer.enabled:
+            with _tracer.start_client_span(f"POST {url}") as span:
+                _tracer.set_attrs({"http.method": "POST", "http.url": url}, span=span)
                 if trace_id:
-                    _set_span_attrs({"sf.trace_id": trace_id}, span)
-                _set_span_headers("request.headers", _redact_headers(headers), span)
-                _set_span_attrs({"request.body": _truncate(json.dumps(body))}, span)
+                    _tracer.set_attrs({"sf.trace_id": trace_id}, span=span)
+                _tracer.set_headers(
+                    "request.headers", redact_headers(headers, _SENSITIVE_HEADERS), span=span
+                )
+                _tracer.set_attrs({"request.body": truncate(json.dumps(body))}, span=span)
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     resp = await client.post(url, json=body, headers=headers)
-                _set_span_attrs(
-                    {"http.status_code": resp.status_code, "response.body": _truncate(resp.text)},
-                    span,
+                _tracer.set_attrs(
+                    {"http.status_code": resp.status_code, "response.body": truncate(resp.text)},
+                    span=span,
                 )
-                _set_span_headers("response.headers", dict(resp.headers), span)
+                _tracer.set_headers("response.headers", dict(resp.headers), span=span)
         else:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(url, json=body, headers=headers)
 
-        _set_span_attrs(
-            {"response.body": _truncate(resp.text), "http.status_code": resp.status_code}
+        _tracer.set_attrs(
+            {"response.body": truncate(resp.text), "http.status_code": resp.status_code}
         )
-        _set_span_headers("response.headers", dict(resp.headers))
+        _tracer.set_headers("response.headers", dict(resp.headers))
 
         response_data = resp.json()
         if session_id and session_service_url and hooks and original_user_msg:
-            save_tracer = _get_tracer()
-            save_ctx = (
-                save_tracer.start_as_current_span("session.save_response")
-                if save_tracer
-                else _nullcontext()
-            )
-            with save_ctx:
-                _set_span_attrs(
+            with _tracer.start_current_span("session.save_response"):
+                _tracer.set_attrs(
                     {
                         "session.id": session_id,
                         "session.service_url": session_service_url,

@@ -36,45 +36,9 @@ _PLUGIN_NAME = "codex-frontend"
 _tracer = make_tracer(_PLUGIN_NAME)
 
 
-def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
-    return redact_headers(headers, _SENSITIVE_HEADERS)
-
-
-def _truncate(text: str, limit: int | None = None) -> str:
-    return truncate(text) if limit is None else truncate(text, limit=limit)
-
-
-def _get_tracer():  # type: ignore[no-untyped-def]
-    # Back-compat shim — returns the underlying OTEL tracer handle for
-    # callers that still use start_as_current_span directly.
-    return _tracer._tracer  # type: ignore[attr-defined]
-
-
-def _set_span_attrs(attrs: dict[str, Any], span: Any = None) -> None:
-    _tracer.set_attrs(attrs, span=span)
-
-
-def _set_span_headers(prefix: str, headers: dict[str, str], span: Any = None) -> None:
-    _tracer.set_headers(prefix, headers, span=span)
-
-
-def _start_client_span(tracer, name: str):  # type: ignore[no-untyped-def]
-    # Preserved signature for callers that pass in a tracer from _get_tracer().
-    from opentelemetry.trace import SpanKind
-
-    return tracer.start_as_current_span(name, kind=SpanKind.CLIENT)
-
-
-def _start_client_span_detached(tracer, name: str):  # type: ignore[no-untyped-def]
-    from opentelemetry.trace import SpanKind
-
-    return tracer.start_span(name, kind=SpanKind.CLIENT)
-
-
 def _record_trace_id(request: Request) -> str | None:
     trace_id = request.headers.get("x-sf-trace-id")
-    if trace_id:
-        _tracer.record_trace_id(trace_id)
+    _tracer.record_trace_id(trace_id)
     return trace_id
 
 
@@ -368,8 +332,8 @@ def create_router(
         timeout = httpx.Timeout(connect=10.0, read=600.0, write=10.0, pool=10.0)
 
         _record_trace_id(request)
-        _set_span_attrs({"request.body": _truncate(json.dumps(body))})
-        _set_span_headers("request.headers", _redact_headers(headers))
+        _tracer.set_attrs({"request.body": truncate(json.dumps(body))})
+        _tracer.set_headers("request.headers", redact_headers(headers, _SENSITIVE_HEADERS))
 
         is_streaming = body.get("stream", False)
 
@@ -382,17 +346,16 @@ def create_router(
 
         if is_streaming:
             client = httpx.AsyncClient(timeout=timeout, verify=ssl_ctx)
-            tracer = _get_tracer()
-            upstream_span = (
-                _start_client_span_detached(tracer, "openai.POST /v1/responses") if tracer else None
-            )
+            upstream_span = _tracer.start_client_span_detached("openai.POST /v1/responses")
 
             async def stream_response():
                 chunks: list[bytes] = []
                 try:
                     async with client.stream("POST", url, json=body, headers=headers) as resp:
                         if upstream_span:
-                            _set_span_attrs({"http.status_code": resp.status_code}, upstream_span)
+                            _tracer.set_attrs(
+                                {"http.status_code": resp.status_code}, span=upstream_span
+                            )
                         async for chunk in resp.aiter_bytes():
                             chunks.append(chunk)
                             yield chunk
@@ -402,7 +365,7 @@ def create_router(
                 finally:
                     if chunks:
                         raw = b"".join(chunks).decode(errors="replace")
-                        _set_span_attrs({"response.body": _truncate(raw)})
+                        _tracer.set_attrs({"response.body": truncate(raw)})
 
                         if session_id and session_service_url and hooks and original_user_msg:
                             response_data = _parse_sse_response(raw)
@@ -431,9 +394,9 @@ def create_router(
             async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                 resp = await client.post(url, json=body, headers=headers)
 
-            _set_span_attrs(
+            _tracer.set_attrs(
                 {
-                    "response.body": _truncate(resp.text),
+                    "response.body": truncate(resp.text),
                     "http.status_code": resp.status_code,
                 }
             )
