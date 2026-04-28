@@ -12,6 +12,8 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from screamingface.plugins.frontend_base import make_tracer, redact_headers, truncate
+from screamingface.plugins.ollama_frontend._ndjson import parse_ndjson_response
+from screamingface.plugins.ollama_frontend._observability import trace_request_context
 
 logger = logging.getLogger(__name__)
 
@@ -38,69 +40,8 @@ def _record_trace_id(request: Request) -> str | None:
 
 
 def _trace_request_context(body: dict[str, Any]) -> None:
-    """Record request-level attributes and per-message child spans."""
-    if not _tracer.enabled:
-        return
-
-    messages = body.get("messages", [])
-
-    _tracer.set_attrs(
-        {
-            "ollama.model": body.get("model", "?"),
-            "ollama.stream": body.get("stream", True),
-            "ollama.messages_count": len(messages),
-            "ollama.has_tools": bool(body.get("tools")),
-        }
-    )
-
-    for i, msg in enumerate(messages):
-        role = msg.get("role", "?") if isinstance(msg, dict) else "?"
-        with _tracer.start_current_span(f"message[{i}] {role}") as span:
-            _tracer.set_attrs({"role": role}, span=span)
-            if isinstance(msg, dict):
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    _tracer.set_attrs(
-                        {"content_length": len(content), "content": truncate(content, limit=1000)},
-                        span=span,
-                    )
-                tool_calls = msg.get("tool_calls") or []
-                if tool_calls:
-                    _tracer.set_attrs({"tool_calls_count": len(tool_calls)}, span=span)
-
-
-def _parse_ndjson_response(raw: str) -> dict[str, Any] | None:
-    """Reconstruct a single Ollama /api/chat response from NDJSON stream.
-
-    Concatenates ``message.content`` across chunks; keeps the final chunk's
-    metadata (model, created_at, done_reason, usage fields).
-    """
-    final: dict[str, Any] = {}
-    content_acc = ""
-    role = "assistant"
-
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        msg = event.get("message") or {}
-        if isinstance(msg, dict):
-            role = msg.get("role", role)
-            content_acc += msg.get("content", "") or ""
-
-        if event.get("done"):
-            final = dict(event)
-
-    if not final:
-        return None
-
-    final["message"] = {"role": role, "content": content_acc}
-    return final
+    """Thin wrapper preserving the existing call site name."""
+    trace_request_context(body, _tracer)
 
 
 def _extract_last_user_text(messages: list[dict[str, Any]]) -> str | None:
@@ -421,7 +362,7 @@ def create_router(
 
                         # Session save
                         if session_id and session_service_url and hooks and original_user_msg:
-                            response_data = _parse_ndjson_response(raw)
+                            response_data = parse_ndjson_response(raw)
                             if response_data:
                                 with _tracer.start_current_span("session.save_response"):
                                     _tracer.set_attrs(
