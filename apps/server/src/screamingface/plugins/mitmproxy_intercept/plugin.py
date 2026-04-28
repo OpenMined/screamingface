@@ -13,9 +13,7 @@ import json
 import logging
 import os
 import re
-import shlex
 import shutil
-import signal
 import subprocess
 import threading
 import time
@@ -27,11 +25,13 @@ from pydantic_settings import SettingsConfigDict
 
 from screamingface.core.frontend import FRONTENDS_FILE, FrontendRegistry
 from screamingface.plugin import Plugin, PluginSettings
+from screamingface.plugins.mitmproxy_intercept._cleanup import cleanup_stale, clear_intercept
+from screamingface.plugins.mitmproxy_intercept._macos_keychain import ensure_ca_trusted
+from screamingface.plugins.mitmproxy_intercept._sudo import sudo_popen
 from screamingface.plugins.mitmproxy_intercept.state import (
     MitmproxyState,
     clear_state,
     is_stale,
-    load_state,
     now_iso,
     save_state,
 )
@@ -156,7 +156,7 @@ class MitmproxyInterceptPlugin(Plugin):
         if is_stale():
             if settings.auto_cleanup:
                 logger.warning("Stale mitmproxy intercept state detected — auto-cleaning...")
-                _cleanup_stale()
+                cleanup_stale()
             else:
                 return False, (
                     "Stale mitmproxy intercept state detected "
@@ -176,11 +176,11 @@ class MitmproxyInterceptPlugin(Plugin):
         settings: MitmproxyInterceptSettings = self.settings  # type: ignore[assignment]
 
         # 0. Clear any stale intercept from a previous unclean shutdown
-        _clear_intercept()
+        clear_intercept()
 
         # 1. Trust mitmproxy CA in system keychain (macOS, one-time)
         if settings.trust_ca:
-            _ensure_ca_trusted(settings.mitmproxy_ca_cert)
+            ensure_ca_trusted(settings.mitmproxy_ca_cert)
 
         # 2. Resolve explicit rules → {domain: {host, port, scheme}}
         server_port = app.state.config.server.port
@@ -242,7 +242,7 @@ class MitmproxyInterceptPlugin(Plugin):
 
         # 9. Start mitmproxy subprocess (requires root for --mode local)
         logger.info("Starting mitmproxy: %s", " ".join(cmd))
-        self._process = _sudo_popen(
+        self._process = sudo_popen(
             cmd,
             env=env,
             stdout=subprocess.PIPE,
@@ -310,125 +310,3 @@ class MitmproxyInterceptPlugin(Plugin):
         self._process = None
         clear_state()
         logger.info("Mitmproxy stopped")
-
-
-def _sudo_run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-    """Run a command with elevated privileges via macOS system password dialog."""
-    import platform
-
-    if platform.system() == "Darwin":
-        escaped = " ".join(shlex.quote(c) for c in cmd)
-        result = subprocess.run(
-            [
-                "osascript",
-                "-e",
-                f'do shell script "{escaped}" with administrator privileges',
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if check and result.returncode != 0:
-            raise subprocess.CalledProcessError(
-                result.returncode, cmd, result.stdout, result.stderr
-            )
-        return result
-    else:
-        return subprocess.run(["sudo", *cmd], capture_output=True, text=True, check=check)
-
-
-def _sudo_popen(cmd: list[str], **kwargs: object) -> subprocess.Popen:
-    """Start a long-running process with elevated privileges.
-
-    On macOS, first obtains sudo credentials via the system password dialog,
-    then uses sudo to launch the process.
-    """
-    import platform
-
-    if platform.system() == "Darwin":
-        # Prompt for credentials via the GUI dialog using a harmless command
-        _sudo_run(["/usr/bin/true"])
-        # Now sudo has cached credentials; launch the actual process with sudo
-        return subprocess.Popen(["sudo", *cmd], **kwargs)  # type: ignore[arg-type]
-    else:
-        return subprocess.Popen(["sudo", *cmd], **kwargs)  # type: ignore[arg-type]
-
-
-def _ensure_ca_trusted(ca_cert_path: str) -> None:
-    """Trust mitmproxy CA in macOS system keychain (idempotent)."""
-    import platform
-
-    if platform.system() != "Darwin":
-        return
-
-    ca_cert = Path(ca_cert_path).expanduser()
-    if not ca_cert.exists():
-        return
-
-    # Check if already trusted by looking for the cert in the system keychain
-    result = subprocess.run(
-        ["security", "find-certificate", "-c", "mitmproxy", "/Library/Keychains/System.keychain"],
-        capture_output=True,
-    )
-    if result.returncode == 0:
-        logger.debug("Mitmproxy CA already trusted in system keychain")
-        return
-
-    logger.info("Trusting mitmproxy CA in system keychain...")
-    _sudo_run(
-        [
-            "security",
-            "add-trusted-cert",
-            "-d",
-            "-p",
-            "ssl",
-            "-p",
-            "basic",
-            "-k",
-            "/Library/Keychains/System.keychain",
-            str(ca_cert),
-        ]
-    )
-    logger.info("Mitmproxy CA trusted")
-
-
-def _cleanup_stale() -> None:
-    """Clean up leftover state from a crashed mitmproxy process."""
-    state = load_state()
-    if state is None:
-        return
-    logger.info("Cleaning up stale mitmproxy process (PID %d)", state.pid)
-    try:
-        os.kill(state.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass  # already dead or not ours
-    _clear_intercept()
-    clear_state()
-
-
-def _clear_intercept() -> None:
-    """Clear the macOS local-redirect intercept so traffic flows normally.
-
-    The mitmproxy redirector app (Network Extension) persists independently
-    of the mitmdump process.  If mitmdump crashes or is killed without a
-    clean shutdown, the extension keeps redirecting traffic into a void.
-    This function connects to the existing redirector app and sets an empty
-    intercept spec, restoring normal traffic flow.
-    """
-    import asyncio
-
-    async def _do_clear() -> None:
-        from mitmproxy_rs.local import start_local_redirector
-
-        async def _noop(_stream: object) -> None:
-            pass
-
-        redirector = await start_local_redirector(_noop, _noop)
-        redirector.set_intercept("")
-        # Don't close — mitmproxy keeps the redirector app alive to avoid
-        # re-triggering the macOS approval dialog on next start.
-
-    try:
-        asyncio.run(_do_clear())
-        logger.info("Cleared stale mitmproxy intercept")
-    except Exception:
-        logger.debug("Could not clear mitmproxy intercept", exc_info=True)
