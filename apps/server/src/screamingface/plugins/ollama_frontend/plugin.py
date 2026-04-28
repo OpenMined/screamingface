@@ -30,7 +30,7 @@ class OllamaFrontendSettings(FrontendSettingsBase):
     )
 
     upstream_url: str = "http://localhost:11434"
-    listen_port: int = 9103
+    listen_port: int = 9104
     default_backend_path: str = "/ollama"
     # Ollama frontend prefers system-prompt injection as the default
     # because its default chat template treats messages[0] specially.
