@@ -15,7 +15,7 @@ from screamingface.core.config import AppConfig
 # Helpers
 # ---------------------------------------------------------------------------
 
-_FETCH_PATCH = "screamingface.plugins.url4_executor.url4._fetch_url"
+_FETCH_PATCH = "screamingface.plugins.url4_executor.url4_resolve._fetch_url"
 _INTENT_FETCH_PATCH = "screamingface.plugins.url4_executor.interpreter._fetch_url"
 
 

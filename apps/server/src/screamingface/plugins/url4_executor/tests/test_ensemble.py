@@ -531,7 +531,7 @@ class TestCollectionIteration:
         collection_body = '{"q":"Q1"}\n{"q":"Q2"}\n{"q":"Q3"}'
 
         with patch(
-            "screamingface.plugins.url4_executor.url4._fetch_url",
+            "screamingface.plugins.url4_executor.url4_resolve._fetch_url",
             new_callable=AsyncMock,
             return_value=collection_body,
         ):

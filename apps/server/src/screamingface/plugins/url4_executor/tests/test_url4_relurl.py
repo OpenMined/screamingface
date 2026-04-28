@@ -22,8 +22,8 @@ from screamingface.plugins.url4_executor.url4 import (
     resolve_str,
 )
 
-_FETCH_URL = "screamingface.plugins.url4_executor.url4._fetch_url"
-_FETCH_REL = "screamingface.plugins.url4_executor.url4._fetch_relative"
+_FETCH_URL = "screamingface.plugins.url4_executor.url4_resolve._fetch_url"
+_FETCH_REL = "screamingface.plugins.url4_executor.url4_resolve._fetch_relative"
 
 # ---------------------------------------------------------------------------
 # Parsing — Url4RelUrl

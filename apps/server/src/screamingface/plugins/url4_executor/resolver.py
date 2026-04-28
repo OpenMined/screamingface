@@ -9,4 +9,4 @@ from __future__ import annotations
 from screamingface.plugins.url4_executor.interpreter import (  # noqa: F401
     resolve_intent as _resolve_intent,
 )
-from screamingface.plugins.url4_executor.url4 import _fetch_relative  # noqa: F401
+from screamingface.plugins.url4_executor.url4_resolve import _fetch_relative  # noqa: F401
