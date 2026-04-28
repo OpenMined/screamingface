@@ -36,6 +36,7 @@ from screamingface.plugins.llm_base.adapter_base import (
     Adapter,
     collect_provider_metadata,
     extract_system_text,
+    serialize_tool_output,
 )
 from screamingface.plugins.llm_base.errors import AdapterError
 from screamingface.plugins.llm_base.messages import (
@@ -272,19 +273,12 @@ class AnthropicAdapter(Adapter):
                 "input": part.input,
             }
         if isinstance(part, ToolResultPart):
-            # Anthropic tool_result content can be a string or a list of
-            # content blocks. We send strings for simplicity; if the
-            # output is a dict we JSON-encode it.
-            import json as _json
-
-            if isinstance(part.output, str):
-                content: Any = part.output
-            else:
-                content = _json.dumps(part.output)
+            # Anthropic tool_result.content is a string for non-string
+            # outputs we JSON-encode (shared helper).
             block: dict[str, Any] = {
                 "type": "tool_result",
                 "tool_use_id": part.tool_call_id,
-                "content": content,
+                "content": serialize_tool_output(part.output),
             }
             if part.is_error:
                 block["is_error"] = True
