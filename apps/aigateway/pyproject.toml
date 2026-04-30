@@ -1,0 +1,45 @@
+[project]
+name = "aigateway"
+version = "0.1.0"
+description = "LiteLLM-compatible AI gateway: unified OpenAI-shape API in front of Anthropic / OpenAI / Gemini / Ollama"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "httpx>=0.28",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "litellm>=1.55",
+]
+
+[project.scripts]
+aigateway = "aigateway.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aigateway"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "src/aigateway"]
+markers = [
+    "live: tests hitting real upstream providers (skipped in CI)",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "pytest-asyncio>=0.24",
+    "pyright>=1.1.393",
+    "ruff>=0.8",
+    "httpx>=0.28",
+]
