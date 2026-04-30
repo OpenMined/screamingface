@@ -12,8 +12,11 @@ def test_healthz() -> None:
     assert resp.json() == {"status": "ok"}
 
 
-def test_models_empty_when_no_plugins() -> None:
+def test_models_lists_loaded_providers() -> None:
     client = TestClient(create_app())
     resp = client.get("/v1/models")
     assert resp.status_code == 200
-    assert resp.json() == {"object": "list", "data": []}
+    body = resp.json()
+    assert body["object"] == "list"
+    owners = {entry["owned_by"] for entry in body["data"]}
+    assert "anthropic" in owners
