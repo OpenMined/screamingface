@@ -142,3 +142,53 @@ def test_callback_with_unknown_state_400(client_with_index) -> None:
         params={"code": "x", "state": "never-issued"},
     )
     assert resp.status_code == 400
+
+
+def test_status_returns_pending_then_authenticated(client_with_index) -> None:
+    client, _ = client_with_index
+    client.app.state.anthropic_http_factory = _mock_token_factory()
+
+    start = client.post("/v1/auth/anthropic/profiles", json={"name": "x"})
+    state = start.json()["state"]
+
+    s1 = client.get("/v1/auth/anthropic/profiles/x/status").json()
+    assert s1["state"] == "pending"
+
+    client.get("/v1/auth/anthropic/callback", params={"code": "c", "state": state})
+
+    s2 = client.get("/v1/auth/anthropic/profiles/x/status").json()
+    assert s2["state"] == "authenticated"
+
+
+def test_patch_updates_defaults(client_with_index) -> None:
+    client, _ = client_with_index
+    client.app.state.anthropic_http_factory = _mock_token_factory()
+
+    start = client.post("/v1/auth/anthropic/profiles", json={"name": "y"})
+    client.get("/v1/auth/anthropic/callback", params={"code": "c", "state": start.json()["state"]})
+
+    resp = client.patch(
+        "/v1/auth/anthropic/profiles/y",
+        json={"defaults": {"model": "anthropic/claude-opus-4-7", "max_tokens": 8192}},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["defaults"]["model"] == "anthropic/claude-opus-4-7"
+    assert body["defaults"]["max_tokens"] == 8192
+
+
+def test_delete_removes_profile_and_tokens(client_with_index) -> None:
+    client, fake_keychain = client_with_index
+    client.app.state.anthropic_http_factory = _mock_token_factory()
+
+    start = client.post("/v1/auth/anthropic/profiles", json={"name": "z"})
+    client.get("/v1/auth/anthropic/callback", params={"code": "c", "state": start.json()["state"]})
+
+    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+    assert fake_keychain.read(keychain_service_for("z"), "default") is not None
+
+    resp = client.delete("/v1/auth/anthropic/profiles/z")
+    assert resp.status_code == 204
+    assert fake_keychain.read(keychain_service_for("z"), "default") is None
+    g = client.get("/v1/auth/anthropic/profiles/z")
+    assert g.status_code == 404
