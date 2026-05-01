@@ -6,8 +6,9 @@ from fastapi import FastAPI
 
 from .config import Settings
 from .core.loader import load_plugins
+from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
-from .routes import chat, health, models
+from .routes import auth, chat, health, models
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +22,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     registry = ProviderRegistry()
     load_plugins(registry)
     app.state.providers = registry
+    app.state.profile_index = ProfileIndexStore()
 
     for plugin in registry.all():
         auth_router = plugin.auth_router()
         if auth_router is not None:
             app.include_router(auth_router, prefix=f"/v1/auth/{plugin.custom_llm_provider}")
 
+    app.include_router(auth.router)
     app.include_router(health.router)
     app.include_router(models.router)
     app.include_router(chat.router)
