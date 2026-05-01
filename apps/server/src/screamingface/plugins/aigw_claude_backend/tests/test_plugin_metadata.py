@@ -18,13 +18,14 @@ def test_plugin_dependency_chain() -> None:
     assert "backend-api-base" in AigwClaudeBackendPlugin.depends
 
 
-def test_plugin_no_conflicts() -> None:
-    """aigw-claude-backend coexists with claude-backend-api."""
-    assert AigwClaudeBackendPlugin.conflicts == []
+def test_plugin_conflicts_with_legacy_claude_backend() -> None:
+    """aigw-claude-backend takes over /claude, so it must not coexist with the legacy direct-API plugin."""
+    assert AigwClaudeBackendPlugin.conflicts == ["claude-backend-api"]
 
 
-def test_backend_call_paths() -> None:
-    assert AigwClaudeBackendPlugin.backend_call_paths == ["/aigw-claude"]
+def test_backend_call_paths_owns_canonical_claude_path() -> None:
+    """Same path as claude-backend-api so url4 specs route through the gateway transparently."""
+    assert AigwClaudeBackendPlugin.backend_call_paths == ["/claude"]
 
 
 def test_default_settings() -> None:

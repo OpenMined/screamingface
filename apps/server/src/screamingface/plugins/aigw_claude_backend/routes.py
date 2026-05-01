@@ -36,7 +36,7 @@ def create_router(settings: AigwClaudeBackendSettings, app: Any = None) -> APIRo
     return build_backend_api_router(
         BackendApiConfig(
             name="aigw-claude-backend",
-            path_prefix="/aigw-claude",
+            path_prefix="/claude",
             default_model=_DEFAULT_MODEL,
             backend=backend,
             settings=settings,

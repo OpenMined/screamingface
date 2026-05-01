@@ -41,12 +41,18 @@ class AigwClaudeBackendSettings(AigwBackendApiSettingsBase):
 class AigwClaudeBackendPlugin(AigwBackendApiPluginBase):
     name = "aigw-claude-backend"
     description = (
-        "Claude routed through the local AI Gateway (apps/aigateway/). "
-        "Drop-in alternative to claude-backend-api: same /aigw-claude routes, "
-        "but auth + refresh + adapter live in the gateway, and multiple "
-        "OAuth profiles are supported via the gateway's X-Profile header."
+        "Claude served at /claude via the local AI Gateway (apps/aigateway/). "
+        "Drop-in replacement for claude-backend-api: same routes and url4 "
+        "contract, but auth + refresh + adapter live in the gateway, and "
+        "multiple OAuth profiles are supported via the gateway's X-Profile "
+        "header. Mutually exclusive with claude-backend-api — only one can "
+        "own /claude at a time."
     )
-    backend_call_paths: list[str] = ["/aigw-claude"]
+    # Same path as claude-backend-api so url4 specs (e.g. cat-breeds-3sources)
+    # work unchanged. The conflict below ensures only one Claude backend is
+    # ever active.
+    backend_call_paths: list[str] = ["/claude"]
+    conflicts: list[str] = ["claude-backend-api"]
     settings_class = AigwClaudeBackendSettings
-    schema_link_base = "/aigw-claude/"
+    schema_link_base = "/claude/"
     create_router = staticmethod(create_router)

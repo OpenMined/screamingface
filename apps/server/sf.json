@@ -17,7 +17,6 @@
     "llm-base",
     "frontend-base",
     "backend-api-base",
-    "claude-backend-api",
     "codex-backend-api",
     "gemini-backend-api",
     "ollama-backend-api",
