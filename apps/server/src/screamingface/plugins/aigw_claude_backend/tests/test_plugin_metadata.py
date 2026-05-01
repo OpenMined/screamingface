@@ -12,6 +12,13 @@ def test_plugin_name_is_canonical() -> None:
     assert AigwClaudeBackendPlugin.name == "aigw-claude-backend"
 
 
+def test_plugin_grouped_under_claude_product_tag() -> None:
+    """UI groups by `product:` tag — claude backends belong with the legacy
+    claude-backend-api in the 'claude' category, not 'aigw'."""
+    assert "product:claude" in AigwClaudeBackendPlugin.tags
+    assert "product:aigw" not in AigwClaudeBackendPlugin.tags
+
+
 def test_plugin_dependency_chain() -> None:
     assert "aigw-base" in AigwClaudeBackendPlugin.depends
     assert "llm-base" in AigwClaudeBackendPlugin.depends

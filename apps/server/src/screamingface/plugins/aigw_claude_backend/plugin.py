@@ -48,6 +48,10 @@ class AigwClaudeBackendPlugin(AigwBackendApiPluginBase):
         "header. Mutually exclusive with claude-backend-api — only one can "
         "own /claude at a time."
     )
+    # Categorize under "claude" in the UI (same group as claude-backend-api),
+    # not under "aigw" — users think in terms of the upstream model, not the
+    # transport layer.
+    tags: list[str] = ["product:claude"]
     # Same path as claude-backend-api so url4 specs (e.g. cat-breeds-3sources)
     # work unchanged. The conflict below ensures only one Claude backend is
     # ever active.
