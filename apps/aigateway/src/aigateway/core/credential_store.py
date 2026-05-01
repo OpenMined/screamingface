@@ -36,6 +36,9 @@ class CredentialStore(ABC):
     @abstractmethod
     def write(self, service: str, account: str, value: str) -> None: ...
 
+    @abstractmethod
+    def delete(self, service: str, account: str) -> None: ...
+
 
 class MacOSKeychainStore(CredentialStore):
     def read(self, service: str, account: str) -> str | None:
@@ -91,6 +94,24 @@ class MacOSKeychainStore(CredentialStore):
                 f"{result.stderr.strip() or '<no stderr>'}"
             )
 
+    def delete(self, service: str, account: str) -> None:
+        try:
+            result = subprocess.run(
+                ["security", "delete-generic-password", "-s", service, "-a", account],
+                capture_output=True, text=True, timeout=5,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError("`security` command not found") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"`security delete` timed out for service={service!r}") from exc
+        if result.returncode == 44:
+            return  # already absent — idempotent
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"`security delete-generic-password` failed exit {result.returncode}: "
+                f"{result.stderr.strip() or '<no stderr>'}"
+            )
+
 
 class LinuxLibsecretStore(CredentialStore):
     def read(self, service: str, account: str) -> str | None:
@@ -142,6 +163,19 @@ class LinuxLibsecretStore(CredentialStore):
                 f"{result.stderr.strip() or '<no stderr>'}"
             )
 
+    def delete(self, service: str, account: str) -> None:
+        if shutil.which("secret-tool") is None:
+            raise RuntimeError("`secret-tool` not found")
+        try:
+            subprocess.run(
+                ["secret-tool", "clear", "service", service, "account", account],
+                check=True, timeout=5, capture_output=True,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("`secret-tool clear` timed out") from exc
+        except subprocess.CalledProcessError:
+            return  # idempotent
+
 
 class WindowsCredentialManagerStore(CredentialStore):
     def read(self, service: str, account: str) -> str | None:
@@ -169,6 +203,15 @@ class WindowsCredentialManagerStore(CredentialStore):
             raise RuntimeError(
                 f"keyring.set_password failed for service={service!r}: {exc}"
             ) from exc
+
+    def delete(self, service: str, account: str) -> None:
+        keyring = _try_import_keyring()
+        if keyring is None:
+            raise RuntimeError("Windows credential delete requires `python-keyring`.")
+        try:
+            keyring.delete_password(service, account)
+        except Exception:  # pragma: no cover
+            pass  # idempotent — many backends raise on missing entry
 
 
 def get_credential_store() -> CredentialStore:

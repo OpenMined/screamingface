@@ -28,6 +28,9 @@ class _FakeStore(CredentialStore):
         self.writes.append((service, account, value))
         self.payload = value
 
+    def delete(self, service: str, account: str) -> None:
+        self.payload = None
+
 
 def _wrap(creds: dict) -> str:
     return json.dumps({"claudeAiOauth": creds})
