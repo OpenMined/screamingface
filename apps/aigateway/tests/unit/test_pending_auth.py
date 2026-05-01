@@ -1,7 +1,5 @@
 import time
 
-import pytest
-
 from aigateway.core.pending_auth import PendingAuthEntry, PendingAuthTable
 
 
