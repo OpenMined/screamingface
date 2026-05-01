@@ -340,6 +340,15 @@ class SessionManager extends EventEmitter {
       'export COLORFGBG="${COLORFGBG:-15;0}"',
       // Proxy routing
       `export ${envVar}=${this.shellEscape(baseUrl)}`,
+      // Wipe the terminal buffer before launching the TUI. PTY capture
+      // (see /tmp/capture-claude-output.py) proved Claude Code emits NO
+      // background-color codes; it uses `\e[1C` (CUF — cursor right) as
+      // its inter-word gap. CUF moves the cursor without erasing cells,
+      // so any pre-existing content (shell prompt PS1 with background
+      // segments, Terminal.app startup banner, etc.) shows through the
+      // gaps as solid blocks. RIS (\ec) is a full terminal reset; it
+      // wipes the screen, scrollback, and lingering SGR/charset modes.
+      "printf '\\ec'",
       `exec ${cmd}`,
     ].join('\n');
     writeFileSync(scriptPath, scriptContent, 'utf-8');
