@@ -312,12 +312,33 @@ class SessionManager extends EventEmitter {
 
     // Write a temp script that records its PID before exec'ing the CLI.
     // exec replaces the shell but keeps the same PID, so we can kill it later.
+    //
+    // Ink (the TUI library Claude Code/Codex/Gemini use) detects color
+    // support via COLORTERM / FORCE_COLOR / COLORFGBG. AppleScript's
+    // `do script` launches a fresh login shell whose env may not have
+    // these set; without them, Ink/chalk emits highlighted regions
+    // using ANSI codes that render as solid white blocks on a dark
+    // terminal profile (the visible-cell-background effect users see).
+    //
+    // Setting these explicitly tells Ink:
+    //   - COLORTERM=truecolor     → 24-bit color path; cleaner highlights
+    //   - FORCE_COLOR=3           → never auto-disable color (truecolor)
+    //   - COLORFGBG="15;0"        → "light foreground, dark background"
+    //                                 — Ink uses this to pick a palette
+    //                                 that doesn't paint white cells
+    //   - TERM defaults to xterm-256color if Terminal.app didn't set it
     const scriptPath = join(tmpdir(), `sf-session-${session.id}.sh`);
     const pidPath = join(tmpdir(), `sf-session-${session.id}.pid`);
     const scriptContent = [
       '#!/bin/bash',
       `echo $$ > ${this.shellEscape(pidPath)}`,
       `cd ${this.shellEscape(session.workingDir)}`,
+      // Terminal color environment (must be set BEFORE exec so the CLI inherits)
+      'export TERM="${TERM:-xterm-256color}"',
+      'export COLORTERM="${COLORTERM:-truecolor}"',
+      'export FORCE_COLOR="${FORCE_COLOR:-3}"',
+      'export COLORFGBG="${COLORFGBG:-15;0}"',
+      // Proxy routing
       `export ${envVar}=${this.shellEscape(baseUrl)}`,
       `exec ${cmd}`,
     ].join('\n');
