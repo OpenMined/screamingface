@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from .config import Settings
 from .core.loader import load_plugins
+from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
 from .routes import auth, chat, health, models
@@ -23,6 +24,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     load_plugins(registry)
     app.state.providers = registry
     app.state.profile_index = ProfileIndexStore()
+    app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
 
     for plugin in registry.all():
         auth_router = plugin.auth_router()
