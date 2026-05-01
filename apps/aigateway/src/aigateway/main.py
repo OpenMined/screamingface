@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from .config import Settings
+from .core.bootstrap import bootstrap_from_claude_code
 from .core.loader import load_plugins
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
@@ -14,10 +16,19 @@ from .routes import auth, chat, health, models
 logger = logging.getLogger(__name__)
 
 
+@asynccontextmanager
+async def _lifespan(app):
+    try:
+        await bootstrap_from_claude_code(index_store=app.state.profile_index)
+    except Exception:
+        logger.exception("bootstrap failed; gateway will start with empty index")
+    yield
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = Settings()
-    app = FastAPI(title="aigateway", version="0.1.0")
+    app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
     app.state.settings = settings
 
     registry = ProviderRegistry()

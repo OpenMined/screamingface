@@ -69,3 +69,43 @@ async def test_bootstrap_noop_when_cc_entry_missing(fake_keychain) -> None:
         cc_account="alice",
     )
     assert fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default") is None
+
+
+from fastapi.testclient import TestClient
+
+
+def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch) -> None:
+    fake_keychain.write(
+        CC_SERVICE,
+        "alice",
+        json.dumps(
+            {
+                "claudeAiOauth": {
+                    "accessToken": "boot-tok",
+                    "refreshToken": "boot-rt",
+                    "expiresAt": int(time.time() * 1000) + 3_600_000,
+                    "scopes": ["user:inference"],
+                }
+            }
+        ),
+    )
+    monkeypatch.setenv("USER", "alice")
+
+    from aigateway.core import bootstrap as bs_module
+    from aigateway.core import credential_store as cs_module
+    from aigateway.core import profile_index as pi_module
+    from aigateway.plugins.anthropic_provider import auth as auth_module
+
+    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(auth_module, "get_credential_store", lambda: fake_keychain)
+
+    from aigateway.main import create_app
+
+    app = create_app()
+    with TestClient(app) as client:  # `with` triggers the lifespan
+        resp = client.get("/v1/auth/profiles")
+        assert resp.status_code == 200
+        ids = [p["id"] for p in resp.json()["profiles"]]
+        assert "anthropic:default" in ids
