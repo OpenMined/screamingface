@@ -340,15 +340,34 @@ class SessionManager extends EventEmitter {
       'export COLORFGBG="${COLORFGBG:-15;0}"',
       // Proxy routing
       `export ${envVar}=${this.shellEscape(baseUrl)}`,
-      // Wipe the terminal buffer before launching the TUI. PTY capture
-      // (see /tmp/capture-claude-output.py) proved Claude Code emits NO
-      // background-color codes; it uses `\e[1C` (CUF — cursor right) as
-      // its inter-word gap. CUF moves the cursor without erasing cells,
-      // so any pre-existing content (shell prompt PS1 with background
-      // segments, Terminal.app startup banner, etc.) shows through the
-      // gaps as solid blocks. RIS (\ec) is a full terminal reset; it
-      // wipes the screen, scrollback, and lingering SGR/charset modes.
-      "printf '\\ec'",
+      // Terminal-buffer hygiene before launching the TUI.
+      //
+      // Diagnosis (PTY capture analysis at /tmp/capture-claude-output.py):
+      //   - Claude Code does NOT emit \e[?1049h (alternate screen buffer)
+      //     on startup, so it runs in INLINE mode.
+      //   - Inline-mode redraws use CUF (\e[NC, "cursor right N") to space
+      //     between words instead of writing literal characters.
+      //   - CUF moves the cursor over cells WITHOUT erasing them, so any
+      //     pre-existing content (shell prompt PS1 segments, scrollback,
+      //     and crucially the previous frame of Claude's own UI) leaks
+      //     through the gaps as visible blocks.
+      //   - The single reverse-video cursor cell (\e[7m \e[27m) accumulates
+      //     a trail across redraws because old cursor positions are never
+      //     overwritten.
+      //
+      // Mitigations applied here:
+      //   1. \ec (RIS) — full terminal reset before anything starts;
+      //      wipes screen, scrollback, modes, character sets.
+      //   2. \e[?1049h — manually enter the alternate screen buffer.
+      //      Cells in alt-screen are guaranteed clear on entry, and the
+      //      original screen is restored verbatim when the CLI exits.
+      //      Even though Claude itself doesn't request this, the shell
+      //      can request it on Claude's behalf — Claude is happy to
+      //      draw into whichever buffer is active.
+      //   3. \e[2J\e[H — belt-and-suspenders explicit clear inside the
+      //      alt-screen so the very first frame draws over a known-clean
+      //      canvas (some terminals enter alt-screen with leftover content).
+      "printf '\\ec\\e[?1049h\\e[2J\\e[H'",
       `exec ${cmd}`,
     ].join('\n');
     writeFileSync(scriptPath, scriptContent, 'utf-8');
