@@ -10,10 +10,10 @@ import pytest
 from aigateway.core.credential_store import CredentialStore
 from aigateway.core.errors import AuthError, CredentialNotFoundError
 from aigateway.plugins.anthropic_provider.auth import (
-    KEYCHAIN_SERVICE,
-    OAUTH_REFRESH_URL,
     AnthropicOAuth,
+    keychain_service_for,
 )
+from aigateway.plugins.anthropic_provider.oauth_config import ANTHROPIC_TOKEN_URL
 
 
 class _FakeStore(CredentialStore):
@@ -33,17 +33,16 @@ class _FakeStore(CredentialStore):
 
 
 def _wrap(creds: dict) -> str:
-    return json.dumps({"claudeAiOauth": creds})
+    """Token payload as stored in aigateway:anthropic:<name>."""
+    return json.dumps(creds)
 
 
 def _fresh_creds(expires_in_ms: int = 3_600_000) -> dict:
     return {
-        "accessToken": "tok-fresh",
-        "refreshToken": "rt-1",
-        "expiresAt": int(time.time() * 1000) + expires_in_ms,
-        "scopes": ["user:inference"],
-        "subscriptionType": "max",
-        "rateLimitTier": "default_claude_max_5x",
+        "access_token": "tok-fresh",
+        "refresh_token": "rt-1",
+        "expires_at_ms": int(time.time() * 1000) + expires_in_ms,
+        "token_type": "Bearer",
     }
 
 
@@ -55,25 +54,39 @@ def _http_factory(transport: httpx.MockTransport):
 
 
 @pytest.mark.asyncio
+async def test_keychain_service_uses_aigateway_namespace() -> None:
+    """Profiles are stored under aigateway:anthropic:<name>."""
+    assert keychain_service_for("default") == "aigateway:anthropic:default"
+    assert keychain_service_for("work") == "aigateway:anthropic:work"
+
+
+@pytest.mark.asyncio
 async def test_missing_credential_raises() -> None:
-    strat = AnthropicOAuth(credential_store=_FakeStore(payload=None), account="alice")
+    strat = AnthropicOAuth(
+        profile_name="default",
+        credential_store=_FakeStore(payload=None),
+    )
     with pytest.raises(CredentialNotFoundError):
         await strat.get_authorization_header()
 
 
 @pytest.mark.asyncio
 async def test_malformed_json_raises_auth_error() -> None:
-    strat = AnthropicOAuth(credential_store=_FakeStore(payload="{not json"), account="alice")
+    strat = AnthropicOAuth(
+        profile_name="default",
+        credential_store=_FakeStore(payload="{not json"),
+    )
     with pytest.raises(AuthError, match="not valid JSON"):
         await strat.get_authorization_header()
 
 
 @pytest.mark.asyncio
-async def test_missing_outer_key_raises() -> None:
+async def test_missing_required_field_raises() -> None:
     strat = AnthropicOAuth(
-        credential_store=_FakeStore(payload=json.dumps({"unrelated": 1})), account="alice"
+        profile_name="default",
+        credential_store=_FakeStore(payload=json.dumps({"access_token": "t"})),
     )
-    with pytest.raises(AuthError, match="claudeAiOauth"):
+    with pytest.raises(AuthError, match="missing required field"):
         await strat.get_authorization_header()
 
 
@@ -81,8 +94,8 @@ async def test_missing_outer_key_raises() -> None:
 async def test_fresh_credential_yields_three_headers() -> None:
     creds = _fresh_creds()
     strat = AnthropicOAuth(
+        profile_name="default",
         credential_store=_FakeStore(payload=_wrap(creds)),
-        account="alice",
     )
     headers = await strat.get_authorization_header()
     assert headers["Authorization"] == "Bearer tok-fresh"
@@ -93,7 +106,7 @@ async def test_fresh_credential_yields_three_headers() -> None:
 @pytest.mark.asyncio
 async def test_expired_credential_triggers_refresh() -> None:
     expired = _fresh_creds(expires_in_ms=-1000)
-    expired["accessToken"] = "tok-old"
+    expired["access_token"] = "tok-old"
 
     captured: dict[str, Any] = {}
 
@@ -106,40 +119,38 @@ async def test_expired_credential_triggers_refresh() -> None:
                 "access_token": "tok-new",
                 "refresh_token": "rt-2",
                 "expires_in": 3600,
-                "scope": "user:inference",
             },
         )
 
     store = _FakeStore(payload=_wrap(expired))
     strat = AnthropicOAuth(
+        profile_name="default",
         credential_store=store,
-        account="alice",
         http_client_factory=_http_factory(httpx.MockTransport(handler)),
     )
-
     headers = await strat.get_authorization_header()
 
     assert headers["Authorization"] == "Bearer tok-new"
-    assert captured["url"] == OAUTH_REFRESH_URL
+    assert captured["url"] == ANTHROPIC_TOKEN_URL
     assert captured["body"]["grant_type"] == "refresh_token"
     assert captured["body"]["refresh_token"] == "rt-1"
 
     assert len(store.writes) == 1
     written = json.loads(store.writes[0][2])
-    assert written["claudeAiOauth"]["accessToken"] == "tok-new"
-    assert written["claudeAiOauth"]["refreshToken"] == "rt-2"
+    assert written["access_token"] == "tok-new"
+    assert written["refresh_token"] == "rt-2"
 
 
 @pytest.mark.asyncio
 async def test_refresh_endpoint_401_raises() -> None:
     expired = _fresh_creds(expires_in_ms=-1000)
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": "invalid_grant"})
 
     strat = AnthropicOAuth(
+        profile_name="default",
         credential_store=_FakeStore(payload=_wrap(expired)),
-        account="alice",
         http_client_factory=_http_factory(httpx.MockTransport(handler)),
     )
     with pytest.raises(AuthError, match="401"):
@@ -150,8 +161,8 @@ async def test_refresh_endpoint_401_raises() -> None:
 async def test_invalidate_drops_cache() -> None:
     creds = _fresh_creds()
     strat = AnthropicOAuth(
+        profile_name="default",
         credential_store=_FakeStore(payload=_wrap(creds)),
-        account="alice",
     )
     await strat.get_authorization_header()
     assert strat._cached is not None
@@ -160,6 +171,26 @@ async def test_invalidate_drops_cache() -> None:
 
 
 @pytest.mark.asyncio
+async def test_set_credentials_persists_and_caches() -> None:
+    """set_credentials() (used by OAuth callback) writes to store + populates cache."""
+    store = _FakeStore(payload=None)
+    strat = AnthropicOAuth(
+        profile_name="default",
+        credential_store=store,
+    )
+    fresh = _fresh_creds()
+    strat.set_credentials(fresh)
+
+    headers = await strat.get_authorization_header()
+    assert headers["Authorization"] == f"Bearer {fresh['access_token']}"
+    assert len(store.writes) == 1
+    written = json.loads(store.writes[0][2])
+    assert written["access_token"] == fresh["access_token"]
+
+
+@pytest.mark.asyncio
 async def test_keychain_service_constant() -> None:
-    """SF-77 spike: Claude Code uses this exact keychain service name. Don't change."""
-    assert KEYCHAIN_SERVICE == "Claude Code-credentials"
+    """Don't change without coordinating with Electron."""
+    strat = AnthropicOAuth(profile_name="work", credential_store=_FakeStore())
+    assert strat.keychain_service() == "aigateway:anthropic:work"
+    assert strat.keychain_account() == "default"

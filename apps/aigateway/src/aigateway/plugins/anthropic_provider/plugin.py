@@ -1,9 +1,21 @@
 from __future__ import annotations
 
-from aigateway.core.plugin_base import ModelEntry, OAuthStrategy, ProviderPluginBase
+from aigateway.core.plugin_base import (
+    ModelEntry,
+    OAuthConfig,
+    OAuthStrategy,
+    ProviderPluginBase,
+)
 
 from .auth import AnthropicOAuth
 from .models import MODELS
+from .oauth_config import (
+    ANTHROPIC_AUTHORIZE_URL,
+    ANTHROPIC_CLIENT_ID,
+    ANTHROPIC_REDIRECT_PATH,
+    ANTHROPIC_SCOPES,
+    ANTHROPIC_TOKEN_URL,
+)
 
 
 class AnthropicProviderPlugin(ProviderPluginBase):
@@ -12,12 +24,17 @@ class AnthropicProviderPlugin(ProviderPluginBase):
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
 
-    def oauth_strategy_for(self, profile_name: str) -> OAuthStrategy | None:
-        # Task 5 will replace AnthropicOAuth's signature to take profile_name and
-        # read per-profile keychain entries. For now, ignore profile_name and
-        # construct the legacy single-instance strategy so existing live tests
-        # and the SF-139 unit tests keep working.
-        return AnthropicOAuth()
+    def oauth_config(self) -> OAuthConfig:
+        return OAuthConfig(
+            authorize_url=ANTHROPIC_AUTHORIZE_URL,
+            token_url=ANTHROPIC_TOKEN_URL,
+            client_id=ANTHROPIC_CLIENT_ID,
+            scopes=ANTHROPIC_SCOPES,
+            redirect_path=ANTHROPIC_REDIRECT_PATH,
+        )
+
+    def oauth_strategy_for(self, profile_name: str) -> OAuthStrategy:
+        return AnthropicOAuth(profile_name=profile_name)
 
 
 PLUGIN = AnthropicProviderPlugin()
