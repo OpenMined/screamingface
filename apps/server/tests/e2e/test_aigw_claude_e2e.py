@@ -1,5 +1,24 @@
 """End-to-end test for the full claude-frontend → aigw-claude-backend → AI Gateway → Anthropic chain.
 
+Asserts two things rigorously:
+
+1. **url4 result was injected into the forwarded request.** The resolved
+   text from the /claude backend call must end up *inside* the user
+   message that claude-frontend forwards to its upstream. We compare
+   the forwarded user_text against the literal prompt we sent — they
+   must differ AND the original must still appear (concat semantics).
+
+2. **The gateway actually called api.anthropic.com.** It's not enough
+   that the gateway received a POST; we must see evidence that it
+   reached the real upstream. Two accepted signals (logs forwarded
+   through aigw_runner's daemon thread end up in mgr.logs):
+     - a 200 from `POST /v1/chat/completions` in the gateway access log
+       (litellm.acompletion only returns 200 after a successful
+       Anthropic round-trip); OR
+     - an explicit AnthropicException / RateLimitError mention,
+       which proves the gateway's litellm path called Anthropic and
+       got a structured error back.
+
 The test stands up a session SF server with these plugins active:
 
 - ``claude-frontend`` — the listener that emulates Anthropic's API surface
@@ -35,6 +54,7 @@ Asserts on TWO levels:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -47,6 +67,8 @@ import pytest
 from tests.e2e.infrastructure.claude_code_client import ClaudeCodeClient
 from tests.e2e.infrastructure.otlp_collector import OTLPCollector
 from tests.e2e.infrastructure.server_manager import ServerManager
+
+_TEST_PROMPT = "Reply with the single English word: pong"
 
 pytestmark = [pytest.mark.e2e, pytest.mark.e2e_live]
 
@@ -237,10 +259,7 @@ def test_claude_frontend_to_aigw_to_anthropic(
     otlp_collector.clear()
 
     client = ClaudeCodeClient(proxy_url=f"http://127.0.0.1:{proxy_port}")
-    resp = client.send_message(
-        "Reply with the single English word: pong",
-        timeout=90,
-    )
+    resp = client.send_message(_TEST_PROMPT, timeout=90)
 
     # ----------------------------- round-trip ------------------------------
     assert resp.status_code == 200, f"proxy responded {resp.status_code}: {resp.body}"
@@ -258,28 +277,48 @@ def test_claude_frontend_to_aigw_to_anthropic(
     )
 
     # Two acceptable outcomes:
-    #  (a) Successful round-trip: the forwarded user message contains the
-    #      gateway-substituted assistant reply.
-    #  (b) Upstream Anthropic returned an error (e.g. 429 rate limit) — the
-    #      chain still worked; we just got an error from the real provider.
-    #      In that case claude-frontend surfaces an `sf_error_*` response
-    #      body containing the layered error message — which proves the
-    #      gateway and aigw-claude-backend were both invoked.
+    #  (a) Successful round-trip: the gateway's substituted assistant reply
+    #      ended up inside the forwarded user message.
+    #  (b) Upstream Anthropic returned a structured error (e.g. 429 rate
+    #      limit) — the chain still worked; we just got an error from the
+    #      real provider. claude-frontend surfaces an `sf_error_*` response
+    #      whose error body explicitly mentions /claude AND an upstream
+    #      indicator (rate / anthropic / aigw).
     body_id = resp.body.get("id", "")
     body_text = ""
     for part in resp.body.get("content", []):
         if isinstance(part, dict) and part.get("type") == "text":
             body_text += part.get("text", "")
 
-    successful_substitution = len(user_text) > 5
+    # (a) Strong: the resolved text was injected. With embed_mode="concat"
+    # (the default), the user message becomes "<original>\n\n<resolved>".
+    # We require BOTH that the original is still present AND that something
+    # was appended — otherwise the spec didn't trigger or substitution was
+    # silently a no-op.
+    substitution_happened = (
+        user_text != _TEST_PROMPT
+        and _TEST_PROMPT in user_text
+        and len(user_text) > len(_TEST_PROMPT) + 1
+    )
+
+    # (b) Upstream-error fallback: the chain reached upstream and surfaced
+    # an Anthropic-shaped error.
     upstream_error_through_chain = (
         body_id.startswith("sf_error_")
         and "/claude" in body_text
-        and ("aigw" in body_text.lower() or "rate" in body_text.lower() or "anthropic" in body_text.lower())
+        and (
+            "aigw" in body_text.lower()
+            or "rate" in body_text.lower()
+            or "anthropic" in body_text.lower()
+        )
     )
 
-    assert successful_substitution or upstream_error_through_chain, (
-        f"Chain didn't reach the gateway, or response shape unexpected.{debug}"
+    assert substitution_happened or upstream_error_through_chain, (
+        f"url4 result not injected into forwarded request, and no upstream "
+        f"error path observed.\n"
+        f"original_prompt={_TEST_PROMPT!r}\nuser_text={user_text!r}\n"
+        f"sf_error_id={body_id!r}\n"
+        f"{debug}"
     )
 
     # ------------------------------ span chain -----------------------------
@@ -316,16 +355,41 @@ def test_claude_frontend_to_aigw_to_anthropic(
         f"All spans: {sorted(span_names)}"
     )
 
-    # The gateway subprocess emits its access log through the aigw_runner
-    # daemon log thread, which forwards to the SF logger and ends up in
-    # mgr.logs. Rather than instrument the child for OTLP (a separate
-    # ticket), we look for the unmistakable access-log line that proves
-    # the gateway saw the chat-completions POST during this test.
-    all_logs = "\n".join(mgr.logs.dump_last(500)) if mgr.logs else ""
+    # Gateway-side evidence: the subprocess's stdout (forwarded by aigw_runner's
+    # daemon thread) lands in mgr.logs. We require BOTH that the gateway saw
+    # a chat-completions POST AND that something proves it actually called
+    # api.anthropic.com.
+    all_logs = "\n".join(mgr.logs.dump_last(2000)) if mgr.logs else ""
+
+    # Step 1 — the gateway received the POST from aigw-claude-backend.
     assert "POST /v1/chat/completions" in all_logs, (
         "Gateway did not log a chat-completions POST during the test — "
         "the chain didn't reach the gateway subprocess.\n"
         f"Last log lines:\n{all_logs[-3000:]}"
+    )
+
+    # Step 2 — the gateway actually called api.anthropic.com. Accept any
+    # of these signals (each one independently proves Anthropic was reached):
+    #   - gateway returned 200 from chat/completions (litellm only succeeds
+    #     after a real Anthropic round-trip)
+    #   - litellm raised AnthropicException / RateLimitError (gateway saw
+    #     a structured error from Anthropic, which means it called it)
+    #   - the api.anthropic.com hostname appears in any log line
+    gateway_returned_200 = bool(
+        re.search(r'"POST /v1/chat/completions HTTP/[\d.]+" 200', all_logs)
+    )
+    anthropic_exception_seen = (
+        "AnthropicException" in all_logs
+        or "RateLimitError" in all_logs
+        or "anthropic.exceptions" in all_logs
+    )
+    anthropic_host_seen = "api.anthropic.com" in all_logs
+
+    assert gateway_returned_200 or anthropic_exception_seen or anthropic_host_seen, (
+        "Gateway received a chat-completions POST but no evidence it actually "
+        "called api.anthropic.com — chain may have failed inside the gateway "
+        "before the upstream call.\n"
+        f"Last 3000 chars of logs:\n{all_logs[-3000:]}"
     )
 
     # Final sanity probe: gateway is still healthy after the round-trip.
