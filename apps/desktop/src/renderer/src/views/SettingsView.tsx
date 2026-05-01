@@ -404,29 +404,36 @@ export function SettingsView() {
                 groups[g].sort((a, b) => a.localeCompare(b));
               }
 
-              // Sort groups: alphabetically, but 'system' and 'etc' go last
-              const groupOrder = Object.keys(groups).sort((a, b) => {
-                if (a === 'etc') return 1;
-                if (b === 'etc') return -1;
-                if (a === 'system') return 1;
-                if (b === 'system') return -1;
-                return a.localeCompare(b);
-              });
-
-              const GROUP_COLORS: Record<string, string> = {
-                claude: 'from-orange-500/20 to-orange-500/5 text-orange-300',
-                openai: 'from-green-500/20 to-green-500/5 text-green-300',
-                gemini: 'from-blue-500/20 to-blue-500/5 text-blue-300',
-                url4: 'from-purple-500/20 to-purple-500/5 text-purple-300',
-                system: 'from-zinc-500/20 to-zinc-500/5 text-zinc-400',
-                etc: 'from-zinc-500/20 to-zinc-500/5 text-zinc-400',
+              // 24 vivid rainbow hues — saturated enough to read clearly on
+              // the dark slate/zinc background, never close to grey or black.
+              // Hue is stepped 15° around the wheel; saturation 92%, lightness
+              // 62% keeps every swatch unambiguously colored.
+              const RAINBOW_COLORS = Array.from(
+                { length: 24 },
+                (_, i) => `hsl(${i * 15}, 92%, 62%)`,
+              );
+              const colorIndex = (group: string): number => {
+                let h = 0;
+                for (let i = 0; i < group.length; i++) {
+                  h = (h * 31 + group.charCodeAt(i)) >>> 0;
+                }
+                return h % RAINBOW_COLORS.length;
               };
+              const groupColor = (group: string): string =>
+                RAINBOW_COLORS[colorIndex(group)];
+
+              // Sort groups in rainbow order (by hue index) so the UI walks
+              // red → orange → … → violet top-to-bottom.
+              const groupOrder = Object.keys(groups).sort(
+                (a, b) => colorIndex(a) - colorIndex(b),
+              );
 
               return groupOrder.map((group) => (
                 <div key={group} className="mb-4">
                   <div className="flex items-center gap-2 mb-2 px-1">
                     <span
-                      className={`text-[10px] font-bold uppercase tracking-widest ${GROUP_COLORS[group]?.split(' ').pop() || 'text-muted-foreground/50'}`}
+                      className="text-[10px] font-bold uppercase tracking-widest"
+                      style={{ color: groupColor(group) }}
                     >
                       {group}
                     </span>
