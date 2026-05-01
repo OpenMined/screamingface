@@ -346,12 +346,27 @@ class SessionManager extends EventEmitter {
     chmodSync(scriptPath, 0o755);
     session.scriptPath = scriptPath;
 
-    // Open Terminal.app and run the script
+    // Open Terminal.app and run the script.
+    //
+    // The default Terminal.app profile inherits whatever the user has set
+    // in Preferences. When that profile uses a swapped/light palette, our
+    // CLI tools emit codes that render every cell with a white block —
+    // even on a window that "looks" dark — because reverse-video and
+    // default-bg interactions break in that profile.
+    //
+    // Force a known-good dark profile ("Pro" ships with macOS Terminal
+    // and has bg=black/fg=light by default, which is what every TUI we
+    // care about expects).
+    //
     // AppleScript strings use double quotes, so escape any double quotes in the path
     const escapedPath = scriptPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const appleScript = `tell application "Terminal"
   activate
-  do script "${escapedPath}"
+  set newTab to do script "${escapedPath}"
+  delay 0.05
+  try
+    set current settings of newTab to settings set "Pro"
+  end try
 end tell`;
 
     this.emit('log', session.id, `Opening terminal: ${scriptPath}`);
