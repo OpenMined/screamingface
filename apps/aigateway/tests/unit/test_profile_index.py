@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileIndex, ProfileState
 
 
@@ -23,11 +26,6 @@ def test_profile_index_serializes_with_version() -> None:
     idx = ProfileIndex(version=1, profiles=[])
     data = idx.model_dump()
     assert data == {"version": 1, "profiles": []}
-
-
-import pytest
-
-from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
 
 
 @pytest.mark.asyncio

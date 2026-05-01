@@ -15,9 +15,6 @@ class FakeKeychain(CredentialStore):
     def write(self, service: str, account: str, value: str) -> None:
         self._data[(service, account)] = value
 
-    def all(self) -> dict[tuple[str, str], str]:
-        return dict(self._data)
-
     def delete(self, service: str, account: str) -> None:
         self._data.pop((service, account), None)
 
