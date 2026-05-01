@@ -23,6 +23,18 @@ if TYPE_CHECKING:
     pass
 
 
+# Suggestions for the default_model dropdown. Mirrors the gateway's
+# anthropic_provider/models.py registry. RJSF's BaseInputTemplate renders
+# a `<datalist>` from `examples`, giving the UI a typeahead dropdown that
+# still accepts free-text — useful when a new Anthropic snapshot ships
+# before this list is updated.
+_CLAUDE_MODEL_SUGGESTIONS = [
+    "anthropic/claude-sonnet-4-5",
+    "anthropic/claude-opus-4-7",
+    "anthropic/claude-haiku-4-5",
+]
+
+
 class AigwClaudeBackendSettings(AigwBackendApiSettingsBase):
     model_config = SettingsConfigDict(
         env_prefix="SF_AIGW_CLAUDE_BACKEND__",
@@ -33,8 +45,10 @@ class AigwClaudeBackendSettings(AigwBackendApiSettingsBase):
         default="anthropic/claude-sonnet-4-5",
         description=(
             "Default Claude model. The gateway routes by the prefix; "
-            "must start with 'anthropic/'."
+            "must start with 'anthropic/'. Pick from the dropdown or "
+            "type a custom snapshot if the gateway already supports it."
         ),
+        examples=_CLAUDE_MODEL_SUGGESTIONS,
     )
 
 
