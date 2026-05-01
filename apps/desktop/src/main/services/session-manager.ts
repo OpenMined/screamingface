@@ -310,91 +310,42 @@ class SessionManager extends EventEmitter {
     const cmd = this.cliCommand(session.type);
     const envVar = this.envVarName(session.type);
 
-    // Write a temp script that records its PID before exec'ing the CLI.
-    // exec replaces the shell but keeps the same PID, so we can kill it later.
+    // Bare-minimum launcher script. NO color env, NO terminal-buffer
+    // hygiene, NO escape-sequence emission, NO Terminal.app profile
+    // override. The shell starts clean from Terminal.app's default
+    // profile and inherits whatever environment Terminal.app provides.
     //
-    // Ink (the TUI library Claude Code/Codex/Gemini use) detects color
-    // support via COLORTERM / FORCE_COLOR / COLORFGBG. AppleScript's
-    // `do script` launches a fresh login shell whose env may not have
-    // these set; without them, Ink/chalk emits highlighted regions
-    // using ANSI codes that render as solid white blocks on a dark
-    // terminal profile (the visible-cell-background effect users see).
+    // The earlier experiments (COLORTERM/FORCE_COLOR/COLORFGBG, RIS,
+    // alt-screen buffer, "Pro" profile force-set) were chasing a visual
+    // artifact that turned out to come from macOS's "Increase Contrast"
+    // accessibility setting (System Settings → Accessibility → Display).
+    // None of the app-side mitigations could affect a compositor-level
+    // overlay; they're removed so we can isolate the actual cause.
     //
-    // Setting these explicitly tells Ink:
-    //   - COLORTERM=truecolor     → 24-bit color path; cleaner highlights
-    //   - FORCE_COLOR=3           → never auto-disable color (truecolor)
-    //   - COLORFGBG="15;0"        → "light foreground, dark background"
-    //                                 — Ink uses this to pick a palette
-    //                                 that doesn't paint white cells
-    //   - TERM defaults to xterm-256color if Terminal.app didn't set it
+    // Two functional lines remain because they're not cosmetic:
+    //   - cd into the working dir so the CLI sees the right project
+    //   - export the proxy BASE_URL so the CLI talks to claude-frontend
     const scriptPath = join(tmpdir(), `sf-session-${session.id}.sh`);
     const pidPath = join(tmpdir(), `sf-session-${session.id}.pid`);
     const scriptContent = [
       '#!/bin/bash',
       `echo $$ > ${this.shellEscape(pidPath)}`,
       `cd ${this.shellEscape(session.workingDir)}`,
-      // Terminal color environment (must be set BEFORE exec so the CLI inherits)
-      'export TERM="${TERM:-xterm-256color}"',
-      'export COLORTERM="${COLORTERM:-truecolor}"',
-      'export FORCE_COLOR="${FORCE_COLOR:-3}"',
-      'export COLORFGBG="${COLORFGBG:-15;0}"',
-      // Proxy routing
       `export ${envVar}=${this.shellEscape(baseUrl)}`,
-      // Terminal-buffer hygiene before launching the TUI.
-      //
-      // Diagnosis (PTY capture analysis at /tmp/capture-claude-output.py):
-      //   - Claude Code does NOT emit \e[?1049h (alternate screen buffer)
-      //     on startup, so it runs in INLINE mode.
-      //   - Inline-mode redraws use CUF (\e[NC, "cursor right N") to space
-      //     between words instead of writing literal characters.
-      //   - CUF moves the cursor over cells WITHOUT erasing them, so any
-      //     pre-existing content (shell prompt PS1 segments, scrollback,
-      //     and crucially the previous frame of Claude's own UI) leaks
-      //     through the gaps as visible blocks.
-      //   - The single reverse-video cursor cell (\e[7m \e[27m) accumulates
-      //     a trail across redraws because old cursor positions are never
-      //     overwritten.
-      //
-      // Mitigations applied here:
-      //   1. \ec (RIS) — full terminal reset before anything starts;
-      //      wipes screen, scrollback, modes, character sets.
-      //   2. \e[?1049h — manually enter the alternate screen buffer.
-      //      Cells in alt-screen are guaranteed clear on entry, and the
-      //      original screen is restored verbatim when the CLI exits.
-      //      Even though Claude itself doesn't request this, the shell
-      //      can request it on Claude's behalf — Claude is happy to
-      //      draw into whichever buffer is active.
-      //   3. \e[2J\e[H — belt-and-suspenders explicit clear inside the
-      //      alt-screen so the very first frame draws over a known-clean
-      //      canvas (some terminals enter alt-screen with leftover content).
-      "printf '\\ec\\e[?1049h\\e[2J\\e[H'",
       `exec ${cmd}`,
     ].join('\n');
     writeFileSync(scriptPath, scriptContent, 'utf-8');
     chmodSync(scriptPath, 0o755);
     session.scriptPath = scriptPath;
 
-    // Open Terminal.app and run the script.
+    // Open Terminal.app and run the script. No profile override —
+    // user's Terminal.app default profile is used as-is.
     //
-    // The default Terminal.app profile inherits whatever the user has set
-    // in Preferences. When that profile uses a swapped/light palette, our
-    // CLI tools emit codes that render every cell with a white block —
-    // even on a window that "looks" dark — because reverse-video and
-    // default-bg interactions break in that profile.
-    //
-    // Force a known-good dark profile ("Pro" ships with macOS Terminal
-    // and has bg=black/fg=light by default, which is what every TUI we
-    // care about expects).
-    //
-    // AppleScript strings use double quotes, so escape any double quotes in the path
+    // AppleScript strings use double quotes, so escape any double quotes in the path.
     const escapedPath = scriptPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const appleScript = `tell application "Terminal"
   activate
-  set newTab to do script "${escapedPath}"
-  delay 0.05
-  try
-    set current settings of newTab to settings set "Pro"
-  end try
+  do script "${escapedPath}"
 end tell`;
 
     this.emit('log', session.id, `Opening terminal: ${scriptPath}`);
