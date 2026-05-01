@@ -9,16 +9,15 @@ from .models import MODELS
 class AnthropicProviderPlugin(ProviderPluginBase):
     custom_llm_provider = "anthropic"
 
-    def __init__(self) -> None:
-        self._strategy: AnthropicOAuth | None = None
-
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
 
-    def oauth_strategy(self) -> OAuthStrategy | None:
-        if self._strategy is None:
-            self._strategy = AnthropicOAuth()
-        return self._strategy
+    def oauth_strategy_for(self, profile_name: str) -> OAuthStrategy | None:
+        # Task 5 will replace AnthropicOAuth's signature to take profile_name and
+        # read per-profile keychain entries. For now, ignore profile_name and
+        # construct the legacy single-instance strategy so existing live tests
+        # and the SF-139 unit tests keep working.
+        return AnthropicOAuth()
 
 
 PLUGIN = AnthropicProviderPlugin()

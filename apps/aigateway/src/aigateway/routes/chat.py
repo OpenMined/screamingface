@@ -44,7 +44,7 @@ async def _resolve_auth(
     if plugin is None:
         return body, {}
 
-    strategy = plugin.oauth_strategy()
+    strategy = plugin.oauth_strategy_for(provider)
     if strategy is None:
         return body, {}
 
