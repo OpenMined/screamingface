@@ -7,9 +7,11 @@ in every `apps/server/src/screamingface/plugins/*/plugin.py`. Plus the
 ## Mermaid graph (renders on GitHub)
 
 ```mermaid
-graph TD
+%%{init: {'flowchart': {'rankSpacing': 60, 'nodeSpacing': 30}}}%%
+flowchart TB
     %% ── Independent foundations (no deps) ─────────────────────────────
     subgraph SYS["🟢 System foundations (no deps — standalone)"]
+        direction TB
         tracing["tracing<br/><i>OTel + Phoenix</i>"]
         data_store["data-store<br/><i>blob store</i>"]
         url4_specs["url4-specs"]
@@ -23,6 +25,7 @@ graph TD
 
     %% ── Frontend plugins ──────────────────────────────────────────────
     subgraph FE["Frontend plugins (HTTP listeners)"]
+        direction TB
         claude_frontend["claude-frontend<br/><i>:9101</i>"]
         codex_frontend["codex-frontend"]
         gemini_frontend["gemini-frontend"]
@@ -31,6 +34,7 @@ graph TD
 
     %% ── Backend-API plugins (legacy direct-to-provider) ───────────────
     subgraph BEAPI["Direct-API backends (legacy)"]
+        direction TB
         claude_backend_api["claude-backend-api<br/>/claude"]
         codex_backend_api["codex-backend-api<br/>/codex"]
         gemini_backend_api["gemini-backend-api<br/>/gemini"]
@@ -39,20 +43,30 @@ graph TD
 
     %% ── Gateway-routed backend plugins (new) ──────────────────────────
     subgraph AIGW["Gateway-routed backends (new)"]
+        direction TB
         aigw_base["aigw-base<br/><i>abstract</i>"]
         aigw_claude_backend["aigw-claude-backend<br/>/claude"]
     end
 
     %% ── Intercept plugins ─────────────────────────────────────────────
     subgraph IC["Claude intercept variants (mutex)"]
+        direction TB
         claude_intercept["claude-intercept"]
         claude_env_intercept["claude-env-intercept"]
     end
 
     %% ── External standalone service ───────────────────────────────────
     subgraph EXT["🟢 External standalone services"]
+        direction TB
         aigateway["🌐 apps/aigateway<br/><i>FastAPI + LiteLLM</i><br/><i>:9105 — own uv project</i>"]
     end
+
+    %% Force vertical stacking of subgraphs themselves
+    SYS ~~~ FE
+    FE ~~~ BEAPI
+    BEAPI ~~~ AIGW
+    AIGW ~~~ IC
+    IC ~~~ EXT
 
     %% ── Dependencies (depends-on edges) ───────────────────────────────
     claude_frontend --> url4_specs
