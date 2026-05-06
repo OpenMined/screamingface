@@ -1,0 +1,43 @@
+from __future__ import annotations
+
+import logging
+
+import litellm
+from fastapi import FastAPI
+
+from .config import Settings
+from .core.loader import load_plugins
+from .core.oauth_bridge import make_oauth_pre_call
+from .core.registry import ProviderRegistry
+from .routes import chat, health, models
+
+logger = logging.getLogger(__name__)
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    if settings is None:
+        settings = Settings()
+    app = FastAPI(title="aigateway", version="0.1.0")
+    app.state.settings = settings
+
+    registry = ProviderRegistry()
+    load_plugins(registry)
+    app.state.providers = registry
+
+    for plugin in registry.all():
+        auth_router = plugin.auth_router()
+        if auth_router is not None:
+            app.include_router(auth_router, prefix=f"/v1/auth/{plugin.custom_llm_provider}")
+
+    app.include_router(health.router)
+    app.include_router(models.router)
+    app.include_router(chat.router)
+
+    litellm.input_callback = list(getattr(litellm, "input_callback", []) or [])
+    litellm.input_callback.append(make_oauth_pre_call(registry))
+
+    logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))
+    return app
+
+
+app = create_app()
