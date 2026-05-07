@@ -62,6 +62,7 @@ def create_router(app: Any = None) -> APIRouter:
             health["action"] = _classify_action(health)
             health["cli_command"] = _cli_command(name, health)
             health["help_text"] = _help_text(name, health)
+            health["auth_kind"] = _classify_auth_kind(plugin)
             results[name] = health
 
         return JSONResponse(content=results)
@@ -115,6 +116,19 @@ async def _probe_health(base_url: str, backend: str) -> dict[str, Any]:
             "authenticated": False,
             "error": f"/{backend}/health returned non-JSON (HTTP {resp.status_code})",
         }
+
+
+def _classify_auth_kind(plugin: Any) -> str:
+    """Tells the UI which auth flow to drive when action == 'reauth'.
+
+    - ``"browser"`` — open the gateway-managed authorize URL in a browser
+      (used by aigw-*-backend plugins via ``gateway_provider``).
+    - ``"cli"``     — spawn a terminal running the plugin's CLI auth
+      command (the historical claude/codex/gemini path).
+    """
+    if getattr(plugin, "gateway_provider", None):
+        return "browser"
+    return "cli"
 
 
 def _classify_action(health: dict[str, Any]) -> str:
