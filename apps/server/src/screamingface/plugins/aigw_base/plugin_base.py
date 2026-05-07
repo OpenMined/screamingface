@@ -62,15 +62,28 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
     # that touches them keeps working — only the UI knob is hidden.
     # ------------------------------------------------------------------ #
 
+    # Inherited fields that don't apply to gateway-based backends. They're
+    # CLI-only (`max_budget_usd`, `permission_mode`, `dangerously_skip_permissions`)
+    # or replaced by the gateway's profile model (`profiles`, `default_profile`).
+    # Hidden from the schema so the SF Settings UI (RJSF) doesn't render
+    # noise — and doesn't raise validation errors on them.
+    _HIDDEN_INHERITED_FIELDS: ClassVar[tuple[str, ...]] = (
+        "profiles",
+        "default_profile",
+        "max_budget_usd",
+        "permission_mode",
+        "dangerously_skip_permissions",
+    )
+
     def customize_schema(self, schema: dict) -> dict:
         # Skip the parent's customize_schema — it injects an enum / x-link-base
         # on `default_profile` / `profiles`, both of which we're about to drop.
         props = schema.setdefault("properties", {})
-        props.pop("profiles", None)
-        props.pop("default_profile", None)
         required = schema.get("required")
-        if isinstance(required, list) and "default_profile" in required:
-            required.remove("default_profile")
+        for name in self._HIDDEN_INHERITED_FIELDS:
+            props.pop(name, None)
+            if isinstance(required, list) and name in required:
+                required.remove(name)
 
         if "auth_profile" in props:
             self._inject_auth_profile_enum(props["auth_profile"])
@@ -82,24 +95,18 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
 
         names = self._fetch_gateway_profile_names()
         if names is None:
-            # Gateway unreachable: still hand the user something useful so the
-            # dropdown isn't empty. We populate the enum with the currently
-            # configured value only (typically "default" on first run).
-            auth_profile_field["enum"] = [current]
+            # Gateway unreachable: keep the currently-configured value as the
+            # only selectable so the user has something to work with offline.
+            auth_profile_field["enum"] = [current] if current else []
             return
 
-        # Gateway reachable. Make sure the configured value is selectable even
-        # if the gateway hasn't seen it yet (first-run / not-yet-created).
-        merged: list[str] = list(names)
-        if current and current not in merged:
-            merged.append(current)
-        # If the gateway returned no profiles at all, fall back to the
-        # configured value plus "default" so the picker is never empty.
-        if not merged:
-            merged = [current] if current else ["default"]
-            if "default" not in merged:
-                merged.append("default")
-        auth_profile_field["enum"] = merged
+        # Gateway reachable. The dropdown reflects the gateway's actual
+        # profile inventory. We DO surface the currently-configured value if
+        # the gateway already lists it (so it shows as selected), but we do
+        # NOT inject "default" or the configured value when the gateway has
+        # nothing — an empty dropdown correctly tells the user "no profiles
+        # yet, go authenticate one".
+        auth_profile_field["enum"] = list(names)
 
     def _fetch_gateway_profile_names(self) -> list[str] | None:
         """Return profile names from the gateway, or ``None`` on any error.

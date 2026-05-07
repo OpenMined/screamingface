@@ -66,6 +66,29 @@ def test_schema_omits_profiles_and_default_profile() -> None:
     assert "default_profile" not in schema.get("required", [])
 
 
+def test_schema_omits_cli_only_inherited_fields() -> None:
+    """CLI-only inherited fields are hidden from the aigw schema.
+
+    These come from `BackendApiSettingsBase` and are silently ignored at
+    request time for gateway-based backends, so RJSF should never render
+    them (otherwise the user hits "must be number" / "must be string"
+    validation errors on noise).
+
+    Sanity-check first that the parent schema actually exposes them, so
+    this test fails loudly if the base settings change shape.
+    """
+    base_props = AigwClaudeBackendSettings.model_json_schema()["properties"]
+    for name in ("max_budget_usd", "permission_mode", "dangerously_skip_permissions"):
+        assert name in base_props, f"{name} missing from base schema — update test"
+
+    plugin = _make_plugin(transport=httpx.MockTransport(_gateway_profiles_handler([])))
+    schema = _emit_schema(plugin)
+    props = schema["properties"]
+    assert "max_budget_usd" not in props
+    assert "permission_mode" not in props
+    assert "dangerously_skip_permissions" not in props
+
+
 def test_schema_auth_profile_enum_populated_from_gateway() -> None:
     handler = _gateway_profiles_handler(
         [{"name": "default"}, {"name": "work"}],
@@ -95,16 +118,25 @@ def test_schema_falls_back_when_gateway_unreachable() -> None:
         assert auth_field["enum"] == ["default"]
 
 
-def test_schema_includes_current_auth_profile_when_missing_from_gateway_list() -> None:
+def test_schema_enum_reflects_gateway_inventory_only() -> None:
+    """When the gateway is reachable, the dropdown reflects exactly what the
+    gateway has — we do NOT inject the SF-configured value as a "phantom"
+    option. An empty gateway must yield an empty dropdown, signaling
+    "no profiles yet — go authenticate one"."""
     handler = _gateway_profiles_handler([{"name": "default"}])
     plugin = _make_plugin(
-        auth_profile="work",
+        auth_profile="work",  # configured but not yet at gateway
         transport=httpx.MockTransport(handler),
     )
     schema = _emit_schema(plugin)
-    enum = schema["properties"]["auth_profile"]["enum"]
-    assert "default" in enum
-    assert "work" in enum
+    assert schema["properties"]["auth_profile"]["enum"] == ["default"]
+
+
+def test_schema_enum_is_empty_when_gateway_has_no_profiles() -> None:
+    handler = _gateway_profiles_handler([])
+    plugin = _make_plugin(transport=httpx.MockTransport(handler))
+    schema = _emit_schema(plugin)
+    assert schema["properties"]["auth_profile"]["enum"] == []
 
 
 if __name__ == "__main__":
