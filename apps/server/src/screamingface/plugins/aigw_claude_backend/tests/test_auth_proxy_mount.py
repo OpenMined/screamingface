@@ -30,6 +30,7 @@ def test_aigw_claude_backend_mounts_auth_proxy_routes() -> None:
     paths = {r.path for r in app.routes if isinstance(r, Route)}
     assert "/claude/auth/start" in paths
     assert "/claude/auth/status" in paths
+    assert "/claude/auth/profiles" in paths
 
 
 def test_aigw_claude_backend_declares_gateway_provider() -> None:

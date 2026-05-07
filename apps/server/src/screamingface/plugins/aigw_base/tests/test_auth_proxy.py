@@ -174,3 +174,61 @@ def test_status_gateway_unreachable_becomes_502() -> None:
     resp = client.get("/claude/auth/status")
     assert resp.status_code == 502
     assert resp.json()["detail"]["code"] == "gateway_unreachable"
+
+
+def test_profiles_happy_path_returns_list() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        return httpx.Response(
+            200,
+            json={
+                "profiles": [
+                    {
+                        "id": "anthropic:default",
+                        "name": "default",
+                        "state": "authenticated",
+                    }
+                ]
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.get("/claude/auth/profiles")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {
+        "profiles": [
+            {
+                "id": "anthropic:default",
+                "name": "default",
+                "state": "authenticated",
+            }
+        ]
+    }
+    assert captured["url"] == "http://gateway/v1/auth/anthropic/profiles"
+
+
+def test_profiles_gateway_5xx_becomes_502() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"detail": "down"})
+
+    client = _make_client(handler)
+    resp = client.get("/claude/auth/profiles")
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body["detail"]["code"] == "gateway_error"
+    assert body["detail"]["upstream_status"] == 503
+
+
+def test_profiles_gateway_unreachable_becomes_502() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=req)
+
+    client = _make_client(handler)
+    resp = client.get("/claude/auth/profiles")
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body["detail"]["code"] == "gateway_unreachable"
+    assert "connection refused" in body["detail"]["message"].lower()

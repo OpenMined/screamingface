@@ -1,12 +1,14 @@
 """Auth-proxy router for aigw-*-backend plugins.
 
-Two routes per backend:
+Three routes per backend:
 
 - ``POST {prefix}/auth/start`` — start an OAuth cycle; returns the
   upstream provider authorize URL.
 - ``GET  {prefix}/auth/status`` — read the gateway-side profile state.
+- ``GET  {prefix}/auth/profiles`` — list profiles the gateway knows
+  about for this provider.
 
-Both forward to the aigateway's ``/v1/auth/{provider}/...`` endpoints.
+All forward to the aigateway's ``/v1/auth/{provider}/...`` endpoints.
 The SF server never sees the OAuth callback or the upstream token —
 the gateway owns all credential state.
 """
@@ -85,6 +87,32 @@ def build_aigw_auth_proxy_router(
     @router.get(f"{path_prefix}/auth/status")
     async def auth_status() -> dict[str, Any]:
         url = f"{base}/v1/auth/{gateway_provider}/profiles/{profile_name}/status"
+        try:
+            async with factory(timeout_seconds) as client:
+                resp = await client.get(url)
+        except httpx.RequestError as exc:
+            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "gateway_unreachable",
+                    "message": f"AI Gateway unreachable at {base}: {exc}",
+                },
+            ) from exc
+
+        if resp.status_code >= 500:
+            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
+            raise HTTPException(
+                status_code=502,
+                detail={"code": "gateway_error", "upstream_status": resp.status_code},
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
+        return resp.json()
+
+    @router.get(f"{path_prefix}/auth/profiles")
+    async def list_profiles() -> dict[str, Any]:
+        url = f"{base}/v1/auth/{gateway_provider}/profiles"
         try:
             async with factory(timeout_seconds) as client:
                 resp = await client.get(url)
