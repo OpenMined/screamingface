@@ -174,7 +174,9 @@ function ProfilesSubPanel({ name }: { name: string }) {
     return null;
   };
 
-  const onAdd = async (): Promise<void> => {
+  const onAdd = (e?: React.FormEvent): void => {
+    e?.preventDefault();
+    if (submitting) return;
     const candidate = newName.trim();
     const err = validate(candidate);
     if (err) {
@@ -183,21 +185,33 @@ function ProfilesSubPanel({ name }: { name: string }) {
     }
     setSubmitting(true);
     setAddError(null);
-    try {
-      const result = await window.electronAPI.backends.authenticateOAuth(name, candidate);
-      if (result.kind === 'failed') {
-        const reason = result.message ? `${result.reason}: ${result.message}` : result.reason;
-        setAddError(`Authentication failed — ${reason}`);
-        return;
+    // Close the form immediately — the browser will open right away,
+    // and the long-running poll happens in the background. We surface
+    // any failure via panel-level addError, then refresh the list.
+    setAdding(false);
+    setNewName('');
+    void (async () => {
+      try {
+        const result = await window.electronAPI.backends.authenticateOAuth(name, candidate);
+        if (result.kind === 'failed') {
+          const reason = result.message ? `${result.reason}: ${result.message}` : result.reason;
+          setAddError(`Authentication failed for "${candidate}" — ${reason}`);
+        }
+      } catch (err2) {
+        setAddError(
+          `Authentication failed for "${candidate}" — ${err2 instanceof Error ? err2.message : String(err2)}`,
+        );
+      } finally {
+        setSubmitting(false);
+        void refresh();
       }
-      setNewName('');
-      setAdding(false);
-    } catch (e) {
-      setAddError(`Authentication failed — ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setSubmitting(false);
-      void refresh();
-    }
+    })();
+  };
+
+  const onCancel = (): void => {
+    setAdding(false);
+    setNewName('');
+    setAddError(null);
   };
 
   return (
@@ -209,7 +223,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
         <ProfileRow key={p.id || p.name} backendName={name} profile={p} onChanged={refresh} />
       ))}
       {adding ? (
-        <div className="flex items-center gap-2 py-1.5">
+        <form onSubmit={onAdd} className="flex items-center gap-2 py-1.5">
           <input
             autoFocus
             type="text"
@@ -218,28 +232,29 @@ function ProfilesSubPanel({ name }: { name: string }) {
               setNewName(e.target.value);
               setAddError(null);
             }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                onCancel();
+              }
+            }}
             placeholder="profile name (e.g. work)"
             className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs"
           />
           <button
-            disabled={submitting}
-            onClick={onAdd}
-            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 disabled:opacity-60"
+            type="submit"
+            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30"
           >
-            {submitting ? 'Starting…' : 'Confirm'}
+            Confirm
           </button>
           <button
-            disabled={submitting}
-            onClick={() => {
-              setAdding(false);
-              setNewName('');
-              setAddError(null);
-            }}
+            type="button"
+            onClick={onCancel}
             className="text-xs text-muted-foreground hover:text-foreground"
           >
             Cancel
           </button>
-        </div>
+        </form>
       ) : (
         <button
           onClick={() => setAdding(true)}
