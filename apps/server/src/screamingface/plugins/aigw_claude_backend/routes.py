@@ -11,7 +11,11 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter
 
-from screamingface.plugins.aigw_base import AigwBackend, AigwInterpreter
+from screamingface.plugins.aigw_base import (
+    AigwBackend,
+    AigwInterpreter,
+    build_aigw_auth_proxy_router,
+)
 from screamingface.plugins.llm_base.routes_shared import (
     BackendApiConfig,
     build_backend_api_router,
@@ -33,7 +37,7 @@ def create_router(settings: AigwClaudeBackendSettings, app: Any = None) -> APIRo
     def build_interpreter() -> Any:
         return AigwInterpreter(app=app, settings=settings, backend=backend)
 
-    return build_backend_api_router(
+    router = build_backend_api_router(
         BackendApiConfig(
             name="aigw-claude-backend",
             path_prefix="/claude",
@@ -45,3 +49,12 @@ def create_router(settings: AigwClaudeBackendSettings, app: Any = None) -> APIRo
             span_prefix="aigw_claude",
         )
     )
+    router.include_router(
+        build_aigw_auth_proxy_router(
+            path_prefix="/claude",
+            gateway_url=settings.gateway_url,
+            gateway_provider="anthropic",
+            profile_name=settings.auth_profile,
+        )
+    )
+    return router

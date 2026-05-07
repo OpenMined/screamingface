@@ -71,6 +71,7 @@ class AigwClaudeBackendPlugin(AigwBackendApiPluginBase):
     # ever active.
     backend_call_paths: list[str] = ["/claude"]
     conflicts: list[str] = ["claude-backend-api"]
+    gateway_provider = "anthropic"
     settings_class = AigwClaudeBackendSettings
     schema_link_base = "/claude/"
     create_router = staticmethod(create_router)

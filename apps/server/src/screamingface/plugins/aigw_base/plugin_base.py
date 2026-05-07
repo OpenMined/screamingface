@@ -27,6 +27,10 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
     depends: ClassVar[list[str]] = ["llm-base", "backend-api-base", "aigw-base"]
     conflicts: ClassVar[list[str]] = []
 
+    # Provider key used by the AI Gateway (e.g. "anthropic", "openai").
+    # Subclasses MUST set this if they want the auth-proxy router mounted.
+    gateway_provider: ClassVar[str | None] = None
+
     def _make_interpreter(self, app: FastAPI):
         settings = cast(AigwBackendApiSettingsBase, self.settings)
         backend = AigwBackend(
