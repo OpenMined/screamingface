@@ -16,6 +16,48 @@ const backendLabels: Record<string, string> = {
   gemini: 'Gemini',
 };
 
+function AuthButton({
+  name,
+  authKind,
+  cliCommand,
+}: {
+  name: string;
+  authKind: 'cli' | 'browser';
+  cliCommand?: string;
+}) {
+  const [waiting, setWaiting] = useState(false);
+
+  if (authKind === 'cli') {
+    if (!cliCommand) return null;
+    return (
+      <button
+        onClick={() => window.electronAPI.backends.authenticate(name)}
+        className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors"
+      >
+        Re-authenticate
+      </button>
+    );
+  }
+
+  // browser
+  return (
+    <button
+      disabled={waiting}
+      onClick={async () => {
+        setWaiting(true);
+        try {
+          await window.electronAPI.backends.authenticateOAuth(name);
+        } finally {
+          setWaiting(false);
+        }
+      }}
+      className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+    >
+      {waiting ? 'Waiting for browser…' : 'Authenticate'}
+    </button>
+  );
+}
+
 function BackendRow({ name, health }: { name: string; health: BackendHealth }) {
   const config = actionConfig[health.action] || actionConfig.degraded;
   const label = backendLabels[name] || name;
@@ -47,13 +89,12 @@ function BackendRow({ name, health }: { name: string; health: BackendHealth }) {
 
       <div className="flex items-center gap-2 shrink-0 ml-2">
         <span className="text-xs text-muted-foreground">{config.label}</span>
-        {health.action === 'reauth' && health.cli_command && (
-          <button
-            onClick={() => window.electronAPI.backends.authenticate(name)}
-            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors"
-          >
-            Re-authenticate
-          </button>
+        {health.action === 'reauth' && (
+          <AuthButton
+            name={name}
+            authKind={health.auth_kind ?? 'cli'}
+            cliCommand={health.cli_command ?? undefined}
+          />
         )}
       </div>
     </div>

@@ -54,6 +54,7 @@ export interface BackendHealth {
   action: BackendAction;
   cli_command?: string | null;
   help_text?: string | null;
+  auth_kind?: 'cli' | 'browser';
 }
 
 export type BackendStatusMap = Record<string, BackendHealth>;
