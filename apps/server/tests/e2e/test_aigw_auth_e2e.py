@@ -48,9 +48,7 @@ def _aigateway_dir() -> Path:
     return Path(__file__).resolve().parents[3] / "aigateway"
 
 
-def _boot_gateway(
-    extra_env: dict[str, str], tmp_path: Path
-) -> tuple[int, subprocess.Popen[str]]:
+def _boot_gateway(extra_env: dict[str, str], tmp_path: Path) -> tuple[int, subprocess.Popen[str]]:
     port = _free_port()
     env = os.environ.copy()
     env["AIGATEWAY_FAKE_KEYCHAIN"] = "1"
@@ -79,9 +77,7 @@ def _boot_gateway(
     while time.monotonic() < deadline:
         if proc.poll() is not None:
             output = proc.stdout.read() if proc.stdout else ""
-            raise RuntimeError(
-                f"aigateway exited early (rc={proc.returncode}); output:\n{output}"
-            )
+            raise RuntimeError(f"aigateway exited early (rc={proc.returncode}); output:\n{output}")
         try:
             r = httpx.get(f"http://127.0.0.1:{port}/healthz", timeout=1)
             if r.status_code == 200:
