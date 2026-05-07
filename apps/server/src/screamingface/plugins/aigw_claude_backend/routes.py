@@ -32,6 +32,7 @@ def create_router(settings: AigwClaudeBackendSettings, app: Any = None) -> APIRo
     backend = AigwBackend(
         gateway_url=settings.gateway_url,
         profile_name=settings.auth_profile,
+        gateway_provider="anthropic",
     )
 
     def build_interpreter() -> Any:

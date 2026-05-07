@@ -16,7 +16,7 @@ import logging
 
 import httpx
 
-from screamingface.plugins.llm_base.backend_base import Backend
+from screamingface.plugins.llm_base.backend_base import Backend, HealthStatus
 from screamingface.plugins.llm_base.errors import (
     AuthError,
     BackendError,
@@ -50,13 +50,45 @@ class AigwBackend(Backend):
         *,
         gateway_url: str = "http://127.0.0.1:9105",
         profile_name: str = "default",
+        gateway_provider: str = "anthropic",
         http_client_factory=None,
     ) -> None:
         self._gateway_url = gateway_url.rstrip("/")
         self._profile_name = profile_name
+        self._gateway_provider = gateway_provider
         self._http_factory = http_client_factory or (
             lambda timeout: httpx.AsyncClient(timeout=httpx.Timeout(timeout))
         )
+
+    async def health(self, model: str | None = None) -> HealthStatus:  # noqa: ARG002
+        url = (
+            f"{self._gateway_url}/v1/auth/{self._gateway_provider}"
+            f"/profiles/{self._profile_name}/status"
+        )
+        try:
+            async with self._http_factory(10.0) as client:
+                resp = await client.get(url)
+        except httpx.RequestError as exc:
+            return HealthStatus(authenticated=False, error=f"AI Gateway unreachable: {exc}")
+
+        if resp.status_code == 404:
+            return HealthStatus(authenticated=False, error="Profile not yet created at gateway")
+        if resp.status_code >= 500:
+            return HealthStatus(
+                authenticated=False,
+                error=f"Gateway error (HTTP {resp.status_code})",
+            )
+        if resp.status_code >= 400:
+            return HealthStatus(authenticated=False, error=f"Gateway HTTP {resp.status_code}")
+        body = resp.json() if resp.content else {}
+        state = (body.get("state") or "").lower()
+        if state == "authenticated":
+            return HealthStatus(authenticated=True)
+        if state == "pending":
+            return HealthStatus(authenticated=False, error="OAuth in progress")
+        if state == "error":
+            return HealthStatus(authenticated=False, error="Profile in error state")
+        return HealthStatus(authenticated=False, error=f"Unknown profile state: {state!r}")
 
     async def run(
         self,
