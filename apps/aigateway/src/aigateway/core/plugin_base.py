@@ -4,8 +4,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import APIRouter
-
 
 @dataclass(frozen=True)
 class ModelEntry:
@@ -30,10 +28,25 @@ class OAuthStrategy(ABC):
 
     @abstractmethod
     async def get_authorization_header(self) -> dict[str, str]:
-        """Return headers to merge into the upstream request (e.g. `{"Authorization": "Bearer ..."}`)."""
+        """Return headers to merge into the upstream request.
+
+        Example: ``{"Authorization": "Bearer ..."}``.
+        """
 
     async def invalidate(self) -> None:
         """Drop any cached token. Called after a 401 from upstream."""
+
+
+@dataclass(frozen=True)
+class OAuthConfig:
+    """Provider-level OAuth metadata used to drive the start + callback flow."""
+
+    authorize_url: str
+    token_url: str
+    client_id: str
+    scopes: list[str]
+    redirect_path: str  # absolute path on the gateway, e.g. /v1/auth/anthropic/callback
+    extra_authorize_params: dict[str, str] | None = None
 
 
 class ProviderPluginBase(ABC):
@@ -51,10 +64,14 @@ class ProviderPluginBase(ABC):
     def register_models(self) -> list[ModelEntry]:
         """Return the model_list entries this plugin contributes."""
 
-    def oauth_strategy(self) -> OAuthStrategy | None:
-        """Return the OAuth strategy for this provider, or None for no-auth providers (e.g. local Ollama)."""
+    def oauth_config(self) -> OAuthConfig | None:
+        """Return provider OAuth metadata, or None for no-auth providers (e.g. local Ollama)."""
         return None
 
-    def auth_router(self) -> APIRouter | None:
-        """Return a FastAPI router for `/v1/auth/{provider}` endpoints, or None."""
+    def oauth_strategy_for(self, profile_name: str) -> OAuthStrategy | None:
+        """Return a per-profile OAuthStrategy. Default: no auth."""
+        return None
+
+    def auth_router(self):
+        """Provider-specific auth routes. Default: handled by the shared `routes/auth.py`."""
         return None

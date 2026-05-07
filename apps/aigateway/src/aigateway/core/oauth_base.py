@@ -24,7 +24,8 @@ class BaseOAuthStrategy(OAuthStrategy):
 
     refresh_window_seconds: int = 60
 
-    def __init__(self) -> None:
+    def __init__(self, profile_name: str) -> None:
+        self.profile_name = profile_name
         self._cached: dict | None = None
         self._lock = asyncio.Lock()
 
@@ -46,6 +47,29 @@ class BaseOAuthStrategy(OAuthStrategy):
 
     async def invalidate(self) -> None:
         self._cached = None
+
+    async def refresh(self) -> None:
+        async with self._lock:
+            if self._cached is None:
+                self._cached = self._read_credential()
+            self._cached = await self._refresh_credential(self._cached)
+
+    def set_credentials(self, creds: dict) -> None:
+        """Store a credential blob (used after callback's code-for-token exchange)."""
+        self._cached = creds
+        self._write_to_store(creds)
+
+    @abstractmethod
+    def keychain_service(self) -> str:
+        """OS keychain `service` string for this profile's tokens."""
+
+    @abstractmethod
+    def keychain_account(self) -> str:
+        """OS keychain `account` string for this profile's tokens."""
+
+    @abstractmethod
+    def _write_to_store(self, creds: dict) -> None:
+        """Persist `creds` to the OS keychain entry."""
 
     def _header_override(self) -> dict[str, str] | None:
         """Override to short-circuit OAuth (e.g. when an API-key env var is set)."""

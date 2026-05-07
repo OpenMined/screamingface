@@ -11,3 +11,15 @@ class CredentialNotFoundError(AigwError):
 
 class AuthError(AigwError):
     """Credential present but unusable (malformed / refresh failed / scope rejected)."""
+
+
+class ProfileNotFoundError(AigwError):
+    """No profile found for the given (provider, name)."""
+
+
+class ProfilePendingAuthError(AigwError):
+    """Profile exists but is still in 'pending' state — auth not complete."""
+
+
+class BootstrapError(AigwError):
+    """Failed to bootstrap the gateway profile index from an existing CC keychain."""
