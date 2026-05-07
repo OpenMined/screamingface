@@ -8,12 +8,13 @@ create_router) and inherit `_make_interpreter` here.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from screamingface.plugins.backend_api_base.plugin_base import BackendApiPluginBase
 
 from .backend import AigwBackend
 from .interpreter import AigwInterpreter
+from .settings import AigwBackendApiSettingsBase
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -27,7 +28,7 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
     conflicts: ClassVar[list[str]] = []
 
     def _make_interpreter(self, app: FastAPI):
-        settings = self.settings  # type: ignore[assignment]
+        settings = cast(AigwBackendApiSettingsBase, self.settings)
         backend = AigwBackend(
             gateway_url=settings.gateway_url,
             profile_name=settings.auth_profile,

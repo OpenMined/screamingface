@@ -16,6 +16,7 @@ import logging
 
 import httpx
 
+from screamingface.plugins.llm_base.backend_base import Backend
 from screamingface.plugins.llm_base.errors import (
     AuthError,
     BackendError,
@@ -30,7 +31,7 @@ class AigwGatewayError(BackendError):
     """Raised for unexpected gateway responses (gateway 500, malformed JSON)."""
 
 
-class AigwBackend:
+class AigwBackend(Backend):
     """Speaks OpenAI ChatCompletions to the local AI Gateway.
 
     One method: `run(messages, *, model, system, ...) -> CoreMessage`.
