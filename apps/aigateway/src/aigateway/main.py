@@ -20,19 +20,26 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def _lifespan(app):
-    # When the fake-keychain test hook is active, bootstrap from the same
-    # fake store so it cannot pull in the developer's real Claude Code
-    # credentials behind the test's back.
-    fake_store = getattr(app.state, "_fake_credential_store", None)
-    try:
-        if fake_store is not None:
-            await bootstrap_from_claude_code(
-                credential_store=fake_store, index_store=app.state.profile_index
-            )
-        else:
-            await bootstrap_from_claude_code(index_store=app.state.profile_index)
-    except Exception:
-        logger.exception("bootstrap failed; gateway will start with empty index")
+    # Auto-import of the developer's Claude Code keychain entry is opt-in.
+    # By default the gateway boots with an empty profile index so the user
+    # explicitly authenticates via the UI rather than seeing a "default"
+    # profile they never OAuthed for. Set
+    # AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1 to restore the legacy import.
+    #
+    # When the fake-keychain test hook is active, bootstrap (if enabled)
+    # uses the same fake store so it cannot pull in the developer's real
+    # Claude Code credentials behind the test's back.
+    if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
+        fake_store = getattr(app.state, "_fake_credential_store", None)
+        try:
+            if fake_store is not None:
+                await bootstrap_from_claude_code(
+                    credential_store=fake_store, index_store=app.state.profile_index
+                )
+            else:
+                await bootstrap_from_claude_code(index_store=app.state.profile_index)
+        except Exception:
+            logger.exception("bootstrap failed; gateway will start with empty index")
     yield
 
 
