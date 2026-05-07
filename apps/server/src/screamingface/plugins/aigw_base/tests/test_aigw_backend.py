@@ -113,9 +113,7 @@ async def test_404_profile_not_found_maps_to_credential_not_found() -> None:
 @pytest.mark.anyio
 async def test_409_pending_auth_maps_to_auth_error() -> None:
     def handler(_req: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            409, json={"detail": {"code": "profile_pending_auth"}}
-        )
+        return httpx.Response(409, json={"detail": {"code": "profile_pending_auth"}})
 
     backend = AigwBackend(http_client_factory=_factory(httpx.MockTransport(handler)))
     with pytest.raises(AuthError, match="awaiting OAuth"):

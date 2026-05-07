@@ -1,4 +1,4 @@
-"""End-to-end test for the full claude-frontend → aigw-claude-backend → AI Gateway → Anthropic chain.
+"""End-to-end: claude-frontend → aigw-claude-backend → AI Gateway → Anthropic chain.
 
 Asserts two things rigorously:
 
@@ -217,9 +217,7 @@ def aigw_proxy(otlp_collector: OTLPCollector, httpbin_url: str):
     profile_state: str | None = None
     while time.monotonic() < deadline:
         try:
-            r = httpx.get(
-                f"http://127.0.0.1:{gateway_port}/v1/auth/profiles", timeout=3
-            )
+            r = httpx.get(f"http://127.0.0.1:{gateway_port}/v1/auth/profiles", timeout=3)
             if r.status_code == 200:
                 for p in r.json().get("profiles", []):
                     if p.get("id") == "anthropic:default":
@@ -350,10 +348,7 @@ def test_claude_frontend_to_aigw_to_anthropic(
         for layer, span in expected_layers.items()
         if not any(span in n for n in span_names)
     }
-    assert not missing, (
-        f"Missing spans for layers: {missing}\n"
-        f"All spans: {sorted(span_names)}"
-    )
+    assert not missing, f"Missing spans for layers: {missing}\nAll spans: {sorted(span_names)}"
 
     # Gateway-side evidence: the subprocess's stdout (forwarded by aigw_runner's
     # daemon thread) lands in mgr.logs. We require BOTH that the gateway saw
@@ -375,9 +370,7 @@ def test_claude_frontend_to_aigw_to_anthropic(
     #   - litellm raised AnthropicException / RateLimitError (gateway saw
     #     a structured error from Anthropic, which means it called it)
     #   - the api.anthropic.com hostname appears in any log line
-    gateway_returned_200 = bool(
-        re.search(r'"POST /v1/chat/completions HTTP/[\d.]+" 200', all_logs)
-    )
+    gateway_returned_200 = bool(re.search(r'"POST /v1/chat/completions HTTP/[\d.]+" 200', all_logs))
     anthropic_exception_seen = (
         "AnthropicException" in all_logs
         or "RateLimitError" in all_logs

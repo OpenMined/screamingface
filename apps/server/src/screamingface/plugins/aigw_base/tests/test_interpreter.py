@@ -16,7 +16,11 @@ def _factory_returning(text: str):
             json={
                 "id": "x",
                 "choices": [
-                    {"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": text},
+                        "finish_reason": "stop",
+                    }
                 ],
             },
         )

@@ -162,7 +162,9 @@ class AigwRunnerPlugin(Plugin):
 
         atexit.register(self._stop)
         hooks.register("app.shutdown", self._on_shutdown, plugin_name=self.name)
-        logger.info("aigw-runner: gateway running on port %d (PID %d)", settings.port, self._process.pid)
+        logger.info(
+            "aigw-runner: gateway running on port %d (PID %d)", settings.port, self._process.pid
+        )
 
     async def _on_shutdown(self) -> None:
         self._stop()

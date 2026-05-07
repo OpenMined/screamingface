@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 from screamingface.plugins.aigw_runner.plugin import AigwRunnerPlugin, AigwRunnerSettings
 
 

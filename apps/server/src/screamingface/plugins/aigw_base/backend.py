@@ -110,7 +110,11 @@ class AigwBackend:
                 f"Complete the flow in Electron."
             )
         if resp.status_code == 401 and code == "auth_required":
-            msg = detail.get("message", "auth required") if isinstance(detail, dict) else "auth required"
+            msg = (
+                detail.get("message", "auth required")
+                if isinstance(detail, dict)
+                else "auth required"
+            )
             raise AuthError(f"Gateway: {msg}")
         if resp.status_code in (400, 422):
             raise BackendError(
