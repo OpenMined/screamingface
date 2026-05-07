@@ -232,3 +232,122 @@ def test_profiles_gateway_unreachable_becomes_502() -> None:
     body = resp.json()
     assert body["detail"]["code"] == "gateway_unreachable"
     assert "connection refused" in body["detail"]["message"].lower()
+
+
+def test_start_with_name_override_targets_named_profile() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(
+            201,
+            json={
+                "profile_id": "anthropic:work",
+                "authorize_url": "https://x",
+                "state": "s",
+                "expires_in": 600,
+            },
+        )
+
+    client = _make_client(handler, defaults={"model": "anthropic/claude-sonnet-4-5"})
+    resp = client.post("/claude/auth/start?name=work")
+    assert resp.status_code == 200
+    # Named profile bypasses defaults forwarding
+    assert captured["body"] == {"name": "work"}
+
+
+def test_start_default_name_forwards_defaults() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(
+            201,
+            json={
+                "profile_id": "anthropic:default",
+                "authorize_url": "https://x",
+                "state": "s",
+                "expires_in": 600,
+            },
+        )
+
+    client = _make_client(handler, defaults={"model": "anthropic/claude-sonnet-4-5"})
+    resp = client.post("/claude/auth/start")  # no ?name → uses default "default"
+    assert resp.status_code == 200
+    assert captured["body"] == {
+        "name": "default",
+        "defaults": {"model": "anthropic/claude-sonnet-4-5"},
+    }
+
+
+def test_start_explicit_default_name_forwards_defaults() -> None:
+    """When client passes ?name=default (the SF-configured default), defaults still apply."""
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(
+            201,
+            json={
+                "profile_id": "anthropic:default",
+                "authorize_url": "https://x",
+                "state": "s",
+                "expires_in": 600,
+            },
+        )
+
+    client = _make_client(handler, defaults={"model": "anthropic/claude-sonnet-4-5"})
+    resp = client.post("/claude/auth/start?name=default")
+    assert resp.status_code == 200
+    assert captured["body"] == {
+        "name": "default",
+        "defaults": {"model": "anthropic/claude-sonnet-4-5"},
+    }
+
+
+def test_status_with_name_override_targets_named_profile() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        return httpx.Response(200, json={"state": "authenticated"})
+
+    client = _make_client(handler)
+    resp = client.get("/claude/auth/status?name=work")
+    assert resp.status_code == 200
+    assert "/v1/auth/anthropic/profiles/work/status" in captured["url"]
+
+
+def test_delete_profile_happy_path() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["method"] = req.method
+        captured["url"] = str(req.url)
+        return httpx.Response(204)
+
+    client = _make_client(handler)
+    resp = client.delete("/claude/auth/profiles/work")
+    assert resp.status_code == 204
+    assert captured["method"] == "DELETE"
+    assert captured["url"] == "http://gateway/v1/auth/anthropic/profiles/work"
+
+
+def test_delete_profile_404_passes_through() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"code": "profile_not_found"})
+
+    client = _make_client(handler)
+    resp = client.delete("/claude/auth/profiles/missing")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "profile_not_found"
+
+
+def test_delete_profile_gateway_unreachable_becomes_502() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=req)
+
+    client = _make_client(handler)
+    resp = client.delete("/claude/auth/profiles/anything")
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "gateway_unreachable"
