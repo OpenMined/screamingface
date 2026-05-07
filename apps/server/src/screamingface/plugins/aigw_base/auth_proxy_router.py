@@ -53,6 +53,7 @@ def build_aigw_auth_proxy_router(
             async with factory(timeout_seconds) as client:
                 resp = await client.post(url, json={"name": profile_name})
         except httpx.RequestError as exc:
+            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
             raise HTTPException(
                 status_code=502,
                 detail={
@@ -62,6 +63,7 @@ def build_aigw_auth_proxy_router(
             ) from exc
 
         if resp.status_code >= 500:
+            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
             raise HTTPException(
                 status_code=502,
                 detail={"code": "gateway_error", "upstream_status": resp.status_code},

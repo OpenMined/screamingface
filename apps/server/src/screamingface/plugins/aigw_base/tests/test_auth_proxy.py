@@ -8,6 +8,8 @@ in docs/superpowers/specs/2026-05-07-aigw-backend-oauth-authenticate-button-desi
 
 from __future__ import annotations
 
+import json
+
 import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -42,7 +44,7 @@ def test_start_happy_path_passes_through_authorize_url() -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         captured["url"] = str(req.url)
-        captured["body"] = req.read().decode() if req.content else ""
+        captured["body"] = json.loads(req.read().decode())
         return httpx.Response(
             201,
             json={
@@ -63,8 +65,4 @@ def test_start_happy_path_passes_through_authorize_url() -> None:
     assert body["expires_in"] == 600
     # Verify the SF route forwarded to the right gateway endpoint
     assert captured["url"] == "http://gateway/v1/auth/anthropic/profiles"
-    assert (
-        '"name": "default"' in captured["body"]
-        or '"name":"default"' in captured["body"]
-        or "'name': 'default'" in captured["body"]
-    )
+    assert captured["body"] == {"name": "default"}
