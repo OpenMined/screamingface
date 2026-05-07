@@ -222,7 +222,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
       ) : (
         <button
           onClick={() => setAdding(true)}
-          className="text-xs text-chart-1 hover:underline mt-1"
+          className="rounded bg-chart-1 px-2.5 py-1 text-xs font-semibold text-background hover:bg-chart-1/90 transition-colors mt-1"
         >
           + Add Profile
         </button>
