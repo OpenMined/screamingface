@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -69,9 +70,6 @@ def test_get_profile_404_on_missing(client_with_index) -> None:
     assert resp.json()["detail"]["code"] == "profile_not_found"
 
 
-import httpx
-
-
 def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     client, _ = client_with_index
     resp = client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
@@ -131,6 +129,7 @@ def test_callback_completes_auth(client_with_index) -> None:
     assert prof["state"] == "authenticated"
 
     from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+
     blob = fake_keychain.read(keychain_service_for("work"), "default")
     assert "new-tok" in blob
 
@@ -185,6 +184,7 @@ def test_delete_removes_profile_and_tokens(client_with_index) -> None:
     client.get("/v1/auth/anthropic/callback", params={"code": "c", "state": start.json()["state"]})
 
     from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+
     assert fake_keychain.read(keychain_service_for("z"), "default") is not None
 
     resp = client.delete("/v1/auth/anthropic/profiles/z")

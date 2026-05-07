@@ -58,9 +58,7 @@ async def chat_completions(request: Request) -> Any:
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
-        raise HTTPException(
-            status_code=400, detail="model must be prefixed (e.g. anthropic/...)"
-        )
+        raise HTTPException(status_code=400, detail="model must be prefixed (e.g. anthropic/...)")
 
     registry: ProviderRegistry = request.app.state.providers
     plugin = registry.get(provider)

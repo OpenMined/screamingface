@@ -28,7 +28,10 @@ class OAuthStrategy(ABC):
 
     @abstractmethod
     async def get_authorization_header(self) -> dict[str, str]:
-        """Return headers to merge into the upstream request (e.g. `{"Authorization": "Bearer ..."}`)."""
+        """Return headers to merge into the upstream request.
+
+        Example: ``{"Authorization": "Bearer ..."}``.
+        """
 
     async def invalidate(self) -> None:
         """Drop any cached token. Called after a 401 from upstream."""

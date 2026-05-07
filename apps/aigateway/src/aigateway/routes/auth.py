@@ -36,11 +36,7 @@ async def list_profiles(request: Request) -> dict:
 @router.get("/v1/auth/{provider}/profiles")
 async def list_provider_profiles(provider: str, request: Request) -> dict:
     idx = await _index_store(request).read()
-    return {
-        "profiles": [
-            p.model_dump(mode="json") for p in idx.profiles if p.provider == provider
-        ]
-    }
+    return {"profiles": [p.model_dump(mode="json") for p in idx.profiles if p.provider == provider]}
 
 
 @router.get("/v1/auth/{provider}/profiles/{name}")
@@ -63,7 +59,9 @@ class StartAuthRequest(BaseModel):
 async def start_oauth(provider: str, body: StartAuthRequest, request: Request) -> dict:
     plugin = _registry(request).get(provider)
     if plugin is None:
-        raise HTTPException(status_code=404, detail={"code": "unknown_provider", "provider": provider})
+        raise HTTPException(
+            status_code=404, detail={"code": "unknown_provider", "provider": provider}
+        )
 
     cfg = plugin.oauth_config()
     if cfg is None:

@@ -98,7 +98,9 @@ class MacOSKeychainStore(CredentialStore):
         try:
             result = subprocess.run(
                 ["security", "delete-generic-password", "-s", service, "-a", account],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
         except FileNotFoundError as exc:
             raise RuntimeError("`security` command not found") from exc
@@ -169,7 +171,9 @@ class LinuxLibsecretStore(CredentialStore):
         try:
             subprocess.run(
                 ["secret-tool", "clear", "service", service, "account", account],
-                check=True, timeout=5, capture_output=True,
+                check=True,
+                timeout=5,
+                capture_output=True,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError("`secret-tool clear` timed out") from exc

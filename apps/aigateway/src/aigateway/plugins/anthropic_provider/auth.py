@@ -60,7 +60,8 @@ class AnthropicOAuth(BaseOAuthStrategy):
         raw = self._store.read(self.keychain_service(), self.keychain_account())
         if raw is None:
             raise CredentialNotFoundError(
-                f"No tokens for anthropic profile {self.profile_name!r}. Re-authenticate via Electron."
+                f"No tokens for anthropic profile {self.profile_name!r}. "
+                "Re-authenticate via Electron."
             )
         try:
             creds = json.loads(raw)
@@ -74,10 +75,7 @@ class AnthropicOAuth(BaseOAuthStrategy):
         return creds
 
     def _is_expired(self, creds: dict) -> bool:
-        return (
-            time.time() * 1000
-            >= creds["expires_at_ms"] - (self.refresh_window_seconds * 1000)
-        )
+        return time.time() * 1000 >= creds["expires_at_ms"] - (self.refresh_window_seconds * 1000)
 
     def _build_headers(self, creds: dict) -> dict[str, str]:
         return {
@@ -107,9 +105,7 @@ class AnthropicOAuth(BaseOAuthStrategy):
                 f"Refresh returned 401 for profile {self.profile_name!r}. Re-auth required."
             )
         if resp.status_code != 200:
-            raise AuthError(
-                f"OAuth refresh failed status {resp.status_code}: {resp.text[:500]}"
-            )
+            raise AuthError(f"OAuth refresh failed status {resp.status_code}: {resp.text[:500]}")
         try:
             data = resp.json()
         except json.JSONDecodeError as exc:
