@@ -76,10 +76,16 @@ def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     assert resp.status_code == 201
     body = resp.json()
     assert body["profile_id"] == "anthropic:work"
-    assert body["authorize_url"].startswith("https://console.anthropic.com/oauth/authorize")
+    assert body["authorize_url"].startswith("https://claude.ai/oauth/authorize")
     assert "state=" in body["authorize_url"]
     assert "code_challenge=" in body["authorize_url"]
     assert "code_challenge_method=S256" in body["authorize_url"]
+    # Required by the public Claude Code OAuth app to surface the consent screen
+    assert "code=true" in body["authorize_url"]
+    # Full Claude Code scope set so the issued token is treated as a user-OAuth
+    # token rather than an API token.
+    assert "user%3Asessions%3Aclaude_code" in body["authorize_url"]
+    assert "org%3Acreate_api_key" in body["authorize_url"]
 
 
 def test_start_oauth_for_unknown_provider_404(client_with_index) -> None:
