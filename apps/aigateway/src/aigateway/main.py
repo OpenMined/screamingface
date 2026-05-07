@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import logging
 
-import litellm
 from fastapi import FastAPI
 
 from .config import Settings
 from .core.loader import load_plugins
-from .core.oauth_bridge import make_oauth_pre_call
 from .core.registry import ProviderRegistry
 from .routes import chat, health, models
 
@@ -32,9 +30,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(models.router)
     app.include_router(chat.router)
-
-    litellm.input_callback = list(getattr(litellm, "input_callback", []) or [])
-    litellm.input_callback.append(make_oauth_pre_call(registry))
 
     logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))
     return app
