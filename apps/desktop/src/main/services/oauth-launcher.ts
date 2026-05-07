@@ -21,6 +21,13 @@ export type LauncherResult =
 export interface LauncherOptions {
   sfBaseUrl: string;
   backendName: string;
+  /**
+   * Optional gateway profile name. When set, ?name=<profileName> is appended
+   * to both /auth/start and /auth/status URLs so the auth-proxy targets that
+   * specific profile. When omitted, the auth-proxy applies its configured
+   * default-profile behavior.
+   */
+  profileName?: string;
   pollIntervalMs?: number;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
@@ -30,8 +37,9 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
   const fetchImpl = opts.fetchImpl ?? fetch;
   const pollIntervalMs = opts.pollIntervalMs ?? 2000;
   const timeoutMs = opts.timeoutMs ?? 10 * 60 * 1000;
-  const startUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/start`;
-  const statusUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/status`;
+  const query = opts.profileName ? `?name=${encodeURIComponent(opts.profileName)}` : '';
+  const startUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/start${query}`;
+  const statusUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/status${query}`;
 
   let startResp: Response;
   try {

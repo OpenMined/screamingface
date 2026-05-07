@@ -17,7 +17,7 @@ export function registerBackendStatusHandlers(): void {
 
   ipcMain.handle(
     'backends:authenticateOAuth',
-    async (_event, backend: string): Promise<LauncherResult> => {
+    async (_event, backend: string, profileName?: string): Promise<LauncherResult> => {
       const sfBaseUrl = backendStatusService.getServerUrl();
       if (!sfBaseUrl) {
         return {
@@ -26,7 +26,44 @@ export function registerBackendStatusHandlers(): void {
           message: 'SF server is not running',
         };
       }
-      return await runOAuthLauncher({ sfBaseUrl, backendName: backend });
+      return await runOAuthLauncher({ sfBaseUrl, backendName: backend, profileName });
+    },
+  );
+
+  ipcMain.handle('backends:listProfiles', async (_event, backend: string) => {
+    const sfBaseUrl = backendStatusService.getServerUrl();
+    if (!sfBaseUrl) {
+      return { profiles: [], error: 'gateway_unreachable' };
+    }
+    try {
+      const resp = await fetch(`${sfBaseUrl}/${backend}/auth/profiles`);
+      if (!resp.ok) {
+        return { profiles: [], error: 'gateway_unreachable' };
+      }
+      const body = (await resp.json()) as { profiles?: unknown[] };
+      return { profiles: body.profiles ?? [] };
+    } catch {
+      return { profiles: [], error: 'gateway_unreachable' };
+    }
+  });
+
+  ipcMain.handle(
+    'backends:deleteProfile',
+    async (_event, backend: string, profileName: string) => {
+      const sfBaseUrl = backendStatusService.getServerUrl();
+      if (!sfBaseUrl) {
+        return { ok: false, status: 0 };
+      }
+      try {
+        const resp = await fetch(
+          `${sfBaseUrl}/${backend}/auth/profiles/${encodeURIComponent(profileName)}`,
+          { method: 'DELETE' },
+        );
+        if (resp.status === 204) return { ok: true };
+        return { ok: false, status: resp.status };
+      } catch {
+        return { ok: false, status: 0 };
+      }
     },
   );
 

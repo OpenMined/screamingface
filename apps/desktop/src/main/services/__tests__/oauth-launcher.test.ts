@@ -105,6 +105,35 @@ describe('runOAuthLauncher', () => {
     if (result.kind === 'failed') expect(result.reason).toBe('provider_error');
   });
 
+  it('forwards profileName as ?name= on both start and status URLs', async () => {
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (url: string) => {
+      calls.push(url);
+      if (calls.length === 1) {
+        return new Response(JSON.stringify({ authorize_url: 'https://x/authorize', state: 's1' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return new Response(JSON.stringify({ state: 'authenticated' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    await runOAuthLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'claude',
+      profileName: 'work',
+      pollIntervalMs: 1,
+      timeoutMs: 5_000,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    expect(calls[0]).toBe('http://127.0.0.1:1234/claude/auth/start?name=work');
+    expect(calls[1]).toBe('http://127.0.0.1:1234/claude/auth/status?name=work');
+  });
+
   it('returns gateway_error when /auth/start returns 502', async () => {
     const fetchMock = makeFetch([
       () =>

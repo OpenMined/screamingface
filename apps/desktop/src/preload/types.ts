@@ -65,6 +65,27 @@ export interface BackendAlert {
   health: BackendHealth;
 }
 
+export type BackendProfileState = 'pending' | 'authenticated' | 'error';
+
+export interface BackendProfile {
+  id: string;
+  provider: string;
+  name: string;
+  state: BackendProfileState;
+  account_label?: string | null;
+  last_refreshed_at?: string | null;
+}
+
+export interface ListProfilesResult {
+  profiles: BackendProfile[];
+  error?: string;
+}
+
+export interface DeleteProfileResult {
+  ok: boolean;
+  status?: number;
+}
+
 export type OAuthLauncherResult =
   | { kind: 'complete' }
   | {
@@ -122,7 +143,9 @@ export interface ElectronAPI {
     getStatus: () => Promise<BackendStatusMap>;
     refresh: () => Promise<BackendStatusMap>;
     authenticate: (backend: string) => Promise<void>;
-    authenticateOAuth: (backend: string) => Promise<OAuthLauncherResult>;
+    authenticateOAuth: (backend: string, profileName?: string) => Promise<OAuthLauncherResult>;
+    listProfiles: (backend: string) => Promise<ListProfilesResult>;
+    deleteProfile: (backend: string, profileName: string) => Promise<DeleteProfileResult>;
     onStatusChanged: (callback: (status: BackendStatusMap) => void) => () => void;
     onAlert: (callback: (alert: BackendAlert) => void) => () => void;
   };
