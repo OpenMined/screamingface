@@ -50,6 +50,7 @@ const api: ElectronAPI = {
     getStatus: () => ipcRenderer.invoke('backends:getStatus'),
     refresh: () => ipcRenderer.invoke('backends:refresh'),
     authenticate: (backend) => ipcRenderer.invoke('backends:authenticate', backend),
+    authenticateOAuth: (backend) => ipcRenderer.invoke('backends:authenticateOAuth', backend),
     onStatusChanged: (cb) => onEvent('backends:statusChanged', cb),
     onAlert: (cb) => onEvent('backends:alert', cb),
   },

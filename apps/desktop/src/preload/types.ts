@@ -64,6 +64,14 @@ export interface BackendAlert {
   health: BackendHealth;
 }
 
+export type OAuthLauncherResult =
+  | { kind: 'complete' }
+  | {
+      kind: 'failed';
+      reason: 'timeout' | 'gateway_error' | 'provider_error' | 'network_error';
+      message?: string;
+    };
+
 export interface ElectronAPI {
   popup: {
     open: (url: string, title?: string) => Promise<void>;
@@ -113,6 +121,7 @@ export interface ElectronAPI {
     getStatus: () => Promise<BackendStatusMap>;
     refresh: () => Promise<BackendStatusMap>;
     authenticate: (backend: string) => Promise<void>;
+    authenticateOAuth: (backend: string) => Promise<OAuthLauncherResult>;
     onStatusChanged: (callback: (status: BackendStatusMap) => void) => () => void;
     onAlert: (callback: (alert: BackendAlert) => void) => () => void;
   };

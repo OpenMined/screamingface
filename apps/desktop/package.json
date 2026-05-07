@@ -62,7 +62,8 @@
     "tailwind-merge": "^3.3.0",
     "tailwindcss": "^4.1.7",
     "tw-animate-css": "^1.3.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.5"
   },
   "build": {
     "appId": "ai.screamingface.desktop",
