@@ -16,6 +16,9 @@ from screamingface.plugins.aigw_base import (
     AigwInterpreter,
     build_aigw_auth_proxy_router,
 )
+from screamingface.plugins.aigw_claude_backend._defaults import (
+    _build_profile_defaults_from_settings,
+)
 from screamingface.plugins.llm_base.routes_shared import (
     BackendApiConfig,
     build_backend_api_router,
@@ -50,12 +53,14 @@ def create_router(settings: AigwClaudeBackendSettings, app: Any = None) -> APIRo
             span_prefix="aigw_claude",
         )
     )
+    profile_defaults = _build_profile_defaults_from_settings(settings)
     router.include_router(
         build_aigw_auth_proxy_router(
             path_prefix="/claude",
             gateway_url=settings.gateway_url,
             gateway_provider="anthropic",
             profile_name=settings.auth_profile,
+            defaults=profile_defaults or None,
         )
     )
     return router

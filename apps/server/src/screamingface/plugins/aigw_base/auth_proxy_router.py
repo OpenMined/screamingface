@@ -40,8 +40,15 @@ def build_aigw_auth_proxy_router(
     profile_name: str,
     http_client_factory: HttpClientFactory | None = None,
     timeout_seconds: float = 10.0,
+    defaults: dict[str, Any] | None = None,
 ) -> APIRouter:
-    """Build the two SF-side proxy routes that drive the gateway OAuth flow."""
+    """Build the two SF-side proxy routes that drive the gateway OAuth flow.
+
+    ``defaults``, if provided and non-empty, is forwarded as the ``defaults``
+    field on the gateway's ``POST /v1/auth/{provider}/profiles`` body so newly
+    created profiles ship pre-configured. None or an empty dict preserves the
+    legacy behavior (``{"name": profile_name}`` only).
+    """
     router = APIRouter(tags=[f"{path_prefix.lstrip('/')}-auth"])
     base = gateway_url.rstrip("/")
     factory = http_client_factory or _default_http_factory
@@ -49,9 +56,12 @@ def build_aigw_auth_proxy_router(
     @router.post(f"{path_prefix}/auth/start")
     async def start_auth() -> dict[str, Any]:
         url = f"{base}/v1/auth/{gateway_provider}/profiles"
+        body: dict[str, Any] = {"name": profile_name}
+        if defaults:
+            body["defaults"] = defaults
         try:
             async with factory(timeout_seconds) as client:
-                resp = await client.post(url, json={"name": profile_name})
+                resp = await client.post(url, json=body)
         except httpx.RequestError as exc:
             logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
             raise HTTPException(

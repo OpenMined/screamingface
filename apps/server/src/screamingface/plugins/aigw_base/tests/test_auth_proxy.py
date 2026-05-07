@@ -19,7 +19,7 @@ from screamingface.plugins.aigw_base.auth_proxy_router import (
 )
 
 
-def _make_client(handler) -> TestClient:
+def _make_client(handler, *, defaults=None) -> TestClient:
     """Mount the auth-proxy router onto a stub app, with a MockTransport gateway."""
     transport = httpx.MockTransport(handler)
 
@@ -34,6 +34,7 @@ def _make_client(handler) -> TestClient:
             gateway_provider="anthropic",
             profile_name="default",
             http_client_factory=http_factory,
+            defaults=defaults,
         )
     )
     return TestClient(app)
@@ -130,6 +131,39 @@ def test_status_gateway_404_passes_through() -> None:
     resp = client.get("/claude/auth/status")
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "profile_not_found"
+
+
+def test_start_omits_defaults_when_none() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(201, json={"profile_id": "anthropic:default"})
+
+    client = _make_client(handler)  # defaults defaults to None
+    resp = client.post("/claude/auth/start")
+    assert resp.status_code == 200
+    assert captured["body"] == {"name": "default"}
+    assert "defaults" not in captured["body"]
+
+
+def test_start_forwards_defaults_when_provided() -> None:
+    captured: dict = {}
+    defaults = {
+        "model": "anthropic/claude-sonnet-4-5",
+        "system_prompt": "Be concise.",
+        "timeout_seconds": 300,
+        "reasoning_effort": "medium",
+    }
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(201, json={"profile_id": "anthropic:default"})
+
+    client = _make_client(handler, defaults=defaults)
+    resp = client.post("/claude/auth/start")
+    assert resp.status_code == 200
+    assert captured["body"] == {"name": "default", "defaults": defaults}
 
 
 def test_status_gateway_unreachable_becomes_502() -> None:
