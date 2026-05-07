@@ -66,3 +66,37 @@ def test_start_happy_path_passes_through_authorize_url() -> None:
     # Verify the SF route forwarded to the right gateway endpoint
     assert captured["url"] == "http://gateway/v1/auth/anthropic/profiles"
     assert captured["body"] == {"name": "default"}
+
+
+def test_start_gateway_5xx_becomes_502() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"detail": "down"})
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/start")
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body["detail"]["code"] == "gateway_error"
+    assert body["detail"]["upstream_status"] == 503
+
+
+def test_start_gateway_unreachable_becomes_502() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=req)
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/start")
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body["detail"]["code"] == "gateway_unreachable"
+    assert "connection refused" in body["detail"]["message"].lower()
+
+
+def test_start_gateway_4xx_passes_through() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"code": "unknown_provider", "provider": "anthropic"})
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/start")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "unknown_provider"
