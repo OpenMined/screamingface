@@ -17,15 +17,55 @@
     "llm-base",
     "frontend-base",
     "backend-api-base",
-    "claude-backend-api",
     "codex-backend-api",
     "gemini-backend-api",
     "ollama-backend-api",
     "gemini-frontend",
     "codex-frontend",
-    "ollama-frontend"
+    "ollama-frontend",
+    "aigw-base",
+    "aigw-claude-backend",
+    "aigw-runner"
   ],
   "plugin_config": {
+    "aigw-runner": {
+      "port": 9105,
+      "aigateway_dir": null,
+      "startup_timeout_seconds": 10.0,
+      "enabled": true
+    },
+    "aigw-claude-backend": {
+      "gateway_url": "http://127.0.0.1:9105",
+      "auth_profile": "default",
+      "default_model": "anthropic/claude-sonnet-4-5",
+      "default_effort": "medium",
+      "timeout_seconds": 300,
+      "max_budget_usd": null,
+      "permission_mode": null,
+      "dangerously_skip_permissions": false,
+      "profiles": {
+        "default": {
+          "context": null,
+          "system_prompt": null,
+          "append_system_prompt": null,
+          "model": null,
+          "output_format": null,
+          "max_budget_usd": null,
+          "effort": null,
+          "tools": null,
+          "allowed_tools": null,
+          "disallowed_tools": null,
+          "mcp_config": null,
+          "permission_mode": null,
+          "add_dirs": null,
+          "fallback_model": null,
+          "dangerously_skip_permissions": false,
+          "no_session_persistence": true,
+          "timeout_seconds": null
+        }
+      },
+      "default_profile": "default"
+    },
     "claude-frontend": {
       "active_spec": "anthropic-cookbook",
       "upstream_url": "https://api.anthropic.com",
