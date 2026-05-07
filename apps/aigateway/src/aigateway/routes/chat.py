@@ -121,13 +121,13 @@ async def chat_completions(request: Request) -> Any:
     if body.get("stream"):
         return StreamingResponse(_stream(body), media_type="text/event-stream")
 
-    response = await litellm.acompletion(**body)
+    response: Any = await litellm.acompletion(**body)
     return response.model_dump() if hasattr(response, "model_dump") else response
 
 
 async def _stream(body: dict[str, Any]):
     try:
-        stream = await litellm.acompletion(**body)
+        stream: Any = await litellm.acompletion(**body)
         async for chunk in stream:
             payload = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
             yield f"data: {json.dumps(payload)}\n\n"
