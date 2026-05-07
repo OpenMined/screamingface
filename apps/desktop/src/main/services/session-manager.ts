@@ -310,8 +310,21 @@ class SessionManager extends EventEmitter {
     const cmd = this.cliCommand(session.type);
     const envVar = this.envVarName(session.type);
 
-    // Write a temp script that records its PID before exec'ing the CLI.
-    // exec replaces the shell but keeps the same PID, so we can kill it later.
+    // Bare-minimum launcher script. NO color env, NO terminal-buffer
+    // hygiene, NO escape-sequence emission, NO Terminal.app profile
+    // override. The shell starts clean from Terminal.app's default
+    // profile and inherits whatever environment Terminal.app provides.
+    //
+    // The earlier experiments (COLORTERM/FORCE_COLOR/COLORFGBG, RIS,
+    // alt-screen buffer, "Pro" profile force-set) were chasing a visual
+    // artifact that turned out to come from macOS's "Increase Contrast"
+    // accessibility setting (System Settings → Accessibility → Display).
+    // None of the app-side mitigations could affect a compositor-level
+    // overlay; they're removed so we can isolate the actual cause.
+    //
+    // Two functional lines remain because they're not cosmetic:
+    //   - cd into the working dir so the CLI sees the right project
+    //   - export the proxy BASE_URL so the CLI talks to claude-frontend
     const scriptPath = join(tmpdir(), `sf-session-${session.id}.sh`);
     const pidPath = join(tmpdir(), `sf-session-${session.id}.pid`);
     const scriptContent = [
@@ -325,8 +338,10 @@ class SessionManager extends EventEmitter {
     chmodSync(scriptPath, 0o755);
     session.scriptPath = scriptPath;
 
-    // Open Terminal.app and run the script
-    // AppleScript strings use double quotes, so escape any double quotes in the path
+    // Open Terminal.app and run the script. No profile override —
+    // user's Terminal.app default profile is used as-is.
+    //
+    // AppleScript strings use double quotes, so escape any double quotes in the path.
     const escapedPath = scriptPath.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     const appleScript = `tell application "Terminal"
   activate

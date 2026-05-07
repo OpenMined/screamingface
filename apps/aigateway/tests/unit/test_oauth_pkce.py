@@ -7,7 +7,9 @@ from aigateway.core.oauth_pkce import generate_pkce, generate_state
 def test_pkce_returns_verifier_and_challenge_pair() -> None:
     verifier, challenge = generate_pkce()
     assert 43 <= len(verifier) <= 128
-    expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    expected = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    )
     assert challenge == expected
 
 

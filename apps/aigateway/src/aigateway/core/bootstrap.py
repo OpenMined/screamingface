@@ -55,9 +55,7 @@ async def bootstrap_from_claude_code(
             "token_type": "Bearer",
         }
     except (KeyError, ValueError, TypeError) as exc:
-        raise BootstrapError(
-            f"Claude Code keychain entry has unexpected shape: {exc}"
-        ) from exc
+        raise BootstrapError(f"Claude Code keychain entry has unexpected shape: {exc}") from exc
 
     store.write(
         keychain_service_for("default"),

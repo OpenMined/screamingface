@@ -57,12 +57,14 @@ async def test_index_store_round_trip(fake_keychain) -> None:
 async def test_index_store_upsert_replaces_by_id(fake_keychain) -> None:
     store = ProfileIndexStore(credential_store=fake_keychain)
     await store.upsert(Profile(id="anthropic:default", provider="anthropic", name="default"))
-    await store.upsert(Profile(
-        id="anthropic:default",
-        provider="anthropic",
-        name="default",
-        account_label="updated@example.com",
-    ))
+    await store.upsert(
+        Profile(
+            id="anthropic:default",
+            provider="anthropic",
+            name="default",
+            account_label="updated@example.com",
+        )
+    )
     idx = await store.read()
     assert len(idx.profiles) == 1
     assert idx.profiles[0].account_label == "updated@example.com"

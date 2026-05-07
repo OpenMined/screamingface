@@ -6,7 +6,7 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
-class ProfileState(str, Enum):
+class ProfileState(str, Enum):  # noqa: UP042 - keep tuple-base for pydantic-v1 compat
     PENDING = "pending"
     AUTHENTICATED = "authenticated"
     ERROR = "error"

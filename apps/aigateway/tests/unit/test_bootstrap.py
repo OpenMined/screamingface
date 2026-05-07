@@ -2,6 +2,7 @@ import json
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
 from aigateway.core.bootstrap import bootstrap_from_claude_code
 from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
@@ -47,7 +48,11 @@ async def test_bootstrap_imports_cc_default_when_index_empty(fake_keychain) -> N
 
 @pytest.mark.asyncio
 async def test_bootstrap_noop_when_index_already_exists(fake_keychain) -> None:
-    fake_keychain.write(INDEX_KEYCHAIN_SERVICE, "default", '{"version":1,"profiles":[{"id":"x:y","provider":"x","name":"y"}]}')
+    fake_keychain.write(
+        INDEX_KEYCHAIN_SERVICE,
+        "default",
+        '{"version":1,"profiles":[{"id":"x:y","provider":"x","name":"y"}]}',
+    )
     fake_keychain.write(
         CC_SERVICE,
         "alice",
@@ -69,9 +74,6 @@ async def test_bootstrap_noop_when_cc_entry_missing(fake_keychain) -> None:
         cc_account="alice",
     )
     assert fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default") is None
-
-
-from fastapi.testclient import TestClient
 
 
 def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch) -> None:
