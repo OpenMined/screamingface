@@ -69,7 +69,7 @@ def test_start_happy_path_passes_through_authorize_url() -> None:
 
 
 def test_start_gateway_5xx_becomes_502() -> None:
-    def handler(req: httpx.Request) -> httpx.Response:
+    def handler(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"detail": "down"})
 
     client = _make_client(handler)
@@ -93,10 +93,50 @@ def test_start_gateway_unreachable_becomes_502() -> None:
 
 
 def test_start_gateway_4xx_passes_through() -> None:
-    def handler(req: httpx.Request) -> httpx.Response:
+    def handler(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"code": "unknown_provider", "provider": "anthropic"})
 
     client = _make_client(handler)
     resp = client.post("/claude/auth/start")
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "unknown_provider"
+
+
+def test_status_happy_path_passes_through() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert str(req.url) == "http://gateway/v1/auth/anthropic/profiles/default/status"
+        return httpx.Response(
+            200,
+            json={
+                "state": "authenticated",
+                "account_label": None,
+                "last_refreshed_at": "2026-05-07T10:00:00+00:00",
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.get("/claude/auth/status")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["state"] == "authenticated"
+    assert body["last_refreshed_at"] == "2026-05-07T10:00:00+00:00"
+
+
+def test_status_gateway_404_passes_through() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"code": "profile_not_found"})
+
+    client = _make_client(handler)
+    resp = client.get("/claude/auth/status")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "profile_not_found"
+
+
+def test_status_gateway_unreachable_becomes_502() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=req)
+
+    client = _make_client(handler)
+    resp = client.get("/claude/auth/status")
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "gateway_unreachable"
