@@ -176,6 +176,40 @@ def test_patch_updates_defaults(client_with_index) -> None:
     assert body["defaults"]["max_tokens"] == 8192
 
 
+def test_exchange_code_runs_oauth(client_with_index) -> None:
+    """POST /v1/auth/{provider}/exchange-code completes auth same as GET callback."""
+    client, fake_keychain = client_with_index
+    client.app.state.anthropic_http_factory = _mock_token_factory()
+
+    start = client.post("/v1/auth/anthropic/profiles", json={"name": "paste"})
+    state = start.json()["state"]
+
+    resp = client.post(
+        "/v1/auth/anthropic/exchange-code",
+        json={"code": "pasted-code-1", "state": state},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"state": "authenticated"}
+
+    prof = client.get("/v1/auth/anthropic/profiles/paste").json()
+    assert prof["state"] == "authenticated"
+
+    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+
+    blob = fake_keychain.read(keychain_service_for("paste"), "default")
+    assert "new-tok" in blob
+
+
+def test_exchange_code_with_unknown_state_400(client_with_index) -> None:
+    client, _ = client_with_index
+    resp = client.post(
+        "/v1/auth/anthropic/exchange-code",
+        json={"code": "x", "state": "never-issued"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "unknown_state"
+
+
 def test_delete_removes_profile_and_tokens(client_with_index) -> None:
     client, fake_keychain = client_with_index
     client.app.state.anthropic_http_factory = _mock_token_factory()

@@ -10,6 +10,8 @@ const onAlert = vi.fn(() => () => {});
 const refresh = vi.fn();
 const listProfiles = vi.fn(async () => ({ profiles: [] }));
 const deleteProfile = vi.fn(async () => ({ ok: true }));
+const getPendingAuthState = vi.fn(async (): Promise<string | null> => null);
+const exchangeOAuthCode = vi.fn(async () => ({ ok: true }) as { ok: boolean; message?: string });
 
 (window as unknown as { electronAPI: unknown }).electronAPI = {
   backends: {
@@ -21,6 +23,8 @@ const deleteProfile = vi.fn(async () => ({ ok: true }));
     refresh,
     listProfiles,
     deleteProfile,
+    getPendingAuthState,
+    exchangeOAuthCode,
   },
 };
 
@@ -48,6 +52,10 @@ beforeEach(() => {
   listProfiles.mockResolvedValue({ profiles: [] });
   deleteProfile.mockClear();
   deleteProfile.mockResolvedValue({ ok: true });
+  getPendingAuthState.mockClear();
+  getPendingAuthState.mockResolvedValue(null);
+  exchangeOAuthCode.mockClear();
+  exchangeOAuthCode.mockResolvedValue({ ok: true });
   getStatus.mockResolvedValue({
     claude: {
       authenticated: false,
@@ -105,6 +113,23 @@ describe('BackendStatusPanel auth_kind=browser sub-panel', () => {
     await waitFor(() => expect(deleteProfile).toHaveBeenCalledWith('claude', 'work'));
     await waitFor(() => expect(screen.queryByText('work')).toBeNull());
     confirmSpy.mockRestore();
+  });
+
+  it('shows paste-code form when an OAuth flow is in-flight and Submit calls exchangeOAuthCode', async () => {
+    getPendingAuthState.mockResolvedValue('pending-state-xyz');
+    const { container } = render(<BackendStatusPanel />);
+    await waitFor(() => expect(getPendingAuthState).toHaveBeenCalledWith('claude'));
+    const form = await waitFor(() => {
+      const f = container.querySelector('form[aria-label="Paste authorization code"]');
+      if (!f) throw new Error('paste form not yet rendered');
+      return f as HTMLFormElement;
+    });
+    const input = within(form).getByLabelText(/Authorization code/i);
+    fireEvent.change(input, { target: { value: 'pasted-auth-code' } });
+    fireEvent.click(within(form).getByRole('button', { name: /Submit/i }));
+    await waitFor(() =>
+      expect(exchangeOAuthCode).toHaveBeenCalledWith('claude', 'pasted-auth-code'),
+    );
   });
 
   it('Add Profile flow validates and calls authenticateOAuth with new name', async () => {

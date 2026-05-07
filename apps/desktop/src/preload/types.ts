@@ -86,6 +86,10 @@ export interface DeleteProfileResult {
   status?: number;
 }
 
+export type ExchangeOAuthCodeResult =
+  | { ok: true }
+  | { ok: false; status?: number; message?: string };
+
 export type OAuthLauncherResult =
   | { kind: 'complete' }
   | {
@@ -146,6 +150,8 @@ export interface ElectronAPI {
     authenticateOAuth: (backend: string, profileName?: string) => Promise<OAuthLauncherResult>;
     listProfiles: (backend: string) => Promise<ListProfilesResult>;
     deleteProfile: (backend: string, profileName: string) => Promise<DeleteProfileResult>;
+    getPendingAuthState: (backend: string) => Promise<string | null>;
+    exchangeOAuthCode: (backend: string, code: string) => Promise<ExchangeOAuthCodeResult>;
     onStatusChanged: (callback: (status: BackendStatusMap) => void) => () => void;
     onAlert: (callback: (alert: BackendAlert) => void) => () => void;
   };

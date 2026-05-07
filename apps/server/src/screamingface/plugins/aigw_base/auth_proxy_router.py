@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Response
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,11 @@ __all__ = ["build_aigw_auth_proxy_router"]
 
 
 HttpClientFactory = Callable[[float], httpx.AsyncClient]
+
+
+class _ExchangeCodeBody(BaseModel):
+    code: str
+    state: str
 
 
 def _default_http_factory(timeout: float) -> httpx.AsyncClient:
@@ -130,6 +136,39 @@ def build_aigw_auth_proxy_router(
         try:
             async with factory(timeout_seconds) as client:
                 resp = await client.get(url)
+        except httpx.RequestError as exc:
+            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "gateway_unreachable",
+                    "message": f"AI Gateway unreachable at {base}: {exc}",
+                },
+            ) from exc
+
+        if resp.status_code >= 500:
+            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
+            raise HTTPException(
+                status_code=502,
+                detail={"code": "gateway_error", "upstream_status": resp.status_code},
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
+        return resp.json()
+
+    @router.post(f"{path_prefix}/auth/exchange-code")
+    async def exchange_code(body: _ExchangeCodeBody) -> dict[str, Any]:
+        """Forward a manually-pasted authorization code to the gateway.
+
+        Used as a fallback when the OAuth provider displays the code on
+        screen (e.g. ``code=true``) instead of redirecting back. The
+        gateway looks up the matching pending entry by ``state``, so we
+        do not need to know which profile this targets.
+        """
+        url = f"{base}/v1/auth/{gateway_provider}/exchange-code"
+        try:
+            async with factory(timeout_seconds) as client:
+                resp = await client.post(url, json=body.model_dump())
         except httpx.RequestError as exc:
             logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
             raise HTTPException(

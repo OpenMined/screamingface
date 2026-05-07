@@ -343,6 +343,44 @@ def test_delete_profile_404_passes_through() -> None:
     assert resp.json()["detail"]["code"] == "profile_not_found"
 
 
+def test_exchange_code_happy_path_forwards_to_gateway() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        captured["method"] = req.method
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(200, json={"state": "authenticated"})
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/exchange-code", json={"code": "pasted-code", "state": "abc"})
+    assert resp.status_code == 200
+    assert resp.json() == {"state": "authenticated"}
+    assert captured["method"] == "POST"
+    assert captured["url"] == "http://gateway/v1/auth/anthropic/exchange-code"
+    assert captured["body"] == {"code": "pasted-code", "state": "abc"}
+
+
+def test_exchange_code_gateway_4xx_passes_through() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"code": "unknown_state"})
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/exchange-code", json={"code": "x", "state": "never-issued"})
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "unknown_state"
+
+
+def test_exchange_code_gateway_unreachable_becomes_502() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=req)
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/exchange-code", json={"code": "x", "state": "y"})
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "gateway_unreachable"
+
+
 def test_delete_profile_gateway_unreachable_becomes_502() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=req)

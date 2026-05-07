@@ -156,6 +156,10 @@ function ProfilesSubPanel({ name }: { name: string }) {
   const [newName, setNewName] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [hasPendingAuth, setHasPendingAuth] = useState(false);
+  const [pasteCode, setPasteCode] = useState('');
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const result = await window.electronAPI.backends.listProfiles(name);
@@ -163,9 +167,41 @@ function ProfilesSubPanel({ name }: { name: string }) {
     setLoaded(true);
   }, [name]);
 
+  const checkPending = useCallback(async () => {
+    const s = await window.electronAPI.backends.getPendingAuthState(name);
+    setHasPendingAuth(!!s);
+  }, [name]);
+
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void checkPending();
+  }, [refresh, checkPending]);
+
+  const onPasteSubmit = async (e?: React.FormEvent): Promise<void> => {
+    e?.preventDefault();
+    if (pasteBusy) return;
+    const code = pasteCode.trim();
+    if (!code) {
+      setPasteError('Paste the authorization code');
+      return;
+    }
+    setPasteBusy(true);
+    setPasteError(null);
+    try {
+      const result = await window.electronAPI.backends.exchangeOAuthCode(name, code);
+      if (result.ok) {
+        setPasteCode('');
+        setHasPendingAuth(false);
+        await refresh();
+      } else {
+        setPasteError(result.message ?? `Exchange failed${result.status ? ` (${result.status})` : ''}`);
+      }
+    } catch (err) {
+      setPasteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPasteBusy(false);
+    }
+  };
 
   const validate = (candidate: string): string | null => {
     if (!candidate) return 'Name is required';
@@ -191,6 +227,12 @@ function ProfilesSubPanel({ name }: { name: string }) {
     setAdding(false);
     setNewName('');
     void (async () => {
+      // Briefly poll for the launcher to publish the PKCE state so the
+      // paste-code fallback form can become available before the long
+      // poll resolves.
+      const pendingPoll = setInterval(() => {
+        void checkPending();
+      }, 500);
       try {
         const result = await window.electronAPI.backends.authenticateOAuth(name, candidate);
         if (result.kind === 'failed') {
@@ -202,8 +244,10 @@ function ProfilesSubPanel({ name }: { name: string }) {
           `Authentication failed for "${candidate}" — ${err2 instanceof Error ? err2.message : String(err2)}`,
         );
       } finally {
+        clearInterval(pendingPoll);
         setSubmitting(false);
         void refresh();
+        void checkPending();
       }
     })();
   };
@@ -220,7 +264,15 @@ function ProfilesSubPanel({ name }: { name: string }) {
         <p className="text-xs text-muted-foreground py-1">No profiles yet.</p>
       )}
       {profiles.map((p) => (
-        <ProfileRow key={p.id || p.name} backendName={name} profile={p} onChanged={refresh} />
+        <ProfileRow
+          key={p.id || p.name}
+          backendName={name}
+          profile={p}
+          onChanged={() => {
+            void refresh();
+            void checkPending();
+          }}
+        />
       ))}
       {adding ? (
         <form onSubmit={onAdd} className="flex items-center gap-2 py-1.5">
@@ -264,6 +316,34 @@ function ProfilesSubPanel({ name }: { name: string }) {
         </button>
       )}
       {addError && <p className="text-xs text-destructive mt-1">{addError}</p>}
+      {hasPendingAuth && (
+        <form
+          onSubmit={onPasteSubmit}
+          className="flex items-center gap-2 py-1.5 mt-2 border-t border-border pt-2"
+          aria-label="Paste authorization code"
+        >
+          <span className="text-xs text-muted-foreground">Pasted authorization code?</span>
+          <input
+            type="text"
+            value={pasteCode}
+            onChange={(e) => {
+              setPasteCode(e.target.value);
+              setPasteError(null);
+            }}
+            placeholder="paste code here"
+            aria-label="Authorization code"
+            className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono"
+          />
+          <button
+            type="submit"
+            disabled={pasteBusy}
+            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 disabled:opacity-60"
+          >
+            {pasteBusy ? 'Submitting…' : 'Submit'}
+          </button>
+        </form>
+      )}
+      {pasteError && <p className="text-xs text-destructive mt-1">{pasteError}</p>}
     </div>
   );
 }

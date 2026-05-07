@@ -1,6 +1,15 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { backendStatusService } from '../services/backend-status';
-import { runOAuthLauncher, type LauncherResult } from '../services/oauth-launcher';
+import {
+  runOAuthLauncher,
+  getPendingAuthState,
+  clearPendingAuthState,
+  type LauncherResult,
+} from '../services/oauth-launcher';
+
+export type ExchangeCodeResult =
+  | { ok: true }
+  | { ok: false; status?: number; message?: string };
 
 export function registerBackendStatusHandlers(): void {
   ipcMain.handle('backends:getStatus', () => {
@@ -32,6 +41,45 @@ export function registerBackendStatusHandlers(): void {
       const result = await runOAuthLauncher({ sfBaseUrl, backendName: backend, profileName });
       console.log(`[oauth] launcher result:`, result);
       return result;
+    },
+  );
+
+  ipcMain.handle('backends:getPendingAuthState', (_event, backend: string): string | null => {
+    return getPendingAuthState(backend);
+  });
+
+  ipcMain.handle(
+    'backends:exchangeOAuthCode',
+    async (_event, backend: string, code: string): Promise<ExchangeCodeResult> => {
+      const sfBaseUrl = backendStatusService.getServerUrl();
+      if (!sfBaseUrl) {
+        return { ok: false, message: 'SF server is not running' };
+      }
+      const state = getPendingAuthState(backend);
+      if (!state) {
+        return { ok: false, message: 'No in-flight OAuth flow for this backend' };
+      }
+      try {
+        const resp = await fetch(`${sfBaseUrl}/${backend}/auth/exchange-code`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ code, state }),
+        });
+        if (resp.ok) {
+          clearPendingAuthState(backend);
+          return { ok: true };
+        }
+        let message: string | undefined;
+        try {
+          const body = (await resp.json()) as { detail?: { code?: string; message?: string } };
+          message = body.detail?.message ?? body.detail?.code;
+        } catch {
+          /* ignore */
+        }
+        return { ok: false, status: resp.status, message };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
     },
   );
 

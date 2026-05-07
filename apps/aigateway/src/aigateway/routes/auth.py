@@ -117,7 +117,12 @@ async def anthropic_callback(code: str, state: str, request: Request):
     return await _generic_callback("anthropic", code, state, request)
 
 
-async def _generic_callback(provider: str, code: str, state: str, request: Request):
+async def _complete_oauth(provider: str, code: str, state: str, request: Request) -> None:
+    """Run the OAuth token exchange and persist credentials.
+
+    Used by both the GET browser-redirect callback and the POST manual
+    paste-code endpoint. Raises HTTPException on failure.
+    """
     pending = _pending(request).pop(state)
     if pending is None:
         raise HTTPException(
@@ -148,7 +153,25 @@ async def _generic_callback(provider: str, code: str, state: str, request: Reque
         p.state = ProfileState.AUTHENTICATED
         await _index_store(request).upsert(p)
 
+
+async def _generic_callback(provider: str, code: str, state: str, request: Request):
+    await _complete_oauth(provider, code, state, request)
     return HTMLResponse(_CALLBACK_HTML)
+
+
+class ExchangeCodeRequest(BaseModel):
+    code: str
+    state: str
+
+
+@router.post("/v1/auth/{provider}/exchange-code")
+async def exchange_code(provider: str, body: ExchangeCodeRequest, request: Request) -> dict:
+    """Manual paste-code path for OAuth flows where the provider shows the
+    authorization code on screen instead of redirecting (e.g. claude.ai/oauth
+    with `code=true`).
+    """
+    await _complete_oauth(provider, body.code, body.state, request)
+    return {"state": "authenticated"}
 
 
 @router.get("/v1/auth/{provider}/profiles/{name}/status")

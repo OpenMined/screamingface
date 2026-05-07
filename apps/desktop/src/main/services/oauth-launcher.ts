@@ -10,6 +10,27 @@
 
 import { shell } from 'electron';
 
+/**
+ * In-memory cache of the most-recent OAuth `state` value per backend.
+ *
+ * Populated when a launcher run successfully gets an `authorize_url` from
+ * `/auth/start`. Read by the manual paste-code IPC path so the renderer
+ * can pair the user-pasted authorization code with the correct PKCE state.
+ *
+ * The entry stays around after the launcher's promise resolves (e.g. on
+ * timeout) so the user can still paste the code after the long poll gives
+ * up. It is cleared on successful exchange.
+ */
+const pendingStateByBackend = new Map<string, string>();
+
+export function getPendingAuthState(backendName: string): string | null {
+  return pendingStateByBackend.get(backendName) ?? null;
+}
+
+export function clearPendingAuthState(backendName: string): void {
+  pendingStateByBackend.delete(backendName);
+}
+
 export type LauncherResult =
   | { kind: 'complete' }
   | {
@@ -64,7 +85,10 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
       message: `start returned ${startResp.status}: ${body.slice(0, 200)}`,
     };
   }
-  const startBody = (await startResp.json()) as { authorize_url: string };
+  const startBody = (await startResp.json()) as { authorize_url: string; state?: string };
+  if (startBody.state) {
+    pendingStateByBackend.set(opts.backendName, startBody.state);
+  }
   console.log(`[oauth-launcher] opening browser: ${startBody.authorize_url}`);
   await shell.openExternal(startBody.authorize_url);
 
@@ -94,7 +118,10 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
       };
     }
     const body = (await statusResp.json()) as { state: string; error?: string };
-    if (body.state === 'authenticated') return { kind: 'complete' };
+    if (body.state === 'authenticated') {
+      pendingStateByBackend.delete(opts.backendName);
+      return { kind: 'complete' };
+    }
     if (body.state === 'error') {
       return { kind: 'failed', reason: 'provider_error', message: body.error };
     }
