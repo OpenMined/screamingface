@@ -9,6 +9,7 @@ that the routes exist on the FastAPI app the plugin produces.
 from __future__ import annotations
 
 from fastapi import FastAPI
+from starlette.routing import Route
 
 from screamingface.plugins.aigw_claude_backend.plugin import (
     AigwClaudeBackendPlugin,
@@ -22,7 +23,7 @@ def test_aigw_claude_backend_mounts_auth_proxy_routes() -> None:
     router = AigwClaudeBackendPlugin.create_router(settings, app=app)
     app.include_router(router)
 
-    paths = {r.path for r in app.routes if hasattr(r, "path")}
+    paths = {r.path for r in app.routes if isinstance(r, Route)}
     assert "/claude/auth/start" in paths
     assert "/claude/auth/status" in paths
 
