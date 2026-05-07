@@ -19,6 +19,9 @@ export function registerBackendStatusHandlers(): void {
     'backends:authenticateOAuth',
     async (_event, backend: string, profileName?: string): Promise<LauncherResult> => {
       const sfBaseUrl = backendStatusService.getServerUrl();
+      console.log(
+        `[oauth] authenticateOAuth invoked: backend=${backend} profileName=${profileName ?? '(default)'} sfBaseUrl=${sfBaseUrl ?? 'NULL'}`,
+      );
       if (!sfBaseUrl) {
         return {
           kind: 'failed',
@@ -26,7 +29,9 @@ export function registerBackendStatusHandlers(): void {
           message: 'SF server is not running',
         };
       }
-      return await runOAuthLauncher({ sfBaseUrl, backendName: backend, profileName });
+      const result = await runOAuthLauncher({ sfBaseUrl, backendName: backend, profileName });
+      console.log(`[oauth] launcher result:`, result);
+      return result;
     },
   );
 

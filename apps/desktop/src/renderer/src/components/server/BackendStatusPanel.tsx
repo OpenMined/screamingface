@@ -81,12 +81,23 @@ function ProfileRow({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const cfg = profileStateConfig[profile.state] ?? { dot: 'bg-muted', label: profile.state };
 
   const onReauth = async (): Promise<void> => {
     setBusy(true);
+    setError(null);
     try {
-      await window.electronAPI.backends.authenticateOAuth(backendName, profile.name);
+      const result = await window.electronAPI.backends.authenticateOAuth(
+        backendName,
+        profile.name,
+      );
+      if (result.kind === 'failed') {
+        const reason = result.message ? `${result.reason}: ${result.message}` : result.reason;
+        setError(`Re-auth failed — ${reason}`);
+      }
+    } catch (e) {
+      setError(`Re-auth failed — ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setBusy(false);
       onChanged();
@@ -131,6 +142,9 @@ function ProfileRow({
           Delete
         </button>
       </div>
+      {error && (
+        <p className="basis-full text-xs text-destructive mt-1">{error}</p>
+      )}
     </div>
   );
 }
@@ -170,9 +184,16 @@ function ProfilesSubPanel({ name }: { name: string }) {
     setSubmitting(true);
     setAddError(null);
     try {
-      await window.electronAPI.backends.authenticateOAuth(name, candidate);
+      const result = await window.electronAPI.backends.authenticateOAuth(name, candidate);
+      if (result.kind === 'failed') {
+        const reason = result.message ? `${result.reason}: ${result.message}` : result.reason;
+        setAddError(`Authentication failed — ${reason}`);
+        return;
+      }
       setNewName('');
       setAdding(false);
+    } catch (e) {
+      setAddError(`Authentication failed — ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSubmitting(false);
       void refresh();

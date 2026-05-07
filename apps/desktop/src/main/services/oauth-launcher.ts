@@ -41,20 +41,31 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
   const startUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/start${query}`;
   const statusUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/status${query}`;
 
+  console.log(`[oauth-launcher] POST ${startUrl}`);
   let startResp: Response;
   try {
     startResp = await fetchImpl(startUrl, { method: 'POST' });
   } catch (e) {
+    console.log(`[oauth-launcher] start fetch threw:`, e);
     return { kind: 'failed', reason: 'network_error', message: String(e) };
   }
+  console.log(`[oauth-launcher] start status=${startResp.status}`);
   if (!startResp.ok) {
+    let body = '';
+    try {
+      body = await startResp.text();
+    } catch {
+      /* ignore */
+    }
+    console.log(`[oauth-launcher] start body=${body.slice(0, 500)}`);
     return {
       kind: 'failed',
       reason: 'gateway_error',
-      message: `start returned ${startResp.status}`,
+      message: `start returned ${startResp.status}: ${body.slice(0, 200)}`,
     };
   }
   const startBody = (await startResp.json()) as { authorize_url: string };
+  console.log(`[oauth-launcher] opening browser: ${startBody.authorize_url}`);
   await shell.openExternal(startBody.authorize_url);
 
   const deadline = Date.now() + timeoutMs;
