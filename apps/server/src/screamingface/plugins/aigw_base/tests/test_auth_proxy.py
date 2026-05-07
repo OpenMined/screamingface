@@ -1,0 +1,71 @@
+"""Unit tests for the aigw auth-proxy router factory.
+
+We mount the factory's router on a bare FastAPI app and use httpx
+MockTransport to fake the upstream aigateway. Each test asserts that
+the SF-side route forwards correctly and reshapes errors as documented
+in docs/superpowers/specs/2026-05-07-aigw-backend-oauth-authenticate-button-design.md.
+"""
+
+from __future__ import annotations
+
+import httpx
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from screamingface.plugins.aigw_base.auth_proxy_router import (
+    build_aigw_auth_proxy_router,
+)
+
+
+def _make_client(handler) -> TestClient:
+    """Mount the auth-proxy router onto a stub app, with a MockTransport gateway."""
+    transport = httpx.MockTransport(handler)
+
+    def http_factory(timeout: float) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=transport, timeout=timeout)
+
+    app = FastAPI()
+    app.include_router(
+        build_aigw_auth_proxy_router(
+            path_prefix="/claude",
+            gateway_url="http://gateway",
+            gateway_provider="anthropic",
+            profile_name="default",
+            http_client_factory=http_factory,
+        )
+    )
+    return TestClient(app)
+
+
+def test_start_happy_path_passes_through_authorize_url() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        captured["body"] = req.read().decode() if req.content else ""
+        return httpx.Response(
+            201,
+            json={
+                "profile_id": "anthropic:default",
+                "authorize_url": "https://provider/authorize?x=1",
+                "state": "abc",
+                "expires_in": 600,
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/start")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["authorize_url"] == "https://provider/authorize?x=1"
+    assert body["profile_id"] == "anthropic:default"
+    assert body["state"] == "abc"
+    assert body["expires_in"] == 600
+    # Verify the SF route forwarded to the right gateway endpoint
+    assert captured["url"] == "http://gateway/v1/auth/anthropic/profiles"
+    assert (
+        '"name": "default"' in captured["body"]
+        or '"name":"default"' in captured["body"]
+        or "'name': 'default'" in captured["body"]
+    )
