@@ -54,7 +54,7 @@ export function Url4Viewer({
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async () => {
       try {
-        const url = `${serverUrl}/url4/highlight?q=${encodeURIComponent(expression)}`;
+        const url = `${serverUrl}/ensemble/highlight?q=${encodeURIComponent(expression)}`;
         const res = fetchFn ? await fetchFn(url) : await fetch(url);
         if (!res.ok) {
           console.error(`[Url4Viewer] highlight request failed: ${res.status} ${res.statusText}`);
