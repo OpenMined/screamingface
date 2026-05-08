@@ -471,10 +471,12 @@ export function BackendStatusPanel() {
   }, [toast]);
 
   const backends = Object.entries(statuses);
-  // Hide entirely only when we KNOW the server has no backends (loaded + empty).
-  // While the initial fetch is in flight we render skeleton rows so the panel
-  // is visible from first paint instead of popping in suddenly.
-  if (loaded && backends.length === 0) return null;
+  // Stay in skeleton state as long as there are no entries — `getStatus()`
+  // resolves with an empty map BEFORE SF has probed any backends, so an
+  // earlier "hide if loaded && empty" check caused a visible flicker
+  // (skeleton -> hidden -> repopulated). The panel now stays visible from
+  // first paint and transitions skeleton -> rows when entries arrive.
+  const showSkeleton = backends.length === 0;
 
   const onRefresh = async (): Promise<void> => {
     setRefreshing(true);
@@ -500,7 +502,7 @@ export function BackendStatusPanel() {
           <RefreshCw className={cn('h-4 w-4', (refreshing || !loaded) && 'animate-spin')} />
         </button>
       </div>
-      {!loaded && (
+      {showSkeleton && (
         <div className="space-y-2 py-1" aria-label="Loading backends" role="status">
           {[0, 1, 2].map((i) => (
             <div key={i} className="flex items-center gap-3 py-2 animate-pulse">
