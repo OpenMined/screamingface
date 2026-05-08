@@ -134,19 +134,29 @@ async def exchange_authorization_code(
     code: str,
     code_verifier: str,
     *,
+    redirect_uri: str | None = None,
     http_client_factory=None,
 ) -> dict:
-    """Exchange an authorization code for tokens. Used by the OAuth callback handler."""
+    """Exchange an authorization code for tokens. Used by the OAuth callback handler.
+
+    ``redirect_uri`` must match the one sent to ``/authorize`` in the same flow.
+    Some OAuth servers (including Anthropic's) reject the exchange when the two
+    don't match. When omitted we don't send it (legacy behavior; works for
+    servers that don't require it).
+    """
     factory = http_client_factory or (lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0)))
+    body: dict[str, str] = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "code_verifier": code_verifier,
+        "client_id": ANTHROPIC_CLIENT_ID,
+    }
+    if redirect_uri:
+        body["redirect_uri"] = redirect_uri
     async with factory() as client:
         resp = await client.post(
             ANTHROPIC_TOKEN_URL,
-            json={
-                "grant_type": "authorization_code",
-                "code": code,
-                "code_verifier": code_verifier,
-                "client_id": ANTHROPIC_CLIENT_ID,
-            },
+            json=body,
             headers={"content-type": "application/json"},
         )
     if resp.status_code != 200:

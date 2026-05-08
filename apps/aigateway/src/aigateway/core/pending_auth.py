@@ -28,3 +28,14 @@ class PendingAuthTable:
         if time.monotonic() - ts > self._ttl:
             return None
         return entry
+
+    def peek(self, state: str) -> PendingAuthEntry | None:
+        """Look up an entry without removing it. Returns None if expired."""
+        item = self._entries.get(state)
+        if item is None:
+            return None
+        entry, ts = item
+        if time.monotonic() - ts > self._ttl:
+            self._entries.pop(state, None)
+            return None
+        return entry

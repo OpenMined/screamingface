@@ -86,6 +86,37 @@ def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     # token rather than an API token.
     assert "user%3Asessions%3Aclaude_code" in body["authorize_url"]
     assert "org%3Acreate_api_key" in body["authorize_url"]
+    # redirect_uri must be http://localhost:*/callback (not 127.0.0.1 and not
+    # a per-provider path) — the public Claude Code OAuth client only allows
+    # this canonical shape.
+    assert "redirect_uri=http%3A%2F%2Flocalhost%3A" in body["authorize_url"]
+    assert "%2Fcallback&" in body["authorize_url"]
+
+
+def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
+    """The /callback route looks up the provider from the pending-auth
+    state, so the same path serves every provider — matching what claude.ai
+    accepts as a redirect_uri."""
+    client, _ = client_with_index
+    client.app.state.anthropic_http_factory = _mock_token_factory()
+
+    start = client.post("/v1/auth/anthropic/profiles", json={"name": "topcb"})
+    state = start.json()["state"]
+
+    resp = client.get(
+        "/callback",
+        params={"code": "auth-code-top", "state": state},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 200
+    prof = client.get("/v1/auth/anthropic/profiles/topcb").json()
+    assert prof["state"] == "authenticated"
+
+
+def test_top_level_callback_unknown_state_400(client_with_index) -> None:
+    client, _ = client_with_index
+    resp = client.get("/callback", params={"code": "x", "state": "never-issued"})
+    assert resp.status_code == 400
 
 
 def test_start_oauth_for_unknown_provider_404(client_with_index) -> None:

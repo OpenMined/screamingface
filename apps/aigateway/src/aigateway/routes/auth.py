@@ -76,7 +76,12 @@ async def start_oauth(provider: str, body: StartAuthRequest, request: Request) -
         PendingAuthEntry(profile_id=profile_id, code_verifier=code_verifier),
     )
 
-    redirect_uri = f"http://127.0.0.1:{request.app.state.settings.port}{cfg.redirect_path}"
+    # The Claude Code public OAuth client (and similar public clients) only
+    # accept ``http://localhost:*/callback`` as a redirect URI — using
+    # ``127.0.0.1`` or any path other than ``/callback`` triggers an
+    # "Authorization failed" error from claude.ai. We use ``localhost`` and
+    # the top-level ``/callback`` route (provider is dispatched via state).
+    redirect_uri = f"http://localhost:{request.app.state.settings.port}/callback"
     params = {
         "response_type": "code",
         "client_id": cfg.client_id,
@@ -112,6 +117,27 @@ _CALLBACK_HTML = """<!doctype html>
 """
 
 
+@router.get("/callback")
+async def oauth_callback(code: str, state: str, request: Request):
+    """Provider-agnostic OAuth callback.
+
+    Anthropic's public Claude Code OAuth client (and most OAuth providers
+    using public clients) only accepts ``http://localhost:*/callback`` as
+    the redirect URI — i.e. the path is fixed at ``/callback`` and is not
+    namespaced per provider. We dispatch to the correct provider by
+    looking up the ``state`` value in the pending-auth table.
+    """
+    pending_entry = _pending(request).peek(state)
+    if pending_entry is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "unknown_state", "message": "OAuth state not recognized or expired"},
+        )
+    provider, _name = pending_entry.profile_id.split(":", 1)
+    return await _generic_callback(provider, code, state, request)
+
+
+# Back-compat: older OAuth flows (and tests) still use the per-provider path.
 @router.get("/v1/auth/anthropic/callback")
 async def anthropic_callback(code: str, state: str, request: Request):
     return await _generic_callback("anthropic", code, state, request)
@@ -135,9 +161,14 @@ async def _complete_oauth(provider: str, code: str, state: str, request: Request
         raise HTTPException(status_code=400, detail={"code": "provider_mismatch"})
 
     factory = getattr(request.app.state, f"{provider}_http_factory", None)
+    # Must match the redirect_uri sent to /authorize. Both the start-OAuth
+    # route and this exchange use the same canonical localhost+/callback
+    # form so Anthropic's redirect-URI check passes.
+    redirect_uri = f"http://localhost:{request.app.state.settings.port}/callback"
     creds = await anthropic_auth_module.exchange_authorization_code(
         code,
         pending.code_verifier,
+        redirect_uri=redirect_uri,
         http_client_factory=factory,
     )
 
