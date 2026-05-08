@@ -35,9 +35,7 @@ def test_ensemble_highlight_returns_tokens() -> None:
 
 def test_ensemble_highlight_handles_paren_list() -> None:
     client = _client()
-    resp = client.get(
-        "/ensemble/highlight", params={"q": "(http://a.com, hello)"}
-    )
+    resp = client.get("/ensemble/highlight", params={"q": "(http://a.com, hello)"})
     assert resp.status_code == 200
     tokens = resp.json()["tokens"]
     types = [t["type"] for t in tokens]
