@@ -278,6 +278,12 @@ function ProfilesSubPanel({ name }: { name: string }) {
 
   return (
     <div className="ml-6 mt-1 mb-2 border-t border-border pt-2">
+      {!loaded && (
+        <div className="flex items-center gap-2 py-1 animate-pulse" aria-label="Loading profiles">
+          <span className="h-2 w-2 rounded-full shrink-0 bg-muted" />
+          <span className="h-3 w-16 rounded bg-muted" />
+        </div>
+      )}
       {loaded && profiles.length === 0 && (
         <p className="text-xs text-muted-foreground py-1">No profiles yet.</p>
       )}
@@ -421,14 +427,21 @@ function BackendRow({ name, health }: { name: string; health: BackendHealth }) {
 
 export function BackendStatusPanel() {
   const [statuses, setStatuses] = useState<BackendStatusMap>({});
+  const [loaded, setLoaded] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     // Load initial status
-    window.electronAPI.backends.getStatus().then(setStatuses);
+    window.electronAPI.backends.getStatus().then((s) => {
+      setStatuses(s);
+      setLoaded(true);
+    });
 
     // Subscribe to updates
-    const unsubStatus = window.electronAPI.backends.onStatusChanged(setStatuses);
+    const unsubStatus = window.electronAPI.backends.onStatusChanged((s) => {
+      setStatuses(s);
+      setLoaded(true);
+    });
 
     const unsubAlert = window.electronAPI.backends.onAlert((alert: BackendAlert) => {
       const label = backendLabels[alert.backend] || alert.backend;
@@ -462,7 +475,10 @@ export function BackendStatusPanel() {
   }, [toast]);
 
   const backends = Object.entries(statuses);
-  if (backends.length === 0) return null;
+  // Hide entirely only when we KNOW the server has no backends (loaded + empty).
+  // While the initial fetch is in flight we render a skeleton so the panel
+  // doesn't pop in suddenly.
+  if (loaded && backends.length === 0) return null;
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -475,6 +491,17 @@ export function BackendStatusPanel() {
           Refresh
         </button>
       </div>
+      {!loaded && (
+        <div className="space-y-2 py-1" aria-label="Loading backends">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3 py-2 animate-pulse">
+              <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-muted" />
+              <div className="h-3 w-24 rounded bg-muted" />
+              <div className="h-3 w-32 rounded bg-muted/50" />
+            </div>
+          ))}
+        </div>
+      )}
       <div className="divide-y divide-border">
         {backends.map(([name, health]) => (
           <BackendRow key={name} name={name} health={health} />
