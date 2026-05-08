@@ -76,7 +76,7 @@ def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     assert resp.status_code == 201
     body = resp.json()
     assert body["profile_id"] == "anthropic:work"
-    assert body["authorize_url"].startswith("https://platform.claude.com/oauth/authorize")
+    assert body["authorize_url"].startswith("https://claude.ai/oauth/authorize")
     assert "state=" in body["authorize_url"]
     assert "code_challenge=" in body["authorize_url"]
     assert "code_challenge_method=S256" in body["authorize_url"]

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-# Claude Code's public OAuth client lives on platform.claude.com. Verified
-# from the official @anthropic-ai/claude-code binary (strings on the bundled
-# claude.exe shows /oauth/authorize and /v1/oauth/token paths under
-# platform.claude.com — not console.anthropic.com or claude.ai).
-# console.anthropic.com/v1/oauth/token does not accept this client_id and
-# returns the API "Invalid request format" error; claude.ai/oauth/authorize
-# happens to forward to platform.claude.com but the canonical surface is
-# platform.claude.com.
-ANTHROPIC_AUTHORIZE_URL = "https://platform.claude.com/oauth/authorize"
+# Authorize URL: claude.ai/oauth/authorize is the user-consent surface
+# (the page where the user approves the OAuth request). The Claude Code
+# binary points at platform.claude.com but claude.ai forwards there and
+# is the cleaner consent UX the user sees.
+ANTHROPIC_AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
+# Token URL: platform.claude.com/v1/oauth/token — verified from the
+# @anthropic-ai/claude-code binary. console.anthropic.com/v1/oauth/token
+# (the previous setting) rejects this client_id with the API "Invalid
+# request format" error and is NOT the right token endpoint for the
+# public Claude Code OAuth client.
 ANTHROPIC_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 ANTHROPIC_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"  # public Claude Code OAuth app
 ANTHROPIC_SCOPES = [
