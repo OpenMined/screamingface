@@ -115,15 +115,33 @@ function ProfileRow({
     }
   };
 
+  // While the profile is mid-OAuth (browser open, gateway polling), show
+  // an animated dot + a "waiting on browser" hint so the user knows the
+  // pending row is actively waiting on something, not stuck.
+  const isPending = profile.state === 'pending';
+
   return (
     <div className="flex items-center justify-between py-1.5">
       <div className="flex items-center gap-2 min-w-0">
-        <span className={cn('h-2 w-2 rounded-full shrink-0', cfg.dot)} />
+        <span className="relative inline-flex h-2 w-2 shrink-0">
+          {isPending && (
+            <span
+              className={cn(
+                'absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping',
+                cfg.dot,
+              )}
+            />
+          )}
+          <span className={cn('relative inline-flex h-2 w-2 rounded-full', cfg.dot)} />
+        </span>
         <span className="text-xs font-medium text-foreground">{profile.name}</span>
         {profile.account_label && (
           <span className="text-xs text-muted-foreground truncate">{profile.account_label}</span>
         )}
         <span className="text-xs text-muted-foreground">· {cfg.label}</span>
+        {isPending && (
+          <span className="text-xs text-muted-foreground italic">— waiting on browser</span>
+        )}
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <button
