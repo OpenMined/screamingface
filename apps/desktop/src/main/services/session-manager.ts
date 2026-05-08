@@ -8,6 +8,7 @@ import { EventEmitter } from 'events';
 import { app, dialog, BrowserWindow } from 'electron';
 import { is } from '@electron-toolkit/utils';
 import { configService } from './config-service';
+import { backendStatusService } from './backend-status';
 
 export type SessionStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
 export type SessionType = 'claude' | 'codex' | 'gemini' | 'claude-desktop';
@@ -212,8 +213,15 @@ class SessionManager extends EventEmitter {
           listen_host: '127.0.0.1',
           listen_port: session.port,
           session_service_url: 'http://127.0.0.1:9200',
-          // All url4/data/backend calls go to the main server
-          backend_url: `${(config.server as Record<string, unknown>).ssl ? 'https' : 'http'}://127.0.0.1:${(config.server as Record<string, unknown>).port || 8000}`,
+          // All url4/data/backend calls go to the main SF server.
+          // Use the LIVE URL from backend-status service (the port SF is
+          // actually listening on) rather than the static sf.json port.
+          // sf.json's port may be stale if SF auto-incremented because the
+          // configured port was busy (e.g. another local dev process held
+          // it), and a stale backend_url makes /data 404 when the proxy
+          // tries to store $prompt blobs.
+          backend_url: backendStatusService.getServerUrl()
+            ?? `${(config.server as Record<string, unknown>).ssl ? 'https' : 'http'}://127.0.0.1:${(config.server as Record<string, unknown>).port || 8000}`,
         },
         'url4-specs': defaults['url4-specs'] || {},
       },
