@@ -182,6 +182,7 @@ async def _complete_oauth(provider: str, code: str, state: str, request: Request
         code,
         pending.code_verifier,
         redirect_uri=redirect_uri,
+        state=state,
         http_client_factory=factory,
     )
 
