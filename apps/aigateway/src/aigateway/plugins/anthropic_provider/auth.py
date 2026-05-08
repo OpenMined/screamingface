@@ -134,24 +134,51 @@ async def exchange_authorization_code(
     code: str,
     code_verifier: str,
     *,
+    redirect_uri: str | None = None,
+    state: str | None = None,
     http_client_factory=None,
 ) -> dict:
-    """Exchange an authorization code for tokens. Used by the OAuth callback handler."""
+    """Exchange an authorization code for tokens. Used by the OAuth callback handler.
+
+    Body shape and content-type verified from the Claude Code source
+    (services/oauth/client.ts -> exchangeCodeForTokens). The token endpoint
+    expects JSON with ``state`` included alongside the standard OAuth fields.
+    Anthropic returns ``{type:invalid_request_error,message:'Invalid request format'}``
+    when ``state`` is missing or content-type is form-urlencoded.
+
+    ``redirect_uri`` must match the one sent to ``/authorize`` (RFC 6749).
+    """
     factory = http_client_factory or (lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0)))
+    body: dict[str, str] = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "code_verifier": code_verifier,
+        "client_id": ANTHROPIC_CLIENT_ID,
+    }
+    if redirect_uri:
+        body["redirect_uri"] = redirect_uri
+    if state:
+        body["state"] = state
     async with factory() as client:
         resp = await client.post(
             ANTHROPIC_TOKEN_URL,
-            json={
-                "grant_type": "authorization_code",
-                "code": code,
-                "code_verifier": code_verifier,
-                "client_id": ANTHROPIC_CLIENT_ID,
-            },
+            json=body,
             headers={"content-type": "application/json"},
         )
     if resp.status_code != 200:
+        # Log the full request/response detail for diagnosing OAuth failures.
+        # Token endpoint errors are usually wrong content-type, missing
+        # redirect_uri match, or scope/grant_type mismatches — the body tells
+        # us which.
+        logger.error(
+            "Anthropic token exchange failed: status=%d url=%s sent_keys=%s response=%s",
+            resp.status_code,
+            ANTHROPIC_TOKEN_URL,
+            sorted(body.keys()),
+            resp.text[:1000],
+        )
         raise AuthError(
-            f"Authorization code exchange failed status {resp.status_code}: {resp.text[:500]}"
+            f"Authorization code exchange failed (HTTP {resp.status_code}): {resp.text[:500]}"
         )
     data = resp.json()
     for required in ("access_token", "refresh_token", "expires_in"):

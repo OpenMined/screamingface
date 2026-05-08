@@ -76,7 +76,12 @@ async def start_oauth(provider: str, body: StartAuthRequest, request: Request) -
         PendingAuthEntry(profile_id=profile_id, code_verifier=code_verifier),
     )
 
-    redirect_uri = f"http://127.0.0.1:{request.app.state.settings.port}{cfg.redirect_path}"
+    # The Claude Code public OAuth client (and similar public clients) only
+    # accept ``http://localhost:*/callback`` as a redirect URI — using
+    # ``127.0.0.1`` or any path other than ``/callback`` triggers an
+    # "Authorization failed" error from claude.ai. We use ``localhost`` and
+    # the top-level ``/callback`` route (provider is dispatched via state).
+    redirect_uri = f"http://localhost:{request.app.state.settings.port}/callback"
     params = {
         "response_type": "code",
         "client_id": cfg.client_id,
@@ -112,12 +117,51 @@ _CALLBACK_HTML = """<!doctype html>
 """
 
 
+@router.get("/callback")
+async def oauth_callback(code: str, state: str, request: Request):
+    """Provider-agnostic OAuth callback.
+
+    Anthropic's public Claude Code OAuth client (and most OAuth providers
+    using public clients) only accepts ``http://localhost:*/callback`` as
+    the redirect URI — i.e. the path is fixed at ``/callback`` and is not
+    namespaced per provider. We dispatch to the correct provider by
+    looking up the ``state`` value in the pending-auth table.
+    """
+    pending_entry = _pending(request).peek(state)
+    if pending_entry is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "unknown_state", "message": "OAuth state not recognized or expired"},
+        )
+    provider, _name = pending_entry.profile_id.split(":", 1)
+    try:
+        return await _generic_callback(provider, code, state, request)
+    except Exception as exc:
+        # Surface a readable error in the browser tab so the user sees what
+        # went wrong (instead of a generic 500). Most failures here are
+        # token-endpoint mismatches; the message is helpful for debugging.
+        return HTMLResponse(
+            f"<!doctype html><html><body>"
+            f"<h2>Authentication failed</h2>"
+            f"<p>Provider: {provider}</p>"
+            f"<pre style='white-space:pre-wrap'>{type(exc).__name__}: {exc}</pre>"
+            f"</body></html>",
+            status_code=500,
+        )
+
+
+# Back-compat: older OAuth flows (and tests) still use the per-provider path.
 @router.get("/v1/auth/anthropic/callback")
 async def anthropic_callback(code: str, state: str, request: Request):
     return await _generic_callback("anthropic", code, state, request)
 
 
-async def _generic_callback(provider: str, code: str, state: str, request: Request):
+async def _complete_oauth(provider: str, code: str, state: str, request: Request) -> None:
+    """Run the OAuth token exchange and persist credentials.
+
+    Used by both the GET browser-redirect callback and the POST manual
+    paste-code endpoint. Raises HTTPException on failure.
+    """
     pending = _pending(request).pop(state)
     if pending is None:
         raise HTTPException(
@@ -130,9 +174,15 @@ async def _generic_callback(provider: str, code: str, state: str, request: Reque
         raise HTTPException(status_code=400, detail={"code": "provider_mismatch"})
 
     factory = getattr(request.app.state, f"{provider}_http_factory", None)
+    # Must match the redirect_uri sent to /authorize. Both the start-OAuth
+    # route and this exchange use the same canonical localhost+/callback
+    # form so Anthropic's redirect-URI check passes.
+    redirect_uri = f"http://localhost:{request.app.state.settings.port}/callback"
     creds = await anthropic_auth_module.exchange_authorization_code(
         code,
         pending.code_verifier,
+        redirect_uri=redirect_uri,
+        state=state,
         http_client_factory=factory,
     )
 
@@ -148,7 +198,25 @@ async def _generic_callback(provider: str, code: str, state: str, request: Reque
         p.state = ProfileState.AUTHENTICATED
         await _index_store(request).upsert(p)
 
+
+async def _generic_callback(provider: str, code: str, state: str, request: Request):
+    await _complete_oauth(provider, code, state, request)
     return HTMLResponse(_CALLBACK_HTML)
+
+
+class ExchangeCodeRequest(BaseModel):
+    code: str
+    state: str
+
+
+@router.post("/v1/auth/{provider}/exchange-code")
+async def exchange_code(provider: str, body: ExchangeCodeRequest, request: Request) -> dict:
+    """Manual paste-code path for OAuth flows where the provider shows the
+    authorization code on screen instead of redirecting (e.g. claude.ai/oauth
+    with `code=true`).
+    """
+    await _complete_oauth(provider, body.code, body.state, request)
+    return {"state": "authenticated"}
 
 
 @router.get("/v1/auth/{provider}/profiles/{name}/status")

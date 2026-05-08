@@ -54,6 +54,7 @@ export interface BackendHealth {
   action: BackendAction;
   cli_command?: string | null;
   help_text?: string | null;
+  auth_kind?: 'cli' | 'browser';
 }
 
 export type BackendStatusMap = Record<string, BackendHealth>;
@@ -63,6 +64,39 @@ export interface BackendAlert {
   type: 'reauth' | 'rate_limited' | 'recovered';
   health: BackendHealth;
 }
+
+export type BackendProfileState = 'pending' | 'authenticated' | 'error';
+
+export interface BackendProfile {
+  id: string;
+  provider: string;
+  name: string;
+  state: BackendProfileState;
+  account_label?: string | null;
+  last_refreshed_at?: string | null;
+}
+
+export interface ListProfilesResult {
+  profiles: BackendProfile[];
+  error?: string;
+}
+
+export interface DeleteProfileResult {
+  ok: boolean;
+  status?: number;
+}
+
+export type ExchangeOAuthCodeResult =
+  | { ok: true }
+  | { ok: false; status?: number; message?: string };
+
+export type OAuthLauncherResult =
+  | { kind: 'complete' }
+  | {
+      kind: 'failed';
+      reason: 'timeout' | 'gateway_error' | 'provider_error' | 'network_error';
+      message?: string;
+    };
 
 export interface ElectronAPI {
   popup: {
@@ -113,6 +147,11 @@ export interface ElectronAPI {
     getStatus: () => Promise<BackendStatusMap>;
     refresh: () => Promise<BackendStatusMap>;
     authenticate: (backend: string) => Promise<void>;
+    authenticateOAuth: (backend: string, profileName?: string) => Promise<OAuthLauncherResult>;
+    listProfiles: (backend: string) => Promise<ListProfilesResult>;
+    deleteProfile: (backend: string, profileName: string) => Promise<DeleteProfileResult>;
+    getPendingAuthState: (backend: string) => Promise<string | null>;
+    exchangeOAuthCode: (backend: string, code: string) => Promise<ExchangeOAuthCodeResult>;
     onStatusChanged: (callback: (status: BackendStatusMap) => void) => () => void;
     onAlert: (callback: (alert: BackendAlert) => void) => () => void;
   };

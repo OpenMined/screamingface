@@ -11,11 +11,13 @@ Synchronous — callers wrap in ``asyncio.to_thread`` if needed.
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import subprocess
 import sys
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +218,43 @@ class WindowsCredentialManagerStore(CredentialStore):
             keyring.delete_password(service, account)
         except Exception:  # pragma: no cover
             pass  # idempotent — many backends raise on missing entry
+
+
+class JsonFileCredentialStore(CredentialStore):
+    """Test-only credential store backed by a JSON file on disk.
+
+    Used by the e2e test harness to avoid touching the real OS keychain.
+    Activated via ``AIGATEWAY_FAKE_KEYCHAIN=1`` + ``AIGATEWAY_KEYCHAIN_FILE=<path>``
+    in :func:`aigateway.main.create_app`. Not exported from production code paths.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+        self._data: dict[str, str] = {}
+        if self._path.exists():
+            try:
+                self._data = json.loads(self._path.read_text() or "{}")
+            except (OSError, ValueError):
+                self._data = {}
+
+    @staticmethod
+    def _key(service: str, account: str) -> str:
+        return f"{service}\x00{account}"
+
+    def _save(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text(json.dumps(self._data))
+
+    def read(self, service: str, account: str) -> str | None:
+        return self._data.get(self._key(service, account))
+
+    def write(self, service: str, account: str, value: str) -> None:
+        self._data[self._key(service, account)] = value
+        self._save()
+
+    def delete(self, service: str, account: str) -> None:
+        self._data.pop(self._key(service, account), None)
+        self._save()
 
 
 def get_credential_store() -> CredentialStore:

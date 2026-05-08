@@ -92,6 +92,7 @@ def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch) -> None:
         ),
     )
     monkeypatch.setenv("USER", "alice")
+    monkeypatch.setenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", "1")
 
     from aigateway.core import bootstrap as bs_module
     from aigateway.core import credential_store as cs_module
@@ -111,3 +112,54 @@ def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch) -> None:
         assert resp.status_code == 200
         ids = [p["id"] for p in resp.json()["profiles"]]
         assert "anthropic:default" in ids
+
+
+def test_lifespan_skips_bootstrap_by_default(monkeypatch, fake_keychain) -> None:
+    """When AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE is unset, _lifespan does not call bootstrap."""
+    from unittest.mock import AsyncMock
+
+    monkeypatch.delenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", raising=False)
+
+    # Isolate from the developer's real OS keychain.
+    from aigateway.core import credential_store as cs_module
+    from aigateway.core import profile_index as pi_module
+
+    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
+
+    from aigateway import main as main_module
+
+    mock_bootstrap = AsyncMock()
+    monkeypatch.setattr(main_module, "bootstrap_from_claude_code", mock_bootstrap)
+
+    app = main_module.create_app()
+    with TestClient(app) as client:
+        resp = client.get("/v1/auth/profiles")
+        assert resp.status_code == 200
+        assert resp.json() == {"profiles": []}
+
+    assert mock_bootstrap.call_count == 0
+
+
+def test_lifespan_runs_bootstrap_when_env_set(monkeypatch, fake_keychain) -> None:
+    """When AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1, _lifespan calls bootstrap."""
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", "1")
+
+    from aigateway.core import credential_store as cs_module
+    from aigateway.core import profile_index as pi_module
+
+    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
+
+    from aigateway import main as main_module
+
+    mock_bootstrap = AsyncMock()
+    monkeypatch.setattr(main_module, "bootstrap_from_claude_code", mock_bootstrap)
+
+    app = main_module.create_app()
+    with TestClient(app) as client:
+        client.get("/v1/auth/profiles")
+
+    assert mock_bootstrap.call_count == 1

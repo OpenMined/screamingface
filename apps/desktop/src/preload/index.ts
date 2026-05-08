@@ -50,6 +50,15 @@ const api: ElectronAPI = {
     getStatus: () => ipcRenderer.invoke('backends:getStatus'),
     refresh: () => ipcRenderer.invoke('backends:refresh'),
     authenticate: (backend) => ipcRenderer.invoke('backends:authenticate', backend),
+    authenticateOAuth: (backend, profileName?) =>
+      ipcRenderer.invoke('backends:authenticateOAuth', backend, profileName),
+    getPendingAuthState: (backend) =>
+      ipcRenderer.invoke('backends:getPendingAuthState', backend),
+    exchangeOAuthCode: (backend, code) =>
+      ipcRenderer.invoke('backends:exchangeOAuthCode', backend, code),
+    listProfiles: (backend) => ipcRenderer.invoke('backends:listProfiles', backend),
+    deleteProfile: (backend, profileName) =>
+      ipcRenderer.invoke('backends:deleteProfile', backend, profileName),
     onStatusChanged: (cb) => onEvent('backends:statusChanged', cb),
     onAlert: (cb) => onEvent('backends:alert', cb),
   },

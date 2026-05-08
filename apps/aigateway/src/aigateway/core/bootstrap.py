@@ -1,10 +1,15 @@
 """One-time import of Claude Code's keychain entry into the gateway's index.
 
-Runs on FastAPI startup. If the gateway has no profile index yet but the
-Claude Code CLI has stored credentials on this machine, copy the token
-blob into the gateway's per-profile namespace (`aigateway:anthropic:default`)
-and seed an index with one `anthropic:default` profile in the
-`authenticated` state. The original Claude Code entry is left in place.
+Opt-in: only runs on FastAPI startup when the env var
+``AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1`` is set. By default the gateway
+boots with an empty profile index so the user explicitly authenticates
+via the UI rather than seeing a "default" profile they never OAuthed for.
+
+When enabled: if the gateway has no profile index yet but the Claude Code
+CLI has stored credentials on this machine, copy the token blob into the
+gateway's per-profile namespace (`aigateway:anthropic:default`) and seed
+an index with one `anthropic:default` profile in the `authenticated`
+state. The original Claude Code entry is left in place.
 
 Idempotent: if the gateway index already exists, this function is a no-op.
 """

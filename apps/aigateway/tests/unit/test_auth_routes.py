@@ -76,10 +76,47 @@ def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     assert resp.status_code == 201
     body = resp.json()
     assert body["profile_id"] == "anthropic:work"
-    assert body["authorize_url"].startswith("https://console.anthropic.com/oauth/authorize")
+    assert body["authorize_url"].startswith("https://claude.ai/oauth/authorize")
     assert "state=" in body["authorize_url"]
     assert "code_challenge=" in body["authorize_url"]
     assert "code_challenge_method=S256" in body["authorize_url"]
+    # Required by the public Claude Code OAuth app to surface the consent screen
+    assert "code=true" in body["authorize_url"]
+    # Full Claude Code scope set so the issued token is treated as a user-OAuth
+    # token rather than an API token.
+    assert "user%3Asessions%3Aclaude_code" in body["authorize_url"]
+    assert "org%3Acreate_api_key" in body["authorize_url"]
+    # redirect_uri must be http://localhost:*/callback (not 127.0.0.1 and not
+    # a per-provider path) — the public Claude Code OAuth client only allows
+    # this canonical shape.
+    assert "redirect_uri=http%3A%2F%2Flocalhost%3A" in body["authorize_url"]
+    assert "%2Fcallback&" in body["authorize_url"]
+
+
+def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
+    """The /callback route looks up the provider from the pending-auth
+    state, so the same path serves every provider — matching what claude.ai
+    accepts as a redirect_uri."""
+    client, _ = client_with_index
+    client.app.state.anthropic_http_factory = _mock_token_factory()
+
+    start = client.post("/v1/auth/anthropic/profiles", json={"name": "topcb"})
+    state = start.json()["state"]
+
+    resp = client.get(
+        "/callback",
+        params={"code": "auth-code-top", "state": state},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 200
+    prof = client.get("/v1/auth/anthropic/profiles/topcb").json()
+    assert prof["state"] == "authenticated"
+
+
+def test_top_level_callback_unknown_state_400(client_with_index) -> None:
+    client, _ = client_with_index
+    resp = client.get("/callback", params={"code": "x", "state": "never-issued"})
+    assert resp.status_code == 400
 
 
 def test_start_oauth_for_unknown_provider_404(client_with_index) -> None:
@@ -174,6 +211,40 @@ def test_patch_updates_defaults(client_with_index) -> None:
     body = resp.json()
     assert body["defaults"]["model"] == "anthropic/claude-opus-4-7"
     assert body["defaults"]["max_tokens"] == 8192
+
+
+def test_exchange_code_runs_oauth(client_with_index) -> None:
+    """POST /v1/auth/{provider}/exchange-code completes auth same as GET callback."""
+    client, fake_keychain = client_with_index
+    client.app.state.anthropic_http_factory = _mock_token_factory()
+
+    start = client.post("/v1/auth/anthropic/profiles", json={"name": "paste"})
+    state = start.json()["state"]
+
+    resp = client.post(
+        "/v1/auth/anthropic/exchange-code",
+        json={"code": "pasted-code-1", "state": state},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"state": "authenticated"}
+
+    prof = client.get("/v1/auth/anthropic/profiles/paste").json()
+    assert prof["state"] == "authenticated"
+
+    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+
+    blob = fake_keychain.read(keychain_service_for("paste"), "default")
+    assert "new-tok" in blob
+
+
+def test_exchange_code_with_unknown_state_400(client_with_index) -> None:
+    client, _ = client_with_index
+    resp = client.post(
+        "/v1/auth/anthropic/exchange-code",
+        json={"code": "x", "state": "never-issued"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "unknown_state"
 
 
 def test_delete_removes_profile_and_tokens(client_with_index) -> None:

@@ -58,6 +58,11 @@ class BackendStatusService extends EventEmitter {
     return this.previous;
   }
 
+  /** Get the SF server base URL the service is currently polling, if any. */
+  getServerUrl(): string | null {
+    return this.serverUrl;
+  }
+
   /** Force an immediate poll. */
   async refresh(): Promise<BackendStatusMap> {
     return this.poll();

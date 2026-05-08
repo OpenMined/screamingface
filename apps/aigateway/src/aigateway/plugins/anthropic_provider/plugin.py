@@ -10,6 +10,7 @@ from aigateway.core.plugin_base import (
 from .auth import AnthropicOAuth
 from .models import MODELS
 from .oauth_config import (
+    ANTHROPIC_AUTHORIZE_EXTRA_PARAMS,
     ANTHROPIC_AUTHORIZE_URL,
     ANTHROPIC_CLIENT_ID,
     ANTHROPIC_REDIRECT_PATH,
@@ -31,6 +32,7 @@ class AnthropicProviderPlugin(ProviderPluginBase):
             client_id=ANTHROPIC_CLIENT_ID,
             scopes=ANTHROPIC_SCOPES,
             redirect_path=ANTHROPIC_REDIRECT_PATH,
+            extra_authorize_params=ANTHROPIC_AUTHORIZE_EXTRA_PARAMS,
         )
 
     def oauth_strategy_for(self, profile_name: str) -> OAuthStrategy:
