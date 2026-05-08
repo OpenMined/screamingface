@@ -75,7 +75,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         fail_mode = os.getenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH_FAIL") == "1"
 
         def _fake_handler(req: httpx.Request) -> httpx.Response:
-            if req.url.host == "console.anthropic.com" and req.url.path.endswith("/oauth/token"):
+            if req.url.host in (
+                "platform.claude.com",
+                "console.anthropic.com",
+            ) and req.url.path.endswith("/oauth/token"):
                 if fail_mode:
                     return httpx.Response(400, json={"error": "invalid_grant"})
                 return httpx.Response(
