@@ -153,11 +153,14 @@ async def exchange_authorization_code(
     }
     if redirect_uri:
         body["redirect_uri"] = redirect_uri
+    # RFC 6749 token endpoint expects application/x-www-form-urlencoded.
+    # Anthropic's `/v1/oauth/token` rejects JSON with
+    # `{"error":{"type":"invalid_request_error","message":"Invalid request format"}}`.
     async with factory() as client:
         resp = await client.post(
             ANTHROPIC_TOKEN_URL,
-            json=body,
-            headers={"content-type": "application/json"},
+            data=body,
+            headers={"content-type": "application/x-www-form-urlencoded"},
         )
     if resp.status_code != 200:
         # Log the full request/response detail for diagnosing OAuth failures.
