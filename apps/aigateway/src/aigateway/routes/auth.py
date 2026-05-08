@@ -134,7 +134,20 @@ async def oauth_callback(code: str, state: str, request: Request):
             detail={"code": "unknown_state", "message": "OAuth state not recognized or expired"},
         )
     provider, _name = pending_entry.profile_id.split(":", 1)
-    return await _generic_callback(provider, code, state, request)
+    try:
+        return await _generic_callback(provider, code, state, request)
+    except Exception as exc:
+        # Surface a readable error in the browser tab so the user sees what
+        # went wrong (instead of a generic 500). Most failures here are
+        # token-endpoint mismatches; the message is helpful for debugging.
+        return HTMLResponse(
+            f"<!doctype html><html><body>"
+            f"<h2>Authentication failed</h2>"
+            f"<p>Provider: {provider}</p>"
+            f"<pre style='white-space:pre-wrap'>{type(exc).__name__}: {exc}</pre>"
+            f"</body></html>",
+            status_code=500,
+        )
 
 
 # Back-compat: older OAuth flows (and tests) still use the per-provider path.

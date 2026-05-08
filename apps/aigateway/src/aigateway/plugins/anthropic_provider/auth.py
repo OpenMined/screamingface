@@ -160,8 +160,19 @@ async def exchange_authorization_code(
             headers={"content-type": "application/json"},
         )
     if resp.status_code != 200:
+        # Log the full request/response detail for diagnosing OAuth failures.
+        # Token endpoint errors are usually wrong content-type, missing
+        # redirect_uri match, or scope/grant_type mismatches — the body tells
+        # us which.
+        logger.error(
+            "Anthropic token exchange failed: status=%d url=%s sent_keys=%s response=%s",
+            resp.status_code,
+            ANTHROPIC_TOKEN_URL,
+            sorted(body.keys()),
+            resp.text[:1000],
+        )
         raise AuthError(
-            f"Authorization code exchange failed status {resp.status_code}: {resp.text[:500]}"
+            f"Authorization code exchange failed (HTTP {resp.status_code}): {resp.text[:500]}"
         )
     data = resp.json()
     for required in ("access_token", "refresh_token", "expires_in"):
