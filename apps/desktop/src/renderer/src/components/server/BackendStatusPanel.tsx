@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type {
   BackendStatusMap,
@@ -421,14 +422,22 @@ function BackendRow({ name, health }: { name: string; health: BackendHealth }) {
 
 export function BackendStatusPanel() {
   const [statuses, setStatuses] = useState<BackendStatusMap>({});
+  const [loaded, setLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
     // Load initial status
-    window.electronAPI.backends.getStatus().then(setStatuses);
+    window.electronAPI.backends.getStatus().then((s) => {
+      setStatuses(s);
+      setLoaded(true);
+    });
 
     // Subscribe to updates
-    const unsubStatus = window.electronAPI.backends.onStatusChanged(setStatuses);
+    const unsubStatus = window.electronAPI.backends.onStatusChanged((s) => {
+      setStatuses(s);
+      setLoaded(true);
+    });
 
     const unsubAlert = window.electronAPI.backends.onAlert((alert: BackendAlert) => {
       const label = backendLabels[alert.backend] || alert.backend;
@@ -462,19 +471,48 @@ export function BackendStatusPanel() {
   }, [toast]);
 
   const backends = Object.entries(statuses);
-  if (backends.length === 0) return null;
+  // Stay in skeleton state as long as there are no entries — `getStatus()`
+  // resolves with an empty map BEFORE SF has probed any backends, so an
+  // earlier "hide if loaded && empty" check caused a visible flicker
+  // (skeleton -> hidden -> repopulated). The panel now stays visible from
+  // first paint and transitions skeleton -> rows when entries arrive.
+  const showSkeleton = backends.length === 0;
+
+  const onRefresh = async (): Promise<void> => {
+    setRefreshing(true);
+    try {
+      await window.electronAPI.backends.refresh();
+    } finally {
+      // Brief delay so the spin animation is perceptible even on fast refreshes.
+      setTimeout(() => setRefreshing(false), 300);
+    }
+  };
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-medium text-foreground">Backends</h3>
         <button
-          onClick={() => window.electronAPI.backends.refresh()}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          onClick={onRefresh}
+          aria-label="Refresh backends"
+          title="Refresh"
+          className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50"
+          disabled={refreshing}
         >
-          Refresh
+          <RefreshCw className={cn('h-4 w-4', (refreshing || !loaded) && 'animate-spin')} />
         </button>
       </div>
+      {showSkeleton && (
+        <div className="space-y-2 py-1" aria-label="Loading backends" role="status">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex items-center gap-3 py-2 animate-pulse">
+              <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-muted" />
+              <div className="h-3 w-24 rounded bg-muted" />
+              <div className="h-3 w-32 rounded bg-muted/50" />
+            </div>
+          ))}
+        </div>
+      )}
       <div className="divide-y divide-border">
         {backends.map(([name, health]) => (
           <BackendRow key={name} name={name} health={health} />

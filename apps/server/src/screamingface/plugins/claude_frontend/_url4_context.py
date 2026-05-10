@@ -94,7 +94,16 @@ async def _store_prompt_blob(
     """Store the user prompt text as a blob and return its key.
 
     ``tracer`` is a :class:`frontend_base.ProxyTracer`.
+
+    Prefers the in-process BlobStore on ``app.state.blob_store`` whenever
+    available — the HTTP path (``backend_url`` is set) only fires when
+    there's no in-process app reference. This avoids self-loops where the
+    proxy talks back to its own SF over HTTP and a stale ``backend_url``
+    (wrong port, wrong host) breaks the round-trip with a 404.
     """
+    if app is not None and getattr(getattr(app, "state", None), "blob_store", None) is not None:
+        return app.state.blob_store.store(text.encode("utf-8"), "text/plain; charset=utf-8")
+
     if backend_url:
         blob_url_target = f"{backend_url}/data"
         with tracer.start_client_span("POST /data"):
@@ -116,8 +125,10 @@ async def _store_prompt_blob(
             )
         return blob_key
 
-    # In-process fallback — use the app-scoped BlobStore.
-    return app.state.blob_store.store(text.encode("utf-8"), "text/plain; charset=utf-8")
+    raise RuntimeError(
+        "_store_prompt_blob requires either an in-process app with blob_store "
+        "or a non-empty backend_url"
+    )
 
 
 async def _resolve_expression(
