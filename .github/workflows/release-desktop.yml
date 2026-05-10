@@ -1,19 +1,46 @@
-name: Release
+name: Release Desktop
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["desktop-v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v0.1.0)"
+        description: "Release tag (e.g. desktop-v0.2.0)"
         required: true
 
 permissions:
   contents: write
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#desktop-v}"
+          MANIFEST=$(jq -r .version apps/desktop/package.json)
+          if [ "$MANIFEST" != "$VERSION" ]; then
+            echo "::error::tag $TAG implies version $VERSION but apps/desktop/package.json reports $MANIFEST"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: verify
     strategy:
       fail-fast: false
       matrix:
@@ -27,10 +54,6 @@ jobs:
           - runner: ubuntu-latest
             os: linux
             arch: x64
-          # TODO: enable when repo has access to GitHub ARM runners
-          # - runner: ubuntu-24.04-arm
-          #   os: linux
-          #   arch: arm64
 
     runs-on: ${{ matrix.runner }}
 
@@ -77,7 +100,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
+    needs: [verify, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -87,23 +110,11 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Determine tag
-        id: tag
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ github.event.inputs.tag }}
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: ScreamingFace ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ needs.verify.outputs.tag }}
+          name: ScreamingFace Desktop ${{ needs.verify.outputs.version }}
           draft: true
           files: artifacts/*
         env:
@@ -112,13 +123,12 @@ jobs:
       - name: Publish to sf-installer (public)
         env:
           GH_TOKEN: ${{ secrets.SF_INSTALLER_TOKEN }}
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ needs.verify.outputs.tag }}
+          VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          # Delete existing release if re-running
           gh release delete "$TAG" --repo OpenMined/sf-installer --yes 2>/dev/null || true
-          # Create public release with all artifacts
           gh release create "$TAG" \
             --repo OpenMined/sf-installer \
-            --title "ScreamingFace $TAG" \
-            --notes "Automated release from ScreamingFace build pipeline." \
+            --title "ScreamingFace Desktop $VERSION" \
+            --notes "Desktop app build for ScreamingFace $VERSION." \
             artifacts/*
