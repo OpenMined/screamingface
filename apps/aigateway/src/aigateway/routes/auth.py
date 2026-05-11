@@ -328,11 +328,11 @@ async def refresh_profile(
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
     account_id = str(current.id)
+    p = await _index_store(request).get(account_id, provider, name)
+    if p is None:
+        raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
     strategy = plugin.oauth_strategy_for(credential_name_for(account_id, name))
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
     await strategy.refresh()
-    p = await _index_store(request).get(account_id, provider, name)
-    if p is None:
-        raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
     return p.model_dump(mode="json")

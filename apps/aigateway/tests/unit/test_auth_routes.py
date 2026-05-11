@@ -490,18 +490,8 @@ def test_refresh_unknown_provider_404(client_with_index) -> None:
     assert resp.json()["detail"]["code"] == "unknown_provider"
 
 
-def test_refresh_missing_profile_404(client_with_index, monkeypatch) -> None:
+def test_refresh_missing_profile_404(client_with_index) -> None:
     client, _ = client_with_index
-
-    class _Strategy:
-        async def refresh(self) -> None:
-            return None
-
-    monkeypatch.setattr(
-        client.app.state.providers.get("anthropic"),
-        "oauth_strategy_for",
-        lambda _name: _Strategy(),
-    )
     resp = client.post("/v1/auth/anthropic/profiles/missing/refresh")
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "profile_not_found"
