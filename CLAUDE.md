@@ -40,6 +40,23 @@ An AI ensemble system combining Claude Code, Gemini CLI, Codex, and Ollama to be
 - **SOTA** — State of the Art benchmark accuracy scores we're trying to beat
 - **Localhost microservices** — small FastAPI backends running on the user's machine
 
+## Architecture Principles
+
+These are **mandatory** for all code in this repo. PRs that violate them must be fixed before merge.
+
+- **DRY** — Don't Repeat Yourself. Extract shared logic; never copy-paste implementations across modules.
+- **SOLID** — all five principles apply, but most load-bearing here:
+  - **S**ingle Responsibility — one reason to change per module/class.
+  - **O**pen/Closed — extend via new plugins, not by editing core.
+  - **L**iskov Substitution — plugin implementations must be interchangeable behind their interface.
+  - **I**nterface Segregation — many small interfaces beat one fat one.
+  - **D**ependency Inversion — high-level (core) depends on abstractions; low-level (plugins) implement them.
+- **Dependency direction (Clean Architecture / Hexagonal / Ports & Adapters):**
+  - **Core MUST NOT import from plugins/adapters.** Plugins import from core, never the reverse.
+  - Core defines interfaces ("ports"); plugins/adapters implement them.
+  - Model runners (Claude, Gemini, Codex, Ollama), transports (HTTP, IPC), storage, and UI are **adapters** — they sit outside the core.
+  - Discovery/wiring of plugins happens via a registry, not via direct imports in core.
+
 ## Personas
 
 This project uses a persona system to guide copy, design, positioning, and feature decisions. **Before doing any work that involves messaging, tone, design choices, or audience targeting**, consult the persona weighting guide.
