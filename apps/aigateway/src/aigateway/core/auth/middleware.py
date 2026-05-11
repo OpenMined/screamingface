@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -9,8 +10,25 @@ from fastapi import Depends, HTTPException, Request
 from .jwt import decode_token
 from .models import Account
 
+ANONYMOUS_ACCOUNT_ID = UUID("00000000-0000-0000-0000-000000000000")
+
+
+def anonymous_account() -> Account:
+    return Account(
+        id=ANONYMOUS_ACCOUNT_ID,
+        username="anonymous",
+        password_hash="",
+        display_name="Anonymous",
+        created_at=datetime.fromtimestamp(0, UTC),
+        last_login_at=None,
+        is_active=True,
+    )
+
 
 async def current_account(request: Request) -> Account:
+    if not request.app.state.settings.auth_enabled:
+        return anonymous_account()
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")

@@ -2,12 +2,28 @@ from __future__ import annotations
 
 from aigateway.core.auth import middleware
 from aigateway.core.auth.jwt import encode_token
+from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from aigateway.core.auth.models import Account
 
 
 def test_missing_authorization_rejected(client) -> None:
     response = client.get("/v1/models")
     assert response.status_code == 401
+
+
+def test_auth_disabled_returns_anonymous_account_without_token(client, monkeypatch) -> None:
+    client.app.state.settings.auth_enabled = False
+
+    async def fail_lookup(*_args, **_kwargs):
+        raise AssertionError("disabled auth should not look up accounts")
+
+    monkeypatch.setattr(middleware.Account, "get_or_none", staticmethod(fail_lookup))
+    response = client.get("/v1/auth/me")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(ANONYMOUS_ACCOUNT_ID)
+    assert response.json()["username"] == "anonymous"
+    assert response.json()["display_name"] == "Anonymous"
 
 
 def test_malformed_token_rejected(client) -> None:

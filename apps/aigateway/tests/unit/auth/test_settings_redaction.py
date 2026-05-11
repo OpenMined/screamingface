@@ -19,6 +19,14 @@ def test_secret_settings_are_redacted() -> None:
     assert "p" * 32 not in rendered
 
 
+def test_auth_enabled_defaults_true_and_parses_env_zero(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert Settings().auth_enabled is True
+
+    monkeypatch.setenv("AIGATEWAY_AUTH_ENABLED", "0")
+    assert Settings().auth_enabled is False
+
+
 def test_short_secret_rejected() -> None:
     try:
         Settings(jwt_secret=SecretStr("short"))

@@ -4,6 +4,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from aigateway.core.bootstrap import bootstrap_from_claude_code
 from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
 from aigateway.core.profile_models import Profile, profile_id_for
@@ -199,3 +200,32 @@ def test_lifespan_runs_bootstrap_when_env_set(monkeypatch, fake_keychain, tmp_pa
 
     assert mock_bootstrap.call_count == 1
     assert mock_bootstrap.call_args.kwargs["account_id"]
+
+
+def test_lifespan_bootstraps_disabled_auth_under_anonymous_account(
+    monkeypatch, fake_keychain, tmp_path
+) -> None:
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setenv("AIGATEWAY_AUTH_ENABLED", "0")
+    monkeypatch.setenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", "1")
+    _configure_app_db(monkeypatch, tmp_path)
+
+    from aigateway.core import credential_store as cs_module
+    from aigateway.core import profile_index as pi_module
+
+    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
+
+    from aigateway import main as main_module
+
+    mock_bootstrap = AsyncMock()
+    monkeypatch.setattr(main_module, "bootstrap_from_claude_code", mock_bootstrap)
+
+    app = main_module.create_app()
+    with TestClient(app) as client:
+        resp = client.get("/v1/auth/me")
+        assert resp.status_code == 200
+
+    assert mock_bootstrap.call_count == 1
+    assert mock_bootstrap.call_args.kwargs["account_id"] == str(ANONYMOUS_ACCOUNT_ID)

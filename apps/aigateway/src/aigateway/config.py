@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     provisioning_token: SecretStr | None = Field(
         default=None, validation_alias="AIGATEWAY_PROVISIONING_TOKEN"
     )
+    auth_enabled: bool = Field(default=True, validation_alias="AIGATEWAY_AUTH_ENABLED")
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
 
     @field_validator("jwt_secret", "provisioning_token")

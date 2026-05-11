@@ -13,6 +13,7 @@ from .core.auth.log_filter import (
     RedactProvisioningTokenFilter,
     install_provisioning_token_redaction,
 )
+from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from .core.bootstrap import bootstrap_from_claude_code
 from .core.credential_store import JsonFileCredentialStore, get_credential_store
 from .core.loader import load_plugins
@@ -48,6 +49,9 @@ async def _lifespan(app):
             app.state.settings.jwt_secret,
         )
         admin = await ensure_admin_account(app.state.settings.admin_password)
+        bootstrap_account_id = (
+            str(admin.id) if app.state.settings.auth_enabled else str(ANONYMOUS_ACCOUNT_ID)
+        )
 
         # Auto-import of the developer's Claude Code keychain entry is opt-in.
         # By default the gateway boots with an empty profile index so the user
@@ -62,7 +66,7 @@ async def _lifespan(app):
             if fake_store is not None:
                 try:
                     await bootstrap_from_claude_code(
-                        account_id=str(admin.id),
+                        account_id=bootstrap_account_id,
                         credential_store=fake_store,
                         index_store=app.state.profile_index,
                     )
@@ -71,7 +75,7 @@ async def _lifespan(app):
             else:
                 try:
                     await bootstrap_from_claude_code(
-                        account_id=str(admin.id),
+                        account_id=bootstrap_account_id,
                         index_store=app.state.profile_index,
                     )
                 except Exception:

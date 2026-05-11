@@ -36,6 +36,12 @@ TOKEN=$(curl -sX POST http://localhost:9105/v1/auth/login \
 curl http://localhost:9105/v1/models -H "Authorization: Bearer $TOKEN"
 ```
 
+For local-only development, auth can be bypassed with `AIGATEWAY_AUTH_ENABLED=0`.
+Protected endpoints then run as an anonymous account with ID
+`00000000-0000-0000-0000-000000000000`. Auth is enabled by default; do not use
+this mode for shared or hosted deployments. OAuth profiles created in this mode
+are scoped to the anonymous account.
+
 User provisioning is intentionally separate from JWT auth. Set
 `AIGATEWAY_PROVISIONING_TOKEN` to enable `POST /v1/accounts`:
 
