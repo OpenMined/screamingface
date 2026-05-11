@@ -8,6 +8,15 @@
 
 **Tech Stack:** Python 3.12+, asyncio, `@dataclass(frozen=True)`, pytest (incl. `pytest-asyncio`), `uv` for env management.
 
+**CI/lint contract** (from `.github/workflows/server-tests.yml` + `apps/server/.pre-commit-config.yaml`):
+- `uv run ruff check` — hard fail. Config: `select = ["E", "F", "I", "UP"]` (no `ARG`, so unused `env` params are OK).
+- `uv run ruff format --check` — hard fail.
+- Pre-commit: `pyright` (strict, NOT mypy).
+- Unit suite: `pytest -m "not e2e and not e2e_live" --cov=screamingface` with PR coverage gate `thresholdAll: 0.70`.
+- E2E suite: `pytest tests/e2e/ -m "e2e" --timeout=120`.
+
+**External callers of widened functions** (verified via `rg` over `apps/`): five plugins construct `Url4Interpreter(app=app)` via kwarg (`gemini_frontend/proxy.py`, `claude_frontend/_url4_context.py`, `ollama_frontend/proxy.py`, `codex_frontend/proxy.py`, `llm_base/routes_shared.py`); one positional 2-arg call to `resolve_str(context_expr, cfg.app)` in `llm_base/routes_shared.py:282`. Adding `env` as the trailing positional/kwarg slot keeps every call site valid.
+
 **Asana:** https://app.asana.com/1/1185126988600652/task/1214567788345901
 
 **Regression bar:** every existing test in `apps/server/src/screamingface/plugins/url4_executor/tests/` plus the `e2e and not live` suite stays green.
@@ -32,20 +41,28 @@ All public callers outside this plugin keep working because every new parameter 
 
 ## Pre-flight
 
-- [ ] **Step 0.1: Branch from fresh main**
+- [ ] **Step 0.1: Worktree from fresh main**
+
+The main checkout had unrelated uncommitted changes when this plan ran (`sf.json`, `claude_backend_api/plugin.py`). To keep those out of the feature branch we use a git worktree instead of branching in-place:
 
 ```bash
 cd /Users/sergey/work/openmind/screamingface
-git fetch origin
-git checkout -b feat/demo-004-env-scope-chain origin/main
+git fetch origin main
+git worktree add -b feat/demo-004-env-scope-chain ../screamingface-demo-004 origin/main
+# Plan file already lives in main; copy it into the worktree's tree:
+mkdir -p ../screamingface-demo-004/docs/superpowers/plans
+cp docs/superpowers/plans/2026-05-11-demo-004-env-scope-chain.md ../screamingface-demo-004/docs/superpowers/plans/
+cd ../screamingface-demo-004
+git add docs/superpowers/plans/2026-05-11-demo-004-env-scope-chain.md
+git commit -m "docs: add DEMO-004 env scope chain implementation plan"
 ```
 
-Expected: clean working tree on a new branch tracking origin/main.
+If the main checkout is clean, you may instead skip the worktree and run `git checkout -b feat/demo-004-env-scope-chain origin/main` in-place — but every subsequent step assumes the worktree path `/Users/sergey/work/openmind/screamingface-demo-004`.
 
 - [ ] **Step 0.2: Baseline test run — capture the "green" state we must preserve**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface/apps/server
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
 uv run pytest src/screamingface/plugins/url4_executor/tests/ -q
 uv run pytest tests/e2e/ -m "e2e and not live" -q
 ```
@@ -125,7 +142,7 @@ __all__ = ["Env"]
 Run:
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface/apps/server
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
 uv run python -c "from screamingface.plugins.url4_executor.scope import Env; print(Env.root())"
 ```
 
@@ -134,7 +151,7 @@ Expected: prints `Env(bindings={}, parent=None)`. Anything else (import error, n
 - [ ] **Step 1.3: Commit**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface
+cd /Users/sergey/work/openmind/screamingface-demo-004
 git add apps/server/src/screamingface/plugins/url4_executor/scope.py
 git commit -m "feat(url4): add Env parent-pointer scope chain (DEMO-004)"
 ```
@@ -214,7 +231,7 @@ def test_child_accepts_arbitrary_value_types():
 - [ ] **Step 2.2: Run the tests; they must pass against Task 1's `scope.py`**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface/apps/server
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
 uv run pytest src/screamingface/plugins/url4_executor/tests/test_scope.py -v
 ```
 
@@ -223,7 +240,7 @@ Expected: 8 passed. If `test_env_is_frozen` is the only failure, the dataclass i
 - [ ] **Step 2.3: Commit**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface
+cd /Users/sergey/work/openmind/screamingface-demo-004
 git add apps/server/src/screamingface/plugins/url4_executor/tests/test_scope.py
 git commit -m "test(url4): unit tests for Env scope chain (DEMO-004)"
 ```
@@ -342,7 +359,7 @@ Replace with:
 - [ ] **Step 3.5: Run url4_resolve-touching tests**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface/apps/server
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
 uv run pytest src/screamingface/plugins/url4_executor/tests/test_url4.py src/screamingface/plugins/url4_executor/tests/test_url4_executor.py src/screamingface/plugins/url4_executor/tests/test_url4_relurl.py -v
 ```
 
@@ -351,7 +368,7 @@ Expected: all green. Any failure means a signature or recursion was missed.
 - [ ] **Step 3.6: Commit**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface
+cd /Users/sergey/work/openmind/screamingface-demo-004
 git add apps/server/src/screamingface/plugins/url4_executor/url4_resolve.py
 git commit -m "refactor(url4): thread Env through url4_resolve recursion (DEMO-004)"
 ```
@@ -387,7 +404,51 @@ async def resolve_intent(intent: str, app: Any = None, env: Env | None = None) -
 
 (`env` is accepted but unused inside; this function only does fetches/literals. The argument exists so callers can pass it without special-casing.)
 
-- [ ] **Step 4.3: Widen `Url4Interpreter.evaluate`**
+- [ ] **Step 4.3a: Add Env design pointer to `Url4Interpreter`'s class docstring**
+
+Asana acceptance criterion #7 says the design rationale lives in `interpreter.py`'s docstring. The full rationale is in `scope.py`'s module docstring (so future readers of `Env` find it first); this step adds the required summary + pointer to `Url4Interpreter`.
+
+Locate the `Url4Interpreter` class docstring (currently starts at line 38: `"""Base url4 interpreter.`). Replace the entire existing docstring:
+
+```python
+    """Base url4 interpreter.
+
+    Pipeline: split intent → resolve sources (parallel) → resolve intent → process.
+
+    Override ``process()`` to change what happens with the resolved pieces.
+    The default concatenates ``intent + "\\n\\n" + sources``.
+    """
+```
+
+with:
+
+```python
+    """Base url4 interpreter.
+
+    Pipeline: split intent → resolve sources (parallel) → resolve intent → process.
+
+    Override ``process()`` to change what happens with the resolved pieces.
+    The default concatenates ``intent + "\\n\\n" + sources``.
+
+    Scope chain (DEMO-004)
+    ----------------------
+    ``evaluate`` and ``process`` accept an optional ``env: Env | None``
+    parameter that is threaded through every recursive call into
+    ``resolve_str``, ``resolve_intent``, and any subclass override.
+    ``None`` is treated as a fresh root env.
+
+    The chain uses parent pointers (not copy-on-write or dict-stacking)
+    because url4 binding resolution is read-heavy / write-light and the
+    chain is shallow (rarely deeper than 4 frames in practice: outer /
+    iteration / fanout / reducer). The full rationale lives in
+    :mod:`screamingface.plugins.url4_executor.scope`.
+
+    No interpreter logic actually populates bindings yet — DEMO-005/006
+    will. This class only carries the plumbing.
+    """
+```
+
+- [ ] **Step 4.3b: Widen `Url4Interpreter.evaluate`**
 
 Replace line 49 (`async def evaluate(self, expr: str) -> str:`) with:
 
@@ -418,6 +479,13 @@ Then, inside the function body:
 - Replace `result = await self.process(sources, intent)` with
   `result = await self.process(sources, intent, env)`.
 
+- [ ] **Step 4.3c: Run ruff format on the file** (the new docstring block must satisfy `ruff format --check`)
+
+```bash
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
+uv run ruff format src/screamingface/plugins/url4_executor/interpreter.py
+```
+
 - [ ] **Step 4.4: Widen `Url4Interpreter.process`**
 
 Replace lines 98-105 (the `process` method) with:
@@ -437,7 +505,7 @@ Replace lines 98-105 (the `process` method) with:
 - [ ] **Step 4.5: Run interpreter-touching tests**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface/apps/server
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
 uv run pytest src/screamingface/plugins/url4_executor/tests/test_url4_intent_dispatch.py src/screamingface/plugins/url4_executor/tests/test_url4_executor.py -v
 ```
 
@@ -446,7 +514,7 @@ Expected: all green.
 - [ ] **Step 4.6: Commit**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface
+cd /Users/sergey/work/openmind/screamingface-demo-004
 git add apps/server/src/screamingface/plugins/url4_executor/interpreter.py
 git commit -m "refactor(url4): thread Env through Url4Interpreter (DEMO-004)"
 ```
@@ -619,7 +687,7 @@ Inside the function:
 - [ ] **Step 5.8: Run the ensemble suite**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface/apps/server
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
 uv run pytest src/screamingface/plugins/url4_executor/tests/test_ensemble.py -v
 ```
 
@@ -628,7 +696,7 @@ Expected: all green. Any red here means a recursion site or signature still has 
 - [ ] **Step 5.9: Commit**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface
+cd /Users/sergey/work/openmind/screamingface-demo-004
 git add apps/server/src/screamingface/plugins/url4_executor/ensemble.py
 git commit -m "refactor(url4): thread Env through EnsembleInterpreter (DEMO-004)"
 ```
@@ -663,7 +731,7 @@ Replace `result = await interpreter.evaluate(q)` (line 80) with:
 - [ ] **Step 6.3: Run route + e2e tests**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface/apps/server
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
 uv run pytest src/screamingface/plugins/url4_executor/tests/test_highlight_route.py -v
 uv run pytest tests/e2e/ -m "e2e and not live" -q
 ```
@@ -673,49 +741,73 @@ Expected: route tests pass; e2e suite stays green.
 - [ ] **Step 6.4: Commit**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface
+cd /Users/sergey/work/openmind/screamingface-demo-004
 git add apps/server/src/screamingface/plugins/url4_executor/routes.py
 git commit -m "refactor(url4): pass explicit root Env from /ensemble route (DEMO-004)"
 ```
 
 ---
 
-## Task 7: Full regression bar
+## Task 7: Full regression bar + design walkthrough + push
 
-This is the "is the spike done?" gate.
+This is the "is the spike done?" gate. The lint/test sequence below mirrors `.github/workflows/server-tests.yml` exactly so local-green ⇒ CI-green.
 
 - [ ] **Step 7.1: Run the full url4_executor test directory**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface/apps/server
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
 uv run pytest src/screamingface/plugins/url4_executor/tests/ -v
 ```
 
-Expected: every test passes, including the new `test_scope.py`. Compare counts against the baseline from Step 0.2 — total should be baseline + 8 (the new Env tests).
+Expected: every test passes, including the new `test_scope.py`. Compare counts against the baseline from Step 0.2 — total should be **baseline + 8** (the 8 new Env tests).
 
-- [ ] **Step 7.2: Run the e2e suite (the actual regression bar)**
+- [ ] **Step 7.2: Run the unit suite with coverage (mirrors CI)**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface/apps/server
-uv run pytest tests/e2e/ -m "e2e and not live" -v
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
+uv run pytest --tb=short --cov=screamingface --cov-report=term-missing -m "not e2e and not e2e_live" -q
+```
+
+Expected: green. The PR coverage gate is `thresholdAll: 0.70` — `scope.py` is fully covered by `test_scope.py`; the threaded `env` params on existing functions are exercised by the existing tests they already cover. If the report shows uncovered lines inside the new conditional `if env is None: env = Env.root()` branches, that's expected (callers from CI tests pass `None`); the branches still execute.
+
+- [ ] **Step 7.3: Run the e2e suite (the actual regression bar)**
+
+```bash
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
+uv run pytest tests/e2e/ --tb=short --timeout=120 -m "e2e" -v
 ```
 
 Expected: green. Anything red here means the env-threading refactor changed observable behavior — which is the one thing this ticket must not do.
 
-- [ ] **Step 7.3: Lint / typecheck (whatever this repo runs)**
+- [ ] **Step 7.4: Lint + format + typecheck (real CI sequence)**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface/apps/server
-uv run ruff check src/screamingface/plugins/url4_executor/
-uv run mypy src/screamingface/plugins/url4_executor/ 2>/dev/null || true
+cd /Users/sergey/work/openmind/screamingface-demo-004/apps/server
+uv run ruff check
+uv run ruff format --check
+uv run pyright
 ```
 
-Expected: ruff clean. If mypy isn't wired up for this package, the `|| true` silently passes — that's fine. If ruff complains, fix in place and amend the previous commit.
+Expected: all three clean. If `ruff format --check` reports a file, run `uv run ruff format <file>` and amend the relevant commit (`git commit --amend --no-edit`). If `pyright` complains about `Env | None`, double-check the import is `from screamingface.plugins.url4_executor.scope import Env` at module top, not inside a function.
 
-- [ ] **Step 7.4: Push and open PR**
+- [ ] **Step 7.5: Design walkthrough (manual checkpoint — Asana risk note)**
+
+The Asana risk note states: *"Sergey explicitly walks through the design with himself (or in the docstring) before merging."* This is the most-likely-wrong ticket in the DEMO-004→006 chain; if `Env` is wrong here, DEMO-005/006 build on a bad foundation.
+
+Re-read these three things in this order and confirm each:
+
+1. `scope.py` module docstring + class docstring + the three method bodies (`lookup`, `child`, `root`). Confirm: parent-pointer, frozen, no mutation, shadowing via insertion order.
+2. `Url4Interpreter` class docstring (Step 4.3a) — does the summary still match the implementation after all six recursion sites in `ensemble.py` were threaded?
+3. The Open Note in the Self-Review section of this plan — has it been resolved (yes, both `scope.py` and `interpreter.py` now carry the rationale).
+
+Write 2-3 sentences capturing the walkthrough conclusion. This becomes the "Design walkthrough" section in the PR body (Step 7.6).
+
+If the walkthrough surfaces a real concern (e.g., "the env should be passed positionally to `process` to avoid kwarg-shadowing in a subclass"), stop and surface it before pushing.
+
+- [ ] **Step 7.6: Push and open PR**
 
 ```bash
-cd /Users/sergey/work/openmind/screamingface
+cd /Users/sergey/work/openmind/screamingface-demo-004
 git push -u origin feat/demo-004-env-scope-chain
 gh pr create --title "DEMO-004: Env scope chain for url4_executor" --body "$(cat <<'EOF'
 ## Summary
@@ -724,13 +816,16 @@ gh pr create --title "DEMO-004: Env scope chain for url4_executor" --body "$(cat
 - Zero behavioral change. This is the plumbing DEMO-005/006 sit on.
 
 ## Why parent-pointer
-Bindings are read-heavy / write-light; the chain is shallow (≤4 frames); a frozen dataclass means concurrent iterations can't corrupt each other. See `scope.py` module docstring.
+Bindings are read-heavy / write-light; the chain is shallow (≤4 frames); a frozen dataclass means concurrent iterations can't corrupt each other. Full rationale in `scope.py`; summary in `Url4Interpreter` docstring.
+
+## Design walkthrough
+<paste the 2-3 sentence walkthrough conclusion from Step 7.5 here>
 
 ## Test plan
 - [x] `uv run pytest src/screamingface/plugins/url4_executor/tests/test_scope.py -v` — 8 new tests
-- [x] `uv run pytest src/screamingface/plugins/url4_executor/tests/ -v` — full plugin suite green
-- [x] `uv run pytest tests/e2e/ -m "e2e and not live" -v` — regression bar green
-- [x] `uv run ruff check src/screamingface/plugins/url4_executor/`
+- [x] `uv run pytest --cov=screamingface -m "not e2e and not e2e_live"` — unit suite green, coverage ≥ 0.70
+- [x] `uv run pytest tests/e2e/ -m "e2e" --timeout=120 -v` — regression bar green
+- [x] `uv run ruff check` + `uv run ruff format --check` + `uv run pyright` — all clean
 
 Asana: https://app.asana.com/1/1185126988600652/task/1214567788345901
 EOF
@@ -743,11 +838,13 @@ Expected: PR URL printed. Do **not** push earlier than this — green-bar first.
 
 ## Self-Review Notes
 
-- **Spec coverage:** all six acceptance criteria from the Asana task map to tasks above: `Env` (Task 1), unit tests (Task 2: 8 cases incl. the three required), interpreter threading (Task 4), ensemble threading (Task 5), existing-tests-green (Tasks 3.5 / 4.5 / 5.8 / 7.1), e2e green (Step 0.2 baseline + Step 7.2), design note in module docstring (Task 1.1 — `scope.py` carries the rationale; the spec asks for it in `interpreter.py`'s docstring instead — see Open Note below).
+- **Spec coverage:** all seven Asana acceptance criteria map to tasks above: `Env` exists (Task 1), unit tests for the 3 required cases + 5 extras (Task 2), all existing tests green (Steps 3.5 / 4.5 / 5.8 / 7.1), e2e green (Step 0.2 baseline + Step 7.3), design note in `interpreter.py` docstring (Step 4.3a — full rationale in `scope.py`, summary + pointer in `Url4Interpreter`).
 - **Placeholder scan:** every step shows the exact code, command, or commit message.
-- **Type consistency:** every signature uses `env: Env | None = None` and every internal call passes `env` positionally after `app` — checked across Tasks 3, 4, 5, 6.
+- **Type consistency:** every signature uses `env: Env | None = None`; every internal call passes `env` positionally after `app` — checked across Tasks 3, 4, 5, 6.
+- **External caller safety:** five plugins call `Url4Interpreter(app=app)` (kwarg) and `resolve_str(context, app)` (2-arg positional). Adding `env` as the trailing parameter keeps all call sites valid — verified via `rg` over `apps/`.
+- **Line-number drift:** Edit steps quote the *exact source text* being replaced (signatures, full method bodies, full call expressions), not just line numbers. If `main` drifts before execution, line numbers go stale but the `old_string` patterns remain unique and still match — re-locate by content.
 
-**Open Note (Task 1 vs spec wording):** The Asana task says the design note belongs in `interpreter.py`'s docstring. I parked it in `scope.py` because the rationale is about `Env` itself, not the interpreter. If the reviewer prefers the literal interpretation, copy the "Design choice — parent-pointer" block from `scope.py` into `Url4Interpreter`'s class docstring in Task 4 (no logic change).
+**Resolution of the prior Open Note:** The Asana acceptance criterion's literal wording (design note in `interpreter.py`'s docstring) is now satisfied by Step 4.3a, which adds a Scope-chain summary block + cross-reference to `scope.py`. The full design rationale stays in `scope.py` so future readers of `Env` find it at the canonical home.
 
 ---
 
