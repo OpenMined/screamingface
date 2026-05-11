@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from statistics import median
 
 import pytest
@@ -86,16 +87,21 @@ async def test_unknown_user_timing_close_to_wrong_password(client, monkeypatch) 
 
 
 @pytest.mark.asyncio
-async def test_concurrent_logins_finish_under_5x_single_login(client, monkeypatch) -> None:
-    loop = asyncio.get_running_loop()
-    monkeypatch.setattr(passwords, "_BCRYPT_ROUNDS", 8)
+async def test_concurrent_logins_verify_passwords_in_threadpool(client, monkeypatch) -> None:
+    barrier = threading.Barrier(10, timeout=5)
+    lock = threading.Lock()
+    verifier_threads: set[int] = set()
 
-    async def _strengthen_admin_hash() -> None:
-        admin = await Account.get(username="admin")
-        admin.password_hash = await hash_password("test-admin-password")
-        await admin.save(update_fields=["password_hash"])
+    def _verify_password_sync(_password, _password_hash) -> bool:
+        with lock:
+            verifier_threads.add(threading.get_ident())
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError as exc:
+            raise AssertionError("password verification did not overlap") from exc
+        return True
 
-    client.portal.call(_strengthen_admin_hash)
+    monkeypatch.setattr(passwords, "_verify_password_sync", _verify_password_sync)
 
     async def _login():
         return await asyncio.to_thread(
@@ -104,14 +110,7 @@ async def test_concurrent_logins_finish_under_5x_single_login(client, monkeypatc
             json={"username": "admin", "password": "test-admin-password"},
         )
 
-    single_start = loop.time()
-    single_response = await _login()
-    single = loop.time() - single_start
-
-    many_start = loop.time()
     responses = await asyncio.gather(*[_login() for _ in range(10)])
-    many = loop.time() - many_start
 
-    assert single_response.status_code == 200
     assert all(response.status_code == 200 for response in responses)
-    assert many < single * 5
+    assert len(verifier_threads) > 1
