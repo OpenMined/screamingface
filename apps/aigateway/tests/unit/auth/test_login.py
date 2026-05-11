@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import threading
 from statistics import median
 
 import pytest
@@ -86,31 +85,23 @@ async def test_unknown_user_timing_close_to_wrong_password(client, monkeypatch) 
     assert abs(missing - wrong) / wrong < 0.10
 
 
-@pytest.mark.asyncio
-async def test_concurrent_logins_verify_passwords_in_threadpool(client, monkeypatch) -> None:
-    barrier = threading.Barrier(10, timeout=5)
-    lock = threading.Lock()
-    verifier_threads: set[int] = set()
+def test_login_delegates_to_password_verification_helper(client, monkeypatch) -> None:
+    from aigateway.routes import auth_session
 
-    def _verify_password_sync(_password, _password_hash) -> bool:
-        with lock:
-            verifier_threads.add(threading.get_ident())
-        try:
-            barrier.wait()
-        except threading.BrokenBarrierError as exc:
-            raise AssertionError("password verification did not overlap") from exc
+    calls: list[tuple[str, str | bytes | None]] = []
+
+    async def fake_verify_password_or_dummy(password, password_hash) -> bool:
+        calls.append((password.get_secret_value(), password_hash))
         return True
 
-    monkeypatch.setattr(passwords, "_verify_password_sync", _verify_password_sync)
+    monkeypatch.setattr(auth_session, "verify_password_or_dummy", fake_verify_password_or_dummy)
 
-    async def _login():
-        return await asyncio.to_thread(
-            client.post,
-            "/v1/auth/login",
-            json={"username": "admin", "password": "test-admin-password"},
-        )
+    response = client.post(
+        "/v1/auth/login",
+        json={"username": "admin", "password": "test-admin-password"},
+    )
 
-    responses = await asyncio.gather(*[_login() for _ in range(10)])
-
-    assert all(response.status_code == 200 for response in responses)
-    assert len(verifier_threads) > 1
+    assert response.status_code == 200
+    assert len(calls) == 1
+    assert calls[0][0] == "test-admin-password"
+    assert isinstance(calls[0][1], str)

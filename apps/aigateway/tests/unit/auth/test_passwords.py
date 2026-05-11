@@ -48,3 +48,25 @@ async def test_bcrypt_runs_in_threadpool() -> None:
         assert not task.done()
         release.set()
         assert await task == "hashed:password123"
+
+
+@pytest.mark.asyncio
+async def test_verify_password_runs_in_threadpool() -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def _verify(_password: str, _password_hash: str) -> bool:
+        started.set()
+        release.wait(timeout=1)
+        return True
+
+    with patch("aigateway.core.auth.passwords._verify_password_sync", _verify):
+        task = asyncio.create_task(verify_password("password123", "stored-hash"))
+        for _ in range(100):
+            if started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        assert started.is_set()
+        assert not task.done()
+        release.set()
+        assert await task is True
