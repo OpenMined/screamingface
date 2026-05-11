@@ -6,6 +6,14 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 
+def profile_id_for(account_id: str, provider: str, name: str) -> str:
+    return f"{account_id}:{provider}:{name}"
+
+
+def credential_name_for(account_id: str, name: str) -> str:
+    return f"{account_id}:{name}"
+
+
 class ProfileState(str, Enum):  # noqa: UP042 - keep tuple-base for pydantic-v1 compat
     PENDING = "pending"
     AUTHENTICATED = "authenticated"
@@ -24,7 +32,8 @@ class ProfileDefaults(BaseModel):
 
 
 class Profile(BaseModel):
-    id: str  # f"{provider}:{name}"
+    id: str  # f"{account_id}:{provider}:{name}"
+    account_id: str = ""
     provider: str
     name: str
     account_label: str | None = None

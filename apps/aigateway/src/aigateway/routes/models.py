@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from ..core.auth.middleware import CurrentAccount
+
 router = APIRouter()
 
 
 @router.get("/v1/models")
-async def list_models(request: Request) -> dict:
+async def list_models(request: Request, _current: CurrentAccount) -> dict:
     """OpenAI-compatible model listing, aggregated from all loaded provider plugins."""
     registry = request.app.state.providers
     data = []

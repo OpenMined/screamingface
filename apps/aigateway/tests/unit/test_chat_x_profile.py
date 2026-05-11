@@ -5,17 +5,25 @@ import time
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
-from aigateway.main import create_app
+from aigateway.core.profile_models import (
+    Profile,
+    ProfileDefaults,
+    ProfileState,
+    credential_name_for,
+    profile_id_for,
+)
 from aigateway.plugins.anthropic_provider.auth import keychain_service_for
 
 
-def _seed_authenticated_profile(fake_keychain) -> None:
+def _account_id(client) -> str:
+    return client.get("/v1/auth/me").json()["id"]
+
+
+def _seed_authenticated_profile(fake_keychain, account_id: str) -> None:
     fake_keychain.write(
-        keychain_service_for("default"),
+        keychain_service_for(credential_name_for(account_id, "default")),
         "default",
         json.dumps(
             {
@@ -28,24 +36,9 @@ def _seed_authenticated_profile(fake_keychain) -> None:
     )
 
 
-def _patch_credential_factory(monkeypatch, fake_keychain):
-    from aigateway.core import bootstrap as bs_module
-    from aigateway.core import credential_store as cs_module
-    from aigateway.core import profile_index as pi_module
-    from aigateway.plugins.anthropic_provider import auth as auth_module
-
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(auth_module, "get_credential_store", lambda: fake_keychain)
-
-
 @pytest.mark.asyncio
-async def test_chat_404_when_profile_missing(fake_keychain, monkeypatch) -> None:
-    _patch_credential_factory(monkeypatch, fake_keychain)
-
-    client = TestClient(create_app())
-    resp = client.post(
+async def test_chat_404_when_profile_missing(authenticated_client) -> None:
+    resp = authenticated_client.post(
         "/v1/chat/completions",
         headers={"X-Profile": "missing"},
         json={
@@ -58,20 +51,19 @@ async def test_chat_404_when_profile_missing(fake_keychain, monkeypatch) -> None
 
 
 @pytest.mark.asyncio
-async def test_chat_409_when_profile_pending(fake_keychain, monkeypatch) -> None:
-    _patch_credential_factory(monkeypatch, fake_keychain)
-
+async def test_chat_409_when_profile_pending(fake_keychain, authenticated_client) -> None:
+    account_id = _account_id(authenticated_client)
     idx = ProfileIndexStore(credential_store=fake_keychain)
     await idx.upsert(
         Profile(
-            id="anthropic:default",
+            id=profile_id_for(account_id, "anthropic", "default"),
+            account_id=account_id,
             provider="anthropic",
             name="default",
             state=ProfileState.PENDING,
         )
     )
-    client = TestClient(create_app())
-    resp = client.post(
+    resp = authenticated_client.post(
         "/v1/chat/completions",
         json={
             "model": "anthropic/claude-haiku-4-5",
@@ -83,14 +75,15 @@ async def test_chat_409_when_profile_pending(fake_keychain, monkeypatch) -> None
 
 
 @pytest.mark.asyncio
-async def test_chat_merges_profile_defaults(fake_keychain, monkeypatch) -> None:
-    _patch_credential_factory(monkeypatch, fake_keychain)
-    _seed_authenticated_profile(fake_keychain)
+async def test_chat_merges_profile_defaults(fake_keychain, authenticated_client) -> None:
+    account_id = _account_id(authenticated_client)
+    _seed_authenticated_profile(fake_keychain, account_id)
 
     idx = ProfileIndexStore(credential_store=fake_keychain)
     await idx.upsert(
         Profile(
-            id="anthropic:default",
+            id=profile_id_for(account_id, "anthropic", "default"),
+            account_id=account_id,
             provider="anthropic",
             name="default",
             state=ProfileState.AUTHENTICATED,
@@ -112,8 +105,7 @@ async def test_chat_merges_profile_defaults(fake_keychain, monkeypatch) -> None:
         )
 
     with patch("aigateway.routes.chat.litellm.acompletion", fake_acompletion):
-        client = TestClient(create_app())
-        resp = client.post(
+        resp = authenticated_client.post(
             "/v1/chat/completions",
             json={
                 "model": "anthropic/claude-haiku-4-5",
@@ -125,4 +117,47 @@ async def test_chat_merges_profile_defaults(fake_keychain, monkeypatch) -> None:
         assert resp.status_code == 200
         assert captured["max_tokens"] == 4096
         assert captured["reasoning_effort"] == "high"
-        assert captured["api_key"] == "tok"
+    assert captured["api_key"] == "tok"
+
+
+@pytest.mark.asyncio
+async def test_chat_cannot_use_other_accounts_profile(
+    fake_keychain, authenticated_client, provisioned_user_factory
+) -> None:
+    admin_account_id = _account_id(authenticated_client)
+    _seed_authenticated_profile(fake_keychain, admin_account_id)
+    idx = ProfileIndexStore(credential_store=fake_keychain)
+    await idx.upsert(
+        Profile(
+            id=profile_id_for(admin_account_id, "anthropic", "shared"),
+            account_id=admin_account_id,
+            provider="anthropic",
+            name="shared",
+            state=ProfileState.AUTHENTICATED,
+        )
+    )
+
+    provisioned_user_factory("bob", "bob-pass1")
+    login = authenticated_client.post(
+        "/v1/auth/login",
+        json={"username": "bob", "password": "bob-pass1"},
+    )
+    authenticated_client.headers.update({"Authorization": f"Bearer {login.json()['token']}"})
+
+    resp = authenticated_client.post(
+        "/v1/chat/completions",
+        headers={"X-Profile": "shared"},
+        json={
+            "model": "anthropic/claude-haiku-4-5",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+    assert resp.status_code == 404
+
+
+def test_chat_requires_auth(client) -> None:
+    resp = client.post(
+        "/v1/chat/completions",
+        json={"model": "anthropic/claude-haiku-4-5", "messages": []},
+    )
+    assert resp.status_code == 401

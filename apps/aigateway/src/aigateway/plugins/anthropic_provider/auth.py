@@ -1,7 +1,7 @@
-"""Anthropic OAuth strategy keyed by profile name.
+"""Anthropic OAuth strategy keyed by an account-scoped credential name.
 
 Each profile has its own keychain entry under
-`aigateway:anthropic:<profile_name>`. The token blob is the flat shape
+`aigateway:anthropic:<account_id>:<profile_name>`. The token blob is the flat shape
 defined in the spec (snake_case keys; expires_at_ms in milliseconds).
 """
 
@@ -31,7 +31,7 @@ def keychain_service_for(profile_name: str) -> str:
     return f"aigateway:anthropic:{profile_name}"
 
 
-_ACCOUNT = "default"  # single account inside each provider keychain entry
+_ACCOUNT = "default"  # keychain account is stable; the service name carries ownership
 
 
 class AnthropicOAuth(BaseOAuthStrategy):

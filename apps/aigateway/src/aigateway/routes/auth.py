@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+from html import escape
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from ..core.auth.middleware import CurrentAccount
 from ..core.oauth_pkce import generate_pkce, generate_state
 from ..core.pending_auth import PendingAuthEntry
 from ..core.profile_index import ProfileIndexStore
-from ..core.profile_models import Profile, ProfileDefaults, ProfileState
+from ..core.profile_models import (
+    Profile,
+    ProfileDefaults,
+    ProfileState,
+    credential_name_for,
+    profile_id_for,
+)
 from ..plugins.anthropic_provider import auth as anthropic_auth_module
 
 router = APIRouter()
@@ -28,20 +36,20 @@ def _pending(request: Request):
 
 
 @router.get("/v1/auth/profiles")
-async def list_profiles(request: Request) -> dict:
-    idx = await _index_store(request).read()
-    return {"profiles": [p.model_dump(mode="json") for p in idx.profiles]}
+async def list_profiles(request: Request, current: CurrentAccount) -> dict:
+    profiles = await _index_store(request).list(str(current.id))
+    return {"profiles": [p.model_dump(mode="json") for p in profiles]}
 
 
 @router.get("/v1/auth/{provider}/profiles")
-async def list_provider_profiles(provider: str, request: Request) -> dict:
-    idx = await _index_store(request).read()
-    return {"profiles": [p.model_dump(mode="json") for p in idx.profiles if p.provider == provider]}
+async def list_provider_profiles(provider: str, request: Request, current: CurrentAccount) -> dict:
+    profiles = await _index_store(request).list(str(current.id), provider)
+    return {"profiles": [p.model_dump(mode="json") for p in profiles]}
 
 
 @router.get("/v1/auth/{provider}/profiles/{name}")
-async def get_profile(provider: str, name: str, request: Request) -> dict:
-    p = await _index_store(request).get(provider, name)
+async def get_profile(provider: str, name: str, request: Request, current: CurrentAccount) -> dict:
+    p = await _index_store(request).get(str(current.id), provider, name)
     if p is None:
         raise HTTPException(
             status_code=404,
@@ -56,7 +64,12 @@ class StartAuthRequest(BaseModel):
 
 
 @router.post("/v1/auth/{provider}/profiles", status_code=201)
-async def start_oauth(provider: str, body: StartAuthRequest, request: Request) -> dict:
+async def start_oauth(
+    provider: str,
+    body: StartAuthRequest,
+    request: Request,
+    current: CurrentAccount,
+) -> dict:
     plugin = _registry(request).get(provider)
     if plugin is None:
         raise HTTPException(
@@ -67,13 +80,20 @@ async def start_oauth(provider: str, body: StartAuthRequest, request: Request) -
     if cfg is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
 
-    profile_id = f"{provider}:{body.name}"
+    account_id = str(current.id)
+    profile_id = profile_id_for(account_id, provider, body.name)
     code_verifier, code_challenge = generate_pkce()
     state = generate_state()
 
     _pending(request).put(
         state,
-        PendingAuthEntry(profile_id=profile_id, code_verifier=code_verifier),
+        PendingAuthEntry(
+            account_id=account_id,
+            provider=provider,
+            profile_name=body.name,
+            profile_id=profile_id,
+            code_verifier=code_verifier,
+        ),
     )
 
     # The Claude Code public OAuth client (and similar public clients) only
@@ -97,6 +117,7 @@ async def start_oauth(provider: str, body: StartAuthRequest, request: Request) -
 
     profile = Profile(
         id=profile_id,
+        account_id=account_id,
         provider=provider,
         name=body.name,
         state=ProfileState.PENDING,
@@ -121,6 +142,11 @@ _CALLBACK_HTML = """<!doctype html>
 async def oauth_callback(code: str, state: str, request: Request):
     """Provider-agnostic OAuth callback.
 
+    This route intentionally does not require a JWT because OAuth providers
+    redirect browser tabs here after the user leaves the app. The pending-auth
+    state nonce is the callback credential; it maps back to the initiating
+    account and profile.
+
     Anthropic's public Claude Code OAuth client (and most OAuth providers
     using public clients) only accepts ``http://localhost:*/callback`` as
     the redirect URI — i.e. the path is fixed at ``/callback`` and is not
@@ -133,7 +159,7 @@ async def oauth_callback(code: str, state: str, request: Request):
             status_code=400,
             detail={"code": "unknown_state", "message": "OAuth state not recognized or expired"},
         )
-    provider, _name = pending_entry.profile_id.split(":", 1)
+    provider = pending_entry.provider
     try:
         return await _generic_callback(provider, code, state, request)
     except Exception as exc:
@@ -143,8 +169,9 @@ async def oauth_callback(code: str, state: str, request: Request):
         return HTMLResponse(
             f"<!doctype html><html><body>"
             f"<h2>Authentication failed</h2>"
-            f"<p>Provider: {provider}</p>"
-            f"<pre style='white-space:pre-wrap'>{type(exc).__name__}: {exc}</pre>"
+            f"<p>Provider: {escape(provider)}</p>"
+            f"<pre style='white-space:pre-wrap'>{escape(type(exc).__name__)}: "
+            f"{escape(str(exc))}</pre>"
             f"</body></html>",
             status_code=500,
         )
@@ -153,25 +180,35 @@ async def oauth_callback(code: str, state: str, request: Request):
 # Back-compat: older OAuth flows (and tests) still use the per-provider path.
 @router.get("/v1/auth/anthropic/callback")
 async def anthropic_callback(code: str, state: str, request: Request):
+    """Unauthenticated OAuth callback protected by the pending-auth state nonce."""
     return await _generic_callback("anthropic", code, state, request)
 
 
-async def _complete_oauth(provider: str, code: str, state: str, request: Request) -> None:
+async def _complete_oauth(
+    provider: str,
+    code: str,
+    state: str,
+    request: Request,
+    current_account_id: str | None = None,
+) -> None:
     """Run the OAuth token exchange and persist credentials.
 
     Used by both the GET browser-redirect callback and the POST manual
     paste-code endpoint. Raises HTTPException on failure.
     """
-    pending = _pending(request).pop(state)
+    pending = _pending(request).peek(state)
     if pending is None:
         raise HTTPException(
             status_code=400,
             detail={"code": "unknown_state", "message": "OAuth state not recognized or expired"},
         )
 
-    expected_provider, name = pending.profile_id.split(":", 1)
-    if expected_provider != provider:
+    if pending.provider != provider:
         raise HTTPException(status_code=400, detail={"code": "provider_mismatch"})
+    account_id = pending.account_id
+    if current_account_id is not None and current_account_id != account_id:
+        raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
+    name = pending.profile_name
 
     factory = getattr(request.app.state, f"{provider}_http_factory", None)
     # Must match the redirect_uri sent to /authorize. Both the start-OAuth
@@ -187,16 +224,17 @@ async def _complete_oauth(provider: str, code: str, state: str, request: Request
     )
 
     plugin = _registry(request).get(provider)
-    strategy = plugin.oauth_strategy_for(name)
+    strategy = plugin.oauth_strategy_for(credential_name_for(account_id, name))
     # Inject the same credential store as the profile index so tests/fake keychain work.
     if hasattr(strategy, "_store"):
         strategy._store = _index_store(request)._store
     strategy.set_credentials(creds)
 
-    p = await _index_store(request).get(provider, name)
+    p = await _index_store(request).get(account_id, provider, name)
     if p is not None:
         p.state = ProfileState.AUTHENTICATED
         await _index_store(request).upsert(p)
+    _pending(request).pop(state)
 
 
 async def _generic_callback(provider: str, code: str, state: str, request: Request):
@@ -210,18 +248,25 @@ class ExchangeCodeRequest(BaseModel):
 
 
 @router.post("/v1/auth/{provider}/exchange-code")
-async def exchange_code(provider: str, body: ExchangeCodeRequest, request: Request) -> dict:
+async def exchange_code(
+    provider: str,
+    body: ExchangeCodeRequest,
+    request: Request,
+    current: CurrentAccount,
+) -> dict:
     """Manual paste-code path for OAuth flows where the provider shows the
     authorization code on screen instead of redirecting (e.g. claude.ai/oauth
     with `code=true`).
     """
-    await _complete_oauth(provider, body.code, body.state, request)
+    await _complete_oauth(provider, body.code, body.state, request, str(current.id))
     return {"state": "authenticated"}
 
 
 @router.get("/v1/auth/{provider}/profiles/{name}/status")
-async def profile_status(provider: str, name: str, request: Request) -> dict:
-    p = await _index_store(request).get(provider, name)
+async def profile_status(
+    provider: str, name: str, request: Request, current: CurrentAccount
+) -> dict:
+    p = await _index_store(request).get(str(current.id), provider, name)
     if p is None:
         raise HTTPException(
             status_code=404,
@@ -241,10 +286,14 @@ class PatchProfileRequest(BaseModel):
 
 @router.patch("/v1/auth/{provider}/profiles/{name}")
 async def patch_profile(
-    provider: str, name: str, body: PatchProfileRequest, request: Request
+    provider: str,
+    name: str,
+    body: PatchProfileRequest,
+    request: Request,
+    current: CurrentAccount,
 ) -> dict:
     idx = _index_store(request)
-    p = await idx.get(provider, name)
+    p = await idx.get(str(current.id), provider, name)
     if p is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
     if body.defaults is not None:
@@ -256,14 +305,15 @@ async def patch_profile(
 
 
 @router.delete("/v1/auth/{provider}/profiles/{name}", status_code=204)
-async def delete_profile(provider: str, name: str, request: Request):
+async def delete_profile(provider: str, name: str, request: Request, current: CurrentAccount):
     plugin = _registry(request).get(provider)
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
-    p = await _index_store(request).get(provider, name)
+    account_id = str(current.id)
+    p = await _index_store(request).get(account_id, provider, name)
     if p is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
-    strategy = plugin.oauth_strategy_for(name)
+    strategy = plugin.oauth_strategy_for(credential_name_for(account_id, name))
     if strategy is not None and hasattr(strategy, "_store"):
         strategy._store = _index_store(request)._store
         strategy._store.delete(strategy.keychain_service(), strategy.keychain_account())
@@ -271,15 +321,18 @@ async def delete_profile(provider: str, name: str, request: Request):
 
 
 @router.post("/v1/auth/{provider}/profiles/{name}/refresh")
-async def refresh_profile(provider: str, name: str, request: Request) -> dict:
+async def refresh_profile(
+    provider: str, name: str, request: Request, current: CurrentAccount
+) -> dict:
     plugin = _registry(request).get(provider)
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
-    strategy = plugin.oauth_strategy_for(name)
+    account_id = str(current.id)
+    p = await _index_store(request).get(account_id, provider, name)
+    if p is None:
+        raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
+    strategy = plugin.oauth_strategy_for(credential_name_for(account_id, name))
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
     await strategy.refresh()
-    p = await _index_store(request).get(provider, name)
-    if p is None:
-        raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
     return p.model_dump(mode="json")

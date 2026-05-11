@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .credential_store import CredentialStore
+    from .profile_index import ProfileIndexStore
 
 
 @dataclass(frozen=True)
@@ -73,5 +77,19 @@ class ProviderPluginBase(ABC):
         return None
 
     def auth_router(self):
-        """Provider-specific auth routes. Default: handled by the shared `routes/auth.py`."""
+        """Provider-specific auth routes.
+
+        Handlers should require `CurrentAccount` unless they are OAuth callback
+        targets protected by a pending-auth state nonce.
+        """
+        return None
+
+    async def bootstrap_profiles(
+        self,
+        *,
+        account_id: str,
+        credential_store: CredentialStore | None = None,
+        index_store: ProfileIndexStore | None = None,
+    ) -> None:
+        """Import provider-owned local credentials into the profile index, if any."""
         return None

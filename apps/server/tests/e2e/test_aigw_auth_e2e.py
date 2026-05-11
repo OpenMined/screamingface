@@ -36,6 +36,8 @@ from screamingface.plugins.aigw_claude_backend.plugin import (
 
 pytestmark = pytest.mark.e2e
 
+_ANONYMOUS_ACCOUNT_ID = "00000000-0000-0000-0000-000000000000"
+
 
 def _free_port() -> int:
     with socket.socket() as s:
@@ -51,10 +53,34 @@ def _aigateway_dir() -> Path:
 def _boot_gateway(extra_env: dict[str, str], tmp_path: Path) -> tuple[int, subprocess.Popen[str]]:
     port = _free_port()
     env = os.environ.copy()
+    env.pop("VIRTUAL_ENV", None)
     env["AIGATEWAY_FAKE_KEYCHAIN"] = "1"
     env["AIGATEWAY_KEYCHAIN_FILE"] = str(tmp_path / "fake-kc.json")
     env["AIGATEWAY_FAKE_ANTHROPIC_OAUTH"] = "1"
+    env["AIGATEWAY_DATABASE_URL"] = f"sqlite://{tmp_path / 'aigateway.sqlite3'}"
+    env["AIGATEWAY_AUTH_ENABLED"] = "0"
+    env["AIGATEWAY_ADMIN_PASSWORD"] = "test-admin-password"
+    env["AIGATEWAY_JWT_SECRET"] = "x" * 32
+    env["AIGATEWAY_PROVISIONING_TOKEN"] = "p" * 32
     env.update(extra_env)
+    subprocess.run(
+        [
+            "uv",
+            "run",
+            "--directory",
+            str(_aigateway_dir()),
+            "python",
+            "-m",
+            "tortoise",
+            "-c",
+            "aigateway.db.TORTOISE_CONFIG",
+            "migrate",
+        ],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     proc = subprocess.Popen(
         [
             "uv",
@@ -140,7 +166,7 @@ def test_full_oauth_cycle_via_sf_auth_proxy(aigw: dict) -> None:
     resp = sf.post("/claude/auth/start")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["profile_id"] == "anthropic:default"
+    assert body["profile_id"] == f"{_ANONYMOUS_ACCOUNT_ID}:anthropic:default"
     assert body["authorize_url"].startswith("https://")
     state = body["state"]
 

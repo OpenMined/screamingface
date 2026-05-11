@@ -6,6 +6,9 @@ from dataclasses import dataclass
 
 @dataclass
 class PendingAuthEntry:
+    account_id: str
+    provider: str
+    profile_name: str
     profile_id: str
     code_verifier: str
 

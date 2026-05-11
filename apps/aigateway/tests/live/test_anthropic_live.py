@@ -1,8 +1,8 @@
 """End-to-end live test against api.anthropic.com via the profile-based path.
 
-Skipped unless AIGW_LIVE=1. Requires the gateway's `anthropic:default`
-profile to be authenticated — typically achieved on this machine by the
-Claude Code bootstrap importing existing CC credentials.
+Skipped unless AIGW_LIVE=1. Requires the logged-in admin account to have an
+authenticated `anthropic:default` profile — typically achieved on this machine
+by the Claude Code bootstrap importing existing CC credentials.
 """
 
 from __future__ import annotations
@@ -25,8 +25,14 @@ def _live_enabled() -> bool:
 def _require_default_profile(client: TestClient) -> None:
     listing = client.get("/v1/auth/profiles")
     assert listing.status_code == 200, listing.text
-    profiles = {p["id"]: p for p in listing.json()["profiles"]}
-    profile = profiles.get("anthropic:default")
+    profile = next(
+        (
+            p
+            for p in listing.json()["profiles"]
+            if p["provider"] == "anthropic" and p["name"] == "default"
+        ),
+        None,
+    )
     if profile is None:
         pytest.skip(
             "anthropic:default profile not present. Run `claude auth login` or seed a "
@@ -41,9 +47,28 @@ def _require_default_profile(client: TestClient) -> None:
         )
 
 
+def _login_admin(client: TestClient) -> None:
+    password = _live_admin_password()
+    response = client.post("/v1/auth/login", json={"username": "admin", "password": password})
+    assert response.status_code == 200, response.text
+    client.headers.update({"Authorization": f"Bearer {response.json()['token']}"})
+
+
+def _live_admin_password() -> str:
+    password = os.environ.get("AIGW_LIVE_ADMIN_PASSWORD") or os.environ.get(
+        "AIGATEWAY_ADMIN_PASSWORD"
+    )
+    if not password:
+        pytest.skip("Live auth tests require AIGW_LIVE_ADMIN_PASSWORD or AIGATEWAY_ADMIN_PASSWORD")
+    assert password is not None
+    return password
+
+
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
 def test_anthropic_round_trip_via_default_profile() -> None:
+    _live_admin_password()
     with TestClient(create_app()) as client:
+        _login_admin(client)
         _require_default_profile(client)
 
         resp = client.post(
@@ -62,7 +87,9 @@ def test_anthropic_round_trip_via_default_profile() -> None:
 
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
 def test_anthropic_streaming() -> None:
+    _live_admin_password()
     with TestClient(create_app()) as client:
+        _login_admin(client)
         _require_default_profile(client)
 
         with client.stream(
@@ -98,7 +125,9 @@ def test_anthropic_streaming() -> None:
 
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
 def test_anthropic_tool_calls() -> None:
+    _live_admin_password()
     with TestClient(create_app()) as client:
+        _login_admin(client)
         _require_default_profile(client)
 
         resp = client.post(

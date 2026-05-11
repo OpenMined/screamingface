@@ -3,12 +3,22 @@ from __future__ import annotations
 import pytest
 
 from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileIndex, ProfileState
+from aigateway.core.profile_models import (
+    Profile,
+    ProfileDefaults,
+    ProfileIndex,
+    ProfileState,
+    profile_id_for,
+)
+
+ACCOUNT_ID = "account-1"
+OTHER_ACCOUNT_ID = "account-2"
 
 
 def test_profile_round_trips_through_json() -> None:
     p = Profile(
-        id="anthropic:default",
+        id=profile_id_for(ACCOUNT_ID, "anthropic", "default"),
+        account_id=ACCOUNT_ID,
         provider="anthropic",
         name="default",
         account_label="user@example.com",
@@ -40,7 +50,8 @@ async def test_index_store_returns_empty_index_when_keychain_empty(fake_keychain
 async def test_index_store_round_trip(fake_keychain) -> None:
     store = ProfileIndexStore(credential_store=fake_keychain)
     p = Profile(
-        id="anthropic:default",
+        id=profile_id_for(ACCOUNT_ID, "anthropic", "default"),
+        account_id=ACCOUNT_ID,
         provider="anthropic",
         name="default",
         defaults=ProfileDefaults(model="anthropic/claude-sonnet-4-5"),
@@ -48,18 +59,27 @@ async def test_index_store_round_trip(fake_keychain) -> None:
     await store.upsert(p)
     idx = await store.read()
     assert len(idx.profiles) == 1
-    assert idx.profiles[0].id == "anthropic:default"
+    assert idx.profiles[0].id == profile_id_for(ACCOUNT_ID, "anthropic", "default")
+    assert idx.profiles[0].account_id == ACCOUNT_ID
     raw = fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default")
-    assert "anthropic:default" in raw
+    assert profile_id_for(ACCOUNT_ID, "anthropic", "default") in raw
 
 
 @pytest.mark.asyncio
 async def test_index_store_upsert_replaces_by_id(fake_keychain) -> None:
     store = ProfileIndexStore(credential_store=fake_keychain)
-    await store.upsert(Profile(id="anthropic:default", provider="anthropic", name="default"))
     await store.upsert(
         Profile(
-            id="anthropic:default",
+            id=profile_id_for(ACCOUNT_ID, "anthropic", "default"),
+            account_id=ACCOUNT_ID,
+            provider="anthropic",
+            name="default",
+        )
+    )
+    await store.upsert(
+        Profile(
+            id=profile_id_for(ACCOUNT_ID, "anthropic", "default"),
+            account_id=ACCOUNT_ID,
             provider="anthropic",
             name="default",
             account_label="updated@example.com",
@@ -73,7 +93,41 @@ async def test_index_store_upsert_replaces_by_id(fake_keychain) -> None:
 @pytest.mark.asyncio
 async def test_index_store_remove(fake_keychain) -> None:
     store = ProfileIndexStore(credential_store=fake_keychain)
-    await store.upsert(Profile(id="anthropic:default", provider="anthropic", name="default"))
-    await store.remove("anthropic:default")
+    await store.upsert(
+        Profile(
+            id=profile_id_for(ACCOUNT_ID, "anthropic", "default"),
+            account_id=ACCOUNT_ID,
+            provider="anthropic",
+            name="default",
+        )
+    )
+    await store.remove(profile_id_for(ACCOUNT_ID, "anthropic", "default"))
     idx = await store.read()
     assert idx.profiles == []
+
+
+@pytest.mark.asyncio
+async def test_index_store_filters_by_account(fake_keychain) -> None:
+    store = ProfileIndexStore(credential_store=fake_keychain)
+    await store.upsert(
+        Profile(
+            id=profile_id_for(ACCOUNT_ID, "anthropic", "default"),
+            account_id=ACCOUNT_ID,
+            provider="anthropic",
+            name="default",
+        )
+    )
+    await store.upsert(
+        Profile(
+            id=profile_id_for(OTHER_ACCOUNT_ID, "anthropic", "default"),
+            account_id=OTHER_ACCOUNT_ID,
+            provider="anthropic",
+            name="default",
+        )
+    )
+
+    profiles = await store.list(ACCOUNT_ID)
+    assert len(profiles) == 1
+    assert profiles[0].account_id == ACCOUNT_ID
+    assert await store.get(OTHER_ACCOUNT_ID, "anthropic", "default") is not None
+    assert await store.get(ACCOUNT_ID, "anthropic", "missing") is None
