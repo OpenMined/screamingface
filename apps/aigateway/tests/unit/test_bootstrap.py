@@ -7,8 +7,27 @@ from fastapi.testclient import TestClient
 from aigateway.core.bootstrap import bootstrap_from_claude_code
 from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
 from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+from tests.conftest import _prepare_sqlite_db
 
 CC_SERVICE = "Claude Code-credentials"
+
+
+def _configure_app_db(monkeypatch, tmp_path) -> None:
+    database_url = f"sqlite://{tmp_path / 'aigateway.sqlite3'}"
+    monkeypatch.setenv("AIGATEWAY_DATABASE_URL", database_url)
+    monkeypatch.setenv("AIGATEWAY_ADMIN_PASSWORD", "test-admin-password")
+    monkeypatch.setenv("AIGATEWAY_JWT_SECRET", "x" * 32)
+    monkeypatch.setenv("AIGATEWAY_PROVISIONING_TOKEN", "p" * 32)
+    _prepare_sqlite_db(database_url)
+
+
+def _auth_header(client: TestClient) -> dict[str, str]:
+    response = client.post(
+        "/v1/auth/login",
+        json={"username": "admin", "password": "test-admin-password"},
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['token']}"}
 
 
 @pytest.mark.asyncio
@@ -76,7 +95,8 @@ async def test_bootstrap_noop_when_cc_entry_missing(fake_keychain) -> None:
     assert fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default") is None
 
 
-def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch) -> None:
+def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch, tmp_path) -> None:
+    _configure_app_db(monkeypatch, tmp_path)
     fake_keychain.write(
         CC_SERVICE,
         "alice",
@@ -94,6 +114,7 @@ def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch) -> None:
     monkeypatch.setenv("USER", "alice")
     monkeypatch.setenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", "1")
 
+    from aigateway import main as main_module
     from aigateway.core import bootstrap as bs_module
     from aigateway.core import credential_store as cs_module
     from aigateway.core import profile_index as pi_module
@@ -103,22 +124,24 @@ def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch) -> None:
     monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
     monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
     monkeypatch.setattr(auth_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(main_module, "get_credential_store", lambda: fake_keychain)
 
     from aigateway.main import create_app
 
     app = create_app()
     with TestClient(app) as client:  # `with` triggers the lifespan
-        resp = client.get("/v1/auth/profiles")
+        resp = client.get("/v1/auth/profiles", headers=_auth_header(client))
         assert resp.status_code == 200
         ids = [p["id"] for p in resp.json()["profiles"]]
         assert "anthropic:default" in ids
 
 
-def test_lifespan_skips_bootstrap_by_default(monkeypatch, fake_keychain) -> None:
+def test_lifespan_skips_bootstrap_by_default(monkeypatch, fake_keychain, tmp_path) -> None:
     """When AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE is unset, _lifespan does not call bootstrap."""
     from unittest.mock import AsyncMock
 
     monkeypatch.delenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", raising=False)
+    _configure_app_db(monkeypatch, tmp_path)
 
     # Isolate from the developer's real OS keychain.
     from aigateway.core import credential_store as cs_module
@@ -134,18 +157,19 @@ def test_lifespan_skips_bootstrap_by_default(monkeypatch, fake_keychain) -> None
 
     app = main_module.create_app()
     with TestClient(app) as client:
-        resp = client.get("/v1/auth/profiles")
+        resp = client.get("/v1/auth/profiles", headers=_auth_header(client))
         assert resp.status_code == 200
         assert resp.json() == {"profiles": []}
 
     assert mock_bootstrap.call_count == 0
 
 
-def test_lifespan_runs_bootstrap_when_env_set(monkeypatch, fake_keychain) -> None:
+def test_lifespan_runs_bootstrap_when_env_set(monkeypatch, fake_keychain, tmp_path) -> None:
     """When AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1, _lifespan calls bootstrap."""
     from unittest.mock import AsyncMock
 
     monkeypatch.setenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", "1")
+    _configure_app_db(monkeypatch, tmp_path)
 
     from aigateway.core import credential_store as cs_module
     from aigateway.core import profile_index as pi_module
@@ -160,6 +184,6 @@ def test_lifespan_runs_bootstrap_when_env_set(monkeypatch, fake_keychain) -> Non
 
     app = main_module.create_app()
     with TestClient(app) as client:
-        client.get("/v1/auth/profiles")
+        client.get("/v1/auth/profiles", headers=_auth_header(client))
 
     assert mock_bootstrap.call_count == 1

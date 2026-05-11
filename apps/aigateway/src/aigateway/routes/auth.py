@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from ..core.auth.middleware import CurrentAccount
 from ..core.oauth_pkce import generate_pkce, generate_state
 from ..core.pending_auth import PendingAuthEntry
 from ..core.profile_index import ProfileIndexStore
@@ -28,19 +29,19 @@ def _pending(request: Request):
 
 
 @router.get("/v1/auth/profiles")
-async def list_profiles(request: Request) -> dict:
+async def list_profiles(request: Request, _current: CurrentAccount) -> dict:
     idx = await _index_store(request).read()
     return {"profiles": [p.model_dump(mode="json") for p in idx.profiles]}
 
 
 @router.get("/v1/auth/{provider}/profiles")
-async def list_provider_profiles(provider: str, request: Request) -> dict:
+async def list_provider_profiles(provider: str, request: Request, _current: CurrentAccount) -> dict:
     idx = await _index_store(request).read()
     return {"profiles": [p.model_dump(mode="json") for p in idx.profiles if p.provider == provider]}
 
 
 @router.get("/v1/auth/{provider}/profiles/{name}")
-async def get_profile(provider: str, name: str, request: Request) -> dict:
+async def get_profile(provider: str, name: str, request: Request, _current: CurrentAccount) -> dict:
     p = await _index_store(request).get(provider, name)
     if p is None:
         raise HTTPException(
@@ -56,7 +57,12 @@ class StartAuthRequest(BaseModel):
 
 
 @router.post("/v1/auth/{provider}/profiles", status_code=201)
-async def start_oauth(provider: str, body: StartAuthRequest, request: Request) -> dict:
+async def start_oauth(
+    provider: str,
+    body: StartAuthRequest,
+    request: Request,
+    _current: CurrentAccount,
+) -> dict:
     plugin = _registry(request).get(provider)
     if plugin is None:
         raise HTTPException(
@@ -162,7 +168,7 @@ async def _complete_oauth(provider: str, code: str, state: str, request: Request
     Used by both the GET browser-redirect callback and the POST manual
     paste-code endpoint. Raises HTTPException on failure.
     """
-    pending = _pending(request).pop(state)
+    pending = _pending(request).peek(state)
     if pending is None:
         raise HTTPException(
             status_code=400,
@@ -197,6 +203,7 @@ async def _complete_oauth(provider: str, code: str, state: str, request: Request
     if p is not None:
         p.state = ProfileState.AUTHENTICATED
         await _index_store(request).upsert(p)
+    _pending(request).pop(state)
 
 
 async def _generic_callback(provider: str, code: str, state: str, request: Request):
@@ -210,7 +217,12 @@ class ExchangeCodeRequest(BaseModel):
 
 
 @router.post("/v1/auth/{provider}/exchange-code")
-async def exchange_code(provider: str, body: ExchangeCodeRequest, request: Request) -> dict:
+async def exchange_code(
+    provider: str,
+    body: ExchangeCodeRequest,
+    request: Request,
+    _current: CurrentAccount,
+) -> dict:
     """Manual paste-code path for OAuth flows where the provider shows the
     authorization code on screen instead of redirecting (e.g. claude.ai/oauth
     with `code=true`).
@@ -220,7 +232,9 @@ async def exchange_code(provider: str, body: ExchangeCodeRequest, request: Reque
 
 
 @router.get("/v1/auth/{provider}/profiles/{name}/status")
-async def profile_status(provider: str, name: str, request: Request) -> dict:
+async def profile_status(
+    provider: str, name: str, request: Request, _current: CurrentAccount
+) -> dict:
     p = await _index_store(request).get(provider, name)
     if p is None:
         raise HTTPException(
@@ -241,7 +255,11 @@ class PatchProfileRequest(BaseModel):
 
 @router.patch("/v1/auth/{provider}/profiles/{name}")
 async def patch_profile(
-    provider: str, name: str, body: PatchProfileRequest, request: Request
+    provider: str,
+    name: str,
+    body: PatchProfileRequest,
+    request: Request,
+    _current: CurrentAccount,
 ) -> dict:
     idx = _index_store(request)
     p = await idx.get(provider, name)
@@ -256,7 +274,7 @@ async def patch_profile(
 
 
 @router.delete("/v1/auth/{provider}/profiles/{name}", status_code=204)
-async def delete_profile(provider: str, name: str, request: Request):
+async def delete_profile(provider: str, name: str, request: Request, _current: CurrentAccount):
     plugin = _registry(request).get(provider)
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
@@ -271,7 +289,9 @@ async def delete_profile(provider: str, name: str, request: Request):
 
 
 @router.post("/v1/auth/{provider}/profiles/{name}/refresh")
-async def refresh_profile(provider: str, name: str, request: Request) -> dict:
+async def refresh_profile(
+    provider: str, name: str, request: Request, _current: CurrentAccount
+) -> dict:
     plugin = _registry(request).get(provider)
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})

@@ -73,5 +73,9 @@ class ProviderPluginBase(ABC):
         return None
 
     def auth_router(self):
-        """Provider-specific auth routes. Default: handled by the shared `routes/auth.py`."""
+        """Provider-specific auth routes.
+
+        Handlers should require `CurrentAccount` unless they are OAuth callback
+        targets protected by a pending-auth state nonce.
+        """
         return None

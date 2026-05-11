@@ -2,26 +2,14 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
-from aigateway.main import create_app
 
 
 @pytest.fixture
-def client_with_index(fake_keychain, monkeypatch):
-    """Patch the global credential store factory so create_app() picks up our fake."""
-    from aigateway.core import bootstrap as bs_module
-    from aigateway.core import credential_store as cs_module
-    from aigateway.core import profile_index as pi_module
-
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
-
-    app = create_app()
-    return TestClient(app), fake_keychain
+def client_with_index(authenticated_client, fake_keychain):
+    return authenticated_client, fake_keychain
 
 
 def test_list_profiles_empty(client_with_index) -> None:
@@ -32,15 +20,7 @@ def test_list_profiles_empty(client_with_index) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_profiles_returns_seeded(fake_keychain, monkeypatch) -> None:
-    from aigateway.core import bootstrap as bs_module
-    from aigateway.core import credential_store as cs_module
-    from aigateway.core import profile_index as pi_module
-
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
-
+async def test_list_profiles_returns_seeded(fake_keychain, authenticated_client) -> None:
     idx = ProfileIndexStore(credential_store=fake_keychain)
     await idx.upsert(
         Profile(
@@ -52,10 +32,7 @@ async def test_list_profiles_returns_seeded(fake_keychain, monkeypatch) -> None:
         )
     )
 
-    app = create_app()
-    client = TestClient(app)
-
-    resp = client.get("/v1/auth/profiles")
+    resp = authenticated_client.get("/v1/auth/profiles")
     body = resp.json()
     assert resp.status_code == 200
     assert len(body["profiles"]) == 1
@@ -103,11 +80,15 @@ def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
     start = client.post("/v1/auth/anthropic/profiles", json={"name": "topcb"})
     state = start.json()["state"]
 
-    resp = client.get(
-        "/callback",
-        params={"code": "auth-code-top", "state": state},
-        follow_redirects=False,
-    )
+    auth_header = client.headers.pop("Authorization")
+    try:
+        resp = client.get(
+            "/callback",
+            params={"code": "auth-code-top", "state": state},
+            follow_redirects=False,
+        )
+    finally:
+        client.headers["Authorization"] = auth_header
     assert resp.status_code == 200
     prof = client.get("/v1/auth/anthropic/profiles/topcb").json()
     assert prof["state"] == "authenticated"
@@ -115,7 +96,11 @@ def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
 
 def test_top_level_callback_unknown_state_400(client_with_index) -> None:
     client, _ = client_with_index
-    resp = client.get("/callback", params={"code": "x", "state": "never-issued"})
+    auth_header = client.headers.pop("Authorization")
+    try:
+        resp = client.get("/callback", params={"code": "x", "state": "never-issued"})
+    finally:
+        client.headers["Authorization"] = auth_header
     assert resp.status_code == 400
 
 
@@ -148,6 +133,13 @@ def _mock_token_factory():
     return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
 
 
+def _failing_token_factory():
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(400, json={"error": "invalid_grant"})
+    )
+    return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
+
+
 def test_callback_completes_auth(client_with_index) -> None:
     client, fake_keychain = client_with_index
     client.app.state.anthropic_http_factory = _mock_token_factory()
@@ -155,11 +147,15 @@ def test_callback_completes_auth(client_with_index) -> None:
     start = client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
     state = start.json()["state"]
 
-    cb = client.get(
-        "/v1/auth/anthropic/callback",
-        params={"code": "auth-code-1", "state": state},
-        follow_redirects=False,
-    )
+    auth_header = client.headers.pop("Authorization")
+    try:
+        cb = client.get(
+            "/v1/auth/anthropic/callback",
+            params={"code": "auth-code-1", "state": state},
+            follow_redirects=False,
+        )
+    finally:
+        client.headers["Authorization"] = auth_header
     assert cb.status_code == 200
 
     prof = client.get("/v1/auth/anthropic/profiles/work").json()
@@ -171,12 +167,45 @@ def test_callback_completes_auth(client_with_index) -> None:
     assert "new-tok" in blob
 
 
+def test_callback_exchange_failure_keeps_pending_state(client_with_index) -> None:
+    client, _ = client_with_index
+    client.app.state.anthropic_http_factory = _failing_token_factory()
+
+    start = client.post("/v1/auth/anthropic/profiles", json={"name": "retry"})
+    state = start.json()["state"]
+
+    auth_header = client.headers.pop("Authorization")
+    try:
+        failed = client.get(
+            "/callback",
+            params={"code": "bad-code", "state": state},
+            follow_redirects=False,
+        )
+        client.app.state.anthropic_http_factory = _mock_token_factory()
+        retried = client.get(
+            "/callback",
+            params={"code": "good-code", "state": state},
+            follow_redirects=False,
+        )
+    finally:
+        client.headers["Authorization"] = auth_header
+
+    assert failed.status_code == 500
+    assert retried.status_code == 200
+    prof = client.get("/v1/auth/anthropic/profiles/retry").json()
+    assert prof["state"] == "authenticated"
+
+
 def test_callback_with_unknown_state_400(client_with_index) -> None:
     client, _ = client_with_index
-    resp = client.get(
-        "/v1/auth/anthropic/callback",
-        params={"code": "x", "state": "never-issued"},
-    )
+    auth_header = client.headers.pop("Authorization")
+    try:
+        resp = client.get(
+            "/v1/auth/anthropic/callback",
+            params={"code": "x", "state": "never-issued"},
+        )
+    finally:
+        client.headers["Authorization"] = auth_header
     assert resp.status_code == 400
 
 

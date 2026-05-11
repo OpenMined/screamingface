@@ -7,45 +7,80 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .config import Settings
+from .core.auth.bootstrap_admin import ensure_admin_account
+from .core.auth.jwt_secret import get_or_create_jwt_secret
+from .core.auth.log_filter import (
+    RedactProvisioningTokenFilter,
+    install_provisioning_token_redaction,
+)
 from .core.bootstrap import bootstrap_from_claude_code
-from .core.credential_store import JsonFileCredentialStore
+from .core.credential_store import JsonFileCredentialStore, get_credential_store
 from .core.loader import load_plugins
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
-from .routes import auth, chat, health, models
+from .db import close_db, init_db
+from .routes import accounts, auth, auth_session, chat, health, models
 
 logger = logging.getLogger(__name__)
 
 
+def _attach_log_filter() -> None:
+    install_provisioning_token_redaction()
+    for name in ("", "uvicorn.access", "uvicorn.error", "aigateway"):
+        target = logging.getLogger(name)
+        if not any(isinstance(f, RedactProvisioningTokenFilter) for f in target.filters):
+            target.addFilter(RedactProvisioningTokenFilter())
+        for handler in target.handlers:
+            if not any(isinstance(f, RedactProvisioningTokenFilter) for f in handler.filters):
+                handler.addFilter(RedactProvisioningTokenFilter())
+
+
 @asynccontextmanager
 async def _lifespan(app):
-    # Auto-import of the developer's Claude Code keychain entry is opt-in.
-    # By default the gateway boots with an empty profile index so the user
-    # explicitly authenticates via the UI rather than seeing a "default"
-    # profile they never OAuthed for. Set
-    # AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1 to restore the legacy import.
-    #
-    # When the fake-keychain test hook is active, bootstrap (if enabled)
-    # uses the same fake store so it cannot pull in the developer's real
-    # Claude Code credentials behind the test's back.
-    if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
+    database_url = app.state.settings.database_url.get_secret_value()
+    await init_db(database_url)
+    try:
         fake_store = getattr(app.state, "_fake_credential_store", None)
-        try:
+        credential_store = fake_store if fake_store is not None else get_credential_store()
+        app.state.jwt_secret = await get_or_create_jwt_secret(
+            credential_store,
+            app.state.settings.jwt_secret,
+        )
+        await ensure_admin_account(app.state.settings.admin_password)
+
+        # Auto-import of the developer's Claude Code keychain entry is opt-in.
+        # By default the gateway boots with an empty profile index so the user
+        # explicitly authenticates via the UI rather than seeing a "default"
+        # profile they never OAuthed for. Set
+        # AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1 to restore the legacy import.
+        #
+        # When the fake-keychain test hook is active, bootstrap (if enabled)
+        # uses the same fake store so it cannot pull in the developer's real
+        # Claude Code credentials behind the test's back.
+        if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
             if fake_store is not None:
-                await bootstrap_from_claude_code(
-                    credential_store=fake_store, index_store=app.state.profile_index
-                )
+                try:
+                    await bootstrap_from_claude_code(
+                        credential_store=fake_store,
+                        index_store=app.state.profile_index,
+                    )
+                except Exception:
+                    logger.exception("bootstrap failed; gateway will start with empty index")
             else:
-                await bootstrap_from_claude_code(index_store=app.state.profile_index)
-        except Exception:
-            logger.exception("bootstrap failed; gateway will start with empty index")
-    yield
+                try:
+                    await bootstrap_from_claude_code(index_store=app.state.profile_index)
+                except Exception:
+                    logger.exception("bootstrap failed; gateway will start with empty index")
+        yield
+    finally:
+        await close_db()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = Settings()
+    _attach_log_filter()
     app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
     app.state.settings = settings
 
@@ -107,6 +142,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if auth_router is not None:
             app.include_router(auth_router, prefix=f"/v1/auth/{plugin.custom_llm_provider}")
 
+    app.include_router(auth_session.router)
+    app.include_router(accounts.router)
     app.include_router(auth.router)
     app.include_router(health.router)
     app.include_router(models.router)

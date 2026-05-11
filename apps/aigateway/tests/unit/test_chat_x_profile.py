@@ -5,11 +5,9 @@ import time
 from unittest.mock import patch
 
 import pytest
-from fastapi.testclient import TestClient
 
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
-from aigateway.main import create_app
 from aigateway.plugins.anthropic_provider.auth import keychain_service_for
 
 
@@ -28,24 +26,9 @@ def _seed_authenticated_profile(fake_keychain) -> None:
     )
 
 
-def _patch_credential_factory(monkeypatch, fake_keychain):
-    from aigateway.core import bootstrap as bs_module
-    from aigateway.core import credential_store as cs_module
-    from aigateway.core import profile_index as pi_module
-    from aigateway.plugins.anthropic_provider import auth as auth_module
-
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(auth_module, "get_credential_store", lambda: fake_keychain)
-
-
 @pytest.mark.asyncio
-async def test_chat_404_when_profile_missing(fake_keychain, monkeypatch) -> None:
-    _patch_credential_factory(monkeypatch, fake_keychain)
-
-    client = TestClient(create_app())
-    resp = client.post(
+async def test_chat_404_when_profile_missing(authenticated_client) -> None:
+    resp = authenticated_client.post(
         "/v1/chat/completions",
         headers={"X-Profile": "missing"},
         json={
@@ -58,9 +41,7 @@ async def test_chat_404_when_profile_missing(fake_keychain, monkeypatch) -> None
 
 
 @pytest.mark.asyncio
-async def test_chat_409_when_profile_pending(fake_keychain, monkeypatch) -> None:
-    _patch_credential_factory(monkeypatch, fake_keychain)
-
+async def test_chat_409_when_profile_pending(fake_keychain, authenticated_client) -> None:
     idx = ProfileIndexStore(credential_store=fake_keychain)
     await idx.upsert(
         Profile(
@@ -70,8 +51,7 @@ async def test_chat_409_when_profile_pending(fake_keychain, monkeypatch) -> None
             state=ProfileState.PENDING,
         )
     )
-    client = TestClient(create_app())
-    resp = client.post(
+    resp = authenticated_client.post(
         "/v1/chat/completions",
         json={
             "model": "anthropic/claude-haiku-4-5",
@@ -83,8 +63,7 @@ async def test_chat_409_when_profile_pending(fake_keychain, monkeypatch) -> None
 
 
 @pytest.mark.asyncio
-async def test_chat_merges_profile_defaults(fake_keychain, monkeypatch) -> None:
-    _patch_credential_factory(monkeypatch, fake_keychain)
+async def test_chat_merges_profile_defaults(fake_keychain, authenticated_client) -> None:
     _seed_authenticated_profile(fake_keychain)
 
     idx = ProfileIndexStore(credential_store=fake_keychain)
@@ -112,8 +91,7 @@ async def test_chat_merges_profile_defaults(fake_keychain, monkeypatch) -> None:
         )
 
     with patch("aigateway.routes.chat.litellm.acompletion", fake_acompletion):
-        client = TestClient(create_app())
-        resp = client.post(
+        resp = authenticated_client.post(
             "/v1/chat/completions",
             json={
                 "model": "anthropic/claude-haiku-4-5",
@@ -126,3 +104,11 @@ async def test_chat_merges_profile_defaults(fake_keychain, monkeypatch) -> None:
         assert captured["max_tokens"] == 4096
         assert captured["reasoning_effort"] == "high"
         assert captured["api_key"] == "tok"
+
+
+def test_chat_requires_auth(client) -> None:
+    resp = client.post(
+        "/v1/chat/completions",
+        json={"model": "anthropic/claude-haiku-4-5", "messages": []},
+    )
+    assert resp.status_code == 401

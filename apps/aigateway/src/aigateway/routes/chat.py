@@ -10,6 +10,7 @@ import litellm
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from ..core.auth.middleware import CurrentAccount
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.profile_index import ProfileIndexStore
 from ..core.profile_models import ProfileDefaults, ProfileState
@@ -49,7 +50,7 @@ def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults) -> dict[str
 
 
 @router.post("/v1/chat/completions")
-async def chat_completions(request: Request) -> Any:
+async def chat_completions(request: Request, _current: CurrentAccount) -> Any:
     body = await request.json()
     if not isinstance(body, dict) or "model" not in body or "messages" not in body:
         raise HTTPException(status_code=400, detail="model and messages are required")

@@ -41,9 +41,21 @@ def _require_default_profile(client: TestClient) -> None:
         )
 
 
+def _login_admin(client: TestClient) -> None:
+    password = os.environ.get("AIGW_LIVE_ADMIN_PASSWORD") or os.environ.get(
+        "AIGATEWAY_ADMIN_PASSWORD"
+    )
+    if not password:
+        pytest.skip("Live auth tests require AIGW_LIVE_ADMIN_PASSWORD or AIGATEWAY_ADMIN_PASSWORD")
+    response = client.post("/v1/auth/login", json={"username": "admin", "password": password})
+    assert response.status_code == 200, response.text
+    client.headers.update({"Authorization": f"Bearer {response.json()['token']}"})
+
+
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
 def test_anthropic_round_trip_via_default_profile() -> None:
     with TestClient(create_app()) as client:
+        _login_admin(client)
         _require_default_profile(client)
 
         resp = client.post(
@@ -63,6 +75,7 @@ def test_anthropic_round_trip_via_default_profile() -> None:
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
 def test_anthropic_streaming() -> None:
     with TestClient(create_app()) as client:
+        _login_admin(client)
         _require_default_profile(client)
 
         with client.stream(
@@ -99,6 +112,7 @@ def test_anthropic_streaming() -> None:
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
 def test_anthropic_tool_calls() -> None:
     with TestClient(create_app()) as client:
+        _login_admin(client)
         _require_default_profile(client)
 
         resp = client.post(
