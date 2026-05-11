@@ -50,6 +50,7 @@ from screamingface.plugins.url4_executor.ensemble_helpers import (
     substitute_response_vars,
 )
 from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
+from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4 import (
     Url4BackendCall,
     Url4List,
@@ -76,15 +77,15 @@ class EnsembleInterpreter(Url4Interpreter):
         super().__init__(app)
         self._processor = processor or DEFAULT_PROCESSOR
 
-    async def process(self, sources: str, intent: str | None) -> str:
+    async def process(self, sources: str, intent: str | None, env: Env | None = None) -> str:
         """Fallback for non-ensemble expressions. Delegates to base class."""
-        return await super().process(sources, intent)
+        return await super().process(sources, intent, env)
 
     # ------------------------------------------------------------------
     # Dispatcher — picks the right evaluation strategy for the expression
     # ------------------------------------------------------------------
 
-    async def evaluate(self, expr: str) -> str:
+    async def evaluate(self, expr: str, env: Env | None = None) -> str:
         """Choose one of four evaluation strategies and run it.
 
         The dispatcher owns only the decision tree. Each strategy (the
@@ -97,6 +98,8 @@ class EnsembleInterpreter(Url4Interpreter):
         from screamingface.plugins.url4_executor.url4 import parse
 
         with traced("url4.evaluate"):
+            if env is None:
+                env = Env.root()
             set_span_attrs({"url4.expression": expr[:500]})
             source_expr, raw_intent, broadcast = split_intent(expr.strip())
             set_span_attrs(
@@ -112,7 +115,7 @@ class EnsembleInterpreter(Url4Interpreter):
             if collection_source is not None and iteration_body is not None:
                 set_span_attrs({"url4.collection_iteration": True})
                 return await self._collection_iterate(
-                    collection_source, iteration_body, raw_intent or ""
+                    collection_source, iteration_body, raw_intent or "", env
                 )
 
             source_node = parse(source_expr) if source_expr else None
@@ -120,23 +123,27 @@ class EnsembleInterpreter(Url4Interpreter):
             # 2. Broadcast (``!*`` operator) — apply intent per-source.
             if broadcast and raw_intent and source_node is not None:
                 set_span_attrs({"url4.ensemble": False, "url4.broadcast_mode": True})
-                return await self._broadcast_evaluate(source_node, raw_intent)
+                return await self._broadcast_evaluate(source_node, raw_intent, env)
 
             # 3. Fan-out + reduce — source is a list of backend calls.
             if source_node is not None and self._is_fanout(source_node) and raw_intent:
                 set_span_attrs({"url4.ensemble": True})
-                return await self._ensemble_evaluate(source_node, raw_intent)
+                return await self._ensemble_evaluate(source_node, raw_intent, env)
 
             # 4. Default single-source path.
             set_span_attrs({"url4.ensemble": False})
-            return await self._single_source_evaluate(source_expr, raw_intent)
+            return await self._single_source_evaluate(source_expr, raw_intent, env)
 
     # ------------------------------------------------------------------
     # Strategy 1: collection iteration (SF-91)
     # ------------------------------------------------------------------
 
     async def _collection_iterate(
-        self, collection_source: str, iteration_body: str, intent: str
+        self,
+        collection_source: str,
+        iteration_body: str,
+        intent: str,
+        env: Env | None = None,
     ) -> str:
         """Iterate over a collection, applying the body expression to each item.
 
@@ -153,7 +160,7 @@ class EnsembleInterpreter(Url4Interpreter):
         from screamingface.plugins.url4_executor.url4 import resolve_str
 
         with traced("url4.collection_iterate"):
-            collection_body = await resolve_str(collection_source, self.app)
+            collection_body = await resolve_str(collection_source, self.app, env)
             items = parse_collection(collection_body)
             set_span_attrs({"url4.collection.item_count": len(items)})
 
@@ -163,7 +170,7 @@ class EnsembleInterpreter(Url4Interpreter):
             async def _process_one(item_json: str) -> str:
                 substituted_body = substitute_item(iteration_body, item_json)
                 full_expr = f"({substituted_body})!{intent}" if intent else f"({substituted_body})"
-                return await self.evaluate(full_expr)
+                return await self.evaluate(full_expr, env)
 
             results = list(await asyncio.gather(*[_process_one(item) for item in items]))
             set_span_attrs({"url4.collection.result_count": len(results)})
@@ -173,7 +180,9 @@ class EnsembleInterpreter(Url4Interpreter):
     # Strategy 2: intent broadcasting (SF-93, ``!*``)
     # ------------------------------------------------------------------
 
-    async def _broadcast_evaluate(self, source_node: Url4Node, raw_intent: str) -> str:
+    async def _broadcast_evaluate(
+        self, source_node: Url4Node, raw_intent: str, env: Env | None = None
+    ) -> str:
         """Apply the intent independently to each source, collect results.
 
         ``(a, b, c)!*'intent'`` → resolve each source, apply the intent
@@ -183,7 +192,7 @@ class EnsembleInterpreter(Url4Interpreter):
         from screamingface.plugins.url4_executor.interpreter import resolve_intent
 
         with traced("url4.broadcast"):
-            intent_text = await resolve_intent(raw_intent, self.app) if raw_intent else ""
+            intent_text = await resolve_intent(raw_intent, self.app, env) if raw_intent else ""
 
             items = list(source_node.items) if isinstance(source_node, Url4List) else [source_node]
             set_span_attrs(
@@ -194,8 +203,8 @@ class EnsembleInterpreter(Url4Interpreter):
             )
 
             async def _apply_one(item: Url4Node) -> str:
-                source_text = await resolve(item, self.app)
-                return await self.process(source_text, intent_text)
+                source_text = await resolve(item, self.app, env)
+                return await self.process(source_text, intent_text, env)
 
             results = list(await asyncio.gather(*[_apply_one(item) for item in items]))
             set_span_attrs({"url4.broadcast.result_count": len(results)})
@@ -214,7 +223,9 @@ class EnsembleInterpreter(Url4Interpreter):
             return False
         return all(isinstance(item, Url4BackendCall) for item in node.items)
 
-    async def _ensemble_evaluate(self, source_node: Url4List, raw_intent: str) -> str:
+    async def _ensemble_evaluate(
+        self, source_node: Url4List, raw_intent: str, env: Env | None = None
+    ) -> str:
         """Fan-out N backend calls, reduce via the configured processor.
 
         1. Resolve the outer intent (reducer instruction).
@@ -230,7 +241,9 @@ class EnsembleInterpreter(Url4Interpreter):
         from screamingface.plugins.url4_executor.url4_resolve import _dispatch_backend_call
 
         with traced("url4.ensemble.resolve_intent"):
-            reducer_instruction = await resolve_intent(raw_intent, self.app) if raw_intent else ""
+            reducer_instruction = (
+                await resolve_intent(raw_intent, self.app, env) if raw_intent else ""
+            )
             set_span_attrs({"url4.ensemble.reducer_instruction_length": len(reducer_instruction)})
 
         with traced("url4.ensemble.fanout"):
@@ -239,7 +252,7 @@ class EnsembleInterpreter(Url4Interpreter):
             # asyncio.gather with return_exceptions=False (default) cancels
             # remaining tasks and raises the first exception (Q6=a).
             responses: list[str] = list(
-                await asyncio.gather(*[resolve(item, self.app) for item in items])
+                await asyncio.gather(*[resolve(item, self.app, env) for item in items])
             )
             set_span_attrs({"url4.ensemble.response_count": len(responses)})
 
@@ -263,7 +276,7 @@ class EnsembleInterpreter(Url4Interpreter):
                 path=self._processor,
                 intent=Url4Text(value=reducer_input),
             )
-            result = await _dispatch_backend_call(reducer_node, self.app)
+            result = await _dispatch_backend_call(reducer_node, self.app, env)
 
             result_preview = result[:4000]
             if len(result) > 4000:
@@ -280,7 +293,9 @@ class EnsembleInterpreter(Url4Interpreter):
     # Strategy 4: single source (default / base interpreter behavior)
     # ------------------------------------------------------------------
 
-    async def _single_source_evaluate(self, source_expr: str, raw_intent: str | None) -> str:
+    async def _single_source_evaluate(
+        self, source_expr: str, raw_intent: str | None, env: Env | None = None
+    ) -> str:
         """Resolve sources and apply intent via the base interpreter.
 
         Mirrors :meth:`Url4Interpreter.evaluate` with the same tracing
@@ -292,7 +307,7 @@ class EnsembleInterpreter(Url4Interpreter):
         from screamingface.plugins.url4_executor.url4 import resolve_str
 
         with traced("url4.resolve_sources"):
-            sources = await resolve_str(source_expr, self.app) if source_expr else ""
+            sources = await resolve_str(source_expr, self.app, env) if source_expr else ""
             src_preview = sources[:4000]
             if len(sources) > 4000:
                 src_preview += f"\n... ({len(sources) - 4000} more chars)"
@@ -304,7 +319,7 @@ class EnsembleInterpreter(Url4Interpreter):
             )
 
         with traced("url4.resolve_intent"):
-            intent = await resolve_intent(raw_intent, self.app) if raw_intent else None
+            intent = await resolve_intent(raw_intent, self.app, env) if raw_intent else None
             set_span_attrs(
                 {
                     "url4.intent_length": len(intent) if intent else 0,
@@ -312,7 +327,7 @@ class EnsembleInterpreter(Url4Interpreter):
                 }
             )
 
-        result = await self.process(sources, intent)
+        result = await self.process(sources, intent, env)
         result_preview = result[:4000]
         if len(result) > 4000:
             result_preview += f"\n... ({len(result) - 4000} more chars)"
