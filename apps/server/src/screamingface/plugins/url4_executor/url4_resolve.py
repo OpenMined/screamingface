@@ -14,6 +14,7 @@ from urllib.parse import quote, urlparse, urlunparse
 
 import httpx
 
+from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4_ast import (
     Url4BackendCall,
     Url4ExpandedSource,
@@ -28,8 +29,15 @@ from screamingface.plugins.url4_executor.url4_grammar import parse
 logger = logging.getLogger(__name__)
 
 
-async def resolve(node: Url4Node, app: Any = None) -> str:
-    """Recursively resolve an AST node to a string."""
+async def resolve(node: Url4Node, app: Any = None, env: Env | None = None) -> str:
+    """Recursively resolve an AST node to a string.
+
+    ``env`` is the DEMO-004 scope chain. It is threaded through every
+    recursive call so DEMO-005/006 have a place to put bindings; this
+    function does not itself read from ``env`` yet.
+    """
+    if env is None:
+        env = Env.root()
     if isinstance(node, Url4Text):
         return node.value
     if isinstance(node, Url4Url):
@@ -37,21 +45,21 @@ async def resolve(node: Url4Node, app: Any = None) -> str:
     if isinstance(node, Url4RelUrl):
         return await _fetch_relative(app, node.value)
     if isinstance(node, Url4List):
-        results = list(await asyncio.gather(*[resolve(item, app) for item in node.items]))
+        results = list(await asyncio.gather(*[resolve(item, app, env) for item in node.items]))
         return "\n".join(results)
     if isinstance(node, Url4BackendCall):
-        return await _dispatch_backend_call(node, app)
+        return await _dispatch_backend_call(node, app, env)
     if isinstance(node, Url4ExpandedSource):
-        return await _resolve_expanded_source(node, app)
+        return await _resolve_expanded_source(node, app, env)
     raise TypeError(f"Unknown node type: {type(node)}")
 
 
-async def resolve_str(context: str, app: Any = None) -> str:
+async def resolve_str(context: str, app: Any = None, env: Env | None = None) -> str:
     """Parse a url4 context string and resolve it to a string."""
-    return await resolve(parse(context), app)
+    return await resolve(parse(context), app, env)
 
 
-async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
+async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | None = None) -> str:
     """Dispatch a :class:`Url4BackendCall` through an active plugin.
 
     Walks ``app.state.plugins.active_plugins`` looking for one whose
@@ -66,7 +74,7 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
             "plugin registry via app.state.plugins."
         )
 
-    intent_text = "" if node.intent is None else await resolve(node.intent, app)
+    intent_text = "" if node.intent is None else await resolve(node.intent, app, env)
     sources_text = node.packed_context or ""
 
     from screamingface.core.helpers import get_plugins_registry
@@ -88,7 +96,9 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any) -> str:
     )
 
 
-async def _resolve_expanded_source(node: Url4ExpandedSource, app: Any) -> str:
+async def _resolve_expanded_source(
+    node: Url4ExpandedSource, app: Any, env: Env | None = None
+) -> str:
     """SF-92: Resolve a ``*source`` expansion.
 
     Fetches ``inner``, parses the body as a collection (JSON array,
@@ -97,7 +107,7 @@ async def _resolve_expanded_source(node: Url4ExpandedSource, app: Any) -> str:
     """
     from screamingface.plugins.url4_executor.collection_parser import parse_collection
 
-    body = await resolve(node.inner, app)
+    body = await resolve(node.inner, app, env)
     items = parse_collection(body)
     if not items:
         return ""
