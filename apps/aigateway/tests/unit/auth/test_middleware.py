@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from aigateway.core.auth import middleware
 from aigateway.core.auth.jwt import encode_token
-from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
-from aigateway.core.auth.models import Account
+from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID, anonymous_account
+from aigateway.core.auth.models import Account, BaseAccount
 
 
 def test_missing_authorization_rejected(client) -> None:
@@ -24,6 +24,14 @@ def test_auth_disabled_returns_anonymous_account_without_token(client, monkeypat
     assert response.json()["id"] == str(ANONYMOUS_ACCOUNT_ID)
     assert response.json()["username"] == "anonymous"
     assert response.json()["display_name"] == "Anonymous"
+
+
+def test_anonymous_account_uses_base_account_interface() -> None:
+    account = anonymous_account()
+    assert isinstance(account, BaseAccount)
+    assert isinstance(account, Account)
+    assert account.id == ANONYMOUS_ACCOUNT_ID
+    assert account.username == "anonymous"
 
 
 def test_malformed_token_rejected(client) -> None:

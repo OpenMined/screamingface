@@ -6,7 +6,10 @@ from tortoise import fields
 from tortoise.models import Model
 
 
-class Account(Model):
+class BaseAccount(Model):
+    class Meta:
+        abstract = True
+
     id = fields.UUIDField(pk=True, default=uuid.uuid4)
     username = fields.CharField(max_length=64, unique=True, index=True)
     password_hash = fields.CharField(max_length=255)
@@ -15,5 +18,7 @@ class Account(Model):
     last_login_at = fields.DatetimeField(null=True)
     is_active = fields.BooleanField(default=True)
 
+
+class Account(BaseAccount):
     class Meta:
         table = "accounts"

@@ -8,12 +8,12 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 
 from .jwt import decode_token
-from .models import Account
+from .models import Account, BaseAccount
 
 ANONYMOUS_ACCOUNT_ID = UUID("00000000-0000-0000-0000-000000000000")
 
 
-def anonymous_account() -> Account:
+def anonymous_account() -> BaseAccount:
     return Account(
         id=ANONYMOUS_ACCOUNT_ID,
         username="anonymous",
@@ -25,7 +25,7 @@ def anonymous_account() -> Account:
     )
 
 
-async def current_account(request: Request) -> Account:
+async def current_account(request: Request) -> BaseAccount:
     if not request.app.state.settings.auth_enabled:
         return anonymous_account()
 
@@ -52,4 +52,4 @@ async def current_account(request: Request) -> Account:
     return account
 
 
-CurrentAccount = Annotated[Account, Depends(current_account)]
+CurrentAccount = Annotated[BaseAccount, Depends(current_account)]
