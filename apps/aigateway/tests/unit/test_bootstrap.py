@@ -6,10 +6,12 @@ from fastapi.testclient import TestClient
 
 from aigateway.core.bootstrap import bootstrap_from_claude_code
 from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
+from aigateway.core.profile_models import Profile, profile_id_for
 from aigateway.plugins.anthropic_provider.auth import keychain_service_for
 from tests.conftest import _prepare_sqlite_db
 
 CC_SERVICE = "Claude Code-credentials"
+ACCOUNT_ID = "account-1"
 
 
 def _configure_app_db(monkeypatch, tmp_path) -> None:
@@ -45,12 +47,13 @@ async def test_bootstrap_imports_cc_default_when_index_empty(fake_keychain) -> N
     fake_keychain.write(CC_SERVICE, "alice", cc_payload)
 
     await bootstrap_from_claude_code(
+        account_id=ACCOUNT_ID,
         credential_store=fake_keychain,
         index_store=ProfileIndexStore(credential_store=fake_keychain),
         cc_account="alice",
     )
 
-    aigw_payload = fake_keychain.read(keychain_service_for("default"), "default")
+    aigw_payload = fake_keychain.read(keychain_service_for(f"{ACCOUNT_ID}:default"), "default")
     assert aigw_payload is not None
     converted = json.loads(aigw_payload)
     assert converted["access_token"] == "cc-tok"
@@ -59,7 +62,7 @@ async def test_bootstrap_imports_cc_default_when_index_empty(fake_keychain) -> N
 
     idx_raw = fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default")
     assert idx_raw is not None
-    assert "anthropic:default" in idx_raw
+    assert profile_id_for(ACCOUNT_ID, "anthropic", "default") in idx_raw
 
     # CC entry untouched
     assert fake_keychain.read(CC_SERVICE, "alice") == cc_payload
@@ -67,10 +70,13 @@ async def test_bootstrap_imports_cc_default_when_index_empty(fake_keychain) -> N
 
 @pytest.mark.asyncio
 async def test_bootstrap_noop_when_index_already_exists(fake_keychain) -> None:
-    fake_keychain.write(
-        INDEX_KEYCHAIN_SERVICE,
-        "default",
-        '{"version":1,"profiles":[{"id":"x:y","provider":"x","name":"y"}]}',
+    await ProfileIndexStore(credential_store=fake_keychain).upsert(
+        Profile(
+            id=profile_id_for(ACCOUNT_ID, "x", "y"),
+            account_id=ACCOUNT_ID,
+            provider="x",
+            name="y",
+        )
     )
     fake_keychain.write(
         CC_SERVICE,
@@ -78,16 +84,18 @@ async def test_bootstrap_noop_when_index_already_exists(fake_keychain) -> None:
         json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y", "expiresAt": 1}}),
     )
     await bootstrap_from_claude_code(
+        account_id=ACCOUNT_ID,
         credential_store=fake_keychain,
         index_store=ProfileIndexStore(credential_store=fake_keychain),
         cc_account="alice",
     )
-    assert fake_keychain.read(keychain_service_for("default"), "default") is None
+    assert fake_keychain.read(keychain_service_for(f"{ACCOUNT_ID}:default"), "default") is None
 
 
 @pytest.mark.asyncio
 async def test_bootstrap_noop_when_cc_entry_missing(fake_keychain) -> None:
     await bootstrap_from_claude_code(
+        account_id=ACCOUNT_ID,
         credential_store=fake_keychain,
         index_store=ProfileIndexStore(credential_store=fake_keychain),
         cc_account="alice",
@@ -132,8 +140,11 @@ def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch, tmp_path) -> No
     with TestClient(app) as client:  # `with` triggers the lifespan
         resp = client.get("/v1/auth/profiles", headers=_auth_header(client))
         assert resp.status_code == 200
-        ids = [p["id"] for p in resp.json()["profiles"]]
-        assert "anthropic:default" in ids
+        profiles = resp.json()["profiles"]
+        assert len(profiles) == 1
+        assert profiles[0]["provider"] == "anthropic"
+        assert profiles[0]["name"] == "default"
+        assert profiles[0]["account_id"]
 
 
 def test_lifespan_skips_bootstrap_by_default(monkeypatch, fake_keychain, tmp_path) -> None:
@@ -187,3 +198,4 @@ def test_lifespan_runs_bootstrap_when_env_set(monkeypatch, fake_keychain, tmp_pa
         client.get("/v1/auth/profiles", headers=_auth_header(client))
 
     assert mock_bootstrap.call_count == 1
+    assert mock_bootstrap.call_args.kwargs["account_id"]

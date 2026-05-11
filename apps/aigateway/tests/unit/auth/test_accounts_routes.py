@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
+from typing import cast
+
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.testclient import TestClient
+
+from aigateway.core.auth.models import Account
+from aigateway.routes.accounts import ProvisioningAuditRoute, _audit_provisioning_attempt
 
 
 def _assert_secret_not_logged(caplog, secret: str) -> None:
@@ -36,6 +44,30 @@ def test_create_account_success_and_duplicate(client, caplog) -> None:
     assert duplicate.json()["detail"] == "username already exists"
     assert "provisioning_token_rejected status_code=409 username=alice" in caplog.text
     _assert_secret_not_logged(caplog, headers["X-Aigw-Provisioning-Token"])
+
+
+def test_provisioning_audit_fallback_paths(caplog) -> None:
+    request = cast(Request, SimpleNamespace(state=SimpleNamespace()))
+    with caplog.at_level(logging.INFO, logger="aigateway.routes.accounts"):
+        _audit_provisioning_attempt(request, 201)
+    assert "account_created" in caplog.text
+
+    caplog.clear()
+    router = APIRouter(route_class=ProvisioningAuditRoute)
+
+    @router.get("/boom")
+    async def boom(request: Request) -> None:
+        request.state.provisioning_username = "alice"
+        raise RuntimeError("boom")
+
+    app = FastAPI()
+    app.include_router(router)
+    with caplog.at_level(logging.INFO, logger="aigateway.routes.accounts"):
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/boom")
+
+    assert response.status_code == 500
+    assert "provisioning_token_rejected status_code=500 username=alice" in caplog.text
 
 
 def test_missing_and_wrong_provisioning_token_match(client, caplog) -> None:
@@ -83,11 +115,17 @@ def test_create_account_validation(client, caplog) -> None:
             headers=headers,
             json={"username": "a", "password": "a" * 73},
         )
+        bad_username = client.post(
+            "/v1/accounts",
+            headers=headers,
+            json={"username": "bad\nuser", "password": "alicepass123"},
+        )
     assert short.status_code == 422
     assert missing.status_code == 422
     assert overlong.status_code == 422
+    assert bad_username.status_code == 422
     assert "password" in missing.text
-    assert caplog.text.count("provisioning_token_rejected status_code=422") == 3
+    assert caplog.text.count("provisioning_token_rejected status_code=422") == 4
     _assert_secret_not_logged(caplog, headers["X-Aigw-Provisioning-Token"])
 
 
@@ -115,10 +153,14 @@ def test_concurrent_duplicate_username_returns_409(client) -> None:
             json={"username": "alice", "password": "alicepass123"},
         ).status_code
 
+    async def _count_alice() -> int:
+        return await Account.filter(username="alice").count()
+
     with ThreadPoolExecutor(max_workers=4) as pool:
         statuses = list(pool.map(lambda _: _create(), range(4)))
 
     assert sorted(statuses) == [201, 409, 409, 409]
+    assert client.portal.call(_count_alice) == 1
 
 
 def test_provisioning_token_not_logged(client, caplog) -> None:

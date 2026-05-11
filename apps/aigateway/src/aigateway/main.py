@@ -47,7 +47,7 @@ async def _lifespan(app):
             credential_store,
             app.state.settings.jwt_secret,
         )
-        await ensure_admin_account(app.state.settings.admin_password)
+        admin = await ensure_admin_account(app.state.settings.admin_password)
 
         # Auto-import of the developer's Claude Code keychain entry is opt-in.
         # By default the gateway boots with an empty profile index so the user
@@ -62,6 +62,7 @@ async def _lifespan(app):
             if fake_store is not None:
                 try:
                     await bootstrap_from_claude_code(
+                        account_id=str(admin.id),
                         credential_store=fake_store,
                         index_store=app.state.profile_index,
                     )
@@ -69,7 +70,10 @@ async def _lifespan(app):
                     logger.exception("bootstrap failed; gateway will start with empty index")
             else:
                 try:
-                    await bootstrap_from_claude_code(index_store=app.state.profile_index)
+                    await bootstrap_from_claude_code(
+                        account_id=str(admin.id),
+                        index_store=app.state.profile_index,
+                    )
                 except Exception:
                     logger.exception("bootstrap failed; gateway will start with empty index")
         yield

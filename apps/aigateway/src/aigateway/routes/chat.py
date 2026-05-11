@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from ..core.auth.middleware import CurrentAccount
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.profile_index import ProfileIndexStore
-from ..core.profile_models import ProfileDefaults, ProfileState
+from ..core.profile_models import ProfileDefaults, ProfileState, credential_name_for
 from ..core.registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults) -> dict[str
 
 
 @router.post("/v1/chat/completions")
-async def chat_completions(request: Request, _current: CurrentAccount) -> Any:
+async def chat_completions(request: Request, current: CurrentAccount) -> Any:
     body = await request.json()
     if not isinstance(body, dict) or "model" not in body or "messages" not in body:
         raise HTTPException(status_code=400, detail="model and messages are required")
@@ -67,7 +67,8 @@ async def chat_completions(request: Request, _current: CurrentAccount) -> Any:
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
 
     idx: ProfileIndexStore = request.app.state.profile_index
-    profile = await idx.get(provider, profile_name)
+    account_id = str(current.id)
+    profile = await idx.get(account_id, provider, profile_name)
     if profile is None:
         raise HTTPException(
             status_code=404,
@@ -89,7 +90,7 @@ async def chat_completions(request: Request, _current: CurrentAccount) -> Any:
 
     body = _apply_defaults(body, profile.defaults)
 
-    strategy = plugin.oauth_strategy_for(profile_name)
+    strategy = plugin.oauth_strategy_for(credential_name_for(account_id, profile_name))
     if strategy is not None:
         # Same `_store` injection pattern Tasks 7-9 introduced for parity with the
         # tests' fake keychain. In production both reference the same singleton.

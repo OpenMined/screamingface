@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+_USERNAME_PATTERN = r"^[A-Za-z0-9_.-]+$"
+
 
 def _validate_password_bytes(value: SecretStr) -> SecretStr:
     size = len(value.get_secret_value().encode("utf-8"))
@@ -14,7 +16,7 @@ def _validate_password_bytes(value: SecretStr) -> SecretStr:
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=1, max_length=64, pattern=_USERNAME_PATTERN)
     password: SecretStr
 
     @field_validator("password")
@@ -24,7 +26,7 @@ class LoginRequest(BaseModel):
 
 
 class CreateAccountRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
+    username: str = Field(min_length=1, max_length=64, pattern=_USERNAME_PATTERN)
     password: SecretStr
     display_name: str | None = Field(default=None, max_length=255)
 

@@ -13,6 +13,7 @@ cd apps/aigateway
 uv sync
 
 # Apply migrations for a persistent local DB. Re-running is safe.
+# If your DB URL is in .env, export it first: set -a && source .env && set +a
 uv run tortoise -c aigateway.db.TORTOISE_CONFIG migrate
 
 uv run uvicorn aigateway.main:app --port 9105 --reload

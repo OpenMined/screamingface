@@ -19,17 +19,19 @@ def _generate_password(length: int = 24) -> str:
     return "".join(secrets.choice(_PASSWORD_ALPHABET) for _ in range(length))
 
 
-async def ensure_admin_account(env_password: SecretStr | None) -> None:
-    if await Account.get_or_none(username="admin") is not None:
-        return
+async def ensure_admin_account(env_password: SecretStr | None) -> Account:
+    existing = await Account.get_or_none(username="admin")
+    if existing is not None:
+        return existing
 
     generated_password = None if env_password is not None else _generate_password()
     password = env_password if env_password is not None else SecretStr(generated_password or "")
     password_hash = await hash_password(password)
     try:
-        await Account.create(username="admin", password_hash=password_hash)
+        admin = await Account.create(username="admin", password_hash=password_hash)
     except IntegrityError:
-        return
+        return await Account.get(username="admin")
 
     if generated_password is not None:
         logger.warning("Bootstrap admin password: %s", generated_password)
+    return admin

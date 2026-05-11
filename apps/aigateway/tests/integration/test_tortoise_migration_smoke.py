@@ -7,9 +7,9 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
-import asyncpg
+import asyncpg  # type: ignore[import-untyped]
 import pytest
-from testcontainers.postgres import PostgresContainer
+from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
 
 pytestmark = pytest.mark.needs_postgres
 
@@ -24,14 +24,24 @@ def test_tortoise_migrate_creates_accounts_table() -> None:
             f"/{postgres.dbname}"
         )
         env = {**os.environ, "AIGATEWAY_DATABASE_URL": database_url}
-        subprocess.run(
-            [sys.executable, "-m", "tortoise", "-c", "aigateway.db.TORTOISE_CONFIG", "migrate"],
+        command = [
+            sys.executable,
+            "-m",
+            "tortoise",
+            "-c",
+            "aigateway.db.TORTOISE_CONFIG",
+            "migrate",
+        ]
+        subprocess.run(command, cwd=app_dir, env=env, check=True, capture_output=True, text=True)
+        rerun = subprocess.run(
+            command,
             cwd=app_dir,
             env=env,
             check=True,
             capture_output=True,
             text=True,
         )
+        assert "No migrations to apply" in rerun.stdout
 
         async def _tables() -> set[str]:
             conn = await asyncpg.connect(database_url)

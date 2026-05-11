@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
-from typing import Annotated
+from collections.abc import Callable, Coroutine
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -35,7 +35,7 @@ def _audit_provisioning_attempt(request: Request, status_code: int) -> None:
 
 
 class ProvisioningAuditRoute(APIRoute):
-    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         original_handler = super().get_route_handler()
 
         async def audited_handler(request: Request) -> Response:

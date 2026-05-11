@@ -26,3 +26,21 @@ def test_short_secret_rejected() -> None:
         assert "secret must be at least 32 characters" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("short jwt_secret was accepted")
+
+
+def test_short_provisioning_token_rejected() -> None:
+    try:
+        Settings(provisioning_token=SecretStr("short"))
+    except ValueError as exc:
+        assert "secret must be at least 32 characters" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("short provisioning_token was accepted")
+
+
+def test_invalid_admin_password_rejected() -> None:
+    try:
+        Settings(admin_password=SecretStr("short"))
+    except ValueError as exc:
+        assert "password must be 8-72 UTF-8 bytes" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("short admin_password was accepted")
