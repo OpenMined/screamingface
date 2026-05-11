@@ -20,14 +20,14 @@
       "release-type": "node",
       "package-name": "screamingface-desktop",
       "component": "desktop",
-      "tag-separator": "-v",
+      "tag-separator": "-",
       "include-component-in-tag": true
     },
     "apps/server": {
       "release-type": "python",
       "package-name": "screamingface",
       "component": "server",
-      "tag-separator": "-v",
+      "tag-separator": "-",
       "include-component-in-tag": true,
       "version-file": "apps/server/pyproject.toml"
     },
@@ -35,7 +35,7 @@
       "release-type": "python",
       "package-name": "aigateway",
       "component": "aigateway",
-      "tag-separator": "-v",
+      "tag-separator": "-",
       "include-component-in-tag": true,
       "version-file": "apps/aigateway/pyproject.toml"
     }
