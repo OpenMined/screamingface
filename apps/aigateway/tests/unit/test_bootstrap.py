@@ -1,14 +1,16 @@
 import json
 import time
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
 from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
-from aigateway.core.bootstrap import bootstrap_from_claude_code
+from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
 from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
 from aigateway.core.profile_models import Profile, profile_id_for
 from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+from aigateway.plugins.anthropic_provider.bootstrap import bootstrap_from_claude_code
 from tests.conftest import _prepare_sqlite_db
 
 CC_SERVICE = "Claude Code-credentials"
@@ -31,6 +33,26 @@ def _auth_header(client: TestClient) -> dict[str, str]:
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}
+
+
+class _BootstrapSpyPlugin(ProviderPluginBase):
+    custom_llm_provider = "spy"
+
+    def __init__(self, bootstrap_mock) -> None:
+        self.bootstrap_mock = bootstrap_mock
+
+    def register_models(self) -> list[ModelEntry]:
+        return []
+
+    async def bootstrap_profiles(self, **kwargs: Any) -> None:
+        await self.bootstrap_mock(**kwargs)
+
+
+def _install_bootstrap_spy(monkeypatch, main_module, bootstrap_mock) -> None:
+    def _load_plugins(registry) -> None:
+        registry.register(_BootstrapSpyPlugin(bootstrap_mock))
+
+    monkeypatch.setattr(main_module, "load_plugins", _load_plugins)
 
 
 @pytest.mark.asyncio
@@ -124,14 +146,12 @@ def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch, tmp_path) -> No
     monkeypatch.setenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", "1")
 
     from aigateway import main as main_module
-    from aigateway.core import bootstrap as bs_module
     from aigateway.core import credential_store as cs_module
     from aigateway.core import profile_index as pi_module
     from aigateway.plugins.anthropic_provider import auth as auth_module
 
     monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
     monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
     monkeypatch.setattr(auth_module, "get_credential_store", lambda: fake_keychain)
     monkeypatch.setattr(main_module, "get_credential_store", lambda: fake_keychain)
 
@@ -165,7 +185,7 @@ def test_lifespan_skips_bootstrap_by_default(monkeypatch, fake_keychain, tmp_pat
     from aigateway import main as main_module
 
     mock_bootstrap = AsyncMock()
-    monkeypatch.setattr(main_module, "bootstrap_from_claude_code", mock_bootstrap)
+    _install_bootstrap_spy(monkeypatch, main_module, mock_bootstrap)
 
     app = main_module.create_app()
     with TestClient(app) as client:
@@ -192,7 +212,7 @@ def test_lifespan_runs_bootstrap_when_env_set(monkeypatch, fake_keychain, tmp_pa
     from aigateway import main as main_module
 
     mock_bootstrap = AsyncMock()
-    monkeypatch.setattr(main_module, "bootstrap_from_claude_code", mock_bootstrap)
+    _install_bootstrap_spy(monkeypatch, main_module, mock_bootstrap)
 
     app = main_module.create_app()
     with TestClient(app) as client:
@@ -220,7 +240,7 @@ def test_lifespan_bootstraps_disabled_auth_under_anonymous_account(
     from aigateway import main as main_module
 
     mock_bootstrap = AsyncMock()
-    monkeypatch.setattr(main_module, "bootstrap_from_claude_code", mock_bootstrap)
+    _install_bootstrap_spy(monkeypatch, main_module, mock_bootstrap)
 
     app = main_module.create_app()
     with TestClient(app) as client:

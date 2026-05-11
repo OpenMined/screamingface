@@ -1,18 +1,4 @@
-"""One-time import of Claude Code's keychain entry into the gateway's index.
-
-Opt-in: only runs on FastAPI startup when the env var
-``AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1`` is set. By default the gateway
-boots with an empty profile index so the user explicitly authenticates
-via the UI rather than seeing a "default" profile they never OAuthed for.
-
-When enabled: if the gateway has no profile index yet but the Claude Code
-CLI has stored credentials on this machine, copy the token blob into the
-    gateway's account-scoped per-profile namespace and seed an index with
-    one account-owned `anthropic:default` profile in the `authenticated`
-state. The original Claude Code entry is left in place.
-
-Idempotent: if the gateway index already exists, this function is a no-op.
-"""
+"""Anthropic bootstrap helpers for importing Claude Code credentials."""
 
 from __future__ import annotations
 
@@ -30,7 +16,8 @@ from aigateway.core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
-from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+
+from .auth import keychain_service_for
 
 logger = logging.getLogger(__name__)
 

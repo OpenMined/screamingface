@@ -14,7 +14,6 @@ from .core.auth.log_filter import (
     install_provisioning_token_redaction,
 )
 from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
-from .core.bootstrap import bootstrap_from_claude_code
 from .core.credential_store import JsonFileCredentialStore, get_credential_store
 from .core.loader import load_plugins
 from .core.pending_auth import PendingAuthTable
@@ -63,23 +62,18 @@ async def _lifespan(app):
         # uses the same fake store so it cannot pull in the developer's real
         # Claude Code credentials behind the test's back.
         if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
-            if fake_store is not None:
+            for plugin in app.state.providers.all():
                 try:
-                    await bootstrap_from_claude_code(
+                    await plugin.bootstrap_profiles(
                         account_id=bootstrap_account_id,
-                        credential_store=fake_store,
+                        credential_store=credential_store,
                         index_store=app.state.profile_index,
                     )
                 except Exception:
-                    logger.exception("bootstrap failed; gateway will start with empty index")
-            else:
-                try:
-                    await bootstrap_from_claude_code(
-                        account_id=bootstrap_account_id,
-                        index_store=app.state.profile_index,
+                    logger.exception(
+                        "bootstrap failed for provider %s; gateway will continue",
+                        plugin.custom_llm_provider,
                     )
-                except Exception:
-                    logger.exception("bootstrap failed; gateway will start with empty index")
         yield
     finally:
         await close_db()

@@ -56,10 +56,10 @@ def _prepare_sqlite_db(database_url: str) -> None:
 @pytest.fixture
 def patch_credential_factories(fake_keychain, monkeypatch) -> FakeKeychain:
     from aigateway import main as main_module
-    from aigateway.core import bootstrap as bs_module
     from aigateway.core import credential_store as cs_module
     from aigateway.core import profile_index as pi_module
     from aigateway.plugins.anthropic_provider import auth as auth_module
+    from aigateway.plugins.anthropic_provider import bootstrap as bs_module
 
     monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
     monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
