@@ -8,7 +8,7 @@ from typing import Any, cast
 class RedactProvisioningTokenFilter(logging.Filter):
     _HEADER_NAME = "x-aigw-provisioning-token"
     _PATTERN = re.compile(
-        r"(X-Aigw-Provisioning-Token[:=\s\"']*)([^\s\"',}]+)",
+        r"(X-Aigw-Provisioning-Token(?:\s*[:=]\s*|\s+[\"']))([^\s\"',}]+)",
         re.IGNORECASE,
     )
     _RAW_HEADER_PATTERN = re.compile(

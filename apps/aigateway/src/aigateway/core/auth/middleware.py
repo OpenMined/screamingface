@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
 import jwt
 from fastapi import Depends, HTTPException, Request
@@ -22,7 +23,12 @@ async def current_account(request: Request) -> Account:
     except jwt.InvalidTokenError as exc:
         raise HTTPException(status_code=401, detail=f"Invalid token: {exc}") from exc
 
-    account = await Account.get_or_none(id=claims["sub"])
+    try:
+        account_id = UUID(claims["sub"])
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=401, detail="Invalid token: malformed subject") from exc
+
+    account = await Account.get_or_none(id=account_id)
     if account is None or not account.is_active:
         raise HTTPException(status_code=401, detail="Account not found or inactive")
     return account

@@ -20,6 +20,20 @@ def test_redacts_provisioning_token_header(caplog) -> None:
     assert "[REDACTED]" in caplog.text
 
 
+def test_does_not_redact_plain_header_name_mentions() -> None:
+    record = logging.LogRecord(
+        "aigateway.test.redact",
+        logging.INFO,
+        "",
+        1,
+        "Checking X-Aigw-Provisioning-Token header presence",
+        (),
+        None,
+    )
+    RedactProvisioningTokenFilter().filter(record)
+    assert record.getMessage() == "Checking X-Aigw-Provisioning-Token header presence"
+
+
 def test_process_wide_redaction_handles_child_loggers(caplog) -> None:
     install_provisioning_token_redaction()
     logger = logging.getLogger("aigateway.routes.accounts.child")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from aigateway.core.auth import middleware
 from aigateway.core.auth.jwt import encode_token
 from aigateway.core.auth.models import Account
 
@@ -35,6 +36,23 @@ def test_token_for_nonexistent_account_rejected(client) -> None:
     )
     response = client.get("/v1/models", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 401
+
+
+def test_token_with_malformed_subject_rejected_before_db_lookup(client, monkeypatch) -> None:
+    token, _ = encode_token(
+        account_id="not-a-uuid",
+        username="ghost",
+        secret="x" * 32,
+        ttl_seconds=60,
+    )
+
+    async def fail_lookup(*_args, **_kwargs):
+        raise AssertionError("malformed subject should be rejected before DB lookup")
+
+    monkeypatch.setattr(middleware.Account, "get_or_none", staticmethod(fail_lookup))
+    response = client.get("/v1/models", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+    assert "malformed subject" in response.text
 
 
 def test_token_for_inactive_account_rejected(client) -> None:
