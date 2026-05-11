@@ -11,13 +11,14 @@ import logging
 from typing import Any
 
 from screamingface.plugins.url4_executor.decoder import split_intent
+from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4 import resolve_str
 from screamingface.plugins.url4_executor.url4_resolve import _fetch_relative, _fetch_url
 
 logger = logging.getLogger(__name__)
 
 
-async def resolve_intent(intent: str, app: Any = None) -> str:
+async def resolve_intent(intent: str, app: Any = None, env: Env | None = None) -> str:
     """Resolve an intent string to text.
 
     - ``/path`` → relative URL, fetched via in-process ASGI
@@ -41,16 +42,34 @@ class Url4Interpreter:
 
     Override ``process()`` to change what happens with the resolved pieces.
     The default concatenates ``intent + "\\n\\n" + sources``.
+
+    Scope chain (DEMO-004)
+    ----------------------
+    ``evaluate`` and ``process`` accept an optional ``env: Env | None``
+    parameter that is threaded through every recursive call into
+    ``resolve_str``, ``resolve_intent``, and any subclass override.
+    ``None`` is treated as a fresh root env.
+
+    The chain uses parent pointers (not copy-on-write or dict-stacking)
+    because url4 binding resolution is read-heavy / write-light and the
+    chain is shallow (rarely deeper than 4 frames in practice: outer /
+    iteration / fanout / reducer). The full rationale lives in
+    :mod:`screamingface.plugins.url4_executor.scope`.
+
+    No interpreter logic actually populates bindings yet — DEMO-005/006
+    will. This class only carries the plumbing.
     """
 
     def __init__(self, app: Any = None):
         self.app = app
 
-    async def evaluate(self, expr: str) -> str:
+    async def evaluate(self, expr: str, env: Env | None = None) -> str:
         """Full evaluation pipeline."""
         from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
 
         with traced("url4.evaluate"):
+            if env is None:
+                env = Env.root()
             set_span_attrs(
                 {
                     "url4.expression": expr[:500],
@@ -62,7 +81,7 @@ class Url4Interpreter:
 
             # Resolve sources (parallel fetch of URLs, concatenate text)
             with traced("url4.resolve_sources"):
-                sources = await resolve_str(source_expr, self.app) if source_expr else ""
+                sources = await resolve_str(source_expr, self.app, env) if source_expr else ""
                 src_preview = sources[:4000]
                 if len(sources) > 4000:
                     src_preview += f"\n... ({len(sources) - 4000} more chars)"
@@ -75,7 +94,7 @@ class Url4Interpreter:
 
             # Resolve intent (text / relative URL / absolute URL)
             with traced("url4.resolve_intent"):
-                intent = await resolve_intent(raw_intent, self.app) if raw_intent else None
+                intent = await resolve_intent(raw_intent, self.app, env) if raw_intent else None
                 set_span_attrs(
                     {
                         "url4.intent_length": len(intent) if intent else 0,
@@ -83,7 +102,7 @@ class Url4Interpreter:
                     }
                 )
 
-            result = await self.process(sources, intent)
+            result = await self.process(sources, intent, env)
             result_preview = result[:4000]
             if len(result) > 4000:
                 result_preview += f"\n... ({len(result) - 4000} more chars)"
@@ -95,10 +114,11 @@ class Url4Interpreter:
             )
             return result
 
-    async def process(self, sources: str, intent: str | None) -> str:
+    async def process(self, sources: str, intent: str | None, env: Env | None = None) -> str:
         """Process resolved sources and intent. Override in subclasses.
 
-        Default: concatenate intent + sources.
+        Default: concatenate intent + sources. ``env`` is accepted for
+        signature parity with subclasses; this default does not use it.
         """
         if intent and sources:
             return f"{intent}\n\n{sources}"
