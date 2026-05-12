@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from screamingface.plugins.gemini_backend_api.backend import GeminiBackend
 from screamingface.plugins.llm_base.messages import CoreMessage, TextPart
 from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
+from screamingface.plugins.url4_executor.scope import Env
 
 if TYPE_CHECKING:
     from screamingface.plugins.gemini_backend_api.plugin import GeminiBackendApiSettings
@@ -29,7 +30,7 @@ class GeminiBackendApiInterpreter(Url4Interpreter):
         self.settings = settings
         self._backend = backend or GeminiBackend()
 
-    async def process(self, sources: str, intent: str | None) -> str:
+    async def process(self, sources: str, intent: str | None, env: Env | None = None) -> str:
         parts: list[str] = []
         if intent:
             parts.append(intent)

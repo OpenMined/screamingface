@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from screamingface.plugins.llm_base.messages import CoreMessage, TextPart, extract_text
 from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
+from screamingface.plugins.url4_executor.scope import Env
 
 from .backend import AigwBackend
 
@@ -45,7 +46,7 @@ class AigwInterpreter(Url4Interpreter):
         else:
             self._backend = AigwBackend()
 
-    async def process(self, sources: str, intent: str | None) -> str:
+    async def process(self, sources: str, intent: str | None, env: Env | None = None) -> str:
         combined = f"{intent}\n\n{sources}" if intent and sources else (intent or sources or "")
         if not combined:
             return ""
