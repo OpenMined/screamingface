@@ -63,7 +63,10 @@ async def test_get_with_questions_prefetches(app_with_eval_runs: FastAPI) -> Non
     )
     for i in range(3):
         await EvalQuestion.create(
-            run=run, idx=i, question=f"q{i}", expected=f"e{i}",
+            run=run,
+            idx=i,
+            question=f"q{i}",
+            expected=f"e{i}",
         )
 
     fetched = await store.get_with_questions(run.id)
@@ -119,7 +122,11 @@ async def test_status_transition(app_with_eval_runs: FastAPI) -> None:
     )
     assert run.status == "running"
     updated = await store.update(
-        run.id, status="done", accuracy=0.75, total_questions=4, correct_questions=3,
+        run.id,
+        status="done",
+        accuracy=0.75,
+        total_questions=4,
+        correct_questions=3,
     )
     assert updated.status == "done"
     assert updated.accuracy == 0.75

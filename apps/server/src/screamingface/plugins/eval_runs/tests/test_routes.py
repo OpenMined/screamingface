@@ -62,7 +62,10 @@ async def test_get_detail_returns_questions_sorted_by_idx(
     )
     for i in [2, 0, 1]:
         await EvalQuestion.create(
-            run=run, idx=i, question=f"q{i}", expected=f"e{i}",
+            run=run,
+            idx=i,
+            question=f"q{i}",
+            expected=f"e{i}",
         )
 
     r = await async_client.get(f"/eval_runs/{run.id}")

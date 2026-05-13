@@ -26,6 +26,7 @@ def test_eval_run_table_name() -> None:
 
 def test_eval_run_ordering_started_at_desc() -> None:
     from pypika_tortoise.enums import Order
+
     assert EvalRun._meta.ordering == (("started_at", Order.desc),)
 
 

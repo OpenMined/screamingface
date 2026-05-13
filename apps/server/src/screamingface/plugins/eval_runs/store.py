@@ -16,8 +16,4 @@ class EvalRunStore(BaseStore[EvalRun]):
         return await EvalRun.all().order_by("-started_at").offset(offset).limit(limit)
 
     async def get_with_questions(self, run_id: UUID) -> EvalRun | None:
-        return (
-            await EvalRun.filter(id=run_id)
-            .prefetch_related("questions")
-            .first()
-        )
+        return await EvalRun.filter(id=run_id).prefetch_related("questions").first()
