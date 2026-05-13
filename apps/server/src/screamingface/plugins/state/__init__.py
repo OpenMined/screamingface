@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from screamingface.plugins.state.base import BaseModel
+from screamingface.plugins.state.plugin import StatePlugin, StateSettings
 from screamingface.plugins.state.store import BaseStore
 
-__all__ = ["BaseModel", "BaseStore"]
+__all__ = ["BaseModel", "BaseStore", "StatePlugin", "StateSettings"]
