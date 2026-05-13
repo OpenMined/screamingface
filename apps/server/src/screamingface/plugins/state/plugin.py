@@ -82,7 +82,13 @@ class StatePlugin(Plugin):
             if self.registry.is_empty:
                 logger.info("state plugin: no models registered, skipping Tortoise.init")
                 return
-            await Tortoise.init(config=config)
+            # _enable_global_fallback=True: Tortoise 1.x stores the connection in
+            # a contextvar by default, which means it isn't visible to request
+            # handlers (uvicorn runs each request in a fresh task that doesn't
+            # inherit our startup-task context). The global fallback stores it
+            # in a process-wide slot too, matching what RegisterTortoise does
+            # by default. Cleared automatically on close_connections().
+            await Tortoise.init(config=config, _enable_global_fallback=True)
             await Tortoise.generate_schemas(safe=True)
             self.registry.mark_initialized()
             app.state.state_ready = True
