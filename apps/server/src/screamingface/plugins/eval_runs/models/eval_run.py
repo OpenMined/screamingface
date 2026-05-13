@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from tortoise import fields
+from tortoise.fields.relational import ReverseRelation
 
 from screamingface.plugins.state.base import BaseModel
+
+if TYPE_CHECKING:
+    from screamingface.plugins.eval_runs.models.eval_question import EvalQuestion
 
 
 class BaseEvalRun(BaseModel):
@@ -32,3 +38,5 @@ class EvalRun(BaseEvalRun):
         table_description = "Eval/benchmark runs"
         ordering = ["-started_at"]
         indexes = (("started_at",), ("spec_name",))
+
+    questions: ReverseRelation[EvalQuestion]
