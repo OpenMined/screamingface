@@ -35,7 +35,6 @@ def test_plugin_class_attrs() -> None:
 
 import pytest
 from fastapi import FastAPI
-from tortoise import Tortoise
 
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
