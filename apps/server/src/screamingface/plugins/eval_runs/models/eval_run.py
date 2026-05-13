@@ -26,7 +26,8 @@ class BaseEvalRun(BaseModel):
 
 
 class EvalRun(BaseEvalRun):
-    class Meta:
+    class Meta(BaseEvalRun.Meta):
+        abstract = False
         table = "eval_run"
         table_description = "Eval/benchmark runs"
         ordering = ["-started_at"]
