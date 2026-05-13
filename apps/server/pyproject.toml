@@ -12,6 +12,7 @@ dependencies = [
     "mitmproxy>=12.2.2",
     "TatSu>=5.12",
     "curl_cffi>=0.15",
+    "tortoise-orm>=0.21",
 ]
 
 [project.scripts]
@@ -44,6 +45,7 @@ select = ["E", "F", "I", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "src/screamingface/plugins"]
+asyncio_mode = "auto"
 markers = [
     "e2e: end-to-end test using subprocess server",
     "e2e_live: e2e test requiring real Anthropic API key",
@@ -54,6 +56,7 @@ dev = [
     "httpx>=0.28.1",
     "pyright>=1.1.393",
     "pytest>=9.0.3",
+    "pytest-asyncio>=0.23",
     "ruff>=0.8",
     "opentelemetry-api>=1.20",
     "opentelemetry-sdk>=1.20",
