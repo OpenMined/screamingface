@@ -4,7 +4,7 @@ via the state plugin's lifecycle."""
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -12,7 +12,7 @@ from fastapi import FastAPI
 
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
-from screamingface.plugins.eval_runs.models import EvalQuestion, EvalRun
+from screamingface.plugins.eval_runs.models import EvalQuestion
 from screamingface.plugins.eval_runs.store import EvalRunStore
 
 
@@ -26,7 +26,7 @@ async def app_with_eval_runs(temp_state_path: Path) -> AsyncIterator[FastAPI]:
 
 async def test_store_create_get_roundtrip(app_with_eval_runs: FastAPI) -> None:
     store = EvalRunStore()
-    started = datetime.now(timezone.utc)
+    started = datetime.now(UTC)
     run = await store.create(
         spec_name="hle-claude",
         url4_expression="/claude()!hello",
@@ -42,7 +42,7 @@ async def test_list_summaries_orders_by_started_at_desc(
     app_with_eval_runs: FastAPI,
 ) -> None:
     store = EvalRunStore()
-    base = datetime(2026, 5, 13, 10, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 5, 13, 10, 0, 0, tzinfo=UTC)
     for i in range(3):
         await store.create(
             spec_name=f"spec-{i}",
@@ -59,7 +59,7 @@ async def test_get_with_questions_prefetches(app_with_eval_runs: FastAPI) -> Non
     run = await store.create(
         spec_name="x",
         url4_expression="x",
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
     )
     for i in range(3):
         await EvalQuestion.create(
@@ -86,7 +86,7 @@ async def test_cascade_delete_removes_questions(app_with_eval_runs: FastAPI) -> 
     run = await store.create(
         spec_name="x",
         url4_expression="x",
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
     )
     await EvalQuestion.create(run=run, idx=0, question="q", expected="e")
     assert await EvalQuestion.all().count() == 1
@@ -103,7 +103,7 @@ async def test_duplicate_run_idx_raises(app_with_eval_runs: FastAPI) -> None:
     run = await store.create(
         spec_name="x",
         url4_expression="x",
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
     )
     await EvalQuestion.create(run=run, idx=0, question="q1", expected="e1")
     with pytest.raises(IntegrityError):
@@ -115,7 +115,7 @@ async def test_status_transition(app_with_eval_runs: FastAPI) -> None:
     run = await store.create(
         spec_name="x",
         url4_expression="x",
-        started_at=datetime.now(timezone.utc),
+        started_at=datetime.now(UTC),
     )
     assert run.status == "running"
     updated = await store.update(
