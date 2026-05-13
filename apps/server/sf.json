@@ -17,6 +17,7 @@
     "llm-base",
     "frontend-base",
     "backend-api-base",
+    "python-runner",
     "codex-backend-api",
     "gemini-backend-api",
     "ollama-backend-api",
