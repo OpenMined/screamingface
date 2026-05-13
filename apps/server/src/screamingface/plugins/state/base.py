@@ -14,6 +14,6 @@ class BaseModel(Model):
     class Meta:
         abstract = True
 
-    id = fields.UUIDField(pk=True)
+    id = fields.UUIDField(primary_key=True)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)

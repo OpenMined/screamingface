@@ -12,15 +12,13 @@ place for them.
 
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from tortoise.exceptions import DoesNotExist
 from tortoise.models import Model
 
-T = TypeVar("T", bound=Model)
 
-
-class BaseStore(Generic[T]):
+class BaseStore[T: Model]:
     model: type[T]
 
     def __init__(self, model: type[T] | None = None) -> None:

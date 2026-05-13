@@ -1,10 +1,18 @@
-"""Unit tests for StatePlugin / StateSettings (no DB yet)."""
+"""Tests for StatePlugin / StateSettings — unit and integration."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
+import pytest
+from fastapi import FastAPI
+
+from screamingface.core.app import create_app
+from screamingface.core.config import AppConfig
 from screamingface.plugins.state.plugin import StatePlugin, StateSettings
+from screamingface.plugins.state.store import BaseStore
+from screamingface.plugins.state.tests.fixtures.toy_models import ToyItem
 
 
 def test_settings_defaults(monkeypatch) -> None:
@@ -33,13 +41,6 @@ def test_plugin_class_attrs() -> None:
 
 # --- Integration tests below ---
 
-import pytest
-from fastapi import FastAPI
-
-from screamingface.core.app import create_app
-from screamingface.core.config import AppConfig
-from screamingface.plugins.state.tests.fixtures.toy_models import ToyItem
-
 
 @pytest.fixture
 async def app_with_toy(temp_state_path: Path):
@@ -67,8 +68,6 @@ async def test_startup_initializes_tortoise(app_with_toy: FastAPI) -> None:
 
 
 async def test_baseStore_roundtrip(app_with_toy: FastAPI) -> None:
-    from screamingface.plugins.state.store import BaseStore
-
     store: BaseStore[ToyItem] = BaseStore(ToyItem)
     created = await store.create(name="alpha", weight=3)
     assert created.id is not None
@@ -91,10 +90,6 @@ async def test_baseStore_roundtrip(app_with_toy: FastAPI) -> None:
 
 
 async def test_get_missing_returns_none(app_with_toy: FastAPI) -> None:
-    from uuid import uuid4
-
-    from screamingface.plugins.state.store import BaseStore
-
     store: BaseStore[ToyItem] = BaseStore(ToyItem)
     assert await store.get(uuid4()) is None
 
