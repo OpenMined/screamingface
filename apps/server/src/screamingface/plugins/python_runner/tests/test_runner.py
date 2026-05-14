@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -10,6 +10,7 @@ import pytest
 from screamingface.plugins.python_runner.runner import (
     PythonRunnerError,
     _cache_script,
+    run_script_source,
 )
 
 
@@ -61,11 +62,45 @@ def test_cache_script_different_sources_different_paths(
     assert p1 != p2
 
 
-def test_cache_dir_and_file_permissions(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cache_dir_and_file_permissions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cache_root = tmp_path / "nested" / "cache"
     monkeypatch.setenv("SF_PYTHON_RUNNER__CACHE_ROOT", str(cache_root))
     p = _cache_script("print('x')\n")
     assert (cache_root.stat().st_mode & 0o777) == 0o700
     assert (p.stat().st_mode & 0o777) == 0o600
+
+
+_ECHO_SCRIPT = textwrap.dedent(
+    """\
+    import json, sys
+    data = json.load(sys.stdin)
+    print(json.dumps({"ok": True, "got": data}))
+    """
+)
+
+
+async def test_happy_path_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SF_PYTHON_RUNNER__CACHE_ROOT", str(tmp_path))
+    result = await run_script_source(_ECHO_SCRIPT, {"a": 1, "b": [2, 3]})
+    assert result == {"ok": True, "got": {"a": 1, "b": [2, 3]}}
+
+
+async def test_stderr_logged_on_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    monkeypatch.setenv("SF_PYTHON_RUNNER__CACHE_ROOT", str(tmp_path))
+    script = textwrap.dedent(
+        """\
+        import json, sys
+        print("warn:something", file=sys.stderr)
+        print(json.dumps({"ok": True}))
+        """
+    )
+    with caplog.at_level(logging.DEBUG, logger="screamingface.plugins.python_runner.runner"):
+        result = await run_script_source(script, {})
+    assert result == {"ok": True}
+    assert any("warn:something" in rec.message for rec in caplog.records)
