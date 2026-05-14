@@ -104,3 +104,43 @@ async def test_stderr_logged_on_success(
         result = await run_script_source(script, {})
     assert result == {"ok": True}
     assert any("warn:something" in rec.message for rec in caplog.records)
+
+
+async def test_nonzero_exit_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SF_PYTHON_RUNNER__CACHE_ROOT", str(tmp_path))
+    script = textwrap.dedent(
+        """\
+        import sys
+        print("error happened", file=sys.stderr)
+        sys.exit(1)
+        """
+    )
+    with pytest.raises(PythonRunnerError) as ei:
+        await run_script_source(script, {})
+    assert ei.value.kind == "nonzero_exit"
+    assert ei.value.exit_code == 1
+    assert "error happened" in ei.value.stderr
+
+
+async def test_invalid_output_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SF_PYTHON_RUNNER__CACHE_ROOT", str(tmp_path))
+    script = "print('not json')\n"
+    with pytest.raises(PythonRunnerError) as ei:
+        await run_script_source(script, {})
+    assert ei.value.kind == "invalid_output"
+    assert "not json" in ei.value.stdout
+
+
+async def test_timeout_raises_and_kills_subprocess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SF_PYTHON_RUNNER__CACHE_ROOT", str(tmp_path))
+    script = textwrap.dedent(
+        """\
+        import time
+        time.sleep(5)
+        """
+    )
+    with pytest.raises(PythonRunnerError) as ei:
+        await run_script_source(script, {}, timeout=0.5)
+    assert ei.value.kind == "timeout"
