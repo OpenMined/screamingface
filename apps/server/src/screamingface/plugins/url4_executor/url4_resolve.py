@@ -17,6 +17,7 @@ import httpx
 from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4_ast import (
     Url4BackendCall,
+    Url4Binding,
     Url4ExpandedSource,
     Url4List,
     Url4Node,
@@ -45,13 +46,56 @@ async def resolve(node: Url4Node, app: Any = None, env: Env | None = None) -> st
     if isinstance(node, Url4RelUrl):
         return await _fetch_relative(app, node.value)
     if isinstance(node, Url4List):
-        results = list(await asyncio.gather(*[resolve(item, app, env) for item in node.items]))
-        return "\n".join(results)
+        return await _resolve_list(node, app, env)
     if isinstance(node, Url4BackendCall):
         return await _dispatch_backend_call(node, app, env)
     if isinstance(node, Url4ExpandedSource):
         return await _resolve_expanded_source(node, app, env)
+    if isinstance(node, Url4Binding):
+        # DEMO-005: bare top-level binding — resolve and return the
+        # value. Sibling-visibility registration only applies inside
+        # a Url4List frame (see _resolve_list).
+        return await resolve(node.value, app, env)
     raise TypeError(f"Unknown node type: {type(node)}")
+
+
+async def _resolve_list(node: Url4List, app: Any, env: Env) -> str:
+    """Resolve a ``Url4List`` with two passes (DEMO-005).
+
+    Pass 1: walk ``Url4Binding`` items in declaration order, sequentially,
+            so a later binding can read earlier ones (DEMO-006 ``$name``).
+            Each resolved value is written into a child ``Env`` that
+            stacks on top of ``env``.
+    Pass 2: resolve remaining (non-binding) items in parallel under the
+            fully-populated child ``Env``.
+
+    Output preserves source order: each binding's resolved value sits in
+    its original slot, joined with ``\\n`` (matching the legacy behaviour
+    for non-binding lists).
+    """
+    items = list(node.items)
+    results: list[str | None] = [None] * len(items)
+    resolved_bindings: dict[str, Any] = {}
+
+    # Pass 1 — bindings, declaration order, sequential.
+    for idx, item in enumerate(items):
+        if isinstance(item, Url4Binding):
+            current = env.child(**resolved_bindings) if resolved_bindings else env
+            value_text = await resolve(item.value, app, current)
+            resolved_bindings[item.name] = value_text
+            results[idx] = value_text
+
+    # Pass 2 — non-bindings, parallel, under the populated child env.
+    child_env = env.child(**resolved_bindings) if resolved_bindings else env
+    non_binding_indices = [i for i, it in enumerate(items) if not isinstance(it, Url4Binding)]
+    if non_binding_indices:
+        gathered = await asyncio.gather(
+            *(resolve(items[i], app, child_env) for i in non_binding_indices)
+        )
+        for i, value in zip(non_binding_indices, gathered, strict=True):
+            results[i] = value
+
+    return "\n".join(r for r in results if r is not None)
 
 
 async def resolve_str(context: str, app: Any = None, env: Env | None = None) -> str:

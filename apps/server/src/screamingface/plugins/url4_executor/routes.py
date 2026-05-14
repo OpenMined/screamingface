@@ -13,6 +13,7 @@ from screamingface.plugins.url4_executor.highlight import tokenize
 from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4 import (
     Url4BackendCall,
+    Url4Binding,
     Url4ExpandedSource,
     Url4List,
     Url4RelUrl,
@@ -42,6 +43,13 @@ def _ast_to_dict(node) -> dict | str:
         return result
     if isinstance(node, Url4ExpandedSource):
         return {"type": "expanded_source", "inner": _ast_to_dict(node.inner)}
+    if isinstance(node, Url4Binding):
+        return {
+            "type": "binding",
+            "name": node.name,
+            "kind": node.kind,
+            "value": _ast_to_dict(node.value),
+        }
     if isinstance(node, Url4List):
         return {"type": "list", "items": [_ast_to_dict(item) for item in node.items]}
     # Url4Text

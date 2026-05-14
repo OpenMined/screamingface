@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from screamingface.plugins.url4_executor.url4_ast import (
     Url4BackendCall,
+    Url4Binding,
     Url4ExpandedSource,
     Url4List,
     Url4Node,
@@ -37,6 +38,7 @@ from screamingface.plugins.url4_executor.url4_resolve import resolve, resolve_st
 __all__ = [
     "GRAMMAR",
     "Url4BackendCall",
+    "Url4Binding",
     "Url4ExpandedSource",
     "Url4List",
     "Url4Node",
