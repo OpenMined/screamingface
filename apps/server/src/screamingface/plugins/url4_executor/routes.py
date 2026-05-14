@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from screamingface.plugins.url4_executor.decoder import split_intent
 from screamingface.plugins.url4_executor.ensemble import EnsembleInterpreter
 from screamingface.plugins.url4_executor.highlight import tokenize
+from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4 import (
     Url4BackendCall,
     Url4ExpandedSource,
@@ -77,7 +78,7 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
         interpreter = EnsembleInterpreter(app=app, processor=processor)
 
         try:
-            result = await interpreter.evaluate(q)
+            result = await interpreter.evaluate(q, env=Env.root())
         except Exception as exc:
             logger.warning("url4 evaluation failed: %s", exc, exc_info=True)
             raise HTTPException(status_code=502, detail=f"url4 evaluation failed: {exc}")

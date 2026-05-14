@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 from screamingface.plugins.claude_backend_api.backend import AnthropicBackend
 from screamingface.plugins.llm_base.messages import CoreMessage, TextPart
 from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
+from screamingface.plugins.url4_executor.scope import Env
 
 if TYPE_CHECKING:
     from screamingface.plugins.claude_backend_api.plugin import ClaudeBackendApiSettings
@@ -64,7 +65,7 @@ class ClaudeBackendApiInterpreter(Url4Interpreter):
         self.settings = settings
         self._backend = backend or AnthropicBackend()
 
-    async def process(self, sources: str, intent: str | None) -> str:
+    async def process(self, sources: str, intent: str | None, env: Env | None = None) -> str:
         """Combine intent + sources, send as a user message to Anthropic.
 
         Matches :class:`ClaudeInterpreter.process` semantics so existing

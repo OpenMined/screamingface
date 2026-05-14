@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from screamingface.plugins.llm_base.messages import CoreMessage, TextPart
 from screamingface.plugins.ollama_backend_api.backend import OllamaBackend
 from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
+from screamingface.plugins.url4_executor.scope import Env
 
 if TYPE_CHECKING:
     from screamingface.plugins.ollama_backend_api.plugin import OllamaBackendApiSettings
@@ -42,7 +43,7 @@ class OllamaBackendApiInterpreter(Url4Interpreter):
         self.settings = settings
         self._backend = backend or _build_backend(settings)
 
-    async def process(self, sources: str, intent: str | None) -> str:
+    async def process(self, sources: str, intent: str | None, env: Env | None = None) -> str:
         """Combine intent + sources and send to Ollama.
 
         Concatenation rule: ``intent\\n\\nsources`` (intent first so the
