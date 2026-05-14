@@ -1,5 +1,5 @@
 {
   "apps/desktop": "0.1.0",
-  "apps/server": "0.1.0",
+  "apps/server": "0.2.0",
   "apps/aigateway": "0.2.0"
 }
