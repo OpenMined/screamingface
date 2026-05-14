@@ -3,6 +3,13 @@
 The grammar string and the :class:`Url4Semantics` class were extracted
 from the original ``url4.py`` so consumers that only need :func:`parse`
 don't pull in the resolution side (httpx, plugin registry, etc).
+
+DEMO-007 (SF-154): relative URLs ending in ``.py`` are rewritten at
+parse time into a ``Url4BackendCall(path="/python",
+packed_context=<original_path>)``. This keeps the rest of the pipeline
+unchanged — the runner plugin handles execution via the regular
+backend-dispatch path. Absolute ``https://...`` URLs ending in ``.py``
+are intentionally NOT rewritten (remote scripts are out of scope).
 """
 
 from __future__ import annotations
@@ -153,7 +160,22 @@ class Url4Semantics:
         return Url4Url(value=ast.value.strip())
 
     def relurl(self, ast):
-        return Url4RelUrl(value=ast.value.strip())
+        value = ast.value.strip()
+        # DEMO-007 (SF-154): `.py`-suffixed paths desugar at parse time
+        # into a /python backend call. The runner plugin executes the
+        # script. Done parser-side so the rest of the pipeline (highlight,
+        # AST inspector, resolver) sees a normal Url4BackendCall with no
+        # special-casing. Absolute https URLs are intentionally NOT
+        # rewritten — remote scripts are out of scope (sandbox/signing).
+        if value.endswith(".py"):
+            return Url4BackendCall(
+                path="/python",
+                packed_context=value,
+                intent=None,
+                name=None,
+                weight=None,
+            )
+        return Url4RelUrl(value=value)
 
     def text(self, ast):
         return Url4Text(value=ast.value.strip())
