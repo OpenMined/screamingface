@@ -1,0 +1,48 @@
+# DEMO-005 (SF-152): named-binding parser + resolver behavior.
+# No real backends — these exercise the grammar and the two-pass list
+# resolution end-to-end through /ensemble. Binding values are joined
+# inline in source order, matching Url4List behaviour.
+
+- id: eq_binding_text
+  description: "a=1 returns the bound value (eager, plain text)"
+  ticket: SF-152
+  backends: []
+  expression: "a=1"
+  expect:
+    status: 200
+    contains_all: ["1"]
+
+- id: colon_binding_group
+  description: "pair:(a, b) returns the group joined by newline"
+  ticket: SF-152
+  backends: []
+  expression: "pair:(a, b)"
+  expect:
+    status: 200
+    contains_all: ["a", "b"]
+
+- id: list_with_eq_binding_preserves_order
+  description: "(x=hi, plain) resolves binding first, then sibling text, in source order"
+  ticket: SF-152
+  backends: []
+  expression: "(x=hi, plain)"
+  expect:
+    status: 200
+    contains_all: ["hi", "plain"]
+
+- id: list_multiple_bindings_and_sibling
+  description: "(a=1, b=2, c) — bindings sequential first, then non-binding sibling"
+  ticket: SF-152
+  backends: []
+  expression: "(a=1, b=2, c)"
+  expect:
+    status: 200
+    contains_all: ["1", "2", "c"]
+
+- id: weighted_backend_label_still_routes_as_backend_call
+  description: "claude:0.40:/nonexistent()!x must fall through to backend_call (502, not a binding)"
+  ticket: SF-152
+  backends: []
+  expression: "claude:0.40:/nonexistent()!hi"
+  expect:
+    status: 502

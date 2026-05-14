@@ -10,6 +10,7 @@ don't pay the cost of importing TatSu / httpx.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -68,11 +69,36 @@ class Url4ExpandedSource:
     inner: Url4Node
 
 
-Url4Node = Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall | Url4ExpandedSource
+@dataclass(frozen=True)
+class Url4Binding:
+    """DEMO-005 (SF-152): ``name=expr`` or ``name:(...)`` named binding.
+
+    Wraps any url4 node in a named binding. The interpreter registers
+    ``(name, resolved_value)`` into the current ``Env`` (DEMO-004) at
+    list-resolution time so sibling items and downstream ``$<name>``
+    references (DEMO-006) can read it back.
+
+    ``kind`` records the surface form so error messages and the
+    ``/ensemble?ast=true`` JSON faithfully reflect the source.
+
+    Distinct from ``Url4BackendCall.name``/``weight`` — those are a
+    *property* of a backend call (weighted ensemble sources, SF-88).
+    A ``Url4Binding`` is a wrapper that can hold any sub-node.
+    """
+
+    name: str
+    value: Url4Node
+    kind: Literal["=", ":"]
+
+
+Url4Node = (
+    Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall | Url4ExpandedSource | Url4Binding
+)
 
 
 __all__ = [
     "Url4BackendCall",
+    "Url4Binding",
     "Url4ExpandedSource",
     "Url4List",
     "Url4Node",

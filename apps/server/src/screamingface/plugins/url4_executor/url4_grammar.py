@@ -11,6 +11,7 @@ from tatsu import compile
 
 from screamingface.plugins.url4_executor.url4_ast import (
     Url4BackendCall,
+    Url4Binding,
     Url4ExpandedSource,
     Url4List,
     Url4Node,
@@ -33,6 +34,44 @@ GRAMMAR = r"""
     group = '(' elems:','%{ context } ')' ;
 
     atom
+        = binding
+        | backend_call
+        | expanded_source
+        | url
+        | relurl
+        | text
+        ;
+
+    # DEMO-005 (SF-152): named bindings.
+    #
+    #   name=expr   — eager value bind. RHS is any atom or a group.
+    #   name:(...)  — subexpression label. RHS is always a group.
+    #
+    # Placed before backend_call so a binding takes precedence in the
+    # alternative list. Disambiguation with source_label (`name:NUMBER:`)
+    # works because the `:` branch of binding requires `(` next, while
+    # source_label requires a digit next — they cannot collide.
+    #
+    # TODO(SF-152): the bare `name:/path` (no weight) form on a backend
+    # call still parses as text + relurl. Fixing it conflicts with the
+    # URL scheme separator and is out of scope here.
+    binding
+        = name:/[a-zA-Z_][a-zA-Z0-9_]*/ (
+              sep:'=' value:eq_value
+            | sep:':' value:group
+          )
+        ;
+
+    # RHS of `name=`. Spec says "any atom (text, URL, group, backend
+    # call)" — so groups are allowed too. Excludes nested bindings to
+    # avoid `a=b=c` ambiguity (a group containing a binding is fine
+    # because a Url4List frame sits between the outer and inner bind).
+    eq_value
+        = group
+        | atom_no_binding
+        ;
+
+    atom_no_binding
         = backend_call
         | expanded_source
         | url
@@ -153,6 +192,17 @@ class Url4Semantics:
     def expandable_atom(self, ast):
         return ast
 
+    def binding(self, ast):
+        sep = ast.sep
+        kind = "=" if sep == "=" else ":"
+        return Url4Binding(name=ast.name, value=ast.value, kind=kind)
+
+    def eq_value(self, ast):
+        return ast
+
+    def atom_no_binding(self, ast):
+        return ast
+
     def backend_context(self, ast):
         return ast
 
@@ -166,7 +216,13 @@ class Url4Semantics:
             for e in elems
             if isinstance(
                 e,
-                Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall | Url4ExpandedSource,
+                Url4Url
+                | Url4RelUrl
+                | Url4Text
+                | Url4List
+                | Url4BackendCall
+                | Url4ExpandedSource
+                | Url4Binding,
             )
         ]
         return Url4List(items=tuple(nodes))
