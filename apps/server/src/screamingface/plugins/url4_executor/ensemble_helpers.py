@@ -16,6 +16,12 @@ import json
 import re
 from dataclasses import dataclass
 
+from screamingface.plugins.url4_executor.scope import Env
+
+# Identifier-shaped ``$<name>`` token. ``\b`` on the right prevents
+# ``$consensus`` from matching the prefix of ``$consensus_thing``.
+_NAME_REF_RE = re.compile(r"\$([a-zA-Z_][a-zA-Z0-9_]*)\b")
+
 
 @dataclass
 class FanoutResponse:
@@ -86,38 +92,68 @@ def build_reducer_input(responses: list[FanoutResponse], instruction: str) -> st
     return "\n".join(parts)
 
 
-def substitute_response_vars(instruction: str, entries: list[FanoutResponse]) -> str:
-    """Replace ``$name`` tokens in ``instruction`` with actual response text.
+def substitute_env_vars(text: str, env: Env | None) -> str:
+    """Replace every ``$<name>`` in ``text`` via ``env.lookup(name)``.
 
-    SF-90: executor-level variable substitution. After the fan-out stage
-    produces N named responses, any ``$name`` reference in the reducer
-    instruction is replaced with the corresponding response text.
+    DEMO-006 (SF-149): read side of DEMO-005 bindings. Unknown names
+    are left literal — matches ``substitute_response_vars`` behaviour
+    so LLMs see surprising tokens as text rather than errors.
 
-    Only entries with a non-None ``name`` participate. Unnamed entries
-    are skipped. Unknown ``$name`` references (no matching entry) are
-    left as-is so the LLM sees them as literal text.
+    Non-string values are JSON-encoded (matches ``substitute_item``).
+    """
+    if not text or env is None:
+        return text
 
-    Distinct from frontend precompilation (``$prompt``, ``$reducer``)
-    which happens before the executor. Here we bind runtime results.
+    def _repl(match: re.Match) -> str:
+        name = match.group(1)
+        try:
+            value = env.lookup(name)
+        except KeyError:
+            return match.group(0)
+        return value if isinstance(value, str) else json.dumps(value)
 
-    Example::
+    return _NAME_REF_RE.sub(_repl, text)
 
-        entries = [
-            FanoutResponse(text="Four", name="claude"),
-            FanoutResponse(text="4", name="codex"),
-        ]
-        instruction = "Combine $claude and $codex into one answer"
-        → "Combine Four and 4 into one answer"
+
+def substitute_response_vars(
+    instruction: str,
+    entries: list[FanoutResponse],
+    env: Env | None = None,
+) -> str:
+    """Replace ``$name`` tokens in ``instruction`` with bound values.
+
+    SF-90 + DEMO-006 (SF-149): unified ``$<name>`` resolution.
+
+    Lookup order per token:
+
+    1. ``env.lookup(name)`` — DEMO-005 bindings (named scope frames)
+    2. Matching ``FanoutResponse.name`` in ``entries`` — legacy ensemble
+       fan-out behaviour
+    3. Leave the token literal — the LLM sees it as text
+
+    Step 3 is intentional. Existing tests rely on missing references
+    passing through unchanged. Non-string env values are JSON-encoded
+    (matches :func:`substitute_item`).
     """
     if not instruction:
         return instruction
 
-    for entry in entries:
-        if entry.name is not None:
-            var = f"${entry.name}"
-            if var in instruction:
-                instruction = instruction.replace(var, entry.text.strip())
-    return instruction
+    entry_map: dict[str, str] = {e.name: e.text.strip() for e in entries if e.name is not None}
+
+    def _repl(match: re.Match) -> str:
+        name = match.group(1)
+        if env is not None:
+            try:
+                value = env.lookup(name)
+            except KeyError:
+                pass
+            else:
+                return value if isinstance(value, str) else json.dumps(value)
+        if name in entry_map:
+            return entry_map[name]
+        return match.group(0)
+
+    return _NAME_REF_RE.sub(_repl, instruction)
 
 
 def split_collection_iteration(source_expr: str) -> tuple[str | None, str | None]:
@@ -162,32 +198,46 @@ def split_collection_iteration(source_expr: str) -> tuple[str | None, str | None
 
 
 def substitute_item(template: str, item_json: str) -> str:
-    """Replace ``$item`` / ``$item.field`` in ``template`` with values from ``item_json``.
+    """Replace ``$item`` / ``$item.a.b.c`` in ``template`` with values from ``item_json``.
 
-    - ``$item`` alone → the full item string.
-    - ``$item.field`` → the field value from a parsed JSON object. If
-      the item isn't a JSON object or the field doesn't exist, the
-      ``$item.field`` token is left as-is.
+    - ``$item`` alone → the full ``item_json`` string.
+    - ``$item.a.b.c`` (one or more segments) → walks the parsed JSON
+      dict recursively. If any intermediate value isn't a dict, or a
+      segment is missing, the whole ``$item.a.b.c`` token stays
+      literal. Terminal non-string values are JSON-encoded (matches
+      the original single-level behaviour).
     """
-    field_pattern = re.compile(r"\$item\.([a-zA-Z_][a-zA-Z0-9_]*)")
+    field_pattern = re.compile(r"\$item((?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)")
     parsed_item: dict | None = None
+    parse_attempted = False
+
+    def _ensure_parsed() -> None:
+        nonlocal parsed_item, parse_attempted
+        if parse_attempted:
+            return
+        parse_attempted = True
+        try:
+            loaded = json.loads(item_json)
+        except (json.JSONDecodeError, TypeError):
+            parsed_item = None
+            return
+        parsed_item = loaded if isinstance(loaded, dict) else None
 
     def _field_replacer(match: re.Match) -> str:
-        nonlocal parsed_item
+        _ensure_parsed()
         if parsed_item is None:
-            try:
-                parsed_item = json.loads(item_json)
-            except (json.JSONDecodeError, TypeError):
-                parsed_item = {}
-        field = match.group(1)
-        if isinstance(parsed_item, dict) and field in parsed_item:
-            val = parsed_item[field]
-            return val if isinstance(val, str) else json.dumps(val)
-        return match.group(0)  # unknown field — leave as-is
+            return match.group(0)
+        segments = match.group(1).split(".")[1:]  # drop the leading empty slot
+        cursor: object = parsed_item
+        for seg in segments:
+            if not isinstance(cursor, dict) or seg not in cursor:
+                return match.group(0)
+            cursor = cursor[seg]
+        return cursor if isinstance(cursor, str) else json.dumps(cursor)
 
     result = field_pattern.sub(_field_replacer, template)
 
-    # Bare ``$item`` (not followed by ``.<fieldname>``) substitution.
+    # Bare ``$item`` (not followed by ``.<identifier>``) substitution.
     bare_pattern = re.compile(r"\$item(?!\.[a-zA-Z_])")
     return bare_pattern.sub(item_json, result)
 
@@ -213,6 +263,7 @@ __all__ = [
     "_substitute_response_vars",
     "build_reducer_input",
     "split_collection_iteration",
+    "substitute_env_vars",
     "substitute_item",
     "substitute_response_vars",
 ]

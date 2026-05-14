@@ -14,6 +14,7 @@ from urllib.parse import quote, urlparse, urlunparse
 
 import httpx
 
+from screamingface.plugins.url4_executor.ensemble_helpers import substitute_env_vars
 from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4_ast import (
     Url4BackendCall,
@@ -40,7 +41,7 @@ async def resolve(node: Url4Node, app: Any = None, env: Env | None = None) -> st
     if env is None:
         env = Env.root()
     if isinstance(node, Url4Text):
-        return node.value
+        return substitute_env_vars(node.value, env)
     if isinstance(node, Url4Url):
         return await _fetch_url(node.value)
     if isinstance(node, Url4RelUrl):
