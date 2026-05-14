@@ -54,9 +54,7 @@ def _cache_script(source: str) -> Path:
         return target
     root.mkdir(parents=True, exist_ok=True)
     os.chmod(root, 0o700)
-    with tempfile.NamedTemporaryFile(
-        "w", dir=root, suffix=".py.tmp", delete=False
-    ) as tmp:
+    with tempfile.NamedTemporaryFile("w", dir=root, suffix=".py.tmp", delete=False) as tmp:
         tmp.write(source)
         tmp_path = tmp.name
     os.chmod(tmp_path, 0o600)
