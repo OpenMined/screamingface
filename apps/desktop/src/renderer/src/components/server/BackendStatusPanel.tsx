@@ -28,6 +28,7 @@ const backendLabels: Record<string, string> = {
   claude: 'Claude',
   codex: 'Codex',
   gemini: 'Gemini',
+  ollama: 'Ollama',
 };
 
 function AuthButton({
@@ -36,7 +37,7 @@ function AuthButton({
   cliCommand,
 }: {
   name: string;
-  authKind: 'cli' | 'browser';
+  authKind: 'cli' | 'browser' | 'import';
   cliCommand?: string;
 }) {
   const [waiting, setWaiting] = useState(false);
@@ -53,7 +54,8 @@ function AuthButton({
     );
   }
 
-  // browser
+  if (authKind === 'import') return null;
+
   return (
     <button
       disabled={waiting}
@@ -74,10 +76,12 @@ function AuthButton({
 
 function ProfileRow({
   backendName,
+  authKind,
   profile,
   onChanged,
 }: {
   backendName: string;
+  authKind: 'browser' | 'import';
   profile: BackendProfile;
   onChanged: () => void;
 }) {
@@ -89,13 +93,15 @@ function ProfileRow({
     setBusy(true);
     setError(null);
     try {
-      const result = await window.electronAPI.backends.authenticateOAuth(
-        backendName,
-        profile.name,
-      );
-      if (result.kind === 'failed') {
+      const result =
+        authKind === 'import'
+          ? await window.electronAPI.backends.importProfile(backendName, profile.name)
+          : await window.electronAPI.backends.authenticateOAuth(backendName, profile.name);
+      if ('kind' in result && result.kind === 'failed') {
         const reason = result.message ? `${result.reason}: ${result.message}` : result.reason;
         setError(`Re-auth failed — ${reason}`);
+      } else if ('ok' in result && !result.ok) {
+        setError(`Import failed — ${result.message ?? result.status ?? 'unknown error'}`);
       }
     } catch (e) {
       setError(`Re-auth failed — ${e instanceof Error ? e.message : String(e)}`);
@@ -150,7 +156,7 @@ function ProfileRow({
           onClick={onReauth}
           className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
         >
-          {busy ? 'Working…' : 'Re-authenticate'}
+          {busy ? 'Working…' : authKind === 'import' ? 'Refresh Import' : 'Re-authenticate'}
         </button>
         <button
           disabled={busy}
@@ -161,14 +167,12 @@ function ProfileRow({
           Delete
         </button>
       </div>
-      {error && (
-        <p className="basis-full text-xs text-destructive mt-1">{error}</p>
-      )}
+      {error && <p className="basis-full text-xs text-destructive mt-1">{error}</p>}
     </div>
   );
 }
 
-function ProfilesSubPanel({ name }: { name: string }) {
+function ProfilesSubPanel({ name, authKind }: { name: string; authKind: 'browser' | 'import' }) {
   const [profiles, setProfiles] = useState<BackendProfile[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -179,6 +183,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
   const [pasteCode, setPasteCode] = useState('');
   const [pasteBusy, setPasteBusy] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
+  const isImport = authKind === 'import';
 
   const refresh = useCallback(async () => {
     const result = await window.electronAPI.backends.listProfiles(name);
@@ -213,7 +218,9 @@ function ProfilesSubPanel({ name }: { name: string }) {
         setHasPendingAuth(false);
         await refresh();
       } else {
-        setPasteError(result.message ?? `Exchange failed${result.status ? ` (${result.status})` : ''}`);
+        setPasteError(
+          result.message ?? `Exchange failed${result.status ? ` (${result.status})` : ''}`,
+        );
       }
     } catch (err) {
       setPasteError(err instanceof Error ? err.message : String(err));
@@ -240,6 +247,28 @@ function ProfilesSubPanel({ name }: { name: string }) {
     }
     setSubmitting(true);
     setAddError(null);
+    if (isImport) {
+      void (async () => {
+        try {
+          const result = await window.electronAPI.backends.importProfile(name, candidate);
+          if (!result.ok) {
+            setAddError(
+              `Import failed for "${candidate}" — ${result.message ?? result.status ?? 'unknown error'}`,
+            );
+          }
+        } catch (err2) {
+          setAddError(
+            `Import failed for "${candidate}" — ${err2 instanceof Error ? err2.message : String(err2)}`,
+          );
+        } finally {
+          setSubmitting(false);
+          setAdding(false);
+          setNewName('');
+          void refresh();
+        }
+      })();
+      return;
+    }
     // Close the form immediately — the browser will open right away,
     // and the long-running poll happens in the background. We surface
     // any failure via panel-level addError, then refresh the list.
@@ -286,6 +315,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
         <ProfileRow
           key={p.id || p.name}
           backendName={name}
+          authKind={authKind}
           profile={p}
           onChanged={() => {
             void refresh();
@@ -328,14 +358,15 @@ function ProfilesSubPanel({ name }: { name: string }) {
         </form>
       ) : (
         <button
+          disabled={submitting}
           onClick={() => setAdding(true)}
           className="rounded bg-chart-1 px-2.5 py-1 text-xs font-semibold text-background hover:bg-chart-1/90 transition-colors mt-1"
         >
-          + Add Profile
+          {isImport ? 'Import Profile' : '+ Add Profile'}
         </button>
       )}
       {addError && <p className="text-xs text-destructive mt-1">{addError}</p>}
-      {hasPendingAuth && (
+      {!isImport && hasPendingAuth && (
         <form
           onSubmit={onPasteSubmit}
           className="flex items-center gap-2 py-1.5 mt-2 border-t border-border pt-2"
@@ -371,6 +402,8 @@ function BackendRow({ name, health }: { name: string; health: BackendHealth }) {
   const config = actionConfig[health.action] || actionConfig.degraded;
   const label = backendLabels[name] || name;
   const isBrowser = health.auth_kind === 'browser';
+  const isImport = health.auth_kind === 'import';
+  const hasProfiles = isBrowser || isImport;
 
   return (
     <div className="py-2">
@@ -406,7 +439,7 @@ function BackendRow({ name, health }: { name: string; health: BackendHealth }) {
            * Authenticate button is hidden to avoid two concurrent auth UIs.
            * CLI-mode backends keep the existing Re-authenticate button.
            */}
-          {!isBrowser && health.action === 'reauth' && (
+          {!hasProfiles && health.action === 'reauth' && (
             <AuthButton
               name={name}
               authKind={health.auth_kind ?? 'cli'}
@@ -415,7 +448,7 @@ function BackendRow({ name, health }: { name: string; health: BackendHealth }) {
           )}
         </div>
       </div>
-      {isBrowser && <ProfilesSubPanel name={name} />}
+      {hasProfiles && <ProfilesSubPanel name={name} authKind={isImport ? 'import' : 'browser'} />}
     </div>
   );
 }
@@ -442,25 +475,14 @@ export function BackendStatusPanel() {
     const unsubAlert = window.electronAPI.backends.onAlert((alert: BackendAlert) => {
       const label = backendLabels[alert.backend] || alert.backend;
       if (alert.type === 'reauth') {
-        toast({
-          variant: 'error',
-          title: `${label} needs re-authentication`,
-          description: alert.health.cli_command
-            ? `Run: ${alert.health.cli_command}`
-            : 'Check backend credentials',
-        });
+        const help = alert.health.cli_command
+          ? `Run: ${alert.health.cli_command}`
+          : 'Check backend credentials';
+        toast(`${label} needs re-authentication. ${help}`, 'error', 5000);
       } else if (alert.type === 'rate_limited') {
-        toast({
-          variant: 'warning',
-          title: `${label} rate limited`,
-          description: 'API rate budget exhausted. Will recover automatically.',
-        });
+        toast(`${label} rate limited. API rate budget exhausted.`, 'warning', 5000);
       } else if (alert.type === 'recovered') {
-        toast({
-          variant: 'success',
-          title: `${label} recovered`,
-          description: 'Backend is healthy again.',
-        });
+        toast(`${label} recovered. Backend is healthy again.`, 'success');
       }
     });
 

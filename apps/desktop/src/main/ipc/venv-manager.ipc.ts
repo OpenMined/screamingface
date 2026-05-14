@@ -1,6 +1,7 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
 import { venvManager } from '../services/venv-manager';
 import { log } from '../debug-log';
+import { broadcastToRenderers } from './broadcast';
 
 export function registerVenvHandlers(): void {
   ipcMain.handle('venv:detect', async () => {
@@ -29,14 +30,10 @@ export function registerVenvHandlers(): void {
   });
 
   venvManager.on('status', (status) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('venv:statusChanged', status);
-    }
+    broadcastToRenderers('venv:statusChanged', status);
   });
 
   venvManager.on('progress', (line) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('venv:progress', line);
-    }
+    broadcastToRenderers('venv:progress', line);
   });
 }

@@ -1,5 +1,5 @@
 import { spawn, execFile, execFileSync } from 'child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { EventEmitter } from 'events';
 import { app } from 'electron';
@@ -7,6 +7,7 @@ import { is } from '@electron-toolkit/utils';
 import { resolveUv } from './uv-resolver';
 import { configService } from './config-service';
 import { log } from '../debug-log';
+import { getUserDataPath } from '../user-data-path';
 
 export interface DiscoveredPlugin {
   state: 'enabled' | 'available';
@@ -27,7 +28,7 @@ class VenvManager extends EventEmitter {
   /** In production, uv commands run from userData (writable) instead of the read-only bundle. */
   private get projectDir(): string {
     if (!is.dev) {
-      return app.getPath('userData');
+      return getUserDataPath();
     }
     return this.serverDir;
   }
@@ -38,6 +39,24 @@ class VenvManager extends EventEmitter {
 
   private get pythonBin(): string {
     return join(this.venvDir, 'bin', 'python');
+  }
+
+  private get bundledPythonBin(): string | null {
+    if (is.dev) return null;
+    const bundledPython = join(process.resourcesPath, 'server', 'python', 'bin', 'python3.12');
+    return existsSync(bundledPython) ? bundledPython : null;
+  }
+
+  private get gatewayProjectDir(): string {
+    return join(getUserDataPath(), 'aigateway');
+  }
+
+  private get gatewayVenvDir(): string {
+    return join(this.gatewayProjectDir, '.venv');
+  }
+
+  private get gatewayPythonBin(): string {
+    return join(this.gatewayVenvDir, 'bin', 'python');
   }
 
   private setStatus(s: VenvStatus): void {
@@ -73,7 +92,7 @@ class VenvManager extends EventEmitter {
         const pyVer = execFileSync(this.pythonBin, ['--version'], { encoding: 'utf-8' });
         log(`[venv] python --version: ${pyVer.trim()}`);
         this.setStatus('ready');
-        const needsSync = this.needsResync();
+        const needsSync = this.needsResync() || (!is.dev && !existsSync(this.gatewayPythonBin));
         log(`[venv] needsResync=${needsSync}`);
         return { status: 'ready', uvFound: true, needsSync, autoBootstrap: false };
       } catch {
@@ -99,8 +118,8 @@ class VenvManager extends EventEmitter {
 
     // Use bundled Python interpreter in production
     if (!is.dev) {
-      const bundledPython = join(process.resourcesPath, 'server', 'python', 'bin', 'python3.12');
-      if (existsSync(bundledPython)) {
+      const bundledPython = this.bundledPythonBin;
+      if (bundledPython) {
         args.push('--python', bundledPython);
       }
     }
@@ -128,7 +147,7 @@ class VenvManager extends EventEmitter {
       this.copyProjectFiles();
 
       // Extract bundled wheel cache (async) and set up offline env vars
-      const cacheDir = join(app.getPath('userData'), 'uv-cache');
+      const cacheDir = join(getUserDataPath(), 'uv-cache');
       log(`[venv] sync: extracting cache to ${cacheDir}`);
       try {
         await this.extractCacheIfNeeded(cacheDir);
@@ -141,7 +160,11 @@ class VenvManager extends EventEmitter {
     }
 
     const args = [this.uvBin, 'sync'];
-    if (!is.dev) args.push('--no-install-project');
+    if (!is.dev) {
+      const bundledPython = this.bundledPythonBin;
+      if (bundledPython) args.push('--python', bundledPython);
+      args.push('--no-install-project');
+    }
     if (extra) args.push('--extra', extra);
 
     log(`[venv] sync: spawning ${args.join(' ')}`);
@@ -156,10 +179,16 @@ class VenvManager extends EventEmitter {
       const serverSrc = join(process.resourcesPath, 'server');
       const installArgs = [this.uvBin, 'pip', 'install', '--no-deps', serverSrc];
       log(`[venv] installing project from ${serverSrc}`);
-      const installOk = await this.runUvCommand(installArgs);
+      const installOk = await this.runUvCommand(installArgs, undefined, { suppressReady: true });
       log(`[venv] project install result=${installOk}`);
       if (!installOk) return false;
+
+      const gatewayOk = await this.syncGatewayProject(extraEnv);
+      log(`[venv] gateway project sync result=${gatewayOk}`);
+      if (!gatewayOk) return false;
+
       this.writeVersionStamp();
+      this.setStatus('ready');
     }
 
     return ok;
@@ -212,18 +241,18 @@ class VenvManager extends EventEmitter {
   private runUvCommand(
     args: string[],
     extraEnv?: Record<string, string>,
-    opts?: { suppressReady?: boolean },
+    opts?: { suppressReady?: boolean; cwd?: string; venvDir?: string },
   ): Promise<boolean> {
     return new Promise((resolve) => {
       const [cmd, ...rest] = args;
       const env: Record<string, string | undefined> = {
         ...process.env,
-        VIRTUAL_ENV: this.venvDir,
+        VIRTUAL_ENV: opts?.venvDir ?? this.venvDir,
         ...extraEnv,
       };
 
       const child = spawn(cmd, rest, {
-        cwd: this.projectDir,
+        cwd: opts?.cwd ?? this.projectDir,
         env,
       });
 
@@ -240,12 +269,14 @@ class VenvManager extends EventEmitter {
           if (!opts?.suppressReady) this.setStatus('ready');
           resolve(true);
         } else {
+          log(`[venv] command failed (${code}): ${cmd} ${rest.join(' ')}`);
           this.setStatus('error');
           resolve(false);
         }
       });
 
-      child.on('error', () => {
+      child.on('error', (err) => {
+        log(`[venv] command error: ${err.message}`);
         this.setStatus('error');
         resolve(false);
       });
@@ -254,7 +285,7 @@ class VenvManager extends EventEmitter {
 
   /** Copy pyproject.toml and uv.lock from the read-only bundle to writable userData. */
   private copyProjectFiles(): void {
-    const dest = app.getPath('userData');
+    const dest = getUserDataPath();
     for (const file of ['pyproject.toml', 'uv.lock']) {
       const src = join(process.resourcesPath, 'server', file);
       const dst = join(dest, file);
@@ -262,6 +293,46 @@ class VenvManager extends EventEmitter {
         copyFileSync(src, dst);
       }
     }
+  }
+
+  private async syncGatewayProject(extraEnv?: Record<string, string>): Promise<boolean> {
+    if (!this.uvBin) return false;
+    this.copyGatewayProjectFiles();
+
+    const syncArgs = [this.uvBin, 'sync'];
+    const bundledPython = this.bundledPythonBin;
+    if (bundledPython) syncArgs.push('--python', bundledPython);
+    syncArgs.push('--no-install-project');
+
+    const syncOk = await this.runUvCommand(syncArgs, extraEnv, {
+      suppressReady: true,
+      cwd: this.gatewayProjectDir,
+      venvDir: this.gatewayVenvDir,
+    });
+    if (!syncOk) return false;
+
+    return this.runUvCommand(
+      [this.uvBin, 'pip', 'install', '--no-deps', this.gatewayProjectDir],
+      undefined,
+      {
+        suppressReady: true,
+        cwd: this.gatewayProjectDir,
+        venvDir: this.gatewayVenvDir,
+      },
+    );
+  }
+
+  private copyGatewayProjectFiles(): void {
+    mkdirSync(this.gatewayProjectDir, { recursive: true });
+    const srcRoot = join(process.resourcesPath, 'aigateway');
+    for (const file of ['pyproject.toml', 'uv.lock']) {
+      const src = join(srcRoot, file);
+      const dst = join(this.gatewayProjectDir, file);
+      if (existsSync(src)) copyFileSync(src, dst);
+    }
+    const src = join(srcRoot, 'src');
+    const dst = join(this.gatewayProjectDir, 'src');
+    if (existsSync(src)) cpSync(src, dst, { recursive: true, force: true });
   }
 
   private extractCacheIfNeeded(cacheDir: string): Promise<void> {
@@ -281,7 +352,7 @@ class VenvManager extends EventEmitter {
   }
 
   private get versionStampPath(): string {
-    return join(app.getPath('userData'), '.sf-version');
+    return join(getUserDataPath(), '.sf-version');
   }
 
   private writeVersionStamp(): void {

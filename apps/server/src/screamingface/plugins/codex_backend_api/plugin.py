@@ -42,7 +42,7 @@ class CodexBackendApiPlugin(BackendApiPluginBase):
     )
     tags: list[str] = ["product:openai"]
     depends: list[str] = ["llm-base", "backend-api-base"]
-    conflicts: list[str] = []
+    conflicts: list[str] = ["aigw-codex-backend"]
     backend_call_paths: list[str] = ["/codex"]
     settings_class = CodexBackendApiSettings
 

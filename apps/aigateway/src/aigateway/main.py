@@ -4,7 +4,9 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import Settings
 from .core.auth.bootstrap_admin import ensure_admin_account
@@ -25,6 +27,32 @@ from .routes import accounts, auth, auth_session, chat, health, models
 logger = logging.getLogger(__name__)
 
 
+def _host_from_authority(authority: str) -> str:
+    authority = authority.strip().lower()
+    if authority.startswith("["):
+        end = authority.find("]")
+        return authority[1:end] if end != -1 else authority
+    return authority.split(":", 1)[0]
+
+
+class LoopbackOnlyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        host = _host_from_authority(request.headers.get("host", ""))
+        client = request.client.host if request.client else None
+        if host not in {"127.0.0.1", "localhost", "::1"} or client not in {
+            "127.0.0.1",
+            "::1",
+        }:
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "code": "loopback_only",
+                    "message": "gateway accepts loopback callers only in auth-disabled mode",
+                },
+            )
+        return await call_next(request)
+
+
 def _attach_log_filter() -> None:
     install_provisioning_token_redaction()
     for name in ("", "uvicorn.access", "uvicorn.error", "aigateway"):
@@ -39,6 +67,11 @@ def _attach_log_filter() -> None:
 @asynccontextmanager
 async def _lifespan(app):
     database_url = app.state.settings.database_url.get_secret_value()
+    env_database_url = os.environ.get("AIGATEWAY_DATABASE_URL")
+    if env_database_url and database_url != env_database_url:
+        raise RuntimeError(
+            "DB URL mismatch between env and Settings; migrations may have run on a different DB"
+        )
     await init_db(database_url)
     try:
         fake_store = getattr(app.state, "_fake_credential_store", None)
@@ -47,10 +80,11 @@ async def _lifespan(app):
             credential_store,
             app.state.settings.jwt_secret,
         )
-        admin = await ensure_admin_account(app.state.settings.admin_password)
-        bootstrap_account_id = (
-            str(admin.id) if app.state.settings.auth_enabled else str(ANONYMOUS_ACCOUNT_ID)
-        )
+        if app.state.settings.auth_enabled:
+            admin = await ensure_admin_account(app.state.settings.admin_password)
+            bootstrap_account_id = str(admin.id)
+        else:
+            bootstrap_account_id = str(ANONYMOUS_ACCOUNT_ID)
 
         # Auto-import of the developer's Claude Code keychain entry is opt-in.
         # By default the gateway boots with an empty profile index so the user
@@ -85,6 +119,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _attach_log_filter()
     app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
     app.state.settings = settings
+    if (
+        not settings.auth_enabled
+        and os.environ.get("AIGATEWAY_LOOPBACK_ONLY", "true").lower() == "true"
+    ):
+        app.add_middleware(LoopbackOnlyMiddleware)
 
     registry = ProviderRegistry()
     load_plugins(registry)

@@ -9,6 +9,7 @@ in docs/superpowers/specs/2026-05-07-aigw-backend-oauth-authenticate-button-desi
 from __future__ import annotations
 
 import json
+from typing import cast
 
 import httpx
 from fastapi import FastAPI
@@ -19,7 +20,7 @@ from screamingface.plugins.aigw_base.auth_proxy_router import (
 )
 
 
-def _make_client(handler, *, defaults=None) -> TestClient:
+def _make_client(handler, *, defaults=None, enabled_routes=None) -> TestClient:
     """Mount the auth-proxy router onto a stub app, with a MockTransport gateway."""
     transport = httpx.MockTransport(handler)
 
@@ -35,6 +36,7 @@ def _make_client(handler, *, defaults=None) -> TestClient:
             profile_name="default",
             http_client_factory=http_factory,
             defaults=defaults,
+            enabled_routes=enabled_routes,
         )
     )
     return TestClient(app)
@@ -389,3 +391,40 @@ def test_delete_profile_gateway_unreachable_becomes_502() -> None:
     resp = client.delete("/claude/auth/profiles/anything")
     assert resp.status_code == 502
     assert resp.json()["detail"]["code"] == "gateway_unreachable"
+
+
+def test_import_profile_forwards_to_gateway_import_route() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["method"] = req.method
+        captured["url"] = str(req.url)
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(201, json={"id": "anthropic:default", "state": "authenticated"})
+
+    client = _make_client(
+        handler,
+        defaults={"model": "anthropic/claude-sonnet-4-5"},
+        enabled_routes={"import"},
+    )
+    resp = client.post("/claude/auth/import")
+
+    assert resp.status_code == 201
+    assert captured["method"] == "POST"
+    assert captured["url"] == "http://gateway/v1/auth/anthropic/profiles/import"
+    assert captured["body"] == {
+        "name": "default",
+        "defaults": {"model": "anthropic/claude-sonnet-4-5"},
+    }
+
+
+def test_enabled_routes_omits_unsupported_oauth_routes() -> None:
+    client = _make_client(
+        lambda _req: httpx.Response(200, json={}),
+        enabled_routes={"status", "profiles", "delete", "import"},
+    )
+    paths = set(cast(FastAPI, client.app).openapi()["paths"])
+
+    assert "/claude/auth/import" in paths
+    assert "/claude/auth/start" not in paths
+    assert "/claude/auth/exchange-code" not in paths

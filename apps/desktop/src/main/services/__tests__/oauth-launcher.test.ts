@@ -26,10 +26,13 @@ describe('runOAuthLauncher', () => {
   it('opens the authorize URL and resolves on AUTHENTICATED status', async () => {
     const fetchMock = makeFetch([
       () =>
-        new Response(JSON.stringify({ authorize_url: 'https://x/authorize', state: 's1' }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({ authorize_url: 'https://claude.ai/oauth/authorize', state: 's1' }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
       () =>
         new Response(JSON.stringify({ state: 'pending' }), {
           status: 200,
@@ -50,17 +53,20 @@ describe('runOAuthLauncher', () => {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
 
-    expect(openExternal).toHaveBeenCalledWith('https://x/authorize');
+    expect(openExternal).toHaveBeenCalledWith('https://claude.ai/oauth/authorize');
     expect(result.kind).toBe('complete');
   });
 
   it('returns timeout when status never reaches authenticated', async () => {
     const fetchMock = makeFetch([
       () =>
-        new Response(JSON.stringify({ authorize_url: 'https://x/authorize', state: 's1' }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({ authorize_url: 'https://claude.ai/oauth/authorize', state: 's1' }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
       ...Array(20).fill(
         () =>
           new Response(JSON.stringify({ state: 'pending' }), {
@@ -84,10 +90,13 @@ describe('runOAuthLauncher', () => {
   it('short-circuits to provider_error when status is error', async () => {
     const fetchMock = makeFetch([
       () =>
-        new Response(JSON.stringify({ authorize_url: 'https://x/authorize', state: 's1' }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({ authorize_url: 'https://claude.ai/oauth/authorize', state: 's1' }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        ),
       () =>
         new Response(JSON.stringify({ state: 'error', error: 'bad code' }), {
           status: 200,
@@ -110,10 +119,13 @@ describe('runOAuthLauncher', () => {
     const fetchMock = vi.fn(async (url: string) => {
       calls.push(url);
       if (calls.length === 1) {
-        return new Response(JSON.stringify({ authorize_url: 'https://x/authorize', state: 's1' }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        });
+        return new Response(
+          JSON.stringify({ authorize_url: 'https://claude.ai/oauth/authorize', state: 's1' }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        );
       }
       return new Response(JSON.stringify({ state: 'authenticated' }), {
         status: 200,
@@ -152,5 +164,30 @@ describe('runOAuthLauncher', () => {
     expect(openExternal).not.toHaveBeenCalled();
     expect(result.kind).toBe('failed');
     if (result.kind === 'failed') expect(result.reason).toBe('gateway_error');
+  });
+
+  it('rejects unsafe authorize URLs before opening a browser', async () => {
+    const fetchMock = makeFetch([
+      () =>
+        new Response(JSON.stringify({ authorize_url: 'file:///tmp/steal', state: 's1' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    ]);
+
+    const result = await runOAuthLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'claude',
+      pollIntervalMs: 1,
+      timeoutMs: 5_000,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') {
+      expect(result.reason).toBe('gateway_error');
+      expect(result.message).toBe('authorize_url rejected');
+    }
   });
 });

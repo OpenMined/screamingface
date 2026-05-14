@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, Response
@@ -34,6 +34,10 @@ __all__ = ["build_aigw_auth_proxy_router"]
 
 
 HttpClientFactory = Callable[[float], httpx.AsyncClient]
+AuthProxyRoute = Literal["start", "status", "profiles", "exchange_code", "delete", "import"]
+_DEFAULT_ENABLED_ROUTES: frozenset[AuthProxyRoute] = frozenset(
+    {"start", "status", "profiles", "exchange_code", "delete"}
+)
 
 
 class _ExchangeCodeBody(BaseModel):
@@ -54,6 +58,7 @@ def build_aigw_auth_proxy_router(
     http_client_factory: HttpClientFactory | None = None,
     timeout_seconds: float = 10.0,
     defaults: dict[str, Any] | None = None,
+    enabled_routes: set[AuthProxyRoute] | frozenset[AuthProxyRoute] | None = None,
 ) -> APIRouter:
     """Build the SF-side proxy routes that drive the gateway OAuth flow.
 
@@ -70,154 +75,139 @@ def build_aigw_auth_proxy_router(
     router = APIRouter(tags=[f"{path_prefix.lstrip('/')}-auth"])
     base = gateway_url.rstrip("/")
     factory = http_client_factory or _default_http_factory
+    routes = enabled_routes or _DEFAULT_ENABLED_ROUTES
 
-    @router.post(f"{path_prefix}/auth/start")
-    async def start_auth(name: str | None = None) -> dict[str, Any]:
-        target = name or profile_name
-        url = f"{base}/v1/auth/{gateway_provider}/profiles"
-        body: dict[str, Any] = {"name": target}
-        # Forward SF-configured defaults only when creating the configured
-        # default profile. For other names we send no defaults.
-        if defaults and target == profile_name:
-            body["defaults"] = defaults
-        try:
-            async with factory(timeout_seconds) as client:
-                resp = await client.post(url, json=body)
-        except httpx.RequestError as exc:
-            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "code": "gateway_unreachable",
-                    "message": f"AI Gateway unreachable at {base}: {exc}",
-                },
-            ) from exc
+    if "start" in routes:
 
-        if resp.status_code >= 500:
-            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "gateway_error", "upstream_status": resp.status_code},
-            )
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
-        return resp.json()
+        @router.post(f"{path_prefix}/auth/start")
+        async def start_auth(name: str | None = None) -> dict[str, Any]:
+            target = name or profile_name
+            url = f"{base}/v1/auth/{gateway_provider}/profiles"
+            body = _profile_body(target, profile_name, defaults)
+            resp = await _post_json(url, body, base, factory, timeout_seconds)
+            return resp.json()
 
-    @router.get(f"{path_prefix}/auth/status")
-    async def auth_status(name: str | None = None) -> dict[str, Any]:
-        target = name or profile_name
-        url = f"{base}/v1/auth/{gateway_provider}/profiles/{target}/status"
-        try:
-            async with factory(timeout_seconds) as client:
-                resp = await client.get(url)
-        except httpx.RequestError as exc:
-            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "code": "gateway_unreachable",
-                    "message": f"AI Gateway unreachable at {base}: {exc}",
-                },
-            ) from exc
+    if "status" in routes:
 
-        if resp.status_code >= 500:
-            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "gateway_error", "upstream_status": resp.status_code},
-            )
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
-        return resp.json()
+        @router.get(f"{path_prefix}/auth/status")
+        async def auth_status(name: str | None = None) -> dict[str, Any]:
+            target = name or profile_name
+            url = f"{base}/v1/auth/{gateway_provider}/profiles/{target}/status"
+            resp = await _get_json(url, base, factory, timeout_seconds)
+            return resp.json()
 
-    @router.get(f"{path_prefix}/auth/profiles")
-    async def list_profiles() -> dict[str, Any]:
-        url = f"{base}/v1/auth/{gateway_provider}/profiles"
-        try:
-            async with factory(timeout_seconds) as client:
-                resp = await client.get(url)
-        except httpx.RequestError as exc:
-            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "code": "gateway_unreachable",
-                    "message": f"AI Gateway unreachable at {base}: {exc}",
-                },
-            ) from exc
+    if "profiles" in routes:
 
-        if resp.status_code >= 500:
-            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "gateway_error", "upstream_status": resp.status_code},
-            )
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
-        return resp.json()
+        @router.get(f"{path_prefix}/auth/profiles")
+        async def list_profiles() -> dict[str, Any]:
+            url = f"{base}/v1/auth/{gateway_provider}/profiles"
+            resp = await _get_json(url, base, factory, timeout_seconds)
+            return resp.json()
 
-    @router.post(f"{path_prefix}/auth/exchange-code")
-    async def exchange_code(body: _ExchangeCodeBody) -> dict[str, Any]:
-        """Forward a manually-pasted authorization code to the gateway.
+    if "import" in routes:
 
-        Used as a fallback when the OAuth provider displays the code on
-        screen (e.g. ``code=true``) instead of redirecting back. The
-        gateway looks up the matching pending entry by ``state``, so we
-        do not need to know which profile this targets.
-        """
-        url = f"{base}/v1/auth/{gateway_provider}/exchange-code"
-        try:
-            async with factory(timeout_seconds) as client:
-                resp = await client.post(url, json=body.model_dump())
-        except httpx.RequestError as exc:
-            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "code": "gateway_unreachable",
-                    "message": f"AI Gateway unreachable at {base}: {exc}",
-                },
-            ) from exc
+        @router.post(f"{path_prefix}/auth/import", status_code=201)
+        async def import_profile(name: str | None = None) -> dict[str, Any]:
+            target = name or profile_name
+            url = f"{base}/v1/auth/{gateway_provider}/profiles/import"
+            body = _profile_body(target, profile_name, defaults)
+            resp = await _post_json(url, body, base, factory, timeout_seconds)
+            return resp.json()
 
-        if resp.status_code >= 500:
-            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "gateway_error", "upstream_status": resp.status_code},
-            )
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
-        return resp.json()
+    if "exchange_code" in routes:
 
-    @router.delete(f"{path_prefix}/auth/profiles/{{name}}", status_code=204)
-    async def delete_profile(name: str) -> Response:
-        url = f"{base}/v1/auth/{gateway_provider}/profiles/{name}"
-        try:
-            async with factory(timeout_seconds) as client:
-                resp = await client.delete(url)
-        except httpx.RequestError as exc:
-            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "code": "gateway_unreachable",
-                    "message": f"AI Gateway unreachable at {base}: {exc}",
-                },
-            ) from exc
+        @router.post(f"{path_prefix}/auth/exchange-code")
+        async def exchange_code(body: _ExchangeCodeBody) -> dict[str, Any]:
+            """Forward a manually-pasted authorization code to the gateway.
 
-        if resp.status_code == 204:
+            Used as a fallback when the OAuth provider displays the code on
+            screen (e.g. ``code=true``) instead of redirecting back. The
+            gateway looks up the matching pending entry by ``state``, so we
+            do not need to know which profile this targets.
+            """
+            url = f"{base}/v1/auth/{gateway_provider}/exchange-code"
+            resp = await _post_json(url, body.model_dump(), base, factory, timeout_seconds)
+            return resp.json()
+
+    if "delete" in routes:
+
+        @router.delete(f"{path_prefix}/auth/profiles/{{name}}", status_code=204)
+        async def delete_profile(name: str) -> Response:
+            url = f"{base}/v1/auth/{gateway_provider}/profiles/{name}"
+            try:
+                async with factory(timeout_seconds) as client:
+                    resp = await client.delete(url)
+            except httpx.RequestError as exc:
+                raise _gateway_unreachable(base, exc)
+
+            if resp.status_code == 204:
+                return Response(status_code=204)
+            _raise_for_gateway_error(resp)
             return Response(status_code=204)
-        if resp.status_code >= 500:
-            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "gateway_error", "upstream_status": resp.status_code},
-            )
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
-        return Response(status_code=204)
 
     return router
+
+
+async def _post_json(
+    url: str,
+    body: dict[str, Any],
+    base: str,
+    factory: HttpClientFactory,
+    timeout_seconds: float,
+) -> httpx.Response:
+    try:
+        async with factory(timeout_seconds) as client:
+            resp = await client.post(url, json=body)
+    except httpx.RequestError as exc:
+        raise _gateway_unreachable(base, exc)
+    _raise_for_gateway_error(resp)
+    return resp
+
+
+async def _get_json(
+    url: str,
+    base: str,
+    factory: HttpClientFactory,
+    timeout_seconds: float,
+) -> httpx.Response:
+    try:
+        async with factory(timeout_seconds) as client:
+            resp = await client.get(url)
+    except httpx.RequestError as exc:
+        raise _gateway_unreachable(base, exc)
+    _raise_for_gateway_error(resp)
+    return resp
+
+
+def _profile_body(
+    target: str, profile_name: str, defaults: dict[str, Any] | None
+) -> dict[str, Any]:
+    body: dict[str, Any] = {"name": target}
+    if defaults and target == profile_name:
+        body["defaults"] = defaults
+    return body
+
+
+def _gateway_unreachable(base: str, exc: httpx.RequestError) -> HTTPException:
+    logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
+    return HTTPException(
+        status_code=502,
+        detail={
+            "code": "gateway_unreachable",
+            "message": f"AI Gateway unreachable at {base}: {exc}",
+        },
+    )
+
+
+def _raise_for_gateway_error(resp: httpx.Response) -> None:
+    if resp.status_code >= 500:
+        logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "gateway_error", "upstream_status": resp.status_code},
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
 
 
 def _safe_json(resp: httpx.Response) -> Any:

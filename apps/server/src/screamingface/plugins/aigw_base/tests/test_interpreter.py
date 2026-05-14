@@ -35,7 +35,9 @@ def _factory_returning(text: str):
 
 @pytest.mark.anyio
 async def test_process_combines_intent_and_sources() -> None:
-    backend = AigwBackend(http_client_factory=_factory_returning("answer"))
+    backend = AigwBackend(
+        gateway_provider="anthropic", http_client_factory=_factory_returning("answer")
+    )
     interp = AigwInterpreter(backend=backend)
     out = await interp.process(sources="cats are mammals", intent="what are cats?")
     assert out == "answer"
@@ -43,6 +45,6 @@ async def test_process_combines_intent_and_sources() -> None:
 
 @pytest.mark.anyio
 async def test_process_returns_empty_when_no_input() -> None:
-    backend = AigwBackend(http_client_factory=_factory_returning("X"))
+    backend = AigwBackend(gateway_provider="anthropic", http_client_factory=_factory_returning("X"))
     interp = AigwInterpreter(backend=backend)
     assert await interp.process(sources="", intent=None) == ""

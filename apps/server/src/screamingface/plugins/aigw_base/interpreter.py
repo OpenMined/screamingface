@@ -35,15 +35,9 @@ class AigwInterpreter(Url4Interpreter):
     ) -> None:
         super().__init__(app)
         self.settings = settings
-        if backend is not None:
-            self._backend = backend
-        elif settings is not None:
-            self._backend = AigwBackend(
-                gateway_url=settings.gateway_url,
-                profile_name=settings.auth_profile,
-            )
-        else:
-            self._backend = AigwBackend()
+        if backend is None:
+            raise ValueError("AigwInterpreter requires an AigwBackend with gateway_provider")
+        self._backend = backend
 
     async def process(self, sources: str, intent: str | None) -> str:
         combined = f"{intent}\n\n{sources}" if intent and sources else (intent or sources or "")

@@ -1,5 +1,6 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
 import { configService } from '../services/config-service';
+import { broadcastToRenderers } from './broadcast';
 
 export function registerConfigHandlers(): void {
   ipcMain.handle('config:read', () => {
@@ -11,9 +12,7 @@ export function registerConfigHandlers(): void {
   });
 
   configService.on('changed', (config) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('config:changed', config);
-    }
+    broadcastToRenderers('config:changed', config);
   });
 
   configService.watch();

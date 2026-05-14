@@ -1,5 +1,6 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
 import { sessionManager } from '../services/session-manager';
+import { broadcastToRenderers } from './broadcast';
 
 export function registerSessionHandlers(): void {
   ipcMain.handle('session:pickDir', () => {
@@ -8,7 +9,12 @@ export function registerSessionHandlers(): void {
 
   ipcMain.handle(
     'session:create',
-    (_event, type: string, workingDir: string, pluginConfig?: Record<string, Record<string, unknown>>) => {
+    (
+      _event,
+      type: string,
+      workingDir: string,
+      pluginConfig?: Record<string, Record<string, unknown>>,
+    ) => {
       return sessionManager.createSession(
         type as 'claude' | 'codex' | 'gemini' | 'claude-desktop',
         workingDir,
@@ -35,7 +41,12 @@ export function registerSessionHandlers(): void {
 
   ipcMain.handle(
     'session:update',
-    (_event, id: string, workingDir: string, pluginConfig?: Record<string, Record<string, unknown>>) => {
+    (
+      _event,
+      id: string,
+      workingDir: string,
+      pluginConfig?: Record<string, Record<string, unknown>>,
+    ) => {
       return sessionManager.updateSession(id, workingDir, pluginConfig);
     },
   );
@@ -46,14 +57,10 @@ export function registerSessionHandlers(): void {
 
   // Forward session state changes to all renderer windows
   sessionManager.on('sessionsChanged', (sessions) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('session:sessionsChanged', sessions);
-    }
+    broadcastToRenderers('session:sessionsChanged', sessions);
   });
 
   sessionManager.on('log', (id, line) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('session:log', id, line);
-    }
+    broadcastToRenderers('session:log', id, line);
   });
 }

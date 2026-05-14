@@ -17,7 +17,6 @@
     "llm-base",
     "frontend-base",
     "backend-api-base",
-    "codex-backend-api",
     "gemini-backend-api",
     "ollama-backend-api",
     "gemini-frontend",
@@ -25,6 +24,7 @@
     "ollama-frontend",
     "aigw-base",
     "aigw-claude-backend",
+    "aigw-codex-backend",
     "aigw-runner"
   ],
   "plugin_config": {

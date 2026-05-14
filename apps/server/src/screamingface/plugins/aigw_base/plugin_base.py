@@ -9,6 +9,7 @@ create_router) and inherit `_make_interpreter` here.
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
@@ -42,11 +43,17 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
 
     def _make_interpreter(self, app: FastAPI):
         settings = cast(AigwBackendApiSettingsBase, self.settings)
+        assert self.gateway_provider, f"{type(self).__name__} must declare gateway_provider"
         backend = AigwBackend(
             gateway_url=settings.gateway_url,
             profile_name=settings.auth_profile,
+            gateway_provider=self.gateway_provider,
         )
         return AigwInterpreter(app=app, settings=settings, backend=backend)
+
+    def setup(self, app: FastAPI, hooks, classes, routes) -> None:  # type: ignore[override]
+        _assert_loopback_sf_bind(app)
+        super().setup(app=app, hooks=hooks, classes=classes, routes=routes)
 
     # ------------------------------------------------------------------ #
     # Schema customization
@@ -151,3 +158,17 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
                 if isinstance(name, str) and name:
                     names.append(name)
         return names
+
+
+def _assert_loopback_sf_bind(app: FastAPI) -> None:
+    if os.environ.get("SF_AIGW_ALLOW_LAN") == "1":
+        return
+    config = getattr(app.state, "config", None)
+    server = getattr(config, "server", None)
+    host = getattr(server, "host", "127.0.0.1")
+    if host in {"127.0.0.1", "localhost", "::1"}:
+        return
+    raise RuntimeError(
+        "gateway-backed backends require SF to bind loopback only; "
+        "start with --host 127.0.0.1 or set SF_AIGW_ALLOW_LAN=1 to override"
+    )

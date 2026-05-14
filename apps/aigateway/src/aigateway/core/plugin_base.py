@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from .oauth_identity import AccountIdentity
+
 if TYPE_CHECKING:
     from .credential_store import CredentialStore
     from .profile_index import ProfileIndexStore
@@ -39,6 +41,9 @@ class OAuthStrategy(ABC):
 
     async def invalidate(self) -> None:
         """Drop any cached token. Called after a 401 from upstream."""
+
+    def extract_identity(self, token_response: dict) -> AccountIdentity | None:
+        return None
 
 
 @dataclass(frozen=True)

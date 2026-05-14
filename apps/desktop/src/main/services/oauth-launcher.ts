@@ -8,7 +8,7 @@
  *      or timeout.
  */
 
-import { shell } from 'electron';
+import { openAllowedExternalUrl } from './external-url';
 
 /**
  * In-memory cache of the most-recent OAuth `state` value per backend.
@@ -86,11 +86,17 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
     };
   }
   const startBody = (await startResp.json()) as { authorize_url: string; state?: string };
+  if (!(await openAllowedExternalUrl(startBody.authorize_url))) {
+    return {
+      kind: 'failed',
+      reason: 'gateway_error',
+      message: 'authorize_url rejected',
+    };
+  }
   if (startBody.state) {
     pendingStateByBackend.set(opts.backendName, startBody.state);
   }
   console.log(`[oauth-launcher] opening browser: ${startBody.authorize_url}`);
-  await shell.openExternal(startBody.authorize_url);
 
   const deadline = Date.now() + timeoutMs;
   let networkBlips = 0;

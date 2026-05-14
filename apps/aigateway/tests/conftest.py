@@ -41,6 +41,13 @@ def _fast_bcrypt(monkeypatch):
     passwords._dummy_hash = None
 
 
+@pytest.fixture(autouse=True)
+def _isolate_codex_home(tmp_path: Path, monkeypatch) -> None:
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir(exist_ok=True)
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+
+
 def _prepare_sqlite_db(database_url: str) -> None:
     async def _prepare() -> None:
         await Tortoise.close_connections()

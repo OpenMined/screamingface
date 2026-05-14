@@ -9,6 +9,7 @@ import { app, dialog, BrowserWindow } from 'electron';
 import { is } from '@electron-toolkit/utils';
 import { configService } from './config-service';
 import { backendStatusService } from './backend-status';
+import { getUserDataPath } from '../user-data-path';
 
 export type SessionStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
 export type SessionType = 'claude' | 'codex' | 'gemini' | 'claude-desktop';
@@ -52,14 +53,14 @@ class SessionManager extends EventEmitter {
 
   private get sfBin(): string {
     if (!is.dev) {
-      return join(app.getPath('userData'), '.venv', 'bin', 'sf');
+      return join(getUserDataPath(), '.venv', 'bin', 'sf');
     }
     return join(configService.serverDir, '.venv', 'bin', 'sf');
   }
 
   private get serverCwd(): string {
     if (!is.dev) {
-      return app.getPath('userData');
+      return getUserDataPath();
     }
     return configService.serverDir;
   }
@@ -195,13 +196,9 @@ class SessionManager extends EventEmitter {
         reload: false,
         ssl: false,
       },
-      plugins: [
-        'tracing',
-        'claude-frontend',
-        'url4-specs',
-      ],
+      plugins: ['tracing', 'claude-frontend', 'url4-specs'],
       plugin_config: {
-        'tracing': {
+        tracing: {
           ...(defaults['tracing'] || {}),
           phoenix_launch: false, // connect to shared Phoenix, don't spawn per-session
         },
@@ -220,8 +217,9 @@ class SessionManager extends EventEmitter {
           // configured port was busy (e.g. another local dev process held
           // it), and a stale backend_url makes /data 404 when the proxy
           // tries to store $prompt blobs.
-          backend_url: backendStatusService.getServerUrl()
-            ?? `${(config.server as Record<string, unknown>).ssl ? 'https' : 'http'}://127.0.0.1:${(config.server as Record<string, unknown>).port || 8000}`,
+          backend_url:
+            backendStatusService.getServerUrl() ??
+            `${(config.server as Record<string, unknown>).ssl ? 'https' : 'http'}://127.0.0.1:${(config.server as Record<string, unknown>).port || 8000}`,
         },
         'url4-specs': defaults['url4-specs'] || {},
       },
@@ -230,8 +228,10 @@ class SessionManager extends EventEmitter {
     const args = [
       'run',
       '--subprocess',
-      '--session-id', session.id,
-      '--config-json', JSON.stringify(proxyConfig),
+      '--session-id',
+      session.id,
+      '--config-json',
+      JSON.stringify(proxyConfig),
     ];
 
     return new Promise<void>((resolve, reject) => {
@@ -291,11 +291,16 @@ class SessionManager extends EventEmitter {
 
   private cliCommand(type: SessionType): string {
     switch (type) {
-      case 'claude': return 'claude';
-      case 'codex': return 'codex';
-      case 'gemini': return 'gemini';
-      case 'claude-desktop': return 'claude';
-      default: return 'claude';
+      case 'claude':
+        return 'claude';
+      case 'codex':
+        return 'codex';
+      case 'gemini':
+        return 'gemini';
+      case 'claude-desktop':
+        return 'claude';
+      default:
+        return 'claude';
     }
   }
 
@@ -383,14 +388,28 @@ end tell`;
         const pid = parseInt(readFileSync(pidPath, 'utf-8').trim(), 10);
         if (!isNaN(pid)) {
           this.emit('log', session.id, `Killing CLI process (PID ${pid})`);
-          try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ }
+          try {
+            process.kill(pid, 'SIGTERM');
+          } catch {
+            /* already dead */
+          }
 
           // Wait then force-kill
           await new Promise((r) => setTimeout(r, 2000));
-          try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            /* already dead */
+          }
         }
-      } catch { /* read/parse failed */ }
-      try { unlinkSync(pidPath); } catch { /* */ }
+      } catch {
+        /* read/parse failed */
+      }
+      try {
+        unlinkSync(pidPath);
+      } catch {
+        /* */
+      }
     } else {
       this.emit('log', session.id, 'No PID file found — CLI may need manual close');
     }
@@ -418,7 +437,11 @@ end tell`;
 
     // 3. Clean up temp script
     if (session.scriptPath) {
-      try { unlinkSync(session.scriptPath); } catch { /* */ }
+      try {
+        unlinkSync(session.scriptPath);
+      } catch {
+        /* */
+      }
       session.scriptPath = null;
     }
   }
@@ -438,7 +461,11 @@ end tell`;
       session.proxy.kill('SIGTERM');
       await new Promise<void>((resolve) => {
         const timer = setTimeout(() => {
-          try { session.proxy?.kill('SIGKILL'); } catch { /* */ }
+          try {
+            session.proxy?.kill('SIGKILL');
+          } catch {
+            /* */
+          }
           resolve();
         }, 5000);
         session.proxy!.once('close', () => {

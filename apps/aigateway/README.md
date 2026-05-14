@@ -42,6 +42,14 @@ Protected endpoints then run as an anonymous account with ID
 this mode for shared or hosted deployments. OAuth profiles created in this mode
 are scoped to the anonymous account.
 
+### Codex Desktop MVP persistence
+
+The packaged Desktop Codex MVP is macOS-only for now. Codex OAuth tokens remain
+file-authoritative in `${CODEX_HOME:-~/.codex}/auth.json`; the gateway stores
+only profile-index metadata in the macOS Keychain. Linux and Windows packaged
+Codex import require a follow-up Desktop-local profile-index metadata store so
+profile listing/import works without `secret-tool` or `python-keyring`.
+
 User provisioning is intentionally separate from JWT auth. Set
 `AIGATEWAY_PROVISIONING_TOKEN` to enable `POST /v1/accounts`:
 

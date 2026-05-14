@@ -126,6 +126,9 @@ def _classify_auth_kind(plugin: Any) -> str:
     - ``"cli"``     — spawn a terminal running the plugin's CLI auth
       command (the historical claude/codex/gemini path).
     """
+    explicit = getattr(plugin, "auth_kind", None)
+    if explicit:
+        return explicit
     if getattr(plugin, "gateway_provider", None):
         return "browser"
     return "cli"

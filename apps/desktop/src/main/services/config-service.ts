@@ -1,8 +1,17 @@
-import { readFileSync, writeFileSync, copyFileSync, existsSync, watchFile, unwatchFile } from 'fs';
+import {
+  readFileSync,
+  writeFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  watchFile,
+  unwatchFile,
+} from 'fs';
 import { join, resolve } from 'path';
 import { EventEmitter } from 'events';
 import { app } from 'electron';
 import { is } from '@electron-toolkit/utils';
+import { getUserDataPath } from '../user-data-path';
 
 function resolveServerDir(): string {
   if (!is.dev) {
@@ -17,7 +26,9 @@ function resolveServerDir(): string {
 function resolveConfigPath(serverDir: string): string {
   if (!is.dev) {
     // Production: config lives in writable user data directory
-    const userDataConfig = join(app.getPath('userData'), 'sf.json');
+    const userDataDir = getUserDataPath();
+    mkdirSync(userDataDir, { recursive: true });
+    const userDataConfig = join(userDataDir, 'sf.json');
     if (!existsSync(userDataConfig)) {
       const templatePath = join(serverDir, 'sf.json');
       if (existsSync(templatePath)) {
@@ -42,6 +53,9 @@ class ConfigService extends EventEmitter {
     SERVER_DIR = resolveServerDir();
     CONFIG_PATH = resolveConfigPath(SERVER_DIR);
     this.configPath = CONFIG_PATH;
+    if (!is.dev) {
+      this.migrateDesktopGatewayCodexConfig();
+    }
   }
 
   get serverDir(): string {
@@ -82,6 +96,44 @@ class ConfigService extends EventEmitter {
 
   getConfigPath(): string {
     return this.configPath;
+  }
+
+  private migrateDesktopGatewayCodexConfig(): void {
+    const config = this.read();
+    const plugins = Array.isArray(config.plugins) ? [...config.plugins] : [];
+    const nextPlugins = plugins
+      .filter((plugin): plugin is string => typeof plugin === 'string')
+      .filter((plugin) => plugin !== 'codex-backend-api');
+
+    for (const required of ['aigw-runner', 'aigw-base', 'aigw-codex-backend']) {
+      if (!nextPlugins.includes(required)) nextPlugins.push(required);
+    }
+
+    const pluginConfig =
+      config.plugin_config && typeof config.plugin_config === 'object'
+        ? { ...(config.plugin_config as Record<string, Record<string, unknown>>) }
+        : {};
+    const gatewayDir = join(getUserDataPath(), 'aigateway');
+    const runnerConfig = pluginConfig['aigw-runner'] ?? {};
+    const startupTimeout = runnerConfig.startup_timeout_seconds;
+    pluginConfig['aigw-runner'] = {
+      ...runnerConfig,
+      aigateway_dir: gatewayDir,
+      database_path: join(gatewayDir, 'aigateway.db'),
+      auth_enabled: false,
+      startup_timeout_seconds:
+        typeof startupTimeout === 'number' && startupTimeout >= 60 ? startupTimeout : 60,
+    };
+
+    const migrated = {
+      ...config,
+      plugins: nextPlugins,
+      plugin_config: pluginConfig,
+    };
+
+    if (JSON.stringify(migrated) !== JSON.stringify(config)) {
+      this.write(migrated);
+    }
   }
 }
 

@@ -89,6 +89,10 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
         )
 
     body = _apply_defaults(body, profile.defaults)
+    if provider == "codex":
+        reasoning_effort = body.pop("reasoning_effort", None)
+        if reasoning_effort is not None and "reasoning" not in body:
+            body["reasoning"] = {"effort": reasoning_effort}
 
     strategy = plugin.oauth_strategy_for(credential_name_for(account_id, profile_name))
     if strategy is not None:
@@ -119,6 +123,12 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
             merged = dict(body.get("extra_headers") or {})
             merged.update(headers)
             body["extra_headers"] = merged
+
+    if body.get("stream") and provider == "codex":
+        raise HTTPException(
+            status_code=501,
+            detail={"code": "streaming_not_supported", "provider": "codex"},
+        )
 
     if body.get("stream"):
         return StreamingResponse(_stream(body), media_type="text/event-stream")

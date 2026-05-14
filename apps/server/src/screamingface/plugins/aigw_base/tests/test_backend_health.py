@@ -21,6 +21,7 @@ def _backend(handler) -> AigwBackend:
     return AigwBackend(
         gateway_url="http://gateway",
         profile_name="default",
+        gateway_provider="anthropic",
         http_client_factory=factory,
     )
 

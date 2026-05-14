@@ -24,6 +24,14 @@ def test_auth_kind_browser_when_plugin_has_gateway_provider() -> None:
     assert _classify_auth_kind(_BrowserPlugin) == "browser"
 
 
+def test_auth_kind_prefers_explicit_plugin_auth_kind() -> None:
+    class _ImportPlugin:
+        gateway_provider = "codex"
+        auth_kind = "import"
+
+    assert _classify_auth_kind(_ImportPlugin) == "import"
+
+
 def test_auth_kind_cli_when_plugin_lacks_gateway_provider() -> None:
     assert _classify_auth_kind(_CliPlugin) == "cli"
 

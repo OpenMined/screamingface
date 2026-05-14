@@ -21,9 +21,8 @@ class TestPluginMetadata:
     def test_depends_on_backend_api_base(self):
         assert "backend-api-base" in CodexBackendApiPlugin.depends
 
-    def test_no_conflicts(self):
-        # codex-backend-api coexists with claude-backend-api
-        assert CodexBackendApiPlugin.conflicts == []
+    def test_conflicts_with_gateway_codex_backend(self):
+        assert CodexBackendApiPlugin.conflicts == ["aigw-codex-backend"]
 
     def test_backend_call_paths(self):
         assert CodexBackendApiPlugin.backend_call_paths == ["/codex"]

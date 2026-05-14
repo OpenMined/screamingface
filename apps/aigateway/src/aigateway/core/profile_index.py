@@ -15,12 +15,18 @@ _INDEX_ACCOUNT = "default"  # one keychain entry holds account-scoped profile me
 class ProfileIndexStore:
     """Read/write the `aigateway:index` keychain entry under an asyncio.Lock."""
 
-    def __init__(self, credential_store: CredentialStore | None = None) -> None:
+    def __init__(
+        self,
+        credential_store: CredentialStore | None = None,
+        *,
+        service: str = INDEX_KEYCHAIN_SERVICE,
+    ) -> None:
         self._store = credential_store or get_credential_store()
+        self._service = service
         self._lock = asyncio.Lock()
 
     async def read(self) -> ProfileIndex:
-        raw = await asyncio.to_thread(self._store.read, INDEX_KEYCHAIN_SERVICE, _INDEX_ACCOUNT)
+        raw = await asyncio.to_thread(self._store.read, self._service, _INDEX_ACCOUNT)
         if raw is None:
             return ProfileIndex()
         return ProfileIndex.model_validate_json(raw)
@@ -33,7 +39,7 @@ class ProfileIndexStore:
             idx.profiles = [p for p in idx.profiles if p.id != profile.id] + [profile]
             await asyncio.to_thread(
                 self._store.write,
-                INDEX_KEYCHAIN_SERVICE,
+                self._service,
                 _INDEX_ACCOUNT,
                 idx.model_dump_json(),
             )
@@ -44,7 +50,7 @@ class ProfileIndexStore:
             idx.profiles = [p for p in idx.profiles if p.id != profile_id]
             await asyncio.to_thread(
                 self._store.write,
-                INDEX_KEYCHAIN_SERVICE,
+                self._service,
                 _INDEX_ACCOUNT,
                 idx.model_dump_json(),
             )

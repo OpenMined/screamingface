@@ -61,6 +61,7 @@ async def test_handle_backend_call_returns_assistant_text() -> None:
     backend = AigwBackend(
         gateway_url=plugin.settings.gateway_url,
         profile_name=plugin.settings.auth_profile,
+        gateway_provider="anthropic",
         http_client_factory=factory,
     )
     interpreter = AigwInterpreter(app=None, settings=plugin.settings, backend=backend)

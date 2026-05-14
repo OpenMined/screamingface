@@ -50,7 +50,7 @@ class AigwBackend(Backend):
         *,
         gateway_url: str = "http://127.0.0.1:9105",
         profile_name: str = "default",
-        gateway_provider: str = "anthropic",
+        gateway_provider: str,
         http_client_factory=None,
     ) -> None:
         self._gateway_url = gateway_url.rstrip("/")

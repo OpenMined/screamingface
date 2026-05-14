@@ -54,7 +54,7 @@ export interface BackendHealth {
   action: BackendAction;
   cli_command?: string | null;
   help_text?: string | null;
-  auth_kind?: 'cli' | 'browser';
+  auth_kind?: 'cli' | 'browser' | 'import';
 }
 
 export type BackendStatusMap = Record<string, BackendHealth>;
@@ -85,6 +85,8 @@ export interface DeleteProfileResult {
   ok: boolean;
   status?: number;
 }
+
+export type ImportProfileResult = { ok: true } | { ok: false; status?: number; message?: string };
 
 export type ExchangeOAuthCodeResult =
   | { ok: true }
@@ -149,6 +151,7 @@ export interface ElectronAPI {
     authenticate: (backend: string) => Promise<void>;
     authenticateOAuth: (backend: string, profileName?: string) => Promise<OAuthLauncherResult>;
     listProfiles: (backend: string) => Promise<ListProfilesResult>;
+    importProfile: (backend: string, profileName?: string) => Promise<ImportProfileResult>;
     deleteProfile: (backend: string, profileName: string) => Promise<DeleteProfileResult>;
     getPendingAuthState: (backend: string) => Promise<string | null>;
     exchangeOAuthCode: (backend: string, code: string) => Promise<ExchangeOAuthCodeResult>;

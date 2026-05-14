@@ -6,7 +6,7 @@ import importlib
 import importlib.metadata
 import logging
 import pkgutil
-from typing import Any
+from typing import Any, cast
 
 from screamingface.plugin import Plugin
 
@@ -39,13 +39,10 @@ class PluginRegistry:
                     continue
                 for attr in dir(mod):
                     cls = getattr(mod, attr)
-                    if (
-                        isinstance(cls, type)
-                        and issubclass(cls, Plugin)
-                        and cls is not Plugin
-                        and cls.name
-                    ):
-                        self._discovered[cls.name] = cls
+                    if isinstance(cls, type) and issubclass(cls, Plugin) and cls is not Plugin:
+                        plugin_cls = cast(type[Plugin], cls)
+                        if plugin_cls.name:
+                            self._discovered[plugin_cls.name] = plugin_cls
         except ImportError:
             logger.debug("No screamingface.plugins package found")
 
@@ -115,7 +112,11 @@ class PluginRegistry:
             logger.warning("Plugin %r skipped: %s", plugin.name, reason)
             return
 
-        plugin.setup(**kwargs)
+        try:
+            plugin.setup(**kwargs)
+        except Exception as exc:
+            logger.warning("Plugin %r skipped: setup failed - %s", plugin.name, exc)
+            return
         self._active[plugin.name] = plugin
         logger.info("Activated plugin: %s v%s", plugin.name, plugin.version)
 

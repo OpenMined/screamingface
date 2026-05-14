@@ -411,7 +411,7 @@ def test_exchange_code_with_unknown_state_400(client_with_index) -> None:
     assert resp.json()["detail"]["code"] == "unknown_state"
 
 
-def test_exchange_code_with_provider_mismatch_400(client_with_index) -> None:
+def test_exchange_code_with_unknown_provider_404(client_with_index) -> None:
     client, _ = client_with_index
     start = client.post("/v1/auth/anthropic/profiles", json={"name": "mismatch"})
 
@@ -419,8 +419,8 @@ def test_exchange_code_with_provider_mismatch_400(client_with_index) -> None:
         "/v1/auth/ghost/exchange-code",
         json={"code": "x", "state": start.json()["state"]},
     )
-    assert resp.status_code == 400
-    assert resp.json()["detail"]["code"] == "provider_mismatch"
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "unknown_provider"
 
 
 def test_exchange_code_with_other_accounts_state_404(

@@ -4,6 +4,8 @@ import { is } from '@electron-toolkit/utils';
 import { registerAllHandlers } from './ipc';
 import { log } from './debug-log';
 import { sessionManager } from './services/session-manager';
+import { isAllowedExternalUrl } from './services/external-url';
+import { setMainWindow } from './window-registry';
 
 let mainWindow: BrowserWindow | null = null;
 let phoenixWindow: BrowserWindow | null = null;
@@ -22,22 +24,24 @@ function createWindow(): void {
       sandbox: false,
     },
   });
+  setMainWindow(mainWindow);
 
   log(`[main] BrowserWindow created`);
 
   mainWindow.on('ready-to-show', () => {
     log(`[main] ready-to-show`);
     mainWindow?.show();
-    // Temporary: open DevTools in production to diagnose Finder-launch black screen
-    mainWindow?.webContents.openDevTools({ mode: 'detach' });
   });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    setMainWindow(null);
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isAllowedExternalUrl(url)) {
+      shell.openExternal(url);
+    }
     return { action: 'deny' };
   });
 
@@ -139,7 +143,3 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
-
-export function getMainWindow(): BrowserWindow | null {
-  return mainWindow;
-}

@@ -50,7 +50,7 @@ class ClaudeBackendApiPlugin(BackendApiPluginBase):
     )
     tags: list[str] = ["product:claude"]
     depends: list[str] = ["llm-base", "backend-api-base"]
-    conflicts: list[str] = []
+    conflicts: list[str] = ["aigw-claude-backend"]
     backend_call_paths: list[str] = ["/claude"]
     settings_class = ClaudeBackendApiSettings
 

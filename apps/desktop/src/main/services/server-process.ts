@@ -4,9 +4,11 @@ import { EventEmitter } from 'events';
 import { promisify } from 'util';
 import https from 'https';
 import http from 'http';
-import { app } from 'electron';
 import { is } from '@electron-toolkit/utils';
 import { configService } from './config-service';
+import { resolveUv } from './uv-resolver';
+import { getUserDataPath } from '../user-data-path';
+import { log } from '../debug-log';
 
 const execFileAsync = promisify(execFileCb);
 
@@ -40,7 +42,7 @@ class ServerProcess extends EventEmitter {
 
   private get sfBin(): string {
     if (!is.dev) {
-      return join(app.getPath('userData'), '.venv', 'bin', 'sf');
+      return join(getUserDataPath(), '.venv', 'bin', 'sf');
     }
     return join(this.serverDir, '.venv', 'bin', 'sf');
   }
@@ -48,12 +50,33 @@ class ServerProcess extends EventEmitter {
   /** Writable directory used as cwd when spawning the server. */
   private get serverCwd(): string {
     if (!is.dev) {
-      return app.getPath('userData');
+      return getUserDataPath();
     }
     return this.serverDir;
   }
 
+  private get gatewayProjectDir(): string {
+    return join(getUserDataPath(), 'aigateway');
+  }
+
+  private get gatewayDatabasePath(): string {
+    return join(this.gatewayProjectDir, 'aigateway.db');
+  }
+
+  private serverEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    if (!is.dev) {
+      env.SF_AIGW_RUNNER__AIGATEWAY_DIR = this.gatewayProjectDir;
+      env.SF_AIGW_RUNNER__DATABASE_PATH = this.gatewayDatabasePath;
+      env.SF_AIGW_RUNNER__AUTH_ENABLED = 'false';
+      const uvBin = resolveUv();
+      if (uvBin) env.SF_AIGW_RUNNER__UV_BIN = uvBin;
+    }
+    return env;
+  }
+
   private setStatus(s: ServerStatus): void {
+    log(`[server] status: ${this.status} -> ${s}`);
     this.status = s;
     this.emit('status', s);
   }
@@ -108,7 +131,9 @@ class ServerProcess extends EventEmitter {
 
     const config = configService.read();
     const configJson = JSON.stringify(config);
-    const args = ['run', '--subprocess', '--config-json', configJson];
+    const args = ['run', '--subprocess', '--config-json', configJson, '--host', '127.0.0.1'];
+    const env = this.serverEnv();
+    log(`[server] start: sfBin=${this.sfBin} cwd=${this.serverCwd}`);
 
     // If a plugin requires root and we're not already root, elevate via sudo
     const elevate = this.needsRoot() && process.getuid?.() !== 0;
@@ -125,7 +150,7 @@ class ServerProcess extends EventEmitter {
       // Use sudo -S to read password from stdin; stdout/stderr stream normally
       child = spawn('sudo', ['-S', this.sfBin, ...args], {
         cwd: this.serverCwd,
-        env: { ...process.env },
+        env,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -134,7 +159,7 @@ class ServerProcess extends EventEmitter {
     } else {
       child = spawn(this.sfBin, args, {
         cwd: this.serverCwd,
-        env: { ...process.env },
+        env,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     }
@@ -144,15 +169,18 @@ class ServerProcess extends EventEmitter {
     child.stdout!.on('data', (data: Buffer) => {
       const lines = data.toString().split('\n').filter(Boolean);
       for (const line of lines) {
+        log(`[server:stdout] ${line}`);
         this.handleStdoutLine(line);
       }
     });
 
     child.stderr!.on('data', (data: Buffer) => {
+      log(`[server:stderr] ${data.toString().trimEnd()}`);
       this.emit('log', data.toString());
     });
 
     child.on('close', (code, signal) => {
+      log(`[server] child close code=${code} signal=${signal}`);
       this.stopHealthCheck();
       this.child = null;
       this.readyInfo = null;

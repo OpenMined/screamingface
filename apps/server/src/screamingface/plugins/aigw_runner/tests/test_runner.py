@@ -81,9 +81,14 @@ def test_setup_spawns_subprocess_and_registers_hooks(fake_aigw_dir: Path) -> Non
     with (
         patch("shutil.which", return_value="/usr/local/bin/uv"),
         patch(
+            "screamingface.plugins.aigw_runner.plugin.subprocess.run",
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+        ) as mock_run,
+        patch(
             "screamingface.plugins.aigw_runner.plugin.subprocess.Popen",
             return_value=fake_proc,
-        ),
+        ) as mock_popen,
+        patch("screamingface.plugins.aigw_runner.plugin._wait_for_health", return_value=True),
         patch("screamingface.plugins.aigw_runner.plugin.atexit.register") as mock_atexit,
         patch("screamingface.plugins.aigw_runner.plugin.threading.Thread") as mock_thread,
     ):
@@ -96,6 +101,23 @@ def test_setup_spawns_subprocess_and_registers_hooks(fake_aigw_dir: Path) -> Non
     assert register_args.args[0] == "app.shutdown"
     mock_atexit.assert_called_once()
     mock_thread.assert_called_once()
+    assert mock_run.call_args.args[0][:5] == [
+        "/usr/local/bin/uv",
+        "run",
+        "--directory",
+        str(fake_aigw_dir),
+        "python",
+    ]
+    assert mock_popen.call_args.args[0][:4] == [
+        "/usr/local/bin/uv",
+        "run",
+        "--directory",
+        str(fake_aigw_dir),
+    ]
+    popen_env = mock_popen.call_args.kwargs["env"]
+    assert popen_env["AIGATEWAY_AUTH_ENABLED"] == "false"
+    assert popen_env["AIGATEWAY_DATABASE_URL"].startswith("sqlite://")
+    assert "VIRTUAL_ENV" not in popen_env
 
 
 def test_setup_raises_if_subprocess_exits_immediately(fake_aigw_dir: Path) -> None:
@@ -110,13 +132,44 @@ def test_setup_raises_if_subprocess_exits_immediately(fake_aigw_dir: Path) -> No
     with (
         patch("shutil.which", return_value="/usr/local/bin/uv"),
         patch(
+            "screamingface.plugins.aigw_runner.plugin.subprocess.run",
+            return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+        ),
+        patch(
             "screamingface.plugins.aigw_runner.plugin.subprocess.Popen",
             return_value=fake_proc,
         ),
+        patch("screamingface.plugins.aigw_runner.plugin._wait_for_health", return_value=False),
     ):
         plugin.preflight()
         with pytest.raises(RuntimeError, match="exited immediately"):
             plugin.setup(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+
+def test_setup_raises_if_migrations_fail(fake_aigw_dir: Path) -> None:
+    plugin = _make_plugin(fake_aigw_dir)
+
+    with (
+        patch("shutil.which", return_value="/usr/local/bin/uv"),
+        patch(
+            "screamingface.plugins.aigw_runner.plugin.subprocess.run",
+            return_value=subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="out", stderr="migration boom"
+            ),
+        ),
+    ):
+        plugin.preflight()
+        with pytest.raises(RuntimeError, match="migrations failed"):
+            plugin.setup(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+
+def test_explicit_uv_bin_is_used(fake_aigw_dir: Path) -> None:
+    plugin = _make_plugin(fake_aigw_dir, uv_bin="/opt/sf/bin/uv")
+
+    ok, reason = plugin.preflight()
+
+    assert ok, reason
+    assert plugin._uv_bin == "/opt/sf/bin/uv"
 
 
 def test_stop_terminates_process(fake_aigw_dir: Path) -> None:

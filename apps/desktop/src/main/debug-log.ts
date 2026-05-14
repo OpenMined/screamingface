@@ -1,11 +1,13 @@
-import { appendFileSync, writeFileSync } from 'fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { app } from 'electron';
+import { getUserDataPath } from './user-data-path';
 
-const debugLogPath = join(app.getPath('userData'), 'debug.log');
+const debugLogDir = getUserDataPath();
+const debugLogPath = join(debugLogDir, 'debug.log');
 
 // Truncate on each app launch
 try {
+  mkdirSync(debugLogDir, { recursive: true });
   writeFileSync(debugLogPath, `=== ScreamingFace launch ${new Date().toISOString()} ===\n`);
 } catch {}
 

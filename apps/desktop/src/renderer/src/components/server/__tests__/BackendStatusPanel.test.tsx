@@ -9,9 +9,11 @@ const onStatusChanged = vi.fn(() => () => {});
 const onAlert = vi.fn(() => () => {});
 const refresh = vi.fn();
 const listProfiles = vi.fn(async () => ({ profiles: [] }));
+const importProfile = vi.fn(async () => ({ ok: true }));
 const deleteProfile = vi.fn(async () => ({ ok: true }));
 const getPendingAuthState = vi.fn(async (): Promise<string | null> => null);
 const exchangeOAuthCode = vi.fn(async () => ({ ok: true }) as { ok: boolean; message?: string });
+const toastMock = vi.hoisted(() => vi.fn());
 
 (window as unknown as { electronAPI: unknown }).electronAPI = {
   backends: {
@@ -22,6 +24,7 @@ const exchangeOAuthCode = vi.fn(async () => ({ ok: true }) as { ok: boolean; mes
     onAlert,
     refresh,
     listProfiles,
+    importProfile,
     deleteProfile,
     getPendingAuthState,
     exchangeOAuthCode,
@@ -30,7 +33,7 @@ const exchangeOAuthCode = vi.fn(async () => ({ ok: true }) as { ok: boolean; mes
 
 // Stub the toast hook used by the component to avoid pulling in providers.
 vi.mock('@/hooks/use-toast', () => ({
-  useToast: () => ({ toast: vi.fn() }),
+  useToast: () => ({ toast: toastMock }),
 }));
 
 // Stub cn util to a trivial implementation (it's just classname concat).
@@ -50,12 +53,15 @@ beforeEach(() => {
   authenticateOAuth.mockImplementation(async () => ({ kind: 'complete' }));
   listProfiles.mockClear();
   listProfiles.mockResolvedValue({ profiles: [] });
+  importProfile.mockClear();
+  importProfile.mockResolvedValue({ ok: true });
   deleteProfile.mockClear();
   deleteProfile.mockResolvedValue({ ok: true });
   getPendingAuthState.mockClear();
   getPendingAuthState.mockResolvedValue(null);
   exchangeOAuthCode.mockClear();
   exchangeOAuthCode.mockResolvedValue({ ok: true });
+  toastMock.mockClear();
   getStatus.mockResolvedValue({
     claude: {
       authenticated: false,
@@ -69,6 +75,31 @@ beforeEach(() => {
 });
 
 describe('BackendStatusPanel auth_kind=browser sub-panel', () => {
+  it('formats backend alerts for the app toast API', async () => {
+    render(<BackendStatusPanel />);
+    await waitFor(() => expect(onAlert).toHaveBeenCalled());
+
+    const callback = onAlert.mock.calls[0][0];
+    callback({
+      backend: 'claude',
+      type: 'reauth',
+      health: {
+        authenticated: false,
+        action: 'reauth',
+        auth_kind: 'browser',
+        cli_command: null,
+        help_text: 'Sign in via browser',
+        model: 'anthropic/claude-sonnet-4-5',
+      },
+    });
+
+    expect(toastMock).toHaveBeenCalledWith(
+      'Claude needs re-authentication. Check backend credentials',
+      'error',
+      5000,
+    );
+  });
+
   it('renders all profiles returned by listProfiles', async () => {
     listProfiles.mockResolvedValue({
       profiles: [
@@ -140,6 +171,31 @@ describe('BackendStatusPanel auth_kind=browser sub-panel', () => {
     fireEvent.change(input, { target: { value: 'work' } });
     fireEvent.click(screen.getByRole('button', { name: /Confirm/i }));
     await waitFor(() => expect(authenticateOAuth).toHaveBeenCalledWith('claude', 'work'));
+  });
+});
+
+describe('BackendStatusPanel auth_kind=import', () => {
+  it('uses import-specific add-profile flow and imports the named profile', async () => {
+    getStatus.mockResolvedValue({
+      codex: {
+        authenticated: false,
+        action: 'reauth',
+        auth_kind: 'import',
+        cli_command: null,
+        help_text: 'Import Codex login',
+        model: 'codex/gpt-5.4-mini',
+      },
+    });
+
+    render(<BackendStatusPanel />);
+    const button = await screen.findByRole('button', { name: /Import Profile/i });
+    fireEvent.click(button);
+    const input = screen.getByPlaceholderText(/profile name/i);
+    fireEvent.change(input, { target: { value: 'work' } });
+    fireEvent.click(screen.getByRole('button', { name: /Confirm/i }));
+
+    await waitFor(() => expect(importProfile).toHaveBeenCalledWith('codex', 'work'));
+    expect(authenticateOAuth).not.toHaveBeenCalled();
   });
 });
 

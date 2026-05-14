@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth_pkce import generate_pkce, generate_state
 from ..core.pending_auth import PendingAuthEntry
 from ..core.profile_index import ProfileIndexStore
@@ -258,6 +259,11 @@ async def exchange_code(
     authorization code on screen instead of redirecting (e.g. claude.ai/oauth
     with `code=true`).
     """
+    plugin = _registry(request).get(provider)
+    if plugin is None:
+        raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
+    if plugin.oauth_config() is None:
+        raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
     await _complete_oauth(provider, body.code, body.state, request, str(current.id))
     return {"state": "authenticated"}
 
@@ -334,5 +340,20 @@ async def refresh_profile(
     strategy = plugin.oauth_strategy_for(credential_name_for(account_id, name))
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
-    await strategy.refresh()
+    try:
+        await strategy.refresh()
+    except CredentialNotFoundError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "auth_required", "message": str(exc)},
+        ) from exc
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "auth_required",
+                "message": str(exc),
+                "reauth_url": f"/v1/auth/{provider}/profiles/{name}",
+            },
+        ) from exc
     return p.model_dump(mode="json")

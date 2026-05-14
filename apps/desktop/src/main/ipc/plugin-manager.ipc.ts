@@ -1,6 +1,7 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
 import { pluginRegistry } from '../services/plugin-registry';
 import { venvManager } from '../services/venv-manager';
+import { broadcastToRenderers } from './broadcast';
 
 export function registerPluginHandlers(): void {
   ipcMain.handle('plugins:list', () => {
@@ -33,8 +34,6 @@ export function registerPluginHandlers(): void {
 
   pluginRegistry.on('changed', () => {
     const plugins = pluginRegistry.list();
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('plugins:changed', plugins);
-    }
+    broadcastToRenderers('plugins:changed', plugins);
   });
 }

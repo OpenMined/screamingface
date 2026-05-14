@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
 import { backendStatusService } from '../services/backend-status';
 import {
   runOAuthLauncher,
@@ -6,27 +6,32 @@ import {
   clearPendingAuthState,
   type LauncherResult,
 } from '../services/oauth-launcher';
+import { runImportProfile, type ImportProfileResult } from '../services/codex-import-launcher';
+import { assertValidSender } from './validate-sender';
+import { broadcastToRenderers } from './broadcast';
 
-export type ExchangeCodeResult =
-  | { ok: true }
-  | { ok: false; status?: number; message?: string };
+export type ExchangeCodeResult = { ok: true } | { ok: false; status?: number; message?: string };
 
 export function registerBackendStatusHandlers(): void {
-  ipcMain.handle('backends:getStatus', () => {
+  ipcMain.handle('backends:getStatus', (event) => {
+    assertValidSender(event.senderFrame);
     return backendStatusService.getStatus();
   });
 
-  ipcMain.handle('backends:refresh', () => {
+  ipcMain.handle('backends:refresh', (event) => {
+    assertValidSender(event.senderFrame);
     return backendStatusService.refresh();
   });
 
-  ipcMain.handle('backends:authenticate', (_event, backend: string) => {
+  ipcMain.handle('backends:authenticate', (event, backend: string) => {
+    assertValidSender(event.senderFrame);
     backendStatusService.authenticate(backend);
   });
 
   ipcMain.handle(
     'backends:authenticateOAuth',
-    async (_event, backend: string, profileName?: string): Promise<LauncherResult> => {
+    async (event, backend: string, profileName?: string): Promise<LauncherResult> => {
+      assertValidSender(event.senderFrame);
       const sfBaseUrl = backendStatusService.getServerUrl();
       console.log(
         `[oauth] authenticateOAuth invoked: backend=${backend} profileName=${profileName ?? '(default)'} sfBaseUrl=${sfBaseUrl ?? 'NULL'}`,
@@ -44,13 +49,15 @@ export function registerBackendStatusHandlers(): void {
     },
   );
 
-  ipcMain.handle('backends:getPendingAuthState', (_event, backend: string): string | null => {
+  ipcMain.handle('backends:getPendingAuthState', (event, backend: string): string | null => {
+    assertValidSender(event.senderFrame);
     return getPendingAuthState(backend);
   });
 
   ipcMain.handle(
     'backends:exchangeOAuthCode',
-    async (_event, backend: string, code: string): Promise<ExchangeCodeResult> => {
+    async (event, backend: string, code: string): Promise<ExchangeCodeResult> => {
+      assertValidSender(event.senderFrame);
       const sfBaseUrl = backendStatusService.getServerUrl();
       if (!sfBaseUrl) {
         return { ok: false, message: 'SF server is not running' };
@@ -83,7 +90,8 @@ export function registerBackendStatusHandlers(): void {
     },
   );
 
-  ipcMain.handle('backends:listProfiles', async (_event, backend: string) => {
+  ipcMain.handle('backends:listProfiles', async (event, backend: string) => {
+    assertValidSender(event.senderFrame);
     const sfBaseUrl = backendStatusService.getServerUrl();
     if (!sfBaseUrl) {
       return { profiles: [], error: 'gateway_unreachable' };
@@ -100,37 +108,41 @@ export function registerBackendStatusHandlers(): void {
     }
   });
 
+  ipcMain.handle('backends:deleteProfile', async (event, backend: string, profileName: string) => {
+    assertValidSender(event.senderFrame);
+    const sfBaseUrl = backendStatusService.getServerUrl();
+    if (!sfBaseUrl) {
+      return { ok: false, status: 0 };
+    }
+    try {
+      const resp = await fetch(
+        `${sfBaseUrl}/${backend}/auth/profiles/${encodeURIComponent(profileName)}`,
+        { method: 'DELETE' },
+      );
+      if (resp.status === 204) return { ok: true };
+      return { ok: false, status: resp.status };
+    } catch {
+      return { ok: false, status: 0 };
+    }
+  });
+
   ipcMain.handle(
-    'backends:deleteProfile',
-    async (_event, backend: string, profileName: string) => {
+    'backends:importProfile',
+    async (event, backend: string, profileName?: string): Promise<ImportProfileResult> => {
+      assertValidSender(event.senderFrame);
       const sfBaseUrl = backendStatusService.getServerUrl();
-      if (!sfBaseUrl) {
-        return { ok: false, status: 0 };
-      }
-      try {
-        const resp = await fetch(
-          `${sfBaseUrl}/${backend}/auth/profiles/${encodeURIComponent(profileName)}`,
-          { method: 'DELETE' },
-        );
-        if (resp.status === 204) return { ok: true };
-        return { ok: false, status: resp.status };
-      } catch {
-        return { ok: false, status: 0 };
-      }
+      if (!sfBaseUrl) return { ok: false, message: 'SF server is not running' };
+      return runImportProfile({ sfBaseUrl, backendName: backend, profileName });
     },
   );
 
   // Forward status changes to all renderer windows
   backendStatusService.on('statusChanged', (status) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('backends:statusChanged', status);
-    }
+    broadcastToRenderers('backends:statusChanged', status);
   });
 
   // Forward alerts (state transitions) to all renderer windows
   backendStatusService.on('alert', (alert) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('backends:alert', alert);
-    }
+    broadcastToRenderers('backends:alert', alert);
   });
 }

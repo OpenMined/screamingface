@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { app } from 'electron';
 import { EventEmitter } from 'events';
 import { net } from 'electron';
+import { getUserDataPath } from '../user-data-path';
 
 export interface PluginManifest {
   id: string;
@@ -27,7 +27,7 @@ class PluginRegistryService extends EventEmitter {
   private getPath(): string {
     if (!this.pluginsPath) {
       try {
-        this.pluginsPath = join(app.getPath('userData'), 'plugins.json');
+        this.pluginsPath = join(getUserDataPath(), 'plugins.json');
       } catch {
         this.pluginsPath = join(process.cwd(), 'plugins.json');
       }
@@ -108,7 +108,9 @@ class PluginRegistryService extends EventEmitter {
 
     // Validate minimum required fields
     if (!data.id || !data.name || !data.version || !data.exposedModule) {
-      throw new Error('Invalid remote entry: missing required fields (id, name, version, exposedModule)');
+      throw new Error(
+        'Invalid remote entry: missing required fields (id, name, version, exposedModule)',
+      );
     }
 
     return {

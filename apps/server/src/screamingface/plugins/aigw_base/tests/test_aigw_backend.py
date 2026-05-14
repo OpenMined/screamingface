@@ -58,6 +58,7 @@ async def test_happy_path_extracts_text() -> None:
     backend = AigwBackend(
         gateway_url="http://127.0.0.1:9105",
         profile_name="default",
+        gateway_provider="anthropic",
         http_client_factory=_factory(httpx.MockTransport(handler)),
     )
     result = await backend.run(
@@ -85,7 +86,9 @@ async def test_string_content_passes_through() -> None:
     def handler(_req: httpx.Request) -> httpx.Response:
         return _ok_response("ok")
 
-    backend = AigwBackend(http_client_factory=_factory(httpx.MockTransport(handler)))
+    backend = AigwBackend(
+        gateway_provider="anthropic", http_client_factory=_factory(httpx.MockTransport(handler))
+    )
     await backend.run(
         [CoreMessage(role="user", content="bare string")],
         model="anthropic/claude-haiku-4-5",
@@ -101,7 +104,9 @@ async def test_404_profile_not_found_maps_to_credential_not_found() -> None:
         )
 
     backend = AigwBackend(
-        profile_name="x", http_client_factory=_factory(httpx.MockTransport(handler))
+        profile_name="x",
+        gateway_provider="anthropic",
+        http_client_factory=_factory(httpx.MockTransport(handler)),
     )
     with pytest.raises(CredentialNotFoundError, match="not found"):
         await backend.run(
@@ -115,7 +120,9 @@ async def test_409_pending_auth_maps_to_auth_error() -> None:
     def handler(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(409, json={"detail": {"code": "profile_pending_auth"}})
 
-    backend = AigwBackend(http_client_factory=_factory(httpx.MockTransport(handler)))
+    backend = AigwBackend(
+        gateway_provider="anthropic", http_client_factory=_factory(httpx.MockTransport(handler))
+    )
     with pytest.raises(AuthError, match="awaiting OAuth"):
         await backend.run(
             [CoreMessage(role="user", content="hi")],
@@ -131,7 +138,9 @@ async def test_401_auth_required_maps_to_auth_error() -> None:
             json={"detail": {"code": "auth_required", "message": "refresh failed"}},
         )
 
-    backend = AigwBackend(http_client_factory=_factory(httpx.MockTransport(handler)))
+    backend = AigwBackend(
+        gateway_provider="anthropic", http_client_factory=_factory(httpx.MockTransport(handler))
+    )
     with pytest.raises(AuthError, match="refresh failed"):
         await backend.run(
             [CoreMessage(role="user", content="hi")],
@@ -144,7 +153,9 @@ async def test_500_raises_aigw_gateway_error() -> None:
     def handler(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(500, text="boom")
 
-    backend = AigwBackend(http_client_factory=_factory(httpx.MockTransport(handler)))
+    backend = AigwBackend(
+        gateway_provider="anthropic", http_client_factory=_factory(httpx.MockTransport(handler))
+    )
     with pytest.raises(AigwGatewayError):
         await backend.run(
             [CoreMessage(role="user", content="hi")],
@@ -157,7 +168,9 @@ async def test_unreachable_raises_backend_error() -> None:
     def handler(_req: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
-    backend = AigwBackend(http_client_factory=_factory(httpx.MockTransport(handler)))
+    backend = AigwBackend(
+        gateway_provider="anthropic", http_client_factory=_factory(httpx.MockTransport(handler))
+    )
     with pytest.raises(BackendError, match="unreachable"):
         await backend.run(
             [CoreMessage(role="user", content="hi")],

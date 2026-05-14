@@ -1,8 +1,10 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain } from 'electron';
 import https from 'https';
 import http from 'http';
 import { serverProcess } from '../services/server-process';
 import { backendStatusService } from '../services/backend-status';
+import { assertValidSender } from './validate-sender';
+import { broadcastToRenderers } from './broadcast';
 
 interface FetchInit {
   method?: string;
@@ -42,24 +44,32 @@ function nodeFetch(url: string, init?: FetchInit): Promise<{ status: number; bod
 }
 
 export function registerServerHandlers(): void {
-  ipcMain.handle('server:start', () => {
+  ipcMain.handle('server:start', (event) => {
+    assertValidSender(event.senderFrame);
     return serverProcess.start();
   });
 
-  ipcMain.handle('server:stop', () => {
+  ipcMain.handle('server:stop', (event) => {
+    assertValidSender(event.senderFrame);
     return serverProcess.stop();
   });
 
-  ipcMain.handle('server:restart', () => {
+  ipcMain.handle('server:restart', (event) => {
+    assertValidSender(event.senderFrame);
     return serverProcess.restart();
   });
 
-  ipcMain.handle('server:getStatus', () => {
+  ipcMain.handle('server:getStatus', (event) => {
+    assertValidSender(event.senderFrame);
     return serverProcess.getStatus();
   });
 
   // Proxy fetch through main process to bypass self-signed cert issues
-  ipcMain.handle('server:fetch', async (_event, url: string, init?: FetchInit) => {
+  ipcMain.handle('server:fetch', async (event, url: string, init?: FetchInit) => {
+    assertValidSender(event.senderFrame);
+    if (!isAllowedServerFetchUrl(url)) {
+      return { ok: false, status: 403, body: '' };
+    }
     try {
       const { status, body } = await nodeFetch(url, init);
       return { ok: status >= 200 && status < 300, status, body };
@@ -70,9 +80,7 @@ export function registerServerHandlers(): void {
 
   // Forward log and status events to all renderer windows
   serverProcess.on('status', (status) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('server:statusChanged', status);
-    }
+    broadcastToRenderers('server:statusChanged', status);
 
     // Start/stop backend status polling based on server state
     if (status === 'ready') {
@@ -87,8 +95,19 @@ export function registerServerHandlers(): void {
   });
 
   serverProcess.on('log', (line) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('server:log', line);
-    }
+    broadcastToRenderers('server:log', line);
   });
+}
+
+function isAllowedServerFetchUrl(url: string): boolean {
+  const serverUrl = backendStatusService.getServerUrl();
+  if (!serverUrl) return false;
+  try {
+    const parsed = new URL(url);
+    const server = new URL(serverUrl);
+    if (parsed.origin !== server.origin) return false;
+    return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
 }
