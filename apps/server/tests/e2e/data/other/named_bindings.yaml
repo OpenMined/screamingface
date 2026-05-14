@@ -46,3 +46,22 @@
   expression: "claude:0.40:/nonexistent()!hi"
   expect:
     status: 502
+
+# DEMO-006 (SF-149): $<name> reference resolution through Env.
+- id: sibling_text_reads_eq_binding
+  description: "(x=hi, see $x) — sibling text resolves $x via env from the bound sibling"
+  ticket: SF-149
+  backends: []
+  expression: "(x=hi, see $x)"
+  expect:
+    status: 200
+    contains_all: ["hi", "see hi"]
+
+- id: sibling_text_reads_colon_binding
+  description: "(group:(a, b), reduce $group) — sibling reads the joined group via env"
+  ticket: SF-149
+  backends: []
+  expression: "(group:(a, b), reduce $group)"
+  expect:
+    status: 200
+    contains_all: ["a", "b", "reduce a"]

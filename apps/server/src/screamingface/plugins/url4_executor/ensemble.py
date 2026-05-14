@@ -268,7 +268,9 @@ class EnsembleInterpreter(Url4Interpreter):
                 for item, resp in zip(items, responses, strict=True)
             ]
 
-            reducer_instruction = substitute_response_vars(reducer_instruction, response_entries)
+            reducer_instruction = substitute_response_vars(
+                reducer_instruction, response_entries, env=env
+            )
             reducer_input = build_reducer_input(response_entries, reducer_instruction)
             set_span_attrs({"url4.ensemble.reducer_input_length": len(reducer_input)})
 
