@@ -5,6 +5,7 @@ read the token here — only check that the keychain entry exists. Reading
 the token is reserved for the aigateway, which holds the only legitimate
 need-to-know.
 """
+
 from __future__ import annotations
 
 import os
