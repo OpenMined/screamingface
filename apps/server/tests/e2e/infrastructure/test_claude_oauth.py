@@ -34,3 +34,18 @@ def test_returns_false_on_timeout(monkeypatch) -> None:
         "subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="security", timeout=3)
     ):
         assert has_claude_code_oauth() is False
+
+
+def test_conftest_uses_keychain_probe(monkeypatch) -> None:
+    """The e2e_live skip reason must reference OAuth, not ANTHROPIC_API_KEY."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "should-be-ignored")
+    from unittest.mock import patch as _patch
+
+    with _patch(
+        "tests.e2e.infrastructure.claude_oauth.has_claude_code_oauth", return_value=False
+    ):
+        from tests.e2e import conftest as ce2e
+        import inspect
+        src = inspect.getsource(ce2e.pytest_collection_modifyitems)
+        assert "ANTHROPIC_API_KEY" not in src
+        assert "Claude Code" in src or "has_claude_code_oauth" in src
