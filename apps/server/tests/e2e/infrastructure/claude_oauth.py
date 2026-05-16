@@ -2,8 +2,9 @@
 
 Used by the e2e suite to gate live-Anthropic tests. We deliberately do NOT
 read the token here — only check that the keychain entry exists. Reading
-the token is reserved for the aigateway, which holds the only legitimate
-need-to-know.
+the token is reserved for production code paths that need to call Anthropic
+directly (currently the aigateway) and for the test-only helper
+`claude_oauth_token.py` which emulates a Claude Code client.
 """
 
 from __future__ import annotations
