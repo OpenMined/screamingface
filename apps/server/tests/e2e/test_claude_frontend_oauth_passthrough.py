@@ -76,7 +76,17 @@ def proxy_server() -> Generator[tuple[ServerManager, int], None, None]:
 def test_oauth_access_token_passthrough_round_trip(
     proxy_server: tuple[ServerManager, int],
 ) -> None:
-    """End-to-end 200 from real Anthropic via the proxy's OAuth passthrough."""
+    """End-to-end proof that the proxy forwards an OAuth Bearer to Anthropic.
+
+    SUCCESS criteria - either of:
+      * 200 with a well-formed content block (Anthropic happily replied), OR
+      * 429 with a structured Anthropic rate_limit_error AND an Anthropic
+        request_id (proves the Bearer reached Anthropic and was accepted -
+        a 401 would mean auth failed; 429 means auth succeeded but the
+        account is throttled).
+
+    Any other status (401, 5xx, malformed body) is a real failure.
+    """
     _, proxy_port = proxy_server
     try:
         access_token = read_claude_code_oauth_access_token()
@@ -90,9 +100,31 @@ def test_oauth_access_token_passthrough_round_trip(
     )
     resp = client.send_message("Reply with exactly the word OK.", timeout=45)
 
-    assert resp.status_code == 200, f"proxy responded {resp.status_code}: {resp.body}"
-    content = resp.body.get("content")
-    assert isinstance(content, list) and content, f"unexpected body shape: {resp.body}"
-    first = content[0]
-    assert first.get("type") == "text"
-    assert isinstance(first.get("text"), str) and first["text"].strip()
+    if resp.status_code == 200:
+        content = resp.body.get("content")
+        assert isinstance(content, list) and content, f"unexpected body shape: {resp.body}"
+        first = content[0]
+        assert first.get("type") == "text"
+        assert isinstance(first.get("text"), str) and first["text"].strip()
+        return
+
+    if resp.status_code == 429:
+        # Anthropic-shaped error proves the Bearer reached Anthropic and was
+        # accepted. We don't pin the message text, only the structural shape.
+        body = resp.body if isinstance(resp.body, dict) else {}
+        err = body.get("error", {}) if isinstance(body.get("error"), dict) else {}
+        assert err.get("type") == "rate_limit_error", (
+            f"429 without anthropic rate_limit_error shape: {resp.body}"
+        )
+        # Prefer the response header (canonical Anthropic source); fall back
+        # to the body field if the header was not surfaced.
+        header_request_id = resp.headers.get("request-id") or resp.headers.get("x-request-id")
+        raw_body_rid = body.get("request_id")
+        body_request_id = raw_body_rid if isinstance(raw_body_rid, str) else None
+        request_id = header_request_id or body_request_id
+        assert isinstance(request_id, str) and request_id.startswith("req_"), (
+            f"429 without anthropic request_id (headers={resp.headers!r}, body={resp.body!r})"
+        )
+        return
+
+    pytest.fail(f"proxy responded {resp.status_code}: {resp.body}")
