@@ -181,10 +181,6 @@ def create_router(
             value = request.headers.get(key)
             if value:
                 headers[key] = value
-        if "x-api-key" not in headers and "authorization" not in headers:
-            api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-            if api_key:
-                headers["x-api-key"] = api_key
         return headers
 
     @router.post("/v1/messages", response_model=None, operation_id="proxy_messages")

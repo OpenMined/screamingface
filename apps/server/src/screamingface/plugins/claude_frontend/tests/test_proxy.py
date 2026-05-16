@@ -74,8 +74,16 @@ def test_proxy_forwards_headers(proxy_client: TestClient) -> None:
     assert sent_headers["anthropic-beta"] == "messages-2024-01-01"
 
 
-def test_proxy_auth_fallback(proxy_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-from-env")
+def test_proxy_does_not_inject_env_api_key(
+    proxy_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ANTHROPIC_API_KEY must NOT be auto-forwarded as x-api-key.
+
+    All Anthropic auth flows through the Claude Code OAuth path served by
+    aigateway. If a client sends no auth header, the proxy MUST NOT silently
+    paper over it with an env var.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-be-ignored")
     mock_response = httpx.Response(200, json={"id": "msg_789"})
 
     with patch(
@@ -84,9 +92,9 @@ def test_proxy_auth_fallback(proxy_client: TestClient, monkeypatch: pytest.Monke
         proxy_client.post(
             "/v1/messages",
             json={"model": "claude-sonnet-4-20250514", "messages": []},
-            # No x-api-key or authorization header
         )
 
     call_kwargs = mock_post.call_args
     sent_headers = call_kwargs.kwargs.get("headers") or call_kwargs[1].get("headers", {})
-    assert sent_headers["x-api-key"] == "sk-from-env"
+    assert "x-api-key" not in sent_headers
+    assert "authorization" not in sent_headers

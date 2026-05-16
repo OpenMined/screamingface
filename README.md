@@ -70,17 +70,15 @@ All config lives in `apps/server/sf.json`:
   "plugins": ["claude-frontend", "claude-env-intercept", "tracing", "url4-executor"],
   "plugin_config": {
     "claude-frontend": {
-      "upstream_url": "https://api.anthropic.com",
-      "api_key_env": "ANTHROPIC_API_KEY"
+      "upstream_url": "https://api.anthropic.com"
     }
   }
 }
 ```
 
-Set your Anthropic key so the proxy can forward requests:
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
+Anthropic auth flows through the Claude Code OAuth token stored in the macOS
+keychain (service `Claude Code-credentials`). Make sure you have signed in to
+Claude Code at least once on this machine — no environment variables required.
 
 ### 2. Desktop App
 
@@ -113,7 +111,6 @@ npm run dev                      # Next.js dev server
 
 | Variable | Purpose | Required |
 |----------|---------|----------|
-| `ANTHROPIC_API_KEY` | Claude API key for the proxy plugin | For claude-frontend |
 | `SF_CONFIG` | Inline JSON config (overrides sf.json) | No |
 
 ## Running Tests
