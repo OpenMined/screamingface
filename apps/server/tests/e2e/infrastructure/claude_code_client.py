@@ -8,9 +8,15 @@ to the claude-frontend proxy.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import httpx
+
+AuthMode = Literal["api_token", "oauth_access_token"]
+
+# anthropic-beta needed for OAuth-access-token requests; see SF-198/SF-199.
+_ANTHROPIC_VERSION = "2023-06-01"
+_ANTHROPIC_OAUTH_BETA = "oauth-2025-04-20"
 
 
 @dataclass
@@ -67,12 +73,30 @@ class ClaudeCodeClient:
     """Emulates Claude Code CLI requests to the proxy."""
 
     proxy_url: str
-    api_key: str = "test-key"
+    api_key: str = "test-key"  # used only when auth_mode == "api_token"
+    auth_mode: AuthMode = "api_token"
+    oauth_access_token: str | None = None  # required when auth_mode == "oauth_access_token"
     model: str = "claude-sonnet-4-20250514"
     max_tokens: int = 1024
 
     _messages: list[dict[str, Any]] = field(default_factory=list, init=False)
     _system_reminders: list[str] = field(default_factory=list, init=False)
+
+    def _auth_headers(self) -> dict[str, str]:
+        """Return the auth headers for the configured auth_mode."""
+        if self.auth_mode == "api_token":
+            return {"x-api-key": self.api_key}
+        if self.auth_mode == "oauth_access_token":
+            if not self.oauth_access_token:
+                raise ValueError(
+                    "auth_mode='oauth_access_token' requires oauth_access_token to be set"
+                )
+            return {
+                "Authorization": f"Bearer {self.oauth_access_token}",
+                "anthropic-version": _ANTHROPIC_VERSION,
+                "anthropic-beta": _ANTHROPIC_OAUTH_BETA,
+            }
+        raise ValueError(f"unknown auth_mode: {self.auth_mode}")
 
     def send_message(
         self,
@@ -127,7 +151,7 @@ class ClaudeCodeClient:
         if extra_body:
             body.update(extra_body)
 
-        headers = {"x-api-key": self.api_key}
+        headers = self._auth_headers()
         if extra_headers:
             headers.update(extra_headers)
 
