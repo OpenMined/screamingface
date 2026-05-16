@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from tests.e2e.infrastructure.claude_oauth_token import (
+    ClaudeOAuthError,
     OAuthExpiredError,
     OAuthMalformedError,
     OAuthMissingError,
@@ -102,3 +103,10 @@ def test_raises_malformed_when_field_missing(monkeypatch) -> None:
     ):
         with pytest.raises(OAuthMalformedError):
             read_claude_code_oauth_access_token()
+
+
+def test_all_errors_share_base_class() -> None:
+    """Callers should be able to catch any OAuth helper failure with one except."""
+    assert issubclass(OAuthMissingError, ClaudeOAuthError)
+    assert issubclass(OAuthExpiredError, ClaudeOAuthError)
+    assert issubclass(OAuthMalformedError, ClaudeOAuthError)

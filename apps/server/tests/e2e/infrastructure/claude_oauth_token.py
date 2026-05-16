@@ -19,15 +19,19 @@ _KEYCHAIN_SERVICE = "Claude Code-credentials"
 _TIMEOUT_SECONDS = 3
 
 
-class OAuthMissingError(RuntimeError):
+class ClaudeOAuthError(RuntimeError):
+    """Base for all Claude Code OAuth helper failures."""
+
+
+class OAuthMissingError(ClaudeOAuthError):
     """Keychain entry not present, or the security CLI is unavailable."""
 
 
-class OAuthExpiredError(RuntimeError):
+class OAuthExpiredError(ClaudeOAuthError):
     """Keychain entry is present but the access token's expiresAt has passed."""
 
 
-class OAuthMalformedError(RuntimeError):
+class OAuthMalformedError(ClaudeOAuthError):
     """Keychain blob isn't the expected Claude Code shape."""
 
 
