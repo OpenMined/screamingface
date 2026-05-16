@@ -3,6 +3,8 @@ import https from 'https';
 import http from 'http';
 import { serverProcess } from '../services/server-process';
 import { backendStatusService } from '../services/backend-status';
+import { isAllowedServerFetchUrl } from '../services/external-url-policy';
+import { requireTrustedIpcSender } from './sender-validation';
 
 interface FetchInit {
   method?: string;
@@ -42,24 +44,37 @@ function nodeFetch(url: string, init?: FetchInit): Promise<{ status: number; bod
 }
 
 export function registerServerHandlers(): void {
-  ipcMain.handle('server:start', () => {
+  ipcMain.handle('server:start', (event) => {
+    requireTrustedIpcSender(event);
     return serverProcess.start();
   });
 
-  ipcMain.handle('server:stop', () => {
+  ipcMain.handle('server:stop', (event) => {
+    requireTrustedIpcSender(event);
     return serverProcess.stop();
   });
 
-  ipcMain.handle('server:restart', () => {
+  ipcMain.handle('server:restart', (event) => {
+    requireTrustedIpcSender(event);
     return serverProcess.restart();
   });
 
-  ipcMain.handle('server:getStatus', () => {
+  ipcMain.handle('server:getStatus', (event) => {
+    requireTrustedIpcSender(event);
     return serverProcess.getStatus();
   });
 
   // Proxy fetch through main process to bypass self-signed cert issues
-  ipcMain.handle('server:fetch', async (_event, url: string, init?: FetchInit) => {
+  ipcMain.handle('server:fetch', async (event, url: string, init?: FetchInit) => {
+    requireTrustedIpcSender(event);
+    const { info } = serverProcess.getStatus();
+    if (!info) {
+      return { ok: false, status: 503, body: 'server_restarting' };
+    }
+    if (!isAllowedServerFetchUrl(url, info)) {
+      return { ok: false, status: 0, body: '' };
+    }
+
     try {
       const { status, body } = await nodeFetch(url, init);
       return { ok: status >= 200 && status < 300, status, body };

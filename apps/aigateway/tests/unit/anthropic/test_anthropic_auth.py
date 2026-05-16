@@ -13,7 +13,10 @@ from aigateway.plugins.anthropic_provider.auth import (
     AnthropicOAuth,
     keychain_service_for,
 )
-from aigateway.plugins.anthropic_provider.oauth_config import ANTHROPIC_TOKEN_URL
+from aigateway.plugins.anthropic_provider.oauth_config import (
+    ANTHROPIC_REFRESH_SCOPES,
+    ANTHROPIC_TOKEN_URL,
+)
 
 
 class _FakeStore(CredentialStore):
@@ -134,6 +137,7 @@ async def test_expired_credential_triggers_refresh() -> None:
     assert captured["url"] == ANTHROPIC_TOKEN_URL
     assert captured["body"]["grant_type"] == "refresh_token"
     assert captured["body"]["refresh_token"] == "rt-1"
+    assert captured["body"]["scope"] == " ".join(ANTHROPIC_REFRESH_SCOPES)
 
     assert len(store.writes) == 1
     written = json.loads(store.writes[0][2])

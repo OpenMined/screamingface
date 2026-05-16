@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import json
+import time
+from urllib.parse import parse_qs, urlparse
+
 import httpx
 import pytest
+from fastapi import HTTPException
 
+from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import (
     Profile,
@@ -11,6 +19,8 @@ from aigateway.core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
+from aigateway.plugins.codex_provider.oauth_config import CODEX_CLIENT_ID
+from aigateway.routes.auth import _complete_oauth_for_app
 
 
 @pytest.fixture
@@ -66,17 +76,21 @@ def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     resp = client.post("/v1/auth/anthropic/profiles", json={"name": "work"})
     assert resp.status_code == 201
     body = resp.json()
+    parsed = urlparse(body["authorize_url"])
     assert body["profile_id"] == profile_id_for(account_id, "anthropic", "work")
-    assert body["authorize_url"].startswith("https://claude.ai/oauth/authorize")
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "claude.com"
+    assert parsed.path == "/cai/oauth/authorize"
     assert "state=" in body["authorize_url"]
     assert "code_challenge=" in body["authorize_url"]
     assert "code_challenge_method=S256" in body["authorize_url"]
     # Required by the public Claude Code OAuth app to surface the consent screen
     assert "code=true" in body["authorize_url"]
-    # Full Claude Code scope set so the issued token is treated as a user-OAuth
-    # token rather than an API token.
+    # Claude subscription OAuth must request the user scope set, not
+    # org:create_api_key, otherwise the flow is routed toward Console/API-key
+    # billing rather than Claude subscription capacity.
     assert "user%3Asessions%3Aclaude_code" in body["authorize_url"]
-    assert "org%3Acreate_api_key" in body["authorize_url"]
+    assert "org%3Acreate_api_key" not in body["authorize_url"]
     # redirect_uri must be http://localhost:*/callback (not 127.0.0.1 and not
     # a per-provider path) — the public Claude Code OAuth client only allows
     # this canonical shape.
@@ -84,9 +98,41 @@ def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     assert "%2Fcallback&" in body["authorize_url"]
 
 
+def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -> None:
+    client, _ = client_with_index
+    account_id = _account_id(client)
+
+    resp = client.post("/v1/auth/codex/profiles", json={"name": "work"})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["profile_id"] == profile_id_for(account_id, "codex", "work")
+    parsed = urlparse(body["authorize_url"])
+    query = parse_qs(parsed.query)
+    assert parsed.scheme == "https"
+    assert parsed.netloc == "auth.openai.com"
+    assert parsed.path == "/oauth/authorize"
+    assert query["client_id"] == [CODEX_CLIENT_ID]
+    assert query["response_type"] == ["code"]
+    assert query["code_challenge_method"] == ["S256"]
+    assert query["redirect_uri"][0] in {
+        "http://localhost:1455/auth/callback",
+        "http://localhost:1457/auth/callback",
+    }
+    assert "offline_access" in query["scope"][0].split()
+    assert "api.connectors.invoke" in query["scope"][0].split()
+    assert query["id_token_add_organizations"] == ["true"]
+    assert query["codex_cli_simplified_flow"] == ["true"]
+    assert query["originator"] == ["codex_cli_rs"]
+
+    profile = client.get("/v1/auth/codex/profiles/work").json()
+    assert profile["state"] == "pending"
+    assert "offline_access" in profile["scopes"]
+
+
 def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
     """The /callback route looks up the provider from the pending-auth
-    state, so the same path serves every provider — matching what claude.ai
+    state, so the same path serves every provider — matching what Claude Code
     accepts as a redirect_uri."""
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _mock_token_factory()
@@ -134,6 +180,61 @@ class _NoOAuthPlugin:
         return None
 
 
+class _RecordingStrategy:
+    def __init__(self) -> None:
+        self.creds: dict | None = None
+
+    async def get_authorization_header(self) -> dict[str, str]:
+        return {}
+
+    def set_credentials(self, creds: dict) -> None:
+        self.creds = creds
+
+
+class _GenericOAuthPlugin:
+    custom_llm_provider = "generic"
+
+    def __init__(self) -> None:
+        self.strategy = _RecordingStrategy()
+        self.exchange_request: OAuthCodeExchangeRequest | None = None
+
+    def register_models(self) -> list:
+        return []
+
+    def oauth_config(self) -> OAuthConfig:
+        return OAuthConfig(
+            authorize_url="https://example.test/oauth/authorize",
+            token_url="https://example.test/oauth/token",
+            client_id="client-id",
+            scopes=["scope-a", "scope-b"],
+            redirect_path="/callback",
+            extra_authorize_params={"extra": "1"},
+        )
+
+    def oauth_strategy_for(self, _profile_name: str) -> _RecordingStrategy:
+        return self.strategy
+
+    async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict:
+        self.exchange_request = request
+        return {
+            "access_token": "generic-token",
+            "refresh_token": "generic-refresh",
+            "expires_at_ms": 9999999999999,
+            "token_type": "Bearer",
+        }
+
+
+class _DelayedOAuthPlugin(_GenericOAuthPlugin):
+    def __init__(self) -> None:
+        super().__init__()
+        self.exchange_count = 0
+
+    async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict:
+        self.exchange_count += 1
+        await asyncio.sleep(0.01)
+        return await super().exchange_oauth_code(request)
+
+
 def test_start_oauth_for_non_oauth_provider_400(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.providers._plugins["local"] = _NoOAuthPlugin()
@@ -141,6 +242,35 @@ def test_start_oauth_for_non_oauth_provider_400(client_with_index) -> None:
     resp = client.post("/v1/auth/local/profiles", json={"name": "x"})
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "provider_does_not_use_oauth"
+
+
+def test_exchange_code_uses_provider_exchange_hook(client_with_index) -> None:
+    client, _ = client_with_index
+    account_id = _account_id(client)
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+
+    start = client.post("/v1/auth/generic/profiles", json={"name": "work"})
+    assert start.status_code == 201
+    start_body = start.json()
+    query = parse_qs(urlparse(start_body["authorize_url"]).query)
+    redirect_uri = query["redirect_uri"][0]
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start_body["state"]},
+    )
+
+    assert resp.status_code == 200
+    assert plugin.exchange_request is not None
+    assert plugin.exchange_request.code == "generic-code"
+    assert plugin.exchange_request.redirect_uri == redirect_uri
+    assert plugin.exchange_request.state == start_body["state"]
+    assert plugin.strategy.creds is not None
+    assert plugin.strategy.creds["access_token"] == "generic-token"
+    profile = client.get("/v1/auth/generic/profiles/work").json()
+    assert profile["id"] == profile_id_for(account_id, "generic", "work")
+    assert profile["state"] == "authenticated"
 
 
 def test_start_oauth_creates_pending_profile(client_with_index) -> None:
@@ -234,6 +364,35 @@ def _mock_token_factory():
     return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
 
 
+def _jwt(payload: dict) -> str:
+    def encode(value: dict | bytes) -> str:
+        raw = value if isinstance(value, bytes) else json.dumps(value).encode()
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    return f"{encode({'alg': 'none', 'typ': 'JWT'})}.{encode(payload)}.{encode(b'sig')}"
+
+
+def _mock_codex_token_factory():
+    token_payload = {
+        "sub": "sub-1",
+        "email": "user@example.com",
+        "exp": int(time.time()) + 3600,
+        "https://api.openai.com/auth": {"chatgpt_account_id": "acct-1"},
+    }
+    transport = httpx.MockTransport(
+        lambda req: httpx.Response(
+            200,
+            json={
+                "access_token": _jwt(token_payload),
+                "refresh_token": "codex-refresh",
+                "id_token": _jwt(token_payload),
+                "token_type": "Bearer",
+            },
+        )
+    )
+    return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
+
+
 def _failing_token_factory():
     transport = httpx.MockTransport(
         lambda req: httpx.Response(400, json={"error": "invalid_grant"})
@@ -278,7 +437,49 @@ def test_callback_completes_auth(client_with_index) -> None:
     assert "new-tok" in blob
 
 
-def test_callback_exchange_failure_keeps_pending_state(client_with_index) -> None:
+def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_index) -> None:
+    client, fake_keychain = client_with_index
+    account_id = _account_id(client)
+    client.app.state.codex_http_factory = _mock_codex_token_factory()
+
+    start = client.post("/v1/auth/codex/profiles", json={"name": "work"})
+    state = start.json()["state"]
+
+    auth_header = client.headers.pop("Authorization")
+    try:
+        cb = client.get(
+            "/auth/callback",
+            params={"code": "codex-code-1", "state": state},
+            follow_redirects=False,
+        )
+    finally:
+        client.headers["Authorization"] = auth_header
+    assert cb.status_code == 200
+
+    prof = client.get("/v1/auth/codex/profiles/work").json()
+    assert prof["state"] == "authenticated"
+    assert prof["account_label"] == "user@example.com"
+
+    from aigateway.plugins.codex_provider.auth import keychain_service_for
+
+    blob = fake_keychain.read(
+        keychain_service_for(credential_name_for(account_id, "work")), "default"
+    )
+    assert blob is not None
+    assert json.loads(blob)["refresh_token"] == "codex-refresh"
+
+
+def test_codex_import_profile_endpoint_is_absent(client_with_index) -> None:
+    client, _ = client_with_index
+
+    resp = client.post("/v1/auth/codex/profiles/import", json={"name": "default"})
+
+    assert resp.status_code == 405
+
+
+def test_callback_exchange_failure_consumes_state_and_marks_profile_error(
+    client_with_index,
+) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _failing_token_factory()
 
@@ -302,8 +503,33 @@ def test_callback_exchange_failure_keeps_pending_state(client_with_index) -> Non
         client.headers["Authorization"] = auth_header
 
     assert failed.status_code == 500
-    assert retried.status_code == 200
+    assert retried.status_code == 400
     prof = client.get("/v1/auth/anthropic/profiles/retry").json()
+    assert prof["state"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_with_index) -> None:
+    client, _ = client_with_index
+    account_id = _account_id(client)
+    plugin = _DelayedOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+
+    start = client.post("/v1/auth/generic/profiles", json={"name": "race"})
+    state = start.json()["state"]
+
+    results = await asyncio.gather(
+        _complete_oauth_for_app(client.app, "generic", "code-one", state, account_id),
+        _complete_oauth_for_app(client.app, "generic", "code-two", state, account_id),
+        return_exceptions=True,
+    )
+
+    assert sum(result is None for result in results) == 1
+    errors = [result for result in results if isinstance(result, HTTPException)]
+    assert len(errors) == 1
+    assert errors[0].status_code == 400
+    assert plugin.exchange_count == 1
+    prof = client.get("/v1/auth/generic/profiles/race").json()
     assert prof["state"] == "authenticated"
 
 

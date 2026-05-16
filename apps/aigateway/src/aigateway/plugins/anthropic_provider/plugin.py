@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aigateway.core.plugin_base import (
     ModelEntry,
+    OAuthCodeExchangeRequest,
     OAuthConfig,
     OAuthStrategy,
     ProviderPluginBase,
 )
 
-from .auth import AnthropicOAuth
+from .auth import AnthropicOAuth, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
+from .chat_handler import chat_completion, prepare_claude_code_body
 from .models import MODELS
 from .oauth_config import (
     ANTHROPIC_AUTHORIZE_EXTRA_PARAMS,
@@ -44,6 +46,30 @@ class AnthropicProviderPlugin(ProviderPluginBase):
 
     def oauth_strategy_for(self, profile_name: str) -> OAuthStrategy:
         return AnthropicOAuth(profile_name=profile_name)
+
+    def should_apply_profile_default(self, field: str) -> bool:
+        # The legacy SF Claude backend ignored default_effort. Applying it as a
+        # gateway profile default enables Anthropic thinking on every request and
+        # burns the Claude Code rate-limit pool unexpectedly.
+        return field != "reasoning_effort"
+
+    def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        out = dict(body)
+        if out.get("reasoning_effort") == "none":
+            out.pop("reasoning_effort", None)
+        return prepare_claude_code_body(out)
+
+    async def chat_completion(self, body: dict[str, Any]) -> Any:
+        return await chat_completion(body)
+
+    async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict:
+        return await exchange_authorization_code(
+            request.code,
+            request.code_verifier,
+            redirect_uri=request.redirect_uri,
+            state=request.state,
+            http_client_factory=request.http_client_factory,
+        )
 
     async def bootstrap_profiles(
         self,

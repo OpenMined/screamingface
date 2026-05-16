@@ -1,4 +1,4 @@
-"""Loader auto-discovers anthropic_provider when scanning aigateway.plugins.*."""
+"""Loader auto-discovers provider packages when scanning aigateway.plugins.*."""
 
 from __future__ import annotations
 
@@ -17,3 +17,17 @@ def test_loader_discovers_anthropic_provider() -> None:
     assert "claude-sonnet-4-5" in names
     for m in models:
         assert m.litellm_params["model"].startswith("anthropic/")
+
+
+def test_loader_discovers_codex_provider() -> None:
+    reg = ProviderRegistry()
+    load_plugins(reg)
+    plugin = reg.get("codex")
+    assert plugin is not None
+    assert plugin.custom_llm_provider == "codex"
+    models = plugin.register_models()
+    names = {m.model_name for m in models}
+    assert "codex/gpt-5.4-mini" in names
+    assert "codex/codex-auto-review" not in names
+    for m in models:
+        assert m.litellm_params["model"].startswith("codex/")

@@ -8,6 +8,7 @@ ENTRY = PendingAuthEntry(
     profile_name="work",
     profile_id="account-1:anthropic:work",
     code_verifier="v",
+    redirect_uri="http://localhost:9105/callback",
 )
 
 
@@ -21,6 +22,7 @@ def test_pending_table_round_trip() -> None:
     assert entry.profile_name == "work"
     assert entry.profile_id == "account-1:anthropic:work"
     assert entry.code_verifier == "v"
+    assert entry.redirect_uri == "http://localhost:9105/callback"
 
 
 def test_pop_consumes_entry() -> None:

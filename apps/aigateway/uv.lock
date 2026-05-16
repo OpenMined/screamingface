@@ -4,9 +4,10 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "aigateway"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiosqlite" },
     { name = "asyncpg" },
     { name = "bcrypt" },
     { name = "fastapi" },
@@ -21,7 +22,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "aiosqlite" },
     { name = "httpx" },
     { name = "pyright" },
     { name = "pytest" },
@@ -33,6 +33,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiosqlite", specifier = "==0.22.1" },
     { name = "asyncpg", specifier = "==0.31.0" },
     { name = "bcrypt", specifier = "==5.0.0" },
     { name = "fastapi", specifier = ">=0.115" },
@@ -47,7 +48,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "aiosqlite", specifier = "==0.22.1" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "pyright", specifier = ">=1.1.393" },
     { name = "pytest", specifier = ">=9.0" },

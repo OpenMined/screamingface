@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,6 +12,7 @@ from fastapi import FastAPI
 from .config import Settings
 from .core.auth.bootstrap_admin import ensure_admin_account
 from .core.auth.jwt_secret import get_or_create_jwt_secret
+from .core.auth.local_only import AuthDisabledLocalOnlyMiddleware
 from .core.auth.log_filter import (
     RedactProvisioningTokenFilter,
     install_provisioning_token_redaction,
@@ -23,6 +27,14 @@ from .db import close_db, init_db
 from .routes import accounts, auth, auth_session, chat, health, models
 
 logger = logging.getLogger(__name__)
+
+
+def _unsigned_jwt(payload: dict) -> str:
+    def encode(value: dict | bytes) -> str:
+        raw = value if isinstance(value, bytes) else json.dumps(value).encode()
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    return f"{encode({'alg': 'none', 'typ': 'JWT'})}.{encode(payload)}.{encode(b'sig')}"
 
 
 def _attach_log_filter() -> None:
@@ -52,15 +64,14 @@ async def _lifespan(app):
             str(admin.id) if app.state.settings.auth_enabled else str(ANONYMOUS_ACCOUNT_ID)
         )
 
-        # Auto-import of the developer's Claude Code keychain entry is opt-in.
+        # Provider startup bootstrap is opt-in.
         # By default the gateway boots with an empty profile index so the user
         # explicitly authenticates via the UI rather than seeing a "default"
-        # profile they never OAuthed for. Set
-        # AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE=1 to restore the legacy import.
+        # profile they did not authorize through the gateway.
         #
         # When the fake-keychain test hook is active, bootstrap (if enabled)
-        # uses the same fake store so it cannot pull in the developer's real
-        # Claude Code credentials behind the test's back.
+        # uses the same fake store so it cannot pull in real local credentials
+        # behind the test's back.
         if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
             for plugin in app.state.providers.all():
                 try:
@@ -85,6 +96,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _attach_log_filter()
     app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
     app.state.settings = settings
+    if not settings.auth_enabled:
+        app.add_middleware(AuthDisabledLocalOnlyMiddleware)
 
     registry = ProviderRegistry()
     load_plugins(registry)
@@ -94,8 +107,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # When AIGATEWAY_FAKE_KEYCHAIN=1 is set, swap the OS-keychain-backed
     # credential store for a JSON-file-backed one, and likewise install a
     # MockTransport-backed httpx factory for the Anthropic OAuth token
-    # endpoint when AIGATEWAY_FAKE_ANTHROPIC_OAUTH=1. These are gated by
-    # env vars so they only ever activate in the e2e test harness.
+    # endpoint when AIGATEWAY_FAKE_ANTHROPIC_OAUTH=1 or
+    # AIGATEWAY_FAKE_CODEX_OAUTH=1. These are gated by env vars so they only
+    # ever activate in the e2e test harness.
     if os.getenv("AIGATEWAY_FAKE_KEYCHAIN") == "1":
         kc_path = os.getenv("AIGATEWAY_KEYCHAIN_FILE")
         if not kc_path:
@@ -136,6 +150,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         app.state.anthropic_http_factory = _factory
+
+    if os.getenv("AIGATEWAY_FAKE_CODEX_OAUTH") == "1":
+        import httpx
+
+        fail_mode = os.getenv("AIGATEWAY_FAKE_CODEX_OAUTH_FAIL") == "1"
+
+        def _fake_handler(req: httpx.Request) -> httpx.Response:
+            if req.url.host == "auth.openai.com" and req.url.path == "/oauth/token":
+                if fail_mode:
+                    return httpx.Response(400, json={"error": "invalid_grant"})
+                token_payload = {
+                    "sub": "codex-sub-1",
+                    "email": "codex-user@example.com",
+                    "exp": int(time.time()) + 3600,
+                    "https://api.openai.com/auth": {"chatgpt_account_id": "acct-codex-1"},
+                }
+                token = _unsigned_jwt(token_payload)
+                return httpx.Response(
+                    200,
+                    json={
+                        "access_token": token,
+                        "refresh_token": "fake-codex-rt",
+                        "id_token": token,
+                        "expires_in": 3600,
+                        "token_type": "Bearer",
+                    },
+                )
+            return httpx.Response(404, json={"error": "unmapped"})
+
+        def _factory() -> httpx.AsyncClient:
+            return httpx.AsyncClient(
+                transport=httpx.MockTransport(_fake_handler),
+                timeout=httpx.Timeout(30.0),
+            )
+
+        app.state.codex_http_factory = _factory
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
 

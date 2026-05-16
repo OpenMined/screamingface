@@ -11,6 +11,7 @@ class PendingAuthEntry:
     profile_name: str
     profile_id: str
     code_verifier: str
+    redirect_uri: str
 
 
 class PendingAuthTable:

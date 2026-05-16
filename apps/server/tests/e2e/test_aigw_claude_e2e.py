@@ -70,7 +70,7 @@ from tests.e2e.infrastructure.server_manager import ServerManager
 
 _TEST_PROMPT = "Reply with the single English word: pong"
 
-pytestmark = [pytest.mark.e2e, pytest.mark.e2e_live]
+pytestmark = pytest.mark.e2e
 
 # url4 spec: substitute $prompt as the q-param of a /claude backend call.
 # The /claude endpoint is served by aigw-claude-backend; the result text is
@@ -193,53 +193,57 @@ def aigw_proxy(otlp_collector: OTLPCollector, httpbin_url: str):
         },
     }
 
+    previous_bootstrap = os.environ.get("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE")
+    os.environ["AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE"] = "1"
     mgr = ServerManager(config, session_id="e2e-aigw-claude")
-    mgr.start(timeout=120)
+    try:
+        mgr.start(timeout=120)
 
-    if not ServerManager.wait_for_port(proxy_port, timeout=60):
-        last_logs = "\n".join(mgr.logs.dump_last()) if mgr.logs else "<no logs>"
-        mgr.stop()
-        pytest.fail(
-            f"claude-frontend not listening on port {proxy_port}\n"
-            f"Last server log lines:\n{last_logs}"
-        )
-    if not ServerManager.wait_for_port(gateway_port, timeout=60):
-        last_logs = "\n".join(mgr.logs.dump_last()) if mgr.logs else "<no logs>"
-        mgr.stop()
-        pytest.fail(
-            f"aigw-runner did not bring up gateway on port {gateway_port}\n"
-            f"Last server log lines:\n{last_logs}"
-        )
+        if not ServerManager.wait_for_port(proxy_port, timeout=60):
+            last_logs = "\n".join(mgr.logs.dump_last()) if mgr.logs else "<no logs>"
+            pytest.fail(
+                f"claude-frontend not listening on port {proxy_port}\n"
+                f"Last server log lines:\n{last_logs}"
+            )
+        if not ServerManager.wait_for_port(gateway_port, timeout=60):
+            last_logs = "\n".join(mgr.logs.dump_last()) if mgr.logs else "<no logs>"
+            pytest.fail(
+                f"aigw-runner did not bring up gateway on port {gateway_port}\n"
+                f"Last server log lines:\n{last_logs}"
+            )
 
-    # Confirm the gateway has an authenticated anthropic:default profile —
-    # otherwise the chat call will return 404 profile_not_found.
-    deadline = time.monotonic() + 15
-    profile_state: str | None = None
-    while time.monotonic() < deadline:
-        try:
-            r = httpx.get(f"http://127.0.0.1:{gateway_port}/v1/auth/profiles", timeout=3)
-            if r.status_code == 200:
-                for p in r.json().get("profiles", []):
-                    if p.get("id") == "anthropic:default":
-                        profile_state = p.get("state")
+        # Confirm the gateway has an authenticated default Anthropic profile —
+        # otherwise the chat call will return 404 profile_not_found.
+        deadline = time.monotonic() + 15
+        profile_state: str | None = None
+        while time.monotonic() < deadline:
+            try:
+                r = httpx.get(f"http://127.0.0.1:{gateway_port}/v1/auth/profiles", timeout=3)
+                if r.status_code == 200:
+                    for p in r.json().get("profiles", []):
+                        if p.get("provider") == "anthropic" and p.get("name") == "default":
+                            profile_state = p.get("state")
+                            break
+                    if profile_state is not None:
                         break
-                if profile_state is not None:
-                    break
-        except httpx.RequestError:
-            pass
-        time.sleep(0.5)
+            except httpx.RequestError:
+                pass
+            time.sleep(0.5)
 
-    if profile_state != "authenticated":
+        if profile_state != "authenticated":
+            pytest.skip(
+                f"Gateway anthropic/default profile state is {profile_state!r}. "
+                "Run `claude auth login` so the bootstrap can import credentials, "
+                "or POST /v1/auth/anthropic/profiles to seed one manually."
+            )
+
+        yield mgr, proxy_port, gateway_port
+    finally:
         mgr.stop()
-        pytest.skip(
-            f"Gateway anthropic:default profile state is {profile_state!r}. "
-            "Run `claude auth login` so the bootstrap can import credentials, "
-            "or POST /v1/auth/anthropic/profiles to seed one manually."
-        )
-
-    yield mgr, proxy_port, gateway_port
-
-    mgr.stop()
+        if previous_bootstrap is None:
+            os.environ.pop("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", None)
+        else:
+            os.environ["AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE"] = previous_bootstrap
 
 
 # ---------------------------------------------------------------------------
@@ -320,10 +324,6 @@ def test_claude_frontend_to_aigw_to_anthropic(
     )
 
     # ------------------------------ span chain -----------------------------
-    # Wait briefly for spans to flush through the OTLP collector.
-    otlp_collector.wait_for_spans(3, timeout=15)
-    span_names = {s.name for s in otlp_collector._spans}  # noqa: SLF001 — test-only
-
     # Each layer below MUST appear. If any is missing, someone has rerouted
     # the request and skipped a layer (e.g. mistakenly enabled the legacy
     # claude-backend-api alongside aigw-claude-backend).
@@ -343,6 +343,14 @@ def test_claude_frontend_to_aigw_to_anthropic(
         "url4_executor": "url4.evaluate",
         "aigw_backend_route": "GET /claude",
     }
+    span_names: set[str] = set()
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        span_names = {s.name for s in otlp_collector.spans}
+        if all(any(span in name for name in span_names) for span in expected_layers.values()):
+            break
+        time.sleep(0.2)
+
     missing = {
         layer: span
         for layer, span in expected_layers.items()

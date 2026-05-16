@@ -1,46 +1,61 @@
 import { ipcMain, BrowserWindow } from 'electron';
-import { sessionManager } from '../services/session-manager';
+import { sessionManager, type SessionType } from '../services/session-manager';
+import { requireTrustedIpcSender } from './sender-validation';
 
 export function registerSessionHandlers(): void {
-  ipcMain.handle('session:pickDir', () => {
+  ipcMain.handle('session:pickDir', (event) => {
+    requireTrustedIpcSender(event);
     return sessionManager.pickWorkingDir();
   });
 
   ipcMain.handle(
     'session:create',
-    (_event, type: string, workingDir: string, pluginConfig?: Record<string, Record<string, unknown>>) => {
-      return sessionManager.createSession(
-        type as 'claude' | 'codex' | 'gemini' | 'claude-desktop',
-        workingDir,
-        pluginConfig,
-      );
+    (
+      event,
+      type: string,
+      workingDir: string,
+      pluginConfig?: Record<string, Record<string, unknown>>,
+    ) => {
+      requireTrustedIpcSender(event);
+      return sessionManager.createSession(type as SessionType, workingDir, pluginConfig);
     },
   );
 
-  ipcMain.handle('session:list', () => {
+  ipcMain.handle('session:list', (event) => {
+    requireTrustedIpcSender(event);
     return sessionManager.listSessions();
   });
 
-  ipcMain.handle('session:terminate', (_event, id: string) => {
+  ipcMain.handle('session:terminate', (event, id: string) => {
+    requireTrustedIpcSender(event);
     return sessionManager.terminateSession(id);
   });
 
-  ipcMain.handle('session:terminateAll', () => {
+  ipcMain.handle('session:terminateAll', (event) => {
+    requireTrustedIpcSender(event);
     return sessionManager.terminateAll();
   });
 
-  ipcMain.handle('session:remove', (_event, id: string) => {
+  ipcMain.handle('session:remove', (event, id: string) => {
+    requireTrustedIpcSender(event);
     sessionManager.removeSession(id);
   });
 
   ipcMain.handle(
     'session:update',
-    (_event, id: string, workingDir: string, pluginConfig?: Record<string, Record<string, unknown>>) => {
+    (
+      event,
+      id: string,
+      workingDir: string,
+      pluginConfig?: Record<string, Record<string, unknown>>,
+    ) => {
+      requireTrustedIpcSender(event);
       return sessionManager.updateSession(id, workingDir, pluginConfig);
     },
   );
 
-  ipcMain.handle('session:restart', (_event, id: string) => {
+  ipcMain.handle('session:restart', (event, id: string) => {
+    requireTrustedIpcSender(event);
     return sessionManager.restartSession(id);
   });
 

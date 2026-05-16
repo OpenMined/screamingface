@@ -6,27 +6,34 @@ import {
   clearPendingAuthState,
   type LauncherResult,
 } from '../services/oauth-launcher';
+import { isSafeBackendName } from '../services/external-url-policy';
+import { requireTrustedIpcSender } from './sender-validation';
 
-export type ExchangeCodeResult =
-  | { ok: true }
-  | { ok: false; status?: number; message?: string };
+export type ExchangeCodeResult = { ok: true } | { ok: false; status?: number; message?: string };
 
 export function registerBackendStatusHandlers(): void {
-  ipcMain.handle('backends:getStatus', () => {
+  ipcMain.handle('backends:getStatus', (event) => {
+    requireTrustedIpcSender(event);
     return backendStatusService.getStatus();
   });
 
-  ipcMain.handle('backends:refresh', () => {
+  ipcMain.handle('backends:refresh', (event) => {
+    requireTrustedIpcSender(event);
     return backendStatusService.refresh();
   });
 
-  ipcMain.handle('backends:authenticate', (_event, backend: string) => {
+  ipcMain.handle('backends:authenticate', (event, backend: string) => {
+    requireTrustedIpcSender(event);
     backendStatusService.authenticate(backend);
   });
 
   ipcMain.handle(
     'backends:authenticateOAuth',
-    async (_event, backend: string, profileName?: string): Promise<LauncherResult> => {
+    async (event, backend: string, profileName?: string): Promise<LauncherResult> => {
+      requireTrustedIpcSender(event);
+      if (!isSafeBackendName(backend)) {
+        return { kind: 'failed', reason: 'gateway_error', message: 'invalid backend name' };
+      }
       const sfBaseUrl = backendStatusService.getServerUrl();
       console.log(
         `[oauth] authenticateOAuth invoked: backend=${backend} profileName=${profileName ?? '(default)'} sfBaseUrl=${sfBaseUrl ?? 'NULL'}`,
@@ -44,13 +51,20 @@ export function registerBackendStatusHandlers(): void {
     },
   );
 
-  ipcMain.handle('backends:getPendingAuthState', (_event, backend: string): string | null => {
+  ipcMain.handle('backends:getPendingAuthState', (event, backend: string): string | null => {
+    requireTrustedIpcSender(event);
+    if (!isSafeBackendName(backend)) return null;
     return getPendingAuthState(backend);
   });
 
   ipcMain.handle(
     'backends:exchangeOAuthCode',
-    async (_event, backend: string, code: string): Promise<ExchangeCodeResult> => {
+    async (event, backend: string, code: string): Promise<ExchangeCodeResult> => {
+      requireTrustedIpcSender(event);
+      if (!isSafeBackendName(backend)) {
+        return { ok: false, message: `invalid backend name: ${backend}` };
+      }
+
       const sfBaseUrl = backendStatusService.getServerUrl();
       if (!sfBaseUrl) {
         return { ok: false, message: 'SF server is not running' };
@@ -83,7 +97,12 @@ export function registerBackendStatusHandlers(): void {
     },
   );
 
-  ipcMain.handle('backends:listProfiles', async (_event, backend: string) => {
+  ipcMain.handle('backends:listProfiles', async (event, backend: string) => {
+    requireTrustedIpcSender(event);
+    if (!isSafeBackendName(backend)) {
+      return { profiles: [], error: 'invalid_backend' };
+    }
+
     const sfBaseUrl = backendStatusService.getServerUrl();
     if (!sfBaseUrl) {
       return { profiles: [], error: 'gateway_unreachable' };
@@ -100,25 +119,27 @@ export function registerBackendStatusHandlers(): void {
     }
   });
 
-  ipcMain.handle(
-    'backends:deleteProfile',
-    async (_event, backend: string, profileName: string) => {
-      const sfBaseUrl = backendStatusService.getServerUrl();
-      if (!sfBaseUrl) {
-        return { ok: false, status: 0 };
-      }
-      try {
-        const resp = await fetch(
-          `${sfBaseUrl}/${backend}/auth/profiles/${encodeURIComponent(profileName)}`,
-          { method: 'DELETE' },
-        );
-        if (resp.status === 204) return { ok: true };
-        return { ok: false, status: resp.status };
-      } catch {
-        return { ok: false, status: 0 };
-      }
-    },
-  );
+  ipcMain.handle('backends:deleteProfile', async (event, backend: string, profileName: string) => {
+    requireTrustedIpcSender(event);
+    if (!isSafeBackendName(backend)) {
+      return { ok: false, status: 400 };
+    }
+
+    const sfBaseUrl = backendStatusService.getServerUrl();
+    if (!sfBaseUrl) {
+      return { ok: false, status: 0 };
+    }
+    try {
+      const resp = await fetch(
+        `${sfBaseUrl}/${backend}/auth/profiles/${encodeURIComponent(profileName)}`,
+        { method: 'DELETE' },
+      );
+      if (resp.status === 204) return { ok: true };
+      return { ok: false, status: resp.status };
+    } catch {
+      return { ok: false, status: 0 };
+    }
+  });
 
   // Forward status changes to all renderer windows
   backendStatusService.on('statusChanged', (status) => {

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from html import escape
-from urllib.parse import urlencode
+from ipaddress import ip_address
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -10,6 +12,7 @@ from pydantic import BaseModel
 from ..core.auth.middleware import CurrentAccount
 from ..core.oauth_pkce import generate_pkce, generate_state
 from ..core.pending_auth import PendingAuthEntry
+from ..core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
 from ..core.profile_index import ProfileIndexStore
 from ..core.profile_models import (
     Profile,
@@ -18,21 +21,218 @@ from ..core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
-from ..plugins.anthropic_provider import auth as anthropic_auth_module
 
 router = APIRouter()
 
 
 def _index_store(request: Request) -> ProfileIndexStore:
-    return request.app.state.profile_index
+    return _index_store_for_app(request.app)
+
+
+def _index_store_for_app(app) -> ProfileIndexStore:
+    return app.state.profile_index
 
 
 def _registry(request: Request):
-    return request.app.state.providers
+    return _registry_for_app(request.app)
+
+
+def _registry_for_app(app):
+    return app.state.providers
 
 
 def _pending(request: Request):
-    return request.app.state.pending_auth
+    return _pending_for_app(request.app)
+
+
+def _pending_for_app(app):
+    return app.state.pending_auth
+
+
+def _gateway_redirect_uri_for(request: Request, cfg: OAuthConfig) -> str:
+    path = cfg.redirect_path if cfg.redirect_path.startswith("/") else f"/{cfg.redirect_path}"
+    return f"http://localhost:{request.app.state.settings.port}{path}"
+
+
+def _loopback_host_allowed(host_header: str | None) -> bool:
+    if host_header is None:
+        return False
+    try:
+        hostname = urlsplit(f"//{host_header.strip()}").hostname
+    except ValueError:
+        return False
+    if hostname is None:
+        return False
+    normalized = hostname.rstrip(".").lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+async def _close_loopback_callback(app, state: str) -> None:
+    callbacks = getattr(app.state, "loopback_oauth_callbacks", None)
+    if not isinstance(callbacks, dict):
+        return
+    server = callbacks.pop(state, None)
+    if server is None:
+        return
+    server.close()
+    await server.wait_closed()
+
+
+async def _close_all_loopback_callbacks(app) -> None:
+    callbacks = getattr(app.state, "loopback_oauth_callbacks", None)
+    if not isinstance(callbacks, dict):
+        return
+    states = list(callbacks)
+    for state in states:
+        await _close_loopback_callback(app, state)
+
+
+async def _expire_loopback_callback(app, state: str, ttl_seconds: int) -> None:
+    await asyncio.sleep(ttl_seconds)
+    await _close_loopback_callback(app, state)
+
+
+def _http_response(status: int, body: str, *, content_type: str = "text/html") -> bytes:
+    reason = {200: "OK", 400: "Bad Request", 403: "Forbidden", 404: "Not Found"}.get(
+        status, "Internal Server Error"
+    )
+    data = body.encode("utf-8")
+    headers = (
+        f"HTTP/1.1 {status} {reason}\r\n"
+        f"content-type: {content_type}; charset=utf-8\r\n"
+        f"content-length: {len(data)}\r\n"
+        "connection: close\r\n"
+        "\r\n"
+    ).encode("ascii")
+    return headers + data
+
+
+async def _handle_loopback_callback(
+    app,
+    provider: str,
+    expected_path: str,
+    expected_state: str,
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+) -> None:
+    status = 500
+    body = "Authentication failed"
+    try:
+        try:
+            raw = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5)
+        except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, TimeoutError):
+            status = 400
+            body = "Malformed callback request"
+            return
+
+        lines = raw.decode("iso-8859-1", errors="replace").split("\r\n")
+        request_line = lines[0].split()
+        if len(request_line) < 2:
+            status = 400
+            body = "Malformed callback request"
+            return
+        method, target = request_line[0], request_line[1]
+        headers: dict[str, str] = {}
+        for line in lines[1:]:
+            if not line or ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            headers[key.strip().lower()] = value.strip()
+
+        if not _loopback_host_allowed(headers.get("host")):
+            status = 403
+            body = "Forbidden callback host"
+            return
+
+        parsed = urlsplit(target)
+        if method != "GET" or parsed.path != expected_path:
+            status = 404
+            body = "Unknown callback path"
+            return
+
+        params = parse_qs(parsed.query)
+        code = params.get("code", [None])[0]
+        state = params.get("state", [None])[0]
+        if not code or not state:
+            status = 400
+            body = "Missing callback code or state"
+            return
+        if state != expected_state:
+            status = 400
+            body = "OAuth state not recognized or expired"
+            return
+
+        await _complete_oauth_for_app(app, provider, code, state)
+        status = 200
+        body = _CALLBACK_HTML
+    except Exception as exc:
+        status = 500
+        body = (
+            "<!doctype html><html><body>"
+            "<h2>Authentication failed</h2>"
+            f"<p>Provider: {escape(provider)}</p>"
+            f"<pre style='white-space:pre-wrap'>{escape(type(exc).__name__)}: "
+            f"{escape(str(exc))}</pre>"
+            "</body></html>"
+        )
+    finally:
+        writer.write(_http_response(status, body))
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        await _close_loopback_callback(app, expected_state)
+
+
+async def _loopback_redirect_uri_for(
+    request: Request,
+    provider: str,
+    cfg: OAuthConfig,
+    state: str,
+) -> str:
+    path = cfg.redirect_path if cfg.redirect_path.startswith("/") else f"/{cfg.redirect_path}"
+    callbacks = getattr(request.app.state, "loopback_oauth_callbacks", None)
+    if not isinstance(callbacks, dict):
+        callbacks = {}
+        request.app.state.loopback_oauth_callbacks = callbacks
+    for port in cfg.loopback_redirect_ports or []:
+        try:
+            server = await asyncio.start_server(
+                lambda reader, writer: _handle_loopback_callback(
+                    request.app, provider, path, state, reader, writer
+                ),
+                host="localhost",
+                port=port,
+            )
+        except OSError:
+            continue
+        await _close_all_loopback_callbacks(request.app)
+        callbacks = getattr(request.app.state, "loopback_oauth_callbacks", None)
+        if not isinstance(callbacks, dict):
+            callbacks = {}
+            request.app.state.loopback_oauth_callbacks = callbacks
+        callbacks[state] = server
+        asyncio.create_task(_expire_loopback_callback(request.app, state, 600))
+        return f"http://localhost:{port}{path}"
+    raise HTTPException(
+        status_code=503,
+        detail={"code": "oauth_loopback_unavailable", "ports": cfg.loopback_redirect_ports},
+    )
+
+
+async def _redirect_uri_for(
+    request: Request,
+    provider: str,
+    cfg: OAuthConfig,
+    state: str,
+) -> str:
+    if cfg.loopback_redirect_ports:
+        return await _loopback_redirect_uri_for(request, provider, cfg, state)
+    return _gateway_redirect_uri_for(request, cfg)
 
 
 @router.get("/v1/auth/profiles")
@@ -84,6 +284,7 @@ async def start_oauth(
     profile_id = profile_id_for(account_id, provider, body.name)
     code_verifier, code_challenge = generate_pkce()
     state = generate_state()
+    redirect_uri = await _redirect_uri_for(request, provider, cfg, state)
 
     _pending(request).put(
         state,
@@ -93,15 +294,10 @@ async def start_oauth(
             profile_name=body.name,
             profile_id=profile_id,
             code_verifier=code_verifier,
+            redirect_uri=redirect_uri,
         ),
     )
 
-    # The Claude Code public OAuth client (and similar public clients) only
-    # accept ``http://localhost:*/callback`` as a redirect URI — using
-    # ``127.0.0.1`` or any path other than ``/callback`` triggers an
-    # "Authorization failed" error from claude.ai. We use ``localhost`` and
-    # the top-level ``/callback`` route (provider is dispatched via state).
-    redirect_uri = f"http://localhost:{request.app.state.settings.port}/callback"
     params = {
         "response_type": "code",
         "client_id": cfg.client_id,
@@ -120,6 +316,7 @@ async def start_oauth(
         account_id=account_id,
         provider=provider,
         name=body.name,
+        scopes=cfg.scopes,
         state=ProfileState.PENDING,
         defaults=body.defaults or ProfileDefaults(),
     )
@@ -147,11 +344,9 @@ async def oauth_callback(code: str, state: str, request: Request):
     state nonce is the callback credential; it maps back to the initiating
     account and profile.
 
-    Anthropic's public Claude Code OAuth client (and most OAuth providers
-    using public clients) only accepts ``http://localhost:*/callback`` as
-    the redirect URI — i.e. the path is fixed at ``/callback`` and is not
-    namespaced per provider. We dispatch to the correct provider by
-    looking up the ``state`` value in the pending-auth table.
+    Some public OAuth clients require a fixed localhost callback path. We
+    dispatch to the correct provider by looking up the ``state`` value in the
+    pending-auth table.
     """
     pending_entry = _pending(request).peek(state)
     if pending_entry is None:
@@ -177,11 +372,15 @@ async def oauth_callback(code: str, state: str, request: Request):
         )
 
 
-# Back-compat: older OAuth flows (and tests) still use the per-provider path.
-@router.get("/v1/auth/anthropic/callback")
-async def anthropic_callback(code: str, state: str, request: Request):
+@router.get("/auth/callback")
+async def oauth_nested_callback(code: str, state: str, request: Request):
+    return await oauth_callback(code, state, request)
+
+
+@router.get("/v1/auth/{provider}/callback")
+async def provider_callback(provider: str, code: str, state: str, request: Request):
     """Unauthenticated OAuth callback protected by the pending-auth state nonce."""
-    return await _generic_callback("anthropic", code, state, request)
+    return await _generic_callback(provider, code, state, request)
 
 
 async def _complete_oauth(
@@ -191,12 +390,23 @@ async def _complete_oauth(
     request: Request,
     current_account_id: str | None = None,
 ) -> None:
+    await _complete_oauth_for_app(request.app, provider, code, state, current_account_id)
+
+
+async def _complete_oauth_for_app(
+    app,
+    provider: str,
+    code: str,
+    state: str,
+    current_account_id: str | None = None,
+) -> None:
     """Run the OAuth token exchange and persist credentials.
 
     Used by both the GET browser-redirect callback and the POST manual
     paste-code endpoint. Raises HTTPException on failure.
     """
-    pending = _pending(request).peek(state)
+    pending_table = _pending_for_app(app)
+    pending = pending_table.peek(state)
     if pending is None:
         raise HTTPException(
             status_code=400,
@@ -210,31 +420,70 @@ async def _complete_oauth(
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
     name = pending.profile_name
 
-    factory = getattr(request.app.state, f"{provider}_http_factory", None)
-    # Must match the redirect_uri sent to /authorize. Both the start-OAuth
-    # route and this exchange use the same canonical localhost+/callback
-    # form so Anthropic's redirect-URI check passes.
-    redirect_uri = f"http://localhost:{request.app.state.settings.port}/callback"
-    creds = await anthropic_auth_module.exchange_authorization_code(
-        code,
-        pending.code_verifier,
-        redirect_uri=redirect_uri,
-        state=state,
-        http_client_factory=factory,
-    )
+    plugin = _registry_for_app(app).get(provider)
+    if plugin is None:
+        raise HTTPException(
+            status_code=404, detail={"code": "unknown_provider", "provider": provider}
+        )
 
-    plugin = _registry(request).get(provider)
+    factory = getattr(app.state, f"{provider}_http_factory", None)
     strategy = plugin.oauth_strategy_for(credential_name_for(account_id, name))
+    if strategy is None or not hasattr(strategy, "set_credentials"):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "provider_does_not_use_oauth", "provider": provider},
+        )
     # Inject the same credential store as the profile index so tests/fake keychain work.
     if hasattr(strategy, "_store"):
-        strategy._store = _index_store(request)._store
+        strategy._store = _index_store_for_app(app)._store
+
+    # Consume the OAuth state after all synchronous validation and before the
+    # first await that can race another callback using the same code.
+    pending = pending_table.pop(state)
+    if pending is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "unknown_state", "message": "OAuth state not recognized or expired"},
+        )
+    try:
+        creds = await plugin.exchange_oauth_code(
+            OAuthCodeExchangeRequest(
+                code=code,
+                code_verifier=pending.code_verifier,
+                redirect_uri=pending.redirect_uri,
+                state=state,
+                http_client_factory=factory,
+            )
+        )
+    except NotImplementedError as exc:
+        await _mark_profile_error(app, account_id, provider, name)
+        await _close_loopback_callback(app, state)
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "provider_does_not_use_oauth", "provider": provider},
+        ) from exc
+    except Exception:
+        await _mark_profile_error(app, account_id, provider, name)
+        await _close_loopback_callback(app, state)
+        raise
     strategy.set_credentials(creds)
 
-    p = await _index_store(request).get(account_id, provider, name)
+    p = await _index_store_for_app(app).get(account_id, provider, name)
     if p is not None:
         p.state = ProfileState.AUTHENTICATED
-        await _index_store(request).upsert(p)
-    _pending(request).pop(state)
+        label_factory = getattr(plugin, "account_label_from_credentials", lambda _creds: None)
+        label = label_factory(creds)
+        if label is not None:
+            p.account_label = label
+        await _index_store_for_app(app).upsert(p)
+    await _close_loopback_callback(app, state)
+
+
+async def _mark_profile_error(app, account_id: str, provider: str, name: str) -> None:
+    p = await _index_store_for_app(app).get(account_id, provider, name)
+    if p is not None:
+        p.state = ProfileState.ERROR
+        await _index_store_for_app(app).upsert(p)
 
 
 async def _generic_callback(provider: str, code: str, state: str, request: Request):
@@ -255,8 +504,7 @@ async def exchange_code(
     current: CurrentAccount,
 ) -> dict:
     """Manual paste-code path for OAuth flows where the provider shows the
-    authorization code on screen instead of redirecting (e.g. claude.ai/oauth
-    with `code=true`).
+    authorization code on screen instead of redirecting.
     """
     await _complete_oauth(provider, body.code, body.state, request, str(current.id))
     return {"state": "authenticated"}

@@ -30,9 +30,8 @@ def create_router(app: Any = None) -> APIRouter:
     async def backends_status() -> JSONResponse:
         """Unified health status for all active backend plugins.
 
-        Returns a JSON object keyed by backend name (``claude``, ``codex``,
-        ``gemini``) with health info, error classification, and
-        actionable hints for the UI.
+        Returns a JSON object keyed by backend route name with health info,
+        error classification, and actionable hints for the UI.
 
         Each entry contains:
         - ``authenticated`` (bool)
@@ -60,8 +59,8 @@ def create_router(app: Any = None) -> APIRouter:
 
             health = await _probe_health(base_url, name)
             health["action"] = _classify_action(health)
-            health["cli_command"] = _cli_command(name, health)
-            health["help_text"] = _help_text(name, health)
+            health["cli_command"] = _cli_command(plugin, health)
+            health["help_text"] = _help_text(plugin, health)
             health["auth_kind"] = _classify_auth_kind(plugin)
             results[name] = health
 
@@ -124,7 +123,7 @@ def _classify_auth_kind(plugin: Any) -> str:
     - ``"browser"`` — open the gateway-managed authorize URL in a browser
       (used by aigw-*-backend plugins via ``gateway_provider``).
     - ``"cli"``     — spawn a terminal running the plugin's CLI auth
-      command (the historical claude/codex/gemini path).
+      command.
     """
     if getattr(plugin, "gateway_provider", None):
         return "browser"
@@ -156,52 +155,33 @@ def _classify_action(health: dict[str, Any]) -> str:
     return "degraded"
 
 
-_CLI_COMMANDS: dict[str, str] = {
-    "claude": "claude auth login",
-    "codex": "codex auth login",
-    "gemini": "gemini auth login",
-}
-
-
-def _cli_command(backend: str, health: dict[str, Any]) -> str | None:
+def _cli_command(plugin: Any, health: dict[str, Any]) -> str | None:
     """Return the terminal command to fix the issue, or None if healthy."""
     action = health.get("action", "")
-    if action in ("reauth", "degraded"):
-        return _CLI_COMMANDS.get(backend)
+    if action in ("reauth", "degraded") and not getattr(plugin, "gateway_provider", None):
+        command = getattr(plugin, "cli_auth_command", None)
+        return command if isinstance(command, str) else None
     return None
 
 
-_HELP_TEXTS: dict[str, dict[str, str]] = {
-    "healthy": {},
-    "rate_limited": {
-        "claude": "Claude API rate limit reached. Capacity will reset automatically.",
-        "codex": "OpenAI API rate limit reached. Capacity will reset automatically.",
-        "gemini": "Gemini API rate limit reached. Capacity will reset automatically.",
-    },
-    "reauth": {
-        "claude": (
-            "Claude OAuth token is missing or expired. "
-            "Click Re-authenticate to open a terminal and run 'claude auth login'."
-        ),
-        "codex": (
-            "Codex OAuth token is missing, expired, or the refresh token was "
-            "already used. Click Re-authenticate to run 'codex auth login'."
-        ),
-        "gemini": (
-            "Gemini OAuth token is missing or has insufficient API scopes. "
-            "Click Re-authenticate to run 'gemini auth login'."
-        ),
-    },
-    "degraded": {
-        "claude": "Claude backend is available but experiencing issues.",
-        "codex": "Codex backend is available but experiencing issues.",
-        "gemini": "Gemini backend is available but experiencing issues.",
-    },
-}
-
-
-def _help_text(backend: str, health: dict[str, Any]) -> str | None:
+def _help_text(plugin: Any, health: dict[str, Any]) -> str | None:
     """Return user-facing help text for the current status."""
     action = health.get("action", "healthy")
-    texts = _HELP_TEXTS.get(action, {})
-    return texts.get(backend)
+    configured = getattr(plugin, "backend_status_help", None)
+    if isinstance(configured, dict):
+        text = configured.get(action)
+        if isinstance(text, str):
+            return text
+
+    if action == "rate_limited":
+        return "Backend rate limit reached. Capacity will reset automatically."
+    if action == "reauth":
+        if getattr(plugin, "gateway_provider", None):
+            return "OAuth profile is missing or expired. Click Authenticate to open a browser."
+        command = getattr(plugin, "cli_auth_command", None)
+        if isinstance(command, str):
+            return f"Credential is missing or expired. Click Re-authenticate to run '{command}'."
+        return "Credential is missing or expired."
+    if action == "degraded":
+        return "Backend is available but experiencing issues."
+    return None

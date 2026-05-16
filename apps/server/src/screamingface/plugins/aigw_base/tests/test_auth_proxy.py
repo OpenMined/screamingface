@@ -58,7 +58,7 @@ def test_start_happy_path_passes_through_authorize_url() -> None:
 
     client = _make_client(handler)
     resp = client.post("/claude/auth/start")
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     body = resp.json()
     assert body["authorize_url"] == "https://provider/authorize?x=1"
     assert body["profile_id"] == "anthropic:default"
@@ -142,7 +142,7 @@ def test_start_omits_defaults_when_none() -> None:
 
     client = _make_client(handler)  # defaults defaults to None
     resp = client.post("/claude/auth/start")
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert captured["body"] == {"name": "default"}
     assert "defaults" not in captured["body"]
 
@@ -162,7 +162,7 @@ def test_start_forwards_defaults_when_provided() -> None:
 
     client = _make_client(handler, defaults=defaults)
     resp = client.post("/claude/auth/start")
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert captured["body"] == {"name": "default", "defaults": defaults}
 
 
@@ -251,7 +251,7 @@ def test_start_with_name_override_targets_named_profile() -> None:
 
     client = _make_client(handler, defaults={"model": "anthropic/claude-sonnet-4-5"})
     resp = client.post("/claude/auth/start?name=work")
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     # Named profile bypasses defaults forwarding
     assert captured["body"] == {"name": "work"}
 
@@ -273,7 +273,7 @@ def test_start_default_name_forwards_defaults() -> None:
 
     client = _make_client(handler, defaults={"model": "anthropic/claude-sonnet-4-5"})
     resp = client.post("/claude/auth/start")  # no ?name → uses default "default"
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert captured["body"] == {
         "name": "default",
         "defaults": {"model": "anthropic/claude-sonnet-4-5"},
@@ -298,7 +298,7 @@ def test_start_explicit_default_name_forwards_defaults() -> None:
 
     client = _make_client(handler, defaults={"model": "anthropic/claude-sonnet-4-5"})
     resp = client.post("/claude/auth/start?name=default")
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     assert captured["body"] == {
         "name": "default",
         "defaults": {"model": "anthropic/claude-sonnet-4-5"},

@@ -22,4 +22,4 @@ class ProfilePendingAuthError(AigwError):
 
 
 class BootstrapError(AigwError):
-    """Failed to bootstrap the gateway profile index from an existing CC keychain."""
+    """Failed to bootstrap the gateway profile index from provider credentials."""

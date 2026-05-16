@@ -93,6 +93,18 @@
         "to": "server/sf.json"
       },
       {
+        "from": "../../apps/aigateway/src",
+        "to": "aigateway/src"
+      },
+      {
+        "from": "../../apps/aigateway/pyproject.toml",
+        "to": "aigateway/pyproject.toml"
+      },
+      {
+        "from": "../../apps/aigateway/uv.lock",
+        "to": "aigateway/uv.lock"
+      },
+      {
         "from": "build-assets/${os}/${arch}/uv",
         "to": "server/bin/uv"
       },

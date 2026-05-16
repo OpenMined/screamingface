@@ -9,6 +9,7 @@
  */
 
 import { shell } from 'electron';
+import { isAllowedOAuthAuthorizeUrl, isSafeBackendName } from './external-url-policy';
 
 /**
  * In-memory cache of the most-recent OAuth `state` value per backend.
@@ -55,6 +56,14 @@ export interface LauncherOptions {
 }
 
 export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherResult> {
+  if (!isSafeBackendName(opts.backendName)) {
+    return {
+      kind: 'failed',
+      reason: 'gateway_error',
+      message: `invalid browser OAuth backend: ${opts.backendName}`,
+    };
+  }
+
   const fetchImpl = opts.fetchImpl ?? fetch;
   const pollIntervalMs = opts.pollIntervalMs ?? 2000;
   const timeoutMs = opts.timeoutMs ?? 10 * 60 * 1000;
@@ -85,11 +94,18 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
       message: `start returned ${startResp.status}: ${body.slice(0, 200)}`,
     };
   }
-  const startBody = (await startResp.json()) as { authorize_url: string; state?: string };
+  const startBody = (await startResp.json()) as { authorize_url?: string; state?: string };
+  if (!startBody.authorize_url || !isAllowedOAuthAuthorizeUrl(startBody.authorize_url)) {
+    return {
+      kind: 'failed',
+      reason: 'gateway_error',
+      message: 'blocked unexpected OAuth authorize URL',
+    };
+  }
   if (startBody.state) {
     pendingStateByBackend.set(opts.backendName, startBody.state);
   }
-  console.log(`[oauth-launcher] opening browser: ${startBody.authorize_url}`);
+  console.log(`[oauth-launcher] opening browser for ${opts.backendName}`);
   await shell.openExternal(startBody.authorize_url);
 
   const deadline = Date.now() + timeoutMs;

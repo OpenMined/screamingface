@@ -15,7 +15,7 @@ class ModelEntry:
 
     Maps directly onto the dict shape that `litellm.Router(model_list=...)`
     expects. `model_name` is the user-facing alias; `litellm_params.model`
-    is the fully-qualified provider/model string (e.g. `anthropic/claude-...`).
+    is the fully-qualified provider/model string.
     """
 
     model_name: str
@@ -49,8 +49,20 @@ class OAuthConfig:
     token_url: str
     client_id: str
     scopes: list[str]
-    redirect_path: str  # absolute path on the gateway, e.g. /v1/auth/anthropic/callback
+    redirect_path: str  # absolute path on the gateway callback surface
     extra_authorize_params: dict[str, str] | None = None
+    loopback_redirect_ports: list[int] | None = None
+
+
+@dataclass(frozen=True)
+class OAuthCodeExchangeRequest:
+    """Provider-owned authorization-code exchange input."""
+
+    code: str
+    code_verifier: str
+    redirect_uri: str
+    state: str
+    http_client_factory: Any | None = None
 
 
 class ProviderPluginBase(ABC):
@@ -76,6 +88,32 @@ class ProviderPluginBase(ABC):
         """Return a per-profile OAuthStrategy. Default: no auth."""
         return None
 
+    async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict[str, Any]:
+        """Exchange an OAuth authorization code for provider credentials."""
+        raise NotImplementedError(f"{self.custom_llm_provider} does not exchange OAuth codes")
+
+    def account_label_from_credentials(self, _credentials: dict[str, Any]) -> str | None:
+        """Return a display label for credentials persisted after OAuth, if available."""
+        return None
+
+    def supports_chat_streaming(self) -> bool:
+        """Whether `/v1/chat/completions` may create a streaming response."""
+        return True
+
+    def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Apply provider-specific request normalization before dispatch."""
+        return body
+
+    def should_apply_profile_default(self, field: str) -> bool:
+        """Return whether a profile default field should be merged into chat bodies."""
+        return True
+
+    async def chat_completion(self, body: dict[str, Any]) -> Any:
+        """Dispatch a normalized OpenAI-compatible chat completion request."""
+        import litellm
+
+        return await litellm.acompletion(**body)
+
     def auth_router(self):
         """Provider-specific auth routes.
 
@@ -91,5 +129,5 @@ class ProviderPluginBase(ABC):
         credential_store: CredentialStore | None = None,
         index_store: ProfileIndexStore | None = None,
     ) -> None:
-        """Import provider-owned local credentials into the profile index, if any."""
+        """Populate provider-owned profile metadata at startup, if any."""
         return None

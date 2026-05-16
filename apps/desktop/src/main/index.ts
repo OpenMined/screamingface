@@ -4,9 +4,58 @@ import { is } from '@electron-toolkit/utils';
 import { registerAllHandlers } from './ipc';
 import { log } from './debug-log';
 import { sessionManager } from './services/session-manager';
+import { serverProcess } from './services/server-process';
+import { isAllowedExternalBrowserUrl, isAllowedPopupUrl } from './services/external-url-policy';
+import { requireTrustedIpcSender } from './ipc/sender-validation';
 
 let mainWindow: BrowserWindow | null = null;
 let phoenixWindow: BrowserWindow | null = null;
+
+function showMainWindow(reason: string): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isVisible()) return;
+  log(`[main] show window (${reason})`);
+  mainWindow.show();
+}
+
+function registerMainWindowDiagnostics(window: BrowserWindow): void {
+  window.on('ready-to-show', () => {
+    log(`[main] ready-to-show`);
+  });
+
+  window.on('unresponsive', () => {
+    log(`[main] window unresponsive`);
+  });
+
+  window.webContents.on('dom-ready', () => {
+    log(`[renderer] dom-ready`);
+    showMainWindow('dom-ready');
+  });
+
+  window.webContents.on('did-finish-load', () => {
+    log(`[renderer] did-finish-load`);
+  });
+
+  window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    log(
+      `[renderer] did-fail-load code=${errorCode} description=${errorDescription} url=${validatedURL}`,
+    );
+    showMainWindow('did-fail-load');
+  });
+
+  window.webContents.on('render-process-gone', (_event, details) => {
+    log(`[renderer] render-process-gone reason=${details.reason} exitCode=${details.exitCode}`);
+  });
+
+  window.webContents.on('preload-error', (_event, preloadPath, error) => {
+    log(`[renderer] preload-error path=${preloadPath} message=${error.message}`);
+  });
+
+  window.webContents.on('console-message', (event) => {
+    log(
+      `[renderer:console:${event.level}] ${event.message} (${event.sourceId}:${event.lineNumber})`,
+    );
+  });
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -24,20 +73,16 @@ function createWindow(): void {
   });
 
   log(`[main] BrowserWindow created`);
-
-  mainWindow.on('ready-to-show', () => {
-    log(`[main] ready-to-show`);
-    mainWindow?.show();
-    // Temporary: open DevTools in production to diagnose Finder-launch black screen
-    mainWindow?.webContents.openDevTools({ mode: 'detach' });
-  });
+  registerMainWindowDiagnostics(mainWindow);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isAllowedExternalBrowserUrl(url)) {
+      void shell.openExternal(url);
+    }
     return { action: 'deny' };
   });
 
@@ -49,7 +94,10 @@ function createWindow(): void {
 }
 
 function registerPopupHandlers(): void {
-  ipcMain.handle('popup:open', (_event, url: string, title?: string) => {
+  ipcMain.handle('popup:open', (event, url: string, title?: string) => {
+    requireTrustedIpcSender(event);
+    if (!isAllowedPopupUrl(url)) return;
+
     // Reuse existing window if still open
     if (phoenixWindow && !phoenixWindow.isDestroyed()) {
       phoenixWindow.loadURL(url);
@@ -78,7 +126,8 @@ function registerPopupHandlers(): void {
     });
   });
 
-  ipcMain.handle('popup:close', () => {
+  ipcMain.handle('popup:close', (event) => {
+    requireTrustedIpcSender(event);
     if (phoenixWindow && !phoenixWindow.isDestroyed()) {
       phoenixWindow.close();
       phoenixWindow = null;
@@ -126,7 +175,7 @@ app.on('before-quit', (event) => {
   if (isQuitting) return;
   isQuitting = true;
   event.preventDefault();
-  sessionManager.terminateAll().finally(() => {
+  Promise.allSettled([sessionManager.terminateAll(), serverProcess.stop()]).finally(() => {
     app.quit();
   });
 });
