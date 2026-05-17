@@ -38,8 +38,7 @@ forwarding the user prompt straight to upstream. The full chain:
         → aigw-runner subprocess (apps/aigateway uvicorn on 9105)
         → real api.anthropic.com (live, OAuth via gateway profile)
 
-Skipped unless ANTHROPIC_API_KEY is set OR the Claude Code CLI keychain
-entry exists locally — the gateway's bootstrap accepts either.
+Skipped unless the Claude Code CLI keychain entry is present.
 
 Asserts on TWO levels:
 
@@ -53,10 +52,8 @@ Asserts on TWO levels:
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
-import subprocess
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -65,6 +62,7 @@ import httpx
 import pytest
 
 from tests.e2e.infrastructure.claude_code_client import ClaudeCodeClient
+from tests.e2e.infrastructure.claude_oauth import has_claude_code_oauth
 from tests.e2e.infrastructure.otlp_collector import OTLPCollector
 from tests.e2e.infrastructure.server_manager import ServerManager
 
@@ -77,41 +75,6 @@ pytestmark = pytest.mark.e2e
 # substituted back into the user message before claude-frontend forwards
 # the request to its upstream (httpbin echo, see fixture).
 _AIGW_SPEC_EXPRESSION = f"/claude?q={quote('$prompt', safe='$')}"
-
-
-# ---------------------------------------------------------------------------
-# Skip-gating
-# ---------------------------------------------------------------------------
-
-
-def _has_claude_code_keychain() -> bool:
-    """Return True if Claude Code's keychain entry exists on this machine."""
-    if not shutil.which("security"):
-        return False
-    user = os.environ.get("USER", "")
-    if not user:
-        return False
-    try:
-        result = subprocess.run(
-            [
-                "security",
-                "find-generic-password",
-                "-s",
-                "Claude Code-credentials",
-                "-a",
-                user,
-                "-w",
-            ],
-            capture_output=True,
-            timeout=3,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
-    return result.returncode == 0
-
-
-def _credentials_available() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY")) or _has_claude_code_keychain()
 
 
 # ---------------------------------------------------------------------------
@@ -129,11 +92,9 @@ def aigw_proxy(otlp_collector: OTLPCollector, httpbin_url: str):
     The gateway subprocess is spawned by aigw-runner during SF startup.
     Teardown stops both processes.
     """
-    if not _credentials_available():
+    if not has_claude_code_oauth():
         pytest.skip(
-            "Neither ANTHROPIC_API_KEY env var nor a Claude Code keychain "
-            "entry was found. The gateway needs one of these to authenticate "
-            "the anthropic:default profile."
+            "Claude Code OAuth credential not found in macOS keychain; skipping live Anthropic e2e."
         )
     if not shutil.which("uv"):
         pytest.skip("`uv` not found in PATH; aigw-runner cannot spawn the gateway")

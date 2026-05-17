@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Generator
 from pathlib import Path
 
@@ -88,10 +87,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    # 1) Auto-skip live tests without API key
-    has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    if not has_api_key:
-        skip_live = pytest.mark.skip(reason="ANTHROPIC_API_KEY not set")
+    # 1) Auto-skip live tests without a Claude Code OAuth credential.
+    from tests.e2e.infrastructure.claude_oauth import has_claude_code_oauth
+
+    if not has_claude_code_oauth():
+        skip_live = pytest.mark.skip(
+            reason="Claude Code OAuth credential not found in macOS keychain"
+        )
         for item in items:
             if "e2e_live" in item.keywords:
                 item.add_marker(skip_live)
