@@ -4,12 +4,14 @@ import asyncio
 import base64
 import json
 import time
+from typing import cast
 from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
 from fastapi import HTTPException
 
+from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import (
@@ -20,7 +22,12 @@ from aigateway.core.profile_models import (
     profile_id_for,
 )
 from aigateway.plugins.codex_provider.oauth_config import CODEX_CLIENT_ID
-from aigateway.routes.auth import _complete_oauth_for_app
+from aigateway.routes.auth import (
+    _complete_oauth_for_app,
+    _handle_loopback_callback,
+    _http_response,
+    _loopback_host_allowed,
+)
 
 
 @pytest.fixture
@@ -244,6 +251,248 @@ class _DelayedOAuthPlugin(_GenericOAuthPlugin):
         self.exchange_count += 1
         await asyncio.sleep(0.01)
         return await super().exchange_oauth_code(request)
+
+
+class _ExplodingOAuthPlugin(_GenericOAuthPlugin):
+    async def exchange_oauth_code(self, _request: OAuthCodeExchangeRequest) -> dict:
+        raise RuntimeError("<script>bad</script>")
+
+
+class _FakeReader:
+    def __init__(self, data: bytes | None = None, exc: Exception | None = None) -> None:
+        self.data = data
+        self.exc = exc
+
+    async def readuntil(self, _separator: bytes) -> bytes:
+        if self.exc is not None:
+            raise self.exc
+        assert self.data is not None
+        return self.data
+
+
+class _FakeWriter:
+    def __init__(self) -> None:
+        self.writes: list[bytes] = []
+        self.closed = False
+
+    @property
+    def response(self) -> bytes:
+        return b"".join(self.writes)
+
+    def write(self, data: bytes) -> None:
+        self.writes.append(data)
+
+    async def drain(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def wait_closed(self) -> None:
+        pass
+
+
+class _FakeServer:
+    def __init__(self) -> None:
+        self.closed = False
+        self.waited = False
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def wait_closed(self) -> None:
+        self.waited = True
+
+
+def _as_stream_reader(reader: _FakeReader) -> asyncio.StreamReader:
+    return cast(asyncio.StreamReader, reader)
+
+
+def _as_stream_writer(writer: _FakeWriter) -> asyncio.StreamWriter:
+    return cast(asyncio.StreamWriter, writer)
+
+
+def _raw_loopback_request(target: str, *, method: str = "GET", host: str = "localhost") -> bytes:
+    return f"{method} {target} HTTP/1.1\r\nHost: {host}\r\n\r\n".encode("ascii")
+
+
+async def _seed_pending_profile(
+    client,
+    account_id: str,
+    provider: str,
+    name: str,
+    state: str,
+) -> None:
+    client.app.state.pending_auth.put(
+        state,
+        PendingAuthEntry(
+            account_id=account_id,
+            provider=provider,
+            profile_name=name,
+            profile_id=profile_id_for(account_id, provider, name),
+            code_verifier="verifier",
+            redirect_uri="http://localhost:1455/callback",
+        ),
+    )
+    await client.app.state.profile_index.upsert(
+        Profile(
+            id=profile_id_for(account_id, provider, name),
+            account_id=account_id,
+            provider=provider,
+            name=name,
+            state=ProfileState.PENDING,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    ("host", "allowed"),
+    [
+        (None, False),
+        ("", False),
+        ("localhost", True),
+        ("localhost.", True),
+        ("127.0.0.1:1455", True),
+        ("[::1]:1455", True),
+        ("192.168.1.10:1455", False),
+        ("example.com", False),
+        ("[::1", False),
+    ],
+)
+def test_loopback_host_allowed_accepts_only_loopback(host, allowed) -> None:
+    assert _loopback_host_allowed(host) is allowed
+
+
+def test_loopback_http_response_serializes_body_and_headers() -> None:
+    response = _http_response(418, "teapot", content_type="text/plain")
+
+    assert response.startswith(b"HTTP/1.1 418 Internal Server Error\r\n")
+    assert b"content-type: text/plain; charset=utf-8\r\n" in response
+    assert b"content-length: 6\r\n" in response
+    assert response.endswith(b"\r\n\r\nteapot")
+
+
+@pytest.mark.asyncio
+async def test_handle_loopback_callback_completes_oauth(client_with_index) -> None:
+    client, _ = client_with_index
+    account_id = _account_id(client)
+    state = "loopback-state"
+    plugin = _GenericOAuthPlugin()
+    server = _FakeServer()
+    client.app.state.providers._plugins["generic"] = plugin
+    client.app.state.loopback_oauth_callbacks = {state: server}
+    await _seed_pending_profile(client, account_id, "generic", "loopback", state)
+
+    writer = _FakeWriter()
+    await _handle_loopback_callback(
+        client.app,
+        "generic",
+        "/callback",
+        state,
+        _as_stream_reader(
+            _FakeReader(_raw_loopback_request(f"/callback?code=loop-code&state={state}"))
+        ),
+        _as_stream_writer(writer),
+    )
+
+    assert writer.response.startswith(b"HTTP/1.1 200 OK\r\n")
+    assert writer.closed is True
+    assert plugin.exchange_request is not None
+    assert plugin.exchange_request.code == "loop-code"
+    assert plugin.strategy.creds is not None
+    assert plugin.strategy.creds["access_token"] == "generic-token"
+    assert server.closed is True
+    assert server.waited is True
+    assert state not in client.app.state.loopback_oauth_callbacks
+    profile = client.get("/v1/auth/generic/profiles/loopback")
+    assert profile.status_code == 200
+    assert profile.json()["state"] == "authenticated"
+
+
+@pytest.mark.parametrize(
+    ("reader", "expected_status", "expected_body"),
+    [
+        (
+            _FakeReader(exc=asyncio.IncompleteReadError(partial=b"", expected=1)),
+            b"400 Bad Request",
+            b"Malformed callback request",
+        ),
+        (
+            _FakeReader(b"GET\r\nHost: localhost\r\n\r\n"),
+            b"400 Bad Request",
+            b"Malformed callback request",
+        ),
+        (
+            _FakeReader(_raw_loopback_request("/callback?code=c&state=expected", host="evil.test")),
+            b"403 Forbidden",
+            b"Forbidden callback host",
+        ),
+        (
+            _FakeReader(_raw_loopback_request("/other?code=c&state=expected")),
+            b"404 Not Found",
+            b"Unknown callback path",
+        ),
+        (
+            _FakeReader(_raw_loopback_request("/callback?state=expected")),
+            b"400 Bad Request",
+            b"Missing callback code or state",
+        ),
+        (
+            _FakeReader(_raw_loopback_request("/callback?code=c&state=wrong")),
+            b"400 Bad Request",
+            b"OAuth state not recognized or expired",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_handle_loopback_callback_rejects_bad_requests(
+    client_with_index, reader, expected_status, expected_body
+) -> None:
+    client, _ = client_with_index
+    writer = _FakeWriter()
+
+    await _handle_loopback_callback(
+        client.app,
+        "generic",
+        "/callback",
+        "expected",
+        _as_stream_reader(reader),
+        _as_stream_writer(writer),
+    )
+
+    assert expected_status in writer.response
+    assert expected_body in writer.response
+    assert writer.closed is True
+
+
+@pytest.mark.asyncio
+async def test_handle_loopback_callback_escapes_completion_errors(client_with_index) -> None:
+    client, _ = client_with_index
+    account_id = _account_id(client)
+    state = "loopback-error-state"
+    server = _FakeServer()
+    client.app.state.providers._plugins["generic"] = _ExplodingOAuthPlugin()
+    client.app.state.loopback_oauth_callbacks = {state: server}
+    await _seed_pending_profile(client, account_id, "generic", "loopback-error", state)
+
+    writer = _FakeWriter()
+    await _handle_loopback_callback(
+        client.app,
+        "generic",
+        "/callback",
+        state,
+        _as_stream_reader(_FakeReader(_raw_loopback_request(f"/callback?code=boom&state={state}"))),
+        _as_stream_writer(writer),
+    )
+
+    assert b"HTTP/1.1 500 Internal Server Error" in writer.response
+    assert b"&lt;script&gt;bad&lt;/script&gt;" in writer.response
+    assert b"<script>bad</script>" not in writer.response
+    assert server.closed is True
+    assert server.waited is True
+    profile = client.get("/v1/auth/generic/profiles/loopback-error")
+    assert profile.status_code == 200
+    assert profile.json()["state"] == "error"
 
 
 def test_start_oauth_for_non_oauth_provider_400(client_with_index) -> None:
