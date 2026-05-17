@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .config import Settings
+from .core import credential_store as credential_store_module
 from .core.auth.bootstrap_admin import ensure_admin_account
 from .core.auth.jwt_secret import get_or_create_jwt_secret
 from .core.auth.local_only import AuthDisabledLocalOnlyMiddleware
@@ -27,6 +28,7 @@ from .db import close_db, init_db
 from .routes import accounts, auth, auth_session, chat, health, models
 
 logger = logging.getLogger(__name__)
+_ORIGINAL_GET_CREDENTIAL_STORE = get_credential_store
 
 
 def _unsigned_jwt(payload: dict) -> str:
@@ -46,6 +48,12 @@ def _attach_log_filter() -> None:
         for handler in target.handlers:
             if not any(isinstance(f, RedactProvisioningTokenFilter) for f in handler.filters):
                 handler.addFilter(RedactProvisioningTokenFilter())
+
+
+def _default_credential_store():
+    if get_credential_store is not _ORIGINAL_GET_CREDENTIAL_STORE:
+        return get_credential_store()
+    return credential_store_module.get_credential_store()
 
 
 @asynccontextmanager
@@ -116,7 +124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         credential_store = JsonFileCredentialStore(kc_path)
         app.state._fake_credential_store = credential_store
     else:
-        credential_store = get_credential_store()
+        credential_store = _default_credential_store()
     app.state.credential_store = credential_store
     app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
 
