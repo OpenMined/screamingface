@@ -24,6 +24,27 @@ class PendingAuthTable:
     def put(self, state: str, entry: PendingAuthEntry) -> None:
         self._entries[state] = (entry, time.monotonic())
 
+    def pop_for_profile(self, account_id: str, provider: str, profile_name: str) -> list[str]:
+        """Remove pending entries for the same account/provider/profile.
+
+        Returns the removed states so callers can tear down any state-scoped
+        loopback listeners without disturbing unrelated in-flight profiles.
+        """
+        removed: list[str] = []
+        now = time.monotonic()
+        for state, (entry, ts) in list(self._entries.items()):
+            expired = now - ts > self._ttl
+            matches = (
+                entry.account_id == account_id
+                and entry.provider == provider
+                and entry.profile_name == profile_name
+            )
+            if expired or matches:
+                self._entries.pop(state, None)
+            if matches and not expired:
+                removed.append(state)
+        return removed
+
     def pop(self, state: str) -> PendingAuthEntry | None:
         item = self._entries.pop(state, None)
         if item is None:

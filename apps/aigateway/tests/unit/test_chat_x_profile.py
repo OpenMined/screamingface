@@ -293,9 +293,12 @@ async def test_chat_rejects_codex_stream_before_litellm(
             state=ProfileState.AUTHENTICATED,
         )
     )
-    fake_acompletion = AsyncMock()
+    fake_stream = AsyncMock()
 
-    with patch("aigateway.routes.chat.litellm.acompletion", fake_acompletion):
+    with patch(
+        "aigateway.plugins.codex_provider.plugin.CodexProviderPlugin.chat_completion_stream",
+        fake_stream,
+    ):
         resp = authenticated_client.post(
             "/v1/chat/completions",
             json={
@@ -307,7 +310,51 @@ async def test_chat_rejects_codex_stream_before_litellm(
 
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "streaming_not_supported"
-    fake_acompletion.assert_not_called()
+    fake_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_chat_streams_through_provider_plugin_boundary(
+    fake_keychain, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    _seed_authenticated_profile(fake_keychain, account_id)
+    idx = ProfileIndexStore(credential_store=fake_keychain)
+    await idx.upsert(
+        Profile(
+            id=profile_id_for(account_id, "anthropic", "default"),
+            account_id=account_id,
+            provider="anthropic",
+            name="default",
+            state=ProfileState.AUTHENTICATED,
+        )
+    )
+    captured: dict = {}
+
+    async def fake_stream_completion(_self, body):
+        captured.update(body)
+
+        from types import SimpleNamespace
+
+        yield SimpleNamespace(model_dump=lambda: {"choices": [{"delta": {"content": "hi"}}]})
+
+    with patch(
+        "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion_stream",
+        fake_stream_completion,
+    ):
+        resp = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "anthropic/claude-haiku-4-5",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": True,
+            },
+        )
+
+    assert resp.status_code == 200
+    assert 'data: {"choices": [{"delta": {"content": "hi"}}]}' in resp.text
+    assert "data: [DONE]" in resp.text
+    assert captured["api_key"] == "tok"
 
 
 @pytest.mark.asyncio

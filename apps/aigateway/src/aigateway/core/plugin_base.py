@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -39,6 +40,18 @@ class OAuthStrategy(ABC):
 
     async def invalidate(self) -> None:
         """Drop any cached token. Called after a 401 from upstream."""
+
+    @abstractmethod
+    def persist_credentials(self, credentials: dict[str, Any]) -> None:
+        """Persist newly exchanged provider credentials for this profile."""
+
+    @abstractmethod
+    def delete_credentials(self) -> None:
+        """Delete persisted provider credentials for this profile."""
+
+    @abstractmethod
+    async def refresh_credentials(self) -> None:
+        """Refresh persisted provider credentials for this profile."""
 
 
 @dataclass(frozen=True)
@@ -84,7 +97,13 @@ class ProviderPluginBase(ABC):
         """Return provider OAuth metadata, or None for no-auth providers (e.g. local Ollama)."""
         return None
 
-    def oauth_strategy_for(self, profile_name: str) -> OAuthStrategy | None:
+    def oauth_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        credential_store: CredentialStore | None = None,
+        http_client_factory: Any | None = None,
+    ) -> OAuthStrategy | None:
         """Return a per-profile OAuthStrategy. Default: no auth."""
         return None
 
@@ -113,6 +132,14 @@ class ProviderPluginBase(ABC):
         import litellm
 
         return await litellm.acompletion(**body)
+
+    async def chat_completion_stream(self, body: dict[str, Any]) -> AsyncIterator[Any]:
+        """Dispatch a normalized streaming chat completion request."""
+        import litellm
+
+        stream: Any = await litellm.acompletion(**body)
+        async for chunk in stream:
+            yield chunk
 
     def auth_router(self):
         """Provider-specific auth routes.

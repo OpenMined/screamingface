@@ -53,8 +53,7 @@ async def _lifespan(app):
     database_url = app.state.settings.database_url.get_secret_value()
     await init_db(database_url)
     try:
-        fake_store = getattr(app.state, "_fake_credential_store", None)
-        credential_store = fake_store if fake_store is not None else get_credential_store()
+        credential_store = app.state.credential_store
         app.state.jwt_secret = await get_or_create_jwt_secret(
             credential_store,
             app.state.settings.jwt_secret,
@@ -114,11 +113,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         kc_path = os.getenv("AIGATEWAY_KEYCHAIN_FILE")
         if not kc_path:
             raise RuntimeError("AIGATEWAY_FAKE_KEYCHAIN=1 requires AIGATEWAY_KEYCHAIN_FILE=<path>")
-        fake_store = JsonFileCredentialStore(kc_path)
-        app.state._fake_credential_store = fake_store
-        app.state.profile_index = ProfileIndexStore(credential_store=fake_store)
+        credential_store = JsonFileCredentialStore(kc_path)
+        app.state._fake_credential_store = credential_store
     else:
-        app.state.profile_index = ProfileIndexStore()
+        credential_store = get_credential_store()
+    app.state.credential_store = credential_store
+    app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
 
     if os.getenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH") == "1":
         import httpx

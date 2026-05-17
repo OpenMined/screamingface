@@ -51,15 +51,23 @@ export function registerBackendStatusHandlers(): void {
     },
   );
 
-  ipcMain.handle('backends:getPendingAuthState', (event, backend: string): string | null => {
-    requireTrustedIpcSender(event);
-    if (!isSafeBackendName(backend)) return null;
-    return getPendingAuthState(backend);
-  });
+  ipcMain.handle(
+    'backends:getPendingAuthState',
+    (event, backend: string, profileName?: string): string | null => {
+      requireTrustedIpcSender(event);
+      if (!isSafeBackendName(backend)) return null;
+      return getPendingAuthState(backend, profileName);
+    },
+  );
 
   ipcMain.handle(
     'backends:exchangeOAuthCode',
-    async (event, backend: string, code: string): Promise<ExchangeCodeResult> => {
+    async (
+      event,
+      backend: string,
+      code: string,
+      profileName?: string,
+    ): Promise<ExchangeCodeResult> => {
       requireTrustedIpcSender(event);
       if (!isSafeBackendName(backend)) {
         return { ok: false, message: `invalid backend name: ${backend}` };
@@ -69,9 +77,9 @@ export function registerBackendStatusHandlers(): void {
       if (!sfBaseUrl) {
         return { ok: false, message: 'SF server is not running' };
       }
-      const state = getPendingAuthState(backend);
+      const state = getPendingAuthState(backend, profileName);
       if (!state) {
-        return { ok: false, message: 'No in-flight OAuth flow for this backend' };
+        return { ok: false, message: 'No in-flight OAuth flow for this backend/profile' };
       }
       try {
         const resp = await fetch(`${sfBaseUrl}/${backend}/auth/exchange-code`, {
@@ -80,7 +88,7 @@ export function registerBackendStatusHandlers(): void {
           body: JSON.stringify({ code, state }),
         });
         if (resp.ok) {
-          clearPendingAuthState(backend);
+          clearPendingAuthState(backend, profileName);
           return { ok: true };
         }
         let message: string | undefined;

@@ -183,12 +183,20 @@ class _NoOAuthPlugin:
 class _RecordingStrategy:
     def __init__(self) -> None:
         self.creds: dict | None = None
+        self.deleted = False
+        self.refreshed = False
 
     async def get_authorization_header(self) -> dict[str, str]:
         return {}
 
-    def set_credentials(self, creds: dict) -> None:
+    def persist_credentials(self, creds: dict) -> None:
         self.creds = creds
+
+    def delete_credentials(self) -> None:
+        self.deleted = True
+
+    async def refresh_credentials(self) -> None:
+        self.refreshed = True
 
 
 class _GenericOAuthPlugin:
@@ -211,7 +219,7 @@ class _GenericOAuthPlugin:
             extra_authorize_params={"extra": "1"},
         )
 
-    def oauth_strategy_for(self, _profile_name: str) -> _RecordingStrategy:
+    def oauth_strategy_for(self, _profile_name: str, **_kwargs) -> _RecordingStrategy:
         return self.strategy
 
     async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict:
@@ -222,6 +230,9 @@ class _GenericOAuthPlugin:
             "expires_at_ms": 9999999999999,
             "token_type": "Bearer",
         }
+
+    def account_label_from_credentials(self, _credentials: dict) -> str | None:
+        return None
 
 
 class _DelayedOAuthPlugin(_GenericOAuthPlugin):
@@ -279,6 +290,28 @@ def test_start_oauth_creates_pending_profile(client_with_index) -> None:
     resp = client.get("/v1/auth/anthropic/profiles/work")
     assert resp.status_code == 200
     assert resp.json()["state"] == "pending"
+
+
+def test_start_oauth_replaces_same_profile_pending_state(client_with_index) -> None:
+    client, _ = client_with_index
+    client.app.state.anthropic_http_factory = _mock_token_factory()
+
+    first = client.post("/v1/auth/anthropic/profiles", json={"name": "work"}).json()
+    second = client.post("/v1/auth/anthropic/profiles", json={"name": "work"}).json()
+
+    stale = client.get(
+        "/v1/auth/anthropic/callback",
+        params={"code": "old-code", "state": first["state"]},
+        follow_redirects=False,
+    )
+    fresh = client.get(
+        "/v1/auth/anthropic/callback",
+        params={"code": "new-code", "state": second["state"]},
+        follow_redirects=False,
+    )
+
+    assert stale.status_code == 400
+    assert fresh.status_code == 200
 
 
 def test_profiles_are_scoped_to_current_account(
@@ -721,6 +754,47 @@ def test_refresh_missing_profile_404(client_with_index) -> None:
     resp = client.post("/v1/auth/anthropic/profiles/missing/refresh")
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "profile_not_found"
+
+
+@pytest.mark.asyncio
+async def test_refresh_uses_app_store_and_provider_http_factory(
+    fake_keychain, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    credential_name = credential_name_for(account_id, "refreshme")
+
+    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+
+    fake_keychain.write(
+        keychain_service_for(credential_name),
+        "default",
+        json.dumps(
+            {
+                "access_token": "old-tok",
+                "refresh_token": "old-rt",
+                "expires_at_ms": int(time.time() * 1000) - 60_000,
+                "token_type": "Bearer",
+            }
+        ),
+    )
+    idx = ProfileIndexStore(credential_store=fake_keychain)
+    await idx.upsert(
+        Profile(
+            id=profile_id_for(account_id, "anthropic", "refreshme"),
+            account_id=account_id,
+            provider="anthropic",
+            name="refreshme",
+            state=ProfileState.AUTHENTICATED,
+        )
+    )
+    authenticated_client.app.state.anthropic_http_factory = _mock_token_factory()
+
+    resp = authenticated_client.post("/v1/auth/anthropic/profiles/refreshme/refresh")
+
+    assert resp.status_code == 200
+    blob = fake_keychain.read(keychain_service_for(credential_name), "default")
+    assert blob is not None
+    assert json.loads(blob)["access_token"] == "new-tok"
 
 
 def test_delete_removes_profile_and_tokens(client_with_index) -> None:

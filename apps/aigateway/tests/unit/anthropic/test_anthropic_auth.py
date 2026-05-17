@@ -175,15 +175,15 @@ async def test_invalidate_drops_cache() -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_credentials_persists_and_caches() -> None:
-    """set_credentials() (used by OAuth callback) writes to store + populates cache."""
+async def test_persist_credentials_persists_and_caches() -> None:
+    """persist_credentials() writes to store + populates cache after OAuth callback."""
     store = _FakeStore(payload=None)
     strat = AnthropicOAuth(
         profile_name="default",
         credential_store=store,
     )
     fresh = _fresh_creds()
-    strat.set_credentials(fresh)
+    strat.persist_credentials(fresh)
 
     headers = await strat.get_authorization_header()
     assert headers["Authorization"] == f"Bearer {fresh['access_token']}"

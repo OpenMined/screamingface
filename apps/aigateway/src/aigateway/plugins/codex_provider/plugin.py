@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 from litellm.llms.custom_llm import CustomLLMError
@@ -30,6 +30,9 @@ from .oauth_config import (
     CODEX_TOKEN_URL,
 )
 
+if TYPE_CHECKING:
+    from aigateway.core.credential_store import CredentialStore
+
 
 class CodexProviderPlugin(ProviderPluginBase):
     custom_llm_provider = "codex"
@@ -48,8 +51,18 @@ class CodexProviderPlugin(ProviderPluginBase):
             loopback_redirect_ports=CODEX_REDIRECT_PORTS,
         )
 
-    def oauth_strategy_for(self, profile_name: str) -> OAuthStrategy:
-        return CodexOAuth(profile_name=profile_name)
+    def oauth_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        credential_store: CredentialStore | None = None,
+        http_client_factory: Any | None = None,
+    ) -> OAuthStrategy:
+        return CodexOAuth(
+            profile_name=profile_name,
+            credential_store=credential_store,
+            http_client_factory=http_client_factory,
+        )
 
     async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict:
         return await exchange_authorization_code(

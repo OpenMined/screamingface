@@ -44,8 +44,18 @@ class AnthropicProviderPlugin(ProviderPluginBase):
             extra_authorize_params=ANTHROPIC_AUTHORIZE_EXTRA_PARAMS,
         )
 
-    def oauth_strategy_for(self, profile_name: str) -> OAuthStrategy:
-        return AnthropicOAuth(profile_name=profile_name)
+    def oauth_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        credential_store: CredentialStore | None = None,
+        http_client_factory: Any | None = None,
+    ) -> OAuthStrategy:
+        return AnthropicOAuth(
+            profile_name=profile_name,
+            credential_store=credential_store,
+            http_client_factory=http_client_factory,
+        )
 
     def should_apply_profile_default(self, field: str) -> bool:
         # The legacy SF Claude backend ignored default_effort. Applying it as a

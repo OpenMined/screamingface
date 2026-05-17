@@ -4,7 +4,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 const { openExternal } = vi.hoisted(() => ({ openExternal: vi.fn(async () => {}) }));
 vi.mock('electron', () => ({ shell: { openExternal } }));
 
-import { runOAuthLauncher } from '../oauth-launcher';
+import { clearPendingAuthState, getPendingAuthState, runOAuthLauncher } from '../oauth-launcher';
 
 const AUTHORIZE_URL =
   'https://claude.com/cai/oauth/authorize?' +
@@ -32,6 +32,10 @@ const ALTERNATE_AUTHORIZE_URL =
 
 beforeEach(() => {
   openExternal.mockClear();
+  clearPendingAuthState('browser-backend');
+  clearPendingAuthState('browser-backend', 'work');
+  clearPendingAuthState('browser-backend', 'personal');
+  clearPendingAuthState('other-backend');
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -182,6 +186,41 @@ describe('runOAuthLauncher', () => {
 
     expect(calls[0]).toBe('http://127.0.0.1:1234/browser-backend/auth/start?name=work');
     expect(calls[1]).toBe('http://127.0.0.1:1234/browser-backend/auth/status?name=work');
+  });
+
+  it('keeps pending auth states scoped by backend and profile', async () => {
+    const workFetch = makeFetch([
+      () =>
+        new Response(JSON.stringify({ authorize_url: AUTHORIZE_URL, state: 'state-work' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    ]);
+    const personalFetch = makeFetch([
+      () =>
+        new Response(JSON.stringify({ authorize_url: AUTHORIZE_URL, state: 'state-personal' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    ]);
+
+    await runOAuthLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      profileName: 'work',
+      timeoutMs: 0,
+      fetchImpl: workFetch as unknown as typeof fetch,
+    });
+    await runOAuthLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      profileName: 'personal',
+      timeoutMs: 0,
+      fetchImpl: personalFetch as unknown as typeof fetch,
+    });
+
+    expect(getPendingAuthState('browser-backend', 'work')).toBe('state-work');
+    expect(getPendingAuthState('browser-backend', 'personal')).toBe('state-personal');
   });
 
   it('returns gateway_error when /auth/start returns 502', async () => {

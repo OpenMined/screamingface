@@ -44,3 +44,21 @@ def test_expired_entry_is_swept(monkeypatch) -> None:
 def test_unknown_state_returns_none() -> None:
     table = PendingAuthTable(ttl_seconds=600)
     assert table.pop("nonexistent") is None
+
+
+def test_pop_for_profile_removes_only_matching_profile() -> None:
+    table = PendingAuthTable(ttl_seconds=600)
+    other = PendingAuthEntry(
+        account_id="account-1",
+        provider="anthropic",
+        profile_name="personal",
+        profile_id="account-1:anthropic:personal",
+        code_verifier="v2",
+        redirect_uri="http://localhost:9105/callback",
+    )
+    table.put("state-work", ENTRY)
+    table.put("state-personal", other)
+
+    assert table.pop_for_profile("account-1", "anthropic", "work") == ["state-work"]
+    assert table.pop("state-work") is None
+    assert table.pop("state-personal") == other

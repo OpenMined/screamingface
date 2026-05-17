@@ -41,6 +41,18 @@ def _registry_for_app(app):
     return app.state.providers
 
 
+def _credential_store_for_app(app):
+    return app.state.credential_store
+
+
+def _oauth_strategy_for_app(app, plugin, provider: str, account_id: str, name: str):
+    return plugin.oauth_strategy_for(
+        credential_name_for(account_id, name),
+        credential_store=_credential_store_for_app(app),
+        http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
+    )
+
+
 def _pending(request: Request):
     return _pending_for_app(request.app)
 
@@ -81,15 +93,6 @@ async def _close_loopback_callback(app, state: str) -> None:
         return
     server.close()
     await server.wait_closed()
-
-
-async def _close_all_loopback_callbacks(app) -> None:
-    callbacks = getattr(app.state, "loopback_oauth_callbacks", None)
-    if not isinstance(callbacks, dict):
-        return
-    states = list(callbacks)
-    for state in states:
-        await _close_loopback_callback(app, state)
 
 
 async def _expire_loopback_callback(app, state: str, ttl_seconds: int) -> None:
@@ -210,7 +213,6 @@ async def _loopback_redirect_uri_for(
             )
         except OSError:
             continue
-        await _close_all_loopback_callbacks(request.app)
         callbacks = getattr(request.app.state, "loopback_oauth_callbacks", None)
         if not isinstance(callbacks, dict):
             callbacks = {}
@@ -282,6 +284,8 @@ async def start_oauth(
 
     account_id = str(current.id)
     profile_id = profile_id_for(account_id, provider, body.name)
+    for stale_state in _pending(request).pop_for_profile(account_id, provider, body.name):
+        await _close_loopback_callback(request.app, stale_state)
     code_verifier, code_challenge = generate_pkce()
     state = generate_state()
     redirect_uri = await _redirect_uri_for(request, provider, cfg, state)
@@ -426,16 +430,12 @@ async def _complete_oauth_for_app(
             status_code=404, detail={"code": "unknown_provider", "provider": provider}
         )
 
-    factory = getattr(app.state, f"{provider}_http_factory", None)
-    strategy = plugin.oauth_strategy_for(credential_name_for(account_id, name))
-    if strategy is None or not hasattr(strategy, "set_credentials"):
+    strategy = _oauth_strategy_for_app(app, plugin, provider, account_id, name)
+    if strategy is None:
         raise HTTPException(
             status_code=400,
             detail={"code": "provider_does_not_use_oauth", "provider": provider},
         )
-    # Inject the same credential store as the profile index so tests/fake keychain work.
-    if hasattr(strategy, "_store"):
-        strategy._store = _index_store_for_app(app)._store
 
     # Consume the OAuth state after all synchronous validation and before the
     # first await that can race another callback using the same code.
@@ -452,7 +452,7 @@ async def _complete_oauth_for_app(
                 code_verifier=pending.code_verifier,
                 redirect_uri=pending.redirect_uri,
                 state=state,
-                http_client_factory=factory,
+                http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
             )
         )
     except NotImplementedError as exc:
@@ -466,13 +466,12 @@ async def _complete_oauth_for_app(
         await _mark_profile_error(app, account_id, provider, name)
         await _close_loopback_callback(app, state)
         raise
-    strategy.set_credentials(creds)
+    strategy.persist_credentials(creds)
 
     p = await _index_store_for_app(app).get(account_id, provider, name)
     if p is not None:
         p.state = ProfileState.AUTHENTICATED
-        label_factory = getattr(plugin, "account_label_from_credentials", lambda _creds: None)
-        label = label_factory(creds)
+        label = plugin.account_label_from_credentials(creds)
         if label is not None:
             p.account_label = label
         await _index_store_for_app(app).upsert(p)
@@ -561,10 +560,9 @@ async def delete_profile(provider: str, name: str, request: Request, current: Cu
     p = await _index_store(request).get(account_id, provider, name)
     if p is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
-    strategy = plugin.oauth_strategy_for(credential_name_for(account_id, name))
-    if strategy is not None and hasattr(strategy, "_store"):
-        strategy._store = _index_store(request)._store
-        strategy._store.delete(strategy.keychain_service(), strategy.keychain_account())
+    strategy = _oauth_strategy_for_app(request.app, plugin, provider, account_id, name)
+    if strategy is not None:
+        strategy.delete_credentials()
     await _index_store(request).remove(p.id)
 
 
@@ -579,8 +577,8 @@ async def refresh_profile(
     p = await _index_store(request).get(account_id, provider, name)
     if p is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
-    strategy = plugin.oauth_strategy_for(credential_name_for(account_id, name))
+    strategy = _oauth_strategy_for_app(request.app, plugin, provider, account_id, name)
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
-    await strategy.refresh()
+    await strategy.refresh_credentials()
     return p.model_dump(mode="json")

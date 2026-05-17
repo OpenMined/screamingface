@@ -6,7 +6,6 @@ import json
 import logging
 from typing import Any, cast
 
-import litellm
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from litellm.exceptions import (
@@ -146,12 +145,12 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
             },
         )
 
-    strategy = plugin.oauth_strategy_for(credential_name_for(account_id, profile_name))
+    strategy = plugin.oauth_strategy_for(
+        credential_name_for(account_id, profile_name),
+        credential_store=request.app.state.credential_store,
+        http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
+    )
     if strategy is not None:
-        # Same `_store` injection pattern Tasks 7-9 introduced for parity with the
-        # tests' fake keychain. In production both reference the same singleton.
-        if hasattr(strategy, "_store"):
-            strategy._store = idx._store  # type: ignore[attr-defined]
         try:
             headers = await strategy.get_authorization_header()
         except CredentialNotFoundError as exc:
@@ -177,7 +176,7 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
             body["extra_headers"] = merged
 
     if body.get("stream"):
-        return StreamingResponse(_stream(body), media_type="text/event-stream")
+        return StreamingResponse(_stream(plugin, body), media_type="text/event-stream")
 
     try:
         response = await plugin.chat_completion(body)
@@ -196,10 +195,9 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
     return dumpable.model_dump() if hasattr(dumpable, "model_dump") else response
 
 
-async def _stream(body: dict[str, Any]):
+async def _stream(plugin: Any, body: dict[str, Any]):
     try:
-        stream: Any = await litellm.acompletion(**body)
-        async for chunk in stream:
+        async for chunk in plugin.chat_completion_stream(body):
             payload = chunk.model_dump() if hasattr(chunk, "model_dump") else chunk
             yield f"data: {json.dumps(payload)}\n\n"
         yield "data: [DONE]\n\n"
