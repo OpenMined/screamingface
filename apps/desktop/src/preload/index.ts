@@ -55,13 +55,24 @@ const api: ElectronAPI = {
     logoutGateway: () => ipcRenderer.invoke('backends:logoutGateway'),
     authenticateOAuth: (backend, profileName?) =>
       ipcRenderer.invoke('backends:authenticateOAuth', backend, profileName),
+    authenticateOAuthConnection: (backend, label?) =>
+      ipcRenderer.invoke('backends:authenticateOAuthConnection', backend, label),
     getPendingAuthState: (backend, profileName?) =>
       ipcRenderer.invoke('backends:getPendingAuthState', backend, profileName),
+    getPendingConnectionAuthState: (backend, connectionId?) =>
+      ipcRenderer.invoke('backends:getPendingConnectionAuthState', backend, connectionId),
     exchangeOAuthCode: (backend, code, profileName?) =>
       ipcRenderer.invoke('backends:exchangeOAuthCode', backend, code, profileName),
+    exchangeOAuthConnectionCode: (backend, connectionId, code) =>
+      ipcRenderer.invoke('backends:exchangeOAuthConnectionCode', backend, connectionId, code),
     listProfiles: (backend) => ipcRenderer.invoke('backends:listProfiles', backend),
     deleteProfile: (backend, profileName) =>
       ipcRenderer.invoke('backends:deleteProfile', backend, profileName),
+    listConnections: (backend) => ipcRenderer.invoke('backends:listConnections', backend),
+    deleteConnection: (backend, connectionId) =>
+      ipcRenderer.invoke('backends:deleteConnection', backend, connectionId),
+    refreshConnection: (backend, connectionId) =>
+      ipcRenderer.invoke('backends:refreshConnection', backend, connectionId),
     onStatusChanged: (cb) => onEvent('backends:statusChanged', cb),
     onAlert: (cb) => onEvent('backends:alert', cb),
   },

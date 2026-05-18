@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const authenticate = vi.fn();
 const authenticateOAuth = vi.fn(async () => ({ kind: 'complete' }));
+const authenticateOAuthConnection = vi.fn(async () => ({ kind: 'complete' }));
 const getStatus = vi.fn(async () => ({}));
 const onStatusChanged = vi.fn(() => () => {});
 const onAlert = vi.fn(() => () => {});
@@ -14,11 +15,19 @@ const listProfiles = vi.fn(async () => ({ profiles: [] }));
 const deleteProfile = vi.fn(async () => ({ ok: true }));
 const getPendingAuthState = vi.fn(async (): Promise<string | null> => null);
 const exchangeOAuthCode = vi.fn(async () => ({ ok: true }) as { ok: boolean; message?: string });
+const listConnections = vi.fn(async () => ({ connections: [] }));
+const deleteConnection = vi.fn(async () => ({ ok: true }));
+const refreshConnection = vi.fn(async () => ({ ok: true }));
+const getPendingConnectionAuthState = vi.fn(async (): Promise<string | null> => null);
+const exchangeOAuthConnectionCode = vi.fn(
+  async () => ({ ok: true }) as { ok: boolean; message?: string },
+);
 
 (window as unknown as { electronAPI: unknown }).electronAPI = {
   backends: {
     authenticate,
     authenticateOAuth,
+    authenticateOAuthConnection,
     getStatus,
     onStatusChanged,
     onAlert,
@@ -29,6 +38,11 @@ const exchangeOAuthCode = vi.fn(async () => ({ ok: true }) as { ok: boolean; mes
     deleteProfile,
     getPendingAuthState,
     exchangeOAuthCode,
+    listConnections,
+    deleteConnection,
+    refreshConnection,
+    getPendingConnectionAuthState,
+    exchangeOAuthConnectionCode,
   },
 };
 
@@ -52,6 +66,8 @@ beforeEach(() => {
   authenticate.mockClear();
   authenticateOAuth.mockClear();
   authenticateOAuth.mockImplementation(async () => ({ kind: 'complete' }));
+  authenticateOAuthConnection.mockClear();
+  authenticateOAuthConnection.mockImplementation(async () => ({ kind: 'complete' }));
   listProfiles.mockClear();
   loginGateway.mockClear();
   logoutGateway.mockClear();
@@ -62,6 +78,16 @@ beforeEach(() => {
   getPendingAuthState.mockResolvedValue(null);
   exchangeOAuthCode.mockClear();
   exchangeOAuthCode.mockResolvedValue({ ok: true });
+  listConnections.mockClear();
+  listConnections.mockResolvedValue({ connections: [] });
+  deleteConnection.mockClear();
+  deleteConnection.mockResolvedValue({ ok: true });
+  refreshConnection.mockClear();
+  refreshConnection.mockResolvedValue({ ok: true });
+  getPendingConnectionAuthState.mockClear();
+  getPendingConnectionAuthState.mockResolvedValue(null);
+  exchangeOAuthConnectionCode.mockClear();
+  exchangeOAuthConnectionCode.mockResolvedValue({ ok: true });
   getStatus.mockResolvedValue({
     claude: {
       authenticated: false,
@@ -208,6 +234,167 @@ describe('BackendStatusPanel v2 gateway status', () => {
     fireEvent.click(screen.getByRole('button', { name: /Sign in/i }));
     await waitFor(() => expect(loginGateway).toHaveBeenCalledWith('admin', 'secret-password'));
     expect(screen.queryByText('Claude')).toBeNull();
+  });
+
+  it('renders OAuth connections from v2 provider rows', async () => {
+    getStatus.mockResolvedValue({
+      version: 2,
+      gateway: {
+        mode: 'local_managed',
+        managed_by_runner: true,
+        reachable: true,
+        authenticated: true,
+        auth_required: false,
+        url: 'http://127.0.0.1:9105',
+      },
+      action: 'healthy',
+      backends: {
+        claude: {
+          authenticated: true,
+          action: 'healthy',
+          auth_kind: 'browser',
+          model: 'anthropic/claude-sonnet-4-5',
+        },
+      },
+      provider_auth: {
+        providers: {
+          claude: { provider: 'anthropic', profile: 'default', state: 'authenticated' },
+        },
+      },
+    });
+    listConnections.mockResolvedValue({
+      connections: [
+        {
+          id: '00000000-0000-0000-0000-000000000001',
+          provider: 'anthropic',
+          label: 'work-anthropic',
+          status: 'active',
+          account: { email: 'dev@example.com' },
+        },
+      ],
+    });
+
+    render(<BackendStatusPanel />);
+
+    await waitFor(() => expect(listConnections).toHaveBeenCalledWith('claude'));
+    expect(await screen.findByText('work-anthropic')).toBeTruthy();
+    expect(await screen.findByText('dev@example.com')).toBeTruthy();
+    expect(listProfiles).not.toHaveBeenCalled();
+  });
+
+  it('Add Connection validates anthropic labels and starts connection OAuth', async () => {
+    getStatus.mockResolvedValue({
+      version: 2,
+      gateway: {
+        mode: 'local_managed',
+        managed_by_runner: true,
+        reachable: true,
+        authenticated: true,
+        auth_required: false,
+        url: 'http://127.0.0.1:9105',
+      },
+      action: 'healthy',
+      backends: {
+        claude: {
+          authenticated: false,
+          action: 'reauth',
+          auth_kind: 'browser',
+          model: 'anthropic/claude-sonnet-4-5',
+        },
+      },
+      provider_auth: {
+        providers: {
+          claude: { provider: 'anthropic', profile: 'default', state: 'missing_profile' },
+        },
+      },
+    });
+    authenticateOAuthConnection.mockResolvedValue({
+      kind: 'complete',
+      connection: {
+        id: '00000000-0000-0000-0000-000000000001',
+        provider: 'anthropic',
+        label: 'work-anthropic',
+        status: 'active',
+      },
+    });
+
+    render(<BackendStatusPanel />);
+    await waitFor(() => expect(listConnections).toHaveBeenCalledWith('claude'));
+    fireEvent.click(screen.getByRole('button', { name: /\+ Add Connection/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Start/i }));
+    expect(await screen.findByText('Connection label is required')).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText(/connection label/i), {
+      target: { value: 'work-anthropic' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Start/i }));
+
+    await waitFor(() =>
+      expect(authenticateOAuthConnection).toHaveBeenCalledWith('claude', 'work-anthropic'),
+    );
+    expect(await screen.findByText('Connected work-anthropic.')).toBeTruthy();
+  });
+
+  it('shows connection paste-code form and submits pasted OAuth code', async () => {
+    getStatus.mockResolvedValue({
+      version: 2,
+      gateway: {
+        mode: 'local_managed',
+        managed_by_runner: true,
+        reachable: true,
+        authenticated: true,
+        auth_required: false,
+        url: 'http://127.0.0.1:9105',
+      },
+      action: 'healthy',
+      backends: {
+        claude: {
+          authenticated: false,
+          action: 'reauth',
+          auth_kind: 'browser',
+          model: 'anthropic/claude-sonnet-4-5',
+        },
+      },
+      provider_auth: {
+        providers: {
+          claude: { provider: 'anthropic', profile: 'default', state: 'pending' },
+        },
+      },
+    });
+    listConnections.mockResolvedValue({
+      connections: [
+        {
+          id: '00000000-0000-0000-0000-000000000001',
+          provider: 'anthropic',
+          label: 'work-anthropic',
+          status: 'pending',
+        },
+      ],
+    });
+    getPendingConnectionAuthState.mockResolvedValue('pending-state-xyz');
+
+    const { container } = render(<BackendStatusPanel />);
+    await waitFor(() =>
+      expect(getPendingConnectionAuthState).toHaveBeenCalledWith(
+        'claude',
+        '00000000-0000-0000-0000-000000000001',
+      ),
+    );
+    const form = await waitFor(() => {
+      const f = container.querySelector('form[aria-label="Paste connection authorization code"]');
+      if (!f) throw new Error('connection paste form not yet rendered');
+      return f as HTMLFormElement;
+    });
+    const input = within(form).getByLabelText(/Connection authorization code/i);
+    fireEvent.change(input, { target: { value: 'pasted-auth-code' } });
+    fireEvent.click(within(form).getByRole('button', { name: /Submit/i }));
+
+    await waitFor(() =>
+      expect(exchangeOAuthConnectionCode).toHaveBeenCalledWith(
+        'claude',
+        '00000000-0000-0000-0000-000000000001',
+        'pasted-auth-code',
+      ),
+    );
   });
 });
 

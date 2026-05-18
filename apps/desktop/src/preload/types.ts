@@ -121,6 +121,45 @@ export interface DeleteProfileResult {
   status?: number;
 }
 
+export type OAuthConnectionStatus = 'pending' | 'active' | 'expired' | 'revoked' | 'error';
+
+export interface OAuthConnectionAccount {
+  sub?: string | null;
+  email?: string | null;
+  name?: string | null;
+  raw?: Record<string, unknown>;
+}
+
+export interface OAuthConnection {
+  id: string;
+  provider: string;
+  label: string;
+  status: OAuthConnectionStatus;
+  account?: OAuthConnectionAccount | null;
+  created_at?: string;
+  last_used_at?: string | null;
+  last_refreshed_at?: string | null;
+  error_message?: string | null;
+  is_duplicate?: boolean;
+}
+
+export interface ListConnectionsResult {
+  connections: OAuthConnection[];
+  error?: string;
+}
+
+export interface DeleteConnectionResult {
+  ok: boolean;
+  status?: number;
+}
+
+export interface RefreshConnectionResult {
+  ok: boolean;
+  status?: number;
+  connection?: OAuthConnection;
+  message?: string;
+}
+
 export type ExchangeOAuthCodeResult =
   | { ok: true }
   | { ok: false; status?: number; message?: string };
@@ -128,7 +167,7 @@ export type ExchangeOAuthCodeResult =
 export type GatewayLoginResult = { ok: true } | { ok: false; message?: string };
 
 export type OAuthLauncherResult =
-  | { kind: 'complete' }
+  | { kind: 'complete'; connection?: OAuthConnection; isDuplicate?: boolean }
   | {
       kind: 'failed';
       reason: 'timeout' | 'gateway_error' | 'provider_error' | 'network_error';
@@ -187,13 +226,26 @@ export interface ElectronAPI {
     loginGateway: (username: string, password: string) => Promise<GatewayLoginResult>;
     logoutGateway: () => Promise<void>;
     authenticateOAuth: (backend: string, profileName?: string) => Promise<OAuthLauncherResult>;
+    authenticateOAuthConnection: (backend: string, label?: string) => Promise<OAuthLauncherResult>;
     listProfiles: (backend: string) => Promise<ListProfilesResult>;
     deleteProfile: (backend: string, profileName: string) => Promise<DeleteProfileResult>;
+    listConnections: (backend: string) => Promise<ListConnectionsResult>;
+    deleteConnection: (backend: string, connectionId: string) => Promise<DeleteConnectionResult>;
+    refreshConnection: (backend: string, connectionId: string) => Promise<RefreshConnectionResult>;
     getPendingAuthState: (backend: string, profileName?: string) => Promise<string | null>;
+    getPendingConnectionAuthState: (
+      backend: string,
+      connectionId?: string,
+    ) => Promise<string | null>;
     exchangeOAuthCode: (
       backend: string,
       code: string,
       profileName?: string,
+    ) => Promise<ExchangeOAuthCodeResult>;
+    exchangeOAuthConnectionCode: (
+      backend: string,
+      connectionId: string,
+      code: string,
     ) => Promise<ExchangeOAuthCodeResult>;
     onStatusChanged: (callback: (status: BackendStatusResponse) => void) => () => void;
     onAlert: (callback: (alert: BackendAlert) => void) => () => void;

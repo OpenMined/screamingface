@@ -45,6 +45,10 @@ class _ExchangeCodeBody(BaseModel):
     state: str
 
 
+class _StartConnectionBody(BaseModel):
+    label: str | None = None
+
+
 def _default_http_factory(timeout: float) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=httpx.Timeout(timeout))
 
@@ -236,6 +240,76 @@ def build_aigw_auth_proxy_router(
             raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
         return Response(status_code=204)
 
+    @router.get(f"{path_prefix}/auth/connections")
+    async def list_connections() -> dict[str, Any]:
+        path = f"/v1/oauth/connections?provider={gateway_provider}"
+        return await _gateway_json(app, factory, timeout_seconds, base, path)
+
+    @router.post(f"{path_prefix}/auth/connections", status_code=201)
+    async def start_connection(body: _StartConnectionBody) -> JSONResponse:
+        payload: dict[str, Any] = {"provider": gateway_provider}
+        if body.label:
+            payload["label"] = body.label
+        resp = await _gateway_response(
+            app,
+            factory,
+            timeout_seconds,
+            "POST",
+            base,
+            "/v1/oauth/connections",
+            json=payload,
+        )
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+    @router.get(f"{path_prefix}/auth/connections/{{connection_id}}")
+    async def get_connection(connection_id: str) -> dict[str, Any]:
+        path = f"/v1/oauth/connections/{connection_id}"
+        connection = await _gateway_json(app, factory, timeout_seconds, base, path)
+        _ensure_gateway_provider(connection, gateway_provider)
+        return connection
+
+    @router.delete(f"{path_prefix}/auth/connections/{{connection_id}}", status_code=204)
+    async def delete_connection(connection_id: str) -> Response:
+        await _gateway_connection_json(
+            app,
+            factory,
+            timeout_seconds,
+            base,
+            connection_id,
+            gateway_provider,
+        )
+        resp = await _gateway_response(
+            app,
+            factory,
+            timeout_seconds,
+            "DELETE",
+            base,
+            f"/v1/oauth/connections/{connection_id}",
+        )
+        if resp.status_code == 204:
+            return Response(status_code=204)
+        return Response(status_code=resp.status_code)
+
+    @router.post(f"{path_prefix}/auth/connections/{{connection_id}}/refresh")
+    async def refresh_connection(connection_id: str) -> JSONResponse:
+        await _gateway_connection_json(
+            app,
+            factory,
+            timeout_seconds,
+            base,
+            connection_id,
+            gateway_provider,
+        )
+        resp = await _gateway_response(
+            app,
+            factory,
+            timeout_seconds,
+            "POST",
+            base,
+            f"/v1/oauth/connections/{connection_id}/refresh",
+        )
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
     return router
 
 
@@ -269,3 +343,78 @@ async def _gateway_request(
     url = f"{base}{path}"
     async with factory(timeout_seconds) as client:
         return await client.request(method, url, json=json)
+
+
+async def _gateway_response(
+    app: Any,
+    factory: HttpClientFactory,
+    timeout_seconds: float,
+    method: str,
+    base: str,
+    path: str,
+    *,
+    json: Any = None,
+) -> httpx.Response:
+    try:
+        resp = await _gateway_request(
+            app,
+            factory,
+            timeout_seconds,
+            method,
+            base,
+            path,
+            json=json,
+        )
+    except httpx.RequestError as exc:
+        logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "gateway_unreachable",
+                "message": f"AI Gateway unreachable at {base}: {exc}",
+            },
+        ) from exc
+
+    if resp.status_code >= 500:
+        logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "gateway_error", "upstream_status": resp.status_code},
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
+    return resp
+
+
+async def _gateway_json(
+    app: Any,
+    factory: HttpClientFactory,
+    timeout_seconds: float,
+    base: str,
+    path: str,
+) -> dict[str, Any]:
+    return (await _gateway_response(app, factory, timeout_seconds, "GET", base, path)).json()
+
+
+async def _gateway_connection_json(
+    app: Any,
+    factory: HttpClientFactory,
+    timeout_seconds: float,
+    base: str,
+    connection_id: str,
+    gateway_provider: str,
+) -> dict[str, Any]:
+    connection = await _gateway_json(
+        app,
+        factory,
+        timeout_seconds,
+        base,
+        f"/v1/oauth/connections/{connection_id}",
+    )
+    _ensure_gateway_provider(connection, gateway_provider)
+    return connection
+
+
+def _ensure_gateway_provider(connection: dict[str, Any], gateway_provider: str) -> None:
+    if connection.get("provider") != gateway_provider:
+        raise HTTPException(status_code=404, detail={"code": "connection_not_found"})

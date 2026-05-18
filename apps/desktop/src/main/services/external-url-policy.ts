@@ -1,4 +1,5 @@
 const BACKEND_NAME_RE = /^[a-z0-9-]+$/;
+const OAUTH_CONNECTION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const OAUTH_AUTHORIZE_POLICIES = new Map<
   string,
@@ -46,6 +47,10 @@ type LocalServerInfo = {
 
 export function isSafeBackendName(backendName: string): boolean {
   return BACKEND_NAME_RE.test(backendName);
+}
+
+export function isSafeOAuthConnectionId(connectionId: string): boolean {
+  return OAUTH_CONNECTION_ID_RE.test(connectionId);
 }
 
 export function isAllowedOAuthAuthorizeUrl(urlString: string): boolean {

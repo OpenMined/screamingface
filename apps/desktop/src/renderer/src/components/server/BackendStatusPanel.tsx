@@ -5,7 +5,9 @@ import type {
   BackendStatusMap,
   BackendHealth,
   BackendAlert,
+  OAuthConnection,
   BackendProfile,
+  ProviderAuthStatus,
   BackendStatusResponse,
   BackendStatusV2,
 } from '../../../../preload/types';
@@ -14,6 +16,14 @@ import { useToast } from '@/hooks/use-toast';
 const profileStateConfig: Record<string, { dot: string; label: string }> = {
   authenticated: { dot: 'bg-chart-3', label: 'Authenticated' },
   pending: { dot: 'bg-chart-1', label: 'Pending' },
+  error: { dot: 'bg-destructive', label: 'Error' },
+};
+
+const connectionStateConfig: Record<string, { dot: string; label: string }> = {
+  active: { dot: 'bg-chart-3', label: 'Connected' },
+  pending: { dot: 'bg-chart-1', label: 'Pending' },
+  expired: { dot: 'bg-chart-1', label: 'Expired' },
+  revoked: { dot: 'bg-muted', label: 'Revoked' },
   error: { dot: 'bg-destructive', label: 'Error' },
 };
 
@@ -491,10 +501,353 @@ function ProfilesSubPanel({ name }: { name: string }) {
   );
 }
 
-function BackendRow({ name, health }: { name: string; health: BackendHealth }) {
+function connectionAccountLabel(connection: OAuthConnection): string | null {
+  return connection.account?.email || connection.account?.name || connection.account?.sub || null;
+}
+
+function ConnectionRow({
+  backendName,
+  connection,
+  onChanged,
+}: {
+  backendName: string;
+  connection: OAuthConnection;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cfg = connectionStateConfig[connection.status] ?? {
+    dot: 'bg-muted',
+    label: connection.status,
+  };
+  const isPending = connection.status === 'pending';
+  const accountLabel = connectionAccountLabel(connection);
+
+  const onRefreshConnection = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.electronAPI.backends.refreshConnection(
+        backendName,
+        connection.id,
+      );
+      if (!result.ok) {
+        setError(result.message ?? `Refresh failed${result.status ? ` (${result.status})` : ''}`);
+      }
+    } finally {
+      setBusy(false);
+      onChanged();
+    }
+  };
+
+  const onDelete = async (): Promise<void> => {
+    if (!window.confirm(`Delete connection "${connection.label}"? This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      await window.electronAPI.backends.deleteConnection(backendName, connection.id);
+    } finally {
+      setBusy(false);
+      onChanged();
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between py-1.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="relative inline-flex h-2 w-2 shrink-0">
+          {isPending && (
+            <span
+              className={cn(
+                'absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping',
+                cfg.dot,
+              )}
+            />
+          )}
+          <span className={cn('relative inline-flex h-2 w-2 rounded-full', cfg.dot)} />
+        </span>
+        <span className="text-xs font-medium text-foreground truncate">{connection.label}</span>
+        {accountLabel && (
+          <span className="text-xs text-muted-foreground truncate">{accountLabel}</span>
+        )}
+        <span className="text-xs text-muted-foreground">· {cfg.label}</span>
+        {connection.is_duplicate && (
+          <span className="text-xs text-muted-foreground italic">— already connected</span>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        {connection.status === 'active' && (
+          <button
+            disabled={busy}
+            onClick={onRefreshConnection}
+            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+          >
+            {busy ? 'Working…' : 'Refresh'}
+          </button>
+        )}
+        <button
+          disabled={busy}
+          onClick={onDelete}
+          aria-label={`Delete connection ${connection.label}`}
+          className="text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-60"
+        >
+          Delete
+        </button>
+      </div>
+      {error && <p className="basis-full text-xs text-destructive mt-1">{error}</p>}
+    </div>
+  );
+}
+
+function ConnectionsSubPanel({ name, requiresLabel }: { name: string; requiresLabel: boolean }) {
+  const [connections, setConnections] = useState<OAuthConnection[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [label, setLabel] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [pendingConnectionId, setPendingConnectionId] = useState<string | null>(null);
+  const [pasteCode, setPasteCode] = useState('');
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    const result = await window.electronAPI.backends.listConnections(name);
+    setConnections(result.connections ?? []);
+    setLoaded(true);
+  }, [name]);
+
+  const checkPending = useCallback(async () => {
+    for (const connection of connections.filter((item) => item.status === 'pending')) {
+      const state = await window.electronAPI.backends.getPendingConnectionAuthState(
+        name,
+        connection.id,
+      );
+      if (state) {
+        setPendingConnectionId(connection.id);
+        return;
+      }
+    }
+    setPendingConnectionId(null);
+  }, [name, connections]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    void checkPending();
+  }, [checkPending]);
+
+  const onPasteSubmit = async (e?: React.FormEvent): Promise<void> => {
+    e?.preventDefault();
+    if (pasteBusy) return;
+    const code = pasteCode.trim();
+    if (!pendingConnectionId) {
+      setPasteError('No in-flight OAuth flow');
+      return;
+    }
+    if (!code) {
+      setPasteError('Paste the authorization code');
+      return;
+    }
+    setPasteBusy(true);
+    setPasteError(null);
+    try {
+      const result = await window.electronAPI.backends.exchangeOAuthConnectionCode(
+        name,
+        pendingConnectionId,
+        code,
+      );
+      if (result.ok) {
+        setPasteCode('');
+        setPendingConnectionId(null);
+        await refresh();
+      } else {
+        setPasteError(
+          result.message ?? `Exchange failed${result.status ? ` (${result.status})` : ''}`,
+        );
+      }
+    } catch (err) {
+      setPasteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPasteBusy(false);
+    }
+  };
+
+  const onAdd = (e?: React.FormEvent): void => {
+    e?.preventDefault();
+    if (submitting) return;
+    const trimmed = label.trim();
+    if (requiresLabel && !trimmed) {
+      setAddError('Connection label is required');
+      return;
+    }
+    if (trimmed && connections.some((connection) => connection.label === trimmed)) {
+      setAddError('Connection already exists');
+      return;
+    }
+    setSubmitting(true);
+    setAdding(false);
+    setLabel('');
+    setAddError(null);
+    setNotice(null);
+    void (async () => {
+      const pendingPoll = setInterval(() => {
+        void refresh();
+        void checkPending();
+      }, 500);
+      try {
+        const result = await window.electronAPI.backends.authenticateOAuthConnection(
+          name,
+          trimmed || undefined,
+        );
+        if (result.kind === 'complete') {
+          const resolved = (result.connection?.label ?? trimmed) || 'connection';
+          setNotice(
+            result.isDuplicate
+              ? `Already connected as ${resolved}. Reused the existing connection.`
+              : `Connected ${resolved}.`,
+          );
+        } else {
+          const reason = result.message ? `${result.reason}: ${result.message}` : result.reason;
+          setAddError(`Authentication failed — ${reason}`);
+        }
+      } catch (err) {
+        setAddError(`Authentication failed — ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        clearInterval(pendingPoll);
+        setSubmitting(false);
+        void refresh();
+        void checkPending();
+      }
+    })();
+  };
+
+  const onCancel = (): void => {
+    setAdding(false);
+    setLabel('');
+    setAddError(null);
+  };
+
+  return (
+    <div className="ml-6 mt-1 mb-2 border-t border-border pt-2">
+      {loaded && connections.length === 0 && (
+        <p className="text-xs text-muted-foreground py-1">No OAuth connections yet.</p>
+      )}
+      {connections.map((connection) => (
+        <ConnectionRow
+          key={connection.id}
+          backendName={name}
+          connection={connection}
+          onChanged={() => {
+            void refresh();
+            void checkPending();
+          }}
+        />
+      ))}
+      {adding ? (
+        <form onSubmit={onAdd} className="flex items-center gap-2 py-1.5">
+          {requiresLabel ? (
+            <input
+              autoFocus
+              type="text"
+              value={label}
+              onChange={(e) => {
+                setLabel(e.target.value);
+                setAddError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  onCancel();
+                }
+              }}
+              placeholder="connection label (e.g. work-anthropic)"
+              className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs"
+            />
+          ) : (
+            <span className="flex-1 text-xs text-muted-foreground">
+              The label will be filled from the signed-in account identity.
+            </span>
+          )}
+          <button
+            type="submit"
+            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30"
+          >
+            Start
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </button>
+        </form>
+      ) : (
+        <button
+          onClick={() => {
+            setAdding(true);
+            setNotice(null);
+          }}
+          className="rounded bg-chart-1 px-2.5 py-1 text-xs font-semibold text-background hover:bg-chart-1/90 transition-colors mt-1"
+        >
+          + Add Connection
+        </button>
+      )}
+      {submitting && (
+        <p className="text-xs text-muted-foreground mt-1">Waiting for browser sign-in…</p>
+      )}
+      {notice && <p className="text-xs text-chart-3 mt-1">{notice}</p>}
+      {addError && <p className="text-xs text-destructive mt-1">{addError}</p>}
+      {pendingConnectionId && (
+        <form
+          onSubmit={onPasteSubmit}
+          className="flex items-center gap-2 py-1.5 mt-2 border-t border-border pt-2"
+          aria-label="Paste connection authorization code"
+        >
+          <span className="text-xs text-muted-foreground">Pasted authorization code?</span>
+          <input
+            type="text"
+            value={pasteCode}
+            onChange={(e) => {
+              setPasteCode(e.target.value);
+              setPasteError(null);
+            }}
+            placeholder="paste code here"
+            aria-label="Connection authorization code"
+            className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono"
+          />
+          <button
+            type="submit"
+            disabled={pasteBusy}
+            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 disabled:opacity-60"
+          >
+            {pasteBusy ? 'Submitting…' : 'Submit'}
+          </button>
+        </form>
+      )}
+      {pasteError && <p className="text-xs text-destructive mt-1">{pasteError}</p>}
+    </div>
+  );
+}
+
+function BackendRow({
+  name,
+  health,
+  useConnections,
+  providerAuth,
+}: {
+  name: string;
+  health: BackendHealth;
+  useConnections: boolean;
+  providerAuth?: ProviderAuthStatus;
+}) {
   const config = actionConfig[health.action] || actionConfig.degraded;
   const label = backendLabels[name] || name;
   const isBrowser = health.auth_kind === 'browser';
+  const connectionRequiresLabel = providerAuth?.provider === 'anthropic' || name === 'claude';
 
   return (
     <div className="py-2">
@@ -539,7 +892,12 @@ function BackendRow({ name, health }: { name: string; health: BackendHealth }) {
           )}
         </div>
       </div>
-      {isBrowser && <ProfilesSubPanel name={name} />}
+      {isBrowser &&
+        (useConnections ? (
+          <ConnectionsSubPanel name={name} requiresLabel={connectionRequiresLabel} />
+        ) : (
+          <ProfilesSubPanel name={name} />
+        ))}
     </div>
   );
 }
@@ -596,6 +954,7 @@ export function BackendStatusPanel() {
 
   const v2Status = isStatusV2(statuses) ? statuses : null;
   const backends = Object.entries(statusBackends(statuses));
+  const providerAuth = v2Status?.provider_auth?.providers ?? {};
   // Stay in skeleton state as long as there are no entries — `getStatus()`
   // resolves with an empty map BEFORE SF has probed any backends, so an
   // earlier "hide if loaded && empty" check caused a visible flicker
@@ -641,7 +1000,13 @@ export function BackendStatusPanel() {
       )}
       <div className="divide-y divide-border">
         {backends.map(([name, health]) => (
-          <BackendRow key={name} name={name} health={health} />
+          <BackendRow
+            key={name}
+            name={name}
+            health={health}
+            useConnections={v2Status !== null}
+            providerAuth={providerAuth[name]}
+          />
         ))}
       </div>
     </div>

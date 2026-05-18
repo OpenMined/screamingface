@@ -2,11 +2,14 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { backendStatusService } from '../services/backend-status';
 import {
   runOAuthLauncher,
+  runOAuthConnectionLauncher,
   getPendingAuthState,
+  getPendingConnectionAuthState,
   clearPendingAuthState,
+  clearPendingConnectionAuthState,
   type LauncherResult,
 } from '../services/oauth-launcher';
-import { isSafeBackendName } from '../services/external-url-policy';
+import { isSafeBackendName, isSafeOAuthConnectionId } from '../services/external-url-policy';
 import { desktopSecretHeader } from '../services/desktop-secret';
 import { requireTrustedIpcSender } from './sender-validation';
 
@@ -68,11 +71,46 @@ export function registerBackendStatusHandlers(): void {
   );
 
   ipcMain.handle(
+    'backends:authenticateOAuthConnection',
+    async (event, backend: string, label?: string): Promise<LauncherResult> => {
+      requireTrustedIpcSender(event);
+      if (!isSafeBackendName(backend)) {
+        return { kind: 'failed', reason: 'gateway_error', message: 'invalid backend name' };
+      }
+      const sfBaseUrl = backendStatusService.getServerUrl();
+      if (!sfBaseUrl) {
+        return {
+          kind: 'failed',
+          reason: 'gateway_error',
+          message: 'SF server is not running',
+        };
+      }
+      return await runOAuthConnectionLauncher({
+        sfBaseUrl,
+        backendName: backend,
+        label,
+        headers: desktopSecretHeader(),
+      });
+    },
+  );
+
+  ipcMain.handle(
     'backends:getPendingAuthState',
     (event, backend: string, profileName?: string): string | null => {
       requireTrustedIpcSender(event);
       if (!isSafeBackendName(backend)) return null;
       return getPendingAuthState(backend, profileName);
+    },
+  );
+
+  ipcMain.handle(
+    'backends:getPendingConnectionAuthState',
+    (event, backend: string, connectionId?: string): string | null => {
+      requireTrustedIpcSender(event);
+      if (!isSafeBackendName(backend) || !connectionId || !isSafeOAuthConnectionId(connectionId)) {
+        return null;
+      }
+      return getPendingConnectionAuthState(backend, connectionId);
     },
   );
 
@@ -121,6 +159,47 @@ export function registerBackendStatusHandlers(): void {
     },
   );
 
+  ipcMain.handle(
+    'backends:exchangeOAuthConnectionCode',
+    async (
+      event,
+      backend: string,
+      connectionId: string,
+      code: string,
+    ): Promise<ExchangeCodeResult> => {
+      requireTrustedIpcSender(event);
+      if (!isSafeBackendName(backend)) {
+        return { ok: false, message: `invalid backend name: ${backend}` };
+      }
+      if (!isSafeOAuthConnectionId(connectionId)) {
+        return { ok: false, message: 'invalid connection id' };
+      }
+
+      const sfBaseUrl = backendStatusService.getServerUrl();
+      if (!sfBaseUrl) {
+        return { ok: false, message: 'SF server is not running' };
+      }
+      const state = getPendingConnectionAuthState(backend, connectionId);
+      if (!state) {
+        return { ok: false, message: 'No in-flight OAuth flow for this connection' };
+      }
+      try {
+        const resp = await fetch(`${sfBaseUrl}/${backend}/auth/exchange-code`, {
+          method: 'POST',
+          headers: { ...desktopSecretHeader(), 'content-type': 'application/json' },
+          body: JSON.stringify({ code, state }),
+        });
+        if (resp.ok) {
+          clearPendingConnectionAuthState(backend, connectionId);
+          return { ok: true };
+        }
+        return { ok: false, status: resp.status, message: await responseMessage(resp) };
+      } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  );
+
   ipcMain.handle('backends:listProfiles', async (event, backend: string) => {
     requireTrustedIpcSender(event);
     if (!isSafeBackendName(backend)) {
@@ -142,6 +221,30 @@ export function registerBackendStatusHandlers(): void {
       return { profiles: body.profiles ?? [] };
     } catch {
       return { profiles: [], error: 'gateway_unreachable' };
+    }
+  });
+
+  ipcMain.handle('backends:listConnections', async (event, backend: string) => {
+    requireTrustedIpcSender(event);
+    if (!isSafeBackendName(backend)) {
+      return { connections: [], error: 'invalid_backend' };
+    }
+
+    const sfBaseUrl = backendStatusService.getServerUrl();
+    if (!sfBaseUrl) {
+      return { connections: [], error: 'gateway_unreachable' };
+    }
+    try {
+      const resp = await fetch(`${sfBaseUrl}/${backend}/auth/connections`, {
+        headers: desktopSecretHeader(),
+      });
+      if (!resp.ok) {
+        return { connections: [], error: 'gateway_unreachable' };
+      }
+      const body = (await resp.json()) as { connections?: unknown[] };
+      return { connections: body.connections ?? [] };
+    } catch {
+      return { connections: [], error: 'gateway_unreachable' };
     }
   });
 
@@ -167,6 +270,68 @@ export function registerBackendStatusHandlers(): void {
     }
   });
 
+  ipcMain.handle(
+    'backends:deleteConnection',
+    async (event, backend: string, connectionId: string) => {
+      requireTrustedIpcSender(event);
+      if (!isSafeBackendName(backend)) {
+        return { ok: false, status: 400 };
+      }
+      if (!isSafeOAuthConnectionId(connectionId)) {
+        return { ok: false, status: 400 };
+      }
+
+      const sfBaseUrl = backendStatusService.getServerUrl();
+      if (!sfBaseUrl) {
+        return { ok: false, status: 0 };
+      }
+      try {
+        const resp = await fetch(
+          `${sfBaseUrl}/${backend}/auth/connections/${encodeURIComponent(connectionId)}`,
+          {
+            method: 'DELETE',
+            headers: desktopSecretHeader(),
+          },
+        );
+        if (resp.status === 204) return { ok: true };
+        return { ok: false, status: resp.status };
+      } catch {
+        return { ok: false, status: 0 };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'backends:refreshConnection',
+    async (event, backend: string, connectionId: string) => {
+      requireTrustedIpcSender(event);
+      if (!isSafeBackendName(backend)) {
+        return { ok: false, status: 400, message: 'invalid_backend' };
+      }
+      if (!isSafeOAuthConnectionId(connectionId)) {
+        return { ok: false, status: 400, message: 'invalid_connection_id' };
+      }
+
+      const sfBaseUrl = backendStatusService.getServerUrl();
+      if (!sfBaseUrl) {
+        return { ok: false, status: 0, message: 'gateway_unreachable' };
+      }
+      try {
+        const resp = await fetch(
+          `${sfBaseUrl}/${backend}/auth/connections/${encodeURIComponent(connectionId)}/refresh`,
+          {
+            method: 'POST',
+            headers: desktopSecretHeader(),
+          },
+        );
+        if (resp.ok) return { ok: true, status: resp.status, connection: await resp.json() };
+        return { ok: false, status: resp.status, message: await responseMessage(resp) };
+      } catch (e) {
+        return { ok: false, status: 0, message: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  );
+
   // Forward status changes to all renderer windows
   backendStatusService.on('statusChanged', (status) => {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -180,4 +345,13 @@ export function registerBackendStatusHandlers(): void {
       win.webContents.send('backends:alert', alert);
     }
   });
+}
+
+async function responseMessage(resp: Response): Promise<string | undefined> {
+  try {
+    const body = (await resp.json()) as { detail?: { code?: string; message?: string } };
+    return body.detail?.message ?? body.detail?.code;
+  } catch {
+    return undefined;
+  }
 }
