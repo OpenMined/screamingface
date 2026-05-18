@@ -9,7 +9,7 @@ import pytest
 from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
-from aigateway.plugins.codex_provider.litellm_handler import (
+from aigateway.plugins.codex_provider.chat_handler import (
     CODEX_RESPONSES_URL,
     CodexCustomLLM,
     _model_response_from_sse,
@@ -63,7 +63,7 @@ def _sse_event(payload: dict[str, Any]) -> str:
 
 
 def test_build_payload_uses_default_instructions_when_no_system_message() -> None:
-    from aigateway.plugins.codex_provider.litellm_handler import _build_payload
+    from aigateway.plugins.codex_provider.chat_handler import _build_payload
 
     payload = _build_payload(
         "codex/gpt-5.4-mini",

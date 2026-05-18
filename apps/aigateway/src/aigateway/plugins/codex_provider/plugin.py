@@ -15,7 +15,7 @@ from aigateway.core.plugin_base import (
 )
 
 from .auth import CodexOAuth, account_label_from_credentials, exchange_authorization_code
-from .litellm_handler import (
+from .chat_handler import (
     ensure_litellm_codex_provider_registered,
     get_litellm_codex_handler,
 )
