@@ -139,6 +139,8 @@ async def patch_connection(
     connection = await store.get(str(current.id), connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
+    if connection.status != "active":
+        raise HTTPException(status_code=409, detail={"code": "connection_not_active"})
     if body.label is not None:
         connection.label = body.label
     try:
@@ -173,6 +175,8 @@ async def refresh_connection(
     connection = await store.get(str(current.id), connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
+    if connection.status != "active":
+        raise HTTPException(status_code=409, detail={"code": "connection_not_active"})
     plugin = request.app.state.providers.get(connection.provider)
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})

@@ -119,9 +119,11 @@ class OAuthConnectionStore:
         return connection
 
     async def mark_error(self, connection: OAuthConnection, message: str) -> OAuthConnection:
+        connection.label = f"error:{connection.id}"
+        connection.identity_sub = None
         connection.status = "error"
         connection.error_message = message
-        await connection.save(update_fields=["status", "error_message"])
+        await connection.save(update_fields=["label", "identity_sub", "status", "error_message"])
         return connection
 
     async def mark_revoked(

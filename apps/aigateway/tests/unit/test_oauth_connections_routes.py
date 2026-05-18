@@ -69,6 +69,13 @@ def _codex_token_factory(email: str = "codex@example.com", sub: str = "codex-sub
     return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
 
 
+def _failing_token_factory():
+    transport = httpx.MockTransport(
+        lambda _req: httpx.Response(400, json={"error": "invalid_grant"})
+    )
+    return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
+
+
 @pytest.mark.parametrize(
     ("method", "path", "json_body"),
     [
@@ -172,6 +179,74 @@ def test_anthropic_connection_can_reconnect_after_delete(authenticated_client) -
     assert (
         authenticated_client.get(
             "/callback", params={"code": "third", "state": third.json()["state"]}
+        ).status_code
+        == 200
+    )
+
+
+def test_failed_anthropic_connection_can_retry_same_label(authenticated_client) -> None:
+    authenticated_client.app.state.anthropic_http_factory = _failing_token_factory()
+    failed = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "retry-anthropic"},
+    )
+    assert failed.status_code == 201
+    callback = authenticated_client.get(
+        "/callback", params={"code": "fail", "state": failed.json()["state"]}
+    )
+    assert callback.status_code == 500
+
+    authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
+    retry = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "retry-anthropic"},
+    )
+    assert retry.status_code == 201
+    assert (
+        authenticated_client.get(
+            "/callback", params={"code": "ok", "state": retry.json()["state"]}
+        ).status_code
+        == 200
+    )
+
+
+def test_refresh_error_releases_label_for_reauth(authenticated_client, fake_keychain) -> None:
+    authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
+    start = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "refresh-error-anthropic"},
+    )
+    assert start.status_code == 201
+    connection_id = start.json()["connection_id"]
+    assert (
+        authenticated_client.get(
+            "/callback", params={"code": "first", "state": start.json()["state"]}
+        ).status_code
+        == 200
+    )
+    connection = authenticated_client.get(f"/v1/oauth/connections/{connection_id}").json()
+    fake_keychain.delete(connection["credential_locator"]["service"], "default")
+
+    refresh = authenticated_client.post(f"/v1/oauth/connections/{connection_id}/refresh")
+    assert refresh.status_code == 401
+    patch = authenticated_client.patch(
+        f"/v1/oauth/connections/{connection_id}",
+        json={"label": "refresh-error-anthropic"},
+    )
+    assert patch.status_code == 409
+    assert patch.json()["detail"]["code"] == "connection_not_active"
+    retry_refresh = authenticated_client.post(f"/v1/oauth/connections/{connection_id}/refresh")
+    assert retry_refresh.status_code == 409
+    assert retry_refresh.json()["detail"]["code"] == "connection_not_active"
+
+    retry = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "refresh-error-anthropic"},
+    )
+    assert retry.status_code == 201
+    assert (
+        authenticated_client.get(
+            "/callback", params={"code": "second", "state": retry.json()["state"]}
         ).status_code
         == 200
     )

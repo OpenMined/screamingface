@@ -47,8 +47,8 @@ class Migration(migrations.Migration):
                 "app": "models",
                 "pk_attr": "id",
                 "unique_together": (
-                    ("account_id", "provider", "status", "identity_sub"),
-                    ("account_id", "provider", "status", "label"),
+                    ("account_id", "provider", "identity_sub"),
+                    ("account_id", "provider", "label"),
                 ),
             },
             bases=["Model"],

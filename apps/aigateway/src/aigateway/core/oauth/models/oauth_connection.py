@@ -33,8 +33,8 @@ class OAuthConnection(BaseOAuthConnection):
     class Meta:
         table = "oauth_connections"
         unique_together = (
-            ("account_id", "provider", "status", "identity_sub"),
-            ("account_id", "provider", "status", "label"),
+            ("account_id", "provider", "identity_sub"),
+            ("account_id", "provider", "label"),
         )
 
     account: fields.ForeignKeyRelation[Account] = fields.ForeignKeyField(
