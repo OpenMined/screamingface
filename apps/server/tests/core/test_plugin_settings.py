@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from screamingface import __version__ as sf_version
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
 from screamingface.plugin import Plugin
@@ -123,7 +124,7 @@ def test_plugins_list_endpoint(settings_client: TestClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert "claude-frontend" in data
-    assert data["claude-frontend"]["version"] == "0.1.0"
+    assert data["claude-frontend"]["version"] == sf_version
     assert data["claude-frontend"]["has_settings"] is True
 
 
