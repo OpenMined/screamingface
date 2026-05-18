@@ -60,11 +60,13 @@ def patch_credential_factories(fake_keychain, monkeypatch) -> FakeKeychain:
     from aigateway.core import profile_index as pi_module
     from aigateway.plugins.anthropic_provider import auth as auth_module
     from aigateway.plugins.anthropic_provider import bootstrap as bs_module
+    from aigateway.plugins.gemini_provider import auth as gemini_auth_module
 
     monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
     monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
     monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
     monkeypatch.setattr(auth_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(gemini_auth_module, "get_credential_store", lambda: fake_keychain)
     monkeypatch.setattr(main_module, "get_credential_store", lambda: fake_keychain)
     return fake_keychain
 

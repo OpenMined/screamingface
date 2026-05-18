@@ -75,6 +75,21 @@ describe('external URL policy', () => {
         }),
       ),
     ).toBe(true);
+    expect(
+      isAllowedOAuthAuthorizeUrl(
+        authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
+          response_type: 'code',
+          client_id: 'public-client-id',
+          redirect_uri: 'http://localhost:9105/oauth2callback',
+          scope: 'https://www.googleapis.com/auth/cloud-platform',
+          code_challenge: 'challenge',
+          code_challenge_method: 'S256',
+          state: 'state',
+          access_type: 'offline',
+          prompt: 'consent',
+        }),
+      ),
+    ).toBe(true);
   });
 
   it('rejects malformed OAuth authorize URLs and non-loopback callbacks', () => {
@@ -124,6 +139,14 @@ describe('external URL policy', () => {
         authorizeUrl('auth.openai.com', '/oauth/authorize', {
           ...base,
           redirect_uri: 'http://localhost:1455/callback',
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedOAuthAuthorizeUrl(
+        authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
+          ...base,
+          redirect_uri: 'http://localhost:9105/callback',
         }),
       ),
     ).toBe(false);
