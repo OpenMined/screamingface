@@ -15,8 +15,8 @@ class TestPluginMetadata:
     def test_depends(self):
         assert "llm-base" in GeminiBackendApiPlugin.depends
 
-    def test_no_conflicts(self):
-        assert GeminiBackendApiPlugin.conflicts == []
+    def test_conflicts_with_gateway_backed_backend(self):
+        assert GeminiBackendApiPlugin.conflicts == ["aigw-gemini-backend"]
 
     def test_backend_call_paths(self):
         assert GeminiBackendApiPlugin.backend_call_paths == ["/gemini"]

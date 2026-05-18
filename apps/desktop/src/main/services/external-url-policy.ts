@@ -28,6 +28,14 @@ const OAUTH_AUTHORIZE_POLICIES = new Map<
     'claude.ai',
     { authorizePath: '/oauth/authorize', redirectPath: '/callback', ports: new Set(['9105']) },
   ],
+  [
+    'accounts.google.com',
+    {
+      authorizePath: '/o/oauth2/v2/auth',
+      redirectPath: '/oauth2callback',
+      ports: new Set(['9105']),
+    },
+  ],
 ]);
 
 type LocalServerInfo = {
