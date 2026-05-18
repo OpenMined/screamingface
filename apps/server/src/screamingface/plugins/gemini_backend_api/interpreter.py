@@ -31,12 +31,10 @@ class GeminiBackendApiInterpreter(Url4Interpreter):
         self._backend = backend or GeminiBackend()
 
     async def process(self, sources: str, intent: str | None, env: Env | None = None) -> str:
-        parts: list[str] = []
-        if intent:
-            parts.append(intent)
-        if sources:
-            parts.append(sources)
-        user_text = "\n\n".join(parts) if parts else ""
+        if sources and intent:
+            user_text = f"Context:\n{sources}\n\nQuestion:\n{intent}\n\nAnswer:"
+        else:
+            user_text = intent or sources or ""
 
         model = (self.settings.default_model if self.settings else None) or _DEFAULT_MODEL
         system = (

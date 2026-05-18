@@ -212,6 +212,7 @@ class _GenericOAuthPlugin:
     def __init__(self) -> None:
         self.strategy = _RecordingStrategy()
         self.exchange_request: OAuthCodeExchangeRequest | None = None
+        self.invalidated_profiles: list[str] = []
 
     def register_models(self) -> list:
         return []
@@ -240,6 +241,9 @@ class _GenericOAuthPlugin:
 
     def account_label_from_credentials(self, _credentials: dict) -> str | None:
         return None
+
+    def invalidate_profile_session(self, profile_name: str) -> None:
+        self.invalidated_profiles.append(profile_name)
 
 
 class _DelayedOAuthPlugin(_GenericOAuthPlugin):
@@ -815,6 +819,22 @@ async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_wit
     assert prof["state"] == "authenticated"
 
 
+@pytest.mark.asyncio
+async def test_complete_oauth_invalidates_provider_profile_session(client_with_index) -> None:
+    client, _ = client_with_index
+    account_id = _account_id(client)
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+
+    start = client.post("/v1/auth/generic/profiles", json={"name": "reauth"})
+
+    await _complete_oauth_for_app(
+        client.app, "generic", "code-one", start.json()["state"], account_id
+    )
+
+    assert plugin.invalidated_profiles == [credential_name_for(account_id, "reauth")]
+
+
 def test_callback_error_html_escapes_provider_response(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _html_failing_token_factory()
@@ -1069,3 +1089,19 @@ def test_delete_removes_profile_and_tokens(client_with_index) -> None:
     )
     g = client.get("/v1/auth/anthropic/profiles/z")
     assert g.status_code == 404
+
+
+def test_delete_profile_invalidates_provider_profile_session(client_with_index) -> None:
+    client, _ = client_with_index
+    account_id = _account_id(client)
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+
+    start = client.post("/v1/auth/generic/profiles", json={"name": "delete-session"})
+    client.get("/callback", params={"code": "c", "state": start.json()["state"]})
+
+    resp = client.delete("/v1/auth/generic/profiles/delete-session")
+
+    assert resp.status_code == 204
+    credential_name = credential_name_for(account_id, "delete-session")
+    assert plugin.invalidated_profiles == [credential_name, credential_name]
