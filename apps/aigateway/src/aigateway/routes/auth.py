@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from html import escape
 from ipaddress import ip_address
@@ -59,6 +61,37 @@ def _invalidate_profile_session(plugin, account_id: str, name: str) -> None:
     invalidator = getattr(plugin, "invalidate_profile_session", None)
     if callable(invalidator):
         invalidator(credential_name_for(account_id, name))
+
+
+@asynccontextmanager
+async def _profile_refresh_lifecycle(
+    request: Request,
+    plugin,
+    profile: Profile,
+    provider: str,
+    account_id: str,
+    name: str,
+) -> AsyncIterator[None]:
+    """Shared profile state updates around provider-owned credential refresh."""
+    try:
+        yield
+    except (CredentialNotFoundError, AuthError) as exc:
+        profile.state = ProfileState.ERROR
+        await _index_store(request).upsert(profile)
+        _invalidate_profile_session(plugin, account_id, name)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "auth_required",
+                "message": str(exc),
+                "reauth_url": f"/v1/auth/{provider}/profiles/{name}",
+            },
+        ) from exc
+    else:
+        profile.state = ProfileState.AUTHENTICATED
+        profile.last_refreshed_at = datetime.now(UTC)
+        await _index_store(request).upsert(profile)
+        _invalidate_profile_session(plugin, account_id, name)
 
 
 def _pending(request: Request):
@@ -595,34 +628,7 @@ async def refresh_profile(
     strategy = _oauth_strategy_for_app(request.app, plugin, provider, account_id, name)
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
-    try:
+
+    async with _profile_refresh_lifecycle(request, plugin, p, provider, account_id, name):
         await strategy.refresh_credentials()
-    except CredentialNotFoundError as exc:
-        p.state = ProfileState.ERROR
-        await _index_store(request).upsert(p)
-        _invalidate_profile_session(plugin, account_id, name)
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "auth_required",
-                "message": str(exc),
-                "reauth_url": f"/v1/auth/{provider}/profiles/{name}",
-            },
-        ) from exc
-    except AuthError as exc:
-        p.state = ProfileState.ERROR
-        await _index_store(request).upsert(p)
-        _invalidate_profile_session(plugin, account_id, name)
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "auth_required",
-                "message": str(exc),
-                "reauth_url": f"/v1/auth/{provider}/profiles/{name}",
-            },
-        ) from exc
-    p.state = ProfileState.AUTHENTICATED
-    p.last_refreshed_at = datetime.now(UTC)
-    await _index_store(request).upsert(p)
-    _invalidate_profile_session(plugin, account_id, name)
     return p.model_dump(mode="json")
