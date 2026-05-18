@@ -25,7 +25,7 @@ from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
 from .db import close_db, init_db
-from .routes import accounts, auth, auth_session, chat, health, models
+from .routes import accounts, auth, auth_session, chat, health, models, oauth_connections
 
 logger = logging.getLogger(__name__)
 _ORIGINAL_GET_CREDENTIAL_STORE = get_credential_store
@@ -205,6 +205,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_session.router)
     app.include_router(accounts.router)
     app.include_router(auth.router)
+    app.include_router(oauth_connections.router)
     app.include_router(health.router)
     app.include_router(models.router)
     app.include_router(chat.router)

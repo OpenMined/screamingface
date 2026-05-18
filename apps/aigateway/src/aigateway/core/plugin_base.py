@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .credential_store import CredentialStore
+    from .oauth.identity import AccountIdentity
     from .profile_index import ProfileIndexStore
 
 
@@ -114,6 +115,19 @@ class ProviderPluginBase(ABC):
     def account_label_from_credentials(self, _credentials: dict[str, Any]) -> str | None:
         """Return a display label for credentials persisted after OAuth, if available."""
         return None
+
+    async def extract_identity(
+        self,
+        _credentials: dict[str, Any],
+        *,
+        http_client_factory: Any | None = None,
+    ) -> AccountIdentity | None:
+        """Return stable account identity from provider credentials when available."""
+        return None
+
+    def requires_oauth_connection_label(self) -> bool:
+        """Whether first-class OAuth connection creation needs a user label up front."""
+        return False
 
     def supports_chat_streaming(self) -> bool:
         """Whether `/v1/chat/completions` may create a streaming response."""

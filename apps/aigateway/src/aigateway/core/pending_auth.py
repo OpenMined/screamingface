@@ -12,6 +12,9 @@ class PendingAuthEntry:
     profile_id: str
     code_verifier: str
     redirect_uri: str
+    connection_id: str | None = None
+    requested_label: str | None = None
+    compatibility_profile_name: str | None = None
 
 
 class PendingAuthTable:
