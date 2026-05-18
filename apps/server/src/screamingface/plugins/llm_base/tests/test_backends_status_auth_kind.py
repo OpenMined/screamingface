@@ -20,8 +20,18 @@ class _BrowserPlugin:
     gateway_provider = "anthropic"
 
 
+class _CodexBrowserPlugin:
+    name = "aigw-codex-backend"
+    backend_call_paths = ["/codex"]
+    gateway_provider = "codex"
+
+
 def test_auth_kind_browser_when_plugin_has_gateway_provider() -> None:
     assert _classify_auth_kind(_BrowserPlugin) == "browser"
+
+
+def test_auth_kind_browser_for_gateway_backed_codex() -> None:
+    assert _classify_auth_kind(_CodexBrowserPlugin) == "browser"
 
 
 def test_auth_kind_cli_when_plugin_lacks_gateway_provider() -> None:

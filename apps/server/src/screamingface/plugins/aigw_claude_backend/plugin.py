@@ -50,6 +50,14 @@ class AigwClaudeBackendSettings(AigwBackendApiSettingsBase):
         ),
         examples=_CLAUDE_MODEL_SUGGESTIONS,
     )
+    fallback_model: str | None = Field(
+        default="anthropic/claude-haiku-4-5",
+        description=(
+            "Model retried once when the primary Claude model returns a 429. "
+            "Set to null to disable automatic fallback."
+        ),
+        examples=_CLAUDE_MODEL_SUGGESTIONS,
+    )
 
 
 class AigwClaudeBackendPlugin(AigwBackendApiPluginBase):

@@ -13,7 +13,10 @@ from aigateway.plugins.anthropic_provider.auth import (
     AnthropicOAuth,
     keychain_service_for,
 )
-from aigateway.plugins.anthropic_provider.oauth_config import ANTHROPIC_TOKEN_URL
+from aigateway.plugins.anthropic_provider.oauth_config import (
+    ANTHROPIC_REFRESH_SCOPES,
+    ANTHROPIC_TOKEN_URL,
+)
 
 
 class _FakeStore(CredentialStore):
@@ -134,6 +137,7 @@ async def test_expired_credential_triggers_refresh() -> None:
     assert captured["url"] == ANTHROPIC_TOKEN_URL
     assert captured["body"]["grant_type"] == "refresh_token"
     assert captured["body"]["refresh_token"] == "rt-1"
+    assert captured["body"]["scope"] == " ".join(ANTHROPIC_REFRESH_SCOPES)
 
     assert len(store.writes) == 1
     written = json.loads(store.writes[0][2])
@@ -171,15 +175,15 @@ async def test_invalidate_drops_cache() -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_credentials_persists_and_caches() -> None:
-    """set_credentials() (used by OAuth callback) writes to store + populates cache."""
+async def test_persist_credentials_persists_and_caches() -> None:
+    """persist_credentials() writes to store + populates cache after OAuth callback."""
     store = _FakeStore(payload=None)
     strat = AnthropicOAuth(
         profile_name="default",
         credential_store=store,
     )
     fresh = _fresh_creds()
-    strat.set_credentials(fresh)
+    strat.persist_credentials(fresh)
 
     headers = await strat.get_authorization_header()
     assert headers["Authorization"] == f"Bearer {fresh['access_token']}"

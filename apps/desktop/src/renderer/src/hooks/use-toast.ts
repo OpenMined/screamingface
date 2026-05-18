@@ -4,10 +4,20 @@ export type ToastVariant = 'default' | 'success' | 'error' | 'warning';
 
 export interface Toast {
   id: string;
-  message: string;
+  title?: string;
+  description?: string;
   variant: ToastVariant;
   duration: number;
 }
+
+export interface ToastOptions {
+  title?: string;
+  description?: string;
+  variant?: ToastVariant;
+  duration?: number;
+}
+
+type ToastInput = string | ToastOptions;
 
 type Listener = () => void;
 
@@ -19,11 +29,22 @@ function emit() {
   for (const l of listeners) l();
 }
 
-function addToast(message: string, variant: ToastVariant = 'default', duration = 3000): string {
+function addToast(input: ToastInput, variant: ToastVariant = 'default', duration = 3000): string {
   const id = String(++nextId);
-  toasts = [...toasts, { id, message, variant, duration }];
+  const toast =
+    typeof input === 'string'
+      ? { id, title: input, variant, duration }
+      : {
+          id,
+          title: input.title,
+          description: input.description,
+          variant: input.variant ?? variant,
+          duration: input.duration ?? duration,
+        };
+
+  toasts = [...toasts, toast];
   emit();
-  setTimeout(() => dismiss(id), duration);
+  setTimeout(() => dismiss(id), toast.duration);
   return id;
 }
 
@@ -44,8 +65,8 @@ function subscribe(listener: Listener) {
 export function useToast() {
   const items = useSyncExternalStore(subscribe, getSnapshot);
 
-  const toast = useCallback((message: string, variant?: ToastVariant, duration?: number) => {
-    return addToast(message, variant, duration);
+  const toast = useCallback((input: ToastInput, variant?: ToastVariant, duration?: number) => {
+    return addToast(input, variant, duration);
   }, []);
 
   return { toasts: items, toast, dismiss };

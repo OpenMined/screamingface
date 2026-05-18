@@ -9,9 +9,10 @@
  */
 
 import { shell } from 'electron';
+import { isAllowedOAuthAuthorizeUrl, isSafeBackendName } from './external-url-policy';
 
 /**
- * In-memory cache of the most-recent OAuth `state` value per backend.
+ * In-memory cache of OAuth `state` values per backend/profile.
  *
  * Populated when a launcher run successfully gets an `authorize_url` from
  * `/auth/start`. Read by the manual paste-code IPC path so the renderer
@@ -21,14 +22,18 @@ import { shell } from 'electron';
  * timeout) so the user can still paste the code after the long poll gives
  * up. It is cleared on successful exchange.
  */
-const pendingStateByBackend = new Map<string, string>();
+const pendingStateByBackendProfile = new Map<string, string>();
 
-export function getPendingAuthState(backendName: string): string | null {
-  return pendingStateByBackend.get(backendName) ?? null;
+function pendingAuthKey(backendName: string, profileName?: string): string {
+  return `${backendName}\0${profileName ?? ''}`;
 }
 
-export function clearPendingAuthState(backendName: string): void {
-  pendingStateByBackend.delete(backendName);
+export function getPendingAuthState(backendName: string, profileName?: string): string | null {
+  return pendingStateByBackendProfile.get(pendingAuthKey(backendName, profileName)) ?? null;
+}
+
+export function clearPendingAuthState(backendName: string, profileName?: string): void {
+  pendingStateByBackendProfile.delete(pendingAuthKey(backendName, profileName));
 }
 
 export type LauncherResult =
@@ -55,6 +60,14 @@ export interface LauncherOptions {
 }
 
 export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherResult> {
+  if (!isSafeBackendName(opts.backendName)) {
+    return {
+      kind: 'failed',
+      reason: 'gateway_error',
+      message: `invalid browser OAuth backend: ${opts.backendName}`,
+    };
+  }
+
   const fetchImpl = opts.fetchImpl ?? fetch;
   const pollIntervalMs = opts.pollIntervalMs ?? 2000;
   const timeoutMs = opts.timeoutMs ?? 10 * 60 * 1000;
@@ -85,11 +98,21 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
       message: `start returned ${startResp.status}: ${body.slice(0, 200)}`,
     };
   }
-  const startBody = (await startResp.json()) as { authorize_url: string; state?: string };
-  if (startBody.state) {
-    pendingStateByBackend.set(opts.backendName, startBody.state);
+  const startBody = (await startResp.json()) as { authorize_url?: string; state?: string };
+  if (!startBody.authorize_url || !isAllowedOAuthAuthorizeUrl(startBody.authorize_url)) {
+    return {
+      kind: 'failed',
+      reason: 'gateway_error',
+      message: 'blocked unexpected OAuth authorize URL',
+    };
   }
-  console.log(`[oauth-launcher] opening browser: ${startBody.authorize_url}`);
+  if (startBody.state) {
+    pendingStateByBackendProfile.set(
+      pendingAuthKey(opts.backendName, opts.profileName),
+      startBody.state,
+    );
+  }
+  console.log(`[oauth-launcher] opening browser for ${opts.backendName}`);
   await shell.openExternal(startBody.authorize_url);
 
   const deadline = Date.now() + timeoutMs;
@@ -119,7 +142,7 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
     }
     const body = (await statusResp.json()) as { state: string; error?: string };
     if (body.state === 'authenticated') {
-      pendingStateByBackend.delete(opts.backendName);
+      clearPendingAuthState(opts.backendName, opts.profileName);
       return { kind: 'complete' };
     }
     if (body.state === 'error') {

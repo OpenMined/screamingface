@@ -42,8 +42,17 @@ class CodexBackendApiPlugin(BackendApiPluginBase):
     )
     tags: list[str] = ["product:openai"]
     depends: list[str] = ["llm-base", "backend-api-base"]
-    conflicts: list[str] = []
+    conflicts: list[str] = ["aigw-codex-backend"]
     backend_call_paths: list[str] = ["/codex"]
+    cli_auth_command = "codex auth login"
+    backend_status_help = {
+        "rate_limited": "OpenAI API rate limit reached. Capacity will reset automatically.",
+        "reauth": (
+            "Codex OAuth token is missing, expired, or the refresh token was already used. "
+            "Click Re-authenticate to run 'codex auth login'."
+        ),
+        "degraded": "Codex backend is available but experiencing issues.",
+    }
     settings_class = CodexBackendApiSettings
 
     schema_link_base = "/codex/"

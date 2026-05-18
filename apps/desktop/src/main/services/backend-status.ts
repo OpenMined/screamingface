@@ -78,7 +78,7 @@ class BackendStatusService extends EventEmitter {
       // macOS: use osascript to open Terminal.app with the command
       execFile('osascript', [
         '-e',
-        `tell application "Terminal" to do script "${command}"`,
+        `tell application "Terminal" to do script "${escapeAppleScriptString(command)}"`,
         '-e',
         'tell application "Terminal" to activate',
       ]);
@@ -177,3 +177,11 @@ class BackendStatusService extends EventEmitter {
 }
 
 export const backendStatusService = new BackendStatusService();
+
+export function escapeAppleScriptString(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n');
+}

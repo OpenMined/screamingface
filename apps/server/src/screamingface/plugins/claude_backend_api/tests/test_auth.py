@@ -20,6 +20,7 @@ from screamingface.plugins.claude_backend_api.auth import (
     ANTHROPIC_VERSION,
     KEYCHAIN_SERVICE,
     OAUTH_CLIENT_ID,
+    OAUTH_REFRESH_SCOPES,
     OAUTH_REFRESH_URL,
     REFRESH_WINDOW_SECONDS,
     ClaudeCodeOAuth,
@@ -107,7 +108,7 @@ class TestConstants:
         assert KEYCHAIN_SERVICE == "Claude Code-credentials"
 
     def test_refresh_url(self):
-        assert OAUTH_REFRESH_URL == "https://console.anthropic.com/v1/oauth/token"
+        assert OAUTH_REFRESH_URL == "https://platform.claude.com/v1/oauth/token"
 
     def test_client_id(self):
         assert OAUTH_CLIENT_ID == "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
@@ -235,6 +236,7 @@ class TestRefresh:
         assert kwargs["json"]["grant_type"] == "refresh_token"
         assert kwargs["json"]["client_id"] == OAUTH_CLIENT_ID
         assert kwargs["json"]["refresh_token"] == "sk-ant-ort01-CURRENT_REFRESH"
+        assert kwargs["json"]["scope"] == " ".join(OAUTH_REFRESH_SCOPES)
 
         # Headers use the new token
         assert headers["Authorization"] == "Bearer sk-ant-oat01-NEW_ACCESS"

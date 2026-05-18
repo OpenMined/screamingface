@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -15,7 +16,7 @@ class ModelEntry:
 
     Maps directly onto the dict shape that `litellm.Router(model_list=...)`
     expects. `model_name` is the user-facing alias; `litellm_params.model`
-    is the fully-qualified provider/model string (e.g. `anthropic/claude-...`).
+    is the fully-qualified provider/model string.
     """
 
     model_name: str
@@ -40,6 +41,18 @@ class OAuthStrategy(ABC):
     async def invalidate(self) -> None:
         """Drop any cached token. Called after a 401 from upstream."""
 
+    @abstractmethod
+    def persist_credentials(self, credentials: dict[str, Any]) -> None:
+        """Persist newly exchanged provider credentials for this profile."""
+
+    @abstractmethod
+    def delete_credentials(self) -> None:
+        """Delete persisted provider credentials for this profile."""
+
+    @abstractmethod
+    async def refresh_credentials(self) -> None:
+        """Refresh persisted provider credentials for this profile."""
+
 
 @dataclass(frozen=True)
 class OAuthConfig:
@@ -49,8 +62,20 @@ class OAuthConfig:
     token_url: str
     client_id: str
     scopes: list[str]
-    redirect_path: str  # absolute path on the gateway, e.g. /v1/auth/anthropic/callback
+    redirect_path: str  # absolute path on the gateway callback surface
     extra_authorize_params: dict[str, str] | None = None
+    loopback_redirect_ports: list[int] | None = None
+
+
+@dataclass(frozen=True)
+class OAuthCodeExchangeRequest:
+    """Provider-owned authorization-code exchange input."""
+
+    code: str
+    code_verifier: str
+    redirect_uri: str
+    state: str
+    http_client_factory: Any | None = None
 
 
 class ProviderPluginBase(ABC):
@@ -72,9 +97,49 @@ class ProviderPluginBase(ABC):
         """Return provider OAuth metadata, or None for no-auth providers (e.g. local Ollama)."""
         return None
 
-    def oauth_strategy_for(self, profile_name: str) -> OAuthStrategy | None:
+    def oauth_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        credential_store: CredentialStore | None = None,
+        http_client_factory: Any | None = None,
+    ) -> OAuthStrategy | None:
         """Return a per-profile OAuthStrategy. Default: no auth."""
         return None
+
+    async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict[str, Any]:
+        """Exchange an OAuth authorization code for provider credentials."""
+        raise NotImplementedError(f"{self.custom_llm_provider} does not exchange OAuth codes")
+
+    def account_label_from_credentials(self, _credentials: dict[str, Any]) -> str | None:
+        """Return a display label for credentials persisted after OAuth, if available."""
+        return None
+
+    def supports_chat_streaming(self) -> bool:
+        """Whether `/v1/chat/completions` may create a streaming response."""
+        return True
+
+    def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Apply provider-specific request normalization before dispatch."""
+        return body
+
+    def should_apply_profile_default(self, field: str) -> bool:
+        """Return whether a profile default field should be merged into chat bodies."""
+        return True
+
+    async def chat_completion(self, body: dict[str, Any]) -> Any:
+        """Dispatch a normalized OpenAI-compatible chat completion request."""
+        import litellm
+
+        return await litellm.acompletion(**body)
+
+    async def chat_completion_stream(self, body: dict[str, Any]) -> AsyncIterator[Any]:
+        """Dispatch a normalized streaming chat completion request."""
+        import litellm
+
+        stream: Any = await litellm.acompletion(**body)
+        async for chunk in stream:
+            yield chunk
 
     def auth_router(self):
         """Provider-specific auth routes.
@@ -91,5 +156,5 @@ class ProviderPluginBase(ABC):
         credential_store: CredentialStore | None = None,
         index_store: ProfileIndexStore | None = None,
     ) -> None:
-        """Import provider-owned local credentials into the profile index, if any."""
+        """Populate provider-owned profile metadata at startup, if any."""
         return None

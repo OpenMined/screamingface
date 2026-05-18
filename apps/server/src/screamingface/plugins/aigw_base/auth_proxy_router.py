@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ def build_aigw_auth_proxy_router(
     factory = http_client_factory or _default_http_factory
 
     @router.post(f"{path_prefix}/auth/start")
-    async def start_auth(name: str | None = None) -> dict[str, Any]:
+    async def start_auth(name: str | None = None) -> JSONResponse:
         target = name or profile_name
         url = f"{base}/v1/auth/{gateway_provider}/profiles"
         body: dict[str, Any] = {"name": target}
@@ -101,7 +102,7 @@ def build_aigw_auth_proxy_router(
             )
         if resp.status_code >= 400:
             raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
-        return resp.json()
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
     @router.get(f"{path_prefix}/auth/status")
     async def auth_status(name: str | None = None) -> dict[str, Any]:
@@ -157,7 +158,7 @@ def build_aigw_auth_proxy_router(
         return resp.json()
 
     @router.post(f"{path_prefix}/auth/exchange-code")
-    async def exchange_code(body: _ExchangeCodeBody) -> dict[str, Any]:
+    async def exchange_code(body: _ExchangeCodeBody) -> JSONResponse:
         """Forward a manually-pasted authorization code to the gateway.
 
         Used as a fallback when the OAuth provider displays the code on
@@ -187,7 +188,7 @@ def build_aigw_auth_proxy_router(
             )
         if resp.status_code >= 400:
             raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
-        return resp.json()
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
     @router.delete(f"{path_prefix}/auth/profiles/{{name}}", status_code=204)
     async def delete_profile(name: str) -> Response:

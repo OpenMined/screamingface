@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import httpx
 import pytest
+from fastapi import APIRouter, FastAPI
 
 from screamingface.plugins.aigw_base.backend import AigwBackend
 from screamingface.plugins.aigw_base.interpreter import AigwInterpreter
+from screamingface.plugins.aigw_claude_backend.plugin import (
+    AigwClaudeBackendPlugin,
+    AigwClaudeBackendSettings,
+)
 
 
 def _factory_returning(text: str):
@@ -35,7 +42,10 @@ def _factory_returning(text: str):
 
 @pytest.mark.anyio
 async def test_process_combines_intent_and_sources() -> None:
-    backend = AigwBackend(http_client_factory=_factory_returning("answer"))
+    backend = AigwBackend(
+        gateway_provider="test-provider",
+        http_client_factory=_factory_returning("answer"),
+    )
     interp = AigwInterpreter(backend=backend)
     out = await interp.process(sources="cats are mammals", intent="what are cats?")
     assert out == "answer"
@@ -43,6 +53,36 @@ async def test_process_combines_intent_and_sources() -> None:
 
 @pytest.mark.anyio
 async def test_process_returns_empty_when_no_input() -> None:
-    backend = AigwBackend(http_client_factory=_factory_returning("X"))
+    backend = AigwBackend(
+        gateway_provider="test-provider",
+        http_client_factory=_factory_returning("X"),
+    )
     interp = AigwInterpreter(backend=backend)
     assert await interp.process(sources="", intent=None) == ""
+
+
+def test_plugin_setup_and_interpreter_share_backend(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def create_router(settings, app=None, *, backend=None):  # noqa: ANN001
+        captured["backend"] = backend
+        return APIRouter()
+
+    class _Routes:
+        def add_router(self, name, router, prefix=""):  # noqa: ANN001, ARG002
+            return None
+
+    monkeypatch.setattr(AigwClaudeBackendPlugin, "create_router", staticmethod(create_router))
+    plugin = AigwClaudeBackendPlugin()
+    plugin.settings = AigwClaudeBackendSettings()
+    app = FastAPI()
+
+    plugin.setup(
+        app=app,
+        hooks=cast(Any, None),
+        classes=cast(Any, None),
+        routes=cast(Any, _Routes()),
+    )
+    interpreter = plugin._make_interpreter(app)
+
+    assert captured["backend"] is interpreter._backend

@@ -120,7 +120,11 @@ def test_lifespan_bootstraps_disabled_auth_under_anonymous_account(
     _install_bootstrap_spy(monkeypatch, main_module, mock_bootstrap)
 
     app = main_module.create_app()
-    with TestClient(app) as client:
+    with TestClient(
+        app,
+        base_url="http://127.0.0.1:9105",
+        client=("127.0.0.1", 50000),
+    ) as client:
         resp = client.get("/v1/auth/me")
         assert resp.status_code == 200
 

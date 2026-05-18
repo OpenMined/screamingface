@@ -111,6 +111,10 @@ SERVER_VENV="$REPO_ROOT/apps/server/.venv"
 if [ -d "$SERVER_VENV" ]; then
   mv "$SERVER_VENV" "$TMP_DIR/saved-venv"
 fi
+GATEWAY_VENV="$REPO_ROOT/apps/aigateway/.venv"
+if [ -d "$GATEWAY_VENV" ]; then
+  mv "$GATEWAY_VENV" "$TMP_DIR/saved-aigateway-venv"
+fi
 
 "$OUT_DIR/uv" sync \
   --no-install-project \
@@ -118,10 +122,20 @@ fi
   --directory "$REPO_ROOT/apps/server" \
   || true  # Non-fatal: cache is an optimization, not a hard requirement
 
+"$OUT_DIR/uv" sync \
+  --no-install-project \
+  --python "$OUT_DIR/python/bin/python3.12" \
+  --directory "$REPO_ROOT/apps/aigateway" \
+  || true  # Non-fatal: cache is an optimization, not a hard requirement
+
 # Clean up the venv uv sync created, restore original if it existed
 rm -rf "$SERVER_VENV"
 if [ -d "$TMP_DIR/saved-venv" ]; then
   mv "$TMP_DIR/saved-venv" "$SERVER_VENV"
+fi
+rm -rf "$GATEWAY_VENV"
+if [ -d "$TMP_DIR/saved-aigateway-venv" ]; then
+  mv "$TMP_DIR/saved-aigateway-venv" "$GATEWAY_VENV"
 fi
 
 # Package cache as tar.gz (smaller bundle, avoids macOS xattr issues with .app bundles)

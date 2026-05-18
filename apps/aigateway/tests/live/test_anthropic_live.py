@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,9 +20,42 @@ from aigateway.main import create_app
 
 pytestmark = pytest.mark.live
 
+_database_prepared = False
+
 
 def _live_enabled() -> bool:
     return os.environ.get("AIGW_LIVE") == "1"
+
+
+def _prepare_live_database() -> None:
+    global _database_prepared
+    if _database_prepared:
+        return
+
+    app_dir = Path(__file__).resolve().parents[2]
+    command = [sys.executable, "-m", "tortoise", "-c", "aigateway.db.TORTOISE_CONFIG", "migrate"]
+    try:
+        subprocess.run(
+            command,
+            cwd=app_dir,
+            env=os.environ.copy(),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        pytest.fail(
+            "failed to migrate live AIGateway database before Anthropic live test\n"
+            f"stdout:\n{exc.stdout}\n"
+            f"stderr:\n{exc.stderr}"
+        )
+
+    _database_prepared = True
+
+
+def _live_client() -> TestClient:
+    _prepare_live_database()
+    return TestClient(create_app())
 
 
 def _require_default_profile(client: TestClient) -> None:
@@ -64,10 +100,26 @@ def _live_admin_password() -> str:
     return password
 
 
+def _assert_premium_model_round_trip(client: TestClient, model: str, expected: str) -> None:
+    resp = client.post(
+        "/v1/chat/completions",
+        headers={"X-Profile": "default"},
+        json={
+            "model": f"anthropic/{model}",
+            "messages": [{"role": "user", "content": f"Reply with exactly: {expected}"}],
+            "max_tokens": 20,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    content = resp.json()["choices"][0]["message"]["content"]
+    assert content.strip()
+    assert expected in content
+
+
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
 def test_anthropic_round_trip_via_default_profile() -> None:
     _live_admin_password()
-    with TestClient(create_app()) as client:
+    with _live_client() as client:
         _login_admin(client)
         _require_default_profile(client)
 
@@ -86,9 +138,27 @@ def test_anthropic_round_trip_via_default_profile() -> None:
 
 
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
+def test_anthropic_premium_sonnet_round_trip_via_default_profile() -> None:
+    _live_admin_password()
+    with _live_client() as client:
+        _login_admin(client)
+        _require_default_profile(client)
+        _assert_premium_model_round_trip(client, "claude-sonnet-4-6", "sonnet-premium-ok")
+
+
+@pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
+def test_anthropic_premium_opus_round_trip_via_default_profile() -> None:
+    _live_admin_password()
+    with _live_client() as client:
+        _login_admin(client)
+        _require_default_profile(client)
+        _assert_premium_model_round_trip(client, "claude-opus-4-7", "opus-premium-ok")
+
+
+@pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
 def test_anthropic_streaming() -> None:
     _live_admin_password()
-    with TestClient(create_app()) as client:
+    with _live_client() as client:
         _login_admin(client)
         _require_default_profile(client)
 
@@ -126,7 +196,7 @@ def test_anthropic_streaming() -> None:
 @pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
 def test_anthropic_tool_calls() -> None:
     _live_admin_password()
-    with TestClient(create_app()) as client:
+    with _live_client() as client:
         _login_admin(client)
         _require_default_profile(client)
 

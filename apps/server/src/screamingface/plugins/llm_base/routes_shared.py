@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -164,16 +165,32 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
 
         messages = [CoreMessage(role="user", content=[TextPart(text=request.prompt)])]
 
-        start = time.monotonic()
-        try:
-            result = await backend.run(
+        async def run_backend(model_to_use: str) -> CoreMessage:
+            return await backend.run(
                 messages,
-                model=model,
+                model=model_to_use,
                 system=system,
                 max_tokens=DEFAULT_MAX_TOKENS,
                 temperature=None,
                 timeout_seconds=timeout,
             )
+
+        start = time.monotonic()
+        try:
+            fallback_model = request.fallback_model or getattr(settings, "fallback_model", None)
+            try:
+                result = await run_backend(model)
+            except BackendError as exc:
+                if not _should_try_fallback(exc, model, fallback_model):
+                    raise
+                assert isinstance(fallback_model, str)
+                logger.warning(
+                    "%s primary model %s rate limited; retrying fallback model %s",
+                    cfg.name,
+                    model,
+                    fallback_model,
+                )
+                result = await run_backend(fallback_model)
             duration = time.monotonic() - start
             stdout = extract_text(result)
             parsed: dict | list | str | None = None
@@ -208,6 +225,7 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
             duration = time.monotonic() - start
             logger.warning("%s backend error: %s", cfg.name, exc)
             status = 429 if exc.status == 429 else 502
+            headers = _retry_after_headers(exc)
             resp = RunResponse(
                 exit_code=1,
                 stdout="",
@@ -215,7 +233,11 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
                 duration_seconds=round(duration, 3),
                 result=None,
             )
-            return JSONResponse(content=resp.model_dump(by_alias=True), status_code=status)
+            return JSONResponse(
+                content=resp.model_dump(by_alias=True),
+                status_code=status,
+                headers=headers,
+            )
 
     @router.post(f"{prefix}/run", response_model=None, operation_id=f"{op}_run")
     async def run_endpoint(request: RunRequest) -> JSONResponse | StreamingResponse:
@@ -231,7 +253,11 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         except BackendError as exc:
             status = 429 if exc.status == 429 else 502
-            raise HTTPException(status_code=status, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=status,
+                detail=str(exc),
+                headers=_retry_after_headers(exc),
+            ) from exc
         except Exception as exc:
             logger.warning("%s url4 evaluation failed: %s", cfg.name, exc, exc_info=True)
             raise HTTPException(
@@ -346,6 +372,19 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
     return router
 
 
+def _should_try_fallback(
+    exc: BackendError,
+    model: str,
+    fallback_model: object,
+) -> bool:
+    return (
+        exc.status == 429
+        and isinstance(fallback_model, str)
+        and bool(fallback_model)
+        and fallback_model != model
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -378,3 +417,13 @@ def _reject_cli_only_fields(request: RunRequest, plugin_name: str) -> None:
             f"call the CLI-frontend plugin instead."
         ),
     )
+
+
+def _retry_after_headers(exc: BackendError) -> dict[str, str]:
+    retry_after = getattr(exc, "retry_after", None)
+    if retry_after is None:
+        return {}
+    if retry_after < 0:
+        retry_after = 0
+    # Retry-After delta-seconds is an integer; round up so clients do not retry early.
+    return {"Retry-After": str(math.ceil(retry_after))}

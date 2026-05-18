@@ -14,8 +14,8 @@ This module just implements the four provider-specific hooks:
 2. ``_is_expired`` — compare ``expiresAt`` (unix epoch in milliseconds)
    against the 60-second proactive refresh window.
 3. ``_refresh_credential`` — POST to
-   ``https://console.anthropic.com/v1/oauth/token`` with
-   ``{grant_type: "refresh_token", refresh_token, client_id}`` and
+   ``https://platform.claude.com/v1/oauth/token`` with
+   ``{grant_type: "refresh_token", refresh_token, client_id, scope}`` and
    convert the OAuth 2.0 response shape (snake_case, ``expires_in``
    seconds) back to the keychain shape (camelCase, ``expiresAt`` ms).
 4. ``_build_headers`` — the three required Anthropic headers:
@@ -45,10 +45,17 @@ from screamingface.plugins.llm_base.oauth_base import OAuthStrategy
 
 logger = logging.getLogger(__name__)
 
-# Constants validated by the SF-77 spike.
+# Constants validated against Claude Code 2.1.142.
 KEYCHAIN_SERVICE = "Claude Code-credentials"
-OAUTH_REFRESH_URL = "https://console.anthropic.com/v1/oauth/token"
+OAUTH_REFRESH_URL = "https://platform.claude.com/v1/oauth/token"
 OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"  # public Claude Code OAuth app
+OAUTH_REFRESH_SCOPES = [
+    "user:profile",
+    "user:inference",
+    "user:sessions:claude_code",
+    "user:mcp_servers",
+    "user:file_upload",
+]
 ANTHROPIC_VERSION = "2023-06-01"
 # Beta features: ``oauth-2025-04-20`` is required for OAuth bearer tokens,
 # ``claude-code-*`` gives access to the Claude Code rate-limit pool.
@@ -146,6 +153,7 @@ class ClaudeCodeOAuth(OAuthStrategy):
             "grant_type": "refresh_token",
             "refresh_token": creds["refreshToken"],
             "client_id": OAUTH_CLIENT_ID,
+            "scope": " ".join(OAUTH_REFRESH_SCOPES),
         }
         headers = {"content-type": "application/json"}
 

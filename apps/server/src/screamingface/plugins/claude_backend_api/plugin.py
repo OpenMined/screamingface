@@ -50,8 +50,17 @@ class ClaudeBackendApiPlugin(BackendApiPluginBase):
     )
     tags: list[str] = ["product:claude"]
     depends: list[str] = ["llm-base", "backend-api-base"]
-    conflicts: list[str] = []
+    conflicts: list[str] = ["aigw-claude-backend"]
     backend_call_paths: list[str] = ["/claude"]
+    cli_auth_command = "claude auth login"
+    backend_status_help = {
+        "rate_limited": "Claude API rate limit reached. Capacity will reset automatically.",
+        "reauth": (
+            "Claude OAuth token is missing or expired. "
+            "Click Re-authenticate to open a terminal and run 'claude auth login'."
+        ),
+        "degraded": "Claude backend is available but experiencing issues.",
+    }
     settings_class = ClaudeBackendApiSettings
 
     schema_link_base = "/claude/"

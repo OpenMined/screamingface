@@ -1,14 +1,15 @@
 """Shared lifecycle base for aigw_*_backend plugins.
 
-Subclasses each provider's `*_backend.plugin` mirror of
-`claude_backend_api/plugin.py` style: declare class-level metadata
-(name, backend_call_paths, schema_link_base, settings_class,
-create_router) and inherit `_make_interpreter` here.
+Subclasses mirror direct backend plugin style: declare class-level metadata
+(`name`, `backend_call_paths`, `schema_link_base`, `settings_class`,
+`create_router`) and inherit `_make_interpreter` here.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
@@ -36,17 +37,59 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
     depends: ClassVar[list[str]] = ["llm-base", "backend-api-base", "aigw-base"]
     conflicts: ClassVar[list[str]] = []
 
-    # Provider key used by the AI Gateway (e.g. "anthropic", "openai").
+    # Provider key used by the AI Gateway.
     # Subclasses MUST set this if they want the auth-proxy router mounted.
     gateway_provider: ClassVar[str | None] = None
 
-    def _make_interpreter(self, app: FastAPI):
+    def _backend(self) -> AigwBackend:
         settings = cast(AigwBackendApiSettingsBase, self.settings)
+        if not self.gateway_provider:
+            msg = f"{self.name} must declare gateway_provider"
+            raise ValueError(msg)
+        key = (settings.gateway_url, settings.auth_profile, self.gateway_provider)
+        cached = getattr(self, "_aigw_backend", None)
+        if cached is not None and getattr(self, "_aigw_backend_key", None) == key:
+            return cached
         backend = AigwBackend(
             gateway_url=settings.gateway_url,
             profile_name=settings.auth_profile,
+            gateway_provider=self.gateway_provider,
         )
-        return AigwInterpreter(app=app, settings=settings, backend=backend)
+        self._aigw_backend = backend
+        self._aigw_backend_key = key
+        return backend
+
+    def _make_interpreter(self, app: FastAPI):
+        settings = cast(AigwBackendApiSettingsBase, self.settings)
+        if not self.gateway_provider:
+            msg = f"{self.name} must declare gateway_provider"
+            raise ValueError(msg)
+        return AigwInterpreter(
+            app=app,
+            settings=settings,
+            backend=self._backend(),
+            gateway_provider=self.gateway_provider,
+        )
+
+    def setup(self, app: FastAPI, hooks, classes, routes) -> None:
+        self._assert_loopback_server_bind(app)
+        router = type(self).create_router(self.settings, app, backend=self._backend())
+        routes.add_router(self.name, router, prefix="")
+
+    def _assert_loopback_server_bind(self, app: FastAPI) -> None:
+        if os.environ.get("SF_AIGW_ALLOW_LAN") == "1":
+            return
+        host = getattr(getattr(app.state, "config", None), "server", None)
+        bind_host = getattr(host, "host", "")
+        if not bind_host:
+            return
+        if _is_loopback_host(bind_host):
+            return
+        msg = (
+            f"{self.name} refuses to activate on non-loopback SF host {bind_host!r}; "
+            "set SF_AIGW_ALLOW_LAN=1 to override"
+        )
+        raise RuntimeError(msg)
 
     # ------------------------------------------------------------------ #
     # Schema customization
@@ -151,3 +194,13 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
                 if isinstance(name, str) and name:
                     names.append(name)
         return names
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = (host or "").strip().lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ip_address(normalized).is_loopback
+    except ValueError:
+        return False

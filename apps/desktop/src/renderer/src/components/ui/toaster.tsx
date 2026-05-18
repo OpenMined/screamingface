@@ -21,7 +21,10 @@ export function Toaster() {
           onClick={() => dismiss(t.id)}
           role="status"
         >
-          {t.message}
+          {t.title && <div>{t.title}</div>}
+          {t.description && (
+            <div className="mt-1 text-[11px] font-normal opacity-80">{t.description}</div>
+          )}
         </div>
       ))}
     </div>

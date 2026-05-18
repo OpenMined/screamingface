@@ -38,6 +38,7 @@ def test_backend_call_paths_owns_canonical_claude_path() -> None:
 def test_default_settings() -> None:
     s = AigwClaudeBackendSettings()
     assert s.default_model == "anthropic/claude-sonnet-4-5"
+    assert s.fallback_model == "anthropic/claude-haiku-4-5"
     assert s.gateway_url == "http://127.0.0.1:9105"
     assert s.auth_profile == "default"
     assert s.timeout_seconds == 300.0

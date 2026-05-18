@@ -50,6 +50,14 @@ def test_preflight_fails_without_uv(fake_aigw_dir: Path) -> None:
     assert "`uv` command not found" in reason
 
 
+def test_preflight_uses_configured_uv_bin(fake_aigw_dir: Path) -> None:
+    plugin = _make_plugin(fake_aigw_dir, uv_bin="/custom/uv")
+    with patch("shutil.which", return_value=None):
+        ok, reason = plugin.preflight()
+    assert ok, reason
+    assert plugin._uv_bin == "/custom/uv"
+
+
 def test_preflight_skipped_when_disabled(fake_aigw_dir: Path) -> None:
     plugin = _make_plugin(fake_aigw_dir, enabled=False)
     ok, _ = plugin.preflight()
@@ -67,7 +75,8 @@ def test_setup_skipped_when_disabled(fake_aigw_dir: Path) -> None:
 
 
 def test_setup_spawns_subprocess_and_registers_hooks(fake_aigw_dir: Path) -> None:
-    plugin = _make_plugin(fake_aigw_dir)
+    db_path = fake_aigw_dir / "aigateway.db"
+    plugin = _make_plugin(fake_aigw_dir, database_path=str(db_path), uv_bin="/custom/uv")
 
     fake_proc = MagicMock(spec=subprocess.Popen)
     fake_proc.poll.return_value = None  # still running
@@ -79,18 +88,33 @@ def test_setup_spawns_subprocess_and_registers_hooks(fake_aigw_dir: Path) -> Non
     fake_app = MagicMock()
 
     with (
-        patch("shutil.which", return_value="/usr/local/bin/uv"),
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
         patch(
             "screamingface.plugins.aigw_runner.plugin.subprocess.Popen",
             return_value=fake_proc,
-        ),
+        ) as mock_popen,
+        patch("screamingface.plugins.aigw_runner.plugin._wait_for_health", return_value=True),
         patch("screamingface.plugins.aigw_runner.plugin.atexit.register") as mock_atexit,
         patch("screamingface.plugins.aigw_runner.plugin.threading.Thread") as mock_thread,
     ):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
         plugin.preflight()
         plugin.setup(fake_app, fake_hooks, MagicMock(), MagicMock())
 
     assert plugin._process is fake_proc
+    mock_run.assert_called_once()
+    migrate_args = mock_run.call_args.args[0]
+    assert migrate_args[:4] == ["/custom/uv", "run", "--directory", str(fake_aigw_dir.resolve())]
+    migrate_env = mock_run.call_args.kwargs["env"]
+    assert migrate_env["AIGATEWAY_DATABASE_URL"] == f"sqlite://{db_path.resolve()}"
+    assert migrate_env["AIGATEWAY_AUTH_ENABLED"] == "false"
+    assert "VIRTUAL_ENV" not in migrate_env
+    mock_popen.assert_called_once()
+    popen_args = mock_popen.call_args.args[0]
+    assert popen_args[:4] == ["/custom/uv", "run", "--directory", str(fake_aigw_dir.resolve())]
+    assert mock_popen.call_args.kwargs["env"] is migrate_env
     fake_hooks.register.assert_called_once()
     register_args = fake_hooks.register.call_args
     assert register_args.args[0] == "app.shutdown"
@@ -109,14 +133,37 @@ def test_setup_raises_if_subprocess_exits_immediately(fake_aigw_dir: Path) -> No
 
     with (
         patch("shutil.which", return_value="/usr/local/bin/uv"),
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
         patch(
             "screamingface.plugins.aigw_runner.plugin.subprocess.Popen",
             return_value=fake_proc,
         ),
+        patch("screamingface.plugins.aigw_runner.plugin._wait_for_health", return_value=False),
     ):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
         plugin.preflight()
         with pytest.raises(RuntimeError, match="exited immediately"):
             plugin.setup(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+
+def test_setup_raises_when_migrations_fail(fake_aigw_dir: Path) -> None:
+    plugin = _make_plugin(fake_aigw_dir)
+
+    with (
+        patch("shutil.which", return_value="/usr/local/bin/uv"),
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.Popen") as mock_popen,
+    ):
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = "boom"
+        plugin.preflight()
+        with pytest.raises(RuntimeError, match="gateway migrations failed"):
+            plugin.setup(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+    mock_popen.assert_not_called()
 
 
 def test_stop_terminates_process(fake_aigw_dir: Path) -> None:

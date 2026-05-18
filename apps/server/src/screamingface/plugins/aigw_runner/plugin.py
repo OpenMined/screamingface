@@ -19,9 +19,11 @@ import shutil
 import subprocess
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import httpx
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
@@ -55,8 +57,27 @@ class AigwRunnerSettings(PluginSettings):
         ),
     )
     startup_timeout_seconds: float = Field(
-        default=10.0,
+        default=15.0,
         description="Max seconds to wait after Popen before declaring failure.",
+    )
+    migrations_timeout_seconds: float = Field(
+        default=30.0,
+        description="Max seconds to wait for gateway database migrations.",
+    )
+    database_path: str | None = Field(
+        default=None,
+        description=(
+            "SQLite database path for the local gateway. If unset, resolves "
+            "to .sf/aigateway.db under the SF working directory."
+        ),
+    )
+    uv_bin: str | None = Field(
+        default=None,
+        description="Explicit uv executable path. If unset, uv is resolved from PATH.",
+    )
+    auth_enabled: bool = Field(
+        default=False,
+        description="Whether the spawned local gateway should enforce its own bearer auth.",
     )
     enabled: bool = Field(
         default=True,
@@ -78,6 +99,7 @@ class AigwRunnerPlugin(Plugin):
     def __init__(self) -> None:
         self._process: subprocess.Popen | None = None
         self._aigateway_dir: Path | None = None
+        self._uv_bin: str | None = None
 
     def preflight(self) -> tuple[bool, str]:
         ok, reason = super().preflight()
@@ -102,8 +124,10 @@ class AigwRunnerPlugin(Plugin):
 
         self._aigateway_dir = candidate
 
-        if shutil.which("uv") is None:
+        uv_bin = settings.uv_bin or shutil.which("uv")
+        if uv_bin is None:
             return False, "`uv` command not found in PATH — required to run the gateway"
+        self._uv_bin = uv_bin
 
         return True, ""
 
@@ -121,9 +145,43 @@ class AigwRunnerPlugin(Plugin):
             return
 
         assert self._aigateway_dir is not None  # set in preflight
+        assert self._uv_bin is not None  # set in preflight
+
+        database_url = _database_url(settings)
+        env = _gateway_env(settings, database_url)
+        migrate_cmd = [
+            self._uv_bin,
+            "run",
+            "--directory",
+            str(self._aigateway_dir),
+            "python",
+            "-m",
+            "tortoise",
+            "-c",
+            "aigateway.db.TORTOISE_CONFIG",
+            "migrate",
+        ]
+        logger.info("aigw-runner: running gateway migrations: %s", " ".join(migrate_cmd))
+        try:
+            migration = subprocess.run(  # noqa: S603
+                migrate_cmd,
+                env=env,
+                cwd=str(self._aigateway_dir),
+                timeout=settings.migrations_timeout_seconds,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("aigw-runner: gateway migrations timed out") from exc
+        if migration.returncode != 0:
+            raise RuntimeError(
+                "aigw-runner: gateway migrations failed "
+                f"(code {migration.returncode}):\n{migration.stdout}{migration.stderr}"
+            )
 
         cmd = [
-            "uv",
+            self._uv_bin,
             "run",
             "--directory",
             str(self._aigateway_dir),
@@ -136,7 +194,6 @@ class AigwRunnerPlugin(Plugin):
             "--log-level",
             "info",
         ]
-        env = os.environ.copy()
         logger.info("aigw-runner: spawning gateway: %s", " ".join(cmd))
 
         self._process = subprocess.Popen(  # noqa: S603
@@ -146,19 +203,28 @@ class AigwRunnerPlugin(Plugin):
             stderr=subprocess.STDOUT,
             text=True,
         )
-
-        time.sleep(0.5)
-        retcode = self._process.poll()
-        if retcode is not None:
-            output = self._process.stdout.read() if self._process.stdout else ""
-            self._process = None
-            raise RuntimeError(
-                f"aigw-runner: gateway exited immediately (code {retcode}):\n{output}"
-            )
-
+        startup_output: deque[str] = deque(maxlen=200)
         threading.Thread(
-            target=_log_output, args=(self._process,), daemon=True, name="aigw-runner-log"
+            target=_log_output,
+            args=(self._process, startup_output),
+            daemon=True,
+            name="aigw-runner-log",
         ).start()
+
+        health_url = f"http://127.0.0.1:{settings.port}/healthz"
+        if not _wait_for_health(self._process, health_url, settings.startup_timeout_seconds):
+            retcode = self._process.poll()
+            if retcode is not None:
+                output = "\n".join(startup_output)
+                self._process = None
+                raise RuntimeError(
+                    f"aigw-runner: gateway exited immediately (code {retcode}):\n{output}"
+                )
+            self._stop()
+            raise RuntimeError(
+                f"aigw-runner: gateway did not become healthy at {health_url} "
+                f"within {settings.startup_timeout_seconds}s"
+            )
 
         atexit.register(self._stop)
         hooks.register("app.shutdown", self._on_shutdown, plugin_name=self.name)
@@ -190,9 +256,43 @@ class AigwRunnerPlugin(Plugin):
         self._process = None
 
 
-def _log_output(proc: subprocess.Popen) -> None:
+def _log_output(proc: subprocess.Popen, startup_output: deque[str] | None = None) -> None:
     assert proc.stdout is not None
     for line in proc.stdout:
         line = line.rstrip()
         if line:
+            if startup_output is not None:
+                startup_output.append(line)
             logger.info("[aigateway] %s", line)
+
+
+def _database_url(settings: AigwRunnerSettings) -> str:
+    if settings.database_path is not None:
+        path = Path(settings.database_path).expanduser().resolve()
+    else:
+        path = (Path.cwd() / ".sf" / "aigateway.db").resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return f"sqlite://{path}"
+
+
+def _gateway_env(settings: AigwRunnerSettings, database_url: str) -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("VIRTUAL_ENV", None)
+    env["AIGATEWAY_DATABASE_URL"] = database_url
+    env["AIGATEWAY_AUTH_ENABLED"] = "true" if settings.auth_enabled else "false"
+    return env
+
+
+def _wait_for_health(proc: subprocess.Popen, url: str, timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            return False
+        try:
+            resp = httpx.get(url, timeout=0.5)
+            if resp.status_code == 200:
+                return True
+        except httpx.HTTPError:
+            pass
+        time.sleep(0.2)
+    return False

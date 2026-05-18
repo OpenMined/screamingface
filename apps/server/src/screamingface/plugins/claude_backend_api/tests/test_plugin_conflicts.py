@@ -33,6 +33,9 @@ class TestPluginMetadata:
     def test_settings_class_set(self):
         assert ClaudeBackendApiPlugin.settings_class is ClaudeBackendApiSettings
 
+    def test_conflicts_with_gateway_backed_backend(self):
+        assert ClaudeBackendApiPlugin.conflicts == ["aigw-claude-backend"]
+
 
 class TestSettings:
     def test_default_settings_load_cleanly(self):
