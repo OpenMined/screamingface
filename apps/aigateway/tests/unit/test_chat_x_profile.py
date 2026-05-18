@@ -70,6 +70,21 @@ async def test_chat_404_when_profile_missing(authenticated_client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_404_when_codex_profile_missing(authenticated_client) -> None:
+    resp = authenticated_client.post(
+        "/v1/chat/completions",
+        headers={"X-Profile": "missing"},
+        json={
+            "model": "codex/gpt-5.4-mini",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "profile_not_found"
+
+
+@pytest.mark.asyncio
 async def test_chat_409_when_profile_pending(fake_keychain, authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
     idx = ProfileIndexStore(credential_store=fake_keychain)

@@ -127,6 +127,18 @@ class ProviderPluginBase(ABC):
         """Return whether a profile default field should be merged into chat bodies."""
         return True
 
+    def allows_chatless_profile(self) -> bool:
+        """Whether chat may proceed when no gateway OAuth profile exists."""
+        return False
+
+    def invalidate_profile_session(self, _profile_name: str) -> None:
+        """Drop provider-owned per-profile chat/session cache, if any."""
+        return None
+
+    def should_mark_profile_error_on_dispatch_status(self, _status_code: int) -> bool:
+        """Whether a provider dispatch failure means stored profile auth is unusable."""
+        return False
+
     async def chat_completion(self, body: dict[str, Any]) -> Any:
         """Dispatch a normalized OpenAI-compatible chat completion request."""
         import litellm

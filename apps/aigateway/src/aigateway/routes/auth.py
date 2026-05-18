@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from html import escape
 from ipaddress import ip_address
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -10,6 +11,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth_pkce import generate_pkce, generate_state
 from ..core.pending_auth import PendingAuthEntry
 from ..core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
@@ -51,6 +53,12 @@ def _oauth_strategy_for_app(app, plugin, provider: str, account_id: str, name: s
         credential_store=_credential_store_for_app(app),
         http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
     )
+
+
+def _invalidate_profile_session(plugin, account_id: str, name: str) -> None:
+    invalidator = getattr(plugin, "invalidate_profile_session", None)
+    if callable(invalidator):
+        invalidator(credential_name_for(account_id, name))
 
 
 def _pending(request: Request):
@@ -381,6 +389,11 @@ async def oauth_nested_callback(code: str, state: str, request: Request):
     return await oauth_callback(code, state, request)
 
 
+@router.get("/oauth2callback")
+async def oauth2_loopback_callback(code: str, state: str, request: Request):
+    return await oauth_callback(code, state, request)
+
+
 @router.get("/v1/auth/{provider}/callback")
 async def provider_callback(provider: str, code: str, state: str, request: Request):
     """Unauthenticated OAuth callback protected by the pending-auth state nonce."""
@@ -467,6 +480,7 @@ async def _complete_oauth_for_app(
         await _close_loopback_callback(app, state)
         raise
     strategy.persist_credentials(creds)
+    _invalidate_profile_session(plugin, account_id, name)
 
     p = await _index_store_for_app(app).get(account_id, provider, name)
     if p is not None:
@@ -563,6 +577,7 @@ async def delete_profile(provider: str, name: str, request: Request, current: Cu
     strategy = _oauth_strategy_for_app(request.app, plugin, provider, account_id, name)
     if strategy is not None:
         strategy.delete_credentials()
+    _invalidate_profile_session(plugin, account_id, name)
     await _index_store(request).remove(p.id)
 
 
@@ -580,5 +595,34 @@ async def refresh_profile(
     strategy = _oauth_strategy_for_app(request.app, plugin, provider, account_id, name)
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
-    await strategy.refresh_credentials()
+    try:
+        await strategy.refresh_credentials()
+    except CredentialNotFoundError as exc:
+        p.state = ProfileState.ERROR
+        await _index_store(request).upsert(p)
+        _invalidate_profile_session(plugin, account_id, name)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "auth_required",
+                "message": str(exc),
+                "reauth_url": f"/v1/auth/{provider}/profiles/{name}",
+            },
+        ) from exc
+    except AuthError as exc:
+        p.state = ProfileState.ERROR
+        await _index_store(request).upsert(p)
+        _invalidate_profile_session(plugin, account_id, name)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "auth_required",
+                "message": str(exc),
+                "reauth_url": f"/v1/auth/{provider}/profiles/{name}",
+            },
+        ) from exc
+    p.state = ProfileState.AUTHENTICATED
+    p.last_refreshed_at = datetime.now(UTC)
+    await _index_store(request).upsert(p)
+    _invalidate_profile_session(plugin, account_id, name)
     return p.model_dump(mode="json")

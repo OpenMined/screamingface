@@ -59,8 +59,17 @@ class GeminiBackendApiPlugin(BackendApiPluginBase):
     description = "Direct Google AI Gemini API backend for ensemble fan-out"
     tags: list[str] = ["product:gemini"]
     depends: list[str] = ["llm-base", "backend-api-base"]
-    conflicts: list[str] = []
+    conflicts: list[str] = ["aigw-gemini-backend"]
     backend_call_paths: list[str] = ["/gemini"]
+    cli_auth_command = "gemini auth login"
+    backend_status_help = {
+        "rate_limited": "Gemini API rate limit reached. Capacity will reset automatically.",
+        "reauth": (
+            "Gemini OAuth token is missing or has insufficient API scopes. "
+            "Click Re-authenticate to run 'gemini auth login'."
+        ),
+        "degraded": "Gemini backend is available but experiencing issues.",
+    }
     settings_class = GeminiBackendApiSettings
 
     schema_link_base = "/gemini/"
