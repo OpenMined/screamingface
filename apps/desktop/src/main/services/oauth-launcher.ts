@@ -57,6 +57,7 @@ export interface LauncherOptions {
   pollIntervalMs?: number;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  headers?: Record<string, string>;
 }
 
 export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherResult> {
@@ -78,7 +79,7 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
   console.log(`[oauth-launcher] POST ${startUrl}`);
   let startResp: Response;
   try {
-    startResp = await fetchImpl(startUrl, { method: 'POST' });
+    startResp = await fetchImpl(startUrl, { method: 'POST', headers: opts.headers });
   } catch (e) {
     console.log(`[oauth-launcher] start fetch threw:`, e);
     return { kind: 'failed', reason: 'network_error', message: String(e) };
@@ -120,7 +121,7 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
   while (Date.now() < deadline) {
     let statusResp: Response;
     try {
-      statusResp = await fetchImpl(statusUrl);
+      statusResp = await fetchImpl(statusUrl, { headers: opts.headers });
     } catch {
       networkBlips += 1;
       if (networkBlips >= 5) {

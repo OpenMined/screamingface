@@ -43,6 +43,15 @@ export interface DiscoveredPlugin {
 }
 
 export type BackendAction = 'healthy' | 'reauth' | 'rate_limited' | 'degraded';
+export type GatewayAction =
+  | 'healthy'
+  | 'starting'
+  | 'probing'
+  | 'login_gateway'
+  | 'login_provider'
+  | 'gateway_unreachable'
+  | 'gateway_misconfigured'
+  | 'gateway_url_missing';
 
 export interface BackendHealth {
   authenticated: boolean;
@@ -58,6 +67,32 @@ export interface BackendHealth {
 }
 
 export type BackendStatusMap = Record<string, BackendHealth>;
+
+export interface GatewayStatus {
+  mode: 'local_managed' | 'external';
+  managed_by_runner: boolean;
+  reachable: boolean;
+  authenticated: boolean;
+  auth_required: boolean;
+  url: string;
+}
+
+export interface ProviderAuthStatus {
+  provider: string;
+  profile: string;
+  state: 'authenticated' | 'pending' | 'missing_profile' | 'error';
+}
+
+export interface BackendStatusV2 {
+  version: 2;
+  gateway: GatewayStatus;
+  action: GatewayAction;
+  message?: string;
+  provider_auth?: { providers: Record<string, ProviderAuthStatus> };
+  backends?: BackendStatusMap;
+}
+
+export type BackendStatusResponse = BackendStatusMap | BackendStatusV2;
 
 export interface BackendAlert {
   backend: string;
@@ -90,6 +125,8 @@ export type ExchangeOAuthCodeResult =
   | { ok: true }
   | { ok: false; status?: number; message?: string };
 
+export type GatewayLoginResult = { ok: true } | { ok: false; message?: string };
+
 export type OAuthLauncherResult =
   | { kind: 'complete' }
   | {
@@ -112,7 +149,7 @@ export interface ElectronAPI {
     onLog: (callback: (line: string) => void) => () => void;
     fetch: (
       url: string,
-      init?: { method?: string; body?: string },
+      init?: { method?: string; body?: string; headers?: Record<string, string> },
     ) => Promise<{ ok: boolean; status: number; body: string }>;
   };
   venv: {
@@ -144,9 +181,11 @@ export interface ElectronAPI {
     onChanged: (callback: (config: Record<string, unknown>) => void) => () => void;
   };
   backends: {
-    getStatus: () => Promise<BackendStatusMap>;
-    refresh: () => Promise<BackendStatusMap>;
+    getStatus: () => Promise<BackendStatusResponse>;
+    refresh: () => Promise<BackendStatusResponse>;
     authenticate: (backend: string) => Promise<void>;
+    loginGateway: (username: string, password: string) => Promise<GatewayLoginResult>;
+    logoutGateway: () => Promise<void>;
     authenticateOAuth: (backend: string, profileName?: string) => Promise<OAuthLauncherResult>;
     listProfiles: (backend: string) => Promise<ListProfilesResult>;
     deleteProfile: (backend: string, profileName: string) => Promise<DeleteProfileResult>;
@@ -156,7 +195,7 @@ export interface ElectronAPI {
       code: string,
       profileName?: string,
     ) => Promise<ExchangeOAuthCodeResult>;
-    onStatusChanged: (callback: (status: BackendStatusMap) => void) => () => void;
+    onStatusChanged: (callback: (status: BackendStatusResponse) => void) => () => void;
     onAlert: (callback: (alert: BackendAlert) => void) => () => void;
   };
   session: {

@@ -69,6 +69,21 @@ def test_start_happy_path_passes_through_authorize_url() -> None:
     assert captured["body"] == {"name": "default"}
 
 
+def test_start_rejects_missing_desktop_secret_when_configured(monkeypatch) -> None:
+    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json={"profile_id": "anthropic:default"})
+
+    client = _make_client(handler)
+
+    missing = client.post("/claude/auth/start")
+    allowed = client.post("/claude/auth/start", headers={"X-SF-Desktop-Secret": "test-secret"})
+
+    assert missing.status_code == 401
+    assert allowed.status_code == 201
+
+
 def test_start_gateway_5xx_becomes_502() -> None:
     def handler(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"detail": "down"})

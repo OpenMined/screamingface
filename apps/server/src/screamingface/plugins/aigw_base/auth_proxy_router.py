@@ -25,9 +25,12 @@ from collections.abc import Callable
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+from .client import AigwGatewayClient, AigwGatewayClientError
+from .desktop_secret import require_desktop_secret
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,7 @@ def build_aigw_auth_proxy_router(
     gateway_url: str,
     gateway_provider: str,
     profile_name: str,
+    app: Any = None,
     http_client_factory: HttpClientFactory | None = None,
     timeout_seconds: float = 10.0,
     defaults: dict[str, Any] | None = None,
@@ -68,22 +72,32 @@ def build_aigw_auth_proxy_router(
     request targets ``profile_name``). Explicitly-named profiles get no
     defaults forwarded; the user can PATCH them on the gateway directly.
     """
-    router = APIRouter(tags=[f"{path_prefix.lstrip('/')}-auth"])
+    router = APIRouter(
+        tags=[f"{path_prefix.lstrip('/')}-auth"],
+        dependencies=[Depends(require_desktop_secret)],
+    )
     base = gateway_url.rstrip("/")
     factory = http_client_factory or _default_http_factory
 
     @router.post(f"{path_prefix}/auth/start")
     async def start_auth(name: str | None = None) -> JSONResponse:
         target = name or profile_name
-        url = f"{base}/v1/auth/{gateway_provider}/profiles"
+        path = f"/v1/auth/{gateway_provider}/profiles"
         body: dict[str, Any] = {"name": target}
         # Forward SF-configured defaults only when creating the configured
         # default profile. For other names we send no defaults.
         if defaults and target == profile_name:
             body["defaults"] = defaults
         try:
-            async with factory(timeout_seconds) as client:
-                resp = await client.post(url, json=body)
+            resp = await _gateway_request(
+                app,
+                factory,
+                timeout_seconds,
+                "POST",
+                base,
+                path,
+                json=body,
+            )
         except httpx.RequestError as exc:
             logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
             raise HTTPException(
@@ -107,10 +121,9 @@ def build_aigw_auth_proxy_router(
     @router.get(f"{path_prefix}/auth/status")
     async def auth_status(name: str | None = None) -> dict[str, Any]:
         target = name or profile_name
-        url = f"{base}/v1/auth/{gateway_provider}/profiles/{target}/status"
+        path = f"/v1/auth/{gateway_provider}/profiles/{target}/status"
         try:
-            async with factory(timeout_seconds) as client:
-                resp = await client.get(url)
+            resp = await _gateway_request(app, factory, timeout_seconds, "GET", base, path)
         except httpx.RequestError as exc:
             logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
             raise HTTPException(
@@ -133,10 +146,9 @@ def build_aigw_auth_proxy_router(
 
     @router.get(f"{path_prefix}/auth/profiles")
     async def list_profiles() -> dict[str, Any]:
-        url = f"{base}/v1/auth/{gateway_provider}/profiles"
+        path = f"/v1/auth/{gateway_provider}/profiles"
         try:
-            async with factory(timeout_seconds) as client:
-                resp = await client.get(url)
+            resp = await _gateway_request(app, factory, timeout_seconds, "GET", base, path)
         except httpx.RequestError as exc:
             logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
             raise HTTPException(
@@ -166,10 +178,17 @@ def build_aigw_auth_proxy_router(
         gateway looks up the matching pending entry by ``state``, so we
         do not need to know which profile this targets.
         """
-        url = f"{base}/v1/auth/{gateway_provider}/exchange-code"
+        path = f"/v1/auth/{gateway_provider}/exchange-code"
         try:
-            async with factory(timeout_seconds) as client:
-                resp = await client.post(url, json=body.model_dump())
+            resp = await _gateway_request(
+                app,
+                factory,
+                timeout_seconds,
+                "POST",
+                base,
+                path,
+                json=body.model_dump(),
+            )
         except httpx.RequestError as exc:
             logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
             raise HTTPException(
@@ -192,10 +211,9 @@ def build_aigw_auth_proxy_router(
 
     @router.delete(f"{path_prefix}/auth/profiles/{{name}}", status_code=204)
     async def delete_profile(name: str) -> Response:
-        url = f"{base}/v1/auth/{gateway_provider}/profiles/{name}"
+        path = f"/v1/auth/{gateway_provider}/profiles/{name}"
         try:
-            async with factory(timeout_seconds) as client:
-                resp = await client.delete(url)
+            resp = await _gateway_request(app, factory, timeout_seconds, "DELETE", base, path)
         except httpx.RequestError as exc:
             logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
             raise HTTPException(
@@ -226,3 +244,28 @@ def _safe_json(resp: httpx.Response) -> Any:
         return resp.json()
     except ValueError:
         return {"raw": resp.text[:500]}
+
+
+async def _gateway_request(
+    app: Any,
+    factory: HttpClientFactory,
+    timeout_seconds: float,
+    method: str,
+    base: str,
+    path: str,
+    *,
+    json: Any = None,
+) -> httpx.Response:
+    if app is not None:
+        try:
+            return await AigwGatewayClient(app, http_client_factory=factory).request(
+                method,
+                path,
+                json=json,
+                timeout_seconds=timeout_seconds,
+            )
+        except AigwGatewayClientError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    url = f"{base}{path}"
+    async with factory(timeout_seconds) as client:
+        return await client.request(method, url, json=json)

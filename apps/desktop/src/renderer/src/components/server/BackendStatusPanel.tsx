@@ -6,6 +6,8 @@ import type {
   BackendHealth,
   BackendAlert,
   BackendProfile,
+  BackendStatusResponse,
+  BackendStatusV2,
 } from '../../../../preload/types';
 import { useToast } from '@/hooks/use-toast';
 
@@ -29,6 +31,107 @@ const backendLabels: Record<string, string> = {
   codex: 'Codex',
   gemini: 'Gemini',
 };
+
+function isStatusV2(status: BackendStatusResponse): status is BackendStatusV2 {
+  return (
+    typeof status === 'object' &&
+    status !== null &&
+    !Array.isArray(status) &&
+    (status as { version?: unknown }).version === 2
+  );
+}
+
+function statusBackends(status: BackendStatusResponse): BackendStatusMap {
+  return isStatusV2(status) ? (status.backends ?? {}) : status;
+}
+
+function GatewayStatusPanel({
+  status,
+  onChanged,
+}: {
+  status: BackendStatusV2;
+  onChanged: () => void;
+}) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const gateway = status.gateway;
+  const connected = gateway.reachable && gateway.authenticated;
+
+  const onLogin = async (event: React.FormEvent): Promise<void> => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.electronAPI.backends.loginGateway(username, password);
+      if (!result.ok) {
+        setError(result.message ?? 'Gateway login failed');
+        return;
+      }
+      setPassword('');
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mb-3 rounded-md border border-border bg-muted/20 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">
+            {connected ? `Connected to ${gateway.url}` : 'AIGateway connection'}
+          </p>
+          {!connected && (
+            <p className="text-xs text-muted-foreground">
+              {status.message ??
+                (gateway.reachable ? 'Sign in to continue.' : 'Gateway is unreachable.')}
+            </p>
+          )}
+        </div>
+        {connected && gateway.mode === 'external' && (
+          <button
+            onClick={async () => {
+              await window.electronAPI.backends.logoutGateway();
+              onChanged();
+            }}
+            className="rounded bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            Log out
+          </button>
+        )}
+      </div>
+      {status.action === 'login_gateway' && (
+        <form onSubmit={onLogin} className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+          <input
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="Gateway username"
+            className="rounded border border-border bg-background px-2 py-1 text-xs"
+            autoComplete="username"
+          />
+          <input
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Password"
+            type="password"
+            className="rounded border border-border bg-background px-2 py-1 text-xs"
+            autoComplete="current-password"
+          />
+          <button
+            type="submit"
+            disabled={busy || !username || !password}
+            className="rounded bg-chart-1 px-2.5 py-1 text-xs font-semibold text-background hover:bg-chart-1/90 disabled:opacity-60"
+          >
+            {busy ? 'Signing in…' : 'Sign in'}
+          </button>
+          {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
+        </form>
+      )}
+    </div>
+  );
+}
 
 function AuthButton({
   name,
@@ -442,7 +545,7 @@ function BackendRow({ name, health }: { name: string; health: BackendHealth }) {
 }
 
 export function BackendStatusPanel() {
-  const [statuses, setStatuses] = useState<BackendStatusMap>({});
+  const [statuses, setStatuses] = useState<BackendStatusResponse>({});
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
@@ -491,13 +594,14 @@ export function BackendStatusPanel() {
     };
   }, [toast]);
 
-  const backends = Object.entries(statuses);
+  const v2Status = isStatusV2(statuses) ? statuses : null;
+  const backends = Object.entries(statusBackends(statuses));
   // Stay in skeleton state as long as there are no entries — `getStatus()`
   // resolves with an empty map BEFORE SF has probed any backends, so an
   // earlier "hide if loaded && empty" check caused a visible flicker
   // (skeleton -> hidden -> repopulated). The panel now stays visible from
   // first paint and transitions skeleton -> rows when entries arrive.
-  const showSkeleton = backends.length === 0;
+  const showSkeleton = !v2Status && backends.length === 0;
 
   const onRefresh = async (): Promise<void> => {
     setRefreshing(true);
@@ -523,6 +627,7 @@ export function BackendStatusPanel() {
           <RefreshCw className={cn('h-4 w-4', (refreshing || !loaded) && 'animate-spin')} />
         </button>
       </div>
+      {v2Status && <GatewayStatusPanel status={v2Status} onChanged={() => void onRefresh()} />}
       {showSkeleton && (
         <div className="space-y-2 py-1" aria-label="Loading backends" role="status">
           {[0, 1, 2].map((i) => (

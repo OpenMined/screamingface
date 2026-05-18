@@ -32,7 +32,7 @@ def _default_request(**overrides) -> RunRequest:
 
 
 def test_default_request_passes() -> None:
-    _reject_cli_only_fields(_default_request(), "claude-backend-api")
+    _reject_cli_only_fields(_default_request(), "provider-backend-api")
 
 
 @pytest.mark.parametrize(
@@ -51,16 +51,16 @@ def test_default_request_passes() -> None:
 def test_each_cli_field_rejected(field: str, value: object) -> None:
     req = _default_request(**{field: value})
     with pytest.raises(HTTPException) as ei:
-        _reject_cli_only_fields(req, "claude-backend-api")
+        _reject_cli_only_fields(req, "provider-backend-api")
     assert ei.value.status_code == 422
     assert field in ei.value.detail
-    assert "claude-backend-api" in ei.value.detail
+    assert "provider-backend-api" in ei.value.detail
 
 
 def test_multiple_offending_fields_all_named() -> None:
     req = _default_request(mcp_config="/x", tools=["bash"], permission_mode="ask")
     with pytest.raises(HTTPException) as ei:
-        _reject_cli_only_fields(req, "codex-backend-api")
+        _reject_cli_only_fields(req, "provider-backend-api")
     detail = ei.value.detail
     for f in ("mcp_config", "tools", "permission_mode"):
         assert f in detail
@@ -119,6 +119,24 @@ class _FallbackBackend(Backend):
         return CoreMessage(role="assistant", content="fallback ok")
 
 
+class _OkBackend(Backend):
+    async def health(self, model: str | None = None) -> HealthStatus:  # noqa: ARG002
+        return HealthStatus(authenticated=True)
+
+    async def run(
+        self,
+        messages: list[CoreMessage],  # noqa: ARG002
+        *,
+        model: str,
+        system: str | None = None,  # noqa: ARG002
+        tools: list[ToolDefinition] | None = None,  # noqa: ARG002
+        max_tokens: int = 16000,  # noqa: ARG002
+        temperature: float | None = None,  # noqa: ARG002
+        timeout_seconds: float = 300.0,  # noqa: ARG002
+    ) -> CoreMessage:
+        return CoreMessage(role="assistant", content="ok")
+
+
 def test_backend_error_retry_after_becomes_response_header() -> None:
     app = FastAPI()
     settings = SimpleNamespace(default_model=None, timeout_seconds=300.0, profiles={})
@@ -170,3 +188,33 @@ def test_run_retries_configured_fallback_model_on_429() -> None:
     assert resp.status_code == 200
     assert resp.json()["so"] == "fallback ok"
     assert backend.models == ["primary/model", "fallback/model"]
+
+
+def test_aigw_run_route_rejects_missing_desktop_secret_when_configured(monkeypatch) -> None:
+    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+    app = FastAPI()
+    settings = SimpleNamespace(default_model=None, timeout_seconds=300.0, profiles={})
+    router = build_backend_api_router(
+        BackendApiConfig(
+            name="aigw-test-backend",
+            path_prefix="/test",
+            default_model="test/model",
+            backend=_OkBackend(),
+            settings=settings,
+            app=app,
+            build_interpreter=lambda: None,
+            span_prefix="test",
+        )
+    )
+    app.include_router(router)
+    client = TestClient(app)
+
+    missing = client.post("/test/run", json={"prompt": "hi"})
+    allowed = client.post(
+        "/test/run",
+        json={"prompt": "hi"},
+        headers={"X-SF-Desktop-Secret": "test-secret"},
+    )
+
+    assert missing.status_code == 401
+    assert allowed.status_code == 200

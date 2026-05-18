@@ -7,6 +7,7 @@ import {
   type LauncherResult,
 } from '../services/oauth-launcher';
 import { isSafeBackendName } from '../services/external-url-policy';
+import { desktopSecretHeader } from '../services/desktop-secret';
 import { requireTrustedIpcSender } from './sender-validation';
 
 export type ExchangeCodeResult = { ok: true } | { ok: false; status?: number; message?: string };
@@ -27,6 +28,16 @@ export function registerBackendStatusHandlers(): void {
     backendStatusService.authenticate(backend);
   });
 
+  ipcMain.handle('backends:loginGateway', async (event, username: string, password: string) => {
+    requireTrustedIpcSender(event);
+    return backendStatusService.loginGateway(username, password);
+  });
+
+  ipcMain.handle('backends:logoutGateway', async (event) => {
+    requireTrustedIpcSender(event);
+    return backendStatusService.logoutGateway();
+  });
+
   ipcMain.handle(
     'backends:authenticateOAuth',
     async (event, backend: string, profileName?: string): Promise<LauncherResult> => {
@@ -45,7 +56,12 @@ export function registerBackendStatusHandlers(): void {
           message: 'SF server is not running',
         };
       }
-      const result = await runOAuthLauncher({ sfBaseUrl, backendName: backend, profileName });
+      const result = await runOAuthLauncher({
+        sfBaseUrl,
+        backendName: backend,
+        profileName,
+        headers: desktopSecretHeader(),
+      });
       console.log(`[oauth] launcher result:`, result);
       return result;
     },
@@ -84,7 +100,7 @@ export function registerBackendStatusHandlers(): void {
       try {
         const resp = await fetch(`${sfBaseUrl}/${backend}/auth/exchange-code`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { ...desktopSecretHeader(), 'content-type': 'application/json' },
           body: JSON.stringify({ code, state }),
         });
         if (resp.ok) {
@@ -116,7 +132,9 @@ export function registerBackendStatusHandlers(): void {
       return { profiles: [], error: 'gateway_unreachable' };
     }
     try {
-      const resp = await fetch(`${sfBaseUrl}/${backend}/auth/profiles`);
+      const resp = await fetch(`${sfBaseUrl}/${backend}/auth/profiles`, {
+        headers: desktopSecretHeader(),
+      });
       if (!resp.ok) {
         return { profiles: [], error: 'gateway_unreachable' };
       }
@@ -140,7 +158,7 @@ export function registerBackendStatusHandlers(): void {
     try {
       const resp = await fetch(
         `${sfBaseUrl}/${backend}/auth/profiles/${encodeURIComponent(profileName)}`,
-        { method: 'DELETE' },
+        { method: 'DELETE', headers: desktopSecretHeader() },
       );
       if (resp.status === 204) return { ok: true };
       return { ok: false, status: resp.status };

@@ -10,28 +10,28 @@ from screamingface.plugins.llm_base.routes import _classify_auth_kind
 
 
 class _CliPlugin:
-    name = "claude-backend-api"
-    backend_call_paths = ["/claude"]
+    name = "provider-backend-api"
+    backend_call_paths = ["/provider"]
 
 
 class _BrowserPlugin:
-    name = "aigw-claude-backend"
-    backend_call_paths = ["/claude"]
-    gateway_provider = "anthropic"
+    name = "aigw-provider-backend"
+    backend_call_paths = ["/provider"]
+    gateway_provider = "test-provider"
 
 
-class _CodexBrowserPlugin:
-    name = "aigw-codex-backend"
-    backend_call_paths = ["/codex"]
-    gateway_provider = "codex"
+class _AlternateBrowserPlugin:
+    name = "aigw-alternate-backend"
+    backend_call_paths = ["/alternate"]
+    gateway_provider = "alternate-provider"
 
 
 def test_auth_kind_browser_when_plugin_has_gateway_provider() -> None:
     assert _classify_auth_kind(_BrowserPlugin) == "browser"
 
 
-def test_auth_kind_browser_for_gateway_backed_codex() -> None:
-    assert _classify_auth_kind(_CodexBrowserPlugin) == "browser"
+def test_auth_kind_browser_for_other_gateway_backed_plugin() -> None:
+    assert _classify_auth_kind(_AlternateBrowserPlugin) == "browser"
 
 
 def test_auth_kind_cli_when_plugin_lacks_gateway_provider() -> None:

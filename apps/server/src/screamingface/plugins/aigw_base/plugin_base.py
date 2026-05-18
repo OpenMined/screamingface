@@ -17,6 +17,7 @@ import httpx
 from screamingface.plugins.backend_api_base.plugin_base import BackendApiPluginBase
 
 from .backend import AigwBackend
+from .config import resolve_aigw_runtime_config
 from .interpreter import AigwInterpreter
 from .settings import AigwBackendApiSettingsBase
 
@@ -41,19 +42,21 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
     # Subclasses MUST set this if they want the auth-proxy router mounted.
     gateway_provider: ClassVar[str | None] = None
 
-    def _backend(self) -> AigwBackend:
+    def _backend(self, app: FastAPI | None = None) -> AigwBackend:
         settings = cast(AigwBackendApiSettingsBase, self.settings)
         if not self.gateway_provider:
             msg = f"{self.name} must declare gateway_provider"
             raise ValueError(msg)
-        key = (settings.gateway_url, settings.auth_profile, self.gateway_provider)
+        gateway_url = _gateway_url(app, settings)
+        key = (gateway_url, settings.auth_profile, self.gateway_provider, id(app))
         cached = getattr(self, "_aigw_backend", None)
         if cached is not None and getattr(self, "_aigw_backend_key", None) == key:
             return cached
         backend = AigwBackend(
-            gateway_url=settings.gateway_url,
+            gateway_url=gateway_url,
             profile_name=settings.auth_profile,
             gateway_provider=self.gateway_provider,
+            app=app,
         )
         self._aigw_backend = backend
         self._aigw_backend_key = key
@@ -67,13 +70,14 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
         return AigwInterpreter(
             app=app,
             settings=settings,
-            backend=self._backend(),
+            backend=self._backend(app),
             gateway_provider=self.gateway_provider,
         )
 
     def setup(self, app: FastAPI, hooks, classes, routes) -> None:
+        self._app = app
         self._assert_loopback_server_bind(app)
-        router = type(self).create_router(self.settings, app, backend=self._backend())
+        router = type(self).create_router(self.settings, app, backend=self._backend(app))
         routes.add_router(self.name, router, prefix="")
 
     def _assert_loopback_server_bind(self, app: FastAPI) -> None:
@@ -113,6 +117,7 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
     _HIDDEN_INHERITED_FIELDS: ClassVar[tuple[str, ...]] = (
         "profiles",
         "default_profile",
+        "gateway_url",
         "max_budget_usd",
         "permission_mode",
         "dangerously_skip_permissions",
@@ -166,7 +171,9 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
         settings = cast(AigwBackendApiSettingsBase, self.settings)
         if not settings:
             return None
-        url = f"{settings.gateway_url.rstrip('/')}/v1/auth/{self.gateway_provider}/profiles"
+        app = getattr(self, "_app", None)
+        gateway_url = _gateway_url(app, settings)
+        url = f"{gateway_url.rstrip('/')}/v1/auth/{self.gateway_provider}/profiles"
         transport = getattr(self, "_http_transport", None)
         try:
             with httpx.Client(
@@ -204,3 +211,9 @@ def _is_loopback_host(host: str) -> bool:
         return ip_address(normalized).is_loopback
     except ValueError:
         return False
+
+
+def _gateway_url(app: FastAPI | None, settings: AigwBackendApiSettingsBase) -> str:
+    if app is None:
+        return settings.gateway_url
+    return resolve_aigw_runtime_config(app).gateway_url

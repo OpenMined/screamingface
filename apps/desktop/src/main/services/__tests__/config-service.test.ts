@@ -8,9 +8,12 @@ const electronMocks = vi.hoisted(() => ({
     getAppPath: vi.fn(() => '/repo/apps/desktop'),
     getPath: vi.fn(() => '/tmp/sf-user-data'),
   },
+  dialog: {
+    showErrorBox: vi.fn(),
+  },
 }));
 
-vi.mock('electron', () => ({ app: electronMocks.app }));
+vi.mock('electron', () => ({ app: electronMocks.app, dialog: electronMocks.dialog }));
 vi.mock('@electron-toolkit/utils', () => ({ is: { dev: true } }));
 
 import { ConfigService } from '../config-service';

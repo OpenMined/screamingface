@@ -50,6 +50,9 @@ const api: ElectronAPI = {
     getStatus: () => ipcRenderer.invoke('backends:getStatus'),
     refresh: () => ipcRenderer.invoke('backends:refresh'),
     authenticate: (backend) => ipcRenderer.invoke('backends:authenticate', backend),
+    loginGateway: (username, password) =>
+      ipcRenderer.invoke('backends:loginGateway', username, password),
+    logoutGateway: () => ipcRenderer.invoke('backends:logoutGateway'),
     authenticateOAuth: (backend, profileName?) =>
       ipcRenderer.invoke('backends:authenticateOAuth', backend, profileName),
     getPendingAuthState: (backend, profileName?) =>

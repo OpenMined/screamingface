@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -101,7 +103,7 @@ def test_setup_spawns_subprocess_and_registers_hooks(fake_aigw_dir: Path) -> Non
         mock_run.return_value.stdout = ""
         mock_run.return_value.stderr = ""
         plugin.preflight()
-        plugin.setup(fake_app, fake_hooks, MagicMock(), MagicMock())
+        plugin.setup(cast(Any, fake_app), fake_hooks, MagicMock(), MagicMock())
 
     assert plugin._process is fake_proc
     mock_run.assert_called_once()
@@ -114,12 +116,42 @@ def test_setup_spawns_subprocess_and_registers_hooks(fake_aigw_dir: Path) -> Non
     mock_popen.assert_called_once()
     popen_args = mock_popen.call_args.args[0]
     assert popen_args[:4] == ["/custom/uv", "run", "--directory", str(fake_aigw_dir.resolve())]
+    assert popen_args[popen_args.index("--host") + 1] == "127.0.0.1"
     assert mock_popen.call_args.kwargs["env"] is migrate_env
     fake_hooks.register.assert_called_once()
     register_args = fake_hooks.register.call_args
     assert register_args.args[0] == "app.shutdown"
     mock_atexit.assert_called_once()
     mock_thread.assert_called_once()
+
+
+def test_external_mode_does_not_run_migrations_or_spawn(fake_aigw_dir: Path) -> None:
+    plugin = _make_plugin(fake_aigw_dir, uv_bin="/custom/uv")
+    fake_hooks = MagicMock()
+    fake_app = SimpleNamespace(
+        state=SimpleNamespace(
+            config=SimpleNamespace(
+                plugin_config={
+                    "aigw-base": {
+                        "mode": "external",
+                        "gateway_url": "https://gateway.example.com",
+                    }
+                }
+            ),
+            plugins=SimpleNamespace(active_plugins={}),
+        )
+    )
+
+    with (
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.Popen") as mock_popen,
+    ):
+        plugin.setup(cast(Any, fake_app), fake_hooks, MagicMock(), MagicMock())
+
+    mock_run.assert_not_called()
+    mock_popen.assert_not_called()
+    fake_hooks.register.assert_not_called()
+    assert plugin._process is None
 
 
 def test_setup_raises_if_subprocess_exits_immediately(fake_aigw_dir: Path) -> None:

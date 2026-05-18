@@ -7,6 +7,7 @@ import http from 'http';
 import { app } from 'electron';
 import { is } from '@electron-toolkit/utils';
 import { configService } from './config-service';
+import { getDesktopSecretPath, getDesktopSecretValue } from './desktop-secret';
 import { resolveUv } from './uv-resolver';
 
 const execFileAsync = promisify(execFileCb);
@@ -71,7 +72,8 @@ class ServerProcess extends EventEmitter {
     );
     env.SF_AIGW_RUNNER__AIGATEWAY_DIR = this.gatewayProjectDir;
     env.SF_AIGW_RUNNER__DATABASE_PATH = this.gatewayDatabasePath;
-    env.SF_AIGW_RUNNER__AUTH_ENABLED = 'false';
+    getDesktopSecretValue();
+    env.SF_DESKTOP_SECRET_FILE = getDesktopSecretPath();
     const uvBin = resolveUv();
     if (uvBin) env.SF_AIGW_RUNNER__UV_BIN = uvBin;
     return env;

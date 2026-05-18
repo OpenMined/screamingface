@@ -28,6 +28,11 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
+from screamingface.plugins.aigw_base.config import (
+    gateway_port_from_url,
+    is_runner_disabled,
+    resolve_aigw_runtime_config,
+)
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -47,7 +52,7 @@ class AigwRunnerSettings(PluginSettings):
 
     port: int = Field(
         default=9105,
-        description="Port the gateway uvicorn listens on.",
+        description="Deprecated compatibility field; prefer aigw-base.gateway_url.",
     )
     aigateway_dir: str | None = Field(
         default=None,
@@ -77,7 +82,7 @@ class AigwRunnerSettings(PluginSettings):
     )
     auth_enabled: bool = Field(
         default=False,
-        description="Whether the spawned local gateway should enforce its own bearer auth.",
+        description="Deprecated compatibility field; local managed mode always disables auth.",
     )
     enabled: bool = Field(
         default=True,
@@ -105,31 +110,15 @@ class AigwRunnerPlugin(Plugin):
         ok, reason = super().preflight()
         if not ok:
             return ok, reason
-
         settings: AigwRunnerSettings = self.settings  # type: ignore[assignment]
+        if is_runner_disabled():
+            return True, ""
         if not settings.enabled:
             return True, ""
-
-        # Resolve the apps/aigateway directory.
-        if settings.aigateway_dir is not None:
-            candidate = Path(settings.aigateway_dir).expanduser().resolve()
-        else:
-            # Default: SF runs from apps/server/, so apps/aigateway is ../aigateway
-            candidate = (Path.cwd() / ".." / "aigateway").resolve()
-
-        if not candidate.exists():
-            return False, f"aigateway directory not found at {candidate}"
-        if not (candidate / "pyproject.toml").exists():
-            return False, f"{candidate} does not look like a uv project (no pyproject.toml)"
-
-        self._aigateway_dir = candidate
-
-        uv_bin = settings.uv_bin or shutil.which("uv")
-        if uv_bin is None:
-            return False, "`uv` command not found in PATH — required to run the gateway"
-        self._uv_bin = uv_bin
-
-        return True, ""
+        app = getattr(self, "_activation_app", None)
+        if app is not None and resolve_aigw_runtime_config(app).mode == "external":
+            return True, ""
+        return self._resolve_local_gateway(settings)
 
     def setup(
         self,
@@ -139,13 +128,28 @@ class AigwRunnerPlugin(Plugin):
         routes: RouteRegistry,  # noqa: ARG002
     ) -> None:
         settings: AigwRunnerSettings = self.settings  # type: ignore[assignment]
+        self._app = app
 
+        runtime_config = resolve_aigw_runtime_config(app)
+        if is_runner_disabled():
+            logger.info("aigw-runner: disabled via SF_AIGW_RUNNER_DISABLED=1; skipping spawn")
+            return
         if not settings.enabled:
-            logger.info("aigw-runner: disabled via settings.enabled=False; skipping spawn")
+            logger.info(
+                "aigw-runner: disabled via deprecated settings.enabled=False; skipping spawn"
+            )
+            return
+        if runtime_config.mode == "external":
+            logger.info("aigw-runner: external mode; skipping local gateway spawn")
             return
 
-        assert self._aigateway_dir is not None  # set in preflight
-        assert self._uv_bin is not None  # set in preflight
+        ok, reason = self._resolve_local_gateway(settings)
+        if not ok:
+            raise RuntimeError(reason)
+
+        assert self._aigateway_dir is not None  # set by _resolve_local_gateway
+        assert self._uv_bin is not None  # set by _resolve_local_gateway
+        port = gateway_port_from_url(runtime_config.gateway_url, settings.port)
 
         database_url = _database_url(settings)
         env = _gateway_env(settings, database_url)
@@ -190,7 +194,7 @@ class AigwRunnerPlugin(Plugin):
             "--host",
             "127.0.0.1",
             "--port",
-            str(settings.port),
+            str(port),
             "--log-level",
             "info",
         ]
@@ -211,7 +215,7 @@ class AigwRunnerPlugin(Plugin):
             name="aigw-runner-log",
         ).start()
 
-        health_url = f"http://127.0.0.1:{settings.port}/healthz"
+        health_url = f"http://127.0.0.1:{port}/healthz"
         if not _wait_for_health(self._process, health_url, settings.startup_timeout_seconds):
             retcode = self._process.poll()
             if retcode is not None:
@@ -228,15 +232,43 @@ class AigwRunnerPlugin(Plugin):
 
         atexit.register(self._stop)
         hooks.register("app.shutdown", self._on_shutdown, plugin_name=self.name)
-        logger.info(
-            "aigw-runner: gateway running on port %d (PID %d)", settings.port, self._process.pid
-        )
+        logger.info("aigw-runner: gateway running on port %d (PID %d)", port, self._process.pid)
+
+    def customize_schema(self, schema: dict) -> dict:
+        props = schema.setdefault("properties", {})
+        for deprecated in ("auth_enabled", "enabled", "port"):
+            props.pop(deprecated, None)
+        required = schema.get("required")
+        if isinstance(required, list):
+            for deprecated in ("auth_enabled", "enabled", "port"):
+                if deprecated in required:
+                    required.remove(deprecated)
+        return schema
 
     async def _on_shutdown(self) -> None:
         self._stop()
 
     def teardown(self) -> None:
         self._stop()
+
+    def _resolve_local_gateway(self, settings: AigwRunnerSettings) -> tuple[bool, str]:
+        if settings.aigateway_dir is not None:
+            candidate = Path(settings.aigateway_dir).expanduser().resolve()
+        else:
+            # Default: SF runs from apps/server/, so apps/aigateway is ../aigateway
+            candidate = (Path.cwd() / ".." / "aigateway").resolve()
+
+        if not candidate.exists():
+            return False, f"aigateway directory not found at {candidate}"
+        if not (candidate / "pyproject.toml").exists():
+            return False, f"{candidate} does not look like a uv project (no pyproject.toml)"
+        self._aigateway_dir = candidate
+
+        uv_bin = settings.uv_bin or shutil.which("uv")
+        if uv_bin is None:
+            return False, "`uv` command not found in PATH — required to run the gateway"
+        self._uv_bin = uv_bin
+        return True, ""
 
     def _stop(self) -> None:
         try:
@@ -279,7 +311,7 @@ def _gateway_env(settings: AigwRunnerSettings, database_url: str) -> dict[str, s
     env = os.environ.copy()
     env.pop("VIRTUAL_ENV", None)
     env["AIGATEWAY_DATABASE_URL"] = database_url
-    env["AIGATEWAY_AUTH_ENABLED"] = "true" if settings.auth_enabled else "false"
+    env["AIGATEWAY_AUTH_ENABLED"] = "false"
     return env
 
 

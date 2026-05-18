@@ -8,6 +8,8 @@ const getStatus = vi.fn(async () => ({}));
 const onStatusChanged = vi.fn(() => () => {});
 const onAlert = vi.fn(() => () => {});
 const refresh = vi.fn();
+const loginGateway = vi.fn(async () => ({ ok: true }));
+const logoutGateway = vi.fn(async () => undefined);
 const listProfiles = vi.fn(async () => ({ profiles: [] }));
 const deleteProfile = vi.fn(async () => ({ ok: true }));
 const getPendingAuthState = vi.fn(async (): Promise<string | null> => null);
@@ -21,6 +23,8 @@ const exchangeOAuthCode = vi.fn(async () => ({ ok: true }) as { ok: boolean; mes
     onStatusChanged,
     onAlert,
     refresh,
+    loginGateway,
+    logoutGateway,
     listProfiles,
     deleteProfile,
     getPendingAuthState,
@@ -49,6 +53,8 @@ beforeEach(() => {
   authenticateOAuth.mockClear();
   authenticateOAuth.mockImplementation(async () => ({ kind: 'complete' }));
   listProfiles.mockClear();
+  loginGateway.mockClear();
+  logoutGateway.mockClear();
   listProfiles.mockResolvedValue({ profiles: [] });
   deleteProfile.mockClear();
   deleteProfile.mockResolvedValue({ ok: true });
@@ -143,6 +149,65 @@ describe('BackendStatusPanel auth_kind=browser sub-panel', () => {
     fireEvent.change(input, { target: { value: 'work' } });
     fireEvent.click(screen.getByRole('button', { name: /Confirm/i }));
     await waitFor(() => expect(authenticateOAuth).toHaveBeenCalledWith('claude', 'work'));
+  });
+});
+
+describe('BackendStatusPanel v2 gateway status', () => {
+  it('renders the gateway URL when connected', async () => {
+    getStatus.mockResolvedValue({
+      version: 2,
+      gateway: {
+        mode: 'external',
+        managed_by_runner: false,
+        reachable: true,
+        authenticated: true,
+        auth_required: true,
+        url: 'https://gateway.example.com',
+      },
+      action: 'healthy',
+      backends: {
+        claude: {
+          authenticated: true,
+          action: 'healthy',
+          auth_kind: 'browser',
+          model: 'anthropic/claude-sonnet-4-5',
+        },
+      },
+      provider_auth: {
+        providers: {
+          claude: { provider: 'anthropic', profile: 'default', state: 'authenticated' },
+        },
+      },
+    });
+
+    render(<BackendStatusPanel />);
+
+    expect(await screen.findByText('Connected to https://gateway.example.com')).toBeTruthy();
+  });
+
+  it('shows gateway login form before provider rows in external unauthenticated state', async () => {
+    getStatus.mockResolvedValue({
+      version: 2,
+      gateway: {
+        mode: 'external',
+        managed_by_runner: false,
+        reachable: true,
+        authenticated: false,
+        auth_required: true,
+        url: 'https://gateway.example.com',
+      },
+      action: 'login_gateway',
+    });
+
+    render(<BackendStatusPanel />);
+
+    const username = await screen.findByPlaceholderText(/Gateway username/i);
+    const password = screen.getByPlaceholderText(/Password/i);
+    fireEvent.change(username, { target: { value: 'admin' } });
+    fireEvent.change(password, { target: { value: 'secret-password' } });
+    fireEvent.click(screen.getByRole('button', { name: /Sign in/i }));
+    await waitFor(() => expect(loginGateway).toHaveBeenCalledWith('admin', 'secret-password'));
+    expect(screen.queryByText('Claude')).toBeNull();
   });
 });
 

@@ -3,11 +3,13 @@ import https from 'https';
 import http from 'http';
 import { serverProcess } from '../services/server-process';
 import { backendStatusService } from '../services/backend-status';
+import { desktopSecretHeader } from '../services/desktop-secret';
 import { isAllowedServerFetchUrl } from '../services/external-url-policy';
 import { requireTrustedIpcSender } from './sender-validation';
 
 interface FetchInit {
   method?: string;
+  headers?: Record<string, string>;
   body?: string;
 }
 
@@ -23,7 +25,11 @@ function nodeFetch(url: string, init?: FetchInit): Promise<{ status: number; bod
         method,
         rejectUnauthorized: false,
         timeout: 5000,
-        headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+        headers: {
+          ...desktopSecretHeader(),
+          ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(init?.headers ?? {}),
+        },
       },
       (res) => {
         let data = '';
