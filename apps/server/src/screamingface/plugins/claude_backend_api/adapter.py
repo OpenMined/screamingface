@@ -51,7 +51,7 @@ from screamingface.plugins.llm_base.messages import (
 # Billing fingerprint constants — must match the Claude Code CLI's
 # src/utils/fingerprint.ts to route requests to the CLI rate limit pool.
 _FINGERPRINT_SALT = "59cf53e54c78"
-_CC_VERSION = "2.1.104"
+_CC_VERSION = "2.1.142"
 
 
 class AnthropicAdapter(Adapter):
@@ -387,5 +387,5 @@ def _build_billing_header(first_user_text: str) -> str:
     """
     fp = _compute_fingerprint(first_user_text)
     return (
-        f"x-anthropic-billing-header: cc_version={_CC_VERSION}.{fp}; cc_entrypoint=cli; cch={fp};"
+        f"x-anthropic-billing-header: cc_version={_CC_VERSION}.{fp}; cc_entrypoint=cli; cch=00000;"
     )

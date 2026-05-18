@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-# Authorize URL: claude.ai/oauth/authorize is the user-consent surface
-# (the page where the user approves the OAuth request). The Claude Code
-# binary points at platform.claude.com but claude.ai forwards there and
-# is the cleaner consent UX the user sees.
-ANTHROPIC_AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
+# Authorize URL for Claude subscription login. Verified against Claude Code
+# 2.1.142 (`claude auth login --claudeai`): this is distinct from the
+# platform/console OAuth entrypoint used for API-key billing flows.
+ANTHROPIC_AUTHORIZE_URL = "https://claude.com/cai/oauth/authorize"
 # Token URL: platform.claude.com/v1/oauth/token — verified from the
 # @anthropic-ai/claude-code binary. console.anthropic.com/v1/oauth/token
 # (the previous setting) rejects this client_id with the API "Invalid
@@ -12,8 +11,17 @@ ANTHROPIC_AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
 # public Claude Code OAuth client.
 ANTHROPIC_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 ANTHROPIC_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"  # public Claude Code OAuth app
+# Claude subscription tokens written by Claude Code carry only user scopes.
+# Requesting org:create_api_key here routes the flow toward Console/API-key
+# billing and can leave subscription-capacity models unavailable.
 ANTHROPIC_SCOPES = [
-    "org:create_api_key",
+    "user:profile",
+    "user:inference",
+    "user:sessions:claude_code",
+    "user:mcp_servers",
+    "user:file_upload",
+]
+ANTHROPIC_REFRESH_SCOPES = [
     "user:profile",
     "user:inference",
     "user:sessions:claude_code",
@@ -32,4 +40,4 @@ ANTHROPIC_BETA = ",".join(
         "prompt-caching-scope-2026-01-05",
     ]
 )
-ANTHROPIC_REDIRECT_PATH = "/v1/auth/anthropic/callback"
+ANTHROPIC_REDIRECT_PATH = "/callback"

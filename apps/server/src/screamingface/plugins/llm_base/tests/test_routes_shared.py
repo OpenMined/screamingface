@@ -6,15 +6,25 @@ fields explicitly at the ``/run`` route.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 
 from screamingface.plugins.backend_api_base.models import RunRequest
+from screamingface.plugins.llm_base.backend_base import Backend, HealthStatus
 from screamingface.plugins.llm_base.constants import (
     CLI_ONLY_FIELD_DEFAULTS,
     CLI_ONLY_FIELDS,
 )
-from screamingface.plugins.llm_base.routes_shared import _reject_cli_only_fields
+from screamingface.plugins.llm_base.errors import BackendError
+from screamingface.plugins.llm_base.messages import CoreMessage, ToolDefinition
+from screamingface.plugins.llm_base.routes_shared import (
+    BackendApiConfig,
+    _reject_cli_only_fields,
+    build_backend_api_router,
+)
 
 
 def _default_request(**overrides) -> RunRequest:
@@ -65,3 +75,98 @@ def test_constant_covers_runrequest_defaults() -> None:
             f"Default mismatch for {f}: model={getattr(req, f)!r} "
             f"vs constant={CLI_ONLY_FIELD_DEFAULTS[f]!r}"
         )
+
+
+class _RateLimitedBackend(Backend):
+    async def health(self, model: str | None = None) -> HealthStatus:  # noqa: ARG002
+        return HealthStatus(authenticated=True)
+
+    async def run(
+        self,
+        messages: list[CoreMessage],  # noqa: ARG002
+        *,
+        model: str,
+        system: str | None = None,  # noqa: ARG002
+        tools: list[ToolDefinition] | None = None,  # noqa: ARG002
+        max_tokens: int = 16000,  # noqa: ARG002
+        temperature: float | None = None,  # noqa: ARG002
+        timeout_seconds: float = 300.0,  # noqa: ARG002
+    ) -> CoreMessage:
+        raise BackendError("rate limited", status=429, retry_after=2.1)
+
+
+class _FallbackBackend(Backend):
+    def __init__(self) -> None:
+        self.models: list[str] = []
+
+    async def health(self, model: str | None = None) -> HealthStatus:  # noqa: ARG002
+        return HealthStatus(authenticated=True)
+
+    async def run(
+        self,
+        messages: list[CoreMessage],  # noqa: ARG002
+        *,
+        model: str,
+        system: str | None = None,  # noqa: ARG002
+        tools: list[ToolDefinition] | None = None,  # noqa: ARG002
+        max_tokens: int = 16000,  # noqa: ARG002
+        temperature: float | None = None,  # noqa: ARG002
+        timeout_seconds: float = 300.0,  # noqa: ARG002
+    ) -> CoreMessage:
+        self.models.append(model)
+        if model == "primary/model":
+            raise BackendError("rate limited", status=429, retry_after=2.1)
+        return CoreMessage(role="assistant", content="fallback ok")
+
+
+def test_backend_error_retry_after_becomes_response_header() -> None:
+    app = FastAPI()
+    settings = SimpleNamespace(default_model=None, timeout_seconds=300.0, profiles={})
+    router = build_backend_api_router(
+        BackendApiConfig(
+            name="test-backend-api",
+            path_prefix="/test",
+            default_model="test/model",
+            backend=_RateLimitedBackend(),
+            settings=settings,
+            app=app,
+            build_interpreter=lambda: None,
+            span_prefix="test",
+        )
+    )
+    app.include_router(router)
+
+    resp = TestClient(app).post("/test/run", json={"prompt": "hi"})
+
+    assert resp.status_code == 429
+    assert resp.headers["retry-after"] == "3"
+
+
+def test_run_retries_configured_fallback_model_on_429() -> None:
+    app = FastAPI()
+    backend = _FallbackBackend()
+    settings = SimpleNamespace(
+        default_model=None,
+        fallback_model="fallback/model",
+        timeout_seconds=300.0,
+        profiles={},
+    )
+    router = build_backend_api_router(
+        BackendApiConfig(
+            name="test-backend-api",
+            path_prefix="/test",
+            default_model="primary/model",
+            backend=backend,
+            settings=settings,
+            app=app,
+            build_interpreter=lambda: None,
+            span_prefix="test",
+        )
+    )
+    app.include_router(router)
+
+    resp = TestClient(app).post("/test/run", json={"prompt": "hi"})
+
+    assert resp.status_code == 200
+    assert resp.json()["so"] == "fallback ok"
+    assert backend.models == ["primary/model", "fallback/model"]

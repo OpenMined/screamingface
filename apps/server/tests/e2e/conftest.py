@@ -30,6 +30,7 @@ _PROVIDER_BY_FILE: dict[str, str] = {
     "test_cat_breeds_spec.py": "claude",
     "test_aigw_claude_e2e.py": "claude",
     "test_aigw_auth_e2e.py": "claude",
+    "test_aigw_codex_auth_e2e.py": "codex",
     "test_url4_specs_live.py": "claude",
     "test_ensemble_features.py": "claude",
     "test_url4_resolution.py": "claude",

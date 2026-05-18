@@ -1,8 +1,23 @@
-import { readFileSync, writeFileSync, copyFileSync, existsSync, watchFile, unwatchFile } from 'fs';
-import { join, resolve } from 'path';
+import {
+  closeSync,
+  readFileSync,
+  writeFileSync,
+  copyFileSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  rmSync,
+  watchFile,
+  unwatchFile,
+} from 'fs';
+import { basename, dirname, join, resolve } from 'path';
 import { EventEmitter } from 'events';
 import { app } from 'electron';
 import { is } from '@electron-toolkit/utils';
+
+import { migrateDesktopRuntimeConfig } from './runtime-config-migration';
 
 function resolveServerDir(): string {
   if (!is.dev) {
@@ -17,7 +32,9 @@ function resolveServerDir(): string {
 function resolveConfigPath(serverDir: string): string {
   if (!is.dev) {
     // Production: config lives in writable user data directory
-    const userDataConfig = join(app.getPath('userData'), 'sf.json');
+    const userDataDir = app.getPath('userData');
+    mkdirSync(userDataDir, { recursive: true });
+    const userDataConfig = join(userDataDir, 'sf.json');
     if (!existsSync(userDataConfig)) {
       const templatePath = join(serverDir, 'sf.json');
       if (existsSync(templatePath)) {
@@ -33,35 +50,51 @@ function resolveConfigPath(serverDir: string): string {
 let SERVER_DIR: string;
 let CONFIG_PATH: string;
 
-class ConfigService extends EventEmitter {
-  private configPath: string;
+export class ConfigService extends EventEmitter {
+  private configPath?: string;
+  private initialized = false;
 
   constructor() {
     super();
-    // Defer resolution until app is ready
+  }
+
+  private ensureInitialized(): void {
+    if (this.initialized) {
+      return;
+    }
     SERVER_DIR = resolveServerDir();
-    CONFIG_PATH = resolveConfigPath(SERVER_DIR);
-    this.configPath = CONFIG_PATH;
+    if (!this.configPath) {
+      CONFIG_PATH = resolveConfigPath(SERVER_DIR);
+      this.configPath = CONFIG_PATH;
+    }
+    this.initialized = true;
+    if (!is.dev) {
+      this.migrateDesktopRuntimeConfig();
+    }
   }
 
   get serverDir(): string {
+    this.ensureInitialized();
     return SERVER_DIR;
   }
 
   setConfigPath(path: string): void {
-    unwatchFile(this.configPath);
+    if (this.configPath) {
+      unwatchFile(this.configPath);
+    }
     this.configPath = path;
     this.watch();
   }
 
   read(): Record<string, unknown> {
+    const configPath = this.getConfigPath();
     try {
-      const raw = readFileSync(this.configPath, 'utf-8');
+      const raw = readFileSync(configPath, 'utf-8');
       return JSON.parse(raw);
     } catch {
       return {
         version: '0.1.0',
-        server: { host: '0.0.0.0', port: 8000, reload: false, ssl: true },
+        server: { host: '127.0.0.1', port: 8000, reload: false, ssl: true },
         plugins: [],
         plugin_config: {},
       };
@@ -69,19 +102,57 @@ class ConfigService extends EventEmitter {
   }
 
   write(config: Record<string, unknown>): void {
-    writeFileSync(this.configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+    const configPath = this.getConfigPath();
+    writeJsonAtomically(configPath, JSON.stringify(config, null, 2) + '\n');
     this.emit('changed', config);
   }
 
   watch(): void {
-    watchFile(this.configPath, { interval: 1000 }, () => {
+    const configPath = this.getConfigPath();
+    watchFile(configPath, { interval: 1000, persistent: false }, () => {
       const config = this.read();
       this.emit('changed', config);
     });
   }
 
   getConfigPath(): string {
+    this.ensureInitialized();
+    if (!this.configPath) {
+      throw new Error('Config path is not initialized');
+    }
     return this.configPath;
+  }
+
+  private migrateDesktopRuntimeConfig(): void {
+    const config = this.read();
+    const migrated = migrateDesktopRuntimeConfig(config, app.getPath('userData'));
+
+    if (JSON.stringify(migrated) !== JSON.stringify(config)) {
+      this.write(migrated);
+    }
+  }
+}
+
+function writeJsonAtomically(configPath: string, contents: string): void {
+  mkdirSync(dirname(configPath), { recursive: true });
+  const tempPath = join(
+    dirname(configPath),
+    `.${basename(configPath)}.${process.pid}.${Date.now()}.tmp`,
+  );
+  let fd: number | undefined;
+  try {
+    fd = openSync(tempPath, 'w', 0o600);
+    writeFileSync(fd, contents, 'utf-8');
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = undefined;
+    renameSync(tempPath, configPath);
+  } catch (error) {
+    if (fd !== undefined) {
+      closeSync(fd);
+    }
+    rmSync(tempPath, { force: true });
+    throw error;
   }
 }
 

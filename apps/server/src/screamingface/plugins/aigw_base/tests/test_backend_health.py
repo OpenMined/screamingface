@@ -21,6 +21,7 @@ def _backend(handler) -> AigwBackend:
     return AigwBackend(
         gateway_url="http://gateway",
         profile_name="default",
+        gateway_provider="test-provider",
         http_client_factory=factory,
     )
 
@@ -28,8 +29,7 @@ def _backend(handler) -> AigwBackend:
 @pytest.mark.anyio
 async def test_health_authenticated_when_profile_is_authenticated() -> None:
     def handler(req: httpx.Request) -> httpx.Response:
-        # Health probes the gateway's *anthropic* profile by default
-        assert "/v1/auth/anthropic/profiles/default/status" in str(req.url)
+        assert "/v1/auth/test-provider/profiles/default/status" in str(req.url)
         return httpx.Response(
             200,
             json={"state": "authenticated", "account_label": None, "last_refreshed_at": None},

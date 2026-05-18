@@ -39,10 +39,13 @@ pytestmark = pytest.mark.e2e
 _ANONYMOUS_ACCOUNT_ID = "00000000-0000-0000-0000-000000000000"
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def _reserve_loopback_socket(*, listen: bool) -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    if listen:
+        sock.listen()
+    sock.set_inheritable(True)
+    return sock
 
 
 def _aigateway_dir() -> Path:
@@ -51,9 +54,11 @@ def _aigateway_dir() -> Path:
 
 
 def _boot_gateway(extra_env: dict[str, str], tmp_path: Path) -> tuple[int, subprocess.Popen[str]]:
-    port = _free_port()
+    sock = _reserve_loopback_socket(listen=True)
+    port = sock.getsockname()[1]
     env = os.environ.copy()
     env.pop("VIRTUAL_ENV", None)
+    env["AIGW_PORT"] = str(port)
     env["AIGATEWAY_FAKE_KEYCHAIN"] = "1"
     env["AIGATEWAY_KEYCHAIN_FILE"] = str(tmp_path / "fake-kc.json")
     env["AIGATEWAY_FAKE_ANTHROPIC_OAUTH"] = "1"
@@ -63,42 +68,44 @@ def _boot_gateway(extra_env: dict[str, str], tmp_path: Path) -> tuple[int, subpr
     env["AIGATEWAY_JWT_SECRET"] = "x" * 32
     env["AIGATEWAY_PROVISIONING_TOKEN"] = "p" * 32
     env.update(extra_env)
-    subprocess.run(
-        [
-            "uv",
-            "run",
-            "--directory",
-            str(_aigateway_dir()),
-            "python",
-            "-m",
-            "tortoise",
-            "-c",
-            "aigateway.db.TORTOISE_CONFIG",
-            "migrate",
-        ],
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    proc = subprocess.Popen(
-        [
-            "uv",
-            "run",
-            "--directory",
-            str(_aigateway_dir()),
-            "uvicorn",
-            "aigateway.main:app",
-            "--port",
-            str(port),
-            "--host",
-            "127.0.0.1",
-        ],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    try:
+        subprocess.run(
+            [
+                "uv",
+                "run",
+                "--directory",
+                str(_aigateway_dir()),
+                "python",
+                "-m",
+                "tortoise",
+                "-c",
+                "aigateway.db.TORTOISE_CONFIG",
+                "migrate",
+            ],
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        proc = subprocess.Popen(
+            [
+                "uv",
+                "run",
+                "--directory",
+                str(_aigateway_dir()),
+                "uvicorn",
+                "aigateway.main:app",
+                "--fd",
+                str(sock.fileno()),
+            ],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            pass_fds=(sock.fileno(),),
+        )
+    finally:
+        sock.close()
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         if proc.poll() is not None:
@@ -164,7 +171,7 @@ def test_full_oauth_cycle_via_sf_auth_proxy(aigw: dict) -> None:
     sf = _sf_client(gw_port)
 
     resp = sf.post("/claude/auth/start")
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["profile_id"] == f"{_ANONYMOUS_ACCOUNT_ID}:anthropic:default"
     assert body["authorize_url"].startswith("https://")
@@ -257,10 +264,11 @@ def test_callback_when_token_exchange_fails_marks_profile_non_authenticated(
 
 
 def test_start_when_gateway_is_down_returns_502() -> None:
-    port = _free_port()  # Nothing listening
-    sf = _sf_client(port)
+    with _reserve_loopback_socket(listen=False) as sock:
+        port = sock.getsockname()[1]
+        sf = _sf_client(port)
 
-    resp = sf.post("/claude/auth/start")
+        resp = sf.post("/claude/auth/start")
     assert resp.status_code == 502
     assert resp.json()["detail"]["code"] == "gateway_unreachable"
 

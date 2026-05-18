@@ -47,6 +47,20 @@ const PORT_RANGE_START = 9101;
 const PORT_RANGE_SIZE = 100;
 const PROXY_READY_TIMEOUT_MS = 15_000;
 
+export function frontendPluginNameForSession(type: SessionType): string {
+  switch (type) {
+    case 'codex':
+      return 'codex-frontend';
+    case 'gemini':
+      return 'gemini-frontend';
+    case 'claude':
+    case 'claude-desktop':
+      return 'claude-frontend';
+    default:
+      return 'claude-frontend';
+  }
+}
+
 class SessionManager extends EventEmitter {
   private sessions: Map<string, ActiveSession> = new Map();
 
@@ -182,10 +196,11 @@ class SessionManager extends EventEmitter {
     pluginConfig?: Record<string, Record<string, unknown>>,
   ): Promise<void> {
     // SF server needs its own port (internal only), separate from the
-    // claude-frontend proxy port that the CLI connects to.
+    // frontend proxy port that the CLI connects to.
     const serverPort = await this.allocateRandomPort();
     const config = configService.read();
     const defaults = (config.plugin_config as Record<string, Record<string, unknown>>) || {};
+    const frontendPlugin = frontendPluginNameForSession(session.type);
 
     const proxyConfig = {
       version: config.version || '0.1.0',
@@ -195,20 +210,16 @@ class SessionManager extends EventEmitter {
         reload: false,
         ssl: false,
       },
-      plugins: [
-        'tracing',
-        'claude-frontend',
-        'url4-specs',
-      ],
+      plugins: ['tracing', frontendPlugin, 'url4-specs'],
       plugin_config: {
-        'tracing': {
+        tracing: {
           ...(defaults['tracing'] || {}),
           phoenix_launch: false, // connect to shared Phoenix, don't spawn per-session
         },
-        'claude-frontend': {
-          ...(defaults['claude-frontend'] || {}),
+        [frontendPlugin]: {
+          ...(defaults[frontendPlugin] || {}),
           // User overrides from dialog:
-          ...(pluginConfig?.['claude-frontend'] || {}),
+          ...(pluginConfig?.[frontendPlugin] || {}),
           // Forced by session-manager (cannot be overridden):
           listen_host: '127.0.0.1',
           listen_port: session.port,
@@ -220,8 +231,9 @@ class SessionManager extends EventEmitter {
           // configured port was busy (e.g. another local dev process held
           // it), and a stale backend_url makes /data 404 when the proxy
           // tries to store $prompt blobs.
-          backend_url: backendStatusService.getServerUrl()
-            ?? `${(config.server as Record<string, unknown>).ssl ? 'https' : 'http'}://127.0.0.1:${(config.server as Record<string, unknown>).port || 8000}`,
+          backend_url:
+            backendStatusService.getServerUrl() ??
+            `${(config.server as Record<string, unknown>).ssl ? 'https' : 'http'}://127.0.0.1:${(config.server as Record<string, unknown>).port || 8000}`,
         },
         'url4-specs': defaults['url4-specs'] || {},
       },
@@ -230,8 +242,10 @@ class SessionManager extends EventEmitter {
     const args = [
       'run',
       '--subprocess',
-      '--session-id', session.id,
-      '--config-json', JSON.stringify(proxyConfig),
+      '--session-id',
+      session.id,
+      '--config-json',
+      JSON.stringify(proxyConfig),
     ];
 
     return new Promise<void>((resolve, reject) => {
@@ -291,11 +305,16 @@ class SessionManager extends EventEmitter {
 
   private cliCommand(type: SessionType): string {
     switch (type) {
-      case 'claude': return 'claude';
-      case 'codex': return 'codex';
-      case 'gemini': return 'gemini';
-      case 'claude-desktop': return 'claude';
-      default: return 'claude';
+      case 'claude':
+        return 'claude';
+      case 'codex':
+        return 'codex';
+      case 'gemini':
+        return 'gemini';
+      case 'claude-desktop':
+        return 'claude';
+      default:
+        return 'claude';
     }
   }
 
@@ -383,14 +402,28 @@ end tell`;
         const pid = parseInt(readFileSync(pidPath, 'utf-8').trim(), 10);
         if (!isNaN(pid)) {
           this.emit('log', session.id, `Killing CLI process (PID ${pid})`);
-          try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ }
+          try {
+            process.kill(pid, 'SIGTERM');
+          } catch {
+            /* already dead */
+          }
 
           // Wait then force-kill
           await new Promise((r) => setTimeout(r, 2000));
-          try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            /* already dead */
+          }
         }
-      } catch { /* read/parse failed */ }
-      try { unlinkSync(pidPath); } catch { /* */ }
+      } catch {
+        /* read/parse failed */
+      }
+      try {
+        unlinkSync(pidPath);
+      } catch {
+        /* */
+      }
     } else {
       this.emit('log', session.id, 'No PID file found — CLI may need manual close');
     }
@@ -418,7 +451,11 @@ end tell`;
 
     // 3. Clean up temp script
     if (session.scriptPath) {
-      try { unlinkSync(session.scriptPath); } catch { /* */ }
+      try {
+        unlinkSync(session.scriptPath);
+      } catch {
+        /* */
+      }
       session.scriptPath = null;
     }
   }
@@ -438,7 +475,11 @@ end tell`;
       session.proxy.kill('SIGTERM');
       await new Promise<void>((resolve) => {
         const timer = setTimeout(() => {
-          try { session.proxy?.kill('SIGKILL'); } catch { /* */ }
+          try {
+            session.proxy?.kill('SIGKILL');
+          } catch {
+            /* */
+          }
           resolve();
         }, 5000);
         session.proxy!.once('close', () => {

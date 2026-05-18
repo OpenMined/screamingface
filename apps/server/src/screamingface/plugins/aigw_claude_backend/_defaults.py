@@ -9,15 +9,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from screamingface.plugins.aigw_base import build_profile_defaults_from_settings
+
 if TYPE_CHECKING:
     from screamingface.plugins.aigw_claude_backend.plugin import AigwClaudeBackendSettings
-
-
-# The gateway's ``ProfileDefaults.reasoning_effort`` field accepts only these
-# three values. SF additionally allows ``"max"`` as an effort, but the gateway
-# does not — drop anything outside this set rather than send a value that
-# would be rejected.
-_GATEWAY_REASONING_EFFORTS = frozenset({"low", "medium", "high"})
 
 
 def _build_profile_defaults_from_settings(
@@ -30,44 +25,9 @@ def _build_profile_defaults_from_settings(
     resulting dict — never sent as ``null``. ``temperature`` and ``max_tokens``
     have no SF source and are always omitted.
     """
-    profile = None
-    profiles = getattr(settings, "profiles", None) or {}
-    default_profile = getattr(settings, "default_profile", None)
-    if default_profile and default_profile in profiles:
-        profile = profiles[default_profile]
-
-    out: dict[str, Any] = {}
-
-    # model: profile.model -> settings.default_model
-    model = getattr(profile, "model", None) if profile is not None else None
-    if model is None:
-        model = getattr(settings, "default_model", None)
-    if model is not None:
-        out["model"] = model
-
-    # system_prompt: profile.system_prompt only (no top-level equivalent)
-    if profile is not None:
-        sp = getattr(profile, "system_prompt", None)
-        if sp is not None:
-            out["system_prompt"] = sp
-
-    # timeout_seconds: profile.timeout_seconds -> settings.timeout_seconds
-    timeout: float | None = None
-    if profile is not None:
-        timeout = getattr(profile, "timeout_seconds", None)
-    if timeout is None:
-        timeout = getattr(settings, "timeout_seconds", None)
-    if timeout is not None:
-        out["timeout_seconds"] = timeout
-
-    # reasoning_effort: profile.effort -> settings.default_effort.
-    # Drop "max" (SF-only) and anything outside the gateway's enum.
-    effort: str | None = None
-    if profile is not None:
-        effort = getattr(profile, "effort", None)
-    if effort is None:
-        effort = getattr(settings, "default_effort", None)
-    if effort in _GATEWAY_REASONING_EFFORTS:
-        out["reasoning_effort"] = effort
-
+    out = build_profile_defaults_from_settings(settings)
+    # claude_backend_api never applied SF's generic `default_effort` to Claude.
+    # Leaving it out preserves that behavior and avoids enabling Anthropic
+    # thinking for every gateway-routed Claude request by accident.
+    out.pop("reasoning_effort", None)
     return out

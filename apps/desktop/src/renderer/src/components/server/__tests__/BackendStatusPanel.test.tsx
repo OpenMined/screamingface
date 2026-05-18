@@ -116,9 +116,12 @@ describe('BackendStatusPanel auth_kind=browser sub-panel', () => {
   });
 
   it('shows paste-code form when an OAuth flow is in-flight and Submit calls exchangeOAuthCode', async () => {
+    listProfiles.mockResolvedValue({
+      profiles: [{ id: 'anthropic:work', provider: 'anthropic', name: 'work', state: 'pending' }],
+    });
     getPendingAuthState.mockResolvedValue('pending-state-xyz');
     const { container } = render(<BackendStatusPanel />);
-    await waitFor(() => expect(getPendingAuthState).toHaveBeenCalledWith('claude'));
+    await waitFor(() => expect(getPendingAuthState).toHaveBeenCalledWith('claude', 'work'));
     const form = await waitFor(() => {
       const f = container.querySelector('form[aria-label="Paste authorization code"]');
       if (!f) throw new Error('paste form not yet rendered');
@@ -128,7 +131,7 @@ describe('BackendStatusPanel auth_kind=browser sub-panel', () => {
     fireEvent.change(input, { target: { value: 'pasted-auth-code' } });
     fireEvent.click(within(form).getByRole('button', { name: /Submit/i }));
     await waitFor(() =>
-      expect(exchangeOAuthCode).toHaveBeenCalledWith('claude', 'pasted-auth-code'),
+      expect(exchangeOAuthCode).toHaveBeenCalledWith('claude', 'pasted-auth-code', 'work'),
     );
   });
 

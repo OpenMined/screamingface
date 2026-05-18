@@ -33,10 +33,26 @@ interface Props {
 
 function typeLabel(type: SessionType): string {
   switch (type) {
-    case 'claude': return 'Claude Code';
-    case 'codex': return 'Codex';
-    case 'gemini': return 'Gemini CLI';
-    case 'claude-desktop': return 'Claude Desktop';
+    case 'claude':
+      return 'Claude Code';
+    case 'codex':
+      return 'Codex';
+    case 'gemini':
+      return 'Gemini CLI';
+    case 'claude-desktop':
+      return 'Claude Desktop';
+  }
+}
+
+function frontendPluginFor(type: SessionType): string {
+  switch (type) {
+    case 'codex':
+      return 'codex-frontend';
+    case 'gemini':
+      return 'gemini-frontend';
+    case 'claude':
+    case 'claude-desktop':
+      return 'claude-frontend';
   }
 }
 
@@ -81,14 +97,12 @@ export function NewSessionDialog({ type, editSession, onLaunch, onClose }: Props
   const serverUrl = serverInfo
     ? `${serverInfo.scheme}://${serverInfo.host === '0.0.0.0' ? 'localhost' : serverInfo.host}:${serverInfo.port}`
     : '';
+  const frontendPlugin = frontendPluginFor(type);
 
-  const serverFetch = useCallback(
-    async (url: string) => {
-      const res = await window.electronAPI.server.fetch(url);
-      return { ok: res.ok, json: () => JSON.parse(res.body) };
-    },
-    [],
-  );
+  const serverFetch = useCallback(async (url: string) => {
+    const res = await window.electronAPI.server.fetch(url);
+    return { ok: res.ok, json: () => JSON.parse(res.body) };
+  }, []);
 
   // Load schemas and defaults from server
   useEffect(() => {
@@ -96,8 +110,8 @@ export function NewSessionDialog({ type, editSession, onLaunch, onClose }: Props
 
     setLoading(true);
     Promise.all([
-      serverFetch(`${serverUrl}/plugins/claude-frontend/schema`),
-      serverFetch(`${serverUrl}/plugins/claude-frontend/settings`),
+      serverFetch(`${serverUrl}/plugins/${frontendPlugin}/schema`),
+      serverFetch(`${serverUrl}/plugins/${frontendPlugin}/settings`),
     ])
       .then(([schemaRes, settingsRes]) => {
         const feSchema = schemaRes.ok ? schemaRes.json() : null;
@@ -105,17 +119,17 @@ export function NewSessionDialog({ type, editSession, onLaunch, onClose }: Props
         if (feSchema?.properties) setFrontendSchema(cleanSchema(inlineRefs(feSchema)));
 
         // For edit mode: merge saved config over server defaults
-        if (editSession?.pluginConfig?.['claude-frontend']) {
+        if (editSession?.pluginConfig?.[frontendPlugin]) {
           setFrontendData({
             ...(feSettings || {}),
-            ...editSession.pluginConfig['claude-frontend'],
+            ...editSession.pluginConfig[frontendPlugin],
           });
         } else if (feSettings) {
           setFrontendData(feSettings as Record<string, unknown>);
         }
       })
       .finally(() => setLoading(false));
-  }, [serverUrl, serverFetch, editSession]);
+  }, [serverUrl, serverFetch, editSession, frontendPlugin]);
 
   const handlePickDir = async () => {
     const dir = await window.electronAPI.session.pickDir();
@@ -130,7 +144,7 @@ export function NewSessionDialog({ type, editSession, onLaunch, onClose }: Props
       delete cleanedFrontend[f];
     }
     onLaunch(type, workingDir, {
-      'claude-frontend': cleanedFrontend,
+      [frontendPlugin]: cleanedFrontend,
     });
   };
 
@@ -166,18 +180,16 @@ export function NewSessionDialog({ type, editSession, onLaunch, onClose }: Props
               }`}
             >
               <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">
-                {workingDir || 'Choose a directory...'}
-              </span>
+              <span className="truncate">{workingDir || 'Choose a directory...'}</span>
             </button>
             {!workingDir && (
-              <p className="mt-1 text-[10px] text-destructive/70">Required — select the directory Claude will work in</p>
+              <p className="mt-1 text-[10px] text-destructive/70">
+                Required — select the directory {typeLabel(type)} will work in
+              </p>
             )}
           </div>
 
-          {loading && (
-            <p className="text-xs text-muted-foreground">Loading plugin settings...</p>
-          )}
+          {loading && <p className="text-xs text-muted-foreground">Loading plugin settings...</p>}
 
           {/* Frontend settings */}
           {frontendSchema && !loading && (
@@ -199,7 +211,11 @@ export function NewSessionDialog({ type, editSession, onLaunch, onClose }: Props
                     'ui:submitButtonOptions': { norender: true },
                     'ui:order': [...TOP_FIELDS, '*'],
                     active_spec: { 'ui:widget': 'SpecSelectorWidget' },
-                    system_prompt: { 'ui:widget': 'textarea', 'ui:options': { rows: 4 }, classNames: 'w-full' },
+                    system_prompt: {
+                      'ui:widget': 'textarea',
+                      'ui:options': { rows: 4 },
+                      classNames: 'w-full',
+                    },
                   }}
                 />
               </div>
@@ -212,12 +228,7 @@ export function NewSessionDialog({ type, editSession, onLaunch, onClose }: Props
           <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={handleLaunch}
-            disabled={!canLaunch}
-          >
+          <Button variant="default" size="sm" onClick={handleLaunch} disabled={!canLaunch}>
             {isEdit ? (
               <>
                 <Save className="mr-1.5 h-3.5 w-3.5" />

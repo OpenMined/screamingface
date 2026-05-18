@@ -4,7 +4,7 @@ from .plugin_base import ProviderPluginBase
 
 
 class ProviderRegistry:
-    """Lookup from `custom_llm_provider` (anthropic / openai / gemini / ollama / …) to plugin."""
+    """Lookup from `custom_llm_provider` to provider plugin."""
 
     def __init__(self) -> None:
         self._plugins: dict[str, ProviderPluginBase] = {}

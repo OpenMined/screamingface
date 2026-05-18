@@ -20,6 +20,7 @@ from aigateway.core.oauth_base import BaseOAuthStrategy
 from .oauth_config import (
     ANTHROPIC_BETA,
     ANTHROPIC_CLIENT_ID,
+    ANTHROPIC_REFRESH_SCOPES,
     ANTHROPIC_TOKEN_URL,
     ANTHROPIC_VERSION,
 )
@@ -89,6 +90,7 @@ class AnthropicOAuth(BaseOAuthStrategy):
             "grant_type": "refresh_token",
             "refresh_token": creds["refresh_token"],
             "client_id": ANTHROPIC_CLIENT_ID,
+            "scope": " ".join(ANTHROPIC_REFRESH_SCOPES),
         }
         try:
             async with self._http_factory() as client:

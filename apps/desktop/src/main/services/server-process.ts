@@ -7,6 +7,7 @@ import http from 'http';
 import { app } from 'electron';
 import { is } from '@electron-toolkit/utils';
 import { configService } from './config-service';
+import { resolveUv } from './uv-resolver';
 
 const execFileAsync = promisify(execFileCb);
 
@@ -53,6 +54,29 @@ class ServerProcess extends EventEmitter {
     return this.serverDir;
   }
 
+  private get gatewayProjectDir(): string {
+    if (!is.dev) {
+      return join(app.getPath('userData'), 'aigateway');
+    }
+    return join(this.serverDir, '..', 'aigateway');
+  }
+
+  private get gatewayDatabasePath(): string {
+    return join(app.getPath('userData'), 'aigateway', 'aigateway.db');
+  }
+
+  private serverEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = (({ VIRTUAL_ENV: _drop, ...inherited }) => inherited)(
+      process.env,
+    );
+    env.SF_AIGW_RUNNER__AIGATEWAY_DIR = this.gatewayProjectDir;
+    env.SF_AIGW_RUNNER__DATABASE_PATH = this.gatewayDatabasePath;
+    env.SF_AIGW_RUNNER__AUTH_ENABLED = 'false';
+    const uvBin = resolveUv();
+    if (uvBin) env.SF_AIGW_RUNNER__UV_BIN = uvBin;
+    return env;
+  }
+
   private setStatus(s: ServerStatus): void {
     this.status = s;
     this.emit('status', s);
@@ -89,7 +113,7 @@ class ServerProcess extends EventEmitter {
     try {
       const { stdout } = await execFileAsync('osascript', [
         '-e',
-        'display dialog "ScreamingFace needs administrator privileges for the claude-intercept plugin." default answer "" with hidden answer with title "ScreamingFace" buttons {"Cancel", "OK"} default button "OK"',
+        'display dialog "ScreamingFace needs administrator privileges for an enabled plugin." default answer "" with hidden answer with title "ScreamingFace" buttons {"Cancel", "OK"} default button "OK"',
         '-e',
         'text returned of result',
       ]);
@@ -108,7 +132,8 @@ class ServerProcess extends EventEmitter {
 
     const config = configService.read();
     const configJson = JSON.stringify(config);
-    const args = ['run', '--subprocess', '--config-json', configJson];
+    const args = ['run', '--subprocess', '--config-json', configJson, '--host', '127.0.0.1'];
+    const env = this.serverEnv();
 
     // If a plugin requires root and we're not already root, elevate via sudo
     const elevate = this.needsRoot() && process.getuid?.() !== 0;
@@ -125,7 +150,7 @@ class ServerProcess extends EventEmitter {
       // Use sudo -S to read password from stdin; stdout/stderr stream normally
       child = spawn('sudo', ['-S', this.sfBin, ...args], {
         cwd: this.serverCwd,
-        env: { ...process.env },
+        env,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 
@@ -134,7 +159,7 @@ class ServerProcess extends EventEmitter {
     } else {
       child = spawn(this.sfBin, args, {
         cwd: this.serverCwd,
-        env: { ...process.env },
+        env,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     }

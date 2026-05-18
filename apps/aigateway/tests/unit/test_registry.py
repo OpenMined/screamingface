@@ -64,6 +64,15 @@ def test_provider_plugin_base_strategy_factory() -> None:
         async def get_authorization_header(self):
             return {"Authorization": f"Bearer tok-{self.profile_name}"}
 
+        def persist_credentials(self, _credentials):
+            return None
+
+        def delete_credentials(self):
+            return None
+
+        async def refresh_credentials(self):
+            return None
+
     class P(ProviderPluginBase):
         custom_llm_provider = "stub"
 

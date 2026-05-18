@@ -1,5 +1,13 @@
 import { spawn, execFile, execFileSync } from 'child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs';
 import { join } from 'path';
 import { EventEmitter } from 'events';
 import { app } from 'electron';
@@ -19,6 +27,7 @@ export type VenvStatus = 'unknown' | 'checking' | 'missing' | 'creating' | 'read
 class VenvManager extends EventEmitter {
   private status: VenvStatus = 'unknown';
   private uvBin: string | null = null;
+  private syncing = false;
 
   private get serverDir(): string {
     return configService.serverDir;
@@ -38,6 +47,24 @@ class VenvManager extends EventEmitter {
 
   private get pythonBin(): string {
     return join(this.venvDir, 'bin', 'python');
+  }
+
+  private get bundledPythonBin(): string | null {
+    if (is.dev) return null;
+    const bundledPython = join(process.resourcesPath, 'server', 'python', 'bin', 'python3.12');
+    return existsSync(bundledPython) ? bundledPython : null;
+  }
+
+  private get gatewayProjectDir(): string {
+    return join(app.getPath('userData'), 'aigateway');
+  }
+
+  private get gatewayVenvDir(): string {
+    return join(this.gatewayProjectDir, '.venv');
+  }
+
+  private get gatewayPythonBin(): string {
+    return join(this.gatewayVenvDir, 'bin', 'python');
   }
 
   private setStatus(s: VenvStatus): void {
@@ -73,7 +100,7 @@ class VenvManager extends EventEmitter {
         const pyVer = execFileSync(this.pythonBin, ['--version'], { encoding: 'utf-8' });
         log(`[venv] python --version: ${pyVer.trim()}`);
         this.setStatus('ready');
-        const needsSync = this.needsResync();
+        const needsSync = this.needsResync() || (!is.dev && !existsSync(this.gatewayPythonBin));
         log(`[venv] needsResync=${needsSync}`);
         return { status: 'ready', uvFound: true, needsSync, autoBootstrap: false };
       } catch {
@@ -99,8 +126,8 @@ class VenvManager extends EventEmitter {
 
     // Use bundled Python interpreter in production
     if (!is.dev) {
-      const bundledPython = join(process.resourcesPath, 'server', 'python', 'bin', 'python3.12');
-      if (existsSync(bundledPython)) {
+      const bundledPython = this.bundledPythonBin;
+      if (bundledPython) {
         args.push('--python', bundledPython);
       }
     }
@@ -114,55 +141,74 @@ class VenvManager extends EventEmitter {
 
   async sync(extra?: string): Promise<boolean> {
     log(`[venv] sync() called, extra=${extra}`);
+    if (this.syncing) {
+      log(`[venv] sync already in progress`);
+      return false;
+    }
     if (!this.uvBin) {
       this.setStatus('error');
       return false;
     }
 
-    let extraEnv: Record<string, string> | undefined;
+    this.syncing = true;
+    try {
+      let extraEnv: Record<string, string> | undefined;
 
-    // In production, copy pyproject.toml + uv.lock to the writable projectDir
-    // so uv sync can run from there (the bundle is read-only)
-    if (!is.dev) {
-      log(`[venv] sync: copying project files...`);
-      this.copyProjectFiles();
+      // In production, copy pyproject.toml + uv.lock to the writable projectDir
+      // so uv sync can run from there (the bundle is read-only)
+      if (!is.dev) {
+        log(`[venv] sync: copying project files...`);
+        this.copyProjectFiles();
 
-      // Extract bundled wheel cache (async) and set up offline env vars
-      const cacheDir = join(app.getPath('userData'), 'uv-cache');
-      log(`[venv] sync: extracting cache to ${cacheDir}`);
-      try {
-        await this.extractCacheIfNeeded(cacheDir);
-        log(`[venv] sync: cache extraction done`);
-      } catch (err) {
-        log(`[venv] sync: cache extraction failed: ${err}`);
-        // Non-fatal: uv will fall back to downloading
+        // Extract bundled wheel cache (async) and set up offline env vars
+        const cacheDir = join(app.getPath('userData'), 'uv-cache');
+        log(`[venv] sync: extracting cache to ${cacheDir}`);
+        try {
+          await this.extractCacheIfNeeded(cacheDir);
+          log(`[venv] sync: cache extraction done`);
+        } catch (err) {
+          log(`[venv] sync: cache extraction failed: ${err}`);
+          // Non-fatal: uv will fall back to downloading
+        }
+        extraEnv = { UV_CACHE_DIR: cacheDir, UV_OFFLINE: '1' };
       }
-      extraEnv = { UV_CACHE_DIR: cacheDir, UV_OFFLINE: '1' };
+
+      const args = [this.uvBin, 'sync'];
+      if (!is.dev) {
+        const bundledPython = this.bundledPythonBin;
+        if (bundledPython) args.push('--python', bundledPython);
+        args.push('--no-install-project');
+      }
+      if (extra) args.push('--extra', extra);
+
+      log(`[venv] sync: spawning ${args.join(' ')}`);
+      // In production, suppress ready until the project install completes
+      const ok = await this.runUvCommand(args, extraEnv, { suppressReady: !is.dev });
+      log(`[venv] sync() result=${ok}`);
+
+      // Install the project package (sf entry point) from the bundled source.
+      // Don't pass extraEnv here — UV_OFFLINE blocks hatchling download needed for build.
+      // This runUvCommand WILL emit ready (no suppressReady) — the final signal.
+      if (ok && !is.dev) {
+        const serverSrc = join(process.resourcesPath, 'server');
+        const installArgs = [this.uvBin, 'pip', 'install', '--no-deps', serverSrc];
+        log(`[venv] installing project from ${serverSrc}`);
+        const installOk = await this.runUvCommand(installArgs, undefined, { suppressReady: true });
+        log(`[venv] project install result=${installOk}`);
+        if (!installOk) return false;
+
+        const gatewayOk = await this.syncGatewayProject(extraEnv);
+        log(`[venv] gateway project sync result=${gatewayOk}`);
+        if (!gatewayOk) return false;
+
+        this.writeVersionStamp();
+        this.setStatus('ready');
+      }
+
+      return ok;
+    } finally {
+      this.syncing = false;
     }
-
-    const args = [this.uvBin, 'sync'];
-    if (!is.dev) args.push('--no-install-project');
-    if (extra) args.push('--extra', extra);
-
-    log(`[venv] sync: spawning ${args.join(' ')}`);
-    // In production, suppress ready until the project install completes
-    const ok = await this.runUvCommand(args, extraEnv, { suppressReady: !is.dev });
-    log(`[venv] sync() result=${ok}`);
-
-    // Install the project package (sf entry point) from the bundled source.
-    // Don't pass extraEnv here — UV_OFFLINE blocks hatchling download needed for build.
-    // This runUvCommand WILL emit ready (no suppressReady) — the final signal.
-    if (ok && !is.dev) {
-      const serverSrc = join(process.resourcesPath, 'server');
-      const installArgs = [this.uvBin, 'pip', 'install', '--no-deps', serverSrc];
-      log(`[venv] installing project from ${serverSrc}`);
-      const installOk = await this.runUvCommand(installArgs);
-      log(`[venv] project install result=${installOk}`);
-      if (!installOk) return false;
-      this.writeVersionStamp();
-    }
-
-    return ok;
   }
 
   async listPackages(): Promise<Array<{ name: string; version: string }>> {
@@ -212,18 +258,18 @@ class VenvManager extends EventEmitter {
   private runUvCommand(
     args: string[],
     extraEnv?: Record<string, string>,
-    opts?: { suppressReady?: boolean },
+    opts?: { suppressReady?: boolean; cwd?: string; venvDir?: string },
   ): Promise<boolean> {
     return new Promise((resolve) => {
       const [cmd, ...rest] = args;
       const env: Record<string, string | undefined> = {
         ...process.env,
-        VIRTUAL_ENV: this.venvDir,
+        VIRTUAL_ENV: opts?.venvDir ?? this.venvDir,
         ...extraEnv,
       };
 
       const child = spawn(cmd, rest, {
-        cwd: this.projectDir,
+        cwd: opts?.cwd ?? this.projectDir,
         env,
       });
 
@@ -240,12 +286,14 @@ class VenvManager extends EventEmitter {
           if (!opts?.suppressReady) this.setStatus('ready');
           resolve(true);
         } else {
+          log(`[venv] command failed (${code}): ${cmd} ${rest.join(' ')}`);
           this.setStatus('error');
           resolve(false);
         }
       });
 
-      child.on('error', () => {
+      child.on('error', (err) => {
+        log(`[venv] command error: ${err.message}`);
         this.setStatus('error');
         resolve(false);
       });
@@ -264,18 +312,65 @@ class VenvManager extends EventEmitter {
     }
   }
 
+  private async syncGatewayProject(extraEnv?: Record<string, string>): Promise<boolean> {
+    if (!this.uvBin) return false;
+    this.copyGatewayProjectFiles();
+
+    const syncArgs = [this.uvBin, 'sync'];
+    const bundledPython = this.bundledPythonBin;
+    if (bundledPython) syncArgs.push('--python', bundledPython);
+    syncArgs.push('--no-install-project');
+
+    const syncOk = await this.runUvCommand(syncArgs, extraEnv, {
+      suppressReady: true,
+      cwd: this.gatewayProjectDir,
+      venvDir: this.gatewayVenvDir,
+    });
+    if (!syncOk) return false;
+
+    return this.runUvCommand(
+      [this.uvBin, 'pip', 'install', '--no-deps', this.gatewayProjectDir],
+      undefined,
+      {
+        suppressReady: true,
+        cwd: this.gatewayProjectDir,
+        venvDir: this.gatewayVenvDir,
+      },
+    );
+  }
+
+  private copyGatewayProjectFiles(): void {
+    mkdirSync(this.gatewayProjectDir, { recursive: true });
+    const srcRoot = join(process.resourcesPath, 'aigateway');
+    for (const file of ['pyproject.toml', 'uv.lock']) {
+      const src = join(srcRoot, file);
+      const dst = join(this.gatewayProjectDir, file);
+      if (existsSync(src)) copyFileSync(src, dst);
+    }
+    const src = join(srcRoot, 'src');
+    const dst = join(this.gatewayProjectDir, 'src');
+    if (existsSync(src)) cpSync(src, dst, { recursive: true, force: true });
+  }
+
   private extractCacheIfNeeded(cacheDir: string): Promise<void> {
-    if (existsSync(cacheDir)) return Promise.resolve();
+    const completeSentinel = join(cacheDir, '.cache-complete');
+    if (existsSync(completeSentinel)) return Promise.resolve();
     const tarball = join(process.resourcesPath, 'server', 'cache.tar.gz');
     if (!existsSync(tarball)) return Promise.resolve();
+    if (existsSync(cacheDir)) rmSync(cacheDir, { recursive: true, force: true });
 
     return new Promise((resolve, reject) => {
       mkdirSync(cacheDir, { recursive: true });
       this.emit('progress', 'Extracting package cache...\n');
       const child = spawn('tar', ['xzf', tarball, '-C', cacheDir]);
-      child.on('close', (code) =>
-        code === 0 ? resolve() : reject(new Error(`tar exited ${code}`)),
-      );
+      child.on('close', (code) => {
+        if (code === 0) {
+          writeFileSync(completeSentinel, 'ok\n', 'utf-8');
+          resolve();
+        } else {
+          reject(new Error(`tar exited ${code}`));
+        }
+      });
       child.on('error', reject);
     });
   }

@@ -29,17 +29,28 @@ if TYPE_CHECKING:
 
 
 _DEFAULT_MODEL = "anthropic/claude-sonnet-4-5"
+_GATEWAY_PROVIDER = "anthropic"
 
 
-def create_router(settings: AigwClaudeBackendSettings, app: Any = None) -> APIRouter:
-    backend = AigwBackend(
+def create_router(
+    settings: AigwClaudeBackendSettings,
+    app: Any = None,
+    *,
+    backend: AigwBackend | None = None,
+) -> APIRouter:
+    backend = backend or AigwBackend(
         gateway_url=settings.gateway_url,
         profile_name=settings.auth_profile,
-        gateway_provider="anthropic",
+        gateway_provider=_GATEWAY_PROVIDER,
     )
 
     def build_interpreter() -> Any:
-        return AigwInterpreter(app=app, settings=settings, backend=backend)
+        return AigwInterpreter(
+            app=app,
+            settings=settings,
+            backend=backend,
+            gateway_provider=_GATEWAY_PROVIDER,
+        )
 
     router = build_backend_api_router(
         BackendApiConfig(
@@ -58,7 +69,7 @@ def create_router(settings: AigwClaudeBackendSettings, app: Any = None) -> APIRo
         build_aigw_auth_proxy_router(
             path_prefix="/claude",
             gateway_url=settings.gateway_url,
-            gateway_provider="anthropic",
+            gateway_provider=_GATEWAY_PROVIDER,
             profile_name=settings.auth_profile,
             defaults=profile_defaults or None,
         )

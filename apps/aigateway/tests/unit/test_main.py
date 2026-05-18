@@ -42,6 +42,25 @@ async def test_create_app_fake_anthropic_oauth_fail_mode(monkeypatch, tmp_path) 
     assert token.json() == {"error": "invalid_grant"}
 
 
+@pytest.mark.asyncio
+async def test_create_app_fake_codex_oauth_factory(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AIGATEWAY_FAKE_KEYCHAIN", "1")
+    monkeypatch.setenv("AIGATEWAY_KEYCHAIN_FILE", str(tmp_path / "keychain.json"))
+    monkeypatch.setenv("AIGATEWAY_FAKE_CODEX_OAUTH", "1")
+
+    from aigateway.main import create_app
+
+    app = create_app()
+
+    async with app.state.codex_http_factory() as client:
+        token = await client.post("https://auth.openai.com/oauth/token")
+        unmapped = await client.post("https://example.com/oauth/token")
+
+    assert token.status_code == 200
+    assert token.json()["refresh_token"] == "fake-codex-rt"
+    assert unmapped.status_code == 404
+
+
 def test_create_app_mounts_provider_auth_router(monkeypatch) -> None:
     from aigateway import main as main_module
 

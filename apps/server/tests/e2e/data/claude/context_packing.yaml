@@ -48,10 +48,7 @@
   ticket: SF-89
   backends: [claude]
   expression: >-
-    /claude(The population of Tokyo is 14 million.
-    The population of Paris is 2 million.
-    The population of London is 9 million.)
-    !Which city has the smallest population? One word.
+    /claude?q=%28The%20population%20of%20Tokyo%20is%2014%20million.%20The%20population%20of%20Paris%20is%202%20million.%20The%20population%20of%20London%20is%209%20million.%29%21Use%20the%20provided%20population%20facts%20to%20answer%3A%20which%20city%20has%20the%20smallest%20population%3F%20Reply%20with%20one%20word%3A%20the%20city%20name.
   expect:
     max_length: 1000
     contains_any: ["Paris", "paris"]

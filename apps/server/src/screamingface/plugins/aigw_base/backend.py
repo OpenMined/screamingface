@@ -50,9 +50,12 @@ class AigwBackend(Backend):
         *,
         gateway_url: str = "http://127.0.0.1:9105",
         profile_name: str = "default",
-        gateway_provider: str = "anthropic",
+        gateway_provider: str,
         http_client_factory=None,
     ) -> None:
+        if not gateway_provider:
+            msg = "gateway_provider is required for gateway-backed backends"
+            raise ValueError(msg)
         self._gateway_url = gateway_url.rstrip("/")
         self._profile_name = profile_name
         self._gateway_provider = gateway_provider

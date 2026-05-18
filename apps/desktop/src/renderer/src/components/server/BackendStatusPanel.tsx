@@ -89,10 +89,7 @@ function ProfileRow({
     setBusy(true);
     setError(null);
     try {
-      const result = await window.electronAPI.backends.authenticateOAuth(
-        backendName,
-        profile.name,
-      );
+      const result = await window.electronAPI.backends.authenticateOAuth(backendName, profile.name);
       if (result.kind === 'failed') {
         const reason = result.message ? `${result.reason}: ${result.message}` : result.reason;
         setError(`Re-auth failed — ${reason}`);
@@ -161,9 +158,7 @@ function ProfileRow({
           Delete
         </button>
       </div>
-      {error && (
-        <p className="basis-full text-xs text-destructive mt-1">{error}</p>
-      )}
+      {error && <p className="basis-full text-xs text-destructive mt-1">{error}</p>}
     </div>
   );
 }
@@ -175,7 +170,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
   const [newName, setNewName] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [hasPendingAuth, setHasPendingAuth] = useState(false);
+  const [pendingProfileName, setPendingProfileName] = useState<string | null>(null);
   const [pasteCode, setPasteCode] = useState('');
   const [pasteBusy, setPasteBusy] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
@@ -186,20 +181,37 @@ function ProfilesSubPanel({ name }: { name: string }) {
     setLoaded(true);
   }, [name]);
 
-  const checkPending = useCallback(async () => {
-    const s = await window.electronAPI.backends.getPendingAuthState(name);
-    setHasPendingAuth(!!s);
-  }, [name]);
+  const checkPending = useCallback(
+    async (profileName?: string) => {
+      const candidates = profileName ? [profileName] : profiles.map((p) => p.name);
+      for (const candidate of candidates) {
+        const s = await window.electronAPI.backends.getPendingAuthState(name, candidate);
+        if (s) {
+          setPendingProfileName(candidate);
+          return;
+        }
+      }
+      setPendingProfileName(null);
+    },
+    [name, profiles],
+  );
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
     void checkPending();
-  }, [refresh, checkPending]);
+  }, [checkPending]);
 
   const onPasteSubmit = async (e?: React.FormEvent): Promise<void> => {
     e?.preventDefault();
     if (pasteBusy) return;
     const code = pasteCode.trim();
+    if (!pendingProfileName) {
+      setPasteError('No in-flight OAuth flow');
+      return;
+    }
     if (!code) {
       setPasteError('Paste the authorization code');
       return;
@@ -207,13 +219,19 @@ function ProfilesSubPanel({ name }: { name: string }) {
     setPasteBusy(true);
     setPasteError(null);
     try {
-      const result = await window.electronAPI.backends.exchangeOAuthCode(name, code);
+      const result = await window.electronAPI.backends.exchangeOAuthCode(
+        name,
+        code,
+        pendingProfileName,
+      );
       if (result.ok) {
         setPasteCode('');
-        setHasPendingAuth(false);
+        setPendingProfileName(null);
         await refresh();
       } else {
-        setPasteError(result.message ?? `Exchange failed${result.status ? ` (${result.status})` : ''}`);
+        setPasteError(
+          result.message ?? `Exchange failed${result.status ? ` (${result.status})` : ''}`,
+        );
       }
     } catch (err) {
       setPasteError(err instanceof Error ? err.message : String(err));
@@ -250,7 +268,8 @@ function ProfilesSubPanel({ name }: { name: string }) {
       // paste-code fallback form can become available before the long
       // poll resolves.
       const pendingPoll = setInterval(() => {
-        void checkPending();
+        void checkPending(candidate);
+        void refresh();
       }, 500);
       try {
         const result = await window.electronAPI.backends.authenticateOAuth(name, candidate);
@@ -335,13 +354,15 @@ function ProfilesSubPanel({ name }: { name: string }) {
         </button>
       )}
       {addError && <p className="text-xs text-destructive mt-1">{addError}</p>}
-      {hasPendingAuth && (
+      {pendingProfileName && (
         <form
           onSubmit={onPasteSubmit}
           className="flex items-center gap-2 py-1.5 mt-2 border-t border-border pt-2"
           aria-label="Paste authorization code"
         >
-          <span className="text-xs text-muted-foreground">Pasted authorization code?</span>
+          <span className="text-xs text-muted-foreground">
+            Pasted authorization code for {pendingProfileName}?
+          </span>
           <input
             type="text"
             value={pasteCode}

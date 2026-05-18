@@ -10,8 +10,12 @@ from __future__ import annotations
 
 import asyncio
 from abc import abstractmethod
+from typing import TYPE_CHECKING, Any
 
 from .plugin_base import OAuthStrategy
+
+if TYPE_CHECKING:
+    from .credential_store import CredentialStore
 
 
 class BaseOAuthStrategy(OAuthStrategy):
@@ -23,6 +27,7 @@ class BaseOAuthStrategy(OAuthStrategy):
     """
 
     refresh_window_seconds: int = 60
+    _store: CredentialStore
 
     def __init__(self, profile_name: str) -> None:
         self.profile_name = profile_name
@@ -54,10 +59,17 @@ class BaseOAuthStrategy(OAuthStrategy):
                 self._cached = self._read_credential()
             self._cached = await self._refresh_credential(self._cached)
 
-    def set_credentials(self, creds: dict) -> None:
-        """Store a credential blob (used after callback's code-for-token exchange)."""
-        self._cached = creds
-        self._write_to_store(creds)
+    def persist_credentials(self, credentials: dict[str, Any]) -> None:
+        """Store a credential blob after callback's code-for-token exchange."""
+        self._cached = credentials
+        self._write_to_store(credentials)
+
+    def delete_credentials(self) -> None:
+        self._cached = None
+        self._store.delete(self.keychain_service(), self.keychain_account())
+
+    async def refresh_credentials(self) -> None:
+        await self.refresh()
 
     @abstractmethod
     def keychain_service(self) -> str:
@@ -68,7 +80,7 @@ class BaseOAuthStrategy(OAuthStrategy):
         """OS keychain `account` string for this profile's tokens."""
 
     @abstractmethod
-    def _write_to_store(self, creds: dict) -> None:
+    def _write_to_store(self, creds: dict[str, Any]) -> None:
         """Persist `creds` to the OS keychain entry."""
 
     def _header_override(self) -> dict[str, str] | None:
@@ -76,13 +88,13 @@ class BaseOAuthStrategy(OAuthStrategy):
         return None
 
     @abstractmethod
-    def _read_credential(self) -> dict: ...
+    def _read_credential(self) -> dict[str, Any]: ...
 
     @abstractmethod
-    def _is_expired(self, creds: dict) -> bool: ...
+    def _is_expired(self, creds: dict[str, Any]) -> bool: ...
 
     @abstractmethod
-    async def _refresh_credential(self, creds: dict) -> dict: ...
+    async def _refresh_credential(self, creds: dict[str, Any]) -> dict[str, Any]: ...
 
     @abstractmethod
-    def _build_headers(self, creds: dict) -> dict[str, str]: ...
+    def _build_headers(self, creds: dict[str, Any]) -> dict[str, str]: ...

@@ -48,7 +48,6 @@ def test_build_profile_defaults_top_level_settings() -> None:
     assert out == {
         "model": "anthropic/claude-sonnet-4-5",
         "timeout_seconds": 300.0,
-        "reasoning_effort": "high",
     }
 
 
@@ -72,7 +71,6 @@ def test_build_profile_defaults_profile_overrides_top_level() -> None:
         "model": "anthropic/claude-opus-4-7",
         "system_prompt": "Profile prompt.",
         "timeout_seconds": 120.0,
-        "reasoning_effort": "high",
     }
 
 
@@ -141,7 +139,7 @@ def test_aigw_claude_backend_passes_defaults_to_auth_proxy() -> None:
         app.include_router(router)
         client = TestClient(app)
         resp = client.post("/claude/auth/start")
-        assert resp.status_code == 200
+        assert resp.status_code == 201
     finally:
         apr._default_http_factory = original  # type: ignore[assignment]
 
@@ -150,6 +148,5 @@ def test_aigw_claude_backend_passes_defaults_to_auth_proxy() -> None:
         "defaults": {
             "model": "anthropic/claude-sonnet-4-5",
             "timeout_seconds": 300.0,
-            "reasoning_effort": "medium",
         },
     }

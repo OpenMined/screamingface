@@ -1,6 +1,6 @@
 {
   "name": "screamingface-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "ScreamingFace desktop control plane",
   "repository": {
@@ -91,6 +91,18 @@
       {
         "from": "../../apps/server/sf.json",
         "to": "server/sf.json"
+      },
+      {
+        "from": "../../apps/aigateway/src",
+        "to": "aigateway/src"
+      },
+      {
+        "from": "../../apps/aigateway/pyproject.toml",
+        "to": "aigateway/pyproject.toml"
+      },
+      {
+        "from": "../../apps/aigateway/uv.lock",
+        "to": "aigateway/uv.lock"
       },
       {
         "from": "build-assets/${os}/${arch}/uv",
