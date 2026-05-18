@@ -127,6 +127,10 @@ class ProviderPluginBase(ABC):
         """Return whether a profile default field should be merged into chat bodies."""
         return True
 
+    def allows_chatless_profile(self) -> bool:
+        """Whether chat may proceed when no gateway OAuth profile exists."""
+        return False
+
     async def chat_completion(self, body: dict[str, Any]) -> Any:
         """Dispatch a normalized OpenAI-compatible chat completion request."""
         import litellm

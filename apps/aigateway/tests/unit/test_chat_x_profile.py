@@ -56,12 +56,16 @@ def _seed_authenticated_codex_profile(fake_keychain, account_id: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_404_when_profile_missing(authenticated_client) -> None:
+@pytest.mark.parametrize(
+    "model",
+    ["anthropic/claude-haiku-4-5", "codex/gpt-5.4-mini"],
+)
+async def test_chat_404_when_oauth_profile_missing(authenticated_client, model: str) -> None:
     resp = authenticated_client.post(
         "/v1/chat/completions",
         headers={"X-Profile": "missing"},
         json={
-            "model": "anthropic/claude-haiku-4-5",
+            "model": model,
             "messages": [{"role": "user", "content": "hi"}],
         },
     )

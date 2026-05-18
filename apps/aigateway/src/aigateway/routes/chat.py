@@ -47,6 +47,11 @@ def _should_apply_profile_default(plugin: Any, field: str) -> bool:
     return bool(checker(field)) if callable(checker) else True
 
 
+def _allows_chatless_profile(plugin: Any) -> bool:
+    checker = getattr(plugin, "allows_chatless_profile", None)
+    return bool(checker()) if callable(checker) else False
+
+
 def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any) -> dict[str, Any]:
     """Body wins per field. Fields the body omits get the profile default."""
     if (
@@ -115,15 +120,17 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
     account_id = str(current.id)
     profile = await idx.get(account_id, provider, profile_name)
     if profile is None:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "profile_not_found",
-                "provider": provider,
-                "name": profile_name,
-            },
-        )
-    if profile.state == ProfileState.PENDING:
+        if not _allows_chatless_profile(plugin):
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "profile_not_found",
+                    "provider": provider,
+                    "name": profile_name,
+                },
+            )
+        defaults = ProfileDefaults()
+    elif profile.state == ProfileState.PENDING:
         raise HTTPException(
             status_code=409,
             detail={
@@ -132,8 +139,10 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
                 "name": profile_name,
             },
         )
+    else:
+        defaults = profile.defaults
 
-    body = plugin.prepare_chat_body(_apply_defaults(body, profile.defaults, plugin))
+    body = plugin.prepare_chat_body(_apply_defaults(body, defaults, plugin))
 
     if body.get("stream") and not plugin.supports_chat_streaming():
         raise HTTPException(
@@ -145,11 +154,13 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
             },
         )
 
-    strategy = plugin.oauth_strategy_for(
-        credential_name_for(account_id, profile_name),
-        credential_store=request.app.state.credential_store,
-        http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
-    )
+    strategy = None
+    if profile is not None:
+        strategy = plugin.oauth_strategy_for(
+            credential_name_for(account_id, profile_name),
+            credential_store=request.app.state.credential_store,
+            http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
+        )
     if strategy is not None:
         try:
             headers = await strategy.get_authorization_header()
