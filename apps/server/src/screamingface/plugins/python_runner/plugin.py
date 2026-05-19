@@ -8,14 +8,28 @@ yet; that lands in DEMO-010 / DEMO-012 / DEMO-013.
 
 from __future__ import annotations
 
+import json
+import logging
 import re
+import time
 from typing import TYPE_CHECKING
 
+import httpx
+from fastapi import HTTPException
 from pydantic import Field, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
 from screamingface.plugins.python_runner._default_scripts import load_vendored_defaults
+from screamingface.plugins.python_runner.runner import (
+    PythonRunnerError,
+    run_script_source,
+)
+from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
+from screamingface.plugins.url4_executor.url4_resolve import (
+    _fetch_relative,
+    _fetch_url,
+)
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -24,6 +38,8 @@ if TYPE_CHECKING:
     from screamingface.core.hooks import HookRegistry
     from screamingface.core.routes import RouteRegistry
 
+
+logger = logging.getLogger(__name__)
 
 VALID_SCRIPT_NAME = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
@@ -81,8 +97,75 @@ class PythonRunnerPlugin(Plugin):
         sources: str = "",
         app: FastAPI,
     ) -> str:
-        del intent, sources, app  # consumed by DEMO-013
-        raise NotImplementedError("Wired in DEMO-013")
+        """Fetch the script at ``sources``, run it sandboxed, return JSON.
+
+        ``sources`` is the source URL (relative ``/data/code/<name>.py`` or
+        absolute ``http(s)://...``). ``intent`` is the JSON payload that the
+        script reads from stdin; an empty string means an empty dict.
+        """
+        with traced("python.handle_backend_call", kind="internal"):
+            set_span_attrs({"python.source_url": sources[:500]})
+
+            try:
+                if sources.startswith(("http://", "https://")):
+                    source = await _fetch_url(sources)
+                elif sources.startswith("/"):
+                    source = await _fetch_relative(app, sources)
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "kind": "io_error",
+                            "message": f"Unsupported source URL scheme: {sources!r}",
+                        },
+                    )
+            except HTTPException:
+                raise
+            except httpx.HTTPError as e:
+                logger.warning("python-runner fetch failed for %s: %s", sources, e)
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "kind": "io_error",
+                        "message": f"Failed to fetch source {sources!r}: {e}",
+                    },
+                ) from e
+
+            try:
+                payload = json.loads(intent) if intent else {}
+            except json.JSONDecodeError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "kind": "io_error",
+                        "message": f"intent is not valid JSON: {e}",
+                    },
+                ) from e
+
+            t0 = time.monotonic()
+            try:
+                result = await run_script_source(source, payload)
+            except PythonRunnerError as e:
+                duration_ms = int((time.monotonic() - t0) * 1000)
+                set_span_attrs(
+                    {
+                        "python.duration_ms": duration_ms,
+                        "python.exit_code": e.exit_code or -1,
+                        "python.error_kind": e.kind,
+                    }
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "kind": e.kind,
+                        "message": e.message,
+                        "stderr": e.stderr,
+                    },
+                ) from e
+
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            set_span_attrs({"python.duration_ms": duration_ms})
+            return json.dumps(result)
 
     def setup(
         self,
