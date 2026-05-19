@@ -614,7 +614,8 @@ class _FakeDispatchPlugin:
         self._response = response
         self.calls: list[tuple[str, str, object]] = []
 
-    async def handle_backend_call(self, intent: str, *, sources: str = "", app) -> str:
+    async def handle_backend_call(self, intent: str, *, sources: str = "", app, env=None) -> str:
+        del env
         self.calls.append((intent, sources, app))
         return self._response
 

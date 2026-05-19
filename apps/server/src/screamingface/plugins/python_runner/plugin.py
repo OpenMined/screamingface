@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from screamingface.core.classes import ClassRegistry
     from screamingface.core.hooks import HookRegistry
     from screamingface.core.routes import RouteRegistry
+    from screamingface.plugins.url4_executor.scope import Env
 
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ class PythonRunnerPlugin(Plugin):
         *,
         sources: str = "",
         app: FastAPI,
+        env: Env | None = None,
     ) -> str:
         """Fetch the script at ``sources``, run it sandboxed, return JSON.
 
