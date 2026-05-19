@@ -2,8 +2,9 @@
 ;; Deny-by-default; permit only what a stdlib-only Python script needs
 ;; to start, read its own cached source, and write to /tmp.
 ;;
-;; SPEC_ROOT  — directory containing the cached <sha256>.py script.
-;; PY_PREFIX  — directory containing sys.executable (venv or framework).
+;; SPEC_ROOT   — directory containing the cached <sha256>.py script.
+;; PY_PREFIX   — real cpython install (resolves symlinks); owns stdlib.
+;; VENV_PREFIX — unresolved sys.prefix (venv root); owns pyvenv.cfg.
 ;;
 ;; Apple's sandbox profile language is undocumented and deprecated but
 ;; still functional. References:
@@ -39,6 +40,7 @@
     (subpath "/usr/lib")
     (subpath "/private/etc/localtime")
     (subpath (param "PY_PREFIX"))
+    (subpath (param "VENV_PREFIX"))
     (subpath (param "SPEC_ROOT")))
 
 (allow file-read*

@@ -38,13 +38,21 @@ def build_subprocess_argv(script_path: Path) -> list[str]:
     """
     if sandbox_is_enabled():
         spec_root = str(script_path.parent.resolve())
+        # PY_PREFIX is the *real* cpython install (resolves symlinks); when
+        # running inside a uv/virtualenv this points at the underlying
+        # interpreter tree the stdlib lives in.
         py_prefix = str(Path(sys.executable).resolve().parent.parent)
+        # VENV_PREFIX is the *unresolved* sys.prefix — the venv itself, which
+        # owns pyvenv.cfg and the bin/ symlinks Python touches on startup.
+        venv_prefix = str(Path(sys.executable).parent.parent)
         return [
             "sandbox-exec",
             "-D",
             f"SPEC_ROOT={spec_root}",
             "-D",
             f"PY_PREFIX={py_prefix}",
+            "-D",
+            f"VENV_PREFIX={venv_prefix}",
             "-f",
             str(SANDBOX_PROFILE_PATH),
             sys.executable,
