@@ -1,0 +1,66 @@
+;; macos.sb — minimal sandbox profile for python_runner subprocesses.
+;; Deny-by-default; permit only what a stdlib-only Python script needs
+;; to start, read its own cached source, and write to /tmp.
+;;
+;; SPEC_ROOT  — directory containing the cached <sha256>.py script.
+;; PY_PREFIX  — directory containing sys.executable (venv or framework).
+;;
+;; Apple's sandbox profile language is undocumented and deprecated but
+;; still functional. References:
+;;   man 1 sandbox-exec
+;;   https://reverse.put.as/wp-content/uploads/2011/08/Apple-Sandbox-Guide-v1.0.pdf
+;;
+;; We import system.sb to inherit the (Apple-private) baseline needed by
+;; dyld + libsystem to bootstrap any process at all (cryptex graft points,
+;; required syscalls, mach-bootstrap, system framework reads, etc.).
+;; Without that baseline the process aborts in dyld's CacheFinder before
+;; main() even runs. We layer our deny-everything-else policy on top.
+
+(version 1)
+(deny default)
+(import "system.sb")
+
+;; --- Network: deny everything ---------------------------------------------
+(deny network*)
+
+;; --- Process: allow self-fork/exec/signal ---------------------------------
+(allow process-fork)
+(allow process-exec)
+(allow signal (target self))
+
+;; --- Reads: Python interpreter, stdlib, CA bundle, cached script ----------
+(allow file-read*
+    (subpath "/Library/Frameworks/Python.framework")
+    (subpath "/System/Library/Frameworks/Python.framework")
+    (subpath "/usr/lib")
+    (subpath "/usr/local/lib")
+    (subpath "/private/etc/ssl")
+    (subpath "/private/etc/localtime")
+    (subpath (param "PY_PREFIX"))
+    (subpath (param "SPEC_ROOT")))
+
+(allow file-read*
+    (literal "/dev/null")
+    (literal "/dev/random")
+    (literal "/dev/urandom")
+    (literal "/private/etc/localtime"))
+
+;; --- Read metadata of arbitrary paths (stat-only, no contents) ------------
+;; The stdlib pokes at sys.path / site-packages dirs during startup.
+(allow file-read-metadata)
+
+;; --- Writes: only the canonical tempdirs ----------------------------------
+(allow file-write*
+    (subpath "/tmp")
+    (subpath "/private/tmp")
+    (subpath "/private/var/folders")
+    (subpath "/var/folders"))
+
+;; --- Sysctl: required for python's platform module on startup -------------
+(allow sysctl-read)
+
+;; --- Mach lookups required for libsystem init -----------------------------
+(allow mach-lookup)
+
+;; --- IPC: dyld shared cache needs this ------------------------------------
+(allow ipc-posix-shm)
