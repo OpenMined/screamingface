@@ -85,8 +85,11 @@ def test_build_argv_plain_on_non_darwin_logs_warning(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    from screamingface.plugins.python_runner import sandbox as sandbox_mod
+
     monkeypatch.delenv("SF_PYTHON_RUNNER__SANDBOX", raising=False)
     monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sandbox_mod, "_warned_unsupported", False)
     script = tmp_path / "x.py"
     script.write_text("pass\n")
 
@@ -95,3 +98,25 @@ def test_build_argv_plain_on_non_darwin_logs_warning(
 
     assert argv == [sys.executable, str(script)]
     assert any("unsandboxed" in r.message.lower() for r in caplog.records)
+
+
+def test_build_argv_non_darwin_warning_is_one_shot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from screamingface.plugins.python_runner import sandbox as sandbox_mod
+
+    monkeypatch.delenv("SF_PYTHON_RUNNER__SANDBOX", raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sandbox_mod, "_warned_unsupported", False)
+    script = tmp_path / "x.py"
+    script.write_text("pass\n")
+
+    build_subprocess_argv(script)  # first call: warns and sets flag
+    caplog.clear()
+
+    with caplog.at_level("WARNING", logger="screamingface.plugins.python_runner.sandbox"):
+        build_subprocess_argv(script)  # second call: should NOT warn again
+
+    assert not any("unsandboxed" in r.message.lower() for r in caplog.records)
