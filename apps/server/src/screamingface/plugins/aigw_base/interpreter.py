@@ -18,6 +18,7 @@ from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
 from screamingface.plugins.url4_executor.scope import Env
 
 from .backend import AigwBackend
+from .config import resolve_aigw_runtime_config
 
 if TYPE_CHECKING:
     from .settings import AigwBackendApiSettingsBase
@@ -45,9 +46,10 @@ class AigwInterpreter(Url4Interpreter):
                 msg = "gateway_provider is required when constructing AigwInterpreter from settings"
                 raise ValueError(msg)
             self._backend = AigwBackend(
-                gateway_url=settings.gateway_url,
+                gateway_url=_gateway_url(app, settings.gateway_url),
                 profile_name=settings.auth_profile,
                 gateway_provider=gateway_provider,
+                app=app,
             )
         else:
             msg = "AigwInterpreter requires either backend or settings with gateway_provider"
@@ -92,3 +94,9 @@ class AigwInterpreter(Url4Interpreter):
                 timeout_seconds=timeout,
             )
         return extract_text(result)
+
+
+def _gateway_url(app: Any, fallback: str) -> str:
+    if app is None:
+        return fallback
+    return resolve_aigw_runtime_config(app).gateway_url

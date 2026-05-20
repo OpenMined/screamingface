@@ -1,4 +1,5 @@
 const BACKEND_NAME_RE = /^[a-z0-9-]+$/;
+const OAUTH_CONNECTION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const OAUTH_AUTHORIZE_POLICIES = new Map<
   string,
@@ -38,6 +39,10 @@ const OAUTH_AUTHORIZE_POLICIES = new Map<
   ],
 ]);
 
+export interface OAuthAuthorizeOptions {
+  allowedRedirectPorts?: Iterable<string | number>;
+}
+
 type LocalServerInfo = {
   scheme: string;
   host: string;
@@ -48,7 +53,14 @@ export function isSafeBackendName(backendName: string): boolean {
   return BACKEND_NAME_RE.test(backendName);
 }
 
-export function isAllowedOAuthAuthorizeUrl(urlString: string): boolean {
+export function isSafeOAuthConnectionId(connectionId: string): boolean {
+  return OAUTH_CONNECTION_ID_RE.test(connectionId);
+}
+
+export function isAllowedOAuthAuthorizeUrl(
+  urlString: string,
+  options?: OAuthAuthorizeOptions,
+): boolean {
   const url = parseHttpsUrl(urlString);
   if (!url) return false;
   const policy = OAUTH_AUTHORIZE_POLICIES.get(url.hostname);
@@ -65,7 +77,7 @@ export function isAllowedOAuthAuthorizeUrl(urlString: string): boolean {
   if (!hasSingleParam(params, 'code_challenge_method', 'S256')) return false;
 
   const redirectUri = params.get('redirect_uri');
-  if (!redirectUri || !isLoopbackRedirectUri(redirectUri, policy)) {
+  if (!redirectUri || !isLoopbackRedirectUri(redirectUri, policy, options)) {
     return false;
   }
 
@@ -141,13 +153,15 @@ function hasSingleParam(params: URLSearchParams, name: string, expectedValue?: s
 function isLoopbackRedirectUri(
   redirectUri: string,
   policy: { redirectPath: string; ports: Set<string> },
+  options?: OAuthAuthorizeOptions,
 ): boolean {
   try {
     const url = new URL(redirectUri);
+    const ports = allowedRedirectPorts(policy, options);
     return (
       url.protocol === 'http:' &&
       url.hostname === 'localhost' &&
-      policy.ports.has(url.port) &&
+      ports.has(url.port) &&
       url.pathname === policy.redirectPath &&
       url.search === '' &&
       url.hash === '' &&
@@ -157,6 +171,20 @@ function isLoopbackRedirectUri(
   } catch {
     return false;
   }
+}
+
+function allowedRedirectPorts(
+  policy: { ports: Set<string> },
+  options?: OAuthAuthorizeOptions,
+): Set<string> {
+  const ports = new Set(policy.ports);
+  for (const port of options?.allowedRedirectPorts ?? []) {
+    const normalized = String(port);
+    if (/^[1-9][0-9]{0,4}$/.test(normalized) && Number(normalized) <= 65535) {
+      ports.add(normalized);
+    }
+  }
+  return ports;
 }
 
 function isLoopbackHostname(hostname: string): boolean {

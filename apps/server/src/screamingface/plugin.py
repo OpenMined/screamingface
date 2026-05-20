@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
@@ -62,6 +62,10 @@ class Plugin:
     requires_root: bool = False
     required_port: int | None = None
     settings: PluginSettings | None = None
+
+    # Settings schemas are normally public local metadata. Plugins that enrich
+    # schemas from privileged runtime state can opt into Desktop-secret gating.
+    schema_requires_desktop_secret: ClassVar[bool] = False
 
     # Paths this plugin handles when it's the target of a url4 backend_call
     # (``/<path>()!<intent>`` form). The url4 resolver walks active plugins

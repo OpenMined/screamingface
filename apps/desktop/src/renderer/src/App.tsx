@@ -4,7 +4,6 @@ import type { View } from '@/components/layout/Sidebar';
 import { DashboardView } from '@/views/DashboardView';
 import { SessionsView } from '@/views/SessionsView';
 import { SettingsView } from '@/views/SettingsView';
-import { PluginView } from '@/views/PluginView';
 import { PluginHost } from '@/components/plugins/PluginHost';
 import { useServerStatus } from '@/hooks/use-server-status';
 import { usePlugins } from '@/hooks/use-plugins';
@@ -29,13 +28,12 @@ export function App() {
     [config],
   );
 
-  const serverUrl =
-    server.info
-      ? `${server.info.scheme}://${server.info.host === '0.0.0.0' ? 'localhost' : server.info.host}:${server.info.port}`
-      : '';
+  const serverUrl = server.info
+    ? `${server.info.scheme}://${server.info.host === '0.0.0.0' ? 'localhost' : server.info.host}:${server.info.port}`
+    : '';
 
   const renderView = () => {
-    if (currentView === 'dashboard') return <DashboardView />;
+    if (currentView === 'dashboard') return <DashboardView server={server} />;
     if (currentView === 'sessions') return <SessionsView />;
     if (currentView === 'settings') return <SettingsView />;
 
@@ -60,7 +58,7 @@ export function App() {
       );
     }
 
-    return <DashboardView />;
+    return <DashboardView server={server} />;
   };
 
   return (

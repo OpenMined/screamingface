@@ -4,7 +4,15 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 const { openExternal } = vi.hoisted(() => ({ openExternal: vi.fn(async () => {}) }));
 vi.mock('electron', () => ({ shell: { openExternal } }));
 
-import { clearPendingAuthState, getPendingAuthState, runOAuthLauncher } from '../oauth-launcher';
+import {
+  clearPendingAuthState,
+  clearPendingConnectionAuthState,
+  clearPendingOAuthStates,
+  getPendingAuthState,
+  getPendingConnectionAuthState,
+  runOAuthConnectionLauncher,
+  runOAuthLauncher,
+} from '../oauth-launcher';
 
 const AUTHORIZE_URL =
   'https://claude.com/cai/oauth/authorize?' +
@@ -30,11 +38,24 @@ const ALTERNATE_AUTHORIZE_URL =
     state: 's1',
   }).toString();
 
+const EXTERNAL_CLAUDE_AUTHORIZE_URL =
+  'https://claude.com/cai/oauth/authorize?' +
+  new URLSearchParams({
+    response_type: 'code',
+    client_id: 'public-client-id',
+    redirect_uri: 'http://localhost:9106/callback',
+    scope: 'read write',
+    code_challenge: 'challenge',
+    code_challenge_method: 'S256',
+    state: 's1',
+  }).toString();
+
 beforeEach(() => {
   openExternal.mockClear();
   clearPendingAuthState('browser-backend');
   clearPendingAuthState('browser-backend', 'work');
   clearPendingAuthState('browser-backend', 'personal');
+  clearPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001');
   clearPendingAuthState('other-backend');
 });
 afterEach(() => {
@@ -133,6 +154,41 @@ describe('runOAuthLauncher', () => {
     });
     expect(result.kind).toBe('failed');
     if (result.kind === 'failed') expect(result.reason).toBe('timeout');
+  });
+
+  it('aborts profile OAuth polling when the signal fires', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(
+          JSON.stringify({ authorize_url: AUTHORIZE_URL, state: 'profile-state' }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        );
+      }
+      controller.abort();
+      return new Response(JSON.stringify({ state: 'pending' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    const result = await runOAuthLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      pollIntervalMs: 60_000,
+      timeoutMs: 120_000,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      abortSignal: controller.signal,
+    });
+
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') expect(result.reason).toBe('cancelled');
+    expect(getPendingAuthState('browser-backend')).toBe('profile-state');
   });
 
   it('short-circuits to provider_error when status is error', async () => {
@@ -297,5 +353,244 @@ describe('runOAuthLauncher', () => {
     expect(openExternal).not.toHaveBeenCalled();
     expect(result.kind).toBe('failed');
     if (result.kind === 'failed') expect(result.reason).toBe('gateway_error');
+  });
+
+  it('opens connection authorize URL and resolves with duplicate metadata', async () => {
+    const fetchMock = makeFetch([
+      () =>
+        new Response(
+          JSON.stringify({
+            connection_id: '00000000-0000-0000-0000-000000000001',
+            authorize_url: AUTHORIZE_URL,
+            state: 'connection-state',
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        ),
+      () =>
+        new Response(
+          JSON.stringify({
+            id: '00000000-0000-0000-0000-000000000111',
+            label: 'codex@example.com',
+            status: 'active',
+            is_duplicate: true,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    ]);
+
+    const result = await runOAuthConnectionLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      label: 'work-anthropic',
+      pollIntervalMs: 1,
+      timeoutMs: 5_000,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    expect(openExternal).toHaveBeenCalledWith(AUTHORIZE_URL);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'http://127.0.0.1:1234/browser-backend/auth/connections',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ label: 'work-anthropic' }),
+      },
+    );
+    expect(result.kind).toBe('complete');
+    if (result.kind === 'complete') {
+      expect(result.isDuplicate).toBe(true);
+      expect(result.connection?.id).toBe('00000000-0000-0000-0000-000000000111');
+    }
+    expect(
+      getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
+    ).toBeNull();
+  });
+
+  it('keeps pending connection state available after connection OAuth timeout', async () => {
+    const fetchMock = makeFetch([
+      () =>
+        new Response(
+          JSON.stringify({
+            connection_id: '00000000-0000-0000-0000-000000000001',
+            authorize_url: AUTHORIZE_URL,
+            state: 'connection-state',
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        ),
+      ...Array(20).fill(
+        () =>
+          new Response(
+            JSON.stringify({
+              id: '00000000-0000-0000-0000-000000000001',
+              label: 'work-anthropic',
+              status: 'pending',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+      ),
+    ]);
+
+    const result = await runOAuthConnectionLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      pollIntervalMs: 1,
+      timeoutMs: 10,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') expect(result.reason).toBe('timeout');
+    expect(
+      getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
+    ).toBe('connection-state');
+  });
+
+  it('aborts connection OAuth polling when the signal fires', async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const fetchMock = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(
+          JSON.stringify({
+            connection_id: '00000000-0000-0000-0000-000000000001',
+            authorize_url: AUTHORIZE_URL,
+            state: 'connection-state',
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      controller.abort();
+      return new Response(
+        JSON.stringify({
+          id: '00000000-0000-0000-0000-000000000001',
+          label: 'work-anthropic',
+          status: 'pending',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+
+    const result = await runOAuthConnectionLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      pollIntervalMs: 60_000,
+      timeoutMs: 120_000,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      abortSignal: controller.signal,
+    });
+
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') expect(result.reason).toBe('cancelled');
+    expect(
+      getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
+    ).toBe('connection-state');
+  });
+
+  it('clears all pending OAuth states on logout cleanup', async () => {
+    await runOAuthLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      timeoutMs: 0,
+      fetchImpl: makeFetch([
+        () =>
+          new Response(JSON.stringify({ authorize_url: AUTHORIZE_URL, state: 'profile-state' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ]) as unknown as typeof fetch,
+    });
+    await runOAuthConnectionLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      timeoutMs: 0,
+      fetchImpl: makeFetch([
+        () =>
+          new Response(
+            JSON.stringify({
+              connection_id: '00000000-0000-0000-0000-000000000001',
+              authorize_url: AUTHORIZE_URL,
+              state: 'connection-state',
+            }),
+            { status: 201, headers: { 'content-type': 'application/json' } },
+          ),
+      ]) as unknown as typeof fetch,
+    });
+
+    expect(getPendingAuthState('browser-backend')).toBe('profile-state');
+    expect(
+      getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
+    ).toBe('connection-state');
+
+    clearPendingOAuthStates();
+
+    expect(getPendingAuthState('browser-backend')).toBeNull();
+    expect(
+      getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
+    ).toBeNull();
+  });
+
+  it('allows connection OAuth through the supplied external gateway redirect port', async () => {
+    const fetchMock = makeFetch([
+      () =>
+        new Response(
+          JSON.stringify({
+            connection_id: '00000000-0000-0000-0000-000000000001',
+            authorize_url: EXTERNAL_CLAUDE_AUTHORIZE_URL,
+            state: 'connection-state',
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        ),
+      () =>
+        new Response(
+          JSON.stringify({
+            id: '00000000-0000-0000-0000-000000000001',
+            label: 'work-anthropic',
+            status: 'active',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    ]);
+
+    const result = await runOAuthConnectionLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      label: 'work-anthropic',
+      pollIntervalMs: 1,
+      timeoutMs: 5_000,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      allowedOAuthRedirectPorts: ['9106'],
+    });
+
+    expect(openExternal).toHaveBeenCalledWith(EXTERNAL_CLAUDE_AUTHORIZE_URL);
+    expect(result.kind).toBe('complete');
+  });
+
+  it('rejects unsafe connection ids before opening browser or polling', async () => {
+    const fetchMock = makeFetch([
+      () =>
+        new Response(
+          JSON.stringify({
+            connection_id: '../auth/profiles/default',
+            authorize_url: AUTHORIZE_URL,
+            state: 'connection-state',
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        ),
+    ]);
+
+    const result = await runOAuthConnectionLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      pollIntervalMs: 1,
+      timeoutMs: 10,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') expect(result.message).toBe('invalid connection id');
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

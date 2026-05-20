@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -96,7 +97,8 @@ async def test_handle_backend_call_unsupported_scheme_raises_http_400() -> None:
     with pytest.raises(HTTPException) as excinfo:
         await plugin.handle_backend_call("", sources="ftp://example.com/echo.py", app=app)
     assert excinfo.value.status_code == 400
-    assert excinfo.value.detail["kind"] == "io_error"
+    detail = cast(dict[str, str], excinfo.value.detail)
+    assert detail["kind"] == "io_error"
 
 
 @pytest.mark.asyncio
@@ -107,7 +109,7 @@ async def test_handle_backend_call_syntax_error_surfaces_as_http_500() -> None:
     with pytest.raises(HTTPException) as excinfo:
         await plugin.handle_backend_call("{}", sources="/data/code/broken.py", app=app)
     assert excinfo.value.status_code == 500
-    detail = excinfo.value.detail
+    detail = cast(dict[str, str], excinfo.value.detail)
     assert detail["kind"] == "nonzero_exit"
     assert "SyntaxError" in detail["stderr"]
 
@@ -120,4 +122,5 @@ async def test_handle_backend_call_fetch_404_propagates_as_http_400() -> None:
     with pytest.raises(HTTPException) as excinfo:
         await plugin.handle_backend_call("", sources="/data/code/missing.py", app=app)
     assert excinfo.value.status_code == 400
-    assert excinfo.value.detail["kind"] == "io_error"
+    detail = cast(dict[str, str], excinfo.value.detail)
+    assert detail["kind"] == "io_error"

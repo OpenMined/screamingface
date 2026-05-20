@@ -3,16 +3,23 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from screamingface import __version__ as sf_version
+from screamingface.core.admin_router import register_admin_routes
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
-from screamingface.plugin import Plugin
+from screamingface.plugin import Plugin, PluginSettings
+from screamingface.plugins.aigw_claude_backend.plugin import (
+    AigwClaudeBackendPlugin,
+    AigwClaudeBackendSettings,
+)
 from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings
 
 # --- Settings resolution ---
@@ -136,6 +143,118 @@ def test_plugin_schema_endpoint(settings_client: TestClient) -> None:
     assert "upstream_url" in schema["properties"]
     assert "listen_port" in schema["properties"]
     assert "active_spec" in schema["properties"]
+
+
+def test_aigw_plugin_schema_requires_desktop_secret_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+
+    class DummySettings(PluginSettings):
+        value: str = "ok"
+
+    class AigwSchemaPlugin(Plugin):
+        name = "aigw-test-backend"
+        settings_class = DummySettings
+        schema_requires_desktop_secret = True
+
+        def __init__(self) -> None:
+            self.customize_count = 0
+
+        def customize_schema(self, schema: dict) -> dict:
+            self.customize_count += 1
+            schema["x-customized"] = True
+            return schema
+
+    plugin = AigwSchemaPlugin()
+    app = FastAPI()
+    app.state.plugins = SimpleNamespace(active_plugins={plugin.name: plugin})
+    register_admin_routes(app)
+    client = TestClient(app)
+
+    missing = client.get(f"/plugins/{plugin.name}/schema")
+    allowed = client.get(
+        f"/plugins/{plugin.name}/schema",
+        headers={"X-SF-Desktop-Secret": "test-secret"},
+    )
+
+    assert missing.status_code == 401
+    assert plugin.customize_count == 1
+    assert allowed.status_code == 200
+    assert allowed.json()["x-customized"] is True
+
+
+def test_real_aigw_plugin_schema_requires_secret_before_gateway_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+    gateway_requests: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        gateway_requests.append(str(req.url))
+        if req.url.path.endswith("/v1/auth/anthropic/profiles"):
+            return httpx.Response(200, json={"profiles": [{"name": "default"}]})
+        if req.url.path.endswith("/v1/oauth/connections"):
+            return httpx.Response(
+                200,
+                json={"connections": [{"label": "work-anthropic", "status": "active"}]},
+            )
+        raise AssertionError(f"unexpected gateway request: {req.url}")
+
+    plugin = AigwClaudeBackendPlugin()
+    plugin.settings = AigwClaudeBackendSettings()
+    plugin._http_transport = httpx.MockTransport(handler)  # type: ignore[attr-defined]
+    app = FastAPI()
+    app.state.config = SimpleNamespace(
+        plugin_config={"aigw-base": {"mode": "local_managed", "gateway_url": "http://gateway"}}
+    )
+    app.state.plugins = SimpleNamespace(active_plugins={plugin.name: plugin})
+    plugin._app = app  # type: ignore[attr-defined]
+    register_admin_routes(app)
+    client = TestClient(app)
+
+    missing = client.get(f"/plugins/{plugin.name}/schema")
+
+    assert missing.status_code == 401
+    assert gateway_requests == []
+
+    allowed = client.get(
+        f"/plugins/{plugin.name}/schema",
+        headers={"X-SF-Desktop-Secret": "test-secret"},
+    )
+
+    assert allowed.status_code == 200
+    assert allowed.json()["properties"]["auth_profile"]["enum"] == [
+        "default",
+        "work-anthropic",
+    ]
+    assert gateway_requests == [
+        "http://gateway/v1/auth/anthropic/profiles",
+        "http://gateway/v1/oauth/connections?provider=anthropic&status=active",
+    ]
+
+
+def test_non_aigw_plugin_schema_remains_public_when_desktop_secret_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+
+    class DummySettings(PluginSettings):
+        value: str = "ok"
+
+    class PlainPlugin(Plugin):
+        name = "plain-plugin"
+        settings_class = DummySettings
+
+    plugin = PlainPlugin()
+    app = FastAPI()
+    app.state.plugins = SimpleNamespace(active_plugins={plugin.name: plugin})
+    register_admin_routes(app)
+
+    resp = TestClient(app).get(f"/plugins/{plugin.name}/schema")
+
+    assert resp.status_code == 200
+    assert "value" in resp.json()["properties"]
 
 
 def test_plugin_settings_endpoint(settings_client: TestClient) -> None:

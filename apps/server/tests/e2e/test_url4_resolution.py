@@ -6,8 +6,6 @@ dispatch without mocks.
 
 from __future__ import annotations
 
-import shutil
-
 import httpx
 import pytest
 
@@ -70,47 +68,39 @@ class TestUrl4Resolution:
         assert "result" in data
 
 
-@pytest.mark.e2e_live
-@pytest.mark.timeout(120)
-class TestUrl4IntentDispatch:
-    """Tests that require Claude CLI for intent dispatch."""
+class TestUrl4IntentResolution:
+    """Tests resolving URL intents through the base url4 server fixture."""
 
-    @pytest.fixture(autouse=True)
-    def _require_claude(self):
-        if not shutil.which("claude"):
-            pytest.skip("Claude CLI not found in PATH")
-
-    def test_intent_dispatch_to_claude(self, sf_server: ServerManager):
-        """Plain text context dispatched to claude-backend."""
-        from urllib.parse import quote
-
-        backend_url = f"{sf_server.base_url}/claude/default"
-        prompt = "respond with exactly: E2E_OK"
-        intent_url = f"{backend_url}?prompt={quote(prompt)}"
-
+    def test_intent_fetch_with_plain_text_source(
+        self,
+        sf_server: ServerManager,
+        httpbin_url: str,
+    ):
+        """Plain text context is combined with a fetched URL intent."""
         resp = httpx.get(
             f"{sf_server.base_url}/ensemble",
-            params={"q": f"hello!{intent_url}"},
+            params={"q": f"hello!{httpbin_url}/robots.txt"},
             timeout=60,
         )
 
         assert resp.status_code == 200
-        assert resp.text.strip() != ""
+        assert "User-agent" in resp.text
+        assert "hello" in resp.text
 
-    def test_intent_fetch_then_dispatch(self, sf_server: ServerManager):
-        """Fetched resource context dispatched to claude-backend."""
-        from urllib.parse import quote
-
+    def test_fetched_source_with_fetched_intent(
+        self,
+        sf_server: ServerManager,
+        httpbin_url: str,
+    ):
+        """Fetched resource context is combined with a fetched URL intent."""
         health_url = f"{sf_server.base_url}/health"
-        backend_url = f"{sf_server.base_url}/claude/default"
-        prompt = "describe what you see in one sentence"
-        intent_url = f"{backend_url}?prompt={quote(prompt)}"
 
         resp = httpx.get(
             f"{sf_server.base_url}/ensemble",
-            params={"q": f"({health_url})!{intent_url}"},
+            params={"q": f"({health_url})!{httpbin_url}/robots.txt"},
             timeout=60,
         )
 
         assert resp.status_code == 200
-        assert resp.text.strip() != ""
+        assert "User-agent" in resp.text
+        assert '"status":"ok"' in resp.text

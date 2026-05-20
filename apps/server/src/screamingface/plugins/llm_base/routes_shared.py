@@ -1,10 +1,9 @@
 """Shared FastAPI router factory for ``*_backend_api`` plugins.
 
-Before this module existed, every direct-API plugin (claude, codex,
-gemini, ollama) carried its own ~400-line ``routes.py`` that was 85%
-byte-identical to its siblings. The only real differences were:
+Before this module existed, direct-API plugins carried near-identical
+``routes.py`` implementations. The only real differences were:
 
-- the URL prefix (``/claude`` vs ``/codex`` vs …)
+- the URL prefix
 - the default model fallback
 - the backend instance
 - the URL4 interpreter class
@@ -27,9 +26,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
+from screamingface.plugins.aigw_base.desktop_secret import require_desktop_secret
 from screamingface.plugins.backend_api_base.models import RunRequest, RunResponse
 from screamingface.plugins.llm_base._route_telemetry import (
     record_ignored_fields,
@@ -60,9 +60,9 @@ class BackendApiConfig:
     """Per-provider wiring that drives the shared router factory.
 
     Attributes:
-        name: Plugin name, e.g. ``"claude-backend-api"``. Used as the
+        name: Plugin name. Used as the
             router tag and as the OTEL ``sf.plugin`` attribute value.
-        path_prefix: URL prefix without trailing slash, e.g. ``"/claude"``.
+        path_prefix: URL prefix without trailing slash.
             Every generated route lives under this prefix.
         default_model: Fallback model when neither request nor settings
             specify one.
@@ -73,9 +73,7 @@ class BackendApiConfig:
         build_interpreter: Callable returning a new URL4 interpreter
             for this backend. Invoked with no arguments — capture
             ``app``/``settings``/``backend`` in the closure.
-        span_prefix: Short provider name used as span-attribute prefix
-            (e.g. ``"claude"`` produces ``claude.exit_code``). Usually
-            the first segment of ``name``.
+        span_prefix: Short namespace used as span-attribute prefix.
         operation_id_prefix: Used to name OpenAPI operation IDs. If
             unset, derived from ``name`` by stripping the
             ``-backend-api`` suffix and replacing hyphens with
@@ -112,6 +110,9 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
     op = cfg.operation_id_prefix
     backend = cfg.backend
     settings = cfg.settings
+    privileged_dependencies = (
+        [Depends(require_desktop_secret)] if cfg.name.startswith("aigw-") else []
+    )
 
     @router.get(f"{prefix}/health", response_model=None, operation_id=f"{op}_health")
     async def health() -> JSONResponse:
@@ -239,12 +240,24 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
                 headers=headers,
             )
 
-    @router.post(f"{prefix}/run", response_model=None, operation_id=f"{op}_run")
-    async def run_endpoint(request: RunRequest) -> JSONResponse | StreamingResponse:
-        _reject_cli_only_fields(request, cfg.name)
-        return await _execute(request)
+    @router.post(
+        f"{prefix}/run",
+        response_model=None,
+        operation_id=f"{op}_run",
+        dependencies=privileged_dependencies,
+    )
+    async def run_endpoint(
+        body: RunRequest,
+    ) -> JSONResponse | StreamingResponse:
+        _reject_cli_only_fields(body, cfg.name)
+        return await _execute(body)
 
-    @router.get(prefix, response_model=None, operation_id=f"{op}_url4")
+    @router.get(
+        prefix,
+        response_model=None,
+        operation_id=f"{op}_url4",
+        dependencies=privileged_dependencies,
+    )
     async def url4(q: str) -> PlainTextResponse:
         interpreter = cfg.build_interpreter()
         try:
@@ -347,6 +360,7 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
         f"{prefix}/{{profile_name}}",
         response_model=None,
         operation_id=f"{op}_profile_get",
+        dependencies=privileged_dependencies,
     )
     async def profile_get(
         profile_name: str,
@@ -360,6 +374,7 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
         f"{prefix}/{{profile_name}}",
         response_model=None,
         operation_id=f"{op}_profile_post",
+        dependencies=privileged_dependencies,
     )
     async def profile_post(
         profile_name: str,
@@ -412,7 +427,7 @@ def _reject_cli_only_fields(request: RunRequest, plugin_name: str) -> None:
         detail=(
             f"{plugin_name} does not accept CLI-only fields: "
             f"{', '.join(offending)}. These flags only apply to the "
-            f"matching CLI tool (e.g. claude-cli) — direct API backends "
+            f"matching CLI tool — direct API backends "
             f"have no subprocess to honor them. Remove the field(s) or "
             f"call the CLI-frontend plugin instead."
         ),

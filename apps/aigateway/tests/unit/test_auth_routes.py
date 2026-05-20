@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from fastapi import HTTPException
+from tortoise.exceptions import IntegrityError
 
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
@@ -24,6 +25,8 @@ from aigateway.core.profile_models import (
 from aigateway.plugins.codex_provider.oauth_config import CODEX_CLIENT_ID
 from aigateway.routes.auth import (
     _complete_oauth_for_app,
+    _connection_label,
+    _expire_loopback_callback,
     _handle_loopback_callback,
     _http_response,
     _loopback_host_allowed,
@@ -105,6 +108,34 @@ def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     assert "%2Fcallback&" in body["authorize_url"]
 
 
+def test_start_oauth_uses_request_host_port_for_gateway_callback(client_with_index) -> None:
+    client, _ = client_with_index
+
+    resp = client.post(
+        "/v1/auth/anthropic/profiles",
+        json={"name": "port-check"},
+        headers={"host": "127.0.0.1:9106"},
+    )
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == ["http://localhost:9106/callback"]
+
+
+def test_start_oauth_invalid_host_falls_back_to_app_port(client_with_index) -> None:
+    client, _ = client_with_index
+
+    resp = client.post(
+        "/v1/auth/anthropic/profiles",
+        json={"name": "fallback-port"},
+        headers={"host": "127.0.0.1:not-a-port"},
+    )
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == [f"http://localhost:{client.app.state.settings.port}/callback"]
+
+
 def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -> None:
     client, _ = client_with_index
     account_id = _account_id(client)
@@ -137,6 +168,20 @@ def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -
     assert "offline_access" in profile["scopes"]
 
 
+def test_start_oauth_loopback_unavailable_returns_503(client_with_index, monkeypatch) -> None:
+    client, _ = client_with_index
+
+    async def fail_start_server(*_args, **_kwargs):
+        raise OSError("port unavailable")
+
+    monkeypatch.setattr(asyncio, "start_server", fail_start_server)
+
+    resp = client.post("/v1/auth/codex/profiles", json={"name": "loopback-busy"})
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "oauth_loopback_unavailable"
+
+
 def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
     """The /callback route looks up the provider from the pending-auth
     state, so the same path serves every provider — matching what Claude Code
@@ -158,6 +203,27 @@ def test_top_level_callback_dispatches_by_state(client_with_index) -> None:
         client.headers["Authorization"] = auth_header
     assert resp.status_code == 200
     prof = client.get("/v1/auth/anthropic/profiles/topcb").json()
+    assert prof["state"] == "authenticated"
+
+
+def test_oauth2callback_alias_completes_auth(client_with_index) -> None:
+    client, _ = client_with_index
+    client.app.state.anthropic_http_factory = _mock_token_factory()
+
+    start = client.post("/v1/auth/anthropic/profiles", json={"name": "oauth2cb"})
+    state = start.json()["state"]
+
+    auth_header = client.headers.pop("Authorization")
+    try:
+        resp = client.get(
+            "/oauth2callback",
+            params={"code": "auth-code-oauth2", "state": state},
+            follow_redirects=False,
+        )
+    finally:
+        client.headers["Authorization"] = auth_header
+    assert resp.status_code == 200
+    prof = client.get("/v1/auth/anthropic/profiles/oauth2cb").json()
     assert prof["state"] == "authenticated"
 
 
@@ -229,6 +295,9 @@ class _GenericOAuthPlugin:
 
     def oauth_strategy_for(self, _profile_name: str, **_kwargs) -> _RecordingStrategy:
         return self.strategy
+
+    def requires_oauth_connection_label(self) -> bool:
+        return False
 
     async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict:
         self.exchange_request = request
@@ -374,6 +443,39 @@ def test_loopback_http_response_serializes_body_and_headers() -> None:
     assert b"content-type: text/plain; charset=utf-8\r\n" in response
     assert b"content-length: 6\r\n" in response
     assert response.endswith(b"\r\n\r\nteapot")
+
+
+@pytest.mark.asyncio
+async def test_expire_loopback_callback_closes_registered_server(client_with_index) -> None:
+    client, _ = client_with_index
+    state = "expires-now"
+    server = _FakeServer()
+    client.app.state.loopback_oauth_callbacks = {state: server}
+
+    await _expire_loopback_callback(client.app, state, 0)
+
+    assert server.closed is True
+    assert server.waited is True
+    assert state not in client.app.state.loopback_oauth_callbacks
+
+
+def test_connection_label_uses_plugin_account_label_fallback() -> None:
+    class _LabelPlugin:
+        def account_label_from_credentials(self, _credentials: dict) -> str | None:
+            return "derived-label"
+
+    pending = PendingAuthEntry(
+        account_id="account-1",
+        provider="generic",
+        profile_name="fallback-profile",
+        profile_id="profile-1",
+        code_verifier="verifier",
+        redirect_uri="http://localhost/callback",
+    )
+
+    assert (
+        _connection_label(pending, _LabelPlugin(), {"access_token": "tok"}, None) == "derived-label"
+    )
 
 
 @pytest.mark.asyncio
@@ -535,6 +637,37 @@ def test_exchange_code_uses_provider_exchange_hook(client_with_index) -> None:
     profile = client.get("/v1/auth/generic/profiles/work").json()
     assert profile["id"] == profile_id_for(account_id, "generic", "work")
     assert profile["state"] == "authenticated"
+
+
+def test_connection_completion_persists_credentials_after_store_complete(
+    client_with_index, monkeypatch
+) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+
+    async def complete_conflict(*_args, **_kwargs) -> None:
+        raise IntegrityError("simulated connection race")
+
+    monkeypatch.setattr(
+        "aigateway.routes.auth.OAuthConnectionStore.complete",
+        complete_conflict,
+    )
+
+    start = client.post(
+        "/v1/oauth/connections",
+        json={"provider": "generic", "label": "race-generic"},
+    )
+    assert start.status_code == 201
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "connection_conflict"
+    assert plugin.strategy.creds is None
 
 
 def test_start_oauth_creates_pending_profile(client_with_index) -> None:
@@ -929,6 +1062,89 @@ def test_exchange_code_runs_oauth(client_with_index) -> None:
     assert "new-tok" in blob
 
 
+def test_exchange_code_with_unknown_provider_404(client_with_index) -> None:
+    client, _ = client_with_index
+    client.app.state.providers._plugins["generic"] = _GenericOAuthPlugin()
+
+    start = client.post("/v1/auth/generic/profiles", json={"name": "gone"})
+    client.app.state.providers._plugins.pop("generic")
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "unknown_provider"
+
+
+def test_exchange_code_without_oauth_strategy_returns_400(client_with_index, monkeypatch) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    monkeypatch.setattr(plugin, "oauth_strategy_for", lambda *_args, **_kwargs: None)
+    client.app.state.providers._plugins["generic"] = plugin
+
+    start = client.post("/v1/auth/generic/profiles", json={"name": "no-strategy"})
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "provider_does_not_use_oauth"
+
+
+def test_exchange_code_race_after_validation_returns_unknown_state(
+    client_with_index, monkeypatch
+) -> None:
+    client, _ = client_with_index
+    client.app.state.providers._plugins["generic"] = _GenericOAuthPlugin()
+
+    start = client.post("/v1/auth/generic/profiles", json={"name": "pop-race"})
+    monkeypatch.setattr(client.app.state.pending_auth, "pop", lambda _state: None)
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "unknown_state"
+
+
+def test_connection_exchange_not_implemented_marks_connection_error(
+    client_with_index, monkeypatch
+) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+
+    async def not_implemented(_request: OAuthCodeExchangeRequest) -> dict:
+        raise NotImplementedError("not supported")
+
+    monkeypatch.setattr(plugin, "exchange_oauth_code", not_implemented)
+    client.app.state.providers._plugins["generic"] = plugin
+
+    start = client.post(
+        "/v1/oauth/connections",
+        json={"provider": "generic", "label": "generic-not-implemented"},
+    )
+    connection_id = start.json()["connection_id"]
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "provider_does_not_use_oauth"
+
+    detail = client.get(f"/v1/oauth/connections/{connection_id}")
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "error"
+    assert detail.json()["error_message"] == "provider_does_not_use_oauth"
+
+
 def test_exchange_code_with_unknown_state_400(client_with_index) -> None:
     client, _ = client_with_index
     resp = client.post(
@@ -1064,6 +1280,31 @@ async def test_refresh_uses_app_store_and_provider_http_factory(
     blob = fake_keychain.read(keychain_service_for(credential_name), "default")
     assert blob is not None
     assert json.loads(blob)["access_token"] == "new-tok"
+
+
+@pytest.mark.asyncio
+async def test_refresh_without_oauth_strategy_returns_400(client_with_index, monkeypatch) -> None:
+    client, fake_keychain = client_with_index
+    account_id = _account_id(client)
+    plugin = _GenericOAuthPlugin()
+    monkeypatch.setattr(plugin, "oauth_strategy_for", lambda *_args, **_kwargs: None)
+    client.app.state.providers._plugins["generic"] = plugin
+
+    idx = ProfileIndexStore(credential_store=fake_keychain)
+    await idx.upsert(
+        Profile(
+            id=profile_id_for(account_id, "generic", "needs-refresh"),
+            account_id=account_id,
+            provider="generic",
+            name="needs-refresh",
+            state=ProfileState.AUTHENTICATED,
+        )
+    )
+
+    resp = client.post("/v1/auth/generic/profiles/needs-refresh/refresh")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "provider_does_not_use_oauth"
 
 
 def test_delete_removes_profile_and_tokens(client_with_index) -> None:

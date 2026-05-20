@@ -6,9 +6,10 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
+from screamingface.plugins.aigw_base.desktop_secret import require_desktop_secret
 from screamingface.plugins.eval_runs._hook_payloads import (
     HOOK_RUN_FAILED,
     HOOK_RUN_FINISHED,
@@ -66,7 +67,12 @@ def _ast_to_dict(node) -> dict | str:
 def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
     router = APIRouter(tags=["url4-executor"])
 
-    @router.get("/ensemble/highlight", response_model=None, operation_id="url4_highlight")
+    @router.get(
+        "/ensemble/highlight",
+        response_model=None,
+        operation_id="url4_highlight",
+        dependencies=[Depends(require_desktop_secret)],
+    )
     async def url4_highlight(q: str | None = None) -> JSONResponse:
         if not q:
             raise HTTPException(status_code=400, detail="Missing 'q' query parameter")
@@ -77,7 +83,12 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
             raise HTTPException(status_code=400, detail=f"url4 parse error: {exc}")
         return JSONResponse(content={"tokens": tokens})
 
-    @router.get("/ensemble", response_model=None, operation_id="url4_resolve")
+    @router.get(
+        "/ensemble",
+        response_model=None,
+        operation_id="url4_resolve",
+        dependencies=[Depends(require_desktop_secret)],
+    )
     async def url4_resolve(
         request: Request,
         q: str | None = None,

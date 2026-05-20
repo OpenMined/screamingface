@@ -21,12 +21,16 @@ from litellm.exceptions import (
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.errors import AuthError, CredentialNotFoundError
+from ..core.oauth.models import OAuthConnection
+from ..core.oauth.store import OAuthConnectionStore, credential_key_for
 from ..core.profile_index import ProfileIndexStore
-from ..core.profile_models import ProfileDefaults, ProfileState, credential_name_for
+from ..core.profile_models import Profile, ProfileDefaults, ProfileState, credential_name_for
 from ..core.registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_DEFAULT_PROFILE_NAME = "default"
 
 
 _BUCKET_A_FIELDS = (
@@ -61,6 +65,112 @@ def _invalidate_profile_session(plugin: Any, profile_name: str) -> None:
 def _should_mark_profile_error_on_dispatch_status(plugin: Any, status_code: int) -> bool:
     checker = getattr(plugin, "should_mark_profile_error_on_dispatch_status", None)
     return bool(checker(status_code)) if callable(checker) else False
+
+
+def _oauth_connection_store(request: Request) -> OAuthConnectionStore:
+    store = getattr(request.app.state, "oauth_connections", None)
+    if isinstance(store, OAuthConnectionStore):
+        return store
+    store = OAuthConnectionStore()
+    request.app.state.oauth_connections = store
+    return store
+
+
+async def _active_oauth_connection_for_profile(
+    request: Request,
+    *,
+    account_id: str,
+    provider: str,
+    profile_name: str,
+) -> OAuthConnection | None:
+    connections = await _oauth_connection_store(request).list(
+        account_id,
+        provider=provider,
+        status="active",
+    )
+    if not connections:
+        return None
+
+    for connection in connections:
+        if connection.label == profile_name:
+            return connection
+
+    if profile_name == _DEFAULT_PROFILE_NAME and len(connections) == 1:
+        return connections[0]
+
+    if profile_name == _DEFAULT_PROFILE_NAME:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "connection_ambiguous",
+                "provider": provider,
+                "message": (
+                    "Multiple active OAuth connections exist. Select one by setting "
+                    "X-Profile to the connection label."
+                ),
+            },
+        )
+    raise HTTPException(
+        status_code=404,
+        detail={
+            "code": "connection_not_found",
+            "provider": provider,
+            "requested_label": profile_name,
+            "valid_labels": [connection.label for connection in connections],
+        },
+    )
+
+
+async def _credential_target_for_chat(
+    request: Request,
+    *,
+    account_id: str,
+    provider: str,
+    profile_name: str,
+    plugin: Any,
+) -> tuple[Profile | None, OAuthConnection | None, ProfileDefaults]:
+    idx: ProfileIndexStore = request.app.state.profile_index
+    profile = await idx.get(account_id, provider, profile_name)
+    if profile is None:
+        connection = await _active_oauth_connection_for_profile(
+            request,
+            account_id=account_id,
+            provider=provider,
+            profile_name=profile_name,
+        )
+        if connection is not None:
+            return None, connection, ProfileDefaults()
+        if not _allows_chatless_profile(plugin):
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "profile_not_found",
+                    "provider": provider,
+                    "name": profile_name,
+                },
+            )
+        return None, None, ProfileDefaults()
+
+    if profile.state == ProfileState.PENDING:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "profile_pending_auth",
+                "provider": provider,
+                "name": profile_name,
+            },
+        )
+    if profile.state == ProfileState.ERROR:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "auth_required",
+                "provider": provider,
+                "name": profile_name,
+                "reauth_url": f"/v1/auth/{provider}/profiles/{profile_name}",
+            },
+        )
+    return profile, None, profile.defaults
 
 
 def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any) -> dict[str, Any]:
@@ -116,7 +226,7 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
     if not isinstance(body, dict) or "model" not in body or "messages" not in body:
         raise HTTPException(status_code=400, detail="model and messages are required")
 
-    profile_name = request.headers.get("X-Profile", "default")
+    profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
@@ -127,42 +237,14 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
     if plugin is None:
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
 
-    idx: ProfileIndexStore = request.app.state.profile_index
     account_id = str(current.id)
-    credential_name = credential_name_for(account_id, profile_name)
-    profile = await idx.get(account_id, provider, profile_name)
-    if profile is None:
-        if not _allows_chatless_profile(plugin):
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "code": "profile_not_found",
-                    "provider": provider,
-                    "name": profile_name,
-                },
-            )
-        defaults = ProfileDefaults()
-    elif profile.state == ProfileState.PENDING:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "profile_pending_auth",
-                "provider": provider,
-                "name": profile_name,
-            },
-        )
-    elif profile.state == ProfileState.ERROR:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "code": "auth_required",
-                "provider": provider,
-                "name": profile_name,
-                "reauth_url": f"/v1/auth/{provider}/profiles/{profile_name}",
-            },
-        )
-    else:
-        defaults = profile.defaults
+    profile, connection, defaults = await _credential_target_for_chat(
+        request,
+        account_id=account_id,
+        provider=provider,
+        profile_name=profile_name,
+        plugin=plugin,
+    )
 
     body = plugin.prepare_chat_body(_apply_defaults(body, defaults, plugin))
 
@@ -177,7 +259,16 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
         )
 
     strategy = None
-    if profile is not None:
+    credential_name: str | None = None
+    if connection is not None:
+        credential_name = credential_key_for(current.id, connection.id)
+        strategy = plugin.oauth_strategy_for(
+            credential_name,
+            credential_store=request.app.state.credential_store,
+            http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
+        )
+    elif profile is not None:
+        credential_name = credential_name_for(account_id, profile_name)
         strategy = plugin.oauth_strategy_for(
             credential_name,
             credential_store=request.app.state.credential_store,
@@ -187,15 +278,22 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
         try:
             headers = await strategy.get_authorization_header()
         except CredentialNotFoundError as exc:
+            if connection is not None:
+                await _oauth_connection_store(request).mark_error(connection, str(exc))
             raise HTTPException(
                 status_code=401,
                 detail={"code": "auth_required", "message": str(exc)},
             )
         except AuthError as exc:
-            if profile is not None:
+            if connection is not None:
+                await _oauth_connection_store(request).mark_error(connection, str(exc))
+                if credential_name is not None:
+                    _invalidate_profile_session(plugin, credential_name)
+            elif profile is not None:
                 profile.state = ProfileState.ERROR
-                await idx.upsert(profile)
-                _invalidate_profile_session(plugin, credential_name)
+                await request.app.state.profile_index.upsert(profile)
+                if credential_name is not None:
+                    _invalidate_profile_session(plugin, credential_name)
             raise HTTPException(
                 status_code=401,
                 detail={
@@ -211,6 +309,8 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
             merged = dict(body.get("extra_headers") or {})
             merged.update(headers)
             body["extra_headers"] = merged
+        if connection is not None:
+            await _oauth_connection_store(request).touch_last_used(connection)
 
     if body.get("stream"):
         return StreamingResponse(_stream(plugin, body), media_type="text/event-stream")
@@ -218,12 +318,24 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
     try:
         response = await plugin.chat_completion(body)
     except HTTPException as exc:
+        if connection is not None and _should_mark_profile_error_on_dispatch_status(
+            plugin, exc.status_code
+        ):
+            detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+            await _oauth_connection_store(request).mark_error(
+                connection,
+                str(detail.get("message", str(exc.detail))),
+            )
+            if credential_name is not None:
+                _invalidate_profile_session(plugin, credential_name)
+            raise
         if profile is not None and _should_mark_profile_error_on_dispatch_status(
             plugin, exc.status_code
         ):
             profile.state = ProfileState.ERROR
-            await idx.upsert(profile)
-            _invalidate_profile_session(plugin, credential_name)
+            await request.app.state.profile_index.upsert(profile)
+            if credential_name is not None:
+                _invalidate_profile_session(plugin, credential_name)
             detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
             detail = {
                 "code": detail.get("code", "auth_required"),

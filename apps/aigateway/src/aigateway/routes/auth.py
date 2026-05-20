@@ -1,19 +1,26 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from html import escape
 from ipaddress import ip_address
+from typing import Any, cast
 from urllib.parse import parse_qs, urlencode, urlsplit
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from tortoise.exceptions import IntegrityError
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.errors import AuthError, CredentialNotFoundError
+from ..core.oauth.store import (
+    OAuthConnectionStore,
+    credential_key_for,
+)
 from ..core.oauth_pkce import generate_pkce, generate_state
 from ..core.pending_auth import PendingAuthEntry
 from ..core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
@@ -50,8 +57,17 @@ def _credential_store_for_app(app):
 
 
 def _oauth_strategy_for_app(app, plugin, provider: str, account_id: str, name: str):
-    return plugin.oauth_strategy_for(
+    return _oauth_strategy_for_credential_name(
+        app,
+        plugin,
+        provider,
         credential_name_for(account_id, name),
+    )
+
+
+def _oauth_strategy_for_credential_name(app, plugin, provider: str, credential_name: str):
+    return plugin.oauth_strategy_for(
+        credential_name,
         credential_store=_credential_store_for_app(app),
         http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
     )
@@ -104,7 +120,18 @@ def _pending_for_app(app):
 
 def _gateway_redirect_uri_for(request: Request, cfg: OAuthConfig) -> str:
     path = cfg.redirect_path if cfg.redirect_path.startswith("/") else f"/{cfg.redirect_path}"
-    return f"http://localhost:{request.app.state.settings.port}{path}"
+    port = _request_host_port(request) or request.app.state.settings.port
+    return f"http://localhost:{port}{path}"
+
+
+def _request_host_port(request: Request) -> int | None:
+    host_header = request.headers.get("host")
+    if host_header:
+        try:
+            return urlsplit(f"//{host_header.strip()}").port
+        except ValueError:
+            return None
+    return request.url.port
 
 
 def _loopback_host_allowed(host_header: str | None) -> bool:
@@ -476,7 +503,8 @@ async def _complete_oauth_for_app(
             status_code=404, detail={"code": "unknown_provider", "provider": provider}
         )
 
-    strategy = _oauth_strategy_for_app(app, plugin, provider, account_id, name)
+    credential_name = _credential_name_for_pending(pending)
+    strategy = _oauth_strategy_for_credential_name(app, plugin, provider, credential_name)
     if strategy is None:
         raise HTTPException(
             status_code=400,
@@ -503,6 +531,7 @@ async def _complete_oauth_for_app(
         )
     except NotImplementedError as exc:
         await _mark_profile_error(app, account_id, provider, name)
+        await _mark_connection_error(app, pending, "provider_does_not_use_oauth")
         await _close_loopback_callback(app, state)
         raise HTTPException(
             status_code=400,
@@ -510,10 +539,12 @@ async def _complete_oauth_for_app(
         ) from exc
     except Exception:
         await _mark_profile_error(app, account_id, provider, name)
+        await _mark_connection_error(app, pending, "OAuth code exchange failed")
         await _close_loopback_callback(app, state)
         raise
-    strategy.persist_credentials(creds)
-    _invalidate_profile_session(plugin, account_id, name)
+    if pending.connection_id is None:
+        strategy.persist_credentials(creds)
+        _invalidate_profile_session(plugin, account_id, name)
 
     p = await _index_store_for_app(app).get(account_id, provider, name)
     if p is not None:
@@ -522,7 +553,158 @@ async def _complete_oauth_for_app(
         if label is not None:
             p.account_label = label
         await _index_store_for_app(app).upsert(p)
+    await _record_oauth_connection_completion(app, pending, plugin, creds)
     await _close_loopback_callback(app, state)
+
+
+def _credential_name_for_pending(pending: PendingAuthEntry) -> str:
+    if pending.connection_id is not None:
+        return credential_key_for(pending.account_id, pending.connection_id)
+    return credential_name_for(pending.account_id, pending.profile_name)
+
+
+async def _mark_connection_error(app, pending: PendingAuthEntry, message: str) -> None:
+    if pending.connection_id is None:
+        return
+    store = OAuthConnectionStore()
+    connection = await store.get(pending.account_id, pending.connection_id)
+    if connection is not None:
+        await store.mark_error(connection, message)
+
+
+async def _persist_connection_credentials(
+    app,
+    plugin,
+    provider: str,
+    account_id: str,
+    connection_id: str,
+    creds: dict,
+) -> None:
+    strategy = _oauth_strategy_for_credential_name(
+        app,
+        plugin,
+        provider,
+        credential_key_for(account_id, connection_id),
+    )
+    if strategy is not None:
+        strategy.persist_credentials(creds)
+
+
+async def _record_oauth_connection_completion(
+    app,
+    pending: PendingAuthEntry,
+    plugin,
+    creds: dict,
+) -> None:
+    store = OAuthConnectionStore()
+    extractor = getattr(plugin, "extract_identity", None)
+    if not callable(extractor) and pending.connection_id is None:
+        return
+    identity = (
+        await cast(Callable[..., Awaitable[Any]], extractor)(
+            creds,
+            http_client_factory=getattr(app.state, f"{pending.provider}_http_factory", None),
+        )
+        if callable(extractor)
+        else None
+    )
+    label = _connection_label(pending, plugin, creds, identity)
+    if not label:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "label_required", "provider": pending.provider},
+        )
+
+    duplicate = await store.find_by_identity(
+        pending.account_id, pending.provider, getattr(identity, "sub", None)
+    )
+    if duplicate is not None:
+        if pending.connection_id is not None:
+            connection = await _connection_for_pending(store, pending, label)
+            if duplicate.id != connection.id:
+                await store.delete_or_supersede_pending(connection, duplicate)
+                _delete_connection_credentials(app, connection.credential_locator)
+        return
+
+    if identity is None or identity.sub is None:
+        duplicate_label = await store.find_by_label(pending.account_id, pending.provider, label)
+        if duplicate_label is not None:
+            if pending.connection_id is not None:
+                connection = await _connection_for_pending(store, pending, label)
+                if duplicate_label.id != connection.id:
+                    await store.delete_or_supersede_pending(connection, duplicate_label)
+                    _delete_connection_credentials(app, connection.credential_locator)
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "label_conflict",
+                        "provider": pending.provider,
+                        "label": label,
+                    },
+                )
+            return
+
+    connection = await _connection_for_pending(store, pending, label)
+    try:
+        await store.complete(connection, label=label, identity=identity)
+    except IntegrityError as exc:
+        await store.mark_revoked(connection, "connection_conflict")
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "connection_conflict", "provider": pending.provider, "label": label},
+        ) from exc
+    await _persist_connection_credentials(
+        app,
+        plugin,
+        pending.provider,
+        pending.account_id,
+        str(connection.id),
+        creds,
+    )
+
+
+def _delete_connection_credentials(app, locator: dict) -> None:
+    service = locator.get("service")
+    account = locator.get("account")
+    if isinstance(service, str) and isinstance(account, str):
+        _credential_store_for_app(app).delete(service, account)
+
+
+async def _connection_for_pending(
+    store: OAuthConnectionStore,
+    pending: PendingAuthEntry,
+    label: str,
+):
+    if pending.connection_id is not None:
+        connection = await store.get(pending.account_id, pending.connection_id)
+        if connection is None:
+            raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
+        return connection
+    try:
+        return await store.create_pending(
+            account_id=pending.account_id,
+            provider=pending.provider,
+            label=label,
+            connection_id=uuid4(),
+        )
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "label_conflict", "provider": pending.provider, "label": label},
+        ) from exc
+
+
+def _connection_label(pending: PendingAuthEntry, plugin, creds: dict, identity) -> str | None:
+    if pending.requested_label:
+        return pending.requested_label
+    if identity is not None:
+        label = identity.label()
+        if label:
+            return label
+    label = plugin.account_label_from_credentials(creds)
+    if label:
+        return label
+    return pending.compatibility_profile_name or pending.profile_name
 
 
 async def _mark_profile_error(app, account_id: str, provider: str, name: str) -> None:

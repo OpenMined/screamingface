@@ -43,6 +43,15 @@ export interface DiscoveredPlugin {
 }
 
 export type BackendAction = 'healthy' | 'reauth' | 'rate_limited' | 'degraded';
+export type GatewayAction =
+  | 'healthy'
+  | 'starting'
+  | 'probing'
+  | 'login_gateway'
+  | 'login_provider'
+  | 'gateway_unreachable'
+  | 'gateway_misconfigured'
+  | 'gateway_url_missing';
 
 export interface BackendHealth {
   authenticated: boolean;
@@ -58,6 +67,39 @@ export interface BackendHealth {
 }
 
 export type BackendStatusMap = Record<string, BackendHealth>;
+
+export interface BackendPollingError {
+  status?: number;
+  code?: string;
+  message: string;
+  consecutiveFailures: number;
+}
+
+export interface GatewayStatus {
+  mode: 'local_managed' | 'external';
+  managed_by_runner: boolean;
+  reachable: boolean;
+  authenticated: boolean;
+  auth_required: boolean;
+  url: string;
+}
+
+export interface ProviderAuthStatus {
+  provider: string;
+  profile: string;
+  state: 'authenticated' | 'pending' | 'missing_profile' | 'error';
+}
+
+export interface BackendStatusV2 {
+  version: 2;
+  gateway: GatewayStatus;
+  action: GatewayAction;
+  message?: string;
+  provider_auth?: { providers: Record<string, ProviderAuthStatus> };
+  backends?: BackendStatusMap;
+}
+
+export type BackendStatusResponse = BackendStatusMap | BackendStatusV2;
 
 export interface BackendAlert {
   backend: string;
@@ -86,15 +128,56 @@ export interface DeleteProfileResult {
   status?: number;
 }
 
+export type OAuthConnectionStatus = 'pending' | 'active' | 'expired' | 'revoked' | 'error';
+
+export interface OAuthConnectionAccount {
+  sub?: string | null;
+  email?: string | null;
+  name?: string | null;
+  raw?: Record<string, unknown>;
+}
+
+export interface OAuthConnection {
+  id: string;
+  provider: string;
+  label: string;
+  status: OAuthConnectionStatus;
+  account?: OAuthConnectionAccount | null;
+  created_at?: string;
+  last_used_at?: string | null;
+  last_refreshed_at?: string | null;
+  error_message?: string | null;
+  is_duplicate?: boolean;
+}
+
+export interface ListConnectionsResult {
+  connections: OAuthConnection[];
+  error?: string;
+}
+
+export interface DeleteConnectionResult {
+  ok: boolean;
+  status?: number;
+}
+
+export interface RefreshConnectionResult {
+  ok: boolean;
+  status?: number;
+  connection?: OAuthConnection;
+  message?: string;
+}
+
 export type ExchangeOAuthCodeResult =
   | { ok: true }
   | { ok: false; status?: number; message?: string };
 
+export type GatewayLoginResult = { ok: true } | { ok: false; message?: string };
+
 export type OAuthLauncherResult =
-  | { kind: 'complete' }
+  | { kind: 'complete'; connection?: OAuthConnection; isDuplicate?: boolean }
   | {
       kind: 'failed';
-      reason: 'timeout' | 'gateway_error' | 'provider_error' | 'network_error';
+      reason: 'timeout' | 'gateway_error' | 'provider_error' | 'network_error' | 'cancelled';
       message?: string;
     };
 
@@ -112,7 +195,7 @@ export interface ElectronAPI {
     onLog: (callback: (line: string) => void) => () => void;
     fetch: (
       url: string,
-      init?: { method?: string; body?: string },
+      init?: { method?: string; body?: string; headers?: Record<string, string> },
     ) => Promise<{ ok: boolean; status: number; body: string }>;
   };
   venv: {
@@ -144,19 +227,36 @@ export interface ElectronAPI {
     onChanged: (callback: (config: Record<string, unknown>) => void) => () => void;
   };
   backends: {
-    getStatus: () => Promise<BackendStatusMap>;
-    refresh: () => Promise<BackendStatusMap>;
+    getStatus: () => Promise<BackendStatusResponse>;
+    getPollingError: () => Promise<BackendPollingError | null>;
+    refresh: () => Promise<BackendStatusResponse>;
     authenticate: (backend: string) => Promise<void>;
+    loginGateway: (username: string, password: string) => Promise<GatewayLoginResult>;
+    logoutGateway: () => Promise<void>;
     authenticateOAuth: (backend: string, profileName?: string) => Promise<OAuthLauncherResult>;
+    authenticateOAuthConnection: (backend: string, label?: string) => Promise<OAuthLauncherResult>;
     listProfiles: (backend: string) => Promise<ListProfilesResult>;
     deleteProfile: (backend: string, profileName: string) => Promise<DeleteProfileResult>;
+    listConnections: (backend: string) => Promise<ListConnectionsResult>;
+    deleteConnection: (backend: string, connectionId: string) => Promise<DeleteConnectionResult>;
+    refreshConnection: (backend: string, connectionId: string) => Promise<RefreshConnectionResult>;
     getPendingAuthState: (backend: string, profileName?: string) => Promise<string | null>;
+    getPendingConnectionAuthState: (
+      backend: string,
+      connectionId?: string,
+    ) => Promise<string | null>;
     exchangeOAuthCode: (
       backend: string,
       code: string,
       profileName?: string,
     ) => Promise<ExchangeOAuthCodeResult>;
-    onStatusChanged: (callback: (status: BackendStatusMap) => void) => () => void;
+    exchangeOAuthConnectionCode: (
+      backend: string,
+      connectionId: string,
+      code: string,
+    ) => Promise<ExchangeOAuthCodeResult>;
+    onStatusChanged: (callback: (status: BackendStatusResponse) => void) => () => void;
+    onPollingError: (callback: (error: BackendPollingError | null) => void) => () => void;
     onAlert: (callback: (alert: BackendAlert) => void) => () => void;
   };
   session: {

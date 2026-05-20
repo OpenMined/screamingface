@@ -6,6 +6,7 @@ import {
   isAllowedPopupUrl,
   isAllowedServerFetchUrl,
   isSafeBackendName,
+  isSafeOAuthConnectionId,
 } from '../external-url-policy';
 
 function authorizeUrl(host: string, pathname: string, params: Record<string, string>): string {
@@ -92,6 +93,23 @@ describe('external URL policy', () => {
     ).toBe(true);
   });
 
+  it('allows OAuth callbacks on the current external gateway port only when supplied', () => {
+    const externalClaudeUrl = authorizeUrl('claude.com', '/cai/oauth/authorize', {
+      response_type: 'code',
+      client_id: 'public-client-id',
+      redirect_uri: 'http://localhost:9106/callback',
+      scope: 'read write',
+      code_challenge: 'challenge',
+      code_challenge_method: 'S256',
+      state: 'state',
+    });
+
+    expect(isAllowedOAuthAuthorizeUrl(externalClaudeUrl)).toBe(false);
+    expect(isAllowedOAuthAuthorizeUrl(externalClaudeUrl, { allowedRedirectPorts: ['9106'] })).toBe(
+      true,
+    );
+  });
+
   it('rejects malformed OAuth authorize URLs and non-loopback callbacks', () => {
     const base = {
       response_type: 'code',
@@ -160,6 +178,15 @@ describe('external URL policy', () => {
     expect(isSafeBackendName('../backend')).toBe(false);
     expect(isSafeBackendName('backend/profile')).toBe(false);
     expect(isSafeBackendName('Backend')).toBe(false);
+  });
+
+  it('allows only UUID-shaped OAuth connection IDs', () => {
+    expect(isSafeOAuthConnectionId('00000000-0000-0000-0000-000000000001')).toBe(true);
+    expect(isSafeOAuthConnectionId('A0000000-0000-0000-0000-000000000001')).toBe(true);
+
+    expect(isSafeOAuthConnectionId('../auth/profiles/default')).toBe(false);
+    expect(isSafeOAuthConnectionId('00000000-0000-0000-0000-000000000001/refresh')).toBe(false);
+    expect(isSafeOAuthConnectionId('00000000-0000-0000-0000-000000000001?x=1')).toBe(false);
   });
 
   it('allows server fetches only to the live loopback SF endpoint', () => {

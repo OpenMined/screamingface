@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from screamingface.plugin import Plugin
+from screamingface.plugins.aigw_base.routes import create_router
+from screamingface.plugins.aigw_base.settings import AigwBaseSettings
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -25,6 +27,7 @@ class AigwBasePlugin(Plugin):
     tags: list[str] = ["product:aigw"]
     depends: list[str] = ["llm-base", "backend-api-base"]
     conflicts: list[str] = []
+    settings_class = AigwBaseSettings
 
     def setup(
         self,
@@ -33,5 +36,10 @@ class AigwBasePlugin(Plugin):
         classes: ClassRegistry,  # noqa: ARG002
         routes: RouteRegistry,  # noqa: ARG002
     ) -> None:
-        # No-op: this package is base classes only.
-        return None
+        routes.add_router(self.name, create_router(app), prefix="")
+
+    def customize_schema(self, schema: dict) -> dict:
+        props = schema.setdefault("properties", {})
+        if "mode" in props:
+            props["mode"]["enum"] = ["local_managed", "external"]
+        return schema

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from screamingface.core.app import create_app
 from screamingface.core.config import AppConfig
+from screamingface.plugins.url4_executor import url4_resolve
 from screamingface.plugins.url4_executor.url4 import (
     Url4List,
     Url4RelUrl,
@@ -154,6 +155,37 @@ def test_resolve_str_passes_app() -> None:
     result, mock = asyncio.run(_run())
     assert result == "fetched"
     mock.assert_called_once_with("my_app", "/data/abc")
+
+
+def test_fetch_url_uses_default_tls_verification(monkeypatch) -> None:
+    captured_kwargs: dict = {}
+
+    class _Response:
+        status_code = 200
+        text = "ok"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _AsyncClient:
+        def __init__(self, **kwargs) -> None:
+            captured_kwargs.update(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, _url: str) -> _Response:
+            return _Response()
+
+    monkeypatch.setattr(url4_resolve.httpx, "AsyncClient", _AsyncClient)
+
+    result = asyncio.run(url4_resolve._fetch_url("https://example.com"))
+
+    assert result == "ok"
+    assert "verify" not in captured_kwargs
 
 
 # ---------------------------------------------------------------------------

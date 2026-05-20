@@ -24,6 +24,9 @@ from screamingface.plugins.llm_base.errors import (
 )
 from screamingface.plugins.llm_base.messages import CoreMessage, TextPart, ToolDefinition
 
+from .client import AigwGatewayAuthRequired, AigwGatewayClient, AigwGatewayClientError
+from .config import resolve_aigw_runtime_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,6 +55,7 @@ class AigwBackend(Backend):
         profile_name: str = "default",
         gateway_provider: str,
         http_client_factory=None,
+        app=None,
     ) -> None:
         if not gateway_provider:
             msg = "gateway_provider is required for gateway-backed backends"
@@ -62,19 +66,29 @@ class AigwBackend(Backend):
         self._http_factory = http_client_factory or (
             lambda timeout: httpx.AsyncClient(timeout=httpx.Timeout(timeout))
         )
+        self._app = app
 
     async def health(self, model: str | None = None) -> HealthStatus:  # noqa: ARG002
-        url = (
-            f"{self._gateway_url}/v1/auth/{self._gateway_provider}"
-            f"/profiles/{self._profile_name}/status"
-        )
         try:
-            async with self._http_factory(10.0) as client:
-                resp = await client.get(url)
+            resp = await self._request(
+                "GET",
+                f"/v1/auth/{self._gateway_provider}/profiles/{self._profile_name}/status",
+                timeout_seconds=10.0,
+            )
+        except AigwGatewayAuthRequired:
+            return HealthStatus(authenticated=False, error="AIGateway login required")
+        except AigwGatewayClientError as exc:
+            return HealthStatus(authenticated=False, error=str(exc.detail))
         except httpx.RequestError as exc:
-            return HealthStatus(authenticated=False, error=f"AI Gateway unreachable: {exc}")
+            base = _runtime_gateway_url(self._app, self._gateway_url)
+            return HealthStatus(
+                authenticated=False, error=f"AI Gateway unreachable at {base}: {exc}"
+            )
 
         if resp.status_code == 404:
+            connection_status = await self._health_from_oauth_connections()
+            if connection_status is not None:
+                return connection_status
             return HealthStatus(authenticated=False, error="Profile not yet created at gateway")
         if resp.status_code >= 500:
             return HealthStatus(
@@ -92,6 +106,53 @@ class AigwBackend(Backend):
         if state == "error":
             return HealthStatus(authenticated=False, error="Profile in error state")
         return HealthStatus(authenticated=False, error=f"Unknown profile state: {state!r}")
+
+    async def _health_from_oauth_connections(self) -> HealthStatus | None:
+        try:
+            resp = await self._request(
+                "GET",
+                f"/v1/oauth/connections?provider={self._gateway_provider}&status=active",
+                timeout_seconds=10.0,
+            )
+        except AigwGatewayAuthRequired:
+            return HealthStatus(authenticated=False, error="AIGateway login required")
+        except AigwGatewayClientError as exc:
+            return HealthStatus(authenticated=False, error=str(exc.detail))
+        except httpx.RequestError as exc:
+            base = _runtime_gateway_url(self._app, self._gateway_url)
+            return HealthStatus(
+                authenticated=False, error=f"AI Gateway unreachable at {base}: {exc}"
+            )
+
+        if resp.status_code == 404:
+            return None
+        if resp.status_code >= 500:
+            return HealthStatus(
+                authenticated=False,
+                error=f"Gateway error (HTTP {resp.status_code})",
+            )
+        if resp.status_code >= 400:
+            return HealthStatus(authenticated=False, error=f"Gateway HTTP {resp.status_code}")
+
+        connections = _active_connections(resp)
+        if not connections:
+            return None
+        if _matching_connection(connections, self._profile_name) is not None:
+            return HealthStatus(authenticated=True)
+        if self._profile_name == "default" and len(connections) == 1:
+            return HealthStatus(authenticated=True)
+        if self._profile_name == "default":
+            return HealthStatus(
+                authenticated=False,
+                error=(
+                    "Multiple active OAuth connections exist; select one with the "
+                    "backend auth_profile setting"
+                ),
+            )
+        return HealthStatus(
+            authenticated=False,
+            error=f"No active OAuth connection named {self._profile_name!r}",
+        )
 
     async def run(
         self,
@@ -116,15 +177,24 @@ class AigwBackend(Backend):
         if extra_body:
             body.update(extra_body)
 
-        url = f"{self._gateway_url}/v1/chat/completions"
         headers = {"X-Profile": self._profile_name, "content-type": "application/json"}
 
         try:
-            async with self._http_factory(timeout_seconds) as client:
-                resp = await client.post(url, json=body, headers=headers)
+            resp = await self._request(
+                "POST",
+                "/v1/chat/completions",
+                json=body,
+                headers=headers,
+                timeout_seconds=timeout_seconds,
+            )
+        except AigwGatewayAuthRequired as exc:
+            raise AuthError("Gateway: AIGateway login required") from exc
+        except AigwGatewayClientError as exc:
+            raise BackendError(str(exc.detail), status=exc.status_code) from exc
         except httpx.RequestError as exc:
+            base = _runtime_gateway_url(self._app, self._gateway_url)
             raise BackendError(
-                f"AI Gateway unreachable at {self._gateway_url}: {exc}",
+                f"AI Gateway unreachable at {base}: {exc}",
                 status=None,
             ) from exc
 
@@ -190,6 +260,30 @@ class AigwBackend(Backend):
             body["tools"] = [_tool_to_openai(t) for t in tools]
         return body
 
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+        headers: dict[str, str] | None = None,
+        timeout_seconds: float,
+    ) -> httpx.Response:
+        if self._app is not None:
+            return await AigwGatewayClient(
+                self._app,
+                http_client_factory=self._http_factory,
+            ).request(
+                method,
+                path,
+                json=json,
+                headers=headers,
+                timeout_seconds=timeout_seconds,
+            )
+        url = f"{self._gateway_url}{path}"
+        async with self._http_factory(timeout_seconds) as client:
+            return await client.request(method, url, json=json, headers=headers)
+
 
 def _core_message_to_openai(msg: CoreMessage) -> dict:
     if isinstance(msg.content, str):
@@ -239,3 +333,27 @@ def _parse_retry_after(value: str | None) -> float | None:
         return float(value)
     except ValueError:
         return None
+
+
+def _active_connections(resp: httpx.Response) -> list[dict]:
+    try:
+        body = resp.json() if resp.content else {}
+    except (ValueError, httpx.DecodingError):
+        return []
+    raw = body.get("connections") if isinstance(body, dict) else None
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, dict) and item.get("status") == "active"]
+
+
+def _matching_connection(connections: list[dict], profile_name: str) -> dict | None:
+    for connection in connections:
+        if connection.get("label") == profile_name:
+            return connection
+    return None
+
+
+def _runtime_gateway_url(app, fallback: str) -> str:
+    if app is None:
+        return fallback
+    return resolve_aigw_runtime_config(app).gateway_url

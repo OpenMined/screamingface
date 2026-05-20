@@ -69,6 +69,36 @@ def test_start_happy_path_passes_through_authorize_url() -> None:
     assert captured["body"] == {"name": "default"}
 
 
+def test_start_rejects_missing_desktop_secret_when_configured(monkeypatch) -> None:
+    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json={"profile_id": "anthropic:default"})
+
+    client = _make_client(handler)
+
+    missing = client.post("/claude/auth/start")
+    allowed = client.post("/claude/auth/start", headers={"X-SF-Desktop-Secret": "test-secret"})
+
+    assert missing.status_code == 401
+    assert allowed.status_code == 201
+
+
+def test_profiles_rejects_missing_desktop_secret_when_configured(monkeypatch) -> None:
+    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"profiles": []})
+
+    client = _make_client(handler)
+
+    missing = client.get("/claude/auth/profiles")
+    allowed = client.get("/claude/auth/profiles", headers={"X-SF-Desktop-Secret": "test-secret"})
+
+    assert missing.status_code == 401
+    assert allowed.status_code == 200
+
+
 def test_start_gateway_5xx_becomes_502() -> None:
     def handler(_req: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"detail": "down"})
@@ -341,6 +371,239 @@ def test_delete_profile_404_passes_through() -> None:
     resp = client.delete("/claude/auth/profiles/missing")
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "profile_not_found"
+
+
+def test_list_connections_filters_gateway_provider() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        return httpx.Response(200, json={"connections": []})
+
+    client = _make_client(handler)
+    resp = client.get("/claude/auth/connections")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"connections": []}
+    assert captured["url"] == "http://gateway/v1/oauth/connections?provider=anthropic"
+
+
+def test_start_connection_forwards_provider_and_label() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(
+            201,
+            json={
+                "connection_id": "00000000-0000-0000-0000-000000000001",
+                "authorize_url": "https://provider/authorize?x=1",
+                "state": "abc",
+                "expires_in": 600,
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/connections", json={"label": "work-anthropic"})
+
+    assert resp.status_code == 201
+    assert resp.json()["connection_id"] == "00000000-0000-0000-0000-000000000001"
+    assert captured["url"] == "http://gateway/v1/oauth/connections"
+    assert captured["body"] == {"provider": "anthropic", "label": "work-anthropic"}
+
+
+def test_start_connection_omits_empty_label() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(
+            201,
+            json={
+                "connection_id": "00000000-0000-0000-0000-000000000001",
+                "authorize_url": "https://provider/authorize?x=1",
+                "state": "abc",
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/connections", json={})
+
+    assert resp.status_code == 201
+    assert captured["body"] == {"provider": "anthropic"}
+
+
+def test_get_connection_passes_through_duplicate_flag() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        return httpx.Response(
+            200,
+            json={
+                "id": "00000000-0000-0000-0000-000000000001",
+                "provider": "anthropic",
+                "label": "work-anthropic",
+                "status": "active",
+                "is_duplicate": True,
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.get("/claude/auth/connections/00000000-0000-0000-0000-000000000002")
+
+    assert resp.status_code == 200
+    assert resp.json()["is_duplicate"] is True
+    assert (
+        captured["url"]
+        == "http://gateway/v1/oauth/connections/00000000-0000-0000-0000-000000000002"
+    )
+
+
+def test_get_connection_provider_mismatch_returns_404() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "00000000-0000-0000-0000-000000000001",
+                "provider": "codex",
+                "label": "work-codex",
+                "status": "active",
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.get("/claude/auth/connections/00000000-0000-0000-0000-000000000001")
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "connection_not_found"
+
+
+def test_delete_connection_happy_path() -> None:
+    captured: dict = {"requests": []}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["requests"].append((req.method, str(req.url)))
+        if req.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "provider": "anthropic",
+                    "label": "work-anthropic",
+                    "status": "active",
+                },
+            )
+        return httpx.Response(204)
+
+    client = _make_client(handler)
+    resp = client.delete("/claude/auth/connections/00000000-0000-0000-0000-000000000001")
+
+    assert resp.status_code == 204
+    assert captured["requests"] == [
+        ("GET", "http://gateway/v1/oauth/connections/00000000-0000-0000-0000-000000000001"),
+        ("DELETE", "http://gateway/v1/oauth/connections/00000000-0000-0000-0000-000000000001"),
+    ]
+
+
+def test_delete_connection_provider_mismatch_returns_404_without_delete() -> None:
+    captured: dict = {"requests": []}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["requests"].append((req.method, str(req.url)))
+        return httpx.Response(
+            200,
+            json={
+                "id": "00000000-0000-0000-0000-000000000001",
+                "provider": "codex",
+                "label": "work-codex",
+                "status": "active",
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.delete("/claude/auth/connections/00000000-0000-0000-0000-000000000001")
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "connection_not_found"
+    assert captured["requests"] == [
+        ("GET", "http://gateway/v1/oauth/connections/00000000-0000-0000-0000-000000000001")
+    ]
+
+
+def test_delete_connection_unexpected_success_status_passes_through() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "id": "00000000-0000-0000-0000-000000000001",
+                    "provider": "anthropic",
+                    "label": "work-anthropic",
+                    "status": "active",
+                },
+            )
+        return httpx.Response(200)
+
+    client = _make_client(handler)
+    resp = client.delete("/claude/auth/connections/00000000-0000-0000-0000-000000000001")
+
+    assert resp.status_code == 200
+
+
+def test_refresh_connection_passes_through() -> None:
+    captured: dict = {"requests": []}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["requests"].append((req.method, str(req.url)))
+        return httpx.Response(
+            200,
+            json={
+                "id": "00000000-0000-0000-0000-000000000001",
+                "provider": "anthropic",
+                "label": "work-anthropic",
+                "status": "active",
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/connections/00000000-0000-0000-0000-000000000001/refresh")
+
+    assert resp.status_code == 200
+    assert resp.json()["id"] == "00000000-0000-0000-0000-000000000001"
+    assert captured["requests"] == [
+        ("GET", "http://gateway/v1/oauth/connections/00000000-0000-0000-0000-000000000001"),
+        (
+            "POST",
+            "http://gateway/v1/oauth/connections/00000000-0000-0000-0000-000000000001/refresh",
+        ),
+    ]
+
+
+def test_refresh_connection_provider_mismatch_returns_404_without_refresh() -> None:
+    captured: dict = {"requests": []}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["requests"].append((req.method, str(req.url)))
+        return httpx.Response(
+            200,
+            json={
+                "id": "00000000-0000-0000-0000-000000000001",
+                "provider": "codex",
+                "label": "work-codex",
+                "status": "active",
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.post("/claude/auth/connections/00000000-0000-0000-0000-000000000001/refresh")
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "connection_not_found"
+    assert captured["requests"] == [
+        ("GET", "http://gateway/v1/oauth/connections/00000000-0000-0000-0000-000000000001")
+    ]
 
 
 def test_exchange_code_happy_path_forwards_to_gateway() -> None:

@@ -45,3 +45,5 @@ export function useServerStatus() {
 
   return { status, info, logs, start, stop, restart, clearLogs };
 }
+
+export type ServerStatusController = ReturnType<typeof useServerStatus>;
