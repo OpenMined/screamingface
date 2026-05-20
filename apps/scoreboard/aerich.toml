@@ -1,0 +1,4 @@
+[tool.aerich]
+tortoise_orm = "scoreboard.db.TORTOISE_CONFIG"
+location = "./migrations"
+src_folder = "./."
