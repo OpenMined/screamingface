@@ -260,13 +260,9 @@ class BackendStatusService extends EventEmitter {
 
 export const backendStatusService = new BackendStatusService();
 
-export function isStatusV2(value: BackendStatusResponse): value is BackendStatusV2 {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    (value as { version?: unknown }).version === 2
-  );
+export function isStatusV2(value: unknown): value is BackendStatusV2 {
+  if (!isRecord(value) || value.version !== 2) return false;
+  return isGatewayStatus(value.gateway);
 }
 
 export function backendMap(value: BackendStatusResponse): BackendStatusMap {
@@ -303,6 +299,22 @@ export function parseBackendStatus(
 function isLegacyStatusMap(value: unknown): value is BackendStatusMap {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   return !Object.prototype.hasOwnProperty.call(value, 'version');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isGatewayStatus(value: unknown): value is BackendStatusV2['gateway'] {
+  if (!isRecord(value)) return false;
+  return (
+    (value.mode === 'local_managed' || value.mode === 'external') &&
+    typeof value.managed_by_runner === 'boolean' &&
+    typeof value.reachable === 'boolean' &&
+    typeof value.authenticated === 'boolean' &&
+    typeof value.auth_required === 'boolean' &&
+    typeof value.url === 'string'
+  );
 }
 
 function desktopConfigGatewayMode(

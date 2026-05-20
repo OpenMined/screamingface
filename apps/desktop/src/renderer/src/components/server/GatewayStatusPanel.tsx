@@ -30,9 +30,9 @@ export function GatewayStatusPanel({
         setError(result.message ?? 'Gateway login failed');
         return;
       }
-      setPassword('');
       onChanged();
     } finally {
+      setPassword('');
       setBusy(false);
     }
   };

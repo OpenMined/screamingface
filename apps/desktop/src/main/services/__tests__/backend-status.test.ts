@@ -49,4 +49,11 @@ describe('backend status service', () => {
       expect(status.gateway.url).toBe('https://gateway.example.com');
     }
   });
+
+  it('does not classify malformed v2 without gateway as v2 status', () => {
+    const malformed = { version: 2 };
+
+    expect(isStatusV2(malformed)).toBe(false);
+    expect(() => parseBackendStatus(malformed)).toThrow('Unsupported /backends/status response');
+  });
 });

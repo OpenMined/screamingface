@@ -224,6 +224,30 @@ def test_chat_requires_profile_label_when_multiple_oauth_connections_exist(
     assert captured["api_key"] == "personal-tok"
 
 
+def test_chat_empty_x_profile_header_uses_default_ambiguity(
+    fake_keychain, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    authenticated_client.portal.call(
+        partial(_create_active_connection, account_id, label="work-anthropic")
+    )
+    authenticated_client.portal.call(
+        partial(_create_active_connection, account_id, label="personal-anthropic")
+    )
+
+    resp = authenticated_client.post(
+        "/v1/chat/completions",
+        headers={"X-Profile": ""},
+        json={
+            "model": "anthropic/claude-haiku-4-5",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "connection_ambiguous"
+
+
 def test_chat_cannot_use_other_accounts_oauth_connection(
     fake_keychain, authenticated_client, provisioned_user_factory
 ) -> None:

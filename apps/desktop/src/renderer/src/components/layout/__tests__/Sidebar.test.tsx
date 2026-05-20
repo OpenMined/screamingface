@@ -65,6 +65,38 @@ describe('Sidebar gateway status', () => {
     await waitFor(() => expect(loginGateway).toHaveBeenCalledWith('admin', 'secret-password'));
   });
 
+  it('clears gateway password after failed login', async () => {
+    loginGateway.mockResolvedValue({ ok: false, message: 'bad credentials' });
+    getStatus.mockResolvedValue({
+      version: 2,
+      gateway: {
+        mode: 'external',
+        managed_by_runner: false,
+        reachable: true,
+        authenticated: false,
+        auth_required: true,
+        url: 'https://gateway.example.com',
+      },
+      action: 'login_gateway',
+    });
+
+    const { container } = render(
+      <Sidebar currentView="dashboard" onNavigate={vi.fn()} plugins={[]} />,
+    );
+    const sidebar = container.querySelector('aside');
+    if (!sidebar) throw new Error('sidebar not rendered');
+
+    const username = await within(sidebar).findByPlaceholderText(/Gateway username/i);
+    const password = within(sidebar).getByPlaceholderText(/Password/i) as HTMLInputElement;
+    fireEvent.change(username, { target: { value: 'admin' } });
+    fireEvent.change(password, { target: { value: 'secret-password' } });
+    fireEvent.click(within(sidebar).getByRole('button', { name: /Sign in/i }));
+
+    await waitFor(() => expect(loginGateway).toHaveBeenCalledWith('admin', 'secret-password'));
+    await waitFor(() => expect(password.value).toBe(''));
+    expect(await within(sidebar).findByText('bad credentials')).toBeTruthy();
+  });
+
   it('keeps compact gateway login stacked inside the sidebar', async () => {
     getStatus.mockResolvedValue({
       version: 2,

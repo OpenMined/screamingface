@@ -200,7 +200,7 @@ async def _fetch_url(url: str) -> str:
     with traced("url4.fetch", kind="client"):
         set_span_attrs({"http.method": "GET", "http.url": safe_url[:500]})
         timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
-        async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(safe_url)
             resp.raise_for_status()
             body = resp.text

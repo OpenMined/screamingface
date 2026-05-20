@@ -218,7 +218,7 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
     if not isinstance(body, dict) or "model" not in body or "messages" not in body:
         raise HTTPException(status_code=400, detail="model and messages are required")
 
-    profile_name = request.headers.get("X-Profile", "default")
+    profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
     model = body.get("model", "")
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
