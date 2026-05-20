@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -9,6 +9,10 @@ from pydantic import BaseModel, Field
 from .identity import AccountIdentity
 
 OAuthConnectionStatus = Literal["pending", "active", "expired", "revoked", "error"]
+OAuthConnectionLabel = Annotated[
+    str,
+    Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_. @-]+$"),
+]
 
 
 class OAuthConnectionResponse(BaseModel):
@@ -32,11 +36,11 @@ class OAuthConnectionListResponse(BaseModel):
 
 class CreateOAuthConnectionRequest(BaseModel):
     provider: str
-    label: str | None = None
+    label: OAuthConnectionLabel | None = None
 
 
 class PatchOAuthConnectionRequest(BaseModel):
-    label: str | None = None
+    label: OAuthConnectionLabel | None = None
 
 
 class StartOAuthConnectionResponse(BaseModel):

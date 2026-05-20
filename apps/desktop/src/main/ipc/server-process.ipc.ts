@@ -25,11 +25,7 @@ function nodeFetch(url: string, init?: FetchInit): Promise<{ status: number; bod
         method,
         rejectUnauthorized: false,
         timeout: 5000,
-        headers: {
-          ...desktopSecretHeader(),
-          ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-          ...(init?.headers ?? {}),
-        },
+        headers: serverFetchHeaders(init),
       },
       (res) => {
         let data = '';
@@ -47,6 +43,20 @@ function nodeFetch(url: string, init?: FetchInit): Promise<{ status: number; bod
     if (init?.body) req.write(init.body);
     req.end();
   });
+}
+
+function serverFetchHeaders(init?: FetchInit): Record<string, string> {
+  const rendererHeaders = Object.fromEntries(
+    Object.entries(init?.headers ?? {}).filter(
+      ([key]) => key.toLowerCase() !== 'x-sf-desktop-secret',
+    ),
+  );
+
+  return {
+    ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+    ...rendererHeaders,
+    ...desktopSecretHeader(),
+  };
 }
 
 export function registerServerHandlers(): void {

@@ -56,4 +56,27 @@ describe('backend status service', () => {
     expect(isStatusV2(malformed)).toBe(false);
     expect(() => parseBackendStatus(malformed)).toThrow('Unsupported /backends/status response');
   });
+
+  it('surfaces unsupported newer status envelopes as gateway misconfigured', () => {
+    const status = parseBackendStatus({
+      version: 3,
+      gateway: {
+        mode: 'external',
+        managed_by_runner: false,
+        reachable: true,
+        authenticated: true,
+        auth_required: true,
+        url: 'https://gateway.example.com',
+      },
+    });
+
+    expect(isStatusV2(status)).toBe(true);
+    if (isStatusV2(status)) {
+      expect(status.action).toBe('gateway_misconfigured');
+      expect(status.message).toBe(
+        'Desktop app is out of date — update required to use this SF server',
+      );
+      expect(status.gateway.url).toBe('https://gateway.example.com');
+    }
+  });
 });

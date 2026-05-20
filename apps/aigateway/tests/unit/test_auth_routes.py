@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from fastapi import HTTPException
+from tortoise.exceptions import IntegrityError
 
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
@@ -243,6 +244,9 @@ class _GenericOAuthPlugin:
 
     def oauth_strategy_for(self, _profile_name: str, **_kwargs) -> _RecordingStrategy:
         return self.strategy
+
+    def requires_oauth_connection_label(self) -> bool:
+        return False
 
     async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict:
         self.exchange_request = request
@@ -549,6 +553,37 @@ def test_exchange_code_uses_provider_exchange_hook(client_with_index) -> None:
     profile = client.get("/v1/auth/generic/profiles/work").json()
     assert profile["id"] == profile_id_for(account_id, "generic", "work")
     assert profile["state"] == "authenticated"
+
+
+def test_connection_completion_persists_credentials_after_store_complete(
+    client_with_index, monkeypatch
+) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+
+    async def complete_conflict(*_args, **_kwargs) -> None:
+        raise IntegrityError("simulated connection race")
+
+    monkeypatch.setattr(
+        "aigateway.routes.auth.OAuthConnectionStore.complete",
+        complete_conflict,
+    )
+
+    start = client.post(
+        "/v1/oauth/connections",
+        json={"provider": "generic", "label": "race-generic"},
+    )
+    assert start.status_code == 201
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "connection_conflict"
+    assert plugin.strategy.creds is None
 
 
 def test_start_oauth_creates_pending_profile(client_with_index) -> None:

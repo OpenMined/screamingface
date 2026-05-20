@@ -98,6 +98,28 @@ def test_anthropic_connection_requires_label(authenticated_client) -> None:
     assert resp.json()["detail"]["code"] == "label_required"
 
 
+@pytest.mark.parametrize(
+    "label",
+    ["", "bad\nlabel", "\x1b[31mred", "x" * 101],
+)
+def test_oauth_connection_rejects_unsafe_labels(authenticated_client, label) -> None:
+    resp = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": label},
+    )
+
+    assert resp.status_code == 422
+
+
+def test_patch_oauth_connection_rejects_unsafe_label(authenticated_client) -> None:
+    resp = authenticated_client.patch(
+        "/v1/oauth/connections/00000000-0000-0000-0000-000000000001",
+        json={"label": "bad\nlabel"},
+    )
+
+    assert resp.status_code == 422
+
+
 def test_anthropic_connection_uses_request_host_port_for_callback(
     authenticated_client,
 ) -> None:

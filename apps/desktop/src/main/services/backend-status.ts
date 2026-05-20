@@ -275,18 +275,21 @@ export function parseBackendStatus(
   desktopGatewayConfig?: Record<string, unknown>,
 ): BackendStatusResponse {
   if (isStatusV2(value as BackendStatusResponse)) return value as BackendStatusV2;
+  if (isRecord(value) && typeof value.version === 'number' && value.version > 2) {
+    return {
+      version: 2,
+      gateway: isGatewayStatus(value.gateway)
+        ? value.gateway
+        : gatewayStatusFromDesktopConfig(desktopGatewayConfig),
+      action: 'gateway_misconfigured',
+      message: 'Desktop app is out of date — update required to use this SF server',
+    };
+  }
   if (isLegacyStatusMap(value)) {
     if (desktopConfigGatewayMode(desktopGatewayConfig) === 'external') {
       return {
         version: 2,
-        gateway: {
-          mode: 'external',
-          managed_by_runner: false,
-          reachable: false,
-          authenticated: false,
-          auth_required: true,
-          url: desktopConfigGatewayUrl(desktopGatewayConfig),
-        },
+        gateway: gatewayStatusFromDesktopConfig(desktopGatewayConfig),
         action: 'gateway_misconfigured',
         message: 'SF server is out of date — update required to use external gateway mode',
       };
@@ -315,6 +318,20 @@ function isGatewayStatus(value: unknown): value is BackendStatusV2['gateway'] {
     typeof value.auth_required === 'boolean' &&
     typeof value.url === 'string'
   );
+}
+
+function gatewayStatusFromDesktopConfig(
+  desktopGatewayConfig?: Record<string, unknown>,
+): GatewayStatus {
+  const mode = desktopConfigGatewayMode(desktopGatewayConfig);
+  return {
+    mode,
+    managed_by_runner: mode === 'local_managed',
+    reachable: false,
+    authenticated: false,
+    auth_required: true,
+    url: desktopConfigGatewayUrl(desktopGatewayConfig),
+  };
 }
 
 function desktopConfigGatewayMode(

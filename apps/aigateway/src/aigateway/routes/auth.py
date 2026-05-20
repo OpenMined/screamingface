@@ -645,6 +645,14 @@ async def _record_oauth_connection_completion(
             return
 
     connection = await _connection_for_pending(store, pending, label)
+    try:
+        await store.complete(connection, label=label, identity=identity)
+    except IntegrityError as exc:
+        await store.mark_revoked(connection, "connection_conflict")
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "connection_conflict", "provider": pending.provider, "label": label},
+        ) from exc
     await _persist_connection_credentials(
         app,
         plugin,
@@ -653,15 +661,6 @@ async def _record_oauth_connection_completion(
         str(connection.id),
         creds,
     )
-    try:
-        await store.complete(connection, label=label, identity=identity)
-    except IntegrityError as exc:
-        _delete_connection_credentials(app, connection.credential_locator)
-        await store.mark_revoked(connection, "connection_conflict")
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "connection_conflict", "provider": pending.provider, "label": label},
-        ) from exc
 
 
 def _delete_connection_credentials(app, locator: dict) -> None:
