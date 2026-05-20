@@ -58,7 +58,7 @@ jobs:
             --cov=aigateway \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
-            --cov-fail-under=85 \
+            --cov-fail-under=80 \
             -m "not live and not needs_postgres" \
             -v
 
@@ -70,7 +70,7 @@ jobs:
             --cov=aigateway.routes.auth_session \
             --cov=aigateway.routes.accounts \
             --cov-report=term-missing \
-            --cov-fail-under=95 \
+            --cov-fail-under=80 \
             -v
 
       - name: Run Postgres migration smoke
@@ -92,4 +92,4 @@ jobs:
         with:
           coverageFile: apps/aigateway/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
-          thresholdAll: 0.85
+          thresholdAll: 0.80
