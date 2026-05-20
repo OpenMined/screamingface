@@ -39,6 +39,13 @@ export interface BackendHealth {
 
 export type BackendStatusMap = Record<string, BackendHealth>;
 
+export interface BackendPollingError {
+  status?: number;
+  code?: string;
+  message: string;
+  consecutiveFailures: number;
+}
+
 export interface GatewayStatus {
   mode: 'local_managed' | 'external';
   managed_by_runner: boolean;
@@ -72,6 +79,8 @@ class BackendStatusService extends EventEmitter {
   private timer: ReturnType<typeof setInterval> | null = null;
   private serverUrl: string | null = null;
   private previous: BackendStatusResponse = {};
+  private lastPollingError: BackendPollingError | null = null;
+  private consecutivePollingFailures = 0;
 
   /** Start polling. Call after the server is ready. */
   start(serverUrl: string): void {
@@ -88,11 +97,21 @@ class BackendStatusService extends EventEmitter {
     }
     this.serverUrl = null;
     this.previous = {};
+    this.consecutivePollingFailures = 0;
+    if (this.lastPollingError !== null) {
+      this.lastPollingError = null;
+      this.emit('pollingError', null);
+    }
   }
 
   /** Get current status (last polled). */
   getStatus(): BackendStatusResponse {
     return this.previous;
+  }
+
+  /** Get the most recent polling failure, if the status poll is currently failing. */
+  getPollingError(): BackendPollingError | null {
+    return this.lastPollingError;
   }
 
   /** Get the SF server base URL the service is currently polling, if any. */
@@ -133,9 +152,18 @@ class BackendStatusService extends EventEmitter {
       this.detectTransitions(data);
       this.previous = data;
       this.emit('statusChanged', data);
+      this.consecutivePollingFailures = 0;
+      if (this.lastPollingError !== null) {
+        this.lastPollingError = null;
+        this.emit('pollingError', null);
+      }
       return data;
-    } catch {
-      // Server not reachable — keep previous state
+    } catch (e) {
+      // Server not reachable — keep previous state, but surface diagnostics.
+      this.consecutivePollingFailures += 1;
+      const pollingError = pollingErrorFromUnknown(e, this.consecutivePollingFailures);
+      this.lastPollingError = pollingError;
+      this.emit('pollingError', pollingError);
       return this.previous;
     }
   }
@@ -240,6 +268,11 @@ class BackendStatusService extends EventEmitter {
             data += chunk.toString();
           });
           res.on('end', () => {
+            const status = res.statusCode ?? 0;
+            if (status < 200 || status >= 300) {
+              reject(new BackendStatusPollError(status, data));
+              return;
+            }
             try {
               resolve(parseBackendStatus(JSON.parse(data)));
             } catch {
@@ -255,6 +288,19 @@ class BackendStatusService extends EventEmitter {
       });
       req.on('error', reject);
     });
+  }
+}
+
+class BackendStatusPollError extends Error {
+  readonly code: string | undefined;
+  readonly status: number;
+
+  constructor(status: number, body: string) {
+    const message = extractErrorMessage(body) ?? `HTTP ${status}`;
+    super(message);
+    this.name = 'BackendStatusPollError';
+    this.status = status;
+    this.code = extractErrorCode(body);
   }
 }
 
@@ -426,6 +472,37 @@ function extractErrorMessage(body: string): string | undefined {
   return undefined;
 }
 
+function extractErrorCode(body: string): string | undefined {
+  try {
+    const parsed = JSON.parse(body) as { detail?: unknown; code?: unknown };
+    if (typeof parsed.code === 'string') return parsed.code;
+    const detail = unwrapFastApiDetail(parsed.detail);
+    if (typeof detail === 'object' && detail !== null) {
+      const code = (detail as { code?: unknown }).code;
+      if (typeof code === 'string') return code;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function pollingErrorFromUnknown(error: unknown, consecutiveFailures: number): BackendPollingError {
+  if (error instanceof BackendStatusPollError) {
+    const pollingError: BackendPollingError = {
+      status: error.status,
+      message: error.message,
+      consecutiveFailures,
+    };
+    if (error.code) pollingError.code = error.code;
+    return pollingError;
+  }
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    consecutiveFailures,
+  };
+}
+
 function unwrapFastApiDetail(detail: unknown): unknown {
   if (typeof detail === 'object' && detail !== null && 'detail' in detail) {
     return (detail as { detail?: unknown }).detail;
@@ -433,7 +510,7 @@ function unwrapFastApiDetail(detail: unknown): unknown {
   return detail;
 }
 
-export const __testing = { extractErrorMessage };
+export const __testing = { extractErrorMessage, extractErrorCode, pollingErrorFromUnknown };
 
 export function escapeAppleScriptString(value: string): string {
   return value

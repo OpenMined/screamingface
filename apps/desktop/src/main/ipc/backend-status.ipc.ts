@@ -36,6 +36,11 @@ export function registerBackendStatusHandlers(): void {
     return backendStatusService.getStatus();
   });
 
+  ipcMain.handle('backends:getPollingError', (event) => {
+    requireTrustedIpcSender(event);
+    return backendStatusService.getPollingError();
+  });
+
   ipcMain.handle('backends:refresh', (event) => {
     requireTrustedIpcSender(event);
     return backendStatusService.refresh();
@@ -357,6 +362,13 @@ export function registerBackendStatusHandlers(): void {
   backendStatusService.on('statusChanged', (status) => {
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send('backends:statusChanged', status);
+    }
+  });
+
+  // Forward status-poll failures to all renderer windows for diagnostics.
+  backendStatusService.on('pollingError', (error) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('backends:pollingError', error);
     }
   });
 

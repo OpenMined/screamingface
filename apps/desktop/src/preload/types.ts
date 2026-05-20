@@ -68,6 +68,13 @@ export interface BackendHealth {
 
 export type BackendStatusMap = Record<string, BackendHealth>;
 
+export interface BackendPollingError {
+  status?: number;
+  code?: string;
+  message: string;
+  consecutiveFailures: number;
+}
+
 export interface GatewayStatus {
   mode: 'local_managed' | 'external';
   managed_by_runner: boolean;
@@ -221,6 +228,7 @@ export interface ElectronAPI {
   };
   backends: {
     getStatus: () => Promise<BackendStatusResponse>;
+    getPollingError: () => Promise<BackendPollingError | null>;
     refresh: () => Promise<BackendStatusResponse>;
     authenticate: (backend: string) => Promise<void>;
     loginGateway: (username: string, password: string) => Promise<GatewayLoginResult>;
@@ -248,6 +256,7 @@ export interface ElectronAPI {
       code: string,
     ) => Promise<ExchangeOAuthCodeResult>;
     onStatusChanged: (callback: (status: BackendStatusResponse) => void) => () => void;
+    onPollingError: (callback: (error: BackendPollingError | null) => void) => () => void;
     onAlert: (callback: (alert: BackendAlert) => void) => () => void;
   };
   session: {

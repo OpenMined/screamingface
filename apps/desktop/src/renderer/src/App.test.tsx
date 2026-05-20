@@ -16,6 +16,7 @@ const getServerStatus = vi.fn(async () => ({
 }));
 
 const getBackendStatus = vi.fn(async (): Promise<BackendStatusResponse> => ({}));
+const getBackendPollingError = vi.fn(async () => null);
 
 (window as unknown as { electronAPI: unknown }).electronAPI = {
   popup: {
@@ -73,6 +74,7 @@ const getBackendStatus = vi.fn(async (): Promise<BackendStatusResponse> => ({}))
   },
   backends: {
     getStatus: getBackendStatus,
+    getPollingError: getBackendPollingError,
     refresh: getBackendStatus,
     authenticate: vi.fn(async () => undefined),
     loginGateway: vi.fn(async () => ({ ok: true })),
@@ -89,6 +91,7 @@ const getBackendStatus = vi.fn(async (): Promise<BackendStatusResponse> => ({}))
     exchangeOAuthCode: vi.fn(async () => ({ ok: true })),
     exchangeOAuthConnectionCode: vi.fn(async () => ({ ok: true })),
     onStatusChanged: vi.fn(() => () => undefined),
+    onPollingError: vi.fn(() => () => undefined),
     onAlert: vi.fn(() => () => undefined),
   },
   session: {
@@ -125,6 +128,7 @@ beforeEach(() => {
   serverRestart.mockClear();
   getServerStatus.mockClear();
   getBackendStatus.mockClear();
+  getBackendPollingError.mockClear();
 });
 
 describe('App server logs', () => {

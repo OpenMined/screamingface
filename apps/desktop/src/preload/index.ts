@@ -48,6 +48,7 @@ const api: ElectronAPI = {
   },
   backends: {
     getStatus: () => ipcRenderer.invoke('backends:getStatus'),
+    getPollingError: () => ipcRenderer.invoke('backends:getPollingError'),
     refresh: () => ipcRenderer.invoke('backends:refresh'),
     authenticate: (backend) => ipcRenderer.invoke('backends:authenticate', backend),
     loginGateway: (username, password) =>
@@ -74,6 +75,7 @@ const api: ElectronAPI = {
     refreshConnection: (backend, connectionId) =>
       ipcRenderer.invoke('backends:refreshConnection', backend, connectionId),
     onStatusChanged: (cb) => onEvent('backends:statusChanged', cb),
+    onPollingError: (cb) => onEvent('backends:pollingError', cb),
     onAlert: (cb) => onEvent('backends:alert', cb),
   },
   session: {

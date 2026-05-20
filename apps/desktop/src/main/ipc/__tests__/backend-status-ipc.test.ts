@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   backendStatusService: {
     authenticate: vi.fn(),
     getServerUrl: vi.fn(() => 'http://127.0.0.1:8001'),
+    getPollingError: vi.fn(() => null),
     getStatus: vi.fn(() => ({})),
     logoutGateway: vi.fn(async () => undefined),
     on: vi.fn(),
@@ -69,6 +70,7 @@ describe('backend status IPC', () => {
     vi.clearAllMocks();
     mocks.ipcHandlers.clear();
     mocks.backendStatusService.getServerUrl.mockReturnValue('http://127.0.0.1:8001');
+    mocks.backendStatusService.getPollingError.mockReturnValue(null);
     mocks.backendStatusService.getStatus.mockReturnValue({});
     mocks.backendStatusService.logoutGateway.mockResolvedValue(undefined);
     mocks.isSafeBackendName.mockReturnValue(true);
@@ -115,5 +117,29 @@ describe('backend status IPC', () => {
     resolveConnection({ kind: 'failed', reason: 'cancelled' });
     await expect(profilePromise).resolves.toEqual({ kind: 'failed', reason: 'cancelled' });
     await expect(connectionPromise).resolves.toEqual({ kind: 'failed', reason: 'cancelled' });
+  });
+
+  it('forwards polling errors to renderer windows', () => {
+    const send = vi.fn();
+    mocks.browserWindowGetAllWindows.mockReturnValue([{ webContents: { send } }]);
+
+    registerBackendStatusHandlers();
+
+    const pollingErrorHandler = mocks.backendStatusService.on.mock.calls.find(
+      ([event]) => event === 'pollingError',
+    )?.[1];
+    if (typeof pollingErrorHandler !== 'function') {
+      throw new Error('pollingError handler was not registered');
+    }
+
+    const error = {
+      status: 401,
+      code: 'desktop_secret_invalid',
+      message: 'Desktop secret invalid',
+      consecutiveFailures: 2,
+    };
+    pollingErrorHandler(error);
+
+    expect(send).toHaveBeenCalledWith('backends:pollingError', error);
   });
 });

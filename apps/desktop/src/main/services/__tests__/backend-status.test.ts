@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { createServer } from 'http';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AddressInfo } from 'net';
 
 vi.mock('electron', () => ({
   Notification: class {
@@ -17,7 +19,17 @@ vi.mock('electron', () => ({
 
 vi.mock('@electron-toolkit/utils', () => ({ is: { dev: true } }));
 
-import { escapeAppleScriptString, isStatusV2, parseBackendStatus } from '../backend-status';
+import {
+  backendStatusService,
+  escapeAppleScriptString,
+  isStatusV2,
+  parseBackendStatus,
+  type BackendPollingError,
+} from '../backend-status';
+
+afterEach(() => {
+  backendStatusService.stop();
+});
 
 describe('backend status service', () => {
   it('escapes cli commands before AppleScript interpolation', () => {
@@ -77,6 +89,43 @@ describe('backend status service', () => {
         'Desktop app is out of date — update required to use this SF server',
       );
       expect(status.gateway.url).toBe('https://gateway.example.com');
+    }
+  });
+
+  it('emits polling errors with HTTP status and code', async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          detail: { code: 'desktop_secret_invalid', message: 'Desktop secret invalid' },
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address() as AddressInfo;
+
+    try {
+      const errorPromise = new Promise<BackendPollingError>((resolve) => {
+        backendStatusService.once('pollingError', (error) => resolve(error as BackendPollingError));
+      });
+
+      backendStatusService.start(`http://127.0.0.1:${address.port}`);
+
+      await expect(errorPromise).resolves.toMatchObject({
+        status: 401,
+        code: 'desktop_secret_invalid',
+        message: 'Desktop secret invalid',
+        consecutiveFailures: 1,
+      });
+      expect(backendStatusService.getPollingError()).toMatchObject({
+        status: 401,
+        code: 'desktop_secret_invalid',
+      });
+    } finally {
+      backendStatusService.stop();
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+      });
     }
   });
 });

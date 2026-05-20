@@ -1,6 +1,6 @@
 import { LayoutDashboard, Settings, Puzzle, Terminal, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { PluginManifest } from '../../../../preload/types';
+import type { BackendPollingError, PluginManifest } from '../../../../preload/types';
 import { GatewayStatusPanel } from '@/components/server/GatewayStatusPanel';
 import { isBackendStatusV2, useBackendStatus } from '@/hooks/use-backend-status';
 
@@ -25,8 +25,9 @@ interface SidebarProps {
 }
 
 export function Sidebar({ currentView, onNavigate, plugins }: SidebarProps) {
-  const { statuses, refresh } = useBackendStatus();
+  const { statuses, pollingError, refresh } = useBackendStatus();
   const gatewayStatus = isBackendStatusV2(statuses) ? statuses : null;
+  const showPollingError = pollingError !== null && pollingError.consecutiveFailures >= 2;
 
   return (
     <aside className="flex w-52 flex-col border-r border-sidebar-border bg-sidebar">
@@ -88,6 +89,16 @@ export function Sidebar({ currentView, onNavigate, plugins }: SidebarProps) {
           </>
         )}
       </nav>
+      {showPollingError && (
+        <div
+          role="status"
+          aria-label="Backend polling error"
+          className="mx-2 mb-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
+        >
+          <div className="font-medium">SF status unavailable</div>
+          <div className="mt-0.5 text-destructive/80">{formatPollingError(pollingError)}</div>
+        </div>
+      )}
       {gatewayStatus?.gateway.mode === 'external' && (
         <div className="px-2 pb-3">
           <GatewayStatusPanel
@@ -101,4 +112,10 @@ export function Sidebar({ currentView, onNavigate, plugins }: SidebarProps) {
       )}
     </aside>
   );
+}
+
+function formatPollingError(error: BackendPollingError): string {
+  const prefix = error.status ? `HTTP ${error.status}` : 'Network error';
+  const detail = error.code ?? error.message;
+  return detail ? `${prefix}: ${detail}` : prefix;
 }

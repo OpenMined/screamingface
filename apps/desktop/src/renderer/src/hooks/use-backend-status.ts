@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { BackendStatusResponse, BackendStatusV2 } from '../../../preload/types';
+import type {
+  BackendPollingError,
+  BackendStatusResponse,
+  BackendStatusV2,
+} from '../../../preload/types';
 
 export function isBackendStatusV2(status: BackendStatusResponse): status is BackendStatusV2 {
   return (
@@ -12,6 +16,7 @@ export function isBackendStatusV2(status: BackendStatusResponse): status is Back
 
 export function useBackendStatus() {
   const [statuses, setStatuses] = useState<BackendStatusResponse>({});
+  const [pollingError, setPollingError] = useState<BackendPollingError | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -19,13 +24,18 @@ export function useBackendStatus() {
       setStatuses(s);
       setLoaded(true);
     });
+    window.electronAPI.backends.getPollingError().then(setPollingError);
 
     const unsubStatus = window.electronAPI.backends.onStatusChanged((s) => {
       setStatuses(s);
       setLoaded(true);
     });
+    const unsubPollingError = window.electronAPI.backends.onPollingError(setPollingError);
 
-    return unsubStatus;
+    return () => {
+      unsubStatus();
+      unsubPollingError();
+    };
   }, []);
 
   const refresh = async (): Promise<void> => {
@@ -34,5 +44,5 @@ export function useBackendStatus() {
     setLoaded(true);
   };
 
-  return { statuses, loaded, refresh };
+  return { statuses, pollingError, loaded, refresh };
 }

@@ -110,7 +110,15 @@ async def _active_oauth_connection_for_profile(
                 ),
             },
         )
-    return None
+    raise HTTPException(
+        status_code=404,
+        detail={
+            "code": "connection_not_found",
+            "provider": provider,
+            "requested_label": profile_name,
+            "valid_labels": [connection.label for connection in connections],
+        },
+    )
 
 
 async def _credential_target_for_chat(

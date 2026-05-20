@@ -6,7 +6,9 @@ const authenticate = vi.fn();
 const authenticateOAuth = vi.fn(async () => ({ kind: 'complete' }));
 const authenticateOAuthConnection = vi.fn(async () => ({ kind: 'complete' }));
 const getStatus = vi.fn(async () => ({}));
+const getPollingError = vi.fn(async () => null);
 const onStatusChanged = vi.fn(() => () => {});
+const onPollingError = vi.fn(() => () => {});
 const onAlert = vi.fn(() => () => {});
 const refresh = vi.fn();
 const loginGateway = vi.fn(async () => ({ ok: true }));
@@ -29,7 +31,9 @@ const exchangeOAuthConnectionCode = vi.fn(
     authenticateOAuth,
     authenticateOAuthConnection,
     getStatus,
+    getPollingError,
     onStatusChanged,
+    onPollingError,
     onAlert,
     refresh,
     loginGateway,
@@ -68,6 +72,9 @@ beforeEach(() => {
   authenticateOAuth.mockImplementation(async () => ({ kind: 'complete' }));
   authenticateOAuthConnection.mockClear();
   authenticateOAuthConnection.mockImplementation(async () => ({ kind: 'complete' }));
+  getPollingError.mockClear();
+  getPollingError.mockResolvedValue(null);
+  onPollingError.mockClear();
   listProfiles.mockClear();
   loginGateway.mockClear();
   logoutGateway.mockClear();
