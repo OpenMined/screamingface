@@ -20,6 +20,7 @@ from pydantic import Field, field_validator
 from pydantic_settings import SettingsConfigDict
 
 from screamingface.plugin import Plugin, PluginSettings
+from screamingface.plugins.eval_runs._hook_payloads import HOOK_QUESTION_CHECKED
 from screamingface.plugins.python_runner._default_scripts import load_vendored_defaults
 from screamingface.plugins.python_runner.runner import (
     PythonRunnerError,
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
     from screamingface.core.classes import ClassRegistry
     from screamingface.core.hooks import HookRegistry
     from screamingface.core.routes import RouteRegistry
+    from screamingface.plugins.url4_executor.scope import Env
 
 
 logger = logging.getLogger(__name__)
@@ -96,6 +98,7 @@ class PythonRunnerPlugin(Plugin):
         *,
         sources: str = "",
         app: FastAPI,
+        env: Env | None = None,
     ) -> str:
         """Fetch the script at ``sources``, run it sandboxed, return JSON.
 
@@ -165,6 +168,47 @@ class PythonRunnerPlugin(Plugin):
 
             duration_ms = int((time.monotonic() - t0) * 1000)
             set_span_attrs({"python.duration_ms": duration_ms})
+
+            # eval-runs integration: emit question.checked when this run has
+            # a __run_id__ in env AND the script is a check_correct.py-shaped
+            # invocation. Other scripts and untagged calls don't touch the
+            # eval pipeline.
+            run_id: str | None = None
+            if env is not None:
+                try:
+                    looked_up = env.lookup("__run_id__")
+                    if isinstance(looked_up, str):
+                        run_id = looked_up
+                except KeyError:
+                    run_id = None
+
+            if run_id is not None and sources.endswith("/check_correct.py"):
+                question = ""
+                expected = ""
+                try:
+                    payload_obj = json.loads(intent) if intent else {}
+                    if isinstance(payload_obj, dict):
+                        question = str(payload_obj.get("question", ""))
+                        expected = str(payload_obj.get("expected", ""))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                if isinstance(result, dict):
+                    result_dict: dict = result
+                else:
+                    result_dict = {}
+
+                await app.state.hooks.emit_async(
+                    HOOK_QUESTION_CHECKED,
+                    run_id=run_id,
+                    question=question,
+                    expected=expected,
+                    predicted=result_dict.get("predicted"),
+                    correct=result_dict.get("correct"),
+                    raw_output=result_dict.get("raw_output"),
+                    error=None,
+                )
+
             return json.dumps(result)
 
     def setup(
