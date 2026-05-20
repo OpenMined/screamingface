@@ -71,7 +71,7 @@ export type LauncherResult =
   | { kind: 'complete'; connection?: OAuthConnectionSummary; isDuplicate?: boolean }
   | {
       kind: 'failed';
-      reason: 'timeout' | 'gateway_error' | 'provider_error' | 'network_error';
+      reason: 'timeout' | 'gateway_error' | 'provider_error' | 'network_error' | 'cancelled';
       message?: string;
     };
 
@@ -90,6 +90,7 @@ export interface LauncherOptions {
   fetchImpl?: typeof fetch;
   headers?: Record<string, string>;
   allowedOAuthRedirectPorts?: Array<string | number>;
+  abortSignal?: AbortSignal;
 }
 
 export interface ConnectionLauncherOptions {
@@ -101,6 +102,12 @@ export interface ConnectionLauncherOptions {
   fetchImpl?: typeof fetch;
   headers?: Record<string, string>;
   allowedOAuthRedirectPorts?: Array<string | number>;
+  abortSignal?: AbortSignal;
+}
+
+export function clearPendingOAuthStates(): void {
+  pendingStateByBackendProfile.clear();
+  pendingStateByBackendConnection.clear();
 }
 
 export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherResult> {
@@ -118,12 +125,18 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
   const query = opts.profileName ? `?name=${encodeURIComponent(opts.profileName)}` : '';
   const startUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/start${query}`;
   const statusUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/status${query}`;
+  if (opts.abortSignal?.aborted) return cancelledResult();
 
   console.log(`[oauth-launcher] POST ${startUrl}`);
   let startResp: Response;
   try {
-    startResp = await fetchImpl(startUrl, { method: 'POST', headers: opts.headers });
+    startResp = await fetchImpl(startUrl, {
+      method: 'POST',
+      headers: opts.headers,
+      ...abortFetchInit(opts.abortSignal),
+    });
   } catch (e) {
+    if (isAbortError(e, opts.abortSignal)) return cancelledResult();
     console.log(`[oauth-launcher] start fetch threw:`, e);
     return { kind: 'failed', reason: 'network_error', message: String(e) };
   }
@@ -161,6 +174,7 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
       startBody.state,
     );
   }
+  if (opts.abortSignal?.aborted) return cancelledResult();
   console.log(`[oauth-launcher] opening browser for ${opts.backendName}`);
   await shell.openExternal(startBody.authorize_url);
 
@@ -169,13 +183,17 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
   while (Date.now() < deadline) {
     let statusResp: Response;
     try {
-      statusResp = await fetchImpl(statusUrl, { headers: opts.headers });
-    } catch {
+      statusResp = await fetchImpl(statusUrl, {
+        headers: opts.headers,
+        ...abortFetchInit(opts.abortSignal),
+      });
+    } catch (e) {
+      if (isAbortError(e, opts.abortSignal)) return cancelledResult();
       networkBlips += 1;
       if (networkBlips >= 5) {
         return { kind: 'failed', reason: 'network_error' };
       }
-      await sleep(pollIntervalMs);
+      if ((await sleep(pollIntervalMs, opts.abortSignal)) === 'aborted') return cancelledResult();
       continue;
     }
     networkBlips = 0;
@@ -197,7 +215,7 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
     if (body.state === 'error') {
       return { kind: 'failed', reason: 'provider_error', message: body.error };
     }
-    await sleep(pollIntervalMs);
+    if ((await sleep(pollIntervalMs, opts.abortSignal)) === 'aborted') return cancelledResult();
   }
   return { kind: 'failed', reason: 'timeout' };
 }
@@ -217,6 +235,7 @@ export async function runOAuthConnectionLauncher(
   const pollIntervalMs = opts.pollIntervalMs ?? 2000;
   const timeoutMs = opts.timeoutMs ?? 10 * 60 * 1000;
   const startUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/connections`;
+  if (opts.abortSignal?.aborted) return cancelledResult();
 
   let startResp: Response;
   try {
@@ -224,8 +243,10 @@ export async function runOAuthConnectionLauncher(
       method: 'POST',
       headers: { ...opts.headers, 'content-type': 'application/json' },
       body: JSON.stringify(opts.label ? { label: opts.label } : {}),
+      ...abortFetchInit(opts.abortSignal),
     });
   } catch (e) {
+    if (isAbortError(e, opts.abortSignal)) return cancelledResult();
     return { kind: 'failed', reason: 'network_error', message: String(e) };
   }
   if (!startResp.ok) {
@@ -262,6 +283,7 @@ export async function runOAuthConnectionLauncher(
       startBody.state,
     );
   }
+  if (opts.abortSignal?.aborted) return cancelledResult();
   await shell.openExternal(startBody.authorize_url);
 
   const statusUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/connections/${encodeURIComponent(startBody.connection_id)}`;
@@ -270,13 +292,17 @@ export async function runOAuthConnectionLauncher(
   while (Date.now() < deadline) {
     let statusResp: Response;
     try {
-      statusResp = await fetchImpl(statusUrl, { headers: opts.headers });
-    } catch {
+      statusResp = await fetchImpl(statusUrl, {
+        headers: opts.headers,
+        ...abortFetchInit(opts.abortSignal),
+      });
+    } catch (e) {
+      if (isAbortError(e, opts.abortSignal)) return cancelledResult();
       networkBlips += 1;
       if (networkBlips >= 5) {
         return { kind: 'failed', reason: 'network_error' };
       }
-      await sleep(pollIntervalMs);
+      if ((await sleep(pollIntervalMs, opts.abortSignal)) === 'aborted') return cancelledResult();
       continue;
     }
     networkBlips = 0;
@@ -302,9 +328,21 @@ export async function runOAuthConnectionLauncher(
         message: body.error_message ?? `connection ${body.status}`,
       };
     }
-    await sleep(pollIntervalMs);
+    if ((await sleep(pollIntervalMs, opts.abortSignal)) === 'aborted') return cancelledResult();
   }
   return { kind: 'failed', reason: 'timeout' };
+}
+
+function cancelledResult(): LauncherResult {
+  return { kind: 'failed', reason: 'cancelled' };
+}
+
+function isAbortError(error: unknown, signal?: AbortSignal): boolean {
+  return signal?.aborted === true || (error instanceof DOMException && error.name === 'AbortError');
+}
+
+function abortFetchInit(signal?: AbortSignal): Pick<RequestInit, 'signal'> {
+  return signal ? { signal } : {};
 }
 
 async function safeText(resp: Response): Promise<string> {
@@ -315,6 +353,18 @@ async function safeText(resp: Response): Promise<string> {
   }
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<'completed' | 'aborted'> {
+  if (signal?.aborted) return Promise.resolve('aborted');
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = (): void => {
+      if (timer) clearTimeout(timer);
+      resolve('aborted');
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve('completed');
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }

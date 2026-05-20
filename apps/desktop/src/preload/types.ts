@@ -170,7 +170,7 @@ export type OAuthLauncherResult =
   | { kind: 'complete'; connection?: OAuthConnection; isDuplicate?: boolean }
   | {
       kind: 'failed';
-      reason: 'timeout' | 'gateway_error' | 'provider_error' | 'network_error';
+      reason: 'timeout' | 'gateway_error' | 'provider_error' | 'network_error' | 'cancelled';
       message?: string;
     };
 

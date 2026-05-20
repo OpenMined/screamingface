@@ -7,6 +7,7 @@ import {
   getPendingConnectionAuthState,
   clearPendingAuthState,
   clearPendingConnectionAuthState,
+  clearPendingOAuthStates,
   type LauncherResult,
 } from '../services/oauth-launcher';
 import { isSafeBackendName, isSafeOAuthConnectionId } from '../services/external-url-policy';
@@ -14,6 +15,20 @@ import { desktopSecretHeader } from '../services/desktop-secret';
 import { requireTrustedIpcSender } from './sender-validation';
 
 export type ExchangeCodeResult = { ok: true } | { ok: false; status?: number; message?: string };
+
+let oauthLauncherAbortController = new AbortController();
+
+function currentOAuthLauncherSignal(): AbortSignal {
+  if (oauthLauncherAbortController.signal.aborted) {
+    oauthLauncherAbortController = new AbortController();
+  }
+  return oauthLauncherAbortController.signal;
+}
+
+function abortOAuthLaunchers(): void {
+  oauthLauncherAbortController.abort();
+  oauthLauncherAbortController = new AbortController();
+}
 
 export function registerBackendStatusHandlers(): void {
   ipcMain.handle('backends:getStatus', (event) => {
@@ -38,6 +53,8 @@ export function registerBackendStatusHandlers(): void {
 
   ipcMain.handle('backends:logoutGateway', async (event) => {
     requireTrustedIpcSender(event);
+    abortOAuthLaunchers();
+    clearPendingOAuthStates();
     return backendStatusService.logoutGateway();
   });
 
@@ -65,6 +82,7 @@ export function registerBackendStatusHandlers(): void {
         profileName,
         headers: desktopSecretHeader(),
         allowedOAuthRedirectPorts: currentGatewayRedirectPorts(),
+        abortSignal: currentOAuthLauncherSignal(),
       });
       console.log(`[oauth] launcher result:`, result);
       return result;
@@ -92,6 +110,7 @@ export function registerBackendStatusHandlers(): void {
         label,
         headers: desktopSecretHeader(),
         allowedOAuthRedirectPorts: currentGatewayRedirectPorts(),
+        abortSignal: currentOAuthLauncherSignal(),
       });
     },
   );

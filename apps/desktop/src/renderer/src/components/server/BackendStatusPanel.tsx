@@ -113,7 +113,7 @@ function ProfileRow({
     setError(null);
     try {
       const result = await window.electronAPI.backends.authenticateOAuth(backendName, profile.name);
-      if (result.kind === 'failed') {
+      if (result.kind === 'failed' && result.reason !== 'cancelled') {
         const reason = result.message ? `${result.reason}: ${result.message}` : result.reason;
         setError(`Re-auth failed — ${reason}`);
       }
@@ -296,7 +296,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
       }, 500);
       try {
         const result = await window.electronAPI.backends.authenticateOAuth(name, candidate);
-        if (result.kind === 'failed') {
+        if (result.kind === 'failed' && result.reason !== 'cancelled') {
           const reason = result.message ? `${result.reason}: ${result.message}` : result.reason;
           setAddError(`Authentication failed for "${candidate}" — ${reason}`);
         }
@@ -687,7 +687,7 @@ function ConnectionsSubPanel({
               ? `Already connected as ${resolved}. Reused the existing connection.`
               : `Connected ${resolved}.`,
           );
-        } else {
+        } else if (result.reason !== 'cancelled') {
           const reason = result.message ? `${result.reason}: ${result.message}` : result.reason;
           setAddError(`Authentication failed — ${reason}`);
         }
