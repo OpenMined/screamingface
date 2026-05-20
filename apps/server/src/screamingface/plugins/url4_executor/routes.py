@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import logging
+import uuid
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from screamingface.plugins.aigw_base.desktop_secret import require_desktop_secret
+from screamingface.plugins.eval_runs._hook_payloads import (
+    HOOK_RUN_FAILED,
+    HOOK_RUN_FINISHED,
+    HOOK_RUN_STARTED,
+)
 from screamingface.plugins.url4_executor.decoder import split_intent
 from screamingface.plugins.url4_executor.ensemble import EnsembleInterpreter
 from screamingface.plugins.url4_executor.highlight import tokenize
@@ -83,12 +90,30 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
         dependencies=[Depends(require_desktop_secret)],
     )
     async def url4_resolve(
+        request: Request,
         q: str | None = None,
         ast: bool = False,
         processor: str | None = None,
+        x_sf_run_id: str | None = Header(default=None, alias="X-SF-Run-Id"),
+        x_sf_run_spec: str | None = Header(default=None, alias="X-SF-Run-Spec"),
     ) -> PlainTextResponse | JSONResponse:
         if not q:
             raise HTTPException(status_code=400, detail="Missing 'q' query parameter")
+
+        run_id: str | None = None
+        if x_sf_run_id or x_sf_run_spec:
+            run_id = x_sf_run_id or str(uuid.uuid4())
+
+        env = Env.root()
+        if run_id:
+            env = env.child(__run_id__=run_id, __run_spec__=x_sf_run_spec or "")
+            await request.app.state.hooks.emit_async(
+                HOOK_RUN_STARTED,
+                run_id=run_id,
+                spec_name=x_sf_run_spec or "",
+                url4_expression=q,
+                started_at=datetime.now(UTC),
+            )
 
         # Use EnsembleInterpreter when a processor is specified OR the
         # expression matches the fan-out shape. The ensemble interpreter
@@ -97,10 +122,24 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
         interpreter = EnsembleInterpreter(app=app, processor=processor)
 
         try:
-            result = await interpreter.evaluate(q, env=Env.root())
+            result = await interpreter.evaluate(q, env=env)
         except Exception as exc:
             logger.warning("url4 evaluation failed: %s", exc, exc_info=True)
+            if run_id:
+                await request.app.state.hooks.emit_async(
+                    HOOK_RUN_FAILED,
+                    run_id=run_id,
+                    finished_at=datetime.now(UTC),
+                    error=str(exc),
+                )
             raise HTTPException(status_code=502, detail=f"url4 evaluation failed: {exc}")
+
+        if run_id:
+            await request.app.state.hooks.emit_async(
+                HOOK_RUN_FINISHED,
+                run_id=run_id,
+                finished_at=datetime.now(UTC),
+            )
 
         # Record result on the FastAPI auto-instrumented span
         from screamingface.plugins.url4_executor._tracing import set_span_attrs

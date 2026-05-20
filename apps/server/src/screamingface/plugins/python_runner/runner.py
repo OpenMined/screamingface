@@ -14,11 +14,12 @@ import hashlib
 import json
 import logging
 import os
-import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+from screamingface.plugins.python_runner.sandbox import build_subprocess_argv
 
 __all__ = ["PythonRunnerError", "run_script_source"]
 
@@ -71,13 +72,14 @@ async def run_script_source(
     script_path = _cache_script(source)
     payload_bytes = json.dumps(payload).encode("utf-8")
 
+    argv = build_subprocess_argv(script_path)
     try:
         proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            str(script_path),
+            *argv,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env={"PATH": "/usr/bin", "HOME": "/tmp"},
         )
     except OSError as e:
         raise PythonRunnerError(kind="io_error", message=str(e)) from e

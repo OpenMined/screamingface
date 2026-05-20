@@ -26,7 +26,9 @@
     "ollama-frontend",
     "aigw-base",
     "aigw-claude-backend",
-    "aigw-runner"
+    "aigw-runner",
+    "state",
+    "eval-runs"
   ],
   "plugin_config": {
     "aigw-runner": {

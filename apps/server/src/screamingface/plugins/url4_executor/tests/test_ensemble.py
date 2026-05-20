@@ -61,7 +61,8 @@ class _FakeDispatchPlugin:
         self._call_idx = 0
         self.calls: list[tuple[str, str, object]] = []
 
-    async def handle_backend_call(self, intent: str, *, sources: str = "", app) -> str:
+    async def handle_backend_call(self, intent: str, *, sources: str = "", app, env=None) -> str:
+        del env
         self.calls.append((intent, sources, app))
         resp = self._responses[self._call_idx % len(self._responses)]
         self._call_idx += 1
@@ -306,7 +307,8 @@ class TestEnsembleEvaluate:
             name = "failing"
             backend_call_paths = ["/failing"]
 
-            async def handle_backend_call(self, intent, *, sources="", app):
+            async def handle_backend_call(self, intent, *, sources="", app, env=None):
+                del env
                 raise RuntimeError("backend exploded")
 
         plugin = _FakeDispatchPlugin(name="claude-api", paths=["/claude"], responses=["ok"])

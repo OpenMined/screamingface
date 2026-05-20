@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from screamingface.core.classes import ClassRegistry
     from screamingface.core.hooks import HookRegistry
     from screamingface.core.routes import RouteRegistry
+    from screamingface.plugins.url4_executor.scope import Env
 
 _PROFILE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -166,13 +167,21 @@ class BackendApiPluginBase(Plugin):
         router = type(self).create_router(self.settings, app)
         routes.add_router(self.name, router, prefix="")
 
-    async def handle_backend_call(self, intent: str, *, sources: str = "", app: FastAPI) -> str:
+    async def handle_backend_call(
+        self,
+        intent: str,
+        *,
+        sources: str = "",
+        app: FastAPI,
+        env: Env | None = None,
+    ) -> str:
         """Dispatch a url4 backend-call to the provider.
 
         Constructs a per-plugin Interpreter via :meth:`_make_interpreter`
         and delegates to its ``process(sources, intent)`` method — the
         same path the ``GET /<prefix>?q=`` route uses.
         """
+        del env
         interpreter = self._make_interpreter(app)
         return await interpreter.process(sources=sources, intent=intent)
 

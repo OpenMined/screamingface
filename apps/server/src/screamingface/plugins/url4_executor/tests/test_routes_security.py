@@ -18,13 +18,15 @@ class _FakeDispatchPlugin:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, object]] = []
 
-    async def handle_backend_call(self, intent: str, *, sources: str = "", app) -> str:
+    async def handle_backend_call(self, intent: str, *, sources: str = "", app, env=None) -> str:
+        del env
         self.calls.append((intent, sources, app))
         return "ok"
 
 
 class _EchoDispatchPlugin(_FakeDispatchPlugin):
-    async def handle_backend_call(self, intent: str, *, sources: str = "", app) -> str:
+    async def handle_backend_call(self, intent: str, *, sources: str = "", app, env=None) -> str:
+        del env
         self.calls.append((intent, sources, app))
         return f"response:{intent}"
 
