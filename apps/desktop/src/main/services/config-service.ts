@@ -14,10 +14,10 @@ import {
 } from 'fs';
 import { basename, dirname, join, resolve } from 'path';
 import { EventEmitter } from 'events';
-import { app } from 'electron';
+import { app, dialog } from 'electron';
 import { is } from '@electron-toolkit/utils';
 
-import { migrateDesktopRuntimeConfig } from './runtime-config-migration';
+import { GatewayUrlConflictError, migrateDesktopRuntimeConfig } from './runtime-config-migration';
 
 function resolveServerDir(): string {
   if (!is.dev) {
@@ -125,7 +125,18 @@ export class ConfigService extends EventEmitter {
 
   private migrateDesktopRuntimeConfig(): void {
     const config = this.read();
-    const migrated = migrateDesktopRuntimeConfig(config, app.getPath('userData'));
+    let migrated: Record<string, unknown>;
+    try {
+      migrated = migrateDesktopRuntimeConfig(config, app.getPath('userData'));
+    } catch (error) {
+      if (error instanceof GatewayUrlConflictError) {
+        dialog.showErrorBox(
+          'Choose AIGateway URL',
+          `${error.message}\n\nConfig: ${this.getConfigPath()}`,
+        );
+      }
+      throw error;
+    }
 
     if (JSON.stringify(migrated) !== JSON.stringify(config)) {
       this.write(migrated);

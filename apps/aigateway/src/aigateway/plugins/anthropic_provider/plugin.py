@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.plugin_base import (
     ModelEntry,
     OAuthCodeExchangeRequest,
@@ -80,6 +81,17 @@ class AnthropicProviderPlugin(ProviderPluginBase):
             state=request.state,
             http_client_factory=request.http_client_factory,
         )
+
+    async def extract_identity(
+        self,
+        _credentials: dict[str, Any],
+        *,
+        http_client_factory: Any | None = None,  # noqa: ARG002
+    ) -> AccountIdentity | None:
+        return None
+
+    def requires_oauth_connection_label(self) -> bool:
+        return True
 
     async def bootstrap_profiles(
         self,

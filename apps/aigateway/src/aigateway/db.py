@@ -17,7 +17,7 @@ TORTOISE_CONFIG: dict[str, Any] = {
     "connections": {"default": _default_database_url()},
     "apps": {
         "models": {
-            "models": ["aigateway.core.auth.models"],
+            "models": ["aigateway.core.auth.models", "aigateway.core.oauth.models"],
             "default_connection": "default",
             "migrations": "aigateway.migrations",
         }

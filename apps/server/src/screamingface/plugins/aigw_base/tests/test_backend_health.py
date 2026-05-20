@@ -12,7 +12,7 @@ import pytest
 from screamingface.plugins.aigw_base.backend import AigwBackend
 
 
-def _backend(handler) -> AigwBackend:
+def _backend(handler, *, profile_name: str = "default") -> AigwBackend:
     transport = httpx.MockTransport(handler)
 
     def factory(timeout: float) -> httpx.AsyncClient:
@@ -20,7 +20,7 @@ def _backend(handler) -> AigwBackend:
 
     return AigwBackend(
         gateway_url="http://gateway",
-        profile_name="default",
+        profile_name=profile_name,
         gateway_provider="test-provider",
         http_client_factory=factory,
     )
@@ -68,6 +68,66 @@ async def test_health_not_authenticated_when_profile_404() -> None:
     status = await _backend(handler).health()
     assert status.authenticated is False
     assert "not yet created" in (status.error or "").lower()
+
+
+@pytest.mark.anyio
+async def test_health_authenticated_when_profile_missing_but_single_connection_active() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/profiles/default/status"):
+            return httpx.Response(404, json={"code": "profile_not_found"})
+        assert req.url.path == "/v1/oauth/connections"
+        assert req.url.params["provider"] == "test-provider"
+        assert req.url.params["status"] == "active"
+        return httpx.Response(
+            200,
+            json={
+                "connections": [{"id": "00000000-0000-0000-0000-000000000001", "status": "active"}]
+            },
+        )
+
+    status = await _backend(handler).health()
+    assert status.authenticated is True
+    assert status.error is None
+
+
+@pytest.mark.anyio
+async def test_health_uses_matching_connection_label_when_multiple_active() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/profiles/work/status"):
+            return httpx.Response(404, json={"code": "profile_not_found"})
+        return httpx.Response(
+            200,
+            json={
+                "connections": [
+                    {"label": "personal", "status": "active"},
+                    {"label": "work", "status": "active"},
+                ]
+            },
+        )
+
+    status = await _backend(handler, profile_name="work").health()
+    assert status.authenticated is True
+    assert status.error is None
+
+
+@pytest.mark.anyio
+async def test_health_not_authenticated_when_default_connection_is_ambiguous() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.path.endswith("/profiles/default/status"):
+            return httpx.Response(404, json={"code": "profile_not_found"})
+        return httpx.Response(
+            200,
+            json={
+                "connections": [
+                    {"label": "personal", "status": "active"},
+                    {"label": "work", "status": "active"},
+                ]
+            },
+        )
+
+    status = await _backend(handler).health()
+    assert status.authenticated is False
+    assert "multiple active" in (status.error or "").lower()
 
 
 @pytest.mark.anyio

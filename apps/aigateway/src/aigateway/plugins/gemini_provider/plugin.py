@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
+from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.plugin_base import (
     ModelEntry,
     OAuthCodeExchangeRequest,
@@ -14,7 +15,12 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 
-from .auth import GeminiOAuth, account_label_from_credentials, exchange_authorization_code
+from .auth import (
+    GeminiOAuth,
+    account_label_from_credentials,
+    exchange_authorization_code,
+    extract_account_identity,
+)
 from .chat_handler import ensure_litellm_gemini_provider_registered, get_litellm_gemini_handler
 from .models import MODELS
 from .oauth_config import (
@@ -89,6 +95,25 @@ class GeminiProviderPlugin(ProviderPluginBase):
 
     def account_label_from_credentials(self, credentials: dict[str, Any]) -> str | None:
         return account_label_from_credentials(credentials)
+
+    async def extract_identity(
+        self,
+        credentials: dict[str, Any],
+        *,
+        http_client_factory: Any | None = None,
+    ) -> AccountIdentity | None:
+        identity = await extract_account_identity(
+            credentials,
+            http_client_factory=http_client_factory,
+        )
+        if identity is None:
+            return None
+        return AccountIdentity(
+            sub=identity.subject,
+            email=identity.email,
+            name=identity.name,
+            raw=identity.as_dict(),
+        )
 
     def allows_chatless_profile(self) -> bool:
         return True

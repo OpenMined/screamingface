@@ -130,7 +130,9 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
         paths = getattr(plugin, "backend_call_paths", [])
         known_paths.extend(paths)
         if node.path in paths:
-            return await plugin.handle_backend_call(intent_text, sources=sources_text, app=app)
+            return await plugin.handle_backend_call(
+                intent_text, sources=sources_text, app=app, env=env
+            )
 
     raise RuntimeError(
         f"No active plugin handles the backend call {node.path}(). "
@@ -200,7 +202,7 @@ async def _fetch_url(url: str) -> str:
     with traced("url4.fetch", kind="client"):
         set_span_attrs({"http.method": "GET", "http.url": safe_url[:500]})
         timeout = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
-        async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(safe_url)
             resp.raise_for_status()
             body = resp.text

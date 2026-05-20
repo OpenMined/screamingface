@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
+from aigateway.core.oauth.identity import AccountIdentity, identity_from_id_token
 from aigateway.core.plugin_base import (
     ModelEntry,
     OAuthCodeExchangeRequest,
@@ -74,6 +75,14 @@ class CodexProviderPlugin(ProviderPluginBase):
 
     def account_label_from_credentials(self, credentials: dict) -> str | None:
         return account_label_from_credentials(credentials)
+
+    async def extract_identity(
+        self,
+        credentials: dict[str, Any],
+        *,
+        http_client_factory: Any | None = None,  # noqa: ARG002
+    ) -> AccountIdentity | None:
+        return identity_from_id_token(credentials.get("id_token"))
 
     def supports_chat_streaming(self) -> bool:
         return False

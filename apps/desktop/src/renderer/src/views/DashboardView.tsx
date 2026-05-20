@@ -6,20 +6,24 @@ import { ServerLogs } from '@/components/server/ServerLogs';
 import { BackendStatusPanel } from '@/components/server/BackendStatusPanel';
 import { VenvStatusCard } from '@/components/venv/VenvStatusCard';
 import { VenvSetup } from '@/components/venv/VenvSetup';
-import { useServerStatus } from '@/hooks/use-server-status';
+import type { ServerStatusController } from '@/hooks/use-server-status';
 import { useVenvStatus } from '@/hooks/use-venv-status';
 
-export function DashboardView() {
-  const server = useServerStatus();
+interface DashboardViewProps {
+  server: ServerStatusController;
+}
+
+export function DashboardView({ server }: DashboardViewProps) {
   const venv = useVenvStatus();
   const [tracingEnabled, setTracingEnabled] = useState(false);
+  const { status, info, logs, start, stop, restart, clearLogs } = server;
 
   // Auto-start server once venv is ready
   useEffect(() => {
-    if (venv.status === 'ready' && server.status === 'stopped') {
-      server.start();
+    if (venv.status === 'ready' && status === 'stopped') {
+      void start();
     }
-  }, [venv.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [start, status, venv.status]);
 
   // Check if tracing plugin is enabled in config
   useEffect(() => {
@@ -60,19 +64,10 @@ export function DashboardView() {
       {/* Server status — only show when venv is ready */}
       {venv.status === 'ready' && (
         <>
-          <ServerStatusCard
-            status={server.status}
-            port={server.info?.port}
-            scheme={server.info?.scheme}
-          />
+          <ServerStatusCard status={status} port={info?.port} scheme={info?.scheme} />
           <div className="flex items-center justify-between">
-            <ServerControls
-              status={server.status}
-              onStart={server.start}
-              onStop={server.stop}
-              onRestart={server.restart}
-            />
-            {server.status === 'ready' && tracingEnabled && (
+            <ServerControls status={status} onStart={start} onStop={stop} onRestart={restart} />
+            {status === 'ready' && tracingEnabled && (
               <button
                 onClick={openPhoenix}
                 className="flex items-center gap-1.5 rounded-md bg-chart-4/15 px-3 py-1.5 text-xs font-medium text-chart-4 transition-colors hover:bg-chart-4/25"
@@ -83,7 +78,7 @@ export function DashboardView() {
             )}
           </div>
           <BackendStatusPanel />
-          <ServerLogs logs={server.logs} onClear={server.clearLogs} />
+          <ServerLogs logs={logs} onClear={clearLogs} />
         </>
       )}
     </div>

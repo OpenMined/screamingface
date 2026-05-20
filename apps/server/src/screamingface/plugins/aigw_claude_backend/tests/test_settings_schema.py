@@ -3,8 +3,8 @@
 Covers SF-191 part B (B-shape):
 - The legacy `profiles` and `default_profile` fields are stripped from
   the schema produced for the SF Settings UI.
-- `auth_profile` becomes a dynamic enum sourced from the gateway's
-  `GET /v1/auth/<provider>/profiles` endpoint.
+- `auth_profile` becomes a dynamic enum sourced from gateway profiles
+  plus active OAuthConnection labels.
 - Schema emission tolerates a gateway that's down: it MUST NOT raise.
 - The currently-configured `auth_profile` is included in the dropdown
   even if the gateway list doesn't yet contain it.
@@ -16,11 +16,14 @@ and call ``plugin.customize_schema(schema)``.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
 
+from screamingface.plugins.aigw_base.client import gateway_session_state
 from screamingface.plugins.aigw_claude_backend.plugin import (
     AigwClaudeBackendPlugin,
     AigwClaudeBackendSettings,
@@ -31,9 +34,23 @@ def _make_plugin(
     *,
     auth_profile: str = "default",
     transport: httpx.MockTransport | None = None,
+    mode: str = "local_managed",
 ) -> AigwClaudeBackendPlugin:
     plugin = AigwClaudeBackendPlugin()
     plugin.settings = AigwClaudeBackendSettings(auth_profile=auth_profile)
+    plugin._app = SimpleNamespace(  # type: ignore[attr-defined]
+        state=SimpleNamespace(
+            config=SimpleNamespace(
+                plugin_config={
+                    "aigw-base": {
+                        "mode": mode,
+                        "gateway_url": "http://gateway",
+                    }
+                }
+            ),
+            plugins=SimpleNamespace(active_plugins={}),
+        )
+    )
     if transport is not None:
         # The implementation reads this attribute (if present) to build a
         # synchronous httpx.Client. Tests inject a MockTransport here so the
@@ -47,10 +64,18 @@ def _emit_schema(plugin: AigwClaudeBackendPlugin) -> dict[str, Any]:
     return plugin.customize_schema(schema)
 
 
-def _gateway_profiles_handler(profiles: list[dict[str, Any]]):
+def _gateway_profiles_handler(
+    profiles: list[dict[str, Any]],
+    connections: list[dict[str, Any]] | None = None,
+):
     def handler(req: httpx.Request) -> httpx.Response:
-        assert req.url.path.endswith("/v1/auth/anthropic/profiles")
-        return httpx.Response(200, json={"profiles": profiles})
+        if req.url.path.endswith("/v1/auth/anthropic/profiles"):
+            return httpx.Response(200, json={"profiles": profiles})
+        if req.url.path.endswith("/v1/oauth/connections"):
+            assert req.url.params["provider"] == "anthropic"
+            assert req.url.params["status"] == "active"
+            return httpx.Response(200, json={"connections": connections or []})
+        raise AssertionError(f"unexpected gateway request: {req.url}")
 
     return handler
 
@@ -97,6 +122,40 @@ def test_schema_auth_profile_enum_populated_from_gateway() -> None:
     schema = _emit_schema(plugin)
     auth_field = schema["properties"]["auth_profile"]
     assert auth_field.get("enum") == ["default", "work"]
+
+
+def test_schema_auth_profile_enum_includes_active_oauth_connection_labels() -> None:
+    handler = _gateway_profiles_handler(
+        [{"name": "default"}],
+        [
+            {"label": "work-anthropic", "status": "active"},
+            {"label": "default", "status": "active"},
+        ],
+    )
+    plugin = _make_plugin(transport=httpx.MockTransport(handler))
+    schema = _emit_schema(plugin)
+
+    assert schema["properties"]["auth_profile"]["enum"] == ["default", "work-anthropic"]
+
+
+def test_schema_fetch_uses_gateway_session_token_in_external_mode() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.headers["authorization"] == "Bearer session-token"
+        if req.url.path.endswith("/v1/auth/anthropic/profiles"):
+            return httpx.Response(200, json={"profiles": [{"name": "work"}]})
+        if req.url.path.endswith("/v1/oauth/connections"):
+            return httpx.Response(200, json={"connections": []})
+        raise AssertionError(f"unexpected gateway request: {req.url}")
+
+    plugin = _make_plugin(mode="external", transport=httpx.MockTransport(handler))
+    gateway_session_state(plugin._app).set_token(  # type: ignore[attr-defined]
+        "session-token",
+        datetime.now(UTC) + timedelta(minutes=5),
+    )
+
+    schema = _emit_schema(plugin)
+
+    assert schema["properties"]["auth_profile"]["enum"] == ["work"]
 
 
 def test_schema_falls_back_when_gateway_unreachable() -> None:

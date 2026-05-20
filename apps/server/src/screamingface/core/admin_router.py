@@ -21,6 +21,7 @@ import subprocess
 from fastapi import FastAPI, HTTPException, Request
 
 from screamingface.plugin import Plugin
+from screamingface.plugins.aigw_base.desktop_secret import require_desktop_secret
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,10 @@ def _inject_examples(schema: dict, field_name: str, examples: list[str]) -> None
     _walk(schema)
 
 
+def _requires_schema_desktop_secret(plugin: Plugin) -> bool:
+    return plugin.schema_requires_desktop_secret
+
+
 def register_admin_routes(app: FastAPI) -> None:
     """Attach the built-in admin/diagnostic endpoints to ``app``.
 
@@ -161,12 +166,14 @@ def register_admin_routes(app: FastAPI) -> None:
         }
 
     @app.get("/plugins/{name}/schema")
-    async def plugin_schema(name: str) -> dict:
+    async def plugin_schema(name: str, request: Request) -> dict:
         plugin = app.state.plugins.active_plugins.get(name)
         if not plugin:
             raise HTTPException(404, f"Plugin {name!r} not active")
         if not plugin.settings_class:
             raise HTTPException(404, f"Plugin {name!r} has no configurable settings")
+        if _requires_schema_desktop_secret(plugin):
+            require_desktop_secret(request)
         schema = plugin.settings_class.model_json_schema()
         _collapse_nullable(schema)
         _inject_tag_enums(schema, app.state.plugins.active_plugins)

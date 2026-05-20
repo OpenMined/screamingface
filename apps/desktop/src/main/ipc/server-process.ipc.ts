@@ -3,11 +3,13 @@ import https from 'https';
 import http from 'http';
 import { serverProcess } from '../services/server-process';
 import { backendStatusService } from '../services/backend-status';
+import { desktopSecretHeader } from '../services/desktop-secret';
 import { isAllowedServerFetchUrl } from '../services/external-url-policy';
 import { requireTrustedIpcSender } from './sender-validation';
 
 interface FetchInit {
   method?: string;
+  headers?: Record<string, string>;
   body?: string;
 }
 
@@ -23,7 +25,7 @@ function nodeFetch(url: string, init?: FetchInit): Promise<{ status: number; bod
         method,
         rejectUnauthorized: false,
         timeout: 5000,
-        headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+        headers: serverFetchHeaders(init),
       },
       (res) => {
         let data = '';
@@ -41,6 +43,20 @@ function nodeFetch(url: string, init?: FetchInit): Promise<{ status: number; bod
     if (init?.body) req.write(init.body);
     req.end();
   });
+}
+
+function serverFetchHeaders(init?: FetchInit): Record<string, string> {
+  const rendererHeaders = Object.fromEntries(
+    Object.entries(init?.headers ?? {}).filter(
+      ([key]) => key.toLowerCase() !== 'x-sf-desktop-secret',
+    ),
+  );
+
+  return {
+    ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+    ...rendererHeaders,
+    ...desktopSecretHeader(),
+  };
 }
 
 export function registerServerHandlers(): void {

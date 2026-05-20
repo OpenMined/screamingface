@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from screamingface.core.classes import ClassRegistry
     from screamingface.core.hooks import HookRegistry
     from screamingface.core.routes import RouteRegistry
+    from screamingface.plugins.url4_executor.scope import Env
 
 
 class PluginSettings(BaseSettings):
@@ -62,6 +63,10 @@ class Plugin:
     required_port: int | None = None
     settings: PluginSettings | None = None
 
+    # Settings schemas are normally public local metadata. Plugins that enrich
+    # schemas from privileged runtime state can opt into Desktop-secret gating.
+    schema_requires_desktop_secret: ClassVar[bool] = False
+
     # Paths this plugin handles when it's the target of a url4 backend_call
     # (``/<path>()!<intent>`` form). The url4 resolver walks active plugins
     # looking for one whose ``backend_call_paths`` contains the target path
@@ -101,7 +106,14 @@ class Plugin:
     def teardown(self) -> None:
         """Called when the plugin is deactivated. Clean up resources here."""
 
-    async def handle_backend_call(self, intent: str, *, sources: str = "", app: FastAPI) -> str:
+    async def handle_backend_call(
+        self,
+        intent: str,
+        *,
+        sources: str = "",
+        app: FastAPI,
+        env: Env | None = None,
+    ) -> str:
         """Handle a url4 backend-call dispatch.
 
         Called by the url4 resolver when it encounters a

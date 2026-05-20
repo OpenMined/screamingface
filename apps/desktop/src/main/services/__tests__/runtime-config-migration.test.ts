@@ -1,7 +1,7 @@
 import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { migrateDesktopRuntimeConfig } from '../runtime-config-migration';
+import { GatewayUrlConflictError, migrateDesktopRuntimeConfig } from '../runtime-config-migration';
 
 const USER_DATA = '/tmp/sf-user-data';
 
@@ -35,8 +35,11 @@ describe('migrateDesktopRuntimeConfig', () => {
       'aigw-codex-backend': {
         default_model: 'codex/gpt-5.4-mini',
         timeout_seconds: 120,
-        gateway_url: 'http://127.0.0.1:9105',
         auth_profile: 'default',
+      },
+      'aigw-base': {
+        mode: 'local_managed',
+        gateway_url: 'http://127.0.0.1:9105',
       },
       'gemini-backend-api': { default_model: 'gemini-2.5-pro' },
     });
@@ -68,6 +71,10 @@ describe('migrateDesktopRuntimeConfig', () => {
       'aigw-codex-backend': {
         default_model: 'codex/gpt-5.5',
         auth_profile: 'work',
+      },
+      'aigw-base': {
+        mode: 'local_managed',
+        gateway_url: 'http://127.0.0.1:9105',
       },
     });
     expect(
@@ -104,6 +111,8 @@ describe('migrateDesktopRuntimeConfig', () => {
           'aigw-runner': {
             startup_timeout_seconds: 90,
             auth_enabled: true,
+            enabled: false,
+            uv_bin: null,
           },
         },
       },
@@ -114,9 +123,70 @@ describe('migrateDesktopRuntimeConfig', () => {
       'aigw-runner': {
         aigateway_dir: join(USER_DATA, 'aigateway'),
         database_path: join(USER_DATA, 'aigateway', 'aigateway.db'),
-        auth_enabled: false,
         startup_timeout_seconds: 90,
       },
+      'aigw-base': {
+        mode: 'external',
+        gateway_url: 'http://127.0.0.1:9105',
+      },
     });
+    const runnerConfig = (migrated.plugin_config as Record<string, Record<string, unknown>>)[
+      'aigw-runner'
+    ];
+    expect(runnerConfig.auth_enabled).toBeUndefined();
+    expect(runnerConfig.enabled).toBeUndefined();
+    expect(runnerConfig.uv_bin).toBeUndefined();
+  });
+
+  it('promotes one shared gateway_url from gateway backend config', () => {
+    const migrated = migrateDesktopRuntimeConfig(
+      {
+        plugins: ['aigw-claude-backend'],
+        plugin_config: {
+          'aigw-claude-backend': {
+            gateway_url: 'https://gateway.example.com/',
+            auth_profile: 'work',
+          },
+        },
+      },
+      USER_DATA,
+    );
+
+    expect(migrated.plugin_config).toMatchObject({
+      'aigw-base': {
+        mode: 'local_managed',
+        gateway_url: 'https://gateway.example.com',
+      },
+      'aigw-claude-backend': {
+        auth_profile: 'work',
+      },
+    });
+    expect(
+      (
+        (migrated.plugin_config as Record<string, unknown>)['aigw-claude-backend'] as Record<
+          string,
+          unknown
+        >
+      ).gateway_url,
+    ).toBeUndefined();
+  });
+
+  it('blocks migration when backend gateway_urls disagree', () => {
+    expect(() =>
+      migrateDesktopRuntimeConfig(
+        {
+          plugins: ['aigw-claude-backend', 'aigw-codex-backend'],
+          plugin_config: {
+            'aigw-claude-backend': {
+              gateway_url: 'https://claude-gateway.example.com',
+            },
+            'aigw-codex-backend': {
+              gateway_url: 'https://codex-gateway.example.com',
+            },
+          },
+        },
+        USER_DATA,
+      ),
+    ).toThrow(GatewayUrlConflictError);
   });
 });
