@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from screamingface.core.classes import ClassRegistry
     from screamingface.core.hooks import HookRegistry
     from screamingface.core.routes import RouteRegistry
+    from screamingface.plugins.url4_executor.scope import Env
 
 
 class PluginSettings(BaseSettings):
@@ -101,7 +102,14 @@ class Plugin:
     def teardown(self) -> None:
         """Called when the plugin is deactivated. Clean up resources here."""
 
-    async def handle_backend_call(self, intent: str, *, sources: str = "", app: FastAPI) -> str:
+    async def handle_backend_call(
+        self,
+        intent: str,
+        *,
+        sources: str = "",
+        app: FastAPI,
+        env: Env | None = None,
+    ) -> str:
         """Handle a url4 backend-call dispatch.
 
         Called by the url4 resolver when it encounters a
