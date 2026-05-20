@@ -39,6 +39,10 @@
       "migrations_timeout_seconds": 30.0,
       "enabled": true
     },
+    "aigw-base": {
+      "mode": "local_managed",
+      "gateway_url": "http://127.0.0.1:9105"
+    },
     "aigw-codex-backend": {
       "gateway_url": "http://127.0.0.1:9105",
       "auth_profile": "default",
