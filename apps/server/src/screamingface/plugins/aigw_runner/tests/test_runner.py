@@ -60,6 +60,29 @@ def test_preflight_uses_configured_uv_bin(fake_aigw_dir: Path) -> None:
     assert plugin._uv_bin == "/custom/uv"
 
 
+def test_optional_string_settings_have_defaults() -> None:
+    settings = AigwRunnerSettings(
+        aigateway_dir=cast(Any, None), database_path="", uv_bin=cast(Any, None)
+    )
+
+    assert settings.aigateway_dir == "../aigateway"
+    assert settings.database_path == ".sf/aigateway.db"
+    assert settings.uv_bin == "uv"
+
+
+def test_settings_schema_hides_deprecated_controls() -> None:
+    plugin = AigwRunnerPlugin()
+    schema = plugin.customize_schema(AigwRunnerSettings.model_json_schema())
+    props = schema["properties"]
+
+    assert props["aigateway_dir"]["default"] == "../aigateway"
+    assert props["database_path"]["default"] == ".sf/aigateway.db"
+    assert props["uv_bin"]["default"] == "uv"
+    assert "auth_enabled" not in props
+    assert "enabled" not in props
+    assert "port" not in props
+
+
 def test_preflight_skipped_when_disabled(fake_aigw_dir: Path) -> None:
     plugin = _make_plugin(fake_aigw_dir, enabled=False)
     ok, _ = plugin.preflight()
@@ -96,6 +119,7 @@ def test_setup_spawns_subprocess_and_registers_hooks(fake_aigw_dir: Path) -> Non
             return_value=fake_proc,
         ) as mock_popen,
         patch("screamingface.plugins.aigw_runner.plugin._wait_for_health", return_value=True),
+        patch("screamingface.plugins.aigw_runner.plugin._is_port_open", return_value=False),
         patch("screamingface.plugins.aigw_runner.plugin.atexit.register") as mock_atexit,
         patch("screamingface.plugins.aigw_runner.plugin.threading.Thread") as mock_thread,
     ):
@@ -125,6 +149,111 @@ def test_setup_spawns_subprocess_and_registers_hooks(fake_aigw_dir: Path) -> Non
     mock_thread.assert_called_once()
 
 
+def test_setup_stops_stale_local_gateway_before_spawning(fake_aigw_dir: Path) -> None:
+    plugin = _make_plugin(fake_aigw_dir, uv_bin="/custom/uv")
+    fake_proc = MagicMock(spec=subprocess.Popen)
+    fake_proc.poll.return_value = None
+    fake_proc.stdout = MagicMock()
+    fake_proc.stdout.__iter__.return_value = iter([])
+    fake_proc.pid = 12345
+
+    with (
+        patch("screamingface.plugins.aigw_runner.plugin._is_port_open", return_value=True),
+        patch(
+            "screamingface.plugins.aigw_runner.plugin._existing_local_gateway_status",
+            return_value="local_no_auth",
+        ) as mock_existing_status,
+        patch(
+            "screamingface.plugins.aigw_runner.plugin._terminate_processes_on_port",
+            return_value=True,
+        ) as mock_terminate,
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
+        patch(
+            "screamingface.plugins.aigw_runner.plugin.subprocess.Popen",
+            return_value=fake_proc,
+        ) as mock_popen,
+        patch("screamingface.plugins.aigw_runner.plugin._wait_for_health", return_value=True),
+        patch("screamingface.plugins.aigw_runner.plugin.atexit.register"),
+        patch("screamingface.plugins.aigw_runner.plugin.threading.Thread"),
+    ):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        plugin.preflight()
+        plugin.setup(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+    mock_existing_status.assert_called_once_with("http://127.0.0.1:9105")
+    mock_terminate.assert_called_once_with(9105)
+    mock_run.assert_called_once()
+    mock_popen.assert_called_once()
+
+
+def test_setup_raises_when_stale_local_gateway_cannot_be_stopped(
+    fake_aigw_dir: Path,
+) -> None:
+    plugin = _make_plugin(fake_aigw_dir, uv_bin="/custom/uv")
+
+    with (
+        patch("screamingface.plugins.aigw_runner.plugin._is_port_open", return_value=True),
+        patch(
+            "screamingface.plugins.aigw_runner.plugin._existing_local_gateway_status",
+            return_value="local_no_auth",
+        ),
+        patch(
+            "screamingface.plugins.aigw_runner.plugin._terminate_processes_on_port",
+            return_value=False,
+        ),
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.Popen") as mock_popen,
+    ):
+        plugin.preflight()
+        with pytest.raises(RuntimeError, match="could not stop"):
+            plugin.setup(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+    mock_run.assert_not_called()
+    mock_popen.assert_not_called()
+
+
+def test_setup_raises_when_port_has_auth_enabled_aigateway(fake_aigw_dir: Path) -> None:
+    plugin = _make_plugin(fake_aigw_dir, uv_bin="/custom/uv")
+
+    with (
+        patch("screamingface.plugins.aigw_runner.plugin._is_port_open", return_value=True),
+        patch(
+            "screamingface.plugins.aigw_runner.plugin._existing_local_gateway_status",
+            return_value="auth_enabled",
+        ),
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.Popen") as mock_popen,
+    ):
+        plugin.preflight()
+        with pytest.raises(RuntimeError, match="auth-enabled AIGateway"):
+            plugin.setup(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+    mock_run.assert_not_called()
+    mock_popen.assert_not_called()
+
+
+def test_setup_raises_when_port_has_non_gateway_service(fake_aigw_dir: Path) -> None:
+    plugin = _make_plugin(fake_aigw_dir, uv_bin="/custom/uv")
+
+    with (
+        patch("screamingface.plugins.aigw_runner.plugin._is_port_open", return_value=True),
+        patch(
+            "screamingface.plugins.aigw_runner.plugin._existing_local_gateway_status",
+            return_value="not_gateway",
+        ),
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.Popen") as mock_popen,
+    ):
+        plugin.preflight()
+        with pytest.raises(RuntimeError, match="does not look like"):
+            plugin.setup(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+    mock_run.assert_not_called()
+    mock_popen.assert_not_called()
+
+
 def test_external_mode_does_not_run_migrations_or_spawn(fake_aigw_dir: Path) -> None:
     plugin = _make_plugin(fake_aigw_dir, uv_bin="/custom/uv")
     fake_hooks = MagicMock()
@@ -145,11 +274,13 @@ def test_external_mode_does_not_run_migrations_or_spawn(fake_aigw_dir: Path) -> 
     with (
         patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
         patch("screamingface.plugins.aigw_runner.plugin.subprocess.Popen") as mock_popen,
+        patch("screamingface.plugins.aigw_runner.plugin._is_port_open") as mock_is_port_open,
     ):
         plugin.setup(cast(Any, fake_app), fake_hooks, MagicMock(), MagicMock())
 
     mock_run.assert_not_called()
     mock_popen.assert_not_called()
+    mock_is_port_open.assert_not_called()
     fake_hooks.register.assert_not_called()
     assert plugin._process is None
 
@@ -170,6 +301,7 @@ def test_setup_raises_if_subprocess_exits_immediately(fake_aigw_dir: Path) -> No
             "screamingface.plugins.aigw_runner.plugin.subprocess.Popen",
             return_value=fake_proc,
         ),
+        patch("screamingface.plugins.aigw_runner.plugin._is_port_open", return_value=False),
         patch("screamingface.plugins.aigw_runner.plugin._wait_for_health", return_value=False),
     ):
         mock_run.return_value.returncode = 0
@@ -185,6 +317,7 @@ def test_setup_raises_when_migrations_fail(fake_aigw_dir: Path) -> None:
 
     with (
         patch("shutil.which", return_value="/usr/local/bin/uv"),
+        patch("screamingface.plugins.aigw_runner.plugin._is_port_open", return_value=False),
         patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
         patch("screamingface.plugins.aigw_runner.plugin.subprocess.Popen") as mock_popen,
     ):

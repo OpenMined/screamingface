@@ -29,6 +29,25 @@ def _app() -> SimpleNamespace:
     )
 
 
+def test_sync_request_tolerates_missing_app_state() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.url.path == "/profiles"
+        return httpx.Response(200, json={"ok": True})
+
+    def factory(timeout: float) -> httpx.Client:
+        return httpx.Client(
+            transport=httpx.MockTransport(handler),
+            timeout=httpx.Timeout(timeout),
+        )
+
+    response = AigwGatewayClient(None, sync_http_client_factory=factory).request_sync(
+        "GET",
+        "/profiles",
+    )
+
+    assert response.json() == {"ok": True}
+
+
 @pytest.mark.anyio
 async def test_logout_cancels_in_flight_gateway_request() -> None:
     app = _app()

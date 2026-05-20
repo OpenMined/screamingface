@@ -43,6 +43,8 @@ class OAuthConnectionStore:
             query = query.filter(provider=provider)
         if status is not None:
             query = query.filter(status=status)
+        else:
+            query = query.exclude(status="revoked")
         return await query.order_by("provider", "label", "created_at")
 
     async def get(

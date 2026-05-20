@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 from fastapi import FastAPI
@@ -20,6 +21,12 @@ def test_create_app_with_direct_config() -> None:
     app = create_app(config)
     assert isinstance(app, FastAPI)
     assert app.state.config.plugins == []
+
+
+def test_create_app_suppresses_http_client_request_logs() -> None:
+    create_app(AppConfig(plugins=[]))
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING
 
 
 def test_create_app_from_runtime_env(monkeypatch) -> None:

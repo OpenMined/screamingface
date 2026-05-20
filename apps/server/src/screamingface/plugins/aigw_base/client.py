@@ -12,6 +12,7 @@ import httpx
 from .config import is_runner_disabled, resolve_aigw_runtime_config
 
 HttpClientFactory = Callable[[float], httpx.AsyncClient]
+SyncHttpClientFactory = Callable[[float], httpx.Client]
 
 _SESSION_TTL_CEILING = timedelta(hours=1)
 
@@ -73,10 +74,13 @@ class AigwGatewaySessionState:
 
 
 def gateway_session_state(app: Any) -> AigwGatewaySessionState:
-    state = getattr(app.state, "_aigw_gateway_session", None)
+    app_state = getattr(app, "state", None)
+    if app_state is None:
+        return AigwGatewaySessionState()
+    state = getattr(app_state, "_aigw_gateway_session", None)
     if not isinstance(state, AigwGatewaySessionState):
         state = AigwGatewaySessionState()
-        app.state._aigw_gateway_session = state
+        app_state._aigw_gateway_session = state
     return state
 
 
@@ -94,10 +98,14 @@ class AigwGatewayClient:
         app: Any,
         *,
         http_client_factory: HttpClientFactory | None = None,
+        sync_http_client_factory: SyncHttpClientFactory | None = None,
     ) -> None:
         self._app = app
         self._http_factory = http_client_factory or (
             lambda timeout: httpx.AsyncClient(timeout=httpx.Timeout(timeout))
+        )
+        self._sync_http_factory = sync_http_client_factory or (
+            lambda timeout: httpx.Client(timeout=httpx.Timeout(timeout))
         )
 
     async def request(
@@ -131,6 +139,38 @@ class AigwGatewayClient:
                 client.request(method, url, json=json, headers=request_headers),
                 cancel_event,
             )
+
+        if config.mode == "external" and not allow_unauthenticated and response.status_code == 401:
+            clear_gateway_session(self._app)
+        return response
+
+    def request_sync(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any = None,
+        headers: dict[str, str] | None = None,
+        timeout_seconds: float = 10.0,
+        allow_unauthenticated: bool = False,
+    ) -> httpx.Response:
+        if is_runner_disabled():
+            cancel_gateway_requests(self._app)
+            raise AigwGatewayUnavailable()
+
+        config = resolve_aigw_runtime_config(self._app)
+        url = f"{config.gateway_url}{path}"
+        request_headers = dict(headers or {})
+        session = gateway_session_state(self._app)
+
+        if config.mode == "external" and not allow_unauthenticated:
+            token = session.valid_token()
+            if token is None:
+                raise AigwGatewayAuthRequired()
+            request_headers["Authorization"] = f"Bearer {token}"
+
+        with self._sync_http_factory(timeout_seconds) as client:
+            response = client.request(method, url, json=json, headers=request_headers)
 
         if config.mode == "external" and not allow_unauthenticated and response.status_code == 401:
             clear_gateway_session(self._app)

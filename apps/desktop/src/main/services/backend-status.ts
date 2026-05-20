@@ -367,7 +367,23 @@ function extractErrorMessage(body: string): string | undefined {
   try {
     const parsed = JSON.parse(body) as { detail?: unknown; message?: unknown };
     if (typeof parsed.message === 'string') return parsed.message;
-    const detail = parsed.detail;
+    const detail = unwrapFastApiDetail(parsed.detail);
+    if (Array.isArray(detail)) {
+      const first = detail.find((entry) => typeof entry === 'object' && entry !== null);
+      if (first) {
+        const record = first as { loc?: unknown; msg?: unknown };
+        const msg = typeof record.msg === 'string' ? record.msg : undefined;
+        if (!msg) return undefined;
+        const loc = Array.isArray(record.loc)
+          ? record.loc
+              .filter((part) => typeof part === 'string')
+              .slice(1)
+              .join('.')
+          : '';
+        return loc ? `${loc}: ${msg}` : msg;
+      }
+      return undefined;
+    }
     if (typeof detail === 'string') return detail;
     if (typeof detail === 'object' && detail !== null) {
       const message = (detail as { message?: unknown; code?: unknown }).message;
@@ -380,6 +396,15 @@ function extractErrorMessage(body: string): string | undefined {
   }
   return undefined;
 }
+
+function unwrapFastApiDetail(detail: unknown): unknown {
+  if (typeof detail === 'object' && detail !== null && 'detail' in detail) {
+    return (detail as { detail?: unknown }).detail;
+  }
+  return detail;
+}
+
+export const __testing = { extractErrorMessage };
 
 export function escapeAppleScriptString(value: string): string {
   return value

@@ -9,9 +9,9 @@ import type {
   BackendProfile,
   ProviderAuthStatus,
   BackendStatusResponse,
-  BackendStatusV2,
 } from '../../../../preload/types';
 import { useToast } from '@/hooks/use-toast';
+import { isBackendStatusV2, useBackendStatus } from '@/hooks/use-backend-status';
 
 const profileStateConfig: Record<string, { dot: string; label: string }> = {
   authenticated: { dot: 'bg-chart-3', label: 'Authenticated' },
@@ -28,6 +28,7 @@ const connectionStateConfig: Record<string, { dot: string; label: string }> = {
 };
 
 const PROFILE_NAME_RE = /^[a-z0-9-]+$/;
+const CONNECTION_PENDING_POLL_MS = 2000;
 
 const actionConfig: Record<string, { dot: string; label: string }> = {
   healthy: { dot: 'bg-chart-3', label: 'Ready' },
@@ -36,111 +37,20 @@ const actionConfig: Record<string, { dot: string; label: string }> = {
   degraded: { dot: 'bg-chart-1', label: 'Degraded' },
 };
 
+const connectedActionConfig = { dot: 'bg-chart-3', label: 'Connected' };
+
+interface ConnectionAuthSummary {
+  activeCount: number;
+}
+
 const backendLabels: Record<string, string> = {
   claude: 'Claude',
   codex: 'Codex',
   gemini: 'Gemini',
 };
 
-function isStatusV2(status: BackendStatusResponse): status is BackendStatusV2 {
-  return (
-    typeof status === 'object' &&
-    status !== null &&
-    !Array.isArray(status) &&
-    (status as { version?: unknown }).version === 2
-  );
-}
-
 function statusBackends(status: BackendStatusResponse): BackendStatusMap {
-  return isStatusV2(status) ? (status.backends ?? {}) : status;
-}
-
-function GatewayStatusPanel({
-  status,
-  onChanged,
-}: {
-  status: BackendStatusV2;
-  onChanged: () => void;
-}) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const gateway = status.gateway;
-  const connected = gateway.reachable && gateway.authenticated;
-
-  const onLogin = async (event: React.FormEvent): Promise<void> => {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await window.electronAPI.backends.loginGateway(username, password);
-      if (!result.ok) {
-        setError(result.message ?? 'Gateway login failed');
-        return;
-      }
-      setPassword('');
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="mb-3 rounded-md border border-border bg-muted/20 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground">
-            {connected ? `Connected to ${gateway.url}` : 'AIGateway connection'}
-          </p>
-          {!connected && (
-            <p className="text-xs text-muted-foreground">
-              {status.message ??
-                (gateway.reachable ? 'Sign in to continue.' : 'Gateway is unreachable.')}
-            </p>
-          )}
-        </div>
-        {connected && gateway.mode === 'external' && (
-          <button
-            onClick={async () => {
-              await window.electronAPI.backends.logoutGateway();
-              onChanged();
-            }}
-            className="rounded bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-          >
-            Log out
-          </button>
-        )}
-      </div>
-      {status.action === 'login_gateway' && (
-        <form onSubmit={onLogin} className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-          <input
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            placeholder="Gateway username"
-            className="rounded border border-border bg-background px-2 py-1 text-xs"
-            autoComplete="username"
-          />
-          <input
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Password"
-            type="password"
-            className="rounded border border-border bg-background px-2 py-1 text-xs"
-            autoComplete="current-password"
-          />
-          <button
-            type="submit"
-            disabled={busy || !username || !password}
-            className="rounded bg-chart-1 px-2.5 py-1 text-xs font-semibold text-background hover:bg-chart-1/90 disabled:opacity-60"
-          >
-            {busy ? 'Signing in…' : 'Sign in'}
-          </button>
-          {error && <p className="text-xs text-destructive sm:col-span-3">{error}</p>}
-        </form>
-      )}
-    </div>
-  );
+  return isBackendStatusV2(status) ? (status.backends ?? {}) : status;
 }
 
 function AuthButton({
@@ -320,7 +230,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
   const onPasteSubmit = async (e?: React.FormEvent): Promise<void> => {
     e?.preventDefault();
     if (pasteBusy) return;
-    const code = pasteCode.trim();
+    const code = authorizationCodeFromInput(pasteCode);
     if (!pendingProfileName) {
       setPasteError('No in-flight OAuth flow');
       return;
@@ -474,7 +384,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
           aria-label="Paste authorization code"
         >
           <span className="text-xs text-muted-foreground">
-            Pasted authorization code for {pendingProfileName}?
+            Authorization code or callback URL for {pendingProfileName}
           </span>
           <input
             type="text"
@@ -483,7 +393,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
               setPasteCode(e.target.value);
               setPasteError(null);
             }}
-            placeholder="paste code here"
+            placeholder="paste code or callback URL here"
             aria-label="Authorization code"
             className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono"
           />
@@ -503,6 +413,28 @@ function ProfilesSubPanel({ name }: { name: string }) {
 
 function connectionAccountLabel(connection: OAuthConnection): string | null {
   return connection.account?.email || connection.account?.name || connection.account?.sub || null;
+}
+
+function summarizeConnections(connections: OAuthConnection[]): ConnectionAuthSummary {
+  return {
+    activeCount: connections.filter((connection) => connection.status === 'active').length,
+  };
+}
+
+function authorizationCodeFromInput(value: string): string {
+  const trimmed = value.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      return new URL(trimmed).searchParams.get('code') ?? trimmed;
+    } catch {
+      return trimmed;
+    }
+  }
+  if (trimmed.includes('code=')) {
+    const query = trimmed.startsWith('?') ? trimmed.slice(1) : trimmed;
+    return new URLSearchParams(query).get('code') ?? trimmed;
+  }
+  return trimmed;
 }
 
 function ConnectionRow({
@@ -598,7 +530,15 @@ function ConnectionRow({
   );
 }
 
-function ConnectionsSubPanel({ name, requiresLabel }: { name: string; requiresLabel: boolean }) {
+function ConnectionsSubPanel({
+  name,
+  requiresLabel,
+  onSummaryChange,
+}: {
+  name: string;
+  requiresLabel: boolean;
+  onSummaryChange?: (summary: ConnectionAuthSummary) => void;
+}) {
   const [connections, setConnections] = useState<OAuthConnection[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -611,25 +551,52 @@ function ConnectionsSubPanel({ name, requiresLabel }: { name: string; requiresLa
   const [pasteBusy, setPasteBusy] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<OAuthConnection[]> => {
     const result = await window.electronAPI.backends.listConnections(name);
-    setConnections(result.connections ?? []);
+    const next = result.connections ?? [];
+    setConnections(next);
+    onSummaryChange?.(summarizeConnections(next));
     setLoaded(true);
-  }, [name]);
+    return next;
+  }, [name, onSummaryChange]);
 
-  const checkPending = useCallback(async () => {
-    for (const connection of connections.filter((item) => item.status === 'pending')) {
-      const state = await window.electronAPI.backends.getPendingConnectionAuthState(
-        name,
-        connection.id,
-      );
-      if (state) {
-        setPendingConnectionId(connection.id);
-        return;
+  const checkPending = useCallback(
+    async (sourceConnections: OAuthConnection[] = connections): Promise<boolean> => {
+      for (const connection of sourceConnections.filter((item) => item.status === 'pending')) {
+        const state = await window.electronAPI.backends.getPendingConnectionAuthState(
+          name,
+          connection.id,
+        );
+        if (state) {
+          setPendingConnectionId(connection.id);
+          return true;
+        }
       }
+      setPendingConnectionId(null);
+      return false;
+    },
+    [name, connections],
+  );
+
+  const hasPendingConnection = connections.some((connection) => connection.status === 'pending');
+  const oauthInFlight = submitting || pendingConnectionId !== null || hasPendingConnection;
+
+  const refreshAndCheckPending = useCallback(async (): Promise<boolean> => {
+    const next = await refresh();
+    return checkPending(next);
+  }, [refresh, checkPending]);
+
+  const checkKnownPendingConnection = useCallback(async (): Promise<boolean> => {
+    if (!pendingConnectionId) return false;
+    const state = await window.electronAPI.backends.getPendingConnectionAuthState(
+      name,
+      pendingConnectionId,
+    );
+    if (state) {
+      return true;
     }
-    setPendingConnectionId(null);
-  }, [name, connections]);
+    return false;
+  }, [name, pendingConnectionId]);
 
   useEffect(() => {
     void refresh();
@@ -639,10 +606,20 @@ function ConnectionsSubPanel({ name, requiresLabel }: { name: string; requiresLa
     void checkPending();
   }, [checkPending]);
 
+  useEffect(() => {
+    if (!pendingConnectionId) return;
+    void checkKnownPendingConnection().then((found) => {
+      if (!found) {
+        setPendingConnectionId(null);
+        void refresh();
+      }
+    });
+  }, [pendingConnectionId, checkKnownPendingConnection, refresh]);
+
   const onPasteSubmit = async (e?: React.FormEvent): Promise<void> => {
     e?.preventDefault();
     if (pasteBusy) return;
-    const code = pasteCode.trim();
+    const code = authorizationCodeFromInput(pasteCode);
     if (!pendingConnectionId) {
       setPasteError('No in-flight OAuth flow');
       return;
@@ -694,9 +671,10 @@ function ConnectionsSubPanel({ name, requiresLabel }: { name: string; requiresLa
     setNotice(null);
     void (async () => {
       const pendingPoll = setInterval(() => {
-        void refresh();
-        void checkPending();
-      }, 500);
+        void refreshAndCheckPending().then((found) => {
+          if (found) setSubmitting(false);
+        });
+      }, CONNECTION_PENDING_POLL_MS);
       try {
         const result = await window.electronAPI.backends.authenticateOAuthConnection(
           name,
@@ -718,8 +696,9 @@ function ConnectionsSubPanel({ name, requiresLabel }: { name: string; requiresLa
       } finally {
         clearInterval(pendingPoll);
         setSubmitting(false);
-        void refresh();
-        void checkPending();
+        void refreshAndCheckPending().then((found) => {
+          if (!found) setPendingConnectionId(null);
+        });
       }
     })();
   };
@@ -732,7 +711,7 @@ function ConnectionsSubPanel({ name, requiresLabel }: { name: string; requiresLa
 
   return (
     <div className="ml-6 mt-1 mb-2 border-t border-border pt-2">
-      {loaded && connections.length === 0 && (
+      {loaded && connections.length === 0 && !oauthInFlight && (
         <p className="text-xs text-muted-foreground py-1">No OAuth connections yet.</p>
       )}
       {connections.map((connection) => (
@@ -746,7 +725,7 @@ function ConnectionsSubPanel({ name, requiresLabel }: { name: string; requiresLa
           }}
         />
       ))}
-      {adding ? (
+      {adding && !oauthInFlight ? (
         <form onSubmit={onAdd} className="flex items-center gap-2 py-1.5">
           {requiresLabel ? (
             <input
@@ -785,7 +764,7 @@ function ConnectionsSubPanel({ name, requiresLabel }: { name: string; requiresLa
             Cancel
           </button>
         </form>
-      ) : (
+      ) : !oauthInFlight ? (
         <button
           onClick={() => {
             setAdding(true);
@@ -795,38 +774,44 @@ function ConnectionsSubPanel({ name, requiresLabel }: { name: string; requiresLa
         >
           + Add Connection
         </button>
-      )}
-      {submitting && (
-        <p className="text-xs text-muted-foreground mt-1">Waiting for browser sign-in…</p>
+      ) : null}
+      {submitting && !pendingConnectionId && (
+        <p className="text-xs text-muted-foreground mt-1">Waiting for browser sign-in...</p>
       )}
       {notice && <p className="text-xs text-chart-3 mt-1">{notice}</p>}
       {addError && <p className="text-xs text-destructive mt-1">{addError}</p>}
       {pendingConnectionId && (
-        <form
-          onSubmit={onPasteSubmit}
-          className="flex items-center gap-2 py-1.5 mt-2 border-t border-border pt-2"
-          aria-label="Paste connection authorization code"
-        >
-          <span className="text-xs text-muted-foreground">Pasted authorization code?</span>
-          <input
-            type="text"
-            value={pasteCode}
-            onChange={(e) => {
-              setPasteCode(e.target.value);
-              setPasteError(null);
-            }}
-            placeholder="paste code here"
-            aria-label="Connection authorization code"
-            className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono"
-          />
-          <button
-            type="submit"
-            disabled={pasteBusy}
-            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 disabled:opacity-60"
+        <div className="mt-2 border-t border-border pt-2">
+          <p className="text-xs text-muted-foreground">
+            Browser sign-in is pending. If the callback tab shows localhost connection refused,
+            paste the full callback URL or its code= value below.
+          </p>
+          <form
+            onSubmit={onPasteSubmit}
+            className="flex items-center gap-2 py-1.5"
+            aria-label="Paste connection authorization code"
           >
-            {pasteBusy ? 'Submitting…' : 'Submit'}
-          </button>
-        </form>
+            <span className="text-xs text-muted-foreground">Authorization code or URL</span>
+            <input
+              type="text"
+              value={pasteCode}
+              onChange={(e) => {
+                setPasteCode(e.target.value);
+                setPasteError(null);
+              }}
+              placeholder="paste code or callback URL here"
+              aria-label="Connection authorization code"
+              className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono"
+            />
+            <button
+              type="submit"
+              disabled={pasteBusy}
+              className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 disabled:opacity-60"
+            >
+              {pasteBusy ? 'Submitting…' : 'Submit'}
+            </button>
+          </form>
+        </div>
       )}
       {pasteError && <p className="text-xs text-destructive mt-1">{pasteError}</p>}
     </div>
@@ -844,10 +829,19 @@ function BackendRow({
   useConnections: boolean;
   providerAuth?: ProviderAuthStatus;
 }) {
-  const config = actionConfig[health.action] || actionConfig.degraded;
+  const [connectionSummary, setConnectionSummary] = useState<ConnectionAuthSummary>({
+    activeCount: 0,
+  });
   const label = backendLabels[name] || name;
   const isBrowser = health.auth_kind === 'browser';
   const connectionRequiresLabel = providerAuth?.provider === 'anthropic' || name === 'claude';
+  const connectedByConnection = useConnections && isBrowser && connectionSummary.activeCount === 1;
+  const config =
+    connectedByConnection && health.action === 'reauth'
+      ? connectedActionConfig
+      : actionConfig[health.action] || actionConfig.degraded;
+  const helpText = connectedByConnection && health.action === 'reauth' ? null : health.help_text;
+  const errorText = connectedByConnection && health.action === 'reauth' ? null : health.error;
 
   return (
     <div className="py-2">
@@ -866,11 +860,11 @@ function BackendRow({
                 {Math.round(health.tokens_remaining / 1000)}k tokens remaining
               </p>
             )}
-            {health.action !== 'healthy' && health.help_text && (
-              <p className="text-xs text-muted-foreground truncate">{health.help_text}</p>
+            {health.action !== 'healthy' && helpText && (
+              <p className="text-xs text-muted-foreground truncate">{helpText}</p>
             )}
-            {health.action !== 'healthy' && !health.help_text && health.error && (
-              <p className="text-xs text-destructive truncate">{health.error}</p>
+            {health.action !== 'healthy' && !helpText && errorText && (
+              <p className="text-xs text-destructive truncate">{errorText}</p>
             )}
           </div>
         </div>
@@ -894,7 +888,11 @@ function BackendRow({
       </div>
       {isBrowser &&
         (useConnections ? (
-          <ConnectionsSubPanel name={name} requiresLabel={connectionRequiresLabel} />
+          <ConnectionsSubPanel
+            name={name}
+            requiresLabel={connectionRequiresLabel}
+            onSummaryChange={setConnectionSummary}
+          />
         ) : (
           <ProfilesSubPanel name={name} />
         ))}
@@ -903,24 +901,11 @@ function BackendRow({
 }
 
 export function BackendStatusPanel() {
-  const [statuses, setStatuses] = useState<BackendStatusResponse>({});
-  const [loaded, setLoaded] = useState(false);
+  const { statuses, loaded, refresh } = useBackendStatus();
   const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
-    // Load initial status
-    window.electronAPI.backends.getStatus().then((s) => {
-      setStatuses(s);
-      setLoaded(true);
-    });
-
-    // Subscribe to updates
-    const unsubStatus = window.electronAPI.backends.onStatusChanged((s) => {
-      setStatuses(s);
-      setLoaded(true);
-    });
-
     const unsubAlert = window.electronAPI.backends.onAlert((alert: BackendAlert) => {
       const label = backendLabels[alert.backend] || alert.backend;
       if (alert.type === 'reauth') {
@@ -947,13 +932,14 @@ export function BackendStatusPanel() {
     });
 
     return () => {
-      unsubStatus();
       unsubAlert();
     };
   }, [toast]);
 
-  const v2Status = isStatusV2(statuses) ? statuses : null;
-  const backends = Object.entries(statusBackends(statuses));
+  const v2Status = isBackendStatusV2(statuses) ? statuses : null;
+  const suppressProviderUi =
+    v2Status?.gateway.mode === 'external' && !v2Status.gateway.authenticated;
+  const backends = suppressProviderUi ? [] : Object.entries(statusBackends(statuses));
   const providerAuth = v2Status?.provider_auth?.providers ?? {};
   // Stay in skeleton state as long as there are no entries — `getStatus()`
   // resolves with an empty map BEFORE SF has probed any backends, so an
@@ -965,7 +951,7 @@ export function BackendStatusPanel() {
   const onRefresh = async (): Promise<void> => {
     setRefreshing(true);
     try {
-      await window.electronAPI.backends.refresh();
+      await refresh();
     } finally {
       // Brief delay so the spin animation is perceptible even on fast refreshes.
       setTimeout(() => setRefreshing(false), 300);
@@ -986,7 +972,6 @@ export function BackendStatusPanel() {
           <RefreshCw className={cn('h-4 w-4', (refreshing || !loaded) && 'animate-spin')} />
         </button>
       </div>
-      {v2Status && <GatewayStatusPanel status={v2Status} onChanged={() => void onRefresh()} />}
       {showSkeleton && (
         <div className="space-y-2 py-1" aria-label="Loading backends" role="status">
           {[0, 1, 2].map((i) => (

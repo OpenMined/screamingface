@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import time
+from functools import partial
 from unittest.mock import AsyncMock, patch
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from litellm.exceptions import RateLimitError
 
+from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
+from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import (
     Profile,
@@ -37,6 +41,43 @@ def _seed_authenticated_profile(fake_keychain, account_id: str) -> None:
             }
         ),
     )
+
+
+def _seed_authenticated_connection(
+    fake_keychain,
+    account_id: str,
+    connection_id: str | UUID,
+    *,
+    access_token: str = "connection-tok",
+) -> None:
+    fake_keychain.write(
+        keychain_service_for(credential_key_for(account_id, connection_id)),
+        "default",
+        json.dumps(
+            {
+                "access_token": access_token,
+                "refresh_token": "connection-rt",
+                "expires_at_ms": int(time.time() * 1000) + 3_600_000,
+                "token_type": "Bearer",
+            }
+        ),
+    )
+
+
+async def _create_active_connection(
+    account_id: str,
+    *,
+    provider: str = "anthropic",
+    label: str = "work-anthropic",
+):
+    store = OAuthConnectionStore()
+    connection = await store.create_pending(
+        account_id=account_id,
+        provider=provider,
+        label=label,
+        connection_id=uuid4(),
+    )
+    return await store.complete(connection, label=label, identity=None)
 
 
 def _seed_authenticated_codex_profile(fake_keychain, account_id: str) -> None:
@@ -86,6 +127,160 @@ async def test_chat_404_when_codex_profile_missing(authenticated_client) -> None
 
     assert resp.status_code == 404
     assert resp.json()["detail"]["code"] == "profile_not_found"
+
+
+def test_chat_uses_single_active_oauth_connection_when_profile_missing(
+    fake_keychain, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    connection = authenticated_client.portal.call(_create_active_connection, account_id)
+    _seed_authenticated_connection(fake_keychain, account_id, connection.id)
+    captured: dict = {}
+
+    async def fake_chat_completion(_self, body):
+        captured.update(body)
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            model_dump=lambda: {
+                "id": "x",
+                "choices": [{"message": {"content": "ok"}}],
+            }
+        )
+
+    with patch(
+        "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
+        fake_chat_completion,
+    ):
+        resp = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "anthropic/claude-haiku-4-5",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert captured["api_key"] == "connection-tok"
+    refreshed = authenticated_client.portal.call(
+        OAuthConnectionStore().get, account_id, connection.id
+    )
+    assert refreshed is not None
+    assert refreshed.last_used_at is not None
+
+
+def test_chat_requires_profile_label_when_multiple_oauth_connections_exist(
+    fake_keychain, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    first = authenticated_client.portal.call(
+        partial(_create_active_connection, account_id, label="work-anthropic")
+    )
+    second = authenticated_client.portal.call(
+        partial(_create_active_connection, account_id, label="personal-anthropic")
+    )
+    _seed_authenticated_connection(fake_keychain, account_id, first.id, access_token="work-tok")
+    _seed_authenticated_connection(
+        fake_keychain, account_id, second.id, access_token="personal-tok"
+    )
+
+    ambiguous = authenticated_client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "anthropic/claude-haiku-4-5",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+    assert ambiguous.status_code == 409
+    assert ambiguous.json()["detail"]["code"] == "connection_ambiguous"
+
+    captured: dict = {}
+
+    async def fake_chat_completion(_self, body):
+        captured.update(body)
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            model_dump=lambda: {
+                "id": "x",
+                "choices": [{"message": {"content": "ok"}}],
+            }
+        )
+
+    with patch(
+        "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
+        fake_chat_completion,
+    ):
+        resp = authenticated_client.post(
+            "/v1/chat/completions",
+            headers={"X-Profile": "personal-anthropic"},
+            json={
+                "model": "anthropic/claude-haiku-4-5",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert captured["api_key"] == "personal-tok"
+
+
+def test_chat_cannot_use_other_accounts_oauth_connection(
+    fake_keychain, authenticated_client, provisioned_user_factory
+) -> None:
+    admin_account_id = _account_id(authenticated_client)
+    connection = authenticated_client.portal.call(_create_active_connection, admin_account_id)
+    _seed_authenticated_connection(fake_keychain, admin_account_id, connection.id)
+
+    provisioned_user_factory("bob", "bob-pass1")
+    login = authenticated_client.post(
+        "/v1/auth/login",
+        json={"username": "bob", "password": "bob-pass1"},
+    )
+    authenticated_client.headers.update({"Authorization": f"Bearer {login.json()['token']}"})
+
+    resp = authenticated_client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "anthropic/claude-haiku-4-5",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert resp.status_code == 404
+
+
+def test_chat_uses_oauth_connection_for_anonymous_local_mode(fake_keychain, client) -> None:
+    client.app.state.settings.auth_enabled = False
+    account_id = str(ANONYMOUS_ACCOUNT_ID)
+    connection = client.portal.call(_create_active_connection, account_id)
+    _seed_authenticated_connection(fake_keychain, account_id, connection.id)
+    captured: dict = {}
+
+    async def fake_chat_completion(_self, body):
+        captured.update(body)
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            model_dump=lambda: {
+                "id": "x",
+                "choices": [{"message": {"content": "ok"}}],
+            }
+        )
+
+    with patch(
+        "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
+        fake_chat_completion,
+    ):
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "anthropic/claude-haiku-4-5",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert captured["api_key"] == "connection-tok"
 
 
 @pytest.mark.asyncio

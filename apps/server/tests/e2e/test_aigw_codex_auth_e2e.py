@@ -13,6 +13,7 @@ import subprocess
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -143,8 +144,10 @@ def aigw_failing_oauth(tmp_path: Path) -> Iterator[dict]:
 
 
 def _sf_client(gateway_port: int) -> TestClient:
-    settings = AigwCodexBackendSettings(gateway_url=f"http://127.0.0.1:{gateway_port}")
+    gateway_url = f"http://127.0.0.1:{gateway_port}"
+    settings = AigwCodexBackendSettings(gateway_url=gateway_url)
     app = FastAPI()
+    app.state.config = SimpleNamespace(plugin_config={"aigw-base": {"gateway_url": gateway_url}})
     app.include_router(AigwCodexBackendPlugin.create_router(settings, app=app))
     return TestClient(app)
 

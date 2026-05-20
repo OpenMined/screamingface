@@ -105,6 +105,20 @@ def test_start_oauth_returns_authorize_url(client_with_index) -> None:
     assert "%2Fcallback&" in body["authorize_url"]
 
 
+def test_start_oauth_uses_request_host_port_for_gateway_callback(client_with_index) -> None:
+    client, _ = client_with_index
+
+    resp = client.post(
+        "/v1/auth/anthropic/profiles",
+        json={"name": "port-check"},
+        headers={"host": "127.0.0.1:9106"},
+    )
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == ["http://localhost:9106/callback"]
+
+
 def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -> None:
     client, _ = client_with_index
     account_id = _account_id(client)

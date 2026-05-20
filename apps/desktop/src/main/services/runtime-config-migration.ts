@@ -93,6 +93,9 @@ export function migrateDesktopRuntimeConfig(
   const legacyRunnerDisabled = runnerConfig.enabled === false;
   delete runnerConfig.auth_enabled;
   delete runnerConfig.enabled;
+  if (typeof runnerConfig.uv_bin !== 'string' || !runnerConfig.uv_bin.trim()) {
+    delete runnerConfig.uv_bin;
+  }
   pluginConfig['aigw-runner'] = {
     ...runnerConfig,
     aigateway_dir: gatewayDir,

@@ -120,7 +120,18 @@ def _pending_for_app(app):
 
 def _gateway_redirect_uri_for(request: Request, cfg: OAuthConfig) -> str:
     path = cfg.redirect_path if cfg.redirect_path.startswith("/") else f"/{cfg.redirect_path}"
-    return f"http://localhost:{request.app.state.settings.port}{path}"
+    port = _request_host_port(request) or request.app.state.settings.port
+    return f"http://localhost:{port}{path}"
+
+
+def _request_host_port(request: Request) -> int | None:
+    host_header = request.headers.get("host")
+    if host_header:
+        try:
+            return urlsplit(f"//{host_header.strip()}").port
+        except ValueError:
+            return None
+    return request.url.port
 
 
 def _loopback_host_allowed(host_header: str | None) -> bool:

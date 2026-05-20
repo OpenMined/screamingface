@@ -37,6 +37,18 @@ const ALTERNATE_AUTHORIZE_URL =
     state: 's1',
   }).toString();
 
+const EXTERNAL_CLAUDE_AUTHORIZE_URL =
+  'https://claude.com/cai/oauth/authorize?' +
+  new URLSearchParams({
+    response_type: 'code',
+    client_id: 'public-client-id',
+    redirect_uri: 'http://localhost:9106/callback',
+    scope: 'read write',
+    code_challenge: 'challenge',
+    code_challenge_method: 'S256',
+    state: 's1',
+  }).toString();
+
 beforeEach(() => {
   openExternal.mockClear();
   clearPendingAuthState('browser-backend');
@@ -396,6 +408,42 @@ describe('runOAuthLauncher', () => {
     expect(
       getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
     ).toBe('connection-state');
+  });
+
+  it('allows connection OAuth through the supplied external gateway redirect port', async () => {
+    const fetchMock = makeFetch([
+      () =>
+        new Response(
+          JSON.stringify({
+            connection_id: '00000000-0000-0000-0000-000000000001',
+            authorize_url: EXTERNAL_CLAUDE_AUTHORIZE_URL,
+            state: 'connection-state',
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        ),
+      () =>
+        new Response(
+          JSON.stringify({
+            id: '00000000-0000-0000-0000-000000000001',
+            label: 'work-anthropic',
+            status: 'active',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    ]);
+
+    const result = await runOAuthConnectionLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: 'browser-backend',
+      label: 'work-anthropic',
+      pollIntervalMs: 1,
+      timeoutMs: 5_000,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      allowedOAuthRedirectPorts: ['9106'],
+    });
+
+    expect(openExternal).toHaveBeenCalledWith(EXTERNAL_CLAUDE_AUTHORIZE_URL);
+    expect(result.kind).toBe('complete');
   });
 
   it('rejects unsafe connection ids before opening browser or polling', async () => {

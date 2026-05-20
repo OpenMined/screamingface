@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron';
-import { backendStatusService } from '../services/backend-status';
+import { backendStatusService, isStatusV2 } from '../services/backend-status';
 import {
   runOAuthLauncher,
   runOAuthConnectionLauncher,
@@ -64,6 +64,7 @@ export function registerBackendStatusHandlers(): void {
         backendName: backend,
         profileName,
         headers: desktopSecretHeader(),
+        allowedOAuthRedirectPorts: currentGatewayRedirectPorts(),
       });
       console.log(`[oauth] launcher result:`, result);
       return result;
@@ -90,6 +91,7 @@ export function registerBackendStatusHandlers(): void {
         backendName: backend,
         label,
         headers: desktopSecretHeader(),
+        allowedOAuthRedirectPorts: currentGatewayRedirectPorts(),
       });
     },
   );
@@ -345,6 +347,17 @@ export function registerBackendStatusHandlers(): void {
       win.webContents.send('backends:alert', alert);
     }
   });
+}
+
+function currentGatewayRedirectPorts(): string[] {
+  const status = backendStatusService.getStatus();
+  if (!isStatusV2(status)) return [];
+  try {
+    const url = new URL(status.gateway.url);
+    return url.port ? [url.port] : [];
+  } catch {
+    return [];
+  }
 }
 
 async function responseMessage(resp: Response): Promise<string | undefined> {

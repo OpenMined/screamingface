@@ -103,6 +103,8 @@ def _activate_plugins(
 def create_app(config: AppConfig | None = None) -> FastAPI:
     """Create and configure the FastAPI application with all registries."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s - %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     config = _resolve_config(config)
 

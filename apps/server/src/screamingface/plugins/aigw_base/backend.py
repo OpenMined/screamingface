@@ -86,6 +86,9 @@ class AigwBackend(Backend):
             )
 
         if resp.status_code == 404:
+            connection_status = await self._health_from_oauth_connections()
+            if connection_status is not None:
+                return connection_status
             return HealthStatus(authenticated=False, error="Profile not yet created at gateway")
         if resp.status_code >= 500:
             return HealthStatus(
@@ -103,6 +106,53 @@ class AigwBackend(Backend):
         if state == "error":
             return HealthStatus(authenticated=False, error="Profile in error state")
         return HealthStatus(authenticated=False, error=f"Unknown profile state: {state!r}")
+
+    async def _health_from_oauth_connections(self) -> HealthStatus | None:
+        try:
+            resp = await self._request(
+                "GET",
+                f"/v1/oauth/connections?provider={self._gateway_provider}&status=active",
+                timeout_seconds=10.0,
+            )
+        except AigwGatewayAuthRequired:
+            return HealthStatus(authenticated=False, error="AIGateway login required")
+        except AigwGatewayClientError as exc:
+            return HealthStatus(authenticated=False, error=str(exc.detail))
+        except httpx.RequestError as exc:
+            base = _runtime_gateway_url(self._app, self._gateway_url)
+            return HealthStatus(
+                authenticated=False, error=f"AI Gateway unreachable at {base}: {exc}"
+            )
+
+        if resp.status_code == 404:
+            return None
+        if resp.status_code >= 500:
+            return HealthStatus(
+                authenticated=False,
+                error=f"Gateway error (HTTP {resp.status_code})",
+            )
+        if resp.status_code >= 400:
+            return HealthStatus(authenticated=False, error=f"Gateway HTTP {resp.status_code}")
+
+        connections = _active_connections(resp)
+        if not connections:
+            return None
+        if _matching_connection(connections, self._profile_name) is not None:
+            return HealthStatus(authenticated=True)
+        if self._profile_name == "default" and len(connections) == 1:
+            return HealthStatus(authenticated=True)
+        if self._profile_name == "default":
+            return HealthStatus(
+                authenticated=False,
+                error=(
+                    "Multiple active OAuth connections exist; select one with the "
+                    "backend auth_profile setting"
+                ),
+            )
+        return HealthStatus(
+            authenticated=False,
+            error=f"No active OAuth connection named {self._profile_name!r}",
+        )
 
     async def run(
         self,
@@ -283,6 +333,24 @@ def _parse_retry_after(value: str | None) -> float | None:
         return float(value)
     except ValueError:
         return None
+
+
+def _active_connections(resp: httpx.Response) -> list[dict]:
+    try:
+        body = resp.json() if resp.content else {}
+    except (ValueError, httpx.DecodingError):
+        return []
+    raw = body.get("connections") if isinstance(body, dict) else None
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, dict) and item.get("status") == "active"]
+
+
+def _matching_connection(connections: list[dict], profile_name: str) -> dict | None:
+    for connection in connections:
+        if connection.get("label") == profile_name:
+            return connection
+    return None
 
 
 def _runtime_gateway_url(app, fallback: str) -> str:

@@ -41,5 +41,10 @@ async def test_store_creates_lists_and_scopes_connections() -> None:
         assert [
             item.id for item in await store.list(alice.id, provider="codex", status="active")
         ] == [connection_id]
+        await store.mark_revoked(connection)
+        assert await store.list(alice.id, provider="codex") == []
+        assert [
+            item.id for item in await store.list(alice.id, provider="codex", status="revoked")
+        ] == [connection_id]
         assert await store.get(bob.id, connection_id) is None
         assert await store.list(bob.id) == []

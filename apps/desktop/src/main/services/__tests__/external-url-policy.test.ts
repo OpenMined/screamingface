@@ -93,6 +93,23 @@ describe('external URL policy', () => {
     ).toBe(true);
   });
 
+  it('allows OAuth callbacks on the current external gateway port only when supplied', () => {
+    const externalClaudeUrl = authorizeUrl('claude.com', '/cai/oauth/authorize', {
+      response_type: 'code',
+      client_id: 'public-client-id',
+      redirect_uri: 'http://localhost:9106/callback',
+      scope: 'read write',
+      code_challenge: 'challenge',
+      code_challenge_method: 'S256',
+      state: 'state',
+    });
+
+    expect(isAllowedOAuthAuthorizeUrl(externalClaudeUrl)).toBe(false);
+    expect(isAllowedOAuthAuthorizeUrl(externalClaudeUrl, { allowedRedirectPorts: ['9106'] })).toBe(
+      true,
+    );
+  });
+
   it('rejects malformed OAuth authorize URLs and non-loopback callbacks', () => {
     const base = {
       response_type: 'code',

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -17,6 +18,7 @@ import httpx
 from screamingface.plugins.backend_api_base.plugin_base import BackendApiPluginBase
 
 from .backend import AigwBackend
+from .client import AigwGatewayClient, AigwGatewayClientError
 from .config import resolve_aigw_runtime_config
 from .interpreter import AigwInterpreter
 from .settings import AigwBackendApiSettingsBase
@@ -102,8 +104,8 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
     # the legacy `profiles: dict[str, BackendProfile]` and
     # `default_profile: str` fields inherited from `BackendApiSettingsBase`
     # don't make sense in the SF Settings UI. Strip them from the schema and
-    # turn `auth_profile` into a dynamic enum sourced live from the gateway's
-    # `GET /v1/auth/<provider>/profiles` endpoint.
+    # turn `auth_profile` into a dynamic enum sourced live from gateway
+    # compatibility profiles plus active OAuthConnection labels.
     #
     # The runtime model still carries the stripped fields so any legacy code
     # that touches them keeps working — only the UI knob is hidden.
@@ -149,15 +151,15 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
             return
 
         # Gateway reachable. The dropdown reflects the gateway's actual
-        # profile inventory. We DO surface the currently-configured value if
-        # the gateway already lists it (so it shows as selected), but we do
-        # NOT inject "default" or the configured value when the gateway has
-        # nothing — an empty dropdown correctly tells the user "no profiles
+        # profile/connection inventory. We DO surface the currently-configured
+        # value if the gateway already lists it (so it shows as selected), but
+        # we do NOT inject "default" or the configured value when the gateway
+        # has nothing — an empty dropdown correctly tells the user "no profiles
         # yet, go authenticate one".
         auth_profile_field["enum"] = list(names)
 
     def _fetch_gateway_profile_names(self) -> list[str] | None:
-        """Return profile names from the gateway, or ``None`` on any error.
+        """Return selectable gateway auth profile/connection names, or ``None`` on error.
 
         The fetch is synchronous (the schema endpoint is async but the
         customize_schema hook is sync) and bounded by a 2s timeout so a
@@ -172,18 +174,22 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
         if not settings:
             return None
         app = getattr(self, "_app", None)
-        gateway_url = _gateway_url(app, settings)
-        url = f"{gateway_url.rstrip('/')}/v1/auth/{self.gateway_provider}/profiles"
         transport = getattr(self, "_http_transport", None)
+        sync_factory: Callable[[float], httpx.Client] | None = None
+        if transport is not None:
+
+            def make_sync_client(timeout: float) -> httpx.Client:
+                return httpx.Client(timeout=timeout, transport=transport)
+
+            sync_factory = make_sync_client
+
+        client = AigwGatewayClient(app, sync_http_client_factory=sync_factory)
         try:
-            with httpx.Client(
-                timeout=_SCHEMA_FETCH_TIMEOUT_S,
-                transport=transport,
-            ) as client:
-                resp = client.get(url)
-                resp.raise_for_status()
-                payload = resp.json()
-        except (httpx.HTTPError, ValueError) as exc:
+            payload = _gateway_json(
+                client,
+                f"/v1/auth/{self.gateway_provider}/profiles",
+            )
+        except (AigwGatewayClientError, httpx.HTTPError, ValueError) as exc:
             _log.debug(
                 "aigw schema: gateway profile-list fetch failed (%s); "
                 "falling back to current auth_profile only",
@@ -191,16 +197,59 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
             )
             return None
 
-        profiles = payload.get("profiles") if isinstance(payload, dict) else None
-        if not isinstance(profiles, list):
+        names = _names_from_payload(payload, "profiles", "name")
+        if names is None:
             return None
-        names: list[str] = []
-        for p in profiles:
-            if isinstance(p, dict):
-                name = p.get("name")
-                if isinstance(name, str) and name:
-                    names.append(name)
-        return names
+
+        try:
+            connections_payload = _gateway_json(
+                client,
+                f"/v1/oauth/connections?provider={self.gateway_provider}&status=active",
+            )
+        except (AigwGatewayClientError, httpx.HTTPError, ValueError) as exc:
+            _log.debug(
+                "aigw schema: gateway connection-list fetch failed (%s); using profile names only",
+                exc,
+            )
+        else:
+            connection_names = _names_from_payload(connections_payload, "connections", "label")
+            if connection_names is not None:
+                names.extend(connection_names)
+        return _dedupe_preserving_order(names)
+
+
+def _gateway_json(client: AigwGatewayClient, path: str) -> Any:
+    resp = client.request_sync(
+        "GET",
+        path,
+        timeout_seconds=_SCHEMA_FETCH_TIMEOUT_S,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _names_from_payload(payload: Any, collection_key: str, name_key: str) -> list[str] | None:
+    items = payload.get(collection_key) if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        return None
+    names: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            name = item.get(name_key)
+            if isinstance(name, str) and name:
+                names.append(name)
+    return names
+
+
+def _dedupe_preserving_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def _is_loopback_host(host: str) -> bool:

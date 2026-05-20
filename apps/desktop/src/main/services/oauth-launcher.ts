@@ -89,6 +89,7 @@ export interface LauncherOptions {
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
   headers?: Record<string, string>;
+  allowedOAuthRedirectPorts?: Array<string | number>;
 }
 
 export interface ConnectionLauncherOptions {
@@ -99,6 +100,7 @@ export interface ConnectionLauncherOptions {
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
   headers?: Record<string, string>;
+  allowedOAuthRedirectPorts?: Array<string | number>;
 }
 
 export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherResult> {
@@ -141,7 +143,12 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
     };
   }
   const startBody = (await startResp.json()) as { authorize_url?: string; state?: string };
-  if (!startBody.authorize_url || !isAllowedOAuthAuthorizeUrl(startBody.authorize_url)) {
+  if (
+    !startBody.authorize_url ||
+    !isAllowedOAuthAuthorizeUrl(startBody.authorize_url, {
+      allowedRedirectPorts: opts.allowedOAuthRedirectPorts,
+    })
+  ) {
     return {
       kind: 'failed',
       reason: 'gateway_error',
@@ -237,7 +244,12 @@ export async function runOAuthConnectionLauncher(
   if (!startBody.connection_id || !isSafeOAuthConnectionId(startBody.connection_id)) {
     return { kind: 'failed', reason: 'gateway_error', message: 'invalid connection id' };
   }
-  if (!startBody.authorize_url || !isAllowedOAuthAuthorizeUrl(startBody.authorize_url)) {
+  if (
+    !startBody.authorize_url ||
+    !isAllowedOAuthAuthorizeUrl(startBody.authorize_url, {
+      allowedRedirectPorts: opts.allowedOAuthRedirectPorts,
+    })
+  ) {
     return {
       kind: 'failed',
       reason: 'gateway_error',

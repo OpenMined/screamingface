@@ -111,6 +111,8 @@ describe('migrateDesktopRuntimeConfig', () => {
           'aigw-runner': {
             startup_timeout_seconds: 90,
             auth_enabled: true,
+            enabled: false,
+            uv_bin: null,
           },
         },
       },
@@ -128,6 +130,12 @@ describe('migrateDesktopRuntimeConfig', () => {
         gateway_url: 'http://127.0.0.1:9105',
       },
     });
+    const runnerConfig = (migrated.plugin_config as Record<string, Record<string, unknown>>)[
+      'aigw-runner'
+    ];
+    expect(runnerConfig.auth_enabled).toBeUndefined();
+    expect(runnerConfig.enabled).toBeUndefined();
+    expect(runnerConfig.uv_bin).toBeUndefined();
   });
 
   it('promotes one shared gateway_url from gateway backend config', () => {

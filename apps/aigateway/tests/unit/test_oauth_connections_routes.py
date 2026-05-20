@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import time
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -98,6 +98,20 @@ def test_anthropic_connection_requires_label(authenticated_client) -> None:
     assert resp.json()["detail"]["code"] == "label_required"
 
 
+def test_anthropic_connection_uses_request_host_port_for_callback(
+    authenticated_client,
+) -> None:
+    start = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "port-check-anthropic"},
+        headers={"host": "127.0.0.1:9106"},
+    )
+
+    assert start.status_code == 201
+    query = parse_qs(urlparse(start.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == ["http://localhost:9106/callback"]
+
+
 def test_anthropic_connection_lifecycle_and_label_conflict(
     authenticated_client, fake_keychain
 ) -> None:
@@ -151,6 +165,18 @@ def test_anthropic_connection_can_reconnect_after_delete(authenticated_client) -
         == 200
     )
     assert authenticated_client.delete(f"/v1/oauth/connections/{first_id}").status_code == 204
+    assert [
+        item["id"]
+        for item in authenticated_client.get(
+            "/v1/oauth/connections", params={"provider": "anthropic"}
+        ).json()["connections"]
+    ] == []
+    assert [
+        item["id"]
+        for item in authenticated_client.get(
+            "/v1/oauth/connections", params={"provider": "anthropic", "status": "revoked"}
+        ).json()["connections"]
+    ] == [first_id]
 
     second = authenticated_client.post(
         "/v1/oauth/connections",
