@@ -130,7 +130,9 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
         paths = getattr(plugin, "backend_call_paths", [])
         known_paths.extend(paths)
         if node.path in paths:
-            return await plugin.handle_backend_call(intent_text, sources=sources_text, app=app)
+            return await plugin.handle_backend_call(
+                intent_text, sources=sources_text, app=app, env=env
+            )
 
     raise RuntimeError(
         f"No active plugin handles the backend call {node.path}(). "
