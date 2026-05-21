@@ -1,6 +1,6 @@
 # scoreboard
 
-Public benchmark scoreboard service for ScreamingFace clients. It ingests benchmark scores and serves leaderboard data in follow-up tickets; this scaffold only provides the runnable service shell, health route, settings, database wiring, migrations configuration, and test/tooling baseline.
+Public benchmark scoreboard service for ScreamingFace clients. It ingests benchmark scores and serves leaderboard data in follow-up tickets; this scaffold only provides the runnable service shell, health route, settings, database wiring, Tortoise migration CLI configuration, and test/tooling baseline.
 
 ## Quick Start
 
@@ -31,7 +31,7 @@ docker run --rm -d --name sf-scoreboard-postgres \
 uv run uvicorn scoreboard.main:app --port 9106 --reload
 ```
 
-Aerich is configured in `aerich.toml`, not `pyproject.toml`; use `-c aerich.toml` for Aerich commands. D-SCORE-002 will add the first concrete score models and migrations. Once migrations exist, apply them with `uv run aerich -c aerich.toml upgrade`.
+Tortoise's built-in migration CLI is configured through `[tool.tortoise]` in `pyproject.toml`. D-SCORE-002 will add the first concrete score models and migrations. Once migrations exist, apply them with `uv run tortoise migrate`.
 
 ## Configuration
 
