@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from tortoise import fields
 
+import scoreboard.scores.models as score_models
 from scoreboard.config import Settings
 from scoreboard.db import TORTOISE_CONFIG
 from scoreboard.main import create_app
@@ -43,19 +44,34 @@ def test_score_model_relations_use_expected_delete_rules() -> None:
 
 
 def test_score_model_package_exports_models_and_abstract_bases() -> None:
-    assert Benchmark.__name__ == "Benchmark"
-    assert Score.__name__ == "Score"
-    assert IdempotencyKey.__name__ == "IdempotencyKey"
-    assert BaseScoreboardModel._meta.abstract is True
-    assert BaseBenchmark._meta.abstract is True
-    assert BaseScore._meta.abstract is True
-    assert BaseIdempotencyKey._meta.abstract is True
+    expected_exports = {
+        "BaseScoreboardModel": BaseScoreboardModel,
+        "BaseBenchmark": BaseBenchmark,
+        "Benchmark": Benchmark,
+        "BaseScore": BaseScore,
+        "Score": Score,
+        "BaseIdempotencyKey": BaseIdempotencyKey,
+        "IdempotencyKey": IdempotencyKey,
+    }
+
+    for name, model_class in expected_exports.items():
+        assert getattr(score_models, name) is model_class
+        assert name in score_models.__all__
+
+    for base_model in (BaseScoreboardModel, BaseBenchmark, BaseScore, BaseIdempotencyKey):
+        assert base_model._meta.abstract is True
 
 
 def test_score_models_live_in_one_model_file_per_concrete_model() -> None:
-    assert Benchmark.__module__ == "scoreboard.scores.models.benchmark"
-    assert Score.__module__ == "scoreboard.scores.models.score"
-    assert IdempotencyKey.__module__ == "scoreboard.scores.models.idempotency_key"
+    assert {
+        Benchmark.__module__,
+        Score.__module__,
+        IdempotencyKey.__module__,
+    } == {
+        "scoreboard.scores.models.benchmark",
+        "scoreboard.scores.models.score",
+        "scoreboard.scores.models.idempotency_key",
+    }
 
 
 def test_create_app_wires_score_store_without_db_io() -> None:

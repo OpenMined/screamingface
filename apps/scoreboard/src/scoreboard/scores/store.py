@@ -4,50 +4,18 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
+from pypika_tortoise.analytics import RowNumber
+from pypika_tortoise.enums import Order
+from pypika_tortoise.queries import Query, QueryBuilder
 from tortoise import Tortoise
 from tortoise.exceptions import IntegrityError
+from tortoise.query_api import execute_pypika
 from tortoise.transactions import in_transaction
 
 from .models import Benchmark, IdempotencyKey, Score
 from .schemas import BenchmarkSchema, LeaderboardEntry, ScoreSchema, ScoreSubmission
 
 IDEMPOTENCY_TTL = timedelta(hours=24)
-
-
-LEADERBOARD_SQL_POSTGRES = """
-WITH ranked AS (
-    SELECT
-        spec_id,
-        accuracy,
-        total_questions,
-        ran_with_providers,
-        submitted_at,
-        submitted_by,
-        verified_by_openmined,
-        url4_expression,
-        ROW_NUMBER() OVER (
-            PARTITION BY spec_id
-            ORDER BY accuracy DESC, submitted_at DESC
-        ) AS rn
-    FROM scores
-    WHERE benchmark_id = $1
-)
-SELECT
-    spec_id,
-    accuracy,
-    total_questions,
-    ran_with_providers,
-    submitted_at,
-    submitted_by,
-    verified_by_openmined,
-    url4_expression
-FROM ranked
-WHERE rn = 1
-ORDER BY accuracy DESC
-LIMIT $2
-"""
-
-LEADERBOARD_SQL_SQLITE = LEADERBOARD_SQL_POSTGRES.replace("$1", "?").replace("$2", "?")
 
 
 def _benchmark_to_schema(model: Benchmark) -> BenchmarkSchema:
@@ -99,6 +67,49 @@ def _submission_to_kwargs(submission: ScoreSubmission) -> dict[str, object]:
         "client_platform": submission.client_platform,
         "metadata": submission.metadata,
     }
+
+
+def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
+    scores = Score.get_table()
+    row_number = (
+        RowNumber()
+        .over(scores.spec_id)
+        .orderby(scores.accuracy, order=Order.desc)
+        .orderby(scores.submitted_at, order=Order.desc)
+        .as_("rn")
+    )
+    ranked = (
+        Query.from_(scores)
+        .select(
+            scores.spec_id,
+            scores.accuracy,
+            scores.total_questions,
+            scores.ran_with_providers,
+            scores.submitted_at,
+            scores.submitted_by,
+            scores.verified_by_openmined,
+            scores.url4_expression,
+            row_number,
+        )
+        .where(scores.benchmark_id == benchmark_id)
+    ).as_("ranked")
+
+    return (
+        Query.from_(ranked)
+        .select(
+            ranked.spec_id,
+            ranked.accuracy,
+            ranked.total_questions,
+            ranked.ran_with_providers,
+            ranked.submitted_at,
+            ranked.submitted_by,
+            ranked.verified_by_openmined,
+            ranked.url4_expression,
+        )
+        .where(ranked.rn == 1)
+        .orderby(ranked.accuracy, order=Order.desc)
+        .limit(top_n)
+    )
 
 
 class ScoreStore:
@@ -190,13 +201,11 @@ class ScoreStore:
 
     async def leaderboard(self, benchmark_id: str, top_n: int = 50) -> list[LeaderboardEntry]:
         conn = Tortoise.get_connection("default")
-        sql = (
-            LEADERBOARD_SQL_POSTGRES
-            if conn.capabilities.dialect == "postgres"
-            else LEADERBOARD_SQL_SQLITE
+        result = await execute_pypika(
+            _build_leaderboard_query(benchmark_id, top_n),
+            using_db=conn,
         )
-
-        rows = await conn.execute_query_dict(sql, [benchmark_id, top_n])
+        rows = result.rows
         providers_field = Score._meta.fields_map["ran_with_providers"]
         for row in rows:
             row["ran_with_providers"] = providers_field.to_python_value(
