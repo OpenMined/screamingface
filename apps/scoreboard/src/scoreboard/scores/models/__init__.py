@@ -1,6 +1,16 @@
-"""Score models land here in D-SCORE-002.
+"""Score models for the scoreboard bounded context."""
 
-Model files in this package follow the Tortoise project convention:
-one concrete model per file, an abstract ``Base*`` interface beside each
-concrete model, ``class Meta`` first, fields next, then methods.
-"""
+from .base import BaseScoreboardModel
+from .benchmark import BaseBenchmark, Benchmark
+from .idempotency_key import BaseIdempotencyKey, IdempotencyKey
+from .score import BaseScore, Score
+
+__all__ = [
+    "BaseScoreboardModel",
+    "BaseBenchmark",
+    "Benchmark",
+    "BaseScore",
+    "Score",
+    "BaseIdempotencyKey",
+    "IdempotencyKey",
+]

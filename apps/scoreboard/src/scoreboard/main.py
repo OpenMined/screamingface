@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import Settings
 from .db import close_db, init_db
 from .routes import health
+from .scores.store import ScoreStore
 
 
 @asynccontextmanager
@@ -26,6 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="scoreboard", version="0.1.0", lifespan=_lifespan)
     app.state.settings = settings
+    app.state.score_store = ScoreStore()
 
     if settings.cors_origins:
         app.add_middleware(
