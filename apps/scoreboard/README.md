@@ -1,6 +1,6 @@
 # scoreboard
 
-Public benchmark scoreboard service for ScreamingFace clients. It ingests benchmark scores and serves leaderboard data in follow-up tickets; this scaffold only provides the runnable service shell, health route, settings, database wiring, Tortoise migration CLI configuration, and test/tooling baseline.
+Public benchmark scoreboard service for ScreamingFace clients. It now provides the runnable service shell, health route, settings, Tortoise database wiring, score-domain models, the initial migration, and the persistence/query store. HTTP ingestion and leaderboard routes land in follow-up tickets.
 
 ## Quick Start
 
@@ -8,13 +8,14 @@ Public benchmark scoreboard service for ScreamingFace clients. It ingests benchm
 cd apps/scoreboard
 uv sync
 
-SCOREBOARD_DATABASE_URL='sqlite://:memory:' uv run uvicorn scoreboard.main:app --port 9106 --reload
+uv run tortoise migrate
+uv run uvicorn scoreboard.main:app --port 9106 --reload
 
 # Sanity check
 curl -sf http://localhost:9106/healthz
 ```
 
-`/healthz` is a liveness probe only. It does not query the database and does not prove Postgres connectivity; a real readiness probe belongs with the first concrete score model in D-SCORE-002.
+`/healthz` is a liveness probe only. It does not query the database and does not prove Postgres connectivity.
 
 ### Running Against Local Postgres
 
@@ -28,10 +29,21 @@ docker run --rm -d --name sf-scoreboard-postgres \
   -p 5432:5432 \
   postgres:16-alpine
 
+uv run tortoise migrate
 uv run uvicorn scoreboard.main:app --port 9106 --reload
 ```
 
-Tortoise's built-in migration CLI is configured through `[tool.tortoise]` in `pyproject.toml`. D-SCORE-002 will add the first concrete score models and migrations. Once migrations exist, apply them with `uv run tortoise migrate`.
+Tortoise's built-in migration CLI is configured through `[tool.tortoise]` in `pyproject.toml`. Apply migrations with `uv run tortoise migrate`; running it a second time should be a no-op.
+
+### Migration Verification
+
+```bash
+cd apps/scoreboard
+uv run tortoise migrate
+uv run tortoise migrate
+```
+
+The first run applies pending migrations. The second run should report that no migrations are pending.
 
 ## Configuration
 
@@ -53,10 +65,11 @@ Settings are read from environment variables with the `SCOREBOARD_` prefix.
 cd apps/scoreboard
 uv run pytest tests/unit/ -v
 uv run ruff check .
+uv run ruff format --check .
 uv run pyright
 ```
 
-Unit tests use SQLite so the scaffold can be validated without a local Postgres server. Postgres-backed tests can opt into the shared per-test schema fixture by setting `SCOREBOARD_TEST_DATABASE_URL`.
+Unit tests use SQLite through Tortoise's isolated `tortoise_test_context`, so the persistence layer can be validated without a local Postgres server. Postgres-backed tests can opt into a database URL by setting `SCOREBOARD_TEST_DATABASE_URL`.
 
 ## Layout
 
@@ -68,7 +81,11 @@ src/scoreboard/
   db.py              Tortoise configuration/init helpers
   routes/
     health.py        GET /healthz
-  scores/models/     Empty model package reserved for D-SCORE-002
+  scores/
+    schemas.py       Pydantic DTOs for submissions and read models
+    store.py         Tortoise-backed persistence/query store
+    models/          Benchmark, Score, and IdempotencyKey Tortoise models
+    migrations/      Tortoise built-in migrations
 tests/
   unit/
 ```

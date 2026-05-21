@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 import asyncpg  # type: ignore[import-untyped]
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
+from tortoise.contrib.test import tortoise_test_context
 
 from scoreboard.config import Settings
 from scoreboard.main import create_app
@@ -66,3 +68,17 @@ def postgres_schema_database_url() -> Generator[str, None, None]:
         yield _with_schema(database_url, schema)
     finally:
         asyncio.run(_drop_schema())
+
+
+@pytest_asyncio.fixture
+async def tortoise_db(request: pytest.FixtureRequest) -> AsyncGenerator[None, None]:
+    database_url = "sqlite://:memory:"
+    if os.getenv("SCOREBOARD_TEST_DATABASE_URL"):
+        database_url = request.getfixturevalue("postgres_schema_database_url")
+
+    async with tortoise_test_context(
+        modules=["scoreboard.scores.models"],
+        db_url=database_url,
+        app_label="models",
+    ):
+        yield
