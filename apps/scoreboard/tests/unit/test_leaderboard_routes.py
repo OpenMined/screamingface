@@ -1,0 +1,250 @@
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+
+import httpx
+import pytest
+import pytest_asyncio
+
+from scoreboard.config import Settings
+from scoreboard.main import create_app
+from scoreboard.scores.models import Score
+from scoreboard.scores.schemas import ScoreSubmission
+from scoreboard.scores.store import ScoreStore
+
+pytestmark = pytest.mark.asyncio
+
+
+@pytest_asyncio.fixture
+async def async_client(tortoise_db: None) -> AsyncIterator[httpx.AsyncClient]:
+    app = create_app(Settings(database_url="sqlite://:memory:", cors_origins=[]))
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+
+def _submission(
+    *,
+    benchmark_id: str = "hle",
+    spec_id: str = "spec-1",
+    accuracy: float = 0.75,
+    providers: list[str] | None = None,
+    submitted_by: str | None = "tester",
+) -> ScoreSubmission:
+    total_questions = 1000
+    correct_questions = int(accuracy * total_questions)
+    return ScoreSubmission(
+        benchmark_id=benchmark_id,
+        spec_id=spec_id,
+        url4_expression=f"url4://benchmark/{benchmark_id}/{spec_id}/{accuracy}",
+        submitted_by=submitted_by,
+        accuracy=accuracy,
+        total_questions=total_questions,
+        correct_questions=correct_questions,
+        ran_with_providers=providers or ["openai"],
+        ran_at_local=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
+        client_name="scoreboard-test",
+        client_version="0.1.0",
+        client_platform="test",
+        metadata={"source": "unit"},
+    )
+
+
+async def _register_benchmark(
+    store: ScoreStore,
+    benchmark_id: str = "hle",
+    display_name: str = "Humanity's Last Exam",
+) -> None:
+    await store.register_benchmark(
+        benchmark_id=benchmark_id,
+        display_name=display_name,
+        description="Fixture benchmark",
+        dataset_url=f"https://example.test/{benchmark_id}.jsonl",
+    )
+
+
+async def test_list_benchmarks_returns_empty_list(async_client: httpx.AsyncClient) -> None:
+    response = await async_client.get("/v1/benchmarks")
+
+    assert response.status_code == 200
+    assert response.json() == {"benchmarks": []}
+
+
+async def test_list_benchmarks_returns_registered_benchmarks_in_id_order(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store, benchmark_id="zeta", display_name="Zeta Benchmark")
+    await _register_benchmark(store, benchmark_id="hle", display_name="Humanity's Last Exam")
+
+    response = await async_client.get("/v1/benchmarks")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [benchmark["id"] for benchmark in body["benchmarks"]] == ["hle", "zeta"]
+    assert body["benchmarks"][0]["display_name"] == "Humanity's Last Exam"
+    assert body["benchmarks"][0]["dataset_url"] == "https://example.test/hle.jsonl"
+    assert "created_at" in body["benchmarks"][0]
+
+
+async def test_get_leaderboard_returns_ranked_best_score_per_spec(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store)
+    await _register_benchmark(store, benchmark_id="other", display_name="Other Benchmark")
+    await store.submit(_submission(spec_id="spec-a", accuracy=0.6, providers=["openai"]))
+    await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["anthropic"]))
+    await store.submit(_submission(spec_id="spec-b", accuracy=0.95, providers=["openai", "gemini"]))
+    await store.submit(_submission(spec_id="spec-c", accuracy=0.7, providers=["gemini"]))
+    await store.submit(_submission(benchmark_id="other", spec_id="spec-z", accuracy=1.0))
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["benchmark"]["id"] == "hle"
+    assert [entry["rank"] for entry in body["entries"]] == [1, 2, 3]
+    assert [entry["spec_id"] for entry in body["entries"]] == ["spec-b", "spec-a", "spec-c"]
+    assert [entry["accuracy"] for entry in body["entries"]] == [0.95, 0.9, 0.7]
+    assert body["entries"][0]["ran_with_providers"] == ["openai", "gemini"]
+    assert body["entries"][0]["verified_by_openmined"] is False
+    assert body["entries"][1]["url4_expression"] == "url4://benchmark/hle/spec-a/0.9"
+
+
+async def test_get_leaderboard_breaks_accuracy_ties_by_newer_submission(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store)
+    older = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["older"]))
+    newer = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["newer"]))
+    await Score.filter(id=older.id).update(
+        submitted_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
+    )
+    await Score.filter(id=newer.id).update(
+        submitted_at=datetime(2026, 5, 21, 13, 0, tzinfo=UTC),
+    )
+
+    response = await async_client.get("/v1/leaderboard/hle")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["entries"]) == 1
+    assert body["entries"][0]["ran_with_providers"] == ["newer"]
+
+
+async def test_get_leaderboard_clamps_top_to_max(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store)
+    for index in range(205):
+        accuracy = (1000 - index) / 1000
+        await store.submit(_submission(spec_id=f"spec-{index:03d}", accuracy=accuracy))
+
+    response = await async_client.get("/v1/leaderboard/hle", params={"top": 999})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["entries"]) == 200
+    assert body["entries"][0]["rank"] == 1
+    assert body["entries"][-1]["rank"] == 200
+
+
+async def test_get_leaderboard_returns_404_for_unknown_benchmark(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.get("/v1/leaderboard/missing")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Benchmark not found"}
+
+
+async def test_get_spec_history_returns_submissions_newest_first(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store)
+    older = await store.submit(_submission(spec_id="spec-history", accuracy=0.5))
+    newer = await store.submit(_submission(spec_id="spec-history", accuracy=0.8))
+    await store.submit(_submission(spec_id="other-spec", accuracy=0.95))
+    await Score.filter(id=older.id).update(
+        submitted_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
+    )
+    await Score.filter(id=newer.id).update(
+        submitted_at=datetime(2026, 5, 21, 13, 0, tzinfo=UTC),
+    )
+
+    response = await async_client.get("/v1/leaderboard/hle/spec-history/history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["benchmark_id"] == "hle"
+    assert body["spec_id"] == "spec-history"
+    assert [submission["id"] for submission in body["submissions"]] == [
+        str(newer.id),
+        str(older.id),
+    ]
+    assert [submission["accuracy"] for submission in body["submissions"]] == [0.8, 0.5]
+    assert set(body["submissions"][0]) == {
+        "id",
+        "accuracy",
+        "total_questions",
+        "correct_questions",
+        "submitted_at",
+        "submitted_by",
+        "verified_by_openmined",
+    }
+
+
+async def test_get_spec_history_clamps_limit_to_max(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store)
+    for index in range(105):
+        await store.submit(_submission(spec_id="spec-history", accuracy=index / 200))
+
+    response = await async_client.get(
+        "/v1/leaderboard/hle/spec-history/history",
+        params={"limit": 999},
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()["submissions"]) == 100
+
+
+async def test_get_spec_history_returns_empty_list_for_unknown_spec(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store)
+
+    response = await async_client.get("/v1/leaderboard/hle/new-spec/history")
+
+    assert response.status_code == 200
+    assert response.json()["submissions"] == []
+
+
+async def test_get_spec_history_returns_404_for_unknown_benchmark(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.get("/v1/leaderboard/missing/spec-1/history")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Benchmark not found"}
+
+
+async def test_openapi_includes_leaderboard_contracts(async_client: httpx.AsyncClient) -> None:
+    response = await async_client.get("/openapi.json")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "/v1/benchmarks" in body["paths"]
+    assert "/v1/leaderboard/{benchmark_id}" in body["paths"]
+    assert "/v1/leaderboard/{benchmark_id}/{spec_id}/history" in body["paths"]
+    assert "BenchmarksResponse" in body["components"]["schemas"]
+    assert "LeaderboardResponse" in body["components"]["schemas"]
+    assert "HistoryResponse" in body["components"]["schemas"]
