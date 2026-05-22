@@ -14,7 +14,7 @@ from scoreboard.scores.store import ScoreStore
 MAX_LEADERBOARD_TOP = 200
 MAX_HISTORY_LIMIT = 100
 
-router = APIRouter(prefix="/v1", tags=["leaderboard"])
+router = APIRouter(prefix="/v1")
 
 
 class BenchmarksResponse(BaseModel):
@@ -98,14 +98,14 @@ def _history_submission(score: ScoreSchema) -> HistorySubmission:
     )
 
 
-@router.get("/benchmarks", response_model=BenchmarksResponse)
+@router.get("/benchmarks", response_model=BenchmarksResponse, tags=["benchmarks"])
 async def list_benchmarks(request: Request) -> BenchmarksResponse:
     """List registered public benchmarks. This endpoint is public and has no auth."""
     benchmarks = await _score_store(request).list_benchmarks()
     return BenchmarksResponse(benchmarks=benchmarks)
 
 
-@router.get("/leaderboard/{benchmark_id}", response_model=LeaderboardResponse)
+@router.get("/leaderboard/{benchmark_id}", response_model=LeaderboardResponse, tags=["leaderboard"])
 async def get_leaderboard(
     benchmark_id: str,
     request: Request,
@@ -131,7 +131,11 @@ async def get_leaderboard(
     return LeaderboardResponse(benchmark=benchmark, entries=ranked)
 
 
-@router.get("/leaderboard/{benchmark_id}/{spec_id}/history", response_model=HistoryResponse)
+@router.get(
+    "/leaderboard/{benchmark_id}/{spec_id}/history",
+    response_model=HistoryResponse,
+    tags=["leaderboard"],
+)
 async def get_spec_history(
     benchmark_id: str,
     spec_id: str,
