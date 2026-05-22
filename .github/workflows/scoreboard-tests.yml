@@ -44,11 +44,15 @@ jobs:
       - name: Typecheck
         run: uv run pyright
 
-      - name: Run unit tests
+      - name: Run unit tests with aggregate coverage
         run: |
           uv run pytest \
             --tb=short \
             --junitxml=results.xml \
+            --cov=scoreboard \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
             -v
 
       - name: Test report
@@ -58,3 +62,11 @@ jobs:
           name: Scoreboard Test Results
           path: apps/scoreboard/results.xml
           reporter: java-junit
+
+      - name: Coverage report
+        uses: orgoro/coverage@v3.2
+        if: always() && github.event_name == 'pull_request'
+        with:
+          coverageFile: apps/scoreboard/coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.80
