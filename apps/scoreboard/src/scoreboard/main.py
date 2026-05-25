@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings
 from .db import close_db, init_db
-from .routes import health, scores
+from .routes import health, leaderboard, scores
 from .scores.store import ScoreStore
 
 
@@ -39,6 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app.include_router(health.router)
+    app.include_router(leaderboard.router)
     app.include_router(scores.router)
     return app
 
