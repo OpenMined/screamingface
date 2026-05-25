@@ -6,6 +6,7 @@ from tools.plugin_dependency_audit import (
     collect_cross_imports,
     extract_manifest,
     find_cycles,
+    render_report,
 )
 
 
@@ -102,3 +103,27 @@ def test_find_cycles_detects_two_cycle(tmp_path: Path) -> None:
     cycles = find_cycles(findings)
 
     assert any(set(c) == {"alpha", "beta"} for c in cycles)
+
+
+def test_render_report_uses_relative_paths_and_sections(tmp_path: Path) -> None:
+    a = tmp_path / "alpha"
+    a.mkdir()
+    (a / "plugin.py").write_text('class A:\n    name = "alpha"\n    depends = ["beta"]\n')
+    (a / "use.py").write_text("from screamingface.plugins.beta.x import y\n")
+    b = tmp_path / "beta"
+    b.mkdir()
+    (b / "plugin.py").write_text('class B:\n    name = "beta"\n    depends = []\n')
+
+    findings = audit_all(tmp_path)
+    cycles = find_cycles(findings)
+    report = render_report(findings, cycles, tmp_path, repo_root=tmp_path)
+
+    assert "# Plugin Dependency Audit" in report
+    assert "## Summary" in report
+    assert "## Cycles" in report
+    assert "## Per-plugin findings" in report
+    assert "Plugins audited: **2**" in report
+    # Paths must be relative — no absolute /Users/... or tmp_path prefix.
+    assert "/Users/" not in report
+    assert str(tmp_path) not in report
+    assert "alpha/use.py" in report
