@@ -7,7 +7,7 @@
 .PHONY: help \
         sync sync-server sync-aigateway \
         run-server run-aigateway \
-        test test-server test-aigateway test-aigateway-live test-e2e \
+        test test-fast test-server test-server-fast test-aigateway test-aigateway-fast test-aigateway-live test-e2e \
         lint lint-server lint-aigateway \
         fmt fmt-server fmt-aigateway \
         typecheck typecheck-server typecheck-aigateway \
@@ -44,11 +44,19 @@ run-aigateway:  ## Start aigateway on :9105 with live reload.
 
 test: test-server test-aigateway  ## Run the full unit-test suite (no live).
 
+test-fast: test-server-fast test-aigateway-fast  ## Run unit tests, skipping the slow e2e marker.
+
 test-server:  ## apps/server unit tests.
 	cd $(SERVER_DIR) && uv run pytest
 
+test-server-fast:  ## apps/server unit tests, skipping @pytest.mark.e2e / e2e_live.
+	cd $(SERVER_DIR) && uv run pytest -m "not e2e and not e2e_live"
+
 test-aigateway:  ## apps/aigateway unit tests (skips live).
 	cd $(AIGW_DIR) && uv run pytest -m "not live"
+
+test-aigateway-fast:  ## apps/aigateway unit tests, skipping live + needs_postgres.
+	cd $(AIGW_DIR) && uv run pytest -m "not live and not needs_postgres"
 
 test-aigateway-live:  ## apps/aigateway live e2e (requires real OAuth creds in keychain).
 	cd $(AIGW_DIR) && AIGW_LIVE=1 uv run pytest tests/live/ -v
