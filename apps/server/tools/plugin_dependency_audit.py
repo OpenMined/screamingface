@@ -4,13 +4,18 @@ Usage:
     uv run python -m tools.plugin_dependency_audit \
         --plugins-root apps/server/src/screamingface/plugins \
         --report docs/superpowers/plans/plugin-dependency-audit.md
+
+`Plugin.depends` is a runtime activation contract enforced by the plugin
+registry. Tests are invoked by pytest, not the registry, so test-only
+cross-plugin imports do NOT require a `depends` entry. This audit reports
+production imports as actionable and test imports as informational only.
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -90,18 +95,52 @@ def _imported_plugin_module(dotted: str) -> str | None:
     return head or None
 
 
-def collect_cross_imports(plugin_dir: Path) -> dict[str, list[str]]:
-    """Map imported-plugin-module -> sorted unique list of file paths importing it.
+def _is_test_file(py: Path, plugin_dir: Path) -> bool:
+    """A file is a test file iff it sits under a `tests/` segment, OR its
+    filename starts with `test_`, OR its filename is `conftest.py`.
+    """
+    try:
+        rel = py.relative_to(plugin_dir)
+    except ValueError:
+        rel = py
+    parts = rel.parts
+    if "tests" in parts:
+        return True
+    name = py.name
+    if name == "conftest.py":
+        return True
+    if name.startswith("test_"):
+        return True
+    return False
+
+
+@dataclass(frozen=True)
+class CrossImports:
+    """Cross-plugin imports observed within a single plugin directory.
+
+    Both maps are: imported-plugin-module -> sorted unique list of file paths
+    importing it. `prod` covers production files; `tests` covers files
+    classified as test code (see `_is_test_file`).
+    """
+
+    prod: dict[str, list[str]] = field(default_factory=dict)
+    tests: dict[str, list[str]] = field(default_factory=dict)
+
+
+def collect_cross_imports(plugin_dir: Path) -> CrossImports:
+    """Walk `plugin_dir` and bucket cross-plugin imports into prod vs tests.
 
     Self-imports (the plugin importing its own submodules) are excluded.
     """
     self_module = plugin_dir.name
-    found: dict[str, set[str]] = {}
+    prod_found: dict[str, set[str]] = {}
+    test_found: dict[str, set[str]] = {}
     for py in plugin_dir.rglob("*.py"):
         try:
             tree = ast.parse(py.read_text(), filename=str(py))
         except SyntaxError:
             continue
+        bucket = test_found if _is_test_file(py, plugin_dir) else prod_found
         for node in ast.walk(tree):
             dotted: str | None = None
             if isinstance(node, ast.ImportFrom) and node.module:
@@ -110,14 +149,17 @@ def collect_cross_imports(plugin_dir: Path) -> dict[str, list[str]]:
                 for alias in node.names:
                     mod = _imported_plugin_module(alias.name)
                     if mod and mod != self_module:
-                        found.setdefault(mod, set()).add(str(py))
+                        bucket.setdefault(mod, set()).add(str(py))
                 continue
             if dotted is None:
                 continue
             mod = _imported_plugin_module(dotted)
             if mod and mod != self_module:
-                found.setdefault(mod, set()).add(str(py))
-    return {k: sorted(v) for k, v in sorted(found.items())}
+                bucket.setdefault(mod, set()).add(str(py))
+    return CrossImports(
+        prod={k: sorted(v) for k, v in sorted(prod_found.items())},
+        tests={k: sorted(v) for k, v in sorted(test_found.items())},
+    )
 
 
 @dataclass(frozen=True)
@@ -125,9 +167,11 @@ class AuditFinding:
     plugin_name: str  # slug
     plugin_module: str  # dir name
     declared: list[str]  # depends, as declared (slugs)
-    imported_modules: dict[str, list[str]]  # module -> files
-    missing: list[str]  # imported but not declared (slugs)
-    extraneous: list[str]  # declared but not imported (slugs)
+    prod_imports: dict[str, list[str]]  # module -> files (prod only)
+    test_imports: dict[str, list[str]]  # module -> files (tests only)
+    prod_missing: list[str]  # imported by prod, not declared (slugs)
+    test_only_missing: list[str]  # imported only by tests and not declared (slugs)
+    extraneous: list[str]  # declared but unused by either prod or tests (slugs)
 
 
 def _slug_for_module(module: str, by_module: dict[str, PluginManifest]) -> str:
@@ -147,17 +191,23 @@ def audit_all(plugins_root: Path) -> list[AuditFinding]:
     findings: list[AuditFinding] = []
     for mf in manifests:
         imports = collect_cross_imports(mf.plugin_py.parent)
-        imported_slugs = {_slug_for_module(m, by_module) for m in imports}
+        prod_slugs = {_slug_for_module(m, by_module) for m in imports.prod}
+        test_slugs = {_slug_for_module(m, by_module) for m in imports.tests}
         declared = list(mf.depends)
-        missing = sorted(imported_slugs - set(declared))
-        extraneous = sorted(set(declared) - imported_slugs)
+        declared_set = set(declared)
+        prod_missing = sorted(prod_slugs - declared_set)
+        # test-only-missing: imported by tests, not by prod, and not declared
+        test_only_missing = sorted((test_slugs - prod_slugs) - declared_set)
+        extraneous = sorted(declared_set - prod_slugs - test_slugs)
         findings.append(
             AuditFinding(
                 plugin_name=mf.name,
                 plugin_module=mf.module,
                 declared=declared,
-                imported_modules=imports,
-                missing=missing,
+                prod_imports=imports.prod,
+                test_imports=imports.tests,
+                prod_missing=prod_missing,
+                test_only_missing=test_only_missing,
                 extraneous=extraneous,
             )
         )
@@ -165,11 +215,15 @@ def audit_all(plugins_root: Path) -> list[AuditFinding]:
 
 
 def find_cycles(findings: list[AuditFinding]) -> list[list[str]]:
-    """Return cycles in the *imported* (actual) plugin graph, keyed by slug."""
+    """Return cycles in the *production* import graph, keyed by slug.
+
+    Test-only edges are ignored: a cycle through a test file is not a real
+    runtime activation cycle.
+    """
     name_by_module = {f.plugin_module: f.plugin_name for f in findings}
     graph: dict[str, set[str]] = {f.plugin_name: set() for f in findings}
     for f in findings:
-        for mod in f.imported_modules:
+        for mod in f.prod_imports:
             tgt = name_by_module.get(mod, mod)
             if tgt in graph:
                 graph[f.plugin_name].add(tgt)
@@ -212,6 +266,36 @@ def _display_path(path: str, repo_root: Path) -> str:
         return Path(path).as_posix()
 
 
+def _render_import_section(
+    label: str,
+    imports: dict[str, list[str]],
+    repo_root: Path,
+    *,
+    collapsed: bool,
+) -> list[str]:
+    """Render an imports subsection, optionally wrapped in a <details> block."""
+    lines: list[str] = []
+    if not imports:
+        lines.append(f"- **{label}:** _(none)_")
+        return lines
+    if collapsed:
+        lines.append("- <details><summary><b>" + label + "</b></summary>")
+        lines.append("")
+        for mod, files in imports.items():
+            lines.append(f"  - `{mod}` - {len(files)} file(s)")
+            for path in files:
+                lines.append(f"    - `{_display_path(path, repo_root)}`")
+        lines.append("")
+        lines.append("  </details>")
+    else:
+        lines.append(f"- **{label}:**")
+        for mod, files in imports.items():
+            lines.append(f"  - `{mod}` - {len(files)} file(s)")
+            for path in files:
+                lines.append(f"    - `{_display_path(path, repo_root)}`")
+    return lines
+
+
 def render_report(
     findings: list[AuditFinding],
     cycles: list[list[str]],
@@ -237,18 +321,28 @@ def render_report(
         f"`{plugins_root_display}` against each plugin's `Plugin.depends` manifest. "
         "Generated by `tools/plugin_dependency_audit.py`.\n"
     )
+    lines.append(
+        "`Plugin.depends` is a runtime activation contract — only production "
+        "imports require a declared dependency. Test-only cross-plugin imports "
+        "(under `tests/`, `test_*.py`, or `conftest.py`) are reported separately "
+        "as informational.\n"
+    )
     lines.append("## Summary\n")
     total = len(findings)
-    with_missing = sum(1 for f in findings if f.missing)
+    with_prod_missing = sum(1 for f in findings if f.prod_missing)
+    with_test_only_missing = sum(1 for f in findings if f.test_only_missing)
     with_extra = sum(1 for f in findings if f.extraneous)
     lines.append(
         f"- Plugins audited: **{total}**\n"
-        f"- Plugins with **missing** deps (imported but not declared): **{with_missing}**\n"
+        f"- Plugins with **missing** prod deps (imported by production code, not declared): "
+        f"**{with_prod_missing}**\n"
+        f"- Plugins with test-only imports of undeclared plugins: "
+        f"**{with_test_only_missing}** (informational)\n"
         f"- Plugins with **extraneous** deps (declared but never imported): **{with_extra}**\n"
-        f"- Cycles detected: **{len(cycles)}**\n"
+        f"- Cycles detected (production edges only): **{len(cycles)}**\n"
     )
 
-    lines.append("## Cycles\n")
+    lines.append("## Cycles (production edges only)\n")
     if cycles:
         for c in cycles:
             lines.append("- " + " -> ".join(c))
@@ -260,16 +354,33 @@ def render_report(
     for f in findings:
         lines.append(f"### `{f.plugin_name}` (`{f.plugin_module}/`)\n")
         lines.append(f"- **Declared `depends`:** {f.declared or '_(none)_'}")
-        lines.append(f"- **Missing (imported, not declared):** {f.missing or '_(none)_'}")
+        lines.append(
+            "- **Missing in prod (imported by production code, not declared):** "
+            f"{f.prod_missing or '_(none)_'}"
+        )
         lines.append(f"- **Extraneous (declared, not imported):** {f.extraneous or '_(none)_'}")
-        if f.imported_modules:
-            lines.append("- **Imports observed:**")
-            for mod, files in f.imported_modules.items():
-                lines.append(f"  - `{mod}` - {len(files)} file(s)")
-                for path in files:
-                    lines.append(f"    - `{_display_path(path, repo_root)}`")
-        else:
-            lines.append("- **Imports observed:** _(none)_")
+        lines.append(
+            "- **Test-only imports of undeclared plugins (informational):** "
+            f"{f.test_only_missing or '_(none)_'}"
+        )
+        prod_collapsed = not (f.prod_missing or f.extraneous)
+        lines.extend(
+            _render_import_section(
+                "Prod imports observed",
+                f.prod_imports,
+                repo_root,
+                collapsed=prod_collapsed,
+            )
+        )
+        test_collapsed = not f.test_only_missing
+        lines.extend(
+            _render_import_section(
+                "Test imports observed",
+                f.test_imports,
+                repo_root,
+                collapsed=test_collapsed,
+            )
+        )
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
