@@ -1,7 +1,12 @@
 import textwrap
 from pathlib import Path
 
-from tools.plugin_dependency_audit import collect_cross_imports, extract_manifest
+from tools.plugin_dependency_audit import (
+    audit_all,
+    collect_cross_imports,
+    extract_manifest,
+    find_cycles,
+)
 
 
 def test_extract_manifest_reads_name_and_depends(tmp_path: Path) -> None:
@@ -58,3 +63,42 @@ def test_collect_cross_imports_finds_other_plugin_imports(tmp_path: Path) -> Non
         "frontend_base": [str(plugin_dir / "ctx.py")],
         "llm_base": [str(plugin_dir / "ctx.py")],
     }
+
+
+def test_audit_all_flags_missing_and_extraneous(tmp_path: Path) -> None:
+    a = tmp_path / "alpha"
+    a.mkdir()
+    (a / "plugin.py").write_text('class A:\n    name = "alpha"\n    depends = ["beta", "ghost"]\n')
+    (a / "use.py").write_text(
+        "from screamingface.plugins.beta.x import y\nfrom screamingface.plugins.gamma import z\n"
+    )
+    b = tmp_path / "beta"
+    b.mkdir()
+    (b / "plugin.py").write_text('class B:\n    name = "beta"\n    depends = []\n')
+    g = tmp_path / "gamma"
+    g.mkdir()
+    (g / "plugin.py").write_text('class G:\n    name = "gamma"\n    depends = []\n')
+
+    findings = audit_all(tmp_path)
+    by_plugin = {f.plugin_name: f for f in findings}
+
+    assert by_plugin["alpha"].missing == ["gamma"]
+    assert by_plugin["alpha"].extraneous == ["ghost"]
+    assert by_plugin["beta"].missing == []
+    assert by_plugin["beta"].extraneous == []
+
+
+def test_find_cycles_detects_two_cycle(tmp_path: Path) -> None:
+    a = tmp_path / "alpha"
+    a.mkdir()
+    (a / "plugin.py").write_text('class A:\n    name = "alpha"\n    depends = ["beta"]\n')
+    (a / "u.py").write_text("from screamingface.plugins.beta import x\n")
+    b = tmp_path / "beta"
+    b.mkdir()
+    (b / "plugin.py").write_text('class B:\n    name = "beta"\n    depends = ["alpha"]\n')
+    (b / "u.py").write_text("from screamingface.plugins.alpha import y\n")
+
+    findings = audit_all(tmp_path)
+    cycles = find_cycles(findings)
+
+    assert any(set(c) == {"alpha", "beta"} for c in cycles)

@@ -117,3 +117,88 @@ def collect_cross_imports(plugin_dir: Path) -> dict[str, list[str]]:
             if mod and mod != self_module:
                 found.setdefault(mod, set()).add(str(py))
     return {k: sorted(v) for k, v in sorted(found.items())}
+
+
+@dataclass(frozen=True)
+class AuditFinding:
+    plugin_name: str  # slug
+    plugin_module: str  # dir name
+    declared: list[str]  # depends, as declared (slugs)
+    imported_modules: dict[str, list[str]]  # module -> files
+    missing: list[str]  # imported but not declared (slugs)
+    extraneous: list[str]  # declared but not imported (slugs)
+
+
+def _slug_for_module(module: str, by_module: dict[str, PluginManifest]) -> str:
+    mf = by_module.get(module)
+    return mf.name if mf else module  # fall back to directory name
+
+
+def audit_all(plugins_root: Path) -> list[AuditFinding]:
+    plugin_dirs = sorted(
+        p
+        for p in plugins_root.iterdir()
+        if p.is_dir() and (p / "plugin.py").exists() and not p.name.startswith("_")
+    )
+    manifests = [extract_manifest(p / "plugin.py") for p in plugin_dirs]
+    by_module = {m.module: m for m in manifests}
+
+    findings: list[AuditFinding] = []
+    for mf in manifests:
+        imports = collect_cross_imports(mf.plugin_py.parent)
+        imported_slugs = {_slug_for_module(m, by_module) for m in imports}
+        declared = list(mf.depends)
+        missing = sorted(imported_slugs - set(declared))
+        extraneous = sorted(set(declared) - imported_slugs)
+        findings.append(
+            AuditFinding(
+                plugin_name=mf.name,
+                plugin_module=mf.module,
+                declared=declared,
+                imported_modules=imports,
+                missing=missing,
+                extraneous=extraneous,
+            )
+        )
+    return findings
+
+
+def find_cycles(findings: list[AuditFinding]) -> list[list[str]]:
+    """Return cycles in the *imported* (actual) plugin graph, keyed by slug."""
+    name_by_module = {f.plugin_module: f.plugin_name for f in findings}
+    graph: dict[str, set[str]] = {f.plugin_name: set() for f in findings}
+    for f in findings:
+        for mod in f.imported_modules:
+            tgt = name_by_module.get(mod, mod)
+            if tgt in graph:
+                graph[f.plugin_name].add(tgt)
+
+    cycles: list[list[str]] = []
+    WHITE, GREY, BLACK = 0, 1, 2
+    color: dict[str, int] = {n: WHITE for n in graph}
+    stack: list[str] = []
+
+    def dfs(n: str) -> None:
+        color[n] = GREY
+        stack.append(n)
+        for m in sorted(graph[n]):
+            if color[m] == GREY:
+                cycle = stack[stack.index(m) :] + [m]
+                cycles.append(cycle)
+            elif color[m] == WHITE:
+                dfs(m)
+        stack.pop()
+        color[n] = BLACK
+
+    for n in sorted(graph):
+        if color[n] == WHITE:
+            dfs(n)
+    # Deduplicate by frozenset of nodes
+    seen: set[frozenset[str]] = set()
+    unique: list[list[str]] = []
+    for c in cycles:
+        key = frozenset(c)
+        if key not in seen:
+            seen.add(key)
+            unique.append(c)
+    return unique
