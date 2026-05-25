@@ -75,3 +75,45 @@ def extract_manifest(plugin_py: Path) -> PluginManifest:
         depends=depends,
         plugin_py=plugin_py,
     )
+
+
+PLUGIN_PKG = "screamingface.plugins"
+
+
+def _imported_plugin_module(dotted: str) -> str | None:
+    """Return the plugin-directory segment from a dotted module path, or None."""
+    if not dotted.startswith(PLUGIN_PKG + "."):
+        return None
+    tail = dotted[len(PLUGIN_PKG) + 1 :]
+    head = tail.split(".", 1)[0]
+    return head or None
+
+
+def collect_cross_imports(plugin_dir: Path) -> dict[str, list[str]]:
+    """Map imported-plugin-module -> sorted unique list of file paths importing it.
+
+    Self-imports (the plugin importing its own submodules) are excluded.
+    """
+    self_module = plugin_dir.name
+    found: dict[str, set[str]] = {}
+    for py in plugin_dir.rglob("*.py"):
+        try:
+            tree = ast.parse(py.read_text(), filename=str(py))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            dotted: str | None = None
+            if isinstance(node, ast.ImportFrom) and node.module:
+                dotted = node.module
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    mod = _imported_plugin_module(alias.name)
+                    if mod and mod != self_module:
+                        found.setdefault(mod, set()).add(str(py))
+                continue
+            if dotted is None:
+                continue
+            mod = _imported_plugin_module(dotted)
+            if mod and mod != self_module:
+                found.setdefault(mod, set()).add(str(py))
+    return {k: sorted(v) for k, v in sorted(found.items())}
