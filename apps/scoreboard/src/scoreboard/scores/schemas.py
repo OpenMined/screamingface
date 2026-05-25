@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ClientInfo(BaseModel):
@@ -17,15 +17,40 @@ class ClientInfo(BaseModel):
     platform: str | None = None
 
 
+class FieldErrorDetail(BaseModel):
+    """Field-specific HTTP error detail."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    message: str
+
+
+class FieldErrorResponse(BaseModel):
+    """HTTP error response for errors tied to a request field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    detail: FieldErrorDetail
+
+
+class MessageErrorResponse(BaseModel):
+    """HTTP error response with a flat detail message."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    detail: str
+
+
 class ScoreSubmission(BaseModel):
     """Input DTO for score ingestion."""
 
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 1
+    version: Literal[1] = 1
     benchmark_id: str
     spec_id: str
-    url4_expression: str
+    url4_expression: Annotated[str, Field(max_length=32_000)]
     submitted_by: str | None = None
     accuracy: float
     total_questions: int
