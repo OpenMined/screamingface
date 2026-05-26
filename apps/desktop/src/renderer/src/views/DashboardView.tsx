@@ -31,11 +31,10 @@ export function DashboardView({ server }: DashboardViewProps) {
       const plugins = (config.plugins as string[]) || [];
       setTracingEnabled(plugins.includes('tracing'));
     });
-    const unsub = window.electronAPI.config.onChanged((config) => {
+    return window.electronAPI.config.onChanged((config) => {
       const plugins = (config.plugins as string[]) || [];
       setTracingEnabled(plugins.includes('tracing'));
     });
-    return unsub;
   }, []);
 
   const openPhoenix = () => {
