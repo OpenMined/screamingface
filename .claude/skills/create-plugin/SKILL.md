@@ -1,17 +1,207 @@
 ---
-description: Scaffold a new ScreamingFace server plugin with routes, hooks, settings, and tests
+description: Scaffold a new ScreamingFace server plugin with routes, hooks, settings, CLI, and tests
 user_invocable: true
 ---
 
 # Create ScreamingFace Plugin
 
+**Almost every piece of functionality in this codebase is a plugin.** CLI tools, audits, request/response interception, HTTP routes, base libraries other plugins depend on, persistent state — all of it lives under `apps/server/src/screamingface/plugins/<name>/` with a `plugin.py` declaring a `Plugin` subclass. If you're tempted to add a top-level script or a standalone module instead of a plugin, stop and ask whether a plugin fits — almost always it does.
+
 When invoked, ask the user for:
 1. **Plugin type** — built-in (inside this repo) or external (standalone package)
 2. **Plugin name** (kebab-case, e.g. `eval-runner`)
 3. **Description** (one sentence)
-4. **What it needs** — any combination of: routes, hooks, settings, class extensions, dependencies on other plugins, system deps
+4. **What it needs** — any combination of: CLI commands, routes, hooks, settings, class extensions, dependencies on other plugins, system deps
 5. If it needs settings, ask what settings fields (name, type, default)
 6. If it needs routes, ask what endpoints (method, path, brief purpose)
+7. If it needs CLI commands, ask the sub-app name (the kebab token after `sf`) and what subcommands
+
+---
+
+# Decision tree: what kind of plugin am I building?
+
+Pick the shape(s) that apply — a plugin can combine several. Each row lists the **hook** to use, the **reference plugin** to copy from, and a **one-line "use when"**.
+
+| What you need | Hook / pattern | Reference plugin | Use when |
+|---|---|---|---|
+| **A CLI command under `sf`** | Override `Plugin.register_cli(cls, app)` and `app.add_typer(<your_typer_app>, name="...")`. | `plugins/claude_intercept`, `plugins/claude_env_intercept`, `plugins/plugin_audit` | You want users to run `uv run sf <your-name> <subcommand>`. **Don't create scripts under `tools/`, `scripts/`, or `apps/server/cli/` — make a plugin.** |
+| **A "base library" other plugins depend on** | Plugin with `depends: list[str] = []`, no routes/hooks. Public surface lives in a sibling module (commonly `plugin_base.py`, `models.py`, `errors.py`) that other plugins import. | `plugins/aigw_base`, `plugins/llm_base`, `plugins/backend_api_base`, `plugins/frontend_base` | You're providing shared classes, adapters, or utilities that other plugins extend or call. Other plugins declare `depends = ["<your-name>"]`. |
+| **Pre/post hooks on requests, lifecycle, etc.** | Use the `hooks: HookRegistry` arg in `setup()` to register callbacks. | `plugins/tracing`, `plugins/mitmproxy_intercept` | You want to observe or mutate request/response flow without owning the route. |
+| **HTTP routes** | Use the `routes: RouteRegistry` arg in `setup()` with a `create_router()` factory in a sibling `routes.py`. | `plugins/url4_executor`, `plugins/claude_backend_api` | You're exposing endpoints under the main SF server. For a dedicated port + transparent proxy frontend, see the next row. |
+| **A transparent proxy on its own port** | Subclass `FrontendPluginBase` (from `plugins/frontend_base`). | `plugins/claude_frontend`, `plugins/codex_frontend`, `plugins/gemini_frontend`, `plugins/ollama_frontend` | You're proxying a third-party API (Anthropic, OpenAI, etc.) and need a separate listen port. |
+| **A backend adapter to an LLM provider** | Subclass `BackendApiPluginBase` (from `plugins/backend_api_base`). | `plugins/claude_backend_api`, `plugins/codex_backend_api`, `plugins/gemini_backend_api`, `plugins/ollama_backend_api` | You're implementing the contract to call a specific provider's API. |
+| **Extend an existing class / register an implementation** | Use the `classes: ClassRegistry` arg in `setup()`. | `plugins/url4_executor`, `plugins/state` | You're providing an implementation of an abstract interface another plugin defined. |
+| **Persistent state (sqlite, files)** | Depend on `state` plugin (`depends = ["state"]`) and use its store interface. | `plugins/eval_runs`, `plugins/session_service` | You need durable state across restarts. Don't roll your own — use the `state` plugin. |
+| **Plugin-typed configuration** | Add a `settings_class` (PluginSettings subclass) on the plugin class. | almost every plugin with `settings_class = ...` | The user should be able to configure the plugin via env vars or `sf.json`. |
+
+**Combining shapes is normal.** `plugin_audit` is CLI-only. `url4_executor` has routes + hooks + classes. `claude_frontend` is a transparent proxy + settings. Build the shape that matches the job.
+
+**Never:**
+- Put a CLI command directly inside `apps/server/src/screamingface/cli/`. The `cli/` directory hosts only the root typer app + the generic `plugin` / `run` subcommands. Plugin-specific CLI lives in the plugin's directory and is mounted via `register_cli`.
+- Put a standalone script under `apps/server/tools/`, `apps/server/scripts/`, or the repo root for anything that touches plugin internals. Make a plugin and expose it via `register_cli` or `register_routes`.
+- Duplicate logic that already lives in a "base library" plugin (e.g. don't re-implement OAuth strategies that `llm_base` provides — `depends = ["llm-base"]` and import).
+
+---
+
+# Pattern: CLI plugin (`register_cli` hook)
+
+If the plugin's job is to add `sf <something>` commands, the shape is:
+
+```
+apps/server/src/screamingface/plugins/<snake_name>/
+├── __init__.py        # empty
+├── plugin.py          # Plugin subclass with register_cli
+├── cli.py             # the typer.Typer() sub-app + commands
+└── tests/
+    └── test_<snake_name>.py
+```
+
+## File: `plugin.py`
+
+```python
+"""<Description>."""
+
+from __future__ import annotations
+
+import typer
+
+from screamingface.plugin import Plugin
+
+
+class <ClassName>Plugin(Plugin):
+    name = "<kebab-name>"
+    description = "<Description>"
+    depends: list[str] = []  # add any plugins you import from in cli.py
+
+    @classmethod
+    def register_cli(cls, app: typer.Typer) -> None:
+        from screamingface.plugins.<snake_name>.cli import <snake_name>_app
+
+        app.add_typer(<snake_name>_app, name="<kebab-name>")
+```
+
+`register_cli` is a `@classmethod`; the registry calls it during CLI construction *before any plugin is activated* — so don't touch settings or runtime state here. Just mount your sub-app.
+
+## File: `cli.py`
+
+```python
+"""Typer sub-app for the <kebab-name> plugin."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Annotated
+
+import typer
+
+<snake_name>_app = typer.Typer(
+    help="<Description>",
+    no_args_is_help=True,
+)
+
+
+@<snake_name>_app.command("<verb>")
+def <verb>_command(
+    some_path: Annotated[
+        Path,
+        typer.Option("--some-path", help="..."),
+    ] = Path("default"),
+) -> None:
+    """<What this verb does>."""
+    # Lazy-import heavy deps so `sf --help` stays fast:
+    from screamingface.plugins.<snake_name>.logic import do_the_thing
+
+    result = do_the_thing(some_path)
+    typer.echo(result)
+```
+
+**Invocation pattern:** `uv run sf <kebab-name> <verb> --some-path ...`
+
+**Why a separate `cli.py`:** `plugin.py` is imported by the registry at discovery time. Keeping CLI commands in `cli.py` lets `register_cli` lazy-import them only when CLI is being built.
+
+**Test the CLI invocation** with `typer.testing.CliRunner` against `screamingface.cli.main:app`:
+
+```python
+from typer.testing import CliRunner
+from screamingface.cli.main import app
+
+
+def test_cli_invocation(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(app, ["<kebab-name>", "<verb>", "--some-path", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+```
+
+This exercises the full plugin-discovery + `register_cli` path — proving the plugin is wired correctly, not just that the function works.
+
+---
+
+# Pattern: Base library plugin
+
+If the plugin's job is to provide classes, adapters, or utilities that *other plugins import*, the shape is:
+
+```
+apps/server/src/screamingface/plugins/<snake_name>/
+├── __init__.py            # may re-export the public API for convenience
+├── plugin.py              # minimal Plugin subclass with depends = []
+├── plugin_base.py         # public abstract base classes / adapters (the actual "library")
+├── models.py              # shared Pydantic models (optional)
+└── tests/
+```
+
+## `plugin.py` is intentionally minimal:
+
+```python
+"""<Description> — base library; other plugins declare depends = ["<kebab-name>"]."""
+
+from __future__ import annotations
+
+from screamingface.plugin import Plugin
+
+
+class <ClassName>Plugin(Plugin):
+    name = "<kebab-name>"
+    description = "<Description> — provides shared classes for downstream plugins."
+    depends: list[str] = []
+```
+
+## Other plugins consume the library by:
+
+1. Declaring `depends = ["<your-kebab-name>"]` in their plugin.py (this is a **runtime activation contract** — the registry refuses to activate them if your plugin isn't active).
+2. Importing from the public modules:
+   ```python
+   from screamingface.plugins.<your_snake>.plugin_base import <AbstractClass>
+   ```
+
+**Run `sf plugin-audit deps` after declaring depends** to catch mismatches between what's imported and what's declared.
+
+**Common subclassing convention:** if your library exposes a `Plugin` subclass that other plugins should extend (rather than calling utility functions), put it in `plugin_base.py` as a `<Something>PluginBase(Plugin)` and document that downstream plugins subclass it. See `aigw_base/plugin_base.py` for the canonical example.
+
+---
+
+# Pattern: Hook plugin (request/lifecycle interception)
+
+If the plugin observes or mutates request/response flow without owning the route, use the `hooks` arg in `setup`:
+
+```python
+class <ClassName>Plugin(Plugin):
+    name = "<kebab-name>"
+    description = "<Description>"
+
+    def setup(
+        self,
+        app: FastAPI,
+        hooks: HookRegistry,
+        classes: ClassRegistry,
+        routes: RouteRegistry,
+    ) -> None:
+        hooks.register("on_request", self._on_request)
+        hooks.register("on_response", self._on_response)
+
+    def _on_request(self, request) -> None:
+        ...
+```
+
+Reference: `plugins/tracing/plugin.py`, `plugins/mitmproxy_intercept/plugin.py`.
 
 ---
 
