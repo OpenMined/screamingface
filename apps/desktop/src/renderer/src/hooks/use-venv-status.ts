@@ -13,14 +13,17 @@ export function useVenvStatus() {
       setUvFound(result.uvFound);
 
       // Auto-bootstrap in production: create venv + sync when missing
-      if (result.autoBootstrap && result.status === 'missing' && result.uvFound) {
-        if (!bootstrapping.current) {
-          bootstrapping.current = true;
-          window.electronAPI.venv.create().then((ok) => {
-            if (ok) window.electronAPI.venv.sync();
-            bootstrapping.current = false;
-          });
-        }
+      if (
+        result.autoBootstrap &&
+        result.status === 'missing' &&
+        result.uvFound &&
+        !bootstrapping.current
+      ) {
+        bootstrapping.current = true;
+        window.electronAPI.venv.create().then((ok) => {
+          if (ok) window.electronAPI.venv.sync();
+          bootstrapping.current = false;
+        });
       }
 
       // Auto re-sync after app update (version stamp mismatch)

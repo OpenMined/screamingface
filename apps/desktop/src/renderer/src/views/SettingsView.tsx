@@ -207,10 +207,9 @@ export function SettingsView() {
         initialLoadRef.current = false;
       }, 100);
     });
-    const unsub = window.electronAPI.config.onChanged((c) => {
+    return window.electronAPI.config.onChanged((c) => {
       setConfig(c as AppConfig);
     });
-    return unsub;
   }, []);
 
   const markDirty = useCallback(() => {
@@ -419,14 +418,11 @@ export function SettingsView() {
                 }
                 return h % RAINBOW_COLORS.length;
               };
-              const groupColor = (group: string): string =>
-                RAINBOW_COLORS[colorIndex(group)];
+              const groupColor = (group: string): string => RAINBOW_COLORS[colorIndex(group)];
 
               // Sort groups in rainbow order (by hue index) so the UI walks
               // red → orange → … → violet top-to-bottom.
-              const groupOrder = Object.keys(groups).sort(
-                (a, b) => colorIndex(a) - colorIndex(b),
-              );
+              const groupOrder = Object.keys(groups).sort((a, b) => colorIndex(a) - colorIndex(b));
 
               return groupOrder.map((group) => (
                 <div key={group} className="mb-4">

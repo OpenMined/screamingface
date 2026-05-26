@@ -12,8 +12,7 @@ export function usePlugins() {
   }, []);
 
   const install = useCallback(async (url: string) => {
-    const manifest = await window.electronAPI.plugins.install(url);
-    return manifest;
+    return await window.electronAPI.plugins.install(url);
   }, []);
 
   const uninstall = useCallback((id: string) => window.electronAPI.plugins.uninstall(id), []);

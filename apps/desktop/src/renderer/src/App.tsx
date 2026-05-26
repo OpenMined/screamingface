@@ -16,8 +16,7 @@ export function App() {
 
   useEffect(() => {
     window.electronAPI.config.read().then(setConfig);
-    const unsub = window.electronAPI.config.onChanged(setConfig);
-    return unsub;
+    return window.electronAPI.config.onChanged(setConfig);
   }, []);
 
   const handleConfigChange = useCallback(
