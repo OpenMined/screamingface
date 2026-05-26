@@ -25,6 +25,7 @@ class PluginManifest:
     name: str  # Plugin.name slug, e.g. "claude-frontend"
     depends: list[str]  # Plugin.depends slugs
     plugin_py: Path
+    depends_source: str = "self"  # "self" or "<BaseClassName>" if inherited
 
 
 def _literal_str_list(node: ast.AST) -> list[str] | None:
@@ -39,47 +40,142 @@ def _literal_str_list(node: ast.AST) -> list[str] | None:
     return values
 
 
-def extract_manifest(plugin_py: Path) -> PluginManifest:
+def _extract_class_attrs(cls: ast.ClassDef) -> tuple[str | None, list[str] | None]:
+    """Extract (name, depends) from a class body.
+
+    Returns (name_value_or_None, depends_list_or_None). `depends` is None when
+    the class does NOT declare its own `depends` (vs an empty list, which is a
+    real declaration of no deps).
+    """
+    name: str | None = None
+    depends: list[str] | None = None
+    for stmt in cls.body:
+        if isinstance(stmt, ast.Assign):
+            targets = [t.id for t in stmt.targets if isinstance(t, ast.Name)]
+            if (
+                "name" in targets
+                and isinstance(stmt.value, ast.Constant)
+                and isinstance(stmt.value.value, str)
+            ):
+                name = stmt.value.value
+            if "depends" in targets:
+                parsed = _literal_str_list(stmt.value)
+                if parsed is not None:
+                    depends = parsed
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            if (
+                stmt.target.id == "name"
+                and isinstance(stmt.value, ast.Constant)
+                and isinstance(stmt.value.value, str)
+            ):
+                name = stmt.value.value
+            if stmt.target.id == "depends" and stmt.value is not None:
+                parsed = _literal_str_list(stmt.value)
+                if parsed is not None:
+                    depends = parsed
+    return name, depends
+
+
+def _base_name(base: ast.expr) -> str | None:
+    """Extract the simple class identifier from a base expression."""
+    if isinstance(base, ast.Name):
+        return base.id
+    if isinstance(base, ast.Attribute):
+        return base.attr
+    return None
+
+
+def _parsed_module(path: Path, cache: dict[Path, ast.Module]) -> ast.Module | None:
+    if path in cache:
+        return cache[path]
+    try:
+        tree = ast.parse(path.read_text(), filename=str(path))
+    except (SyntaxError, OSError, UnicodeDecodeError):
+        return None
+    cache[path] = tree
+    return tree
+
+
+def _find_class_def(
+    name: str,
+    plugins_root: Path,
+    cache: dict[Path, ast.Module],
+) -> ast.ClassDef | None:
+    """Find the first `class <name>(...)` definition under plugins_root."""
+    for py in plugins_root.rglob("*.py"):
+        tree = _parsed_module(py, cache)
+        if tree is None:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == name:
+                return node
+    return None
+
+
+def _resolve_inherited_depends(
+    bases: list[ast.expr],
+    plugins_root: Path,
+    cache: dict[Path, ast.Module],
+    depth: int = 0,
+) -> tuple[list[str], str] | None:
+    """Walk bases to find the first ancestor that declares its own `depends`."""
+    if depth >= 5:
+        return None
+    for base in bases:
+        base_name = _base_name(base)
+        if base_name is None:
+            continue
+        cls = _find_class_def(base_name, plugins_root, cache)
+        if cls is None:
+            continue
+        _, depends = _extract_class_attrs(cls)
+        if depends is not None:
+            return depends, base_name
+        # Recurse into this base's bases
+        deeper = _resolve_inherited_depends(cls.bases, plugins_root, cache, depth + 1)
+        if deeper is not None:
+            return deeper
+    return None
+
+
+def extract_manifest(
+    plugin_py: Path,
+    plugins_root: Path | None = None,
+) -> PluginManifest:
     tree = ast.parse(plugin_py.read_text(), filename=str(plugin_py))
     name: str | None = None
-    depends: list[str] = []
+    depends: list[str] | None = None
+    depends_source = "self"
+    # Prefer the class that declares either `name` or `depends`. Track the
+    # first matching class's bases for inheritance walk.
+    chosen_bases: list[ast.expr] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
-        for stmt in node.body:
-            # name = "..."
-            if isinstance(stmt, ast.Assign):
-                targets = [t.id for t in stmt.targets if isinstance(t, ast.Name)]
-                if (
-                    "name" in targets
-                    and isinstance(stmt.value, ast.Constant)
-                    and isinstance(stmt.value.value, str)
-                ):
-                    name = stmt.value.value
-                if "depends" in targets:
-                    parsed = _literal_str_list(stmt.value)
-                    if parsed is not None:
-                        depends = parsed
-            # depends: list[str] = [...]
-            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                if (
-                    stmt.target.id == "name"
-                    and isinstance(stmt.value, ast.Constant)
-                    and isinstance(stmt.value.value, str)
-                ):
-                    name = stmt.value.value
-                if stmt.target.id == "depends" and stmt.value is not None:
-                    parsed = _literal_str_list(stmt.value)
-                    if parsed is not None:
-                        depends = parsed
+        cls_name, cls_depends = _extract_class_attrs(node)
+        if cls_name is not None and name is None:
+            name = cls_name
+            chosen_bases = node.bases
+        if cls_depends is not None and depends is None:
+            depends = cls_depends
+            if name is None:
+                # No name yet — still capture bases in case this class is the
+                # one we end up using
+                chosen_bases = node.bases
+
+    if depends is None and plugins_root is not None and chosen_bases:
+        resolved = _resolve_inherited_depends(chosen_bases, plugins_root, {})
+        if resolved is not None:
+            depends, depends_source = resolved
+
     if name is None:
-        # Plugin without a name attribute — use the directory name as a fallback identifier
         name = plugin_py.parent.name
     return PluginManifest(
         module=plugin_py.parent.name,
         name=name,
-        depends=depends,
+        depends=depends if depends is not None else [],
         plugin_py=plugin_py,
+        depends_source=depends_source,
     )
 
 
@@ -185,7 +281,7 @@ def audit_all(plugins_root: Path) -> list[AuditFinding]:
         for p in plugins_root.iterdir()
         if p.is_dir() and (p / "plugin.py").exists() and not p.name.startswith("_")
     )
-    manifests = [extract_manifest(p / "plugin.py") for p in plugin_dirs]
+    manifests = [extract_manifest(p / "plugin.py", plugins_root=plugins_root) for p in plugin_dirs]
     by_module = {m.module: m for m in manifests}
 
     findings: list[AuditFinding] = []

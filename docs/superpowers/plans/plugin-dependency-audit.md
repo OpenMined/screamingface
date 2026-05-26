@@ -7,9 +7,9 @@ Audit of cross-plugin imports under `apps/server/src/screamingface/plugins` agai
 ## Summary
 
 - Plugins audited: **26**
-- Plugins with **missing** prod deps (imported by production code, not declared): **15**
-- Plugins with test-only imports of undeclared plugins: **7** (informational)
-- Plugins with **extraneous** deps (declared but never imported): **5**
+- Plugins with **missing** prod deps (imported by production code, not declared): **12**
+- Plugins with test-only imports of undeclared plugins: **6** (informational)
+- Plugins with **extraneous** deps (declared but never imported): **7**
 - Cycles detected (production edges only): **2**
 
 ## Cycles (production edges only)
@@ -43,18 +43,22 @@ Audit of cross-plugin imports under `apps/server/src/screamingface/plugins` agai
 
 ### `aigw-claude-backend` (`aigw_claude_backend/`)
 
-- **Declared `depends`:** _(none)_
-- **Missing in prod (imported by production code, not declared):** ['aigw-base', 'llm-base']
+- **Declared `depends`:** ['llm-base', 'backend-api-base', 'aigw-base']
+- **Missing in prod (imported by production code, not declared):** _(none)_
 - **Extraneous (declared, not imported):** _(none)_
-- **Test-only imports of undeclared plugins (informational):** ['backend-api-base']
-- **Prod imports observed:**
+- **Test-only imports of undeclared plugins (informational):** _(none)_
+- <details><summary><b>Prod imports observed</b></summary>
+
   - `aigw_base` - 3 file(s)
     - `apps/server/src/screamingface/plugins/aigw_claude_backend/_defaults.py`
     - `apps/server/src/screamingface/plugins/aigw_claude_backend/plugin.py`
     - `apps/server/src/screamingface/plugins/aigw_claude_backend/routes.py`
   - `llm_base` - 1 file(s)
     - `apps/server/src/screamingface/plugins/aigw_claude_backend/routes.py`
-- **Test imports observed:**
+
+  </details>
+- <details><summary><b>Test imports observed</b></summary>
+
   - `aigw_base` - 3 file(s)
     - `apps/server/src/screamingface/plugins/aigw_claude_backend/tests/test_auth_proxy_mount.py`
     - `apps/server/src/screamingface/plugins/aigw_claude_backend/tests/test_settings_schema.py`
@@ -62,11 +66,13 @@ Audit of cross-plugin imports under `apps/server/src/screamingface/plugins` agai
   - `backend_api_base` - 1 file(s)
     - `apps/server/src/screamingface/plugins/aigw_claude_backend/tests/test_auth_proxy_mount.py`
 
+  </details>
+
 ### `aigw-codex-backend` (`aigw_codex_backend/`)
 
-- **Declared `depends`:** _(none)_
-- **Missing in prod (imported by production code, not declared):** ['aigw-base', 'llm-base']
-- **Extraneous (declared, not imported):** _(none)_
+- **Declared `depends`:** ['llm-base', 'backend-api-base', 'aigw-base']
+- **Missing in prod (imported by production code, not declared):** _(none)_
+- **Extraneous (declared, not imported):** ['backend-api-base']
 - **Test-only imports of undeclared plugins (informational):** _(none)_
 - **Prod imports observed:**
   - `aigw_base` - 2 file(s)
@@ -83,9 +89,9 @@ Audit of cross-plugin imports under `apps/server/src/screamingface/plugins` agai
 
 ### `aigw-gemini-backend` (`aigw_gemini_backend/`)
 
-- **Declared `depends`:** _(none)_
-- **Missing in prod (imported by production code, not declared):** ['aigw-base', 'llm-base']
-- **Extraneous (declared, not imported):** _(none)_
+- **Declared `depends`:** ['llm-base', 'backend-api-base', 'aigw-base']
+- **Missing in prod (imported by production code, not declared):** _(none)_
+- **Extraneous (declared, not imported):** ['backend-api-base']
 - **Test-only imports of undeclared plugins (informational):** _(none)_
 - **Prod imports observed:**
   - `aigw_base` - 2 file(s)

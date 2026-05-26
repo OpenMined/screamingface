@@ -183,6 +183,77 @@ def test_find_cycles_ignores_test_only_back_edge(tmp_path: Path) -> None:
     assert not any(set(c) == {"alpha", "beta"} for c in cycles)
 
 
+def test_extract_manifest_inherits_depends_from_base_in_other_file(tmp_path: Path) -> None:
+    base = tmp_path / "base_plugin"
+    base.mkdir()
+    (base / "plugin.py").write_text(
+        textwrap.dedent("""
+        from typing import ClassVar
+
+        class BasePlugin(Plugin):
+            depends: ClassVar[list[str]] = ["other"]
+    """).strip()
+    )
+    child = tmp_path / "child_plugin"
+    child.mkdir()
+    (child / "plugin.py").write_text(
+        textwrap.dedent("""
+        from base_plugin.plugin import BasePlugin
+
+        class ChildPlugin(BasePlugin):
+            name = "child"
+    """).strip()
+    )
+
+    manifest = extract_manifest(child / "plugin.py", plugins_root=tmp_path)
+
+    assert manifest.depends == ["other"]
+    assert manifest.depends_source == "BasePlugin"
+
+
+def test_extract_manifest_self_depends_takes_precedence_over_base(tmp_path: Path) -> None:
+    base = tmp_path / "base_plugin"
+    base.mkdir()
+    (base / "plugin.py").write_text(
+        textwrap.dedent("""
+        class BasePlugin:
+            depends = ["y"]
+    """).strip()
+    )
+    child = tmp_path / "child_plugin"
+    child.mkdir()
+    (child / "plugin.py").write_text(
+        textwrap.dedent("""
+        from base_plugin.plugin import BasePlugin
+
+        class ChildPlugin(BasePlugin):
+            name = "child"
+            depends = ["x"]
+    """).strip()
+    )
+
+    manifest = extract_manifest(child / "plugin.py", plugins_root=tmp_path)
+
+    assert manifest.depends == ["x"]
+    assert manifest.depends_source == "self"
+
+
+def test_extract_manifest_unfound_base_is_skipped(tmp_path: Path) -> None:
+    child = tmp_path / "child_plugin"
+    child.mkdir()
+    (child / "plugin.py").write_text(
+        textwrap.dedent("""
+        class ChildPlugin(SomeExternalThing):
+            name = "child"
+    """).strip()
+    )
+
+    manifest = extract_manifest(child / "plugin.py", plugins_root=tmp_path)
+
+    assert manifest.depends == []
+    assert manifest.depends_source == "self"
+
+
 def test_render_report_uses_relative_paths_and_sections(tmp_path: Path) -> None:
     a = tmp_path / "alpha"
     a.mkdir()
