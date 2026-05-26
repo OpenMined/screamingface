@@ -33,7 +33,7 @@ class ClaudeFrontendPlugin(FrontendPluginBase):
     name = "claude-frontend"
     description = "Transparent proxy between Claude Code and the Anthropic API"
     tags: list[str] = ["product:claude"]
-    depends: list[str] = ["url4-specs", "url4-executor", "frontend-base"]
+    depends: list[str] = ["url4-executor", "frontend-base"]
     settings_class = ClaudeFrontendSettings
 
     cli_binary = "claude"

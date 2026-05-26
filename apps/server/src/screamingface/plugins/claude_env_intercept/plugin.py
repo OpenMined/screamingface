@@ -30,7 +30,7 @@ class ClaudeEnvInterceptPlugin(Plugin):
     name = "claude-env-intercept"
     description = "Redirect Claude Code via env vars — no sudo, no /etc/hosts, no port 443"
     tags: list[str] = ["product:claude"]
-    depends = ["claude-frontend"]
+    depends: list[str] = []
     conflicts = ["claude-intercept", "mitmproxy-intercept"]
 
     # Keys that setup() may set via launchctl — needed for cleanup even
