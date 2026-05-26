@@ -16,7 +16,9 @@ class TestPluginMetadata:
         assert GeminiFrontendPlugin.name == "gemini-frontend"
 
     def test_depends(self):
-        assert "url4-specs" in GeminiFrontendPlugin.depends
+        assert "url4-executor" in GeminiFrontendPlugin.depends
+        assert "frontend-base" in GeminiFrontendPlugin.depends
+        assert "url4-specs" not in GeminiFrontendPlugin.depends
 
     def test_settings_class(self):
         assert GeminiFrontendPlugin.settings_class is GeminiFrontendSettings

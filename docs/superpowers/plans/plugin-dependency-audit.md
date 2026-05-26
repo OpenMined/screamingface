@@ -9,7 +9,7 @@ Audit of cross-plugin imports under `apps/server/src/screamingface/plugins` agai
 - Plugins audited: **26**
 - Plugins with **missing** prod deps (imported by production code, not declared): **12**
 - Plugins with test-only imports of undeclared plugins: **6** (informational)
-- Plugins with **extraneous** deps (declared but never imported): **7**
+- Plugins with **extraneous** deps (declared but never imported): **2**
 - Cycles detected (production edges only): **2**
 
 ## Cycles (production edges only)
@@ -157,18 +157,18 @@ Audit of cross-plugin imports under `apps/server/src/screamingface/plugins` agai
 
 ### `claude-env-intercept` (`claude_env_intercept/`)
 
-- **Declared `depends`:** ['claude-frontend']
+- **Declared `depends`:** _(none)_
 - **Missing in prod (imported by production code, not declared):** _(none)_
-- **Extraneous (declared, not imported):** ['claude-frontend']
+- **Extraneous (declared, not imported):** _(none)_
 - **Test-only imports of undeclared plugins (informational):** _(none)_
 - **Prod imports observed:** _(none)_
 - **Test imports observed:** _(none)_
 
 ### `claude-frontend` (`claude_frontend/`)
 
-- **Declared `depends`:** ['url4-specs', 'url4-executor', 'frontend-base']
+- **Declared `depends`:** ['url4-executor', 'frontend-base']
 - **Missing in prod (imported by production code, not declared):** ['llm-base']
-- **Extraneous (declared, not imported):** ['url4-specs']
+- **Extraneous (declared, not imported):** _(none)_
 - **Test-only imports of undeclared plugins (informational):** ['data-store']
 - **Prod imports observed:**
   - `frontend_base` - 3 file(s)
@@ -229,16 +229,19 @@ Audit of cross-plugin imports under `apps/server/src/screamingface/plugins` agai
 
 ### `codex-frontend` (`codex_frontend/`)
 
-- **Declared `depends`:** ['url4-specs', 'url4-executor', 'frontend-base']
+- **Declared `depends`:** ['url4-executor', 'frontend-base']
 - **Missing in prod (imported by production code, not declared):** _(none)_
-- **Extraneous (declared, not imported):** ['url4-specs']
+- **Extraneous (declared, not imported):** _(none)_
 - **Test-only imports of undeclared plugins (informational):** ['claude-frontend']
-- **Prod imports observed:**
+- <details><summary><b>Prod imports observed</b></summary>
+
   - `frontend_base` - 2 file(s)
     - `apps/server/src/screamingface/plugins/codex_frontend/plugin.py`
     - `apps/server/src/screamingface/plugins/codex_frontend/proxy.py`
   - `url4_executor` - 1 file(s)
     - `apps/server/src/screamingface/plugins/codex_frontend/proxy.py`
+
+  </details>
 - **Test imports observed:**
   - `claude_frontend` - 1 file(s)
     - `apps/server/src/screamingface/plugins/codex_frontend/tests/test_plugin.py`
@@ -315,16 +318,19 @@ Audit of cross-plugin imports under `apps/server/src/screamingface/plugins` agai
 
 ### `gemini-frontend` (`gemini_frontend/`)
 
-- **Declared `depends`:** ['url4-specs', 'url4-executor', 'frontend-base']
+- **Declared `depends`:** ['url4-executor', 'frontend-base']
 - **Missing in prod (imported by production code, not declared):** _(none)_
-- **Extraneous (declared, not imported):** ['url4-specs']
+- **Extraneous (declared, not imported):** _(none)_
 - **Test-only imports of undeclared plugins (informational):** _(none)_
-- **Prod imports observed:**
+- <details><summary><b>Prod imports observed</b></summary>
+
   - `frontend_base` - 2 file(s)
     - `apps/server/src/screamingface/plugins/gemini_frontend/plugin.py`
     - `apps/server/src/screamingface/plugins/gemini_frontend/proxy.py`
   - `url4_executor` - 1 file(s)
     - `apps/server/src/screamingface/plugins/gemini_frontend/proxy.py`
+
+  </details>
 - **Test imports observed:** _(none)_
 
 ### `llm-base` (`llm_base/`)
@@ -386,17 +392,20 @@ Audit of cross-plugin imports under `apps/server/src/screamingface/plugins` agai
 
 ### `ollama-frontend` (`ollama_frontend/`)
 
-- **Declared `depends`:** ['url4-specs', 'url4-executor', 'frontend-base']
+- **Declared `depends`:** ['url4-executor', 'frontend-base']
 - **Missing in prod (imported by production code, not declared):** _(none)_
-- **Extraneous (declared, not imported):** ['url4-specs']
+- **Extraneous (declared, not imported):** _(none)_
 - **Test-only imports of undeclared plugins (informational):** _(none)_
-- **Prod imports observed:**
+- <details><summary><b>Prod imports observed</b></summary>
+
   - `frontend_base` - 3 file(s)
     - `apps/server/src/screamingface/plugins/ollama_frontend/_observability.py`
     - `apps/server/src/screamingface/plugins/ollama_frontend/plugin.py`
     - `apps/server/src/screamingface/plugins/ollama_frontend/proxy.py`
   - `url4_executor` - 1 file(s)
     - `apps/server/src/screamingface/plugins/ollama_frontend/proxy.py`
+
+  </details>
 - **Test imports observed:** _(none)_
 
 ### `python-runner` (`python_runner/`)
