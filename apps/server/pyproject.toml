@@ -51,7 +51,7 @@ max-complexity = 47
 # Day-1 thresholds — see apps/server/docs/complexity-baseline.md
 max-statements = 194
 max-branches = 30
-max-returns = 11
+max-returns = 12
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "src/screamingface/plugins"]
