@@ -4,7 +4,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from screamingface.cli.main import app
-from screamingface.cli.plugin_audit import (
+from screamingface.plugins.plugin_audit.audit import (
     audit_all,
     collect_cross_imports,
     extract_manifest,
@@ -293,7 +293,7 @@ def test_sf_plugin_audit_deps_writes_report(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["plugin", "audit-deps", "--plugins-root", str(plugins), "--report", str(report)],
+        ["plugin-audit", "deps", "--plugins-root", str(plugins), "--report", str(report)],
     )
 
     assert result.exit_code == 0, result.output

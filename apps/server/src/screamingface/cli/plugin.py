@@ -89,32 +89,6 @@ def plugin_info(
         typer.echo(f"System deps: {', '.join(plugin.system_deps)}")
 
 
-@plugin_app.command("audit-deps")
-def plugin_audit_deps(
-    plugins_root: Annotated[
-        Path,
-        typer.Option(
-            "--plugins-root",
-            help="Directory containing plugin subdirectories.",
-        ),
-    ] = Path("src/screamingface/plugins"),
-    report: Annotated[
-        Path,
-        typer.Option(
-            "--report",
-            help="Path to write the markdown audit report.",
-        ),
-    ] = Path("../../docs/superpowers/plans/plugin-dependency-audit.md"),
-) -> None:
-    """Audit cross-plugin imports vs declared Plugin.depends manifests."""
-    from screamingface.cli.plugin_audit import audit_all, find_cycles, render_report
-
-    findings = audit_all(plugins_root)
-    cycles = find_cycles(findings)
-    report.write_text(render_report(findings, cycles, plugins_root))
-    typer.echo(f"wrote {report}")
-
-
 @plugin_app.command("enable")
 def plugin_enable(
     name: Annotated[str, typer.Argument(help="Plugin name to enable")],
