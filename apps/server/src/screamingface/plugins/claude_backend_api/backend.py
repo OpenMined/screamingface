@@ -24,6 +24,7 @@ import httpx
 
 from screamingface.plugins.claude_backend_api.adapter import AnthropicAdapter
 from screamingface.plugins.claude_backend_api.auth import ClaudeCodeOAuth
+from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
 from screamingface.plugins.llm_base.backend_base import (
     Backend,
     HealthStatus,
@@ -55,8 +56,9 @@ class AnthropicBackend(Backend):
         auth: ClaudeCodeOAuth | None = None,
         adapter: AnthropicAdapter | None = None,
         http_client_factory=None,
+        aigw_source: AigwTokenSource | None = None,
     ) -> None:
-        self._auth = auth or ClaudeCodeOAuth()
+        self._auth = auth or ClaudeCodeOAuth(aigw_source=aigw_source)
         self._adapter = adapter or AnthropicAdapter()
         self._http_factory = http_client_factory or default_http_factory
 

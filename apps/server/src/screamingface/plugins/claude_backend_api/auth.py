@@ -36,6 +36,7 @@ import time
 
 import httpx
 
+from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
 from screamingface.plugins.llm_base.credential_store import (
     CredentialStore,
     get_credential_store,
@@ -93,8 +94,9 @@ class ClaudeCodeOAuth(OAuthStrategy):
         credential_store: CredentialStore | None = None,
         account: str | None = None,
         http_client_factory=None,
+        aigw_source: AigwTokenSource | None = None,
     ) -> None:
-        super().__init__()
+        super().__init__(aigw_source=aigw_source)
         self._store = credential_store or get_credential_store()
         self._account = account if account is not None else os.environ.get("USER", "")
         self._http_factory = http_client_factory or (
@@ -146,6 +148,28 @@ class ClaudeCodeOAuth(OAuthStrategy):
             "Authorization": f"Bearer {creds['accessToken']}",
             "anthropic-version": ANTHROPIC_VERSION,
             "anthropic-beta": ANTHROPIC_BETA,
+        }
+
+    def _aigw_creds_shape(self, access_token: str, expires_at) -> dict:
+        """Build the Claude keychain shape from an aigw-supplied token.
+
+        Subscription/scope fields aren't supplied by aigw; they're not needed
+        for _build_headers (which only reads accessToken). We stamp sensible
+        defaults so the rest of the strategy machinery has a complete dict.
+
+        expiresAt is set far in the future so _is_expired never triggers a
+        second fetch — AigwTokenSource handles its own cache + refresh
+        internally. The OAuthStrategy cache just needs to stay "fresh".
+        """
+        import time
+
+        far_future_ms = int((time.time() + 3600) * 1000)
+        return {
+            "accessToken": access_token,
+            "expiresAt": far_future_ms,
+            "scopes": OAUTH_REFRESH_SCOPES,
+            "subscriptionType": "max",
+            "rateLimitTier": "default_claude_max_5x",
         }
 
     async def _refresh_credential(self, creds: dict) -> dict:

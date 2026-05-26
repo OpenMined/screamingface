@@ -400,3 +400,22 @@ class TestInvalidateCache:
 
         # Cache invalidation forced another read
         assert len(store.read_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_claude_oauth_uses_aigw_source_when_set():
+    from unittest.mock import AsyncMock
+
+    from screamingface.plugins.claude_backend_api.auth import ClaudeCodeOAuth
+    from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
+
+    fake = AsyncMock(spec=AigwTokenSource)
+    fake.fetch_token.return_value = "aigw-claude-token"
+
+    strat = ClaudeCodeOAuth(aigw_source=fake)
+    headers = await strat.get_authorization_header()
+
+    assert headers["Authorization"] == "Bearer aigw-claude-token"
+    assert "anthropic-version" in headers
+    assert "anthropic-beta" in headers
+    fake.fetch_token.assert_awaited_once()
