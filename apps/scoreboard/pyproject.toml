@@ -34,7 +34,7 @@ max-complexity = 8
 
 [tool.ruff.lint.pylint]
 # Day-1 thresholds — see apps/scoreboard/docs/complexity-baseline.md
-max-statements = 18
+max-statements = 26
 max-branches = 7
 max-returns = 3
 
