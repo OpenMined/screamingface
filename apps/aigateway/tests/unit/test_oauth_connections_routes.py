@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import time
+from datetime import UTC
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -85,6 +86,7 @@ def _failing_token_factory():
         ("PATCH", "/v1/oauth/connections/00000000-0000-0000-0000-000000000001", {"label": "x"}),
         ("DELETE", "/v1/oauth/connections/00000000-0000-0000-0000-000000000001", None),
         ("POST", "/v1/oauth/connections/00000000-0000-0000-0000-000000000001/refresh", None),
+        ("GET", "/v1/oauth/connections/00000000-0000-0000-0000-000000000001/token", None),
     ],
 )
 def test_oauth_connection_routes_require_jwt(client, method, path, json_body) -> None:
@@ -411,3 +413,86 @@ def test_connection_lookup_is_account_scoped(
         == 404
     )
     assert authenticated_client.delete(f"/v1/oauth/connections/{connection_id}").status_code == 404
+
+
+def test_token_endpoint_returns_access_token_and_expires_at(
+    authenticated_client, fake_keychain
+) -> None:
+    authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
+    start = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "tok-work"},
+    )
+    assert start.status_code == 201
+    connection_id = start.json()["connection_id"]
+    cb = authenticated_client.get(
+        "/callback", params={"code": "code", "state": start.json()["state"]}
+    )
+    assert cb.status_code == 200
+    _ = fake_keychain  # keychain populated by callback
+
+    resp = authenticated_client.get(f"/v1/oauth/connections/{connection_id}/token")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["access_token"] == "anthropic-access"
+    assert "expires_at" in body
+    # ISO-8601 UTC string parses; expiry is ~1h ahead (token factory: expires_in=3600).
+    from datetime import datetime
+
+    parsed = datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00"))
+    delta = (parsed - datetime.now(UTC)).total_seconds()
+    assert 0 < delta < 3700
+
+
+def test_token_endpoint_returns_404_for_unknown_connection(authenticated_client) -> None:
+    resp = authenticated_client.get(
+        "/v1/oauth/connections/00000000-0000-0000-0000-000000000099/token"
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "connection_not_found"
+
+
+def test_token_endpoint_returns_409_for_revoked_connection(
+    authenticated_client, fake_keychain
+) -> None:
+    authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
+    start = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "tok-revoked"},
+    )
+    connection_id = start.json()["connection_id"]
+    authenticated_client.get("/callback", params={"code": "code", "state": start.json()["state"]})
+    assert authenticated_client.delete(f"/v1/oauth/connections/{connection_id}").status_code == 204
+    _ = fake_keychain
+
+    resp = authenticated_client.get(f"/v1/oauth/connections/{connection_id}/token")
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "connection_not_active"
+
+
+def test_token_endpoint_returns_503_when_upstream_refresh_fails(
+    authenticated_client, fake_keychain
+) -> None:
+    authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
+    start = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "tok-503"},
+    )
+    connection_id = start.json()["connection_id"]
+    authenticated_client.get("/callback", params={"code": "code", "state": start.json()["state"]})
+
+    # Force the stored credential into an immediate-refresh state, then point
+    # the refresh factory at a failing endpoint.
+    locator_resp = authenticated_client.get(f"/v1/oauth/connections/{connection_id}")
+    locator = locator_resp.json()["credential_locator"]
+    import json as _json
+    import time as _time
+
+    creds = _json.loads(fake_keychain.read(locator["service"], "default"))
+    creds["expires_at_ms"] = int(_time.time() * 1000) - 1000
+    fake_keychain.write(locator["service"], "default", _json.dumps(creds))
+    authenticated_client.app.state.anthropic_http_factory = _failing_token_factory()
+
+    resp = authenticated_client.get(f"/v1/oauth/connections/{connection_id}/token")
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "upstream_refresh_failed"

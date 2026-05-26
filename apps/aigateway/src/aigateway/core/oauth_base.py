@@ -34,6 +34,21 @@ class BaseOAuthStrategy(OAuthStrategy):
         self._cached: dict | None = None
         self._lock = asyncio.Lock()
 
+    async def get_token_with_expiry(self) -> tuple[str, int]:
+        """Return (access_token, expires_at_ms), refreshing if needed.
+
+        Used by GET /v1/oauth/connections/{id}/token. All three providers
+        (anthropic, codex, gemini) normalize creds to {access_token,
+        expires_at_ms} in _read_credential / _refresh_credential, so a
+        base-class implementation is correct for every concrete subclass.
+        """
+        async with self._lock:
+            if self._cached is None:
+                self._cached = self._read_credential()
+            if self._is_expired(self._cached):
+                self._cached = await self._refresh_credential(self._cached)
+        return self._cached["access_token"], int(self._cached["expires_at_ms"])
+
     async def get_authorization_header(self) -> dict[str, str]:
         override = self._header_override()
         if override is not None:
