@@ -136,6 +136,17 @@ def test_start_oauth_invalid_host_falls_back_to_app_port(client_with_index) -> N
     assert query["redirect_uri"] == [f"http://localhost:{client.app.state.settings.port}/callback"]
 
 
+def test_start_oauth_uses_public_url_for_gateway_callback(client_with_index) -> None:
+    client, _ = client_with_index
+    client.app.state.settings.public_url = "https://aigateway.example.com/base"
+
+    resp = client.post("/v1/auth/anthropic/profiles", json={"name": "public-url"})
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == ["https://aigateway.example.com/base/callback"]
+
+
 def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -> None:
     client, _ = client_with_index
     account_id = _account_id(client)
@@ -166,6 +177,19 @@ def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -
     profile = client.get("/v1/auth/codex/profiles/work").json()
     assert profile["state"] == "pending"
     assert "offline_access" in profile["scopes"]
+
+
+def test_start_oauth_public_url_overrides_loopback_redirect_ports_for_codex(
+    client_with_index,
+) -> None:
+    client, _ = client_with_index
+    client.app.state.settings.public_url = "https://aigateway.example.com"
+
+    resp = client.post("/v1/auth/codex/profiles", json={"name": "public-codex"})
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == ["https://aigateway.example.com/auth/callback"]
 
 
 def test_start_oauth_loopback_unavailable_returns_503(client_with_index, monkeypatch) -> None:

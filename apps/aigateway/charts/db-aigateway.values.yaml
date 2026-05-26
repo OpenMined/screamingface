@@ -1,0 +1,8 @@
+fullnameOverride: aigw-db
+
+auth:
+  username: aigateway
+  database: aigateway
+
+secret:
+  name: aigw-db

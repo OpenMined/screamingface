@@ -120,6 +120,9 @@ def _pending_for_app(app):
 
 def _gateway_redirect_uri_for(request: Request, cfg: OAuthConfig) -> str:
     path = cfg.redirect_path if cfg.redirect_path.startswith("/") else f"/{cfg.redirect_path}"
+    public_url = request.app.state.settings.public_url
+    if public_url:
+        return f"{public_url}{path}"
     port = _request_host_port(request) or request.app.state.settings.port
     return f"http://localhost:{port}{path}"
 
@@ -300,6 +303,8 @@ async def _redirect_uri_for(
     cfg: OAuthConfig,
     state: str,
 ) -> str:
+    if request.app.state.settings.public_url:
+        return _gateway_redirect_uri_for(request, cfg)
     if cfg.loopback_redirect_ports:
         return await _loopback_redirect_uri_for(request, provider, cfg, state)
     return _gateway_redirect_uri_for(request, cfg)

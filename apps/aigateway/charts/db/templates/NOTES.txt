@@ -1,0 +1,9 @@
+Postgres has been installed.
+
+Service:
+  {{ include "postgres.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Database URL Secret:
+  {{ include "postgres.secretName" . }} / {{ .Values.secret.databaseUrlKey }}
+
+Configure applications with this Secret name and key.
