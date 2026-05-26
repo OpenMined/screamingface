@@ -41,7 +41,17 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]
+
+[tool.ruff.lint.mccabe]
+# Day-1 threshold — see apps/server/docs/complexity-baseline.md
+max-complexity = 47
+
+[tool.ruff.lint.pylint]
+# Day-1 thresholds — see apps/server/docs/complexity-baseline.md
+max-statements = 194
+max-branches = 30
+max-returns = 12
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "src/screamingface/plugins"]
