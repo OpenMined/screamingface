@@ -4,12 +4,22 @@
 
 ```bash
 cd apps/server
-uv sync          # install all dependencies (including dev)
+uv sync          # install all dependencies (including dev, including pre-commit)
 sf --help        # verify CLI works
 uv run pytest    # run tests
 ```
 
 Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
+## Git pre-commit hook
+
+The single repo-wide hook lives at `apps/desktop/.husky/pre-commit` and dispatches both:
+- JS/TS gates via `lint-staged` (eslint + prettier in `apps/desktop`).
+- Python gates via `pre-commit run` against `apps/server/.pre-commit-config.yaml` (ruff + ruff-format + pyright), only when a `.py` file is staged.
+
+It activates automatically the first time you run `cd apps/desktop && npm install` (husky's `prepare` script sets `core.hooksPath` to `apps/desktop/.husky/_`). After that, `cd apps/server && uv sync` makes the `pre-commit` binary available so the Python branch of the hook can run.
+
+To verify it works: `git config --get core.hooksPath` should print `apps/desktop/.husky/_`.
 
 ## Project Structure
 
