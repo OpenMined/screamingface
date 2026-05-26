@@ -32,7 +32,17 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]
+
+[tool.ruff.lint.mccabe]
+# Day-1 threshold — see apps/aigateway/docs/complexity-baseline.md
+max-complexity = 25
+
+[tool.ruff.lint.pylint]
+# Day-1 thresholds — see apps/aigateway/docs/complexity-baseline.md
+max-statements = 76
+max-branches = 24
+max-returns = 8
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
