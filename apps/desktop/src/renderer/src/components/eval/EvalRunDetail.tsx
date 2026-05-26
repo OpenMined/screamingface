@@ -1,0 +1,76 @@
+// apps/desktop/src/renderer/src/components/eval/EvalRunDetail.tsx
+import { useServerStatus } from '@/hooks/use-server-status';
+import { useEvalRunDetail } from '@/hooks/use-eval-runs';
+import { Url4Viewer } from '@/components/Url4Viewer';
+import { EvalStatusBadge } from './EvalStatusBadge';
+import { EvalQuestionsTable } from './EvalQuestionsTable';
+
+function formatPercent(accuracy: number | null): string {
+  if (accuracy === null) return '—';
+  return `${(accuracy * 100).toFixed(1)}%`;
+}
+
+function formatTime(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
+}
+
+export function EvalRunDetail({ runId }: { runId: string }) {
+  const { info } = useServerStatus();
+  const { data, loading, error } = useEvalRunDetail(runId);
+
+  const serverUrl = info
+    ? `${info.scheme}://${info.host === '0.0.0.0' ? 'localhost' : info.host}:${info.port}`
+    : '';
+
+  if (loading && !data) {
+    return <div className="p-6 text-sm text-muted-foreground">Loading run…</div>;
+  }
+  if (error) {
+    return <div className="p-6 text-sm text-destructive">Failed: {error.message}</div>;
+  }
+  if (!data) return null;
+
+  return (
+    <div className="flex h-full flex-col">
+      <header className="border-b border-border px-6 py-4">
+        <div className="mb-2 flex items-center gap-3">
+          <h2 className="text-base font-semibold">{data.spec_name}</h2>
+          <EvalStatusBadge status={data.status} />
+        </div>
+        <div className="mb-3 rounded bg-muted/30 px-3 py-2">
+          <Url4Viewer expression={data.url4_expression} serverUrl={serverUrl} />
+        </div>
+        <dl className="grid grid-cols-4 gap-3 text-xs">
+          <div>
+            <dt className="text-muted-foreground">Accuracy</dt>
+            <dd className="font-medium tabular-nums">{formatPercent(data.accuracy)}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Correct / Total</dt>
+            <dd className="font-medium tabular-nums">
+              {data.correct_questions ?? 0} / {data.total_questions ?? 0}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Started</dt>
+            <dd className="tabular-nums">{formatTime(data.started_at)}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Finished</dt>
+            <dd className="tabular-nums">{formatTime(data.finished_at)}</dd>
+          </div>
+        </dl>
+        {data.error && (
+          <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {data.error}
+          </div>
+        )}
+      </header>
+      <div className="flex-1 overflow-auto">
+        <EvalQuestionsTable questions={data.questions} />
+      </div>
+    </div>
+  );
+}

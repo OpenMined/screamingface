@@ -3,6 +3,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import type { View } from '@/components/layout/Sidebar';
 import { DashboardView } from '@/views/DashboardView';
 import { SessionsView } from '@/views/SessionsView';
+import { EvalStudioView } from '@/views/EvalStudioView';
 import { SettingsView } from '@/views/SettingsView';
 import { PluginHost } from '@/components/plugins/PluginHost';
 import { useServerStatus } from '@/hooks/use-server-status';
@@ -34,6 +35,7 @@ export function App() {
   const renderView = () => {
     if (currentView === 'dashboard') return <DashboardView server={server} />;
     if (currentView === 'sessions') return <SessionsView />;
+    if (currentView === 'eval-studio') return <EvalStudioView />;
     if (currentView === 'settings') return <SettingsView />;
 
     if (currentView.startsWith('plugin:')) {

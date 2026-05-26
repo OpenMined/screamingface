@@ -1,10 +1,17 @@
-import { LayoutDashboard, Settings, Puzzle, Terminal, type LucideIcon } from 'lucide-react';
+import {
+  FlaskConical,
+  LayoutDashboard,
+  Settings,
+  Puzzle,
+  Terminal,
+  type LucideIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { BackendPollingError, PluginManifest } from '../../../../preload/types';
 import { GatewayStatusPanel } from '@/components/server/GatewayStatusPanel';
 import { isBackendStatusV2, useBackendStatus } from '@/hooks/use-backend-status';
 
-export type View = 'dashboard' | 'sessions' | 'settings' | `plugin:${string}`;
+export type View = 'dashboard' | 'sessions' | 'eval-studio' | 'settings' | `plugin:${string}`;
 
 interface NavItem {
   id: View;
@@ -15,6 +22,7 @@ interface NavItem {
 const coreItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'sessions', label: 'Sessions', icon: Terminal },
+  { id: 'eval-studio', label: 'Eval Studio', icon: FlaskConical },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
