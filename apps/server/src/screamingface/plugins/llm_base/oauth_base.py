@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import asyncio
 from abc import abstractmethod
+from datetime import UTC, datetime
 
+from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
 from screamingface.plugins.llm_base.auth_base import AuthStrategy
 
 
@@ -46,9 +48,10 @@ class OAuthStrategy(AuthStrategy):
 
     refresh_window_seconds: int = 60
 
-    def __init__(self) -> None:
+    def __init__(self, *, aigw_source: AigwTokenSource | None = None) -> None:
         self._cached: dict | None = None
         self._lock = asyncio.Lock()
+        self._aigw_source = aigw_source
 
     # ------------------------------------------------------------------
     # AuthStrategy implementation — the shared flow
@@ -68,9 +71,9 @@ class OAuthStrategy(AuthStrategy):
             # Double-check inside the lock: another coroutine may have
             # refreshed while we were waiting.
             if self._cached is None:
-                self._cached = self._read_credential()
+                self._cached = await self._load_credential()
             if self._is_expired(self._cached):
-                self._cached = await self._refresh_credential(self._cached)
+                self._cached = await self._refresh_or_aigw(self._cached)
 
         return self._build_headers(self._cached)
 
@@ -78,8 +81,8 @@ class OAuthStrategy(AuthStrategy):
         """Force a refresh regardless of cached expiry."""
         async with self._lock:
             if self._cached is None:
-                self._cached = self._read_credential()
-            self._cached = await self._refresh_credential(self._cached)
+                self._cached = await self._load_credential()
+            self._cached = await self._refresh_or_aigw(self._cached)
 
     def invalidate_cache(self) -> None:
         """Drop in-memory state. The next header build re-reads the store."""
@@ -88,6 +91,34 @@ class OAuthStrategy(AuthStrategy):
     # ------------------------------------------------------------------
     # Subclass hooks
     # ------------------------------------------------------------------
+
+    async def _load_credential(self) -> dict:
+        if self._aigw_source is not None:
+            return await self._fetch_via_aigw()
+        return self._read_credential()
+
+    async def _refresh_or_aigw(self, creds: dict) -> dict:
+        if self._aigw_source is not None:
+            return await self._fetch_via_aigw()
+        return await self._refresh_credential(creds)
+
+    async def _fetch_via_aigw(self) -> dict:
+        assert self._aigw_source is not None
+        token = await self._aigw_source.fetch_token()
+        placeholder_expiry = datetime.now(UTC).replace(microsecond=0)
+        return self._aigw_creds_shape(token, placeholder_expiry)
+
+    def _aigw_creds_shape(self, access_token: str, expires_at: datetime) -> dict:
+        """Translate aigw token response → provider-shaped creds dict.
+
+        Default raises — providers must opt in by overriding this method.
+        The shape returned must satisfy _build_headers (and _is_expired,
+        though _is_expired is bypassed on the aigw path).
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support aigw_source — set connection_id only "
+            "on a provider that has implemented _aigw_creds_shape."
+        )
 
     def _header_override(self) -> dict[str, str] | None:
         """Return non-OAuth headers if the strategy has a short-circuit.
