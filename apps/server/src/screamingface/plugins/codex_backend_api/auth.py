@@ -36,6 +36,7 @@ from pathlib import Path
 
 import httpx
 
+from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
 from screamingface.plugins.llm_base.errors import AuthError, CredentialNotFoundError
 from screamingface.plugins.llm_base.oauth_base import OAuthStrategy
 
@@ -88,8 +89,9 @@ class CodexOAuth(OAuthStrategy):
         *,
         auth_file: Path | None = None,
         http_client_factory=None,
+        aigw_source: AigwTokenSource | None = None,
     ) -> None:
-        super().__init__()
+        super().__init__(aigw_source=aigw_source)
         self._auth_file = auth_file or AUTH_FILE_PATH
         self._http_factory = http_client_factory or (
             lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0))
@@ -141,6 +143,10 @@ class CodexOAuth(OAuthStrategy):
         return tokens
 
     def _is_expired(self, creds: dict) -> bool:
+        # On the aigw path the token is managed externally; never trigger a
+        # local refresh (AigwTokenSource owns cache + refresh internally).
+        if self._aigw_source is not None:
+            return False
         exp = _decode_jwt_exp(creds.get("access_token", ""))
         if exp is None:
             return True
@@ -148,6 +154,18 @@ class CodexOAuth(OAuthStrategy):
 
     def _build_headers(self, creds: dict) -> dict[str, str]:
         return {"Authorization": f"Bearer {creds['access_token']}"}
+
+    def _aigw_creds_shape(self, access_token: str, expires_at) -> dict:
+        """Build a Codex-shaped creds dict from an aigw-supplied token.
+
+        Codex's _build_headers only reads access_token. The refresh_token /
+        id_token fields aren't used on the aigw path because aigw owns refresh.
+        """
+        return {
+            "access_token": access_token,
+            "refresh_token": "",
+            "id_token": "",
+        }
 
     async def _refresh_credential(self, creds: dict) -> dict:
         body = {
