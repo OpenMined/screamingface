@@ -1,7 +1,10 @@
 import textwrap
 from pathlib import Path
 
-from tools.plugin_dependency_audit import (
+from typer.testing import CliRunner
+
+from screamingface.cli.main import app
+from screamingface.cli.plugin_audit import (
     audit_all,
     collect_cross_imports,
     extract_manifest,
@@ -278,3 +281,23 @@ def test_render_report_uses_relative_paths_and_sections(tmp_path: Path) -> None:
     assert "/Users/" not in report
     assert str(tmp_path) not in report
     assert "alpha/use.py" in report
+
+
+def test_sf_plugin_audit_deps_writes_report(tmp_path: Path) -> None:
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    (plugins / "p").mkdir()
+    (plugins / "p" / "plugin.py").write_text('class P:\n    name = "p"\n    depends = []\n')
+
+    report = tmp_path / "audit.md"
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["plugin", "audit-deps", "--plugins-root", str(plugins), "--report", str(report)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert report.exists()
+    content = report.read_text()
+    assert "# Plugin Dependency Audit" in content
+    assert "`p`" in content
