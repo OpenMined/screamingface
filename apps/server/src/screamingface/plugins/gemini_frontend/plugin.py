@@ -31,7 +31,7 @@ class GeminiFrontendPlugin(FrontendPluginBase):
     name = "gemini-frontend"
     description = "Transparent proxy between Gemini CLI and the Google AI API"
     tags: list[str] = ["product:gemini"]
-    depends: list[str] = ["url4-specs", "url4-executor", "frontend-base"]
+    depends: list[str] = ["url4-executor", "frontend-base"]
     settings_class = GeminiFrontendSettings
 
     cli_binary = "gemini"

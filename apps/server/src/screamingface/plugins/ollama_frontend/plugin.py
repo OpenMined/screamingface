@@ -41,7 +41,7 @@ class OllamaFrontendPlugin(FrontendPluginBase):
     name = "ollama-frontend"
     description = "Transparent proxy between local clients and a local/remote Ollama server"
     tags: list[str] = ["product:ollama"]
-    depends: list[str] = ["url4-specs", "url4-executor", "frontend-base"]
+    depends: list[str] = ["url4-executor", "frontend-base"]
     settings_class = OllamaFrontendSettings
 
     # Ollama is a server, not a CLI — no preflight binary check.

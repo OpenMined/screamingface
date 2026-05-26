@@ -16,8 +16,9 @@ class TestPluginMetadata:
         assert CodexFrontendPlugin.name == "codex-frontend"
 
     def test_depends(self):
-        assert "url4-specs" in CodexFrontendPlugin.depends
         assert "url4-executor" in CodexFrontendPlugin.depends
+        assert "frontend-base" in CodexFrontendPlugin.depends
+        assert "url4-specs" not in CodexFrontendPlugin.depends
 
     def test_settings_class(self):
         assert CodexFrontendPlugin.settings_class is CodexFrontendSettings
