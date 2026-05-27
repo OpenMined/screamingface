@@ -1,4 +1,5 @@
-replicaCount: 3
+# OAuth pending state is process-local until the D-AIGW-009 pending-state follow-up.
+replicaCount: 1
 
 publicUrl: https://gateway.screamingface.ai
 

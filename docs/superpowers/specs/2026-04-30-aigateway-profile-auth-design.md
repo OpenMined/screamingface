@@ -1,3 +1,7 @@
+# Superseded By SF-219
+
+This historical spec describes an OS credential-store design for AIGateway. It is superseded by SF-219, which replaces AIGateway runtime credential storage with Tortoise-backed `ORMStore` and the `credential_blobs` table. Do not use this document to reintroduce OS credential storage under `apps/aigateway`.
+
 # AI Gateway: profile-based OAuth design
 
 **Date:** 2026-04-30
@@ -7,7 +11,7 @@
 ## Problem
 
 The first cut of `apps/aigateway/` (SF-138 / SF-139) hardcoded a single
-identity per provider, read directly from Claude Code's keychain entry,
+identity per provider, read directly from Claude Code's credential store entry,
 and embedded all OAuth ownership inside provider plugins. There was no
 notion of multiple accounts, no editing of per-account defaults from
 the UI, and no separation between "who am I" and "what do I prefer".
@@ -22,11 +26,11 @@ We need:
    Electron app can read and edit.
 3. **A clean Electron UX surface.** Electron lists profiles, kicks off
    OAuth, shows progress, and edits defaults — without ever touching
-   tokens or keychain.
+   tokens or credential store.
 4. **Stable trust boundary.** Tokens never leave the gateway process in
-   plaintext at rest; OS keychain holds them.
+   plaintext at rest; OS credential store holds them.
 5. **Backwards-compatible bootstrap.** Existing users with a working
-   Claude Code keychain entry must not have to re-authenticate.
+   Claude Code credential store entry must not have to re-authenticate.
 
 ## Topology
 
@@ -62,10 +66,10 @@ gateway does no caller authentication.
 A **profile** is the unit of identity. Each profile is one
 `(provider, name)` pair with its own credentials and per-call defaults.
 
-Two-layer storage. **Both layers live in the OS keychain.** Nothing
-persists outside the keychain.
+Two-layer storage. **Both layers live in the OS credential store.** Nothing
+persists outside the credential store.
 
-| Layer | What | Keychain entry |
+| Layer | What | Credential store entry |
 |---|---|---|
 | Index | Profile names + provider + scopes + last-refreshed timestamp + defaults JSON | `aigateway:index` (single entry, JSON-encoded) |
 | Tokens | access_token, refresh_token, expires_at | `aigateway:<provider>:<profile_name>` (one per profile) |
@@ -108,7 +112,7 @@ The `state` field in the profile shape is profile lifecycle status: one of
 on the authorize URL — that one is internal to the pending-auth table
 and never appears in the profile.)
 
-### Token shape (one keychain entry per profile)
+### Token shape (one credential store entry per profile)
 
 ```json
 {
@@ -125,7 +129,7 @@ and never appears in the profile.)
 - Per-process `asyncio.Lock` around the index read-modify-write cycle.
 - Per-`(provider, profile_name)` `asyncio.Lock` for token refresh
   (carried forward from SF-139's `BaseOAuthStrategy`).
-- v1 assumes a single gateway process. No multi-process keychain access.
+- v1 assumes a single gateway process. No multi-process credential store access.
 
 ## API surface
 
@@ -151,7 +155,7 @@ GET    /v1/auth/{provider}/profiles/{name}/status
 
 GET    /v1/auth/{provider}/callback?code=...&state=...
        Redirect target for the OAuth provider. Validates state, exchanges
-       code for tokens, writes tokens to keychain, flips index row.
+       code for tokens, writes tokens to credential store, flips index row.
        Returns a tiny "you can close this window" HTML page.
 
 PATCH  /v1/auth/{provider}/profiles/{name}
@@ -248,7 +252,7 @@ open BrowserWindow(authorize_url)
    provider redirects to
    localhost:9105/v1/auth/anthropic/callback ─► 5. validate state (CSRF guard)
                                                 6. POST code + verifier to provider
-                                                7. write tokens to keychain
+                                                7. write tokens to credential store
                                                 8. flip index row state=authenticated
 ◄──────── 200 "you can close this" HTML
 
@@ -263,7 +267,7 @@ unknown state on callback → 400. Entries swept on read past TTL.
 forward from SF-139) caches, locks, proactively refreshes. No Electron
 involvement post-initial-auth.
 
-**Revocation:** `DELETE` removes both keychain entries. Best-effort POST
+**Revocation:** `DELETE` removes both credential store entries. Best-effort POST
 to provider's revoke endpoint where one exists; Anthropic does not, so
 that path is no-op for them.
 
@@ -310,13 +314,13 @@ profile with `defaults: {max_tokens: 4096, reasoning_effort: "medium"}`.
 | Upstream 401 after one refresh attempt | gateway invalidates cache, retries once; if still 401 → above | Pass through |
 | Upstream 5xx | same status + body forwarded | SF plugin's existing retry/fallback |
 | Body malformed | `400` | Surface |
-| Keychain read/write failure | `500 {error.code: credential_store_error}` | Bubble up |
+| Credential store read/write failure | `500 {error.code: credential_store_error}` | Bubble up |
 
 ## Refactor scope vs SF-138 / SF-139
 
 | SF-138/139 today | Becomes |
 |---|---|
-| `AnthropicOAuth` reads `KEYCHAIN_SERVICE = "Claude Code-credentials"` directly | Reads `aigateway:anthropic:<profile_name>`; first-run import-from-CC for the `default` profile only |
+| `AnthropicOAuth` reads `CREDENTIAL_STORE_SERVICE = "Claude Code-credentials"` directly | Reads `aigateway:anthropic:<profile_name>`; first-run import-from-CC for the `default` profile only |
 | `plugin.py` instantiates a single `AnthropicOAuth` lazily | One strategy per profile, cached per `(provider, profile_name)` |
 | Provider plugin has a single fixed identity | Provider plugin advertises supported model list and `OAuthStrategy` *factory*; profiles live in the index |
 | `routes/chat.py` does in-route auth resolution against a single strategy | New auth-resolution pipeline keyed on `X-Profile` header → index lookup → strategy factory |
@@ -325,7 +329,7 @@ profile with `defaults: {max_tokens: 4096, reasoning_effort: "medium"}`.
 
 **Bootstrap behavior (one-time, on first start):**
 - If `aigateway:index` is missing AND `Claude Code-credentials` exists in
-  the OS keychain, copy that entry into `aigateway:anthropic:default`
+  the OS credential store, copy that entry into `aigateway:anthropic:default`
   (token shape converted from Claude Code's wrapper) and write a fresh
   index with one `anthropic:default` profile.
 - The original `Claude Code-credentials` entry is left untouched so the
@@ -338,7 +342,7 @@ profile with `defaults: {max_tokens: 4096, reasoning_effort: "medium"}`.
 - Profile index round-trip (write → read → edit → delete).
 - Index concurrency (interleaved PATCHes preserve both writes' fields).
 - OAuth state machine: happy path + four failure branches (bad state,
-  expired pending, provider 4xx on token exchange, keychain write fail).
+  expired pending, provider 4xx on token exchange, credential store write fail).
 - Per-call merge: body wins per field; missing fields fall back; CLI-only
   fields if present in body are passed through (gateway is dumb about
   them; SF backend plugin is responsible for dropping them upstream).
@@ -366,5 +370,5 @@ profile with `defaults: {max_tokens: 4096, reasoning_effort: "medium"}`.
 - Cost tracking / spend metering inside the gateway. Existing
   `apps/server/` Spend pipeline remains the source of truth.
 - Per-profile rate limiting.
-- Importing Codex / Gemini CLI keychain entries the way we import
+- Importing Codex / Gemini CLI credential store entries the way we import
   Claude Code's. Those will require fresh OAuth in v1.

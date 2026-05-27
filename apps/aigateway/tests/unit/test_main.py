@@ -5,15 +5,13 @@ from fastapi import APIRouter
 
 
 @pytest.mark.asyncio
-async def test_create_app_fake_anthropic_oauth_factory(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("AIGATEWAY_FAKE_KEYCHAIN", "1")
-    monkeypatch.setenv("AIGATEWAY_KEYCHAIN_FILE", str(tmp_path / "keychain.json"))
+async def test_create_app_fake_anthropic_oauth_factory(monkeypatch) -> None:
     monkeypatch.setenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH", "1")
 
     from aigateway.main import create_app
 
     app = create_app()
-    assert app.state._fake_credential_store is app.state.profile_index._store
+    assert app.state.credential_store is app.state.profile_index._store
 
     async with app.state.anthropic_http_factory() as client:
         token = await client.post("https://platform.claude.com/oauth/token")
@@ -25,9 +23,7 @@ async def test_create_app_fake_anthropic_oauth_factory(monkeypatch, tmp_path) ->
 
 
 @pytest.mark.asyncio
-async def test_create_app_fake_anthropic_oauth_fail_mode(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("AIGATEWAY_FAKE_KEYCHAIN", "1")
-    monkeypatch.setenv("AIGATEWAY_KEYCHAIN_FILE", str(tmp_path / "keychain.json"))
+async def test_create_app_fake_anthropic_oauth_fail_mode(monkeypatch) -> None:
     monkeypatch.setenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH", "1")
     monkeypatch.setenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH_FAIL", "1")
 
@@ -43,9 +39,7 @@ async def test_create_app_fake_anthropic_oauth_fail_mode(monkeypatch, tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_create_app_fake_codex_oauth_factory(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("AIGATEWAY_FAKE_KEYCHAIN", "1")
-    monkeypatch.setenv("AIGATEWAY_KEYCHAIN_FILE", str(tmp_path / "keychain.json"))
+async def test_create_app_fake_codex_oauth_factory(monkeypatch) -> None:
     monkeypatch.setenv("AIGATEWAY_FAKE_CODEX_OAUTH", "1")
 
     from aigateway.main import create_app

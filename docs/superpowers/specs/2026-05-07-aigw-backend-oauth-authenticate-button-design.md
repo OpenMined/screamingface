@@ -6,6 +6,10 @@ asana_gid: 1214600798519030
 created: 2026-05-07
 ---
 
+# Superseded By SF-219
+
+This historical spec describes an OS credential-store design for AIGateway. It is superseded by SF-219, which replaces AIGateway runtime credential storage with Tortoise-backed `ORMStore` and the `credential_blobs` table. Do not use this document to reintroduce OS credential storage under `apps/aigateway`.
+
 # aigw-*-backend OAuth Authenticate button
 
 ## Goal
@@ -14,7 +18,7 @@ When an aigw-*-backend plugin (currently just `aigw-claude-backend`, more
 later) lacks a usable token at the AI Gateway, surface an **Authenticate**
 button in the SF Settings → Backend Status panel that walks the user
 through the gateway-managed OAuth flow. The gateway stores the resulting
-token in its keychain; the SF server never holds it.
+token in its credential store; the SF server never holds it.
 
 This is the gateway equivalent of today's `claude-backend-api`
 "Re-authenticate" button — same panel, same look, but the action opens a
@@ -196,7 +200,7 @@ the launcher is in flight; clear on `oauth:complete | oauth:failed`.
 6. Electron main → shell.openExternal(authorize_url)
 7. User completes OAuth in browser
    browser → GET http://gateway/v1/auth/anthropic/callback?code=...&state=...
-   gateway → exchange code, store token in OS keychain,
+   gateway → exchange code, store token in OS credential store,
              mark profile AUTHENTICATED, return "you may close" HTML
 8. Electron main poll loop sees state==AUTHENTICATED
    → emit 'oauth:complete'
@@ -234,7 +238,7 @@ File: `apps/server/tests/e2e/test_aigw_auth_e2e.py`
 
 Reuses the subprocess pattern from `tests/e2e/test_aigw_claude_e2e.py`.
 Boot real aigateway with:
-- a fake-keychain credential store
+- a fake in-memory credential store
 - a fake Anthropic OAuth server via httpx `MockTransport` injected at
   `app.state.anthropic_http_factory` (already supported,
   `apps/aigateway/src/aigateway/routes/auth.py:132`)
@@ -252,7 +256,7 @@ Scenarios:
    - run scenario 1
    - `POST sf://claude/auth/start` again
    - assert: new authorize_url returned, gateway still has token in
-     keychain (re-auth doesn't blow it away until callback succeeds with
+     credential store (re-auth doesn't blow it away until callback succeeds with
      a new code), profile state PENDING
 3. **State mismatch on callback**
    - start cycle, pass `state=wrong` to gateway callback

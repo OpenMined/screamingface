@@ -159,7 +159,7 @@ async def delete_connection(connection_id: UUID, request: Request, current: Curr
     connection = await store.get(str(current.id), connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-    _delete_credentials(request, connection.credential_locator)
+    await _delete_credentials(request, connection.credential_locator)
     await store.mark_revoked(connection)
 
 
@@ -228,11 +228,11 @@ async def _get_visible_connection(
     return response_from_connection(connection)
 
 
-def _delete_credentials(request: Request, locator: dict) -> None:
+async def _delete_credentials(request: Request, locator: dict) -> None:
     service = locator.get("service")
     account = locator.get("account")
     if isinstance(service, str) and isinstance(account, str):
-        request.app.state.credential_store.delete(service, account)
+        await request.app.state.credential_store.delete(service, account)
 
 
 def _duplicate_id(message: str | None) -> UUID | None:

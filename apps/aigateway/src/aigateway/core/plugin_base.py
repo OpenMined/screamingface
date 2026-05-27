@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .credential_store import CredentialStore
+    from .credential_blob.store import CredentialBlobStore
     from .oauth.identity import AccountIdentity
     from .profile_index import ProfileIndexStore
 
@@ -27,7 +27,7 @@ class ModelEntry:
 class OAuthStrategy(ABC):
     """Per-provider credential producer.
 
-    Implementations own keychain reads, refresh-on-401 with locking, and
+    Implementations own credential reads, refresh-on-401 with locking, and
     any provider-specific header construction. The OAuth bridge calls
     `get_authorization_header()` right before LiteLLM dispatches a request.
     """
@@ -43,11 +43,11 @@ class OAuthStrategy(ABC):
         """Drop any cached token. Called after a 401 from upstream."""
 
     @abstractmethod
-    def persist_credentials(self, credentials: dict[str, Any]) -> None:
+    async def persist_credentials(self, credentials: dict[str, Any]) -> None:
         """Persist newly exchanged provider credentials for this profile."""
 
     @abstractmethod
-    def delete_credentials(self) -> None:
+    async def delete_credentials(self) -> None:
         """Delete persisted provider credentials for this profile."""
 
     @abstractmethod
@@ -102,7 +102,7 @@ class ProviderPluginBase(ABC):
         self,
         profile_name: str,
         *,
-        credential_store: CredentialStore | None = None,
+        credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> OAuthStrategy | None:
         """Return a per-profile OAuthStrategy. Default: no auth."""
@@ -179,7 +179,7 @@ class ProviderPluginBase(ABC):
         self,
         *,
         account_id: str,
-        credential_store: CredentialStore | None = None,
+        credential_store: CredentialBlobStore | None = None,
         index_store: ProfileIndexStore | None = None,
     ) -> None:
         """Populate provider-owned profile metadata at startup, if any."""

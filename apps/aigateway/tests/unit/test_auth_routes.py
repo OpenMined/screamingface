@@ -34,8 +34,8 @@ from aigateway.routes.auth import (
 
 
 @pytest.fixture
-def client_with_index(authenticated_client, fake_keychain):
-    return authenticated_client, fake_keychain
+def client_with_index(authenticated_client, credential_blobs):
+    return authenticated_client, credential_blobs
 
 
 def _account_id(client) -> str:
@@ -50,9 +50,9 @@ def test_list_profiles_empty(client_with_index) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_profiles_returns_seeded(fake_keychain, authenticated_client) -> None:
+async def test_list_profiles_returns_seeded(credential_blobs, authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "default"),
@@ -286,10 +286,10 @@ class _RecordingStrategy:
     async def get_authorization_header(self) -> dict[str, str]:
         return {}
 
-    def persist_credentials(self, creds: dict) -> None:
+    async def persist_credentials(self, creds: dict) -> None:
         self.creds = creds
 
-    def delete_credentials(self) -> None:
+    async def delete_credentials(self) -> None:
         self.deleted = True
 
     async def refresh_credentials(self) -> None:
@@ -748,10 +748,10 @@ def test_profiles_are_scoped_to_current_account(
 
 @pytest.mark.asyncio
 async def test_list_provider_profiles_returns_only_current_account(
-    fake_keychain, authenticated_client, provisioned_user_factory
+    credential_blobs, authenticated_client, provisioned_user_factory
 ) -> None:
     admin_account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(admin_account_id, "anthropic", "admin-owned"),
@@ -851,7 +851,7 @@ def _html_failing_token_factory():
 
 
 def test_callback_completes_auth(client_with_index) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
@@ -872,16 +872,16 @@ def test_callback_completes_auth(client_with_index) -> None:
     prof = client.get("/v1/auth/anthropic/profiles/work").json()
     assert prof["state"] == "authenticated"
 
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
-    blob = fake_keychain.read(
-        keychain_service_for(credential_name_for(account_id, "work")), "default"
+    blob = credential_blobs.read(
+        credential_service_for(credential_name_for(account_id, "work")), "default"
     )
     assert "new-tok" in blob
 
 
 def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_index) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     client.app.state.codex_http_factory = _mock_codex_token_factory()
 
@@ -903,10 +903,10 @@ def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_ind
     assert prof["state"] == "authenticated"
     assert prof["account_label"] == "user@example.com"
 
-    from aigateway.plugins.codex_provider.auth import keychain_service_for
+    from aigateway.plugins.codex_provider.auth import credential_service_for
 
-    blob = fake_keychain.read(
-        keychain_service_for(credential_name_for(account_id, "work")), "default"
+    blob = credential_blobs.read(
+        credential_service_for(credential_name_for(account_id, "work")), "default"
     )
     assert blob is not None
     assert json.loads(blob)["refresh_token"] == "codex-refresh"
@@ -1061,7 +1061,7 @@ def test_patch_updates_defaults(client_with_index) -> None:
 
 def test_exchange_code_runs_oauth(client_with_index) -> None:
     """POST /v1/auth/{provider}/exchange-code completes auth same as GET callback."""
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
@@ -1078,10 +1078,10 @@ def test_exchange_code_runs_oauth(client_with_index) -> None:
     prof = client.get("/v1/auth/anthropic/profiles/paste").json()
     assert prof["state"] == "authenticated"
 
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
-    blob = fake_keychain.read(
-        keychain_service_for(credential_name_for(account_id, "paste")), "default"
+    blob = credential_blobs.read(
+        credential_service_for(credential_name_for(account_id, "paste")), "default"
     )
     assert "new-tok" in blob
 
@@ -1267,15 +1267,15 @@ def test_refresh_missing_profile_404(client_with_index) -> None:
 
 @pytest.mark.asyncio
 async def test_refresh_uses_app_store_and_provider_http_factory(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
     credential_name = credential_name_for(account_id, "refreshme")
 
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
-    fake_keychain.write(
-        keychain_service_for(credential_name),
+    credential_blobs.write(
+        credential_service_for(credential_name),
         "default",
         json.dumps(
             {
@@ -1286,7 +1286,7 @@ async def test_refresh_uses_app_store_and_provider_http_factory(
             }
         ),
     )
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "refreshme"),
@@ -1301,20 +1301,20 @@ async def test_refresh_uses_app_store_and_provider_http_factory(
     resp = authenticated_client.post("/v1/auth/anthropic/profiles/refreshme/refresh")
 
     assert resp.status_code == 200
-    blob = fake_keychain.read(keychain_service_for(credential_name), "default")
+    blob = credential_blobs.read(credential_service_for(credential_name), "default")
     assert blob is not None
     assert json.loads(blob)["access_token"] == "new-tok"
 
 
 @pytest.mark.asyncio
 async def test_refresh_without_oauth_strategy_returns_400(client_with_index, monkeypatch) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     plugin = _GenericOAuthPlugin()
     monkeypatch.setattr(plugin, "oauth_strategy_for", lambda *_args, **_kwargs: None)
     client.app.state.providers._plugins["generic"] = plugin
 
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "generic", "needs-refresh"),
@@ -1332,24 +1332,28 @@ async def test_refresh_without_oauth_strategy_returns_400(client_with_index, mon
 
 
 def test_delete_removes_profile_and_tokens(client_with_index) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
     start = client.post("/v1/auth/anthropic/profiles", json={"name": "z"})
     client.get("/v1/auth/anthropic/callback", params={"code": "c", "state": start.json()["state"]})
 
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
     assert (
-        fake_keychain.read(keychain_service_for(credential_name_for(account_id, "z")), "default")
+        credential_blobs.read(
+            credential_service_for(credential_name_for(account_id, "z")), "default"
+        )
         is not None
     )
 
     resp = client.delete("/v1/auth/anthropic/profiles/z")
     assert resp.status_code == 204
     assert (
-        fake_keychain.read(keychain_service_for(credential_name_for(account_id, "z")), "default")
+        credential_blobs.read(
+            credential_service_for(credential_name_for(account_id, "z")), "default"
+        )
         is None
     )
     g = client.get("/v1/auth/anthropic/profiles/z")

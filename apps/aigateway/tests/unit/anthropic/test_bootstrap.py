@@ -4,9 +4,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
+from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexStore
 from aigateway.core.profile_models import Profile, profile_id_for
-from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.anthropic_provider.bootstrap import bootstrap_from_claude_code
 from tests.conftest import _prepare_sqlite_db
 
@@ -33,7 +33,7 @@ def _auth_header(client: TestClient) -> dict[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_imports_cc_default_when_index_empty(fake_keychain) -> None:
+async def test_bootstrap_imports_cc_default_when_index_empty(credential_blobs) -> None:
     cc_payload = json.dumps(
         {
             "claudeAiOauth": {
@@ -44,33 +44,33 @@ async def test_bootstrap_imports_cc_default_when_index_empty(fake_keychain) -> N
             }
         }
     )
-    fake_keychain.write(CC_SERVICE, "alice", cc_payload)
+    credential_blobs.write(CC_SERVICE, "alice", cc_payload)
 
     await bootstrap_from_claude_code(
         account_id=ACCOUNT_ID,
-        credential_store=fake_keychain,
-        index_store=ProfileIndexStore(credential_store=fake_keychain),
+        credential_store=credential_blobs.store,
+        index_store=ProfileIndexStore(credential_store=credential_blobs.store),
         cc_account="alice",
     )
 
-    aigw_payload = fake_keychain.read(keychain_service_for(f"{ACCOUNT_ID}:default"), "default")
+    aigw_payload = credential_blobs.read(credential_service_for(f"{ACCOUNT_ID}:default"), "default")
     assert aigw_payload is not None
     converted = json.loads(aigw_payload)
     assert converted["access_token"] == "cc-tok"
     assert converted["refresh_token"] == "cc-rt"
     assert "expires_at_ms" in converted
 
-    idx_raw = fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default")
+    idx_raw = credential_blobs.read(INDEX_CREDENTIAL_SERVICE, "default")
     assert idx_raw is not None
     assert profile_id_for(ACCOUNT_ID, "anthropic", "default") in idx_raw
 
     # CC entry untouched
-    assert fake_keychain.read(CC_SERVICE, "alice") == cc_payload
+    assert credential_blobs.read(CC_SERVICE, "alice") == cc_payload
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_noop_when_index_already_exists(fake_keychain) -> None:
-    await ProfileIndexStore(credential_store=fake_keychain).upsert(
+async def test_bootstrap_noop_when_index_already_exists(credential_blobs) -> None:
+    await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
         Profile(
             id=profile_id_for(ACCOUNT_ID, "x", "y"),
             account_id=ACCOUNT_ID,
@@ -78,34 +78,34 @@ async def test_bootstrap_noop_when_index_already_exists(fake_keychain) -> None:
             name="y",
         )
     )
-    fake_keychain.write(
+    credential_blobs.write(
         CC_SERVICE,
         "alice",
         json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y", "expiresAt": 1}}),
     )
     await bootstrap_from_claude_code(
         account_id=ACCOUNT_ID,
-        credential_store=fake_keychain,
-        index_store=ProfileIndexStore(credential_store=fake_keychain),
+        credential_store=credential_blobs.store,
+        index_store=ProfileIndexStore(credential_store=credential_blobs.store),
         cc_account="alice",
     )
-    assert fake_keychain.read(keychain_service_for(f"{ACCOUNT_ID}:default"), "default") is None
+    assert credential_blobs.read(credential_service_for(f"{ACCOUNT_ID}:default"), "default") is None
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_noop_when_cc_entry_missing(fake_keychain) -> None:
+async def test_bootstrap_noop_when_cc_entry_missing(credential_blobs) -> None:
     await bootstrap_from_claude_code(
         account_id=ACCOUNT_ID,
-        credential_store=fake_keychain,
-        index_store=ProfileIndexStore(credential_store=fake_keychain),
+        credential_store=credential_blobs.store,
+        index_store=ProfileIndexStore(credential_store=credential_blobs.store),
         cc_account="alice",
     )
-    assert fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default") is None
+    assert credential_blobs.read(INDEX_CREDENTIAL_SERVICE, "default") is None
 
 
-def test_app_lifespan_runs_anthropic_bootstrap(fake_keychain, monkeypatch, tmp_path) -> None:
+def test_app_lifespan_runs_anthropic_bootstrap(credential_blobs, monkeypatch, tmp_path) -> None:
     _configure_app_db(monkeypatch, tmp_path)
-    fake_keychain.write(
+    credential_blobs.write(
         CC_SERVICE,
         "alice",
         json.dumps(
@@ -121,16 +121,6 @@ def test_app_lifespan_runs_anthropic_bootstrap(fake_keychain, monkeypatch, tmp_p
     )
     monkeypatch.setenv("USER", "alice")
     monkeypatch.setenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", "1")
-
-    from aigateway import main as main_module
-    from aigateway.core import credential_store as cs_module
-    from aigateway.core import profile_index as pi_module
-    from aigateway.plugins.anthropic_provider import auth as auth_module
-
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(auth_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(main_module, "get_credential_store", lambda: fake_keychain)
 
     from aigateway.main import create_app
 

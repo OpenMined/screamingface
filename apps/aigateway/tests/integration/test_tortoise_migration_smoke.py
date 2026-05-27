@@ -53,4 +53,4 @@ def test_tortoise_migrate_creates_accounts_table() -> None:
             finally:
                 await conn.close()
 
-        assert {"accounts", "tortoise_migrations"} <= asyncio.run(_tables())
+        assert {"accounts", "credential_blobs", "tortoise_migrations"} <= asyncio.run(_tables())

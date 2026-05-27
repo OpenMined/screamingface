@@ -548,7 +548,7 @@ async def _complete_oauth_for_app(
         await _close_loopback_callback(app, state)
         raise
     if pending.connection_id is None:
-        strategy.persist_credentials(creds)
+        await strategy.persist_credentials(creds)
         _invalidate_profile_session(plugin, account_id, name)
 
     p = await _index_store_for_app(app).get(account_id, provider, name)
@@ -592,7 +592,7 @@ async def _persist_connection_credentials(
         credential_key_for(account_id, connection_id),
     )
     if strategy is not None:
-        strategy.persist_credentials(creds)
+        await strategy.persist_credentials(creds)
 
 
 async def _record_oauth_connection_completion(
@@ -628,7 +628,7 @@ async def _record_oauth_connection_completion(
             connection = await _connection_for_pending(store, pending, label)
             if duplicate.id != connection.id:
                 await store.delete_or_supersede_pending(connection, duplicate)
-                _delete_connection_credentials(app, connection.credential_locator)
+                await _delete_connection_credentials(app, connection.credential_locator)
         return
 
     if identity is None or identity.sub is None:
@@ -638,7 +638,7 @@ async def _record_oauth_connection_completion(
                 connection = await _connection_for_pending(store, pending, label)
                 if duplicate_label.id != connection.id:
                     await store.delete_or_supersede_pending(connection, duplicate_label)
-                    _delete_connection_credentials(app, connection.credential_locator)
+                    await _delete_connection_credentials(app, connection.credential_locator)
                 raise HTTPException(
                     status_code=409,
                     detail={
@@ -668,11 +668,11 @@ async def _record_oauth_connection_completion(
     )
 
 
-def _delete_connection_credentials(app, locator: dict) -> None:
+async def _delete_connection_credentials(app, locator: dict) -> None:
     service = locator.get("service")
     account = locator.get("account")
     if isinstance(service, str) and isinstance(account, str):
-        _credential_store_for_app(app).delete(service, account)
+        await _credential_store_for_app(app).delete(service, account)
 
 
 async def _connection_for_pending(
@@ -796,7 +796,7 @@ async def delete_profile(provider: str, name: str, request: Request, current: Cu
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
     strategy = _oauth_strategy_for_app(request.app, plugin, provider, account_id, name)
     if strategy is not None:
-        strategy.delete_credentials()
+        await strategy.delete_credentials()
     _invalidate_profile_session(plugin, account_id, name)
     await _index_store(request).remove(p.id)
 

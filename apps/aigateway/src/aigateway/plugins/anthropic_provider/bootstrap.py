@@ -1,4 +1,4 @@
-"""Anthropic bootstrap helpers for importing Claude Code credentials."""
+"""Anthropic bootstrap helpers for importing pre-seeded Claude Code credentials."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import logging
 import os
 
-from aigateway.core.credential_store import CredentialStore, get_credential_store
+from aigateway.core.credential_blob.store import CredentialBlobStore, ORMStore
 from aigateway.core.errors import BootstrapError
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import (
@@ -17,7 +17,7 @@ from aigateway.core.profile_models import (
     profile_id_for,
 )
 
-from .auth import keychain_service_for
+from .auth import credential_service_for
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +26,11 @@ CLAUDE_CODE_SERVICE = "Claude Code-credentials"
 
 async def bootstrap_from_claude_code(
     account_id: str,
-    credential_store: CredentialStore | None = None,
+    credential_store: CredentialBlobStore | None = None,
     index_store: ProfileIndexStore | None = None,
     cc_account: str | None = None,
 ) -> None:
-    store = credential_store or get_credential_store()
+    store = credential_store or ORMStore()
     idx = index_store or ProfileIndexStore(credential_store=store)
     account = cc_account if cc_account is not None else os.environ.get("USER", "")
 
@@ -39,9 +39,9 @@ async def bootstrap_from_claude_code(
         logger.debug("bootstrap: account index already populated; skipping")
         return
 
-    cc_raw = store.read(CLAUDE_CODE_SERVICE, account)
+    cc_raw = await store.read(CLAUDE_CODE_SERVICE, account)
     if cc_raw is None:
-        logger.info("bootstrap: no Claude Code keychain entry found; nothing to import")
+        logger.info("bootstrap: no Claude Code credential entry found; nothing to import")
         return
 
     try:
@@ -54,10 +54,10 @@ async def bootstrap_from_claude_code(
             "token_type": "Bearer",
         }
     except (KeyError, ValueError, TypeError) as exc:
-        raise BootstrapError(f"Claude Code keychain entry has unexpected shape: {exc}") from exc
+        raise BootstrapError(f"Claude Code credential entry has unexpected shape: {exc}") from exc
 
-    store.write(
-        keychain_service_for(credential_name_for(account_id, "default")),
+    await store.write(
+        credential_service_for(credential_name_for(account_id, "default")),
         "default",
         json.dumps(converted),
     )

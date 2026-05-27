@@ -9,30 +9,29 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 
-from aigateway.core.credential_store import CredentialStore
 from aigateway.core.errors import AuthError, CredentialNotFoundError
 from aigateway.plugins.codex_provider.auth import (
     CodexOAuth,
     account_label_from_credentials,
+    credential_service_for,
     exchange_authorization_code,
-    keychain_service_for,
 )
 from aigateway.plugins.codex_provider.oauth_config import CODEX_CLIENT_ID, CODEX_TOKEN_URL
 
 
-class _FakeStore(CredentialStore):
+class _FakeStore:
     def __init__(self, payload: str | None = None) -> None:
         self.payload = payload
         self.writes: list[tuple[str, str, str]] = []
 
-    def read(self, service: str, account: str) -> str | None:
+    async def read(self, service: str, account: str) -> str | None:
         return self.payload
 
-    def write(self, service: str, account: str, value: str) -> None:
+    async def write(self, service: str, account: str, value: str) -> None:
         self.writes.append((service, account, value))
         self.payload = value
 
-    def delete(self, service: str, account: str) -> None:
+    async def delete(self, service: str, account: str) -> None:
         self.payload = None
 
 
@@ -74,9 +73,9 @@ def _http_factory(transport: httpx.MockTransport):
     return factory
 
 
-def test_keychain_service_uses_aigateway_namespace() -> None:
-    assert keychain_service_for("default") == "aigateway:codex:default"
-    assert keychain_service_for("work") == "aigateway:codex:work"
+def test_credential_service_uses_aigateway_namespace() -> None:
+    assert credential_service_for("default") == "aigateway:codex:default"
+    assert credential_service_for("work") == "aigateway:codex:work"
 
 
 @pytest.mark.asyncio

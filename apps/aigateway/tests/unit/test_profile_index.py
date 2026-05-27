@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
+from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexStore
 from aigateway.core.profile_models import (
     Profile,
     ProfileDefaults,
@@ -39,16 +39,16 @@ def test_profile_index_serializes_with_version() -> None:
 
 
 @pytest.mark.asyncio
-async def test_index_store_returns_empty_index_when_keychain_empty(fake_keychain) -> None:
-    store = ProfileIndexStore(credential_store=fake_keychain)
+async def test_index_store_returns_empty_index_when_store_empty(credential_blobs) -> None:
+    store = ProfileIndexStore(credential_store=credential_blobs.store)
     idx = await store.read()
     assert idx.version == 1
     assert idx.profiles == []
 
 
 @pytest.mark.asyncio
-async def test_index_store_round_trip(fake_keychain) -> None:
-    store = ProfileIndexStore(credential_store=fake_keychain)
+async def test_index_store_round_trip(credential_blobs) -> None:
+    store = ProfileIndexStore(credential_store=credential_blobs.store)
     p = Profile(
         id=profile_id_for(ACCOUNT_ID, "anthropic", "default"),
         account_id=ACCOUNT_ID,
@@ -61,13 +61,13 @@ async def test_index_store_round_trip(fake_keychain) -> None:
     assert len(idx.profiles) == 1
     assert idx.profiles[0].id == profile_id_for(ACCOUNT_ID, "anthropic", "default")
     assert idx.profiles[0].account_id == ACCOUNT_ID
-    raw = fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default")
+    raw = credential_blobs.read(INDEX_CREDENTIAL_SERVICE, "default")
     assert profile_id_for(ACCOUNT_ID, "anthropic", "default") in raw
 
 
 @pytest.mark.asyncio
-async def test_index_store_upsert_replaces_by_id(fake_keychain) -> None:
-    store = ProfileIndexStore(credential_store=fake_keychain)
+async def test_index_store_upsert_replaces_by_id(credential_blobs) -> None:
+    store = ProfileIndexStore(credential_store=credential_blobs.store)
     await store.upsert(
         Profile(
             id=profile_id_for(ACCOUNT_ID, "anthropic", "default"),
@@ -91,8 +91,8 @@ async def test_index_store_upsert_replaces_by_id(fake_keychain) -> None:
 
 
 @pytest.mark.asyncio
-async def test_index_store_remove(fake_keychain) -> None:
-    store = ProfileIndexStore(credential_store=fake_keychain)
+async def test_index_store_remove(credential_blobs) -> None:
+    store = ProfileIndexStore(credential_store=credential_blobs.store)
     await store.upsert(
         Profile(
             id=profile_id_for(ACCOUNT_ID, "anthropic", "default"),
@@ -107,8 +107,8 @@ async def test_index_store_remove(fake_keychain) -> None:
 
 
 @pytest.mark.asyncio
-async def test_index_store_filters_by_account(fake_keychain) -> None:
-    store = ProfileIndexStore(credential_store=fake_keychain)
+async def test_index_store_filters_by_account(credential_blobs) -> None:
+    store = ProfileIndexStore(credential_store=credential_blobs.store)
     await store.upsert(
         Profile(
             id=profile_id_for(ACCOUNT_ID, "anthropic", "default"),
