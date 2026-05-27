@@ -134,6 +134,19 @@ def test_anthropic_connection_uses_request_host_port_for_callback(
     assert query["redirect_uri"] == ["http://localhost:9106/callback"]
 
 
+def test_anthropic_connection_uses_public_url_for_callback(authenticated_client) -> None:
+    authenticated_client.app.state.settings.public_url = "https://aigateway.example.com"
+
+    start = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "public-anthropic"},
+    )
+
+    assert start.status_code == 201
+    query = parse_qs(urlparse(start.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == ["https://aigateway.example.com/callback"]
+
+
 def test_anthropic_connection_lifecycle_and_label_conflict(
     authenticated_client, fake_keychain
 ) -> None:

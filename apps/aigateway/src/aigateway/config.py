@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,6 +30,7 @@ class Settings(BaseSettings):
     )
     auth_enabled: bool = Field(default=True, validation_alias="AIGATEWAY_AUTH_ENABLED")
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
+    public_url: str | None = Field(default=None, validation_alias="AIGATEWAY_PUBLIC_URL")
 
     @field_validator("jwt_secret", "provisioning_token")
     @classmethod
@@ -47,3 +50,18 @@ class Settings(BaseSettings):
         if not 8 <= size <= 72:
             raise ValueError("password must be 8-72 UTF-8 bytes")
         return value
+
+    @field_validator("public_url")
+    @classmethod
+    def _validate_public_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().rstrip("/")
+        if not normalized:
+            return None
+        parsed = urlsplit(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("public_url must be an absolute http(s) URL")
+        if parsed.query or parsed.fragment:
+            raise ValueError("public_url must not include query or fragment")
+        return normalized
