@@ -7,11 +7,12 @@ from fastapi import APIRouter, HTTPException, Request
 from tortoise.exceptions import IntegrityError
 
 from aigateway.core.auth.middleware import CurrentAccount
-from aigateway.core.errors import AuthError, CredentialNotFoundError
+from aigateway.core.errors import AuthError, CredentialNotFoundError, ReauthRequiredError
 from aigateway.core.oauth.schemas import (
     CreateOAuthConnectionRequest,
     OAuthConnectionListResponse,
     OAuthConnectionResponse,
+    OAuthConnectionTokenResponse,
     PatchOAuthConnectionRequest,
     StartOAuthConnectionResponse,
 )
@@ -169,6 +170,64 @@ async def delete_connection(connection_id: UUID, request: Request, current: Curr
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
     await _delete_credentials(request, connection.credential_locator)
     await store.mark_revoked(connection)
+
+
+@router.get(
+    "/v1/oauth/connections/{connection_id}/token",
+    response_model=OAuthConnectionTokenResponse,
+)
+async def get_connection_token(
+    connection_id: UUID,
+    request: Request,
+    current: CurrentAccount,
+) -> OAuthConnectionTokenResponse:
+    """Return a fresh access token for the connection.
+
+    Consumed by SF backend plugins that delegate token management to
+    aigateway. The strategy refreshes against the upstream provider if
+    the cached credential is within the refresh window.
+    """
+    from datetime import UTC, datetime
+
+    store = _store(request)
+    connection = await store.get(str(current.id), connection_id)
+    if connection is None:
+        raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
+    if connection.status != "active":
+        raise HTTPException(status_code=409, detail={"code": "connection_not_active"})
+    plugin = request.app.state.providers.get(connection.provider)
+    if plugin is None:
+        raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
+    strategy = plugin.oauth_strategy_for(
+        credential_key_for(current.id, connection.id),
+        credential_store=request.app.state.credential_store,
+        http_client_factory=getattr(request.app.state, f"{connection.provider}_http_factory", None),
+    )
+    if strategy is None:
+        raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
+    try:
+        access_token, expires_at_ms, refreshed = await strategy.get_token_with_expiry()
+    except (CredentialNotFoundError, ReauthRequiredError) as exc:
+        # Credential missing, or the refresh token was rejected by the provider
+        # (revoked / invalid_grant). The connection cannot recover without a new
+        # browser auth, so mark it errored and tell the caller to re-auth.
+        await store.mark_error(connection, str(exc))
+        raise HTTPException(
+            status_code=401, detail={"code": "auth_required", "message": str(exc)}
+        ) from exc
+    except AuthError as exc:
+        # Transient upstream refresh failure (network error, provider 5xx). Leave
+        # the connection active and surface 503 so callers back off and retry.
+        raise HTTPException(
+            status_code=503, detail={"code": "upstream_refresh_failed", "message": str(exc)}
+        ) from exc
+    if refreshed:
+        await store.touch_last_refreshed(connection)
+    await store.touch_last_used(connection)
+    return OAuthConnectionTokenResponse(
+        access_token=access_token,
+        expires_at=datetime.fromtimestamp(expires_at_ms / 1000, tz=UTC),
+    )
 
 
 @router.post(

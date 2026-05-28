@@ -338,3 +338,20 @@ class TestRefresh:
         auth = CodexOAuth(auth_file=auth_file, http_client_factory=factory)
         with pytest.raises(AuthError, match="unreachable"):
             await auth.refresh()
+
+
+@pytest.mark.asyncio
+async def test_codex_oauth_uses_aigw_source_when_set():
+    from unittest.mock import AsyncMock
+
+    from screamingface.plugins.codex_backend_api.auth import CodexOAuth
+    from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
+
+    fake = AsyncMock(spec=AigwTokenSource)
+    fake.fetch_token.return_value = "aigw-codex-token"
+
+    strat = CodexOAuth(aigw_source=fake)
+    headers = await strat.get_authorization_header()
+
+    assert headers == {"Authorization": "Bearer aigw-codex-token"}
+    fake.fetch_token.assert_awaited_once()

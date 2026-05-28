@@ -395,3 +395,21 @@ class TestUserAgentHeader:
         headers = await auth.get_authorization_header()
 
         assert "User-Agent" not in headers
+
+
+@pytest.mark.asyncio
+async def test_gemini_oauth_uses_aigw_source_when_set():
+    from unittest.mock import AsyncMock
+
+    from screamingface.plugins.gemini_backend_api.auth import GeminiAuth
+    from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
+
+    fake = AsyncMock(spec=AigwTokenSource)
+    fake.fetch_token.return_value = "aigw-gemini-token"
+
+    strat = GeminiAuth(aigw_source=fake)
+    headers = await strat.get_authorization_header()
+
+    assert headers["Authorization"] == "Bearer aigw-gemini-token"
+    assert headers["User-Agent"].startswith("GeminiCLI/")
+    fake.fetch_token.assert_awaited_once()

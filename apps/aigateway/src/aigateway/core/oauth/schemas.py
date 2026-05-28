@@ -44,6 +44,18 @@ class PatchOAuthConnectionRequest(BaseModel):
     label: OAuthConnectionLabel | None = None
 
 
+class OAuthConnectionTokenResponse(BaseModel):
+    """Short-lived access token + expiry for an active OAuth connection.
+
+    Returned by GET /v1/oauth/connections/{id}/token for SF backend plugins
+    that consume aigateway-managed tokens instead of reading provider CLI
+    credential stores directly.
+    """
+
+    access_token: str
+    expires_at: datetime
+
+
 class StartOAuthConnectionResponse(BaseModel):
     connection_id: UUID
     authorize_url: str

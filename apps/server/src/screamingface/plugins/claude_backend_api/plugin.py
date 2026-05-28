@@ -38,6 +38,33 @@ class ClaudeBackendApiSettings(BackendApiSettingsBase):
             "Default Claude model. Falls back to 'claude-sonnet-4-6' if still unset at call time."
         ),
     )
+    connection_id: str | None = Field(
+        default=None,
+        description=(
+            "aigateway OAuthConnection id. When set, the plugin fetches access tokens "
+            "from aigateway instead of reading the Claude Code credential store."
+        ),
+    )
+    aigw_url: str = Field(
+        default="http://localhost:9105",
+        description="Base URL of the aigateway service.",
+    )
+
+
+def _maybe_aigw_source(settings: ClaudeBackendApiSettings):
+    """Return an AigwTokenSource configured from settings, or None."""
+    if not settings.connection_id:
+        return None
+    from screamingface.plugins.llm_base.aigw_token_source import (
+        AigwTokenSource,
+        aigw_jwt_from_env,
+    )
+
+    return AigwTokenSource(
+        connection_id=settings.connection_id,
+        aigw_url=settings.aigw_url,
+        aigw_jwt_provider=aigw_jwt_from_env,
+    )
 
 
 class ClaudeBackendApiPlugin(BackendApiPluginBase):
@@ -66,12 +93,28 @@ class ClaudeBackendApiPlugin(BackendApiPluginBase):
     schema_link_base = "/claude/"
     create_router = staticmethod(create_router)
 
+    def customize_schema(self, schema: dict) -> dict:
+        schema = super().customize_schema(schema)
+        props = schema.get("properties", {})
+        if "connection_id" in props:
+            props["connection_id"]["x-aigw-connection-picker"] = {
+                "provider": "claude",
+                "aigw_url_field": "aigw_url",
+            }
+        return schema
+
     def _make_interpreter(self, app: FastAPI):
+        from screamingface.plugins.claude_backend_api.backend import AnthropicBackend
         from screamingface.plugins.claude_backend_api.interpreter import (
             ClaudeBackendApiInterpreter,
         )
 
+        settings: ClaudeBackendApiSettings = self.settings  # type: ignore[assignment]
+        aigw_source = _maybe_aigw_source(settings)
+        backend = AnthropicBackend(aigw_source=aigw_source)
+
         return ClaudeBackendApiInterpreter(
             app=app,
-            settings=self.settings,  # type: ignore[arg-type]
+            settings=settings,
+            backend=backend,
         )

@@ -29,6 +29,7 @@ from pathlib import Path
 
 import httpx
 
+from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
 from screamingface.plugins.llm_base.errors import AuthError, CredentialNotFoundError
 from screamingface.plugins.llm_base.oauth_base import OAuthStrategy
 
@@ -60,8 +61,9 @@ class GeminiAuth(OAuthStrategy):
         *,
         creds_file: Path | None = None,
         http_client_factory=None,
+        aigw_source: AigwTokenSource | None = None,
     ) -> None:
-        super().__init__()
+        super().__init__(aigw_source=aigw_source)
         self._creds_file = creds_file or OAUTH_CREDS_PATH
         self._http_factory = http_client_factory or (
             lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0))
@@ -103,8 +105,26 @@ class GeminiAuth(OAuthStrategy):
             )
         return data
 
+    def _aigw_creds_shape(self, access_token: str, expires_at) -> dict:
+        """Build a Gemini-shaped creds dict from an aigw-supplied token.
+
+        Gemini's _build_headers reads access_token. The refresh_token /
+        expiry_date fields aren't used on the aigw path because aigw owns refresh.
+        """
+        return {
+            "access_token": access_token,
+            "refresh_token": "",
+            "expiry_date": int(expires_at.timestamp() * 1000),
+            "token_type": "Bearer",
+        }
+
     def _is_expired(self, creds: dict) -> bool:
         """``expiry_date`` is unix epoch in **milliseconds**."""
+        if self._aigw_source is not None:
+            # On the aigw path the helper owns expiry; OAuthStrategy's cache
+            # only needs to stay notionally "fresh".
+            return False
+        # existing logic
         expiry_ms = creds.get("expiry_date", 0)
         now_ms = time.time() * 1000
         return now_ms >= expiry_ms - (self.refresh_window_seconds * 1000)

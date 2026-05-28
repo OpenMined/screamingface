@@ -157,6 +157,11 @@ class OAuthConnectionStore:
         await connection.save(update_fields=["last_used_at"])
         return connection
 
+    async def touch_last_refreshed(self, connection: OAuthConnection) -> OAuthConnection:
+        connection.last_refreshed_at = datetime.now(UTC)
+        await connection.save(update_fields=["last_refreshed_at"])
+        return connection
+
 
 def response_from_connection(
     connection: OAuthConnection,

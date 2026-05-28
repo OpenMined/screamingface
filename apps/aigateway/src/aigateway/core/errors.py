@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 
 class AigwError(Exception):
     """Base for every error raised by aigateway."""
@@ -11,6 +13,32 @@ class CredentialNotFoundError(AigwError):
 
 class AuthError(AigwError):
     """Credential present but unusable (malformed / refresh failed / scope rejected)."""
+
+
+class ReauthRequiredError(AuthError):
+    """Refresh token rejected by the provider — the user must re-authenticate.
+
+    Subclasses AuthError so existing ``except AuthError`` handlers keep working,
+    while callers that care can distinguish a permanent rejection (re-auth) from
+    a transient refresh failure (retry later).
+    """
+
+
+def is_reauth_refresh_failure(status_code: int, body: str) -> bool:
+    """True when a token-refresh failure means the refresh token is dead.
+
+    A 401, or a 400 carrying ``error == "invalid_grant"`` (the OAuth2 code for a
+    revoked/expired refresh token), means re-authentication is required.
+    Everything else (network errors, provider 5xx) is treated as transient.
+    """
+    if status_code == 401:
+        return True
+    if status_code == 400:
+        try:
+            return json.loads(body).get("error") == "invalid_grant"
+        except (ValueError, AttributeError):
+            return False
+    return False
 
 
 class ProfileNotFoundError(AigwError):

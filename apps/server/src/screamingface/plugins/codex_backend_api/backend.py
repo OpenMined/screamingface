@@ -32,6 +32,7 @@ from screamingface.plugins.codex_backend_api.chatgpt_session import (
 )
 from screamingface.plugins.codex_backend_api.rate_limits import extract_openai_rate_limits
 from screamingface.plugins.codex_backend_api.sse_parser import parse_responses_sse
+from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
 from screamingface.plugins.llm_base.backend_base import (
     Backend,
     HealthStatus,
@@ -55,8 +56,9 @@ class OpenAIBackend(Backend):
         auth: CodexOAuth | None = None,
         adapter: OpenAIResponsesAdapter | None = None,
         http_client_factory=None,
+        aigw_source: AigwTokenSource | None = None,
     ) -> None:
-        self._auth = auth or CodexOAuth()
+        self._auth = auth or CodexOAuth(aigw_source=aigw_source)
         self._adapter = adapter or OpenAIResponsesAdapter()
         self._http_factory = http_client_factory or default_http_factory
 

@@ -9,7 +9,12 @@ import time
 import httpx
 
 from aigateway.core.credential_blob.store import CredentialBlobStore, ORMStore
-from aigateway.core.errors import AuthError, CredentialNotFoundError
+from aigateway.core.errors import (
+    AuthError,
+    CredentialNotFoundError,
+    ReauthRequiredError,
+    is_reauth_refresh_failure,
+)
 from aigateway.core.oauth_base import BaseOAuthStrategy
 
 from .oauth_config import (
@@ -97,11 +102,12 @@ class AnthropicOAuth(BaseOAuthStrategy):
         except httpx.RequestError as exc:
             raise AuthError(f"Refresh endpoint unreachable: {exc}") from exc
 
-        if resp.status_code == 401:
-            raise AuthError(
-                f"Refresh returned 401 for profile {self.profile_name!r}. Re-auth required."
-            )
         if resp.status_code != 200:
+            if is_reauth_refresh_failure(resp.status_code, resp.text):
+                raise ReauthRequiredError(
+                    f"Refresh token rejected for profile {self.profile_name!r} "
+                    f"(HTTP {resp.status_code}). Re-auth required."
+                )
             raise AuthError(f"OAuth refresh failed status {resp.status_code}: {resp.text[:500]}")
         try:
             data = resp.json()

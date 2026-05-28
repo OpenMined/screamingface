@@ -22,6 +22,7 @@ import httpx
 
 from screamingface.plugins.gemini_backend_api.adapter import GeminiAdapter
 from screamingface.plugins.gemini_backend_api.auth import GeminiAuth
+from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
 from screamingface.plugins.llm_base.backend_base import Backend, HealthStatus
 from screamingface.plugins.llm_base.errors import AuthError, BackendError
 from screamingface.plugins.llm_base.messages import CoreMessage, ToolDefinition
@@ -54,8 +55,9 @@ class GeminiBackend(Backend):
         http_client_factory=None,
         fallback_models: list[str] | None = None,
         max_total_wait_seconds: float = MAX_TOTAL_429_WAIT_SECONDS,
+        aigw_source: AigwTokenSource | None = None,
     ) -> None:
-        self._auth = auth or GeminiAuth()
+        self._auth = auth or GeminiAuth(aigw_source=aigw_source)
         self._adapter = adapter or GeminiAdapter()
         self._http_factory = http_client_factory or self._default_http_factory
         # Code Assist session state (OAuth path only)
