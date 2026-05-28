@@ -62,6 +62,7 @@ class OAuthConnectionStore:
         provider: str,
         label: str,
         connection_id: UUID,
+        credential_provider: str | None = None,
     ) -> OAuthConnection:
         await _ensure_anonymous_account(account_id)
         return await OAuthConnection.create(
@@ -70,7 +71,11 @@ class OAuthConnectionStore:
             provider=provider,
             label=label,
             status="pending",
-            credential_locator=credential_locator_for(provider, account_id, connection_id),
+            credential_locator=credential_locator_for(
+                credential_provider or provider,
+                account_id,
+                connection_id,
+            ),
         )
 
     async def find_by_identity(

@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from fastapi import HTTPException
+from tortoise import Tortoise
 from tortoise.exceptions import IntegrityError
 
 from aigateway.core.pending_auth import PendingAuthEntry
@@ -22,14 +23,17 @@ from aigateway.core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
+from aigateway.db import init_db
 from aigateway.plugins.codex_provider.oauth_config import CODEX_CLIENT_ID
 from aigateway.routes.auth import (
+    _close_loopback_callback,
     _complete_oauth_for_app,
     _connection_label,
     _expire_loopback_callback,
     _handle_loopback_callback,
     _http_response,
     _loopback_host_allowed,
+    close_loopback_callbacks,
 )
 
 
@@ -145,6 +149,97 @@ def test_start_oauth_uses_public_url_for_gateway_callback(client_with_index) -> 
     assert resp.status_code == 201
     query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
     assert query["redirect_uri"] == ["https://aigateway.example.com/base/callback"]
+
+
+def test_start_oauth_accepts_redirect_uri_override(client_with_index) -> None:
+    client, _ = client_with_index
+    redirect_uri = "http://localhost:9105/callback"
+
+    resp = client.post(
+        "/v1/auth/anthropic/profiles",
+        json={"name": "hosted", "redirect_uri": redirect_uri},
+    )
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == [redirect_uri]
+    pending = client.app.state.pending_auth.peek(resp.json()["state"])
+    assert pending.redirect_uri == redirect_uri
+
+
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "https://localhost:9105/callback",
+        "http://example.com:9105/callback",
+        "http://localhost:9105/oauth2callback",
+        "http://localhost:9105/callback?x=1",
+        "http://localhost:9105/callback#frag",
+        "http://user:pass@localhost:9105/callback",
+        "http://localhost/callback",
+        "http://localhost:0/callback",
+    ],
+)
+def test_start_oauth_rejects_invalid_redirect_uri_override(
+    client_with_index,
+    redirect_uri: str,
+) -> None:
+    client, _ = client_with_index
+
+    resp = client.post(
+        "/v1/auth/anthropic/profiles",
+        json={"name": "bad-redirect", "redirect_uri": redirect_uri},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "invalid_redirect_uri"
+
+
+def test_start_oauth_redirect_uri_override_wins_over_public_url(client_with_index) -> None:
+    client, _ = client_with_index
+    client.app.state.settings.public_url = "https://aigateway.example.com/base"
+    redirect_uri = "http://localhost:9105/callback"
+
+    resp = client.post(
+        "/v1/auth/anthropic/profiles",
+        json={"name": "override-public", "redirect_uri": redirect_uri},
+    )
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == [redirect_uri]
+
+
+@pytest.mark.parametrize("port", [1455, 1457])
+def test_start_oauth_codex_accepts_configured_redirect_override_port(
+    client_with_index,
+    port: int,
+) -> None:
+    client, _ = client_with_index
+    redirect_uri = f"http://localhost:{port}/auth/callback"
+
+    resp = client.post(
+        "/v1/auth/codex/profiles",
+        json={"name": f"codex-{port}", "redirect_uri": redirect_uri},
+    )
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == [redirect_uri]
+
+
+def test_start_oauth_codex_rejects_unconfigured_redirect_override_port(
+    client_with_index,
+) -> None:
+    client, _ = client_with_index
+
+    resp = client.post(
+        "/v1/auth/codex/profiles",
+        json={"name": "codex-bad-port", "redirect_uri": "http://localhost:9105/auth/callback"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "invalid_redirect_uri"
 
 
 def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -> None:
@@ -413,6 +508,17 @@ def _raw_loopback_request(target: str, *, method: str = "GET", host: str = "loca
     return f"{method} {target} HTTP/1.1\r\nHost: {host}\r\n\r\n".encode("ascii")
 
 
+def _close_testclient_tortoise_connections(client) -> None:
+    # Some tests call async route internals directly on pytest's loop after
+    # TestClient has opened Tortoise connections on its portal loop.
+    client.portal.call(Tortoise.close_connections)
+
+
+async def _move_tortoise_to_pytest_loop(client, credential_blobs) -> None:
+    _close_testclient_tortoise_connections(client)
+    await init_db(f"sqlite://{credential_blobs.db_path}")
+
+
 async def _seed_pending_profile(
     client,
     account_id: str,
@@ -483,6 +589,43 @@ async def test_expire_loopback_callback_closes_registered_server(client_with_ind
     assert state not in client.app.state.loopback_oauth_callbacks
 
 
+@pytest.mark.asyncio
+async def test_close_loopback_callback_cancels_expiry_task(client_with_index) -> None:
+    client, _ = client_with_index
+    state = "state-to-close"
+    server = _FakeServer()
+    task = asyncio.create_task(asyncio.sleep(600))
+    client.app.state.loopback_oauth_callbacks = {state: server}
+    client.app.state.loopback_oauth_callback_tasks = {state: task}
+
+    await _close_loopback_callback(client.app, state)
+
+    assert server.closed is True
+    assert server.waited is True
+    assert task.done() is True
+    assert client.app.state.loopback_oauth_callbacks == {}
+    assert client.app.state.loopback_oauth_callback_tasks == {}
+
+
+@pytest.mark.asyncio
+async def test_close_loopback_callbacks_cleans_all_servers_and_tasks(client_with_index) -> None:
+    client, _ = client_with_index
+    servers = {"state-1": _FakeServer(), "state-2": _FakeServer()}
+    tasks = {
+        "state-1": asyncio.create_task(asyncio.sleep(600)),
+        "state-2": asyncio.create_task(asyncio.sleep(600)),
+    }
+    client.app.state.loopback_oauth_callbacks = servers.copy()
+    client.app.state.loopback_oauth_callback_tasks = tasks.copy()
+
+    await close_loopback_callbacks(client.app)
+
+    assert all(server.closed and server.waited for server in servers.values())
+    assert all(task.done() for task in tasks.values())
+    assert client.app.state.loopback_oauth_callbacks == {}
+    assert client.app.state.loopback_oauth_callback_tasks == {}
+
+
 def test_connection_label_uses_plugin_account_label_fallback() -> None:
     class _LabelPlugin:
         def account_label_from_credentials(self, _credentials: dict) -> str | None:
@@ -504,8 +647,9 @@ def test_connection_label_uses_plugin_account_label_fallback() -> None:
 
 @pytest.mark.asyncio
 async def test_handle_loopback_callback_completes_oauth(client_with_index) -> None:
-    client, _ = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
+    await _move_tortoise_to_pytest_loop(client, credential_blobs)
     state = "loopback-state"
     plugin = _GenericOAuthPlugin()
     server = _FakeServer()
@@ -534,9 +678,10 @@ async def test_handle_loopback_callback_completes_oauth(client_with_index) -> No
     assert server.closed is True
     assert server.waited is True
     assert state not in client.app.state.loopback_oauth_callbacks
-    profile = client.get("/v1/auth/generic/profiles/loopback")
-    assert profile.status_code == 200
-    assert profile.json()["state"] == "authenticated"
+    profile = await client.app.state.profile_index.get(account_id, "generic", "loopback")
+    assert profile is not None
+    assert profile.state == ProfileState.AUTHENTICATED
+    await Tortoise.close_connections()
 
 
 @pytest.mark.parametrize(
@@ -595,10 +740,42 @@ async def test_handle_loopback_callback_rejects_bad_requests(
     assert writer.closed is True
 
 
+@pytest.mark.parametrize(
+    "reader",
+    [
+        _FakeReader(_raw_loopback_request("/other?code=c&state=expected")),
+        _FakeReader(_raw_loopback_request("/callback?code=c&state=wrong")),
+        _FakeReader(_raw_loopback_request("/callback?code=c&state=expected", host="evil.test")),
+    ],
+)
+@pytest.mark.asyncio
+async def test_handle_loopback_callback_keeps_listener_for_stray_requests(
+    client_with_index,
+    reader,
+) -> None:
+    client, _ = client_with_index
+    server = _FakeServer()
+    client.app.state.loopback_oauth_callbacks = {"expected": server}
+
+    await _handle_loopback_callback(
+        client.app,
+        "generic",
+        "/callback",
+        "expected",
+        _as_stream_reader(reader),
+        _as_stream_writer(_FakeWriter()),
+    )
+
+    assert server.closed is False
+    assert server.waited is False
+    assert client.app.state.loopback_oauth_callbacks == {"expected": server}
+
+
 @pytest.mark.asyncio
 async def test_handle_loopback_callback_escapes_completion_errors(client_with_index) -> None:
-    client, _ = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
+    await _move_tortoise_to_pytest_loop(client, credential_blobs)
     state = "loopback-error-state"
     server = _FakeServer()
     client.app.state.providers._plugins["generic"] = _ExplodingOAuthPlugin()
@@ -620,9 +797,10 @@ async def test_handle_loopback_callback_escapes_completion_errors(client_with_in
     assert b"<script>bad</script>" not in writer.response
     assert server.closed is True
     assert server.waited is True
-    profile = client.get("/v1/auth/generic/profiles/loopback-error")
-    assert profile.status_code == 200
-    assert profile.json()["state"] == "error"
+    profile = await client.app.state.profile_index.get(account_id, "generic", "loopback-error")
+    assert profile is not None
+    assert profile.state == ProfileState.ERROR
+    await Tortoise.close_connections()
 
 
 def test_start_oauth_for_non_oauth_provider_400(client_with_index) -> None:
@@ -661,6 +839,54 @@ def test_exchange_code_uses_provider_exchange_hook(client_with_index) -> None:
     profile = client.get("/v1/auth/generic/profiles/work").json()
     assert profile["id"] == profile_id_for(account_id, "generic", "work")
     assert profile["state"] == "authenticated"
+
+
+def test_exchange_code_uses_redirect_uri_override(client_with_index) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    redirect_uri = "http://localhost:9105/callback"
+
+    start = client.post(
+        "/v1/auth/generic/profiles",
+        json={"name": "override", "redirect_uri": redirect_uri},
+    )
+    assert start.status_code == 201
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 200
+    assert plugin.exchange_request is not None
+    assert plugin.exchange_request.redirect_uri == redirect_uri
+
+
+def test_connection_exchange_uses_redirect_uri_override(client_with_index) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    redirect_uri = "http://localhost:9105/callback"
+
+    start = client.post(
+        "/v1/oauth/connections",
+        json={
+            "provider": "generic",
+            "label": "generic-override",
+            "redirect_uri": redirect_uri,
+        },
+    )
+    assert start.status_code == 201
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 200
+    assert plugin.exchange_request is not None
+    assert plugin.exchange_request.redirect_uri == redirect_uri
 
 
 def test_connection_completion_persists_credentials_after_store_complete(
@@ -953,13 +1179,14 @@ def test_callback_exchange_failure_consumes_state_and_marks_profile_error(
 
 @pytest.mark.asyncio
 async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_with_index) -> None:
-    client, _ = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     plugin = _DelayedOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
 
     start = client.post("/v1/auth/generic/profiles", json={"name": "race"})
     state = start.json()["state"]
+    await _move_tortoise_to_pytest_loop(client, credential_blobs)
 
     results = await asyncio.gather(
         _complete_oauth_for_app(client.app, "generic", "code-one", state, account_id),
@@ -972,24 +1199,28 @@ async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_wit
     assert len(errors) == 1
     assert errors[0].status_code == 400
     assert plugin.exchange_count == 1
-    prof = client.get("/v1/auth/generic/profiles/race").json()
-    assert prof["state"] == "authenticated"
+    profile = await client.app.state.profile_index.get(account_id, "generic", "race")
+    assert profile is not None
+    assert profile.state == ProfileState.AUTHENTICATED
+    await Tortoise.close_connections()
 
 
 @pytest.mark.asyncio
 async def test_complete_oauth_invalidates_provider_profile_session(client_with_index) -> None:
-    client, _ = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     plugin = _GenericOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
 
     start = client.post("/v1/auth/generic/profiles", json={"name": "reauth"})
+    await _move_tortoise_to_pytest_loop(client, credential_blobs)
 
     await _complete_oauth_for_app(
         client.app, "generic", "code-one", start.json()["state"], account_id
     )
 
     assert plugin.invalidated_profiles == [credential_name_for(account_id, "reauth")]
+    await Tortoise.close_connections()
 
 
 def test_callback_error_html_escapes_provider_response(client_with_index) -> None:

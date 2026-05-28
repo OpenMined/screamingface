@@ -9,6 +9,7 @@ in docs/superpowers/specs/2026-05-07-aigw-backend-oauth-authenticate-button-desi
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import httpx
 from fastapi import FastAPI
@@ -19,7 +20,7 @@ from screamingface.plugins.aigw_base.auth_proxy_router import (
 )
 
 
-def _make_client(handler, *, defaults=None) -> TestClient:
+def _make_client(handler, *, defaults=None, bridge=None) -> TestClient:
     """Mount the auth-proxy router onto a stub app, with a MockTransport gateway."""
     transport = httpx.MockTransport(handler)
 
@@ -27,6 +28,13 @@ def _make_client(handler, *, defaults=None) -> TestClient:
         return httpx.AsyncClient(transport=transport, timeout=timeout)
 
     app = FastAPI()
+    router_app = None
+    if bridge is not None:
+        app.state.aigw_callback_bridge = bridge
+        app.state.config = SimpleNamespace(
+            plugin_config={"aigw-base": {"mode": "local_managed", "gateway_url": "http://gateway"}}
+        )
+        router_app = app
     app.include_router(
         build_aigw_auth_proxy_router(
             path_prefix="/claude",
@@ -34,10 +42,37 @@ def _make_client(handler, *, defaults=None) -> TestClient:
             gateway_provider="anthropic",
             profile_name="default",
             http_client_factory=http_factory,
+            app=router_app,
             defaults=defaults,
         )
     )
     return TestClient(app)
+
+
+class _RecordingBridge:
+    def __init__(self, redirect_uri: str | None = "http://localhost:9105/callback") -> None:
+        self.redirect_uri = redirect_uri
+        self.prepared: list[str] = []
+        self.registered: list[dict[str, str]] = []
+        self.released: list[str] = []
+
+    async def prepare_redirect_uri(self, *, gateway_provider: str) -> str | None:
+        self.prepared.append(gateway_provider)
+        return self.redirect_uri
+
+    def register_state(self, *, state: str, gateway_provider: str, redirect_uri: str) -> None:
+        self.registered.append(
+            {"state": state, "gateway_provider": gateway_provider, "redirect_uri": redirect_uri}
+        )
+
+    def release_redirect_uri(self, redirect_uri: str) -> None:
+        self.released.append(redirect_uri)
+
+
+class _FailingBridge(_RecordingBridge):
+    async def prepare_redirect_uri(self, *, gateway_provider: str) -> str | None:
+        self.prepared.append(gateway_provider)
+        raise OSError("busy")
 
 
 def test_start_happy_path_passes_through_authorize_url() -> None:
@@ -67,6 +102,93 @@ def test_start_happy_path_passes_through_authorize_url() -> None:
     # Verify the SF route forwarded to the right gateway endpoint
     assert captured["url"] == "http://gateway/v1/auth/anthropic/profiles"
     assert captured["body"] == {"name": "default"}
+
+
+def test_start_with_disabled_bridge_keeps_gateway_body_unchanged() -> None:
+    captured: dict = {}
+    bridge = _RecordingBridge(redirect_uri=None)
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(
+            201,
+            json={
+                "profile_id": "anthropic:default",
+                "authorize_url": "https://provider/authorize?x=1",
+                "state": "abc",
+            },
+        )
+
+    client = _make_client(handler, bridge=bridge)
+    resp = client.post("/claude/auth/start")
+
+    assert resp.status_code == 201
+    assert captured["body"] == {"name": "default"}
+    assert bridge.prepared == ["anthropic"]
+    assert bridge.registered == []
+
+
+def test_start_with_bridge_sends_redirect_uri_and_registers_state() -> None:
+    captured: dict = {}
+    bridge = _RecordingBridge()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(
+            201,
+            json={
+                "profile_id": "anthropic:default",
+                "authorize_url": "https://provider/authorize?x=1",
+                "state": "abc",
+            },
+        )
+
+    client = _make_client(handler, bridge=bridge)
+    resp = client.post("/claude/auth/start")
+
+    assert resp.status_code == 201
+    assert captured["url"] == "http://gateway/v1/auth/anthropic/profiles"
+    assert captured["body"] == {
+        "name": "default",
+        "redirect_uri": "http://localhost:9105/callback",
+    }
+    assert bridge.registered == [
+        {
+            "state": "abc",
+            "gateway_provider": "anthropic",
+            "redirect_uri": "http://localhost:9105/callback",
+        }
+    ]
+    assert bridge.released == []
+
+
+def test_start_bridge_prepare_failure_becomes_503() -> None:
+    bridge = _FailingBridge()
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        raise AssertionError("gateway should not be called")
+
+    client = _make_client(handler, bridge=bridge)
+    resp = client.post("/claude/auth/start")
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "oauth_callback_unavailable"
+    assert bridge.prepared == ["anthropic"]
+
+
+def test_start_gateway_failure_releases_bridge_redirect_uri() -> None:
+    bridge = _RecordingBridge()
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"code": "bad_start"})
+
+    client = _make_client(handler, bridge=bridge)
+    resp = client.post("/claude/auth/start")
+
+    assert resp.status_code == 400
+    assert bridge.released == ["http://localhost:9105/callback"]
+    assert bridge.registered == []
 
 
 def test_start_rejects_missing_desktop_secret_when_configured(monkeypatch) -> None:
@@ -411,6 +533,56 @@ def test_start_connection_forwards_provider_and_label() -> None:
     assert resp.json()["connection_id"] == "00000000-0000-0000-0000-000000000001"
     assert captured["url"] == "http://gateway/v1/oauth/connections"
     assert captured["body"] == {"provider": "anthropic", "label": "work-anthropic"}
+
+
+def test_start_connection_with_bridge_sends_redirect_uri_and_registers_state() -> None:
+    captured: dict = {}
+    bridge = _RecordingBridge()
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(
+            201,
+            json={
+                "connection_id": "00000000-0000-0000-0000-000000000001",
+                "authorize_url": "https://provider/authorize?x=1",
+                "state": "connection-state",
+                "expires_in": 600,
+            },
+        )
+
+    client = _make_client(handler, bridge=bridge)
+    resp = client.post("/claude/auth/connections", json={"label": "work-anthropic"})
+
+    assert resp.status_code == 201
+    assert captured["url"] == "http://gateway/v1/oauth/connections"
+    assert captured["body"] == {
+        "provider": "anthropic",
+        "label": "work-anthropic",
+        "redirect_uri": "http://localhost:9105/callback",
+    }
+    assert bridge.registered == [
+        {
+            "state": "connection-state",
+            "gateway_provider": "anthropic",
+            "redirect_uri": "http://localhost:9105/callback",
+        }
+    ]
+
+
+def test_start_connection_gateway_failure_releases_bridge_redirect_uri() -> None:
+    bridge = _RecordingBridge()
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(409, json={"code": "label_conflict"})
+
+    client = _make_client(handler, bridge=bridge)
+    resp = client.post("/claude/auth/connections", json={"label": "work-anthropic"})
+
+    assert resp.status_code == 409
+    assert bridge.released == ["http://localhost:9105/callback"]
+    assert bridge.registered == []
 
 
 def test_start_connection_omits_empty_label() -> None:

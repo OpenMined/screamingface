@@ -48,6 +48,79 @@ def _attach_log_filter() -> None:
                 handler.addFilter(RedactProvisioningTokenFilter())
 
 
+def _configure_fake_anthropic_oauth(app: FastAPI) -> None:
+    if os.getenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH") != "1":
+        return
+    import httpx
+
+    fail_mode = os.getenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH_FAIL") == "1"
+
+    def _fake_handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host in (
+            "platform.claude.com",
+            "console.anthropic.com",
+        ) and req.url.path.endswith("/oauth/token"):
+            if fail_mode:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "fake-tok",
+                    "refresh_token": "fake-rt",
+                    "expires_in": 3600,
+                    "token_type": "Bearer",
+                },
+            )
+        return httpx.Response(404, json={"error": "unmapped"})
+
+    def _factory() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(_fake_handler),
+            timeout=httpx.Timeout(30.0),
+        )
+
+    app.state.anthropic_http_factory = _factory
+
+
+def _configure_fake_codex_oauth(app: FastAPI) -> None:
+    if os.getenv("AIGATEWAY_FAKE_CODEX_OAUTH") != "1":
+        return
+    import httpx
+
+    fail_mode = os.getenv("AIGATEWAY_FAKE_CODEX_OAUTH_FAIL") == "1"
+
+    def _fake_handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host == "auth.openai.com" and req.url.path == "/oauth/token":
+            if fail_mode:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            token_payload = {
+                "sub": "codex-sub-1",
+                "email": "codex-user@example.com",
+                "exp": int(time.time()) + 3600,
+                "https://api.openai.com/auth": {"chatgpt_account_id": "acct-codex-1"},
+            }
+            token = _unsigned_jwt(token_payload)
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": token,
+                    "refresh_token": "fake-codex-rt",
+                    "id_token": token,
+                    "expires_in": 3600,
+                    "token_type": "Bearer",
+                },
+            )
+        return httpx.Response(404, json={"error": "unmapped"})
+
+    def _factory() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(_fake_handler),
+            timeout=httpx.Timeout(30.0),
+        )
+
+    app.state.codex_http_factory = _factory
+
+
 @asynccontextmanager
 async def _lifespan(app):
     database_url = app.state.settings.database_url.get_secret_value()
@@ -84,6 +157,7 @@ async def _lifespan(app):
                     )
         yield
     finally:
+        await auth.close_loopback_callbacks(app)
         await close_db()
 
 
@@ -106,72 +180,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.credential_store = credential_store
     app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
 
-    if os.getenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH") == "1":
-        import httpx
-
-        fail_mode = os.getenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH_FAIL") == "1"
-
-        def _fake_handler(req: httpx.Request) -> httpx.Response:
-            if req.url.host in (
-                "platform.claude.com",
-                "console.anthropic.com",
-            ) and req.url.path.endswith("/oauth/token"):
-                if fail_mode:
-                    return httpx.Response(400, json={"error": "invalid_grant"})
-                return httpx.Response(
-                    200,
-                    json={
-                        "access_token": "fake-tok",
-                        "refresh_token": "fake-rt",
-                        "expires_in": 3600,
-                        "token_type": "Bearer",
-                    },
-                )
-            return httpx.Response(404, json={"error": "unmapped"})
-
-        def _factory() -> httpx.AsyncClient:
-            return httpx.AsyncClient(
-                transport=httpx.MockTransport(_fake_handler),
-                timeout=httpx.Timeout(30.0),
-            )
-
-        app.state.anthropic_http_factory = _factory
-
-    if os.getenv("AIGATEWAY_FAKE_CODEX_OAUTH") == "1":
-        import httpx
-
-        fail_mode = os.getenv("AIGATEWAY_FAKE_CODEX_OAUTH_FAIL") == "1"
-
-        def _fake_handler(req: httpx.Request) -> httpx.Response:
-            if req.url.host == "auth.openai.com" and req.url.path == "/oauth/token":
-                if fail_mode:
-                    return httpx.Response(400, json={"error": "invalid_grant"})
-                token_payload = {
-                    "sub": "codex-sub-1",
-                    "email": "codex-user@example.com",
-                    "exp": int(time.time()) + 3600,
-                    "https://api.openai.com/auth": {"chatgpt_account_id": "acct-codex-1"},
-                }
-                token = _unsigned_jwt(token_payload)
-                return httpx.Response(
-                    200,
-                    json={
-                        "access_token": token,
-                        "refresh_token": "fake-codex-rt",
-                        "id_token": token,
-                        "expires_in": 3600,
-                        "token_type": "Bearer",
-                    },
-                )
-            return httpx.Response(404, json={"error": "unmapped"})
-
-        def _factory() -> httpx.AsyncClient:
-            return httpx.AsyncClient(
-                transport=httpx.MockTransport(_fake_handler),
-                timeout=httpx.Timeout(30.0),
-            )
-
-        app.state.codex_http_factory = _factory
+    _configure_fake_anthropic_oauth(app)
+    _configure_fake_codex_oauth(app)
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
 

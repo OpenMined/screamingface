@@ -116,6 +116,10 @@ class ProviderPluginBase(ABC):
         """Return a display label for credentials persisted after OAuth, if available."""
         return None
 
+    def credential_service_provider(self) -> str:
+        """Return the provider namespace used in persisted credential service keys."""
+        return self.custom_llm_provider
+
     async def extract_identity(
         self,
         _credentials: dict[str, Any],
@@ -184,3 +188,12 @@ class ProviderPluginBase(ABC):
     ) -> None:
         """Populate provider-owned profile metadata at startup, if any."""
         return None
+
+
+def credential_service_provider_for(plugin: Any, provider: str) -> str:
+    getter = getattr(plugin, "credential_service_provider", None)
+    if callable(getter):
+        value = getter()
+        if isinstance(value, str) and value:
+            return value
+    return provider
