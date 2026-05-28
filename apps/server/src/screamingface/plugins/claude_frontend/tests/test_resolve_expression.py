@@ -1,18 +1,24 @@
-"""Regression tests for _resolve_expression — covers the /ensemble 401 self-loop.
+"""Regression tests for _resolve_expression — covers the /ensemble 401 + /data 404.
 
 When the claude-frontend proxy resolves a ``$prompt`` url4 expression it
-evaluates the substituted expression via :func:`_resolve_expression`. Two
-paths:
+evaluates the substituted expression via :func:`_resolve_expression`. The blob
+holding the user's prompt was written by ``_store_prompt_blob`` either:
 
-1. In-process: ``Url4Interpreter(app=app).evaluate(...)`` (same interpreter
-   ``GET /ensemble`` uses).
-2. HTTP: GET ``{backend_url}/ensemble`` (only correct out-of-process).
+1. in-process (when this ``app`` owns ``app.state.blob_store``), or
+2. on the main server via HTTP ``POST /data`` (when it doesn't).
 
-The HTTP path self-loops back into the proxy's own SF. Since SF-174 guarded
-``/ensemble`` with the desktop secret, that self-call returns 401 when
-``SF_DESKTOP_SECRET`` is set (the desktop always sets it). The fix: prefer the
-in-process path whenever ``app`` is available — mirroring ``_store_prompt_blob``.
-These tests pin that behavior.
+Resolution must read the blob back from the SAME locus, so ``_resolve_expression``
+mirrors ``_store_prompt_blob``'s guard:
+
+- in-process when ``app.state.blob_store`` exists, else
+- HTTP ``GET {backend_url}/ensemble`` with the ``X-SF-Desktop-Secret`` header
+  (SF-174 guards ``/ensemble``; the per-session process reads the same shared
+  secret via ``SF_DESKTOP_SECRET_FILE``).
+
+History: SF-230 resolved in-process whenever ``app is not None``. Because the
+proxy runs as a separate per-session app whose ``app`` lacks ``blob_store``, the
+blob lived on the main server but in-process resolution read the proxy app ->
+404 on ``/data/{key}``. These tests pin the locus-matched behavior.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ from typing import Any
 import httpx
 import pytest
 
+import screamingface.plugins.claude_frontend._url4_context as mod
 import screamingface.plugins.url4_executor.interpreter as interpreter_mod
 from screamingface.plugins.claude_frontend._url4_context import _resolve_expression
 
@@ -57,55 +64,18 @@ class _FakeInterpreter:
         return f"inprocess:{expr}"
 
 
-@pytest.mark.anyio
-async def test_inprocess_path_used_when_app_available(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With an app, evaluation goes through the in-process interpreter, not HTTP."""
-    monkeypatch.setattr(interpreter_mod, "Url4Interpreter", _FakeInterpreter)
-    app = SimpleNamespace(state=SimpleNamespace())
-
-    result = await _resolve_expression(
-        "(https://x)!intent", app=app, backend_url=None, tracer=_NullTracer()
-    )
-
-    assert result == "inprocess:(https://x)!intent"
-    assert _FakeInterpreter.last_app is app
+def _app_with_blob_store() -> Any:
+    return SimpleNamespace(state=SimpleNamespace(blob_store=object()))
 
 
-@pytest.mark.anyio
-async def test_inprocess_preferred_even_when_backend_url_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The bug: backend_url set + /ensemble now secret-protected -> 401 on the
-    HTTP self-loop. We prefer in-process whenever an app is present, so a set
-    backend_url doesn't drag us into the self-call."""
-    monkeypatch.setattr(interpreter_mod, "Url4Interpreter", _FakeInterpreter)
-    app = SimpleNamespace(state=SimpleNamespace())
-
-    # If the HTTP path were taken it would try to reach this dead address.
-    result = await _resolve_expression(
-        "(https://x)!intent",
-        app=app,
-        backend_url="http://127.0.0.1:1/garbage",
-        tracer=_NullTracer(),
-    )
-
-    assert result == "inprocess:(https://x)!intent"
+def _app_without_blob_store() -> Any:
+    return SimpleNamespace(state=SimpleNamespace())
 
 
-@pytest.mark.anyio
-async def test_http_path_used_when_no_inprocess_app() -> None:
-    """Out-of-process (no app): the HTTP /ensemble fallback is the only option."""
-    captured: dict[str, Any] = {}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        captured["url"] = str(req.url)
-        captured["method"] = req.method
-        return httpx.Response(200, text="ensemble-result")
-
+@contextmanager
+def _mock_ensemble_transport(handler):  # type: ignore[no-untyped-def]
+    """Route _url4_context's httpx.AsyncClient through a MockTransport."""
     transport = httpx.MockTransport(handler)
-
-    import screamingface.plugins.claude_frontend._url4_context as mod
-
     real_client_cls = mod.httpx.AsyncClient
 
     class _Client(real_client_cls):  # type: ignore[misc, valid-type]
@@ -115,19 +85,77 @@ async def test_http_path_used_when_no_inprocess_app() -> None:
 
     mod.httpx.AsyncClient = _Client  # type: ignore[misc]
     try:
-        result = await _resolve_expression(
-            "(https://x)", app=None, backend_url="http://gateway", tracer=_NullTracer()
-        )
+        yield
     finally:
         mod.httpx.AsyncClient = real_client_cls  # type: ignore[misc]
 
-    assert result == "ensemble-result"
-    assert captured["url"] == "http://gateway/ensemble?q=%28https%3A%2F%2Fx%29"
-    assert captured["method"] == "GET"
+
+@pytest.mark.anyio
+async def test_inprocess_used_when_app_owns_blob_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When this app owns the blob store, resolve in-process (where the blob is)."""
+    monkeypatch.setattr(interpreter_mod, "Url4Interpreter", _FakeInterpreter)
+    app = _app_with_blob_store()
+
+    # backend_url is set but must be ignored — the blob lives in-process here.
+    result = await _resolve_expression(
+        "(https://x)!intent",
+        app=app,
+        backend_url="http://127.0.0.1:1/garbage",
+        tracer=_NullTracer(),
+    )
+
+    assert result == "inprocess:(https://x)!intent"
+    assert _FakeInterpreter.last_app is app
 
 
 @pytest.mark.anyio
-async def test_raises_when_no_app_and_no_backend_url() -> None:
-    """No app and no backend_url is a programming error — raise loudly."""
+async def test_http_with_secret_when_app_lacks_blob_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No local blob store -> blob is on the main server; resolve via HTTP /ensemble
+    and carry the desktop secret so SF-174's guard accepts it."""
+    monkeypatch.setattr(mod, "configured_desktop_secret", lambda: "s3cr3t")
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        captured["secret"] = req.headers.get(mod.DESKTOP_SECRET_HEADER)
+        return httpx.Response(200, text="ensemble-result")
+
+    with _mock_ensemble_transport(handler):
+        result = await _resolve_expression(
+            "(https://x)!/data/abc",
+            app=_app_without_blob_store(),
+            backend_url="http://gateway",
+            tracer=_NullTracer(),
+        )
+
+    assert result == "ensemble-result"
+    assert captured["url"].startswith("http://gateway/ensemble?q=")
+    assert captured["secret"] == "s3cr3t"
+
+
+@pytest.mark.anyio
+async def test_http_no_secret_header_when_secret_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If no desktop secret is configured, no header is sent (guard is a no-op then)."""
+    monkeypatch.setattr(mod, "configured_desktop_secret", lambda: None)
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["secret"] = req.headers.get(mod.DESKTOP_SECRET_HEADER)
+        return httpx.Response(200, text="ok")
+
+    with _mock_ensemble_transport(handler):
+        result = await _resolve_expression(
+            "(https://x)", app=None, backend_url="http://gateway", tracer=_NullTracer()
+        )
+
+    assert result == "ok"
+    assert captured["secret"] is None
+
+
+@pytest.mark.anyio
+async def test_raises_when_no_blob_store_app_and_no_backend_url() -> None:
+    """No in-process blob store and no backend_url is a programming error."""
     with pytest.raises(RuntimeError, match="requires either"):
-        await _resolve_expression("x", app=None, backend_url=None, tracer=_NullTracer())
+        await _resolve_expression(
+            "x", app=_app_without_blob_store(), backend_url=None, tracer=_NullTracer()
+        )

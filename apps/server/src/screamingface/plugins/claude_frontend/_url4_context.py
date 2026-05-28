@@ -30,6 +30,10 @@ from typing import Any
 import httpx
 from fastapi.responses import JSONResponse
 
+from screamingface.plugins.aigw_base.desktop_secret import (
+    DESKTOP_SECRET_HEADER,
+    configured_desktop_secret,
+)
 from screamingface.plugins.llm_base.constants import PROMPT_PREVIEW_LIMIT
 
 logger = logging.getLogger(__name__)
@@ -140,16 +144,22 @@ async def _resolve_expression(
 ) -> str:
     """Evaluate a url4 expression and return the final text.
 
-    Prefers in-process evaluation whenever an ``app`` reference is available —
-    the HTTP path (``backend_url`` set) only fires when there's no in-process
-    app. This avoids a self-loop where the proxy calls back into its own SF
-    ``/ensemble`` over HTTP: that endpoint requires the desktop secret (which
-    this internal caller doesn't supply -> 401) and also breaks on a stale
-    ``backend_url``. Mirrors :func:`_store_prompt_blob`'s in-process-first
-    preference. The in-process interpreter is the same one ``GET /ensemble``
-    uses, so the result is equivalent.
+    Resolves from the *same locus* where :func:`_store_prompt_blob` wrote the
+    prompt blob, so the ``/data/{key}`` lookup always hits the store that holds
+    it:
+
+    - In-process whenever this ``app`` owns the blob store (``app.state``
+      ``.blob_store``) — the interpreter is the same one ``GET /ensemble`` uses.
+    - Otherwise the blob was POSTed to the main server, so resolve via that
+      server's ``GET /ensemble`` over HTTP. That endpoint requires the desktop
+      secret (added in SF-174), so we send ``X-SF-Desktop-Secret`` — the per-
+      session process inherits ``SF_DESKTOP_SECRET_FILE`` and reads the same
+      shared secret the main server validates against.
+
+    The guard mirrors :func:`_store_prompt_blob` exactly; diverging the two is
+    what caused store/resolve to target different stores (a 404 on ``/data``).
     """
-    if app is not None:
+    if app is not None and getattr(getattr(app, "state", None), "blob_store", None) is not None:
         from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
 
         interpreter = Url4Interpreter(app=app)
@@ -157,6 +167,8 @@ async def _resolve_expression(
 
     if backend_url:
         ens_url = f"{backend_url}/ensemble"
+        secret = configured_desktop_secret()
+        headers = {DESKTOP_SECRET_HEADER: secret} if secret else {}
         with tracer.start_client_span("GET /ensemble"):
             tracer.set_attrs(
                 {
@@ -166,7 +178,7 @@ async def _resolve_expression(
                 }
             )
             async with httpx.AsyncClient(timeout=httpx.Timeout(300.0), verify=False) as ec:
-                ens_resp = await ec.get(ens_url, params={"q": expression})
+                ens_resp = await ec.get(ens_url, params={"q": expression}, headers=headers)
                 ens_resp.raise_for_status()
                 final_text = ens_resp.text
             tracer.set_attrs(
@@ -179,7 +191,8 @@ async def _resolve_expression(
         return final_text
 
     raise RuntimeError(
-        "_resolve_expression requires either an in-process app or a non-empty backend_url"
+        "_resolve_expression requires either an in-process app with blob_store "
+        "or a non-empty backend_url"
     )
 
 
