@@ -138,7 +138,23 @@ async def _resolve_expression(
     backend_url: str | None,
     tracer: Any,
 ) -> str:
-    """Evaluate a url4 expression and return the final text."""
+    """Evaluate a url4 expression and return the final text.
+
+    Prefers in-process evaluation whenever an ``app`` reference is available —
+    the HTTP path (``backend_url`` set) only fires when there's no in-process
+    app. This avoids a self-loop where the proxy calls back into its own SF
+    ``/ensemble`` over HTTP: that endpoint requires the desktop secret (which
+    this internal caller doesn't supply -> 401) and also breaks on a stale
+    ``backend_url``. Mirrors :func:`_store_prompt_blob`'s in-process-first
+    preference. The in-process interpreter is the same one ``GET /ensemble``
+    uses, so the result is equivalent.
+    """
+    if app is not None:
+        from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
+
+        interpreter = Url4Interpreter(app=app)
+        return await interpreter.evaluate(expression)
+
     if backend_url:
         ens_url = f"{backend_url}/ensemble"
         with tracer.start_client_span("GET /ensemble"):
@@ -162,11 +178,9 @@ async def _resolve_expression(
             )
         return final_text
 
-    # In-process fallback
-    from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
-
-    interpreter = Url4Interpreter(app=app)
-    return await interpreter.evaluate(expression)
+    raise RuntimeError(
+        "_resolve_expression requires either an in-process app or a non-empty backend_url"
+    )
 
 
 async def resolve_prompt_expression(
