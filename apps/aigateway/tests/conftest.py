@@ -112,6 +112,7 @@ def client(
 
     with TestClient(create_app()) as test_client:
         yield test_client
+    asyncio.run(Tortoise.close_connections())
 
 
 @pytest.fixture

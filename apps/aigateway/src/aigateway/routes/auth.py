@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from html import escape
 from ipaddress import ip_address
@@ -23,7 +24,11 @@ from ..core.oauth.store import (
 )
 from ..core.oauth_pkce import generate_pkce, generate_state
 from ..core.pending_auth import PendingAuthEntry
-from ..core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
+from ..core.plugin_base import (
+    OAuthCodeExchangeRequest,
+    OAuthConfig,
+    credential_service_provider_for,
+)
 from ..core.profile_index import ProfileIndexStore
 from ..core.profile_models import (
     Profile,
@@ -34,6 +39,13 @@ from ..core.profile_models import (
 )
 
 router = APIRouter()
+
+
+@dataclass(frozen=True)
+class _LoopbackHttpRequest:
+    method: str
+    target: str
+    headers: dict[str, str]
 
 
 def _index_store(request: Request) -> ProfileIndexStore:
@@ -118,13 +130,64 @@ def _pending_for_app(app):
     return app.state.pending_auth
 
 
+def _redirect_path_for(cfg: OAuthConfig) -> str:
+    return cfg.redirect_path if cfg.redirect_path.startswith("/") else f"/{cfg.redirect_path}"
+
+
 def _gateway_redirect_uri_for(request: Request, cfg: OAuthConfig) -> str:
-    path = cfg.redirect_path if cfg.redirect_path.startswith("/") else f"/{cfg.redirect_path}"
+    path = _redirect_path_for(cfg)
     public_url = request.app.state.settings.public_url
     if public_url:
         return f"{public_url}{path}"
     port = _request_host_port(request) or request.app.state.settings.port
     return f"http://localhost:{port}{path}"
+
+
+def _invalid_redirect_uri(provider: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail={"code": "invalid_redirect_uri", "provider": provider, "message": message},
+    )
+
+
+def _validate_redirect_uri_override(
+    provider: str,
+    cfg: OAuthConfig,
+    redirect_uri: str,
+) -> str:
+    try:
+        parsed = urlsplit(redirect_uri)
+        port = parsed.port
+    except ValueError as exc:
+        raise _invalid_redirect_uri(provider, "redirect_uri is not a valid URL") from exc
+
+    if parsed.scheme != "http":
+        raise _invalid_redirect_uri(provider, "redirect_uri must use http")
+    if parsed.username is not None or parsed.password is not None:
+        raise _invalid_redirect_uri(provider, "redirect_uri must not include credentials")
+    if parsed.query or parsed.fragment:
+        raise _invalid_redirect_uri(provider, "redirect_uri must not include query or fragment")
+    if port is None or port < 1:
+        raise _invalid_redirect_uri(provider, "redirect_uri must include a valid port")
+
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in {"localhost", "127.0.0.1", "::1"}:
+        raise _invalid_redirect_uri(provider, "redirect_uri host must be loopback localhost")
+
+    expected_path = _redirect_path_for(cfg)
+    if parsed.path != expected_path:
+        raise _invalid_redirect_uri(
+            provider,
+            f"redirect_uri path must be {expected_path}",
+        )
+
+    allowed_ports = cfg.loopback_redirect_ports
+    if allowed_ports and port not in allowed_ports:
+        raise _invalid_redirect_uri(
+            provider,
+            f"redirect_uri port must be one of {allowed_ports}",
+        )
+    return redirect_uri
 
 
 def _request_host_port(request: Request) -> int | None:
@@ -138,12 +201,7 @@ def _request_host_port(request: Request) -> int | None:
 
 
 def _loopback_host_allowed(host_header: str | None) -> bool:
-    if host_header is None:
-        return False
-    try:
-        hostname = urlsplit(f"//{host_header.strip()}").hostname
-    except ValueError:
-        return False
+    hostname = _loopback_hostname(host_header)
     if hostname is None:
         return False
     normalized = hostname.rstrip(".").lower()
@@ -155,15 +213,51 @@ def _loopback_host_allowed(host_header: str | None) -> bool:
         return False
 
 
+def _loopback_hostname(host_header: str | None) -> str | None:
+    if host_header is None:
+        return None
+    try:
+        return urlsplit(f"//{host_header.strip()}").hostname
+    except ValueError:
+        return None
+
+
 async def _close_loopback_callback(app, state: str) -> None:
     callbacks = getattr(app.state, "loopback_oauth_callbacks", None)
-    if not isinstance(callbacks, dict):
-        return
-    server = callbacks.pop(state, None)
-    if server is None:
-        return
-    server.close()
-    await server.wait_closed()
+    server = callbacks.pop(state, None) if isinstance(callbacks, dict) else None
+    tasks = getattr(app.state, "loopback_oauth_callback_tasks", None)
+    task = tasks.pop(state, None) if isinstance(tasks, dict) else None
+    current_task = asyncio.current_task()
+    if task is not None and task is not current_task:
+        task.cancel()
+    if server is not None:
+        server.close()
+        await server.wait_closed()
+    if task is not None and task is not current_task:
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def close_loopback_callbacks(app) -> None:
+    callbacks = getattr(app.state, "loopback_oauth_callbacks", None)
+    servers = list(callbacks.values()) if isinstance(callbacks, dict) else []
+    if isinstance(callbacks, dict):
+        callbacks.clear()
+
+    task_map = getattr(app.state, "loopback_oauth_callback_tasks", None)
+    tasks = list(task_map.values()) if isinstance(task_map, dict) else []
+    if isinstance(task_map, dict):
+        task_map.clear()
+
+    current_task = asyncio.current_task()
+    tasks_to_cancel = [task for task in tasks if task is not current_task]
+    for task in tasks_to_cancel:
+        task.cancel()
+    for server in servers:
+        server.close()
+    if tasks_to_cancel:
+        await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
+    for server in servers:
+        await server.wait_closed()
 
 
 async def _expire_loopback_callback(app, state: str, ttl_seconds: int) -> None:
@@ -186,6 +280,38 @@ def _http_response(status: int, body: str, *, content_type: str = "text/html") -
     return headers + data
 
 
+async def _read_loopback_http_request(
+    reader: asyncio.StreamReader,
+) -> _LoopbackHttpRequest | None:
+    try:
+        raw = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5)
+    except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, TimeoutError):
+        return None
+    return _parse_loopback_http_request(raw)
+
+
+def _parse_loopback_http_request(raw: bytes) -> _LoopbackHttpRequest | None:
+    lines = raw.decode("iso-8859-1", errors="replace").split("\r\n")
+    request_line = lines[0].split()
+    if len(request_line) < 2:
+        return None
+    return _LoopbackHttpRequest(
+        method=request_line[0],
+        target=request_line[1],
+        headers=_parse_loopback_headers(lines[1:]),
+    )
+
+
+def _parse_loopback_headers(lines: list[str]) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for line in lines:
+        if not line or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        headers[key.strip().lower()] = value.strip()
+    return headers
+
+
 async def _handle_loopback_callback(
     app,
     provider: str,
@@ -196,35 +322,21 @@ async def _handle_loopback_callback(
 ) -> None:
     status = 500
     body = "Authentication failed"
+    close_callback = False
     try:
-        try:
-            raw = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=5)
-        except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, TimeoutError):
+        callback_request = await _read_loopback_http_request(reader)
+        if callback_request is None:
             status = 400
             body = "Malformed callback request"
             return
 
-        lines = raw.decode("iso-8859-1", errors="replace").split("\r\n")
-        request_line = lines[0].split()
-        if len(request_line) < 2:
-            status = 400
-            body = "Malformed callback request"
-            return
-        method, target = request_line[0], request_line[1]
-        headers: dict[str, str] = {}
-        for line in lines[1:]:
-            if not line or ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            headers[key.strip().lower()] = value.strip()
-
-        if not _loopback_host_allowed(headers.get("host")):
+        if not _loopback_host_allowed(callback_request.headers.get("host")):
             status = 403
             body = "Forbidden callback host"
             return
 
-        parsed = urlsplit(target)
-        if method != "GET" or parsed.path != expected_path:
+        parsed = urlsplit(callback_request.target)
+        if callback_request.method != "GET" or parsed.path != expected_path:
             status = 404
             body = "Unknown callback path"
             return
@@ -232,6 +344,7 @@ async def _handle_loopback_callback(
         params = parse_qs(parsed.query)
         code = params.get("code", [None])[0]
         state = params.get("state", [None])[0]
+        close_callback = state == expected_state
         if not code or not state:
             status = 400
             body = "Missing callback code or state"
@@ -259,7 +372,8 @@ async def _handle_loopback_callback(
         await writer.drain()
         writer.close()
         await writer.wait_closed()
-        await _close_loopback_callback(app, expected_state)
+        if close_callback:
+            await _close_loopback_callback(app, expected_state)
 
 
 async def _loopback_redirect_uri_for(
@@ -268,7 +382,7 @@ async def _loopback_redirect_uri_for(
     cfg: OAuthConfig,
     state: str,
 ) -> str:
-    path = cfg.redirect_path if cfg.redirect_path.startswith("/") else f"/{cfg.redirect_path}"
+    path = _redirect_path_for(cfg)
     callbacks = getattr(request.app.state, "loopback_oauth_callbacks", None)
     if not isinstance(callbacks, dict):
         callbacks = {}
@@ -289,7 +403,11 @@ async def _loopback_redirect_uri_for(
             callbacks = {}
             request.app.state.loopback_oauth_callbacks = callbacks
         callbacks[state] = server
-        asyncio.create_task(_expire_loopback_callback(request.app, state, 600))
+        tasks = getattr(request.app.state, "loopback_oauth_callback_tasks", None)
+        if not isinstance(tasks, dict):
+            tasks = {}
+            request.app.state.loopback_oauth_callback_tasks = tasks
+        tasks[state] = asyncio.create_task(_expire_loopback_callback(request.app, state, 600))
         return f"http://localhost:{port}{path}"
     raise HTTPException(
         status_code=503,
@@ -302,7 +420,10 @@ async def _redirect_uri_for(
     provider: str,
     cfg: OAuthConfig,
     state: str,
+    redirect_uri: str | None = None,
 ) -> str:
+    if redirect_uri is not None:
+        return _validate_redirect_uri_override(provider, cfg, redirect_uri)
     if request.app.state.settings.public_url:
         return _gateway_redirect_uri_for(request, cfg)
     if cfg.loopback_redirect_ports:
@@ -336,6 +457,7 @@ async def get_profile(provider: str, name: str, request: Request, current: Curre
 class StartAuthRequest(BaseModel):
     name: str
     defaults: ProfileDefaults | None = None
+    redirect_uri: str | None = None
 
 
 @router.post("/v1/auth/{provider}/profiles", status_code=201)
@@ -357,11 +479,15 @@ async def start_oauth(
 
     account_id = str(current.id)
     profile_id = profile_id_for(account_id, provider, body.name)
-    for stale_state in _pending(request).pop_for_profile(account_id, provider, body.name):
-        await _close_loopback_callback(request.app, stale_state)
     code_verifier, code_challenge = generate_pkce()
     state = generate_state()
-    redirect_uri = await _redirect_uri_for(request, provider, cfg, state)
+    redirect_uri: str | None = None
+    if body.redirect_uri is not None:
+        redirect_uri = await _redirect_uri_for(request, provider, cfg, state, body.redirect_uri)
+    for stale_state in _pending(request).pop_for_profile(account_id, provider, body.name):
+        await _close_loopback_callback(request.app, stale_state)
+    if redirect_uri is None:
+        redirect_uri = await _redirect_uri_for(request, provider, cfg, state)
 
     _pending(request).put(
         state,
@@ -488,20 +614,8 @@ async def _complete_oauth_for_app(
     paste-code endpoint. Raises HTTPException on failure.
     """
     pending_table = _pending_for_app(app)
-    pending = pending_table.peek(state)
-    if pending is None:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "unknown_state", "message": "OAuth state not recognized or expired"},
-        )
-
-    if pending.provider != provider:
-        raise HTTPException(status_code=400, detail={"code": "provider_mismatch"})
-    account_id = pending.account_id
-    if current_account_id is not None and current_account_id != account_id:
-        raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
-    name = pending.profile_name
-
+    pending = _pending_or_unknown(pending_table.peek(state))
+    _validate_pending_oauth(pending, provider, current_account_id)
     plugin = _registry_for_app(app).get(provider)
     if plugin is None:
         raise HTTPException(
@@ -518,48 +632,90 @@ async def _complete_oauth_for_app(
 
     # Consume the OAuth state after all synchronous validation and before the
     # first await that can race another callback using the same code.
-    pending = pending_table.pop(state)
-    if pending is None:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "unknown_state", "message": "OAuth state not recognized or expired"},
-        )
+    pending = _pending_or_unknown(pending_table.pop(state))
     try:
-        creds = await plugin.exchange_oauth_code(
-            OAuthCodeExchangeRequest(
-                code=code,
-                code_verifier=pending.code_verifier,
-                redirect_uri=pending.redirect_uri,
-                state=state,
-                http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
-            )
-        )
+        creds = await _exchange_oauth_code_for_pending(app, plugin, provider, code, state, pending)
     except NotImplementedError as exc:
-        await _mark_profile_error(app, account_id, provider, name)
-        await _mark_connection_error(app, pending, "provider_does_not_use_oauth")
-        await _close_loopback_callback(app, state)
+        await _mark_oauth_completion_error(app, pending, "provider_does_not_use_oauth", state)
         raise HTTPException(
             status_code=400,
             detail={"code": "provider_does_not_use_oauth", "provider": provider},
         ) from exc
     except Exception:
-        await _mark_profile_error(app, account_id, provider, name)
-        await _mark_connection_error(app, pending, "OAuth code exchange failed")
-        await _close_loopback_callback(app, state)
+        await _mark_oauth_completion_error(app, pending, "OAuth code exchange failed", state)
         raise
     if pending.connection_id is None:
         await strategy.persist_credentials(creds)
-        _invalidate_profile_session(plugin, account_id, name)
+        _invalidate_profile_session(plugin, pending.account_id, pending.profile_name)
 
-    p = await _index_store_for_app(app).get(account_id, provider, name)
-    if p is not None:
-        p.state = ProfileState.AUTHENTICATED
-        label = plugin.account_label_from_credentials(creds)
-        if label is not None:
-            p.account_label = label
-        await _index_store_for_app(app).upsert(p)
+    await _mark_profile_authenticated(app, pending, plugin, creds)
     await _record_oauth_connection_completion(app, pending, plugin, creds)
     await _close_loopback_callback(app, state)
+
+
+def _pending_or_unknown(pending: PendingAuthEntry | None) -> PendingAuthEntry:
+    if pending is not None:
+        return pending
+    raise HTTPException(
+        status_code=400,
+        detail={"code": "unknown_state", "message": "OAuth state not recognized or expired"},
+    )
+
+
+def _validate_pending_oauth(
+    pending: PendingAuthEntry,
+    provider: str,
+    current_account_id: str | None,
+) -> None:
+    if pending.provider != provider:
+        raise HTTPException(status_code=400, detail={"code": "provider_mismatch"})
+    if current_account_id is not None and current_account_id != pending.account_id:
+        raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
+
+
+async def _exchange_oauth_code_for_pending(
+    app,
+    plugin,
+    provider: str,
+    code: str,
+    state: str,
+    pending: PendingAuthEntry,
+) -> dict:
+    return await plugin.exchange_oauth_code(
+        OAuthCodeExchangeRequest(
+            code=code,
+            code_verifier=pending.code_verifier,
+            redirect_uri=pending.redirect_uri,
+            state=state,
+            http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
+        )
+    )
+
+
+async def _mark_oauth_completion_error(
+    app,
+    pending: PendingAuthEntry,
+    connection_message: str,
+    state: str,
+) -> None:
+    await _mark_profile_error(app, pending.account_id, pending.provider, pending.profile_name)
+    await _mark_connection_error(app, pending, connection_message)
+    await _close_loopback_callback(app, state)
+
+
+async def _mark_profile_authenticated(app, pending: PendingAuthEntry, plugin, creds: dict) -> None:
+    profile = await _index_store_for_app(app).get(
+        pending.account_id,
+        pending.provider,
+        pending.profile_name,
+    )
+    if profile is None:
+        return
+    profile.state = ProfileState.AUTHENTICATED
+    label = plugin.account_label_from_credentials(creds)
+    if label is not None:
+        profile.account_label = label
+    await _index_store_for_app(app).upsert(profile)
 
 
 def _credential_name_for_pending(pending: PendingAuthEntry) -> str:
@@ -602,17 +758,9 @@ async def _record_oauth_connection_completion(
     creds: dict,
 ) -> None:
     store = OAuthConnectionStore()
-    extractor = getattr(plugin, "extract_identity", None)
-    if not callable(extractor) and pending.connection_id is None:
+    if not _plugin_extracts_identity(plugin) and pending.connection_id is None:
         return
-    identity = (
-        await cast(Callable[..., Awaitable[Any]], extractor)(
-            creds,
-            http_client_factory=getattr(app.state, f"{pending.provider}_http_factory", None),
-        )
-        if callable(extractor)
-        else None
-    )
+    identity = await _extract_connection_identity(app, pending, plugin, creds)
     label = _connection_label(pending, plugin, creds, identity)
     if not label:
         raise HTTPException(
@@ -620,36 +768,12 @@ async def _record_oauth_connection_completion(
             detail={"code": "label_required", "provider": pending.provider},
         )
 
-    duplicate = await store.find_by_identity(
-        pending.account_id, pending.provider, getattr(identity, "sub", None)
-    )
-    if duplicate is not None:
-        if pending.connection_id is not None:
-            connection = await _connection_for_pending(store, pending, label)
-            if duplicate.id != connection.id:
-                await store.delete_or_supersede_pending(connection, duplicate)
-                await _delete_connection_credentials(app, connection.credential_locator)
+    if await _handle_duplicate_connection_identity(app, store, pending, plugin, label, identity):
+        return
+    if await _handle_duplicate_connection_label(app, store, pending, plugin, label, identity):
         return
 
-    if identity is None or identity.sub is None:
-        duplicate_label = await store.find_by_label(pending.account_id, pending.provider, label)
-        if duplicate_label is not None:
-            if pending.connection_id is not None:
-                connection = await _connection_for_pending(store, pending, label)
-                if duplicate_label.id != connection.id:
-                    await store.delete_or_supersede_pending(connection, duplicate_label)
-                    await _delete_connection_credentials(app, connection.credential_locator)
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "label_conflict",
-                        "provider": pending.provider,
-                        "label": label,
-                    },
-                )
-            return
-
-    connection = await _connection_for_pending(store, pending, label)
+    connection = await _connection_for_pending(store, pending, plugin, label)
     try:
         await store.complete(connection, label=label, identity=identity)
     except IntegrityError as exc:
@@ -668,6 +792,71 @@ async def _record_oauth_connection_completion(
     )
 
 
+def _plugin_extracts_identity(plugin) -> bool:
+    return callable(getattr(plugin, "extract_identity", None))
+
+
+async def _extract_connection_identity(
+    app,
+    pending: PendingAuthEntry,
+    plugin,
+    creds: dict,
+) -> Any | None:
+    extractor = getattr(plugin, "extract_identity", None)
+    if not callable(extractor):
+        return None
+    return await cast(Callable[..., Awaitable[Any]], extractor)(
+        creds,
+        http_client_factory=getattr(app.state, f"{pending.provider}_http_factory", None),
+    )
+
+
+async def _handle_duplicate_connection_identity(
+    app,
+    store: OAuthConnectionStore,
+    pending: PendingAuthEntry,
+    plugin,
+    label: str,
+    identity,
+) -> bool:
+    duplicate = await store.find_by_identity(
+        pending.account_id, pending.provider, getattr(identity, "sub", None)
+    )
+    if duplicate is None:
+        return False
+    if pending.connection_id is not None:
+        connection = await _connection_for_pending(store, pending, plugin, label)
+        if duplicate.id != connection.id:
+            await store.delete_or_supersede_pending(connection, duplicate)
+            await _delete_connection_credentials(app, connection.credential_locator)
+    return True
+
+
+async def _handle_duplicate_connection_label(
+    app,
+    store: OAuthConnectionStore,
+    pending: PendingAuthEntry,
+    plugin,
+    label: str,
+    identity,
+) -> bool:
+    if identity is not None and identity.sub is not None:
+        return False
+    duplicate_label = await store.find_by_label(pending.account_id, pending.provider, label)
+    if duplicate_label is None:
+        return False
+    if pending.connection_id is None:
+        return True
+    connection = await _connection_for_pending(store, pending, plugin, label)
+    if duplicate_label.id != connection.id:
+        await store.delete_or_supersede_pending(connection, duplicate_label)
+        await _delete_connection_credentials(app, connection.credential_locator)
+    raise HTTPException(
+        status_code=409,
+        detail={"code": "label_conflict", "provider": pending.provider, "label": label},
+    )
+
+
 async def _delete_connection_credentials(app, locator: dict) -> None:
     service = locator.get("service")
     account = locator.get("account")
@@ -678,6 +867,7 @@ async def _delete_connection_credentials(app, locator: dict) -> None:
 async def _connection_for_pending(
     store: OAuthConnectionStore,
     pending: PendingAuthEntry,
+    plugin,
     label: str,
 ):
     if pending.connection_id is not None:
@@ -691,6 +881,7 @@ async def _connection_for_pending(
             provider=pending.provider,
             label=label,
             connection_id=uuid4(),
+            credential_provider=credential_service_provider_for(plugin, pending.provider),
         )
     except IntegrityError as exc:
         raise HTTPException(

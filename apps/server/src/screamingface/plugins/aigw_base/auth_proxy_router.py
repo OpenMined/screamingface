@@ -21,8 +21,8 @@ back to the SF-configured default profile name.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol, cast
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -47,6 +47,16 @@ class _ExchangeCodeBody(BaseModel):
 
 class _StartConnectionBody(BaseModel):
     label: str | None = None
+
+
+class _AigwCallbackBridge(Protocol):
+    async def prepare_redirect_uri(self, *, gateway_provider: str) -> str | None: ...
+
+    def register_state(self, *, state: str, gateway_provider: str, redirect_uri: str) -> None: ...
+
+    def release_redirect_uri(self, redirect_uri: str) -> None: ...
+
+    def unregister_state(self, state: str) -> None: ...
 
 
 def _default_http_factory(timeout: float) -> httpx.AsyncClient:
@@ -92,35 +102,17 @@ def build_aigw_auth_proxy_router(
         # default profile. For other names we send no defaults.
         if defaults and target == profile_name:
             body["defaults"] = defaults
-        try:
-            resp = await _gateway_request(
-                app,
-                factory,
-                timeout_seconds,
-                "POST",
-                base,
-                path,
-                json=body,
-            )
-        except httpx.RequestError as exc:
-            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "code": "gateway_unreachable",
-                    "message": f"AI Gateway unreachable at {base}: {exc}",
-                },
-            ) from exc
-
-        if resp.status_code >= 500:
-            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "gateway_error", "upstream_status": resp.status_code},
-            )
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
-        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+        resp, content = await _gateway_json_with_callback_bridge(
+            app,
+            factory,
+            timeout_seconds,
+            "POST",
+            base,
+            path,
+            gateway_provider,
+            json=body,
+        )
+        return JSONResponse(content=content, status_code=resp.status_code)
 
     @router.get(f"{path_prefix}/auth/status")
     async def auth_status(name: str | None = None) -> dict[str, Any]:
@@ -250,16 +242,17 @@ def build_aigw_auth_proxy_router(
         payload: dict[str, Any] = {"provider": gateway_provider}
         if body.label:
             payload["label"] = body.label
-        resp = await _gateway_response(
+        resp, content = await _gateway_json_with_callback_bridge(
             app,
             factory,
             timeout_seconds,
             "POST",
             base,
             "/v1/oauth/connections",
+            gateway_provider,
             json=payload,
         )
-        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+        return JSONResponse(content=content, status_code=resp.status_code)
 
     @router.get(f"{path_prefix}/auth/connections/{{connection_id}}")
     async def get_connection(connection_id: str) -> dict[str, Any]:
@@ -318,6 +311,103 @@ def _safe_json(resp: httpx.Response) -> Any:
         return resp.json()
     except ValueError:
         return {"raw": resp.text[:500]}
+
+
+def _callback_bridge(app: Any) -> Any:
+    return getattr(getattr(app, "state", None), "aigw_callback_bridge", None)
+
+
+async def _gateway_json_with_callback_bridge(
+    app: Any,
+    factory: HttpClientFactory,
+    timeout_seconds: float,
+    method: str,
+    base: str,
+    path: str,
+    gateway_provider: str,
+    *,
+    json: dict[str, Any],
+) -> tuple[httpx.Response, Any]:
+    bridge, redirect_uri = await _prepare_callback_redirect_uri(app, gateway_provider)
+    if redirect_uri is not None:
+        json["redirect_uri"] = redirect_uri
+    try:
+        resp = await _gateway_response(
+            app,
+            factory,
+            timeout_seconds,
+            method,
+            base,
+            path,
+            json=json,
+        )
+        content = resp.json()
+    except Exception:
+        _release_callback_redirect_uri(bridge, redirect_uri)
+        raise
+    _register_callback_state(bridge, content, gateway_provider, redirect_uri)
+    return resp, content
+
+
+async def _prepare_callback_redirect_uri(
+    app: Any,
+    gateway_provider: str,
+) -> tuple[Any, str | None]:
+    bridge = _callback_bridge(app)
+    prepare_raw = getattr(bridge, "prepare_redirect_uri", None)
+    if not callable(prepare_raw):
+        return bridge, None
+    prepare = cast(Callable[..., Awaitable[str | None]], prepare_raw)
+    try:
+        redirect_uri = await prepare(gateway_provider=gateway_provider)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "oauth_callback_unavailable",
+                "message": "Local OAuth callback port is unavailable",
+            },
+        ) from exc
+    if isinstance(redirect_uri, str) and redirect_uri:
+        return bridge, redirect_uri
+    return bridge, None
+
+
+def _register_callback_state(
+    bridge: Any,
+    content: Any,
+    gateway_provider: str,
+    redirect_uri: str | None,
+) -> None:
+    if bridge is None or redirect_uri is None:
+        return
+    state = content.get("state") if isinstance(content, dict) else None
+    if not isinstance(state, str) or not state:
+        _release_callback_redirect_uri(bridge, redirect_uri)
+        return
+    register = getattr(bridge, "register_state", None)
+    if not callable(register):
+        _release_callback_redirect_uri(bridge, redirect_uri)
+        return
+    try:
+        register(state=state, gateway_provider=gateway_provider, redirect_uri=redirect_uri)
+    except Exception as exc:
+        _release_callback_redirect_uri(bridge, redirect_uri)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "oauth_callback_unavailable",
+                "message": "Local OAuth callback port is unavailable",
+            },
+        ) from exc
+
+
+def _release_callback_redirect_uri(bridge: Any, redirect_uri: str | None) -> None:
+    if bridge is None or redirect_uri is None:
+        return
+    release = getattr(bridge, "release_redirect_uri", None)
+    if callable(release):
+        release(redirect_uri)
 
 
 async def _gateway_request(

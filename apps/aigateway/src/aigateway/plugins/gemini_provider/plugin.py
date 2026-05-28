@@ -59,6 +59,9 @@ def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
 class GeminiProviderPlugin(ProviderPluginBase):
     custom_llm_provider = "gemini-cli"
 
+    def credential_service_provider(self) -> str:
+        return "gemini"
+
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
 

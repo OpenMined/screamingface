@@ -110,6 +110,20 @@ describe('external URL policy', () => {
     );
   });
 
+  it('rejects hosted HTTPS gateway OAuth callback URLs', () => {
+    const hostedClaudeUrl = authorizeUrl('claude.com', '/cai/oauth/authorize', {
+      response_type: 'code',
+      client_id: 'public-client-id',
+      redirect_uri: 'https://gateway.screamingface.ai/callback',
+      scope: 'read write',
+      code_challenge: 'challenge',
+      code_challenge_method: 'S256',
+      state: 'state',
+    });
+
+    expect(isAllowedOAuthAuthorizeUrl(hostedClaudeUrl)).toBe(false);
+  });
+
   it('rejects malformed OAuth authorize URLs and non-loopback callbacks', () => {
     const base = {
       response_type: 'code',
