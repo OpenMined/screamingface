@@ -19,6 +19,7 @@ import shutil
 import socket
 import threading
 import time
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import httpx
@@ -232,14 +233,19 @@ class FrontendPluginBase(Plugin):
                     resolved_parts.append(self._cache[name])
                     logger.info("Cache hit for spec %r (%d chars)", name, len(self._cache[name]))
                     continue
-                try:
-                    result = self._fetch_sync(url, timeout)
-                    if result:
-                        self._cache[name] = result
-                        resolved_parts.append(result)
-                        logger.info("Resolved spec %r (%d chars)", name, len(result))
-                except Exception:
-                    logger.warning("Failed to resolve spec %r", name, exc_info=True)
+                with _traced_resolve(name) as span:
+                    try:
+                        result = self._fetch_sync(url, timeout)
+                        if result:
+                            self._cache[name] = result
+                            resolved_parts.append(result)
+                            logger.info("Resolved spec %r (%d chars)", name, len(result))
+                    except Exception as exc:
+                        # Record on the span so the failure is visible in Phoenix —
+                        # the resolution is non-fatal (the chat proceeds without
+                        # context), so we deliberately don't re-raise.
+                        logger.warning("Failed to resolve spec %r", name, exc_info=True)
+                        _mark_span_error(span, exc, name)
 
             if resolved_parts:
                 self._resolved_context = "\n\n".join(resolved_parts)
@@ -270,10 +276,14 @@ class FrontendPluginBase(Plugin):
         base = self._get_backend_url()
         result_holder: list[str] = []
 
+        error_holder: list[BaseException] = []
+
         def _run() -> None:
             loop = asyncio.new_event_loop()
             try:
                 result_holder.append(loop.run_until_complete(_fetch(base, expression)))
+            except BaseException as exc:  # noqa: BLE001 — re-raised to the caller below
+                error_holder.append(exc)
             finally:
                 loop.close()
 
@@ -281,6 +291,10 @@ class FrontendPluginBase(Plugin):
         thread.start()
         thread.join(timeout=timeout)
 
+        # Surface the real failure (e.g. /ensemble 502 with the url4 error)
+        # instead of masking everything as a timeout.
+        if error_holder:
+            raise error_holder[0]
         if not result_holder:
             raise TimeoutError(f"Spec resolution timed out after {timeout}s")
         return result_holder[0]
@@ -365,6 +379,43 @@ async def _fetch(base_url: str, expression: str) -> str:
         resp = await client.get(f"{base_url}/ensemble", params={"q": expression})
         resp.raise_for_status()
         return resp.text
+
+
+@contextmanager
+def _traced_resolve(spec_name: str):  # type: ignore[no-untyped-def]
+    """Span around static spec resolution so failures surface in Phoenix.
+
+    Without this, a failed static-spec resolution was only logged and the
+    proxy trace looked successful — leaving no error visible in the trace.
+    Yields the span (or None when OpenTelemetry isn't installed).
+    """
+    try:
+        from opentelemetry import trace
+    except ImportError:
+        yield None
+        return
+    tracer = trace.get_tracer("screamingface.frontend-base")
+    with tracer.start_as_current_span("url4.static_resolve") as span:
+        if span.is_recording():
+            span.set_attribute("sf.plugin", "frontend-base")
+            span.set_attribute("url4.spec", spec_name)
+        yield span
+
+
+def _mark_span_error(span: Any, exc: Exception, spec_name: str) -> None:
+    """Record an exception + ERROR status on ``span`` (no-op without OTel)."""
+    if span is None or not span.is_recording():
+        return
+    try:
+        from opentelemetry.trace import Status, StatusCode
+
+        span.set_attribute("url4.status", "error")
+        span.set_attribute("url4.error", str(exc))
+        span.set_attribute("url4.failed_spec", spec_name)
+        span.record_exception(exc)
+        span.set_status(Status(StatusCode.ERROR, str(exc)))
+    except ImportError:
+        pass
 
 
 def _wait_for_port(port: int, host: str = "127.0.0.1", timeout: float = 5.0) -> bool:
