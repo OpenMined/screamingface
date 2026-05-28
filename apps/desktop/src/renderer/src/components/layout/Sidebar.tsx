@@ -11,7 +11,13 @@ import type { BackendPollingError, PluginManifest } from '../../../../preload/ty
 import { GatewayStatusPanel } from '@/components/server/GatewayStatusPanel';
 import { isBackendStatusV2, useBackendStatus } from '@/hooks/use-backend-status';
 
-export type View = 'dashboard' | 'sessions' | 'eval-studio' | 'settings' | `plugin:${string}`;
+export type View =
+  | 'dashboard'
+  | 'sessions'
+  | 'eval-studio'
+  | 'run'
+  | 'settings'
+  | `plugin:${string}`;
 
 interface NavItem {
   id: View;

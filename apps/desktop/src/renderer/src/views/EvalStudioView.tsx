@@ -1,8 +1,13 @@
 import { useState } from 'react';
 import { EvalRunsList } from '@/components/eval/EvalRunsList';
 import { EvalRunDetail } from '@/components/eval/EvalRunDetail';
+import type { RunPayload } from '@/components/run/types';
 
-export function EvalStudioView() {
+interface EvalStudioViewProps {
+  onRunLocally?: (payload: RunPayload) => void;
+}
+
+export function EvalStudioView({ onRunLocally }: EvalStudioViewProps = {}) {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
   return (
@@ -15,7 +20,11 @@ export function EvalStudioView() {
       </div>
       <div className="flex min-h-0 flex-1">
         <aside className="w-1/2 overflow-auto border-r border-border">
-          <EvalRunsList selectedId={selectedRunId} onSelect={setSelectedRunId} />
+          <EvalRunsList
+            selectedId={selectedRunId}
+            onSelect={setSelectedRunId}
+            onRunLocally={onRunLocally}
+          />
         </aside>
         <main className="flex min-h-0 flex-1 overflow-hidden">
           {selectedRunId ? (
