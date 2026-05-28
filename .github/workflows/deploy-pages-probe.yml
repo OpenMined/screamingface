@@ -1,7 +1,10 @@
 name: Probe GitHub Pages static artifact
 
 on:
-  # Manual only: deploying this replaces the repo's configured GitHub Pages site.
+  push:
+    branches:
+      - pages-static-artifact-probe
+  # Also keep manual dispatch for later cleanup once this workflow exists on main.
   workflow_dispatch:
 
 permissions:
