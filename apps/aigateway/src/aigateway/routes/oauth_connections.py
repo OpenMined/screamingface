@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from tortoise.exceptions import IntegrityError
 
 from aigateway.core.auth.middleware import CurrentAccount
-from aigateway.core.errors import AuthError, CredentialNotFoundError
+from aigateway.core.errors import AuthError, CredentialNotFoundError, ReauthRequiredError
 from aigateway.core.oauth.schemas import (
     CreateOAuthConnectionRequest,
     OAuthConnectionListResponse,
@@ -206,19 +206,23 @@ async def get_connection_token(
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
     try:
-        access_token, expires_at_ms = await strategy.get_token_with_expiry()
-    except CredentialNotFoundError as exc:
+        access_token, expires_at_ms, refreshed = await strategy.get_token_with_expiry()
+    except (CredentialNotFoundError, ReauthRequiredError) as exc:
+        # Credential missing, or the refresh token was rejected by the provider
+        # (revoked / invalid_grant). The connection cannot recover without a new
+        # browser auth, so mark it errored and tell the caller to re-auth.
         await store.mark_error(connection, str(exc))
         raise HTTPException(
             status_code=401, detail={"code": "auth_required", "message": str(exc)}
         ) from exc
     except AuthError as exc:
-        # Upstream refresh failed (network error, provider 5xx, malformed
-        # response). Surface as 503 so callers can distinguish from 401
-        # (re-auth required) and back off accordingly.
+        # Transient upstream refresh failure (network error, provider 5xx). Leave
+        # the connection active and surface 503 so callers back off and retry.
         raise HTTPException(
             status_code=503, detail={"code": "upstream_refresh_failed", "message": str(exc)}
         ) from exc
+    if refreshed:
+        await store.touch_last_refreshed(connection)
     await store.touch_last_used(connection)
     return OAuthConnectionTokenResponse(
         access_token=access_token,

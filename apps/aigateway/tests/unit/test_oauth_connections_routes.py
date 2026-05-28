@@ -101,6 +101,12 @@ def _failing_token_factory():
     return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
 
 
+def _transient_refresh_failure_factory():
+    """Refresh fails with a non-auth, retryable error (provider 5xx)."""
+    transport = httpx.MockTransport(lambda _req: httpx.Response(500, text="upstream boom"))
+    return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
+
+
 @pytest.mark.parametrize(
     ("method", "path", "json_body"),
     [
@@ -541,7 +547,7 @@ def test_connection_lookup_is_account_scoped(
 
 
 def test_token_endpoint_returns_access_token_and_expires_at(
-    authenticated_client, fake_keychain
+    authenticated_client, credential_blobs
 ) -> None:
     authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
     start = authenticated_client.post(
@@ -554,7 +560,7 @@ def test_token_endpoint_returns_access_token_and_expires_at(
         "/callback", params={"code": "code", "state": start.json()["state"]}
     )
     assert cb.status_code == 200
-    _ = fake_keychain  # keychain populated by callback
+    _ = credential_blobs  # blob store populated by callback
 
     resp = authenticated_client.get(f"/v1/oauth/connections/{connection_id}/token")
     assert resp.status_code == 200
@@ -578,7 +584,7 @@ def test_token_endpoint_returns_404_for_unknown_connection(authenticated_client)
 
 
 def test_token_endpoint_returns_409_for_revoked_connection(
-    authenticated_client, fake_keychain
+    authenticated_client, credential_blobs
 ) -> None:
     authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
     start = authenticated_client.post(
@@ -588,36 +594,76 @@ def test_token_endpoint_returns_409_for_revoked_connection(
     connection_id = start.json()["connection_id"]
     authenticated_client.get("/callback", params={"code": "code", "state": start.json()["state"]})
     assert authenticated_client.delete(f"/v1/oauth/connections/{connection_id}").status_code == 204
-    _ = fake_keychain
+    _ = credential_blobs
 
     resp = authenticated_client.get(f"/v1/oauth/connections/{connection_id}/token")
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "connection_not_active"
 
 
-def test_token_endpoint_returns_503_when_upstream_refresh_fails(
-    authenticated_client, fake_keychain
-) -> None:
-    authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
-    start = authenticated_client.post(
-        "/v1/oauth/connections",
-        json={"provider": "anthropic", "label": "tok-503"},
-    )
+def _force_immediate_refresh(credential_blobs, client, connection_id) -> None:
+    """Rewind the stored credential's expiry so the next /token forces a refresh."""
+    locator = client.get(f"/v1/oauth/connections/{connection_id}").json()["credential_locator"]
+    creds = json.loads(credential_blobs.read(locator["service"], "default"))
+    creds["expires_at_ms"] = int(time.time() * 1000) - 1000
+    credential_blobs.write(locator["service"], "default", json.dumps(creds))
+
+
+def _connect_anthropic(client, label: str) -> str:
+    client.app.state.anthropic_http_factory = _anthropic_token_factory()
+    start = client.post("/v1/oauth/connections", json={"provider": "anthropic", "label": label})
     connection_id = start.json()["connection_id"]
-    authenticated_client.get("/callback", params={"code": "code", "state": start.json()["state"]})
+    client.get("/callback", params={"code": "code", "state": start.json()["state"]})
+    return connection_id
 
-    # Force the stored credential into an immediate-refresh state, then point
-    # the refresh factory at a failing endpoint.
-    locator_resp = authenticated_client.get(f"/v1/oauth/connections/{connection_id}")
-    locator = locator_resp.json()["credential_locator"]
-    import json as _json
-    import time as _time
 
-    creds = _json.loads(fake_keychain.read(locator["service"], "default"))
-    creds["expires_at_ms"] = int(_time.time() * 1000) - 1000
-    fake_keychain.write(locator["service"], "default", _json.dumps(creds))
-    authenticated_client.app.state.anthropic_http_factory = _failing_token_factory()
+def test_token_endpoint_returns_503_when_upstream_refresh_fails(
+    authenticated_client, credential_blobs
+) -> None:
+    connection_id = _connect_anthropic(authenticated_client, "tok-503")
+    _force_immediate_refresh(credential_blobs, authenticated_client, connection_id)
+    # Transient provider failure (5xx): the connection should stay active so the
+    # caller can retry rather than being forced through a full re-auth.
+    authenticated_client.app.state.anthropic_http_factory = _transient_refresh_failure_factory()
 
     resp = authenticated_client.get(f"/v1/oauth/connections/{connection_id}/token")
     assert resp.status_code == 503
     assert resp.json()["detail"]["code"] == "upstream_refresh_failed"
+    # Connection is untouched — still active.
+    detail = authenticated_client.get(f"/v1/oauth/connections/{connection_id}").json()
+    assert detail["status"] == "active"
+
+
+def test_token_endpoint_returns_401_and_marks_error_when_refresh_token_revoked(
+    authenticated_client, credential_blobs
+) -> None:
+    connection_id = _connect_anthropic(authenticated_client, "tok-revoked-rt")
+    _force_immediate_refresh(credential_blobs, authenticated_client, connection_id)
+    # invalid_grant (400) means the refresh token is dead -> re-auth required.
+    authenticated_client.app.state.anthropic_http_factory = _failing_token_factory()
+
+    resp = authenticated_client.get(f"/v1/oauth/connections/{connection_id}/token")
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["code"] == "auth_required"
+    # Connection is marked errored so the UI/caller knows to prompt re-auth.
+    detail = authenticated_client.get(f"/v1/oauth/connections/{connection_id}").json()
+    assert detail["status"] == "error"
+
+
+def test_token_endpoint_updates_last_refreshed_at_after_a_refresh(
+    authenticated_client, credential_blobs
+) -> None:
+    connection_id = _connect_anthropic(authenticated_client, "tok-refreshed")
+    before = authenticated_client.get(f"/v1/oauth/connections/{connection_id}").json()[
+        "last_refreshed_at"
+    ]
+    _force_immediate_refresh(credential_blobs, authenticated_client, connection_id)
+
+    resp = authenticated_client.get(f"/v1/oauth/connections/{connection_id}/token")
+    assert resp.status_code == 200
+
+    after = authenticated_client.get(f"/v1/oauth/connections/{connection_id}").json()[
+        "last_refreshed_at"
+    ]
+    assert after is not None
+    assert after != before
