@@ -1,0 +1,44 @@
+name: Probe GitHub Pages static artifact
+
+on:
+  # Manual only: deploying this replaces the repo's configured GitHub Pages site.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/configure-pages@v6
+
+      - name: Stage allowlisted public file
+        run: |
+          set -euo pipefail
+          source_file="output_artifacts/eval_results/livetruth-latest.eval.jsonl"
+          stage_dir="public-scoreboard"
+
+          test -f "$source_file"
+          rm -rf "$stage_dir"
+          mkdir -p "$stage_dir"
+          cp "$source_file" "$stage_dir/livetruth-latest.eval.jsonl"
+          test "$(find "$stage_dir" -type f | wc -l | tr -d ' ')" = "1"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public-scoreboard
+
+      - uses: actions/deploy-pages@v5
+        id: deployment
