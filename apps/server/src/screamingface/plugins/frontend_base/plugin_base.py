@@ -136,15 +136,47 @@ class FrontendPluginBase(Plugin):
     # Schema customization
     # ------------------------------------------------------------------
 
-    def _get_spec_names(self) -> list[str] | None:
-        if not self._app:
-            return None
-        specs_plugin = self._app.state.plugins.active_plugins.get("url4-specs")
+    def _current_spec_expressions(self) -> dict[str, str]:
+        """Current ``{name: expression}`` for url4-specs.
+
+        Reads **fresh config from disk first** — the same source as the
+        ``GET /plugins/url4-specs/settings`` endpoint — so a spec added at
+        runtime is immediately visible (in the active_spec enum AND for
+        resolution) without restarting the server. The running plugin's
+        in-memory ``.settings`` can be stale because a config/sf.json edit
+        doesn't push into the already-initialized plugin. Falls back to the
+        in-memory settings if the fresh read is unavailable.
+        """
+        try:
+            from screamingface.core.config import load_config
+
+            raw = load_config().plugin_config.get("url4-specs") or {}
+            specs = raw.get("specs")
+            if isinstance(specs, dict):
+                out: dict[str, str] = {}
+                for name, spec in specs.items():
+                    expr = spec.get("expression") if isinstance(spec, dict) else None
+                    if expr:
+                        out[name] = expr
+                if out:
+                    return out
+        except Exception:
+            logger.debug("Fresh url4-specs config unavailable; using in-memory", exc_info=True)
+
+        specs_plugin = (
+            self._app.state.plugins.active_plugins.get("url4-specs") if self._app else None
+        )
         if specs_plugin and specs_plugin.settings:
-            names = list(specs_plugin.settings.specs.keys())
-            if names:
-                return names
-        return None
+            return {
+                name: spec.expression
+                for name, spec in specs_plugin.settings.specs.items()
+                if spec.expression
+            }
+        return {}
+
+    def _get_spec_names(self) -> list[str] | None:
+        names = list(self._current_spec_expressions().keys())
+        return names or None
 
     def customize_schema(self, schema: dict) -> dict:
         props = schema.get("properties", {})
@@ -184,16 +216,14 @@ class FrontendPluginBase(Plugin):
     def _get_spec_urls(self) -> list[tuple[str, str]]:
         """Get (name, expression_url) pairs for active specs."""
         spec_names = self._collect_spec_names()
-        if not spec_names or not self._app:
+        if not spec_names:
             return []
-        specs_plugin = self._app.state.plugins.active_plugins.get("url4-specs")
-        if not specs_plugin or not specs_plugin.settings:
-            return []
+        current = self._current_spec_expressions()
         result: list[tuple[str, str]] = []
         for name in spec_names:
-            spec = specs_plugin.settings.specs.get(name)
-            if spec and spec.expression:
-                result.append((name, spec.expression))
+            expr = current.get(name)
+            if expr:
+                result.append((name, expr))
         return result
 
     def get_active_expression(self) -> str | None:
