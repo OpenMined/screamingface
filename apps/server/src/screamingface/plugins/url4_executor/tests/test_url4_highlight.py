@@ -83,3 +83,42 @@ def test_intent_only_url() -> None:
         {"type": "intent_sep", "value": "!", "depth": 0},
         {"type": "intent", "value": "do-thing", "depth": 0},
     ]
+
+
+def test_backend_call_with_intent() -> None:
+    tokens = tokenize("/claude()!hello kitty")
+    assert tokens == [
+        {"type": "url", "value": "/claude", "depth": 0},
+        {"type": "paren", "value": "(", "depth": 0},
+        {"type": "paren", "value": ")", "depth": 0},
+        {"type": "intent_sep", "value": "!", "depth": 0},
+        {"type": "intent", "value": "hello kitty", "depth": 0},
+    ]
+
+
+def test_backend_call_list_with_outer_intent() -> None:
+    tokens = tokenize("(/claude()!hello, /gemini()!hello)!reduce")
+    types = [token["type"] for token in tokens]
+    values = [token["value"] for token in tokens]
+
+    assert types == [
+        "paren",
+        "url",
+        "paren",
+        "paren",
+        "intent_sep",
+        "intent",
+        "comma",
+        "ws",
+        "url",
+        "paren",
+        "paren",
+        "intent_sep",
+        "intent",
+        "paren",
+        "intent_sep",
+        "intent",
+    ]
+    assert "/claude" in values
+    assert "/gemini" in values
+    assert values[-1] == "reduce"
