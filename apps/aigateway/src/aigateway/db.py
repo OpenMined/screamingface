@@ -6,7 +6,7 @@ from typing import Any
 
 from tortoise import Tortoise
 
-DEFAULT_DATABASE_URL = "postgres://aigateway:aigateway@localhost:5432/aigateway"
+DEFAULT_DATABASE_URL = "sqlite://./aigateway.sqlite3"
 
 
 def _default_database_url() -> str:
@@ -17,7 +17,11 @@ TORTOISE_CONFIG: dict[str, Any] = {
     "connections": {"default": _default_database_url()},
     "apps": {
         "models": {
-            "models": ["aigateway.core.auth.models", "aigateway.core.oauth.models"],
+            "models": [
+                "aigateway.core.auth.models",
+                "aigateway.core.credential_blob",
+                "aigateway.core.oauth.models",
+            ],
             "default_connection": "default",
             "migrations": "aigateway.migrations",
         }

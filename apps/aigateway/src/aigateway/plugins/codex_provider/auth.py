@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from aigateway.core.credential_store import CredentialStore, get_credential_store
+from aigateway.core.credential_blob.store import CredentialBlobStore, ORMStore
 from aigateway.core.errors import AuthError, CredentialNotFoundError
 from aigateway.core.oauth_base import BaseOAuthStrategy
 
@@ -17,7 +17,7 @@ _ACCOUNT = "default"
 _JWT_AUTH_CLAIMS_KEY = "https://api.openai.com/auth"
 
 
-def keychain_service_for(profile_name: str) -> str:
+def credential_service_for(profile_name: str) -> str:
     return f"aigateway:codex:{profile_name}"
 
 
@@ -120,25 +120,25 @@ class CodexOAuth(BaseOAuthStrategy):
         self,
         profile_name: str,
         *,
-        credential_store: CredentialStore | None = None,
+        credential_store: CredentialBlobStore | None = None,
         account: str | None = None,
         http_client_factory=None,
     ) -> None:
         super().__init__(profile_name=profile_name)
-        self._store = credential_store or get_credential_store()
+        self._store = credential_store or ORMStore()
         self._account = account if account is not None else _ACCOUNT
         self._http_factory = http_client_factory or (
             lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0))
         )
 
-    def keychain_service(self) -> str:
-        return keychain_service_for(self.profile_name)
+    def credential_service(self) -> str:
+        return credential_service_for(self.profile_name)
 
-    def keychain_account(self) -> str:
+    def credential_account(self) -> str:
         return self._account
 
-    def _read_credential(self) -> dict:
-        raw = self._store.read(self.keychain_service(), self.keychain_account())
+    async def _read_credential(self) -> dict:
+        raw = await self._store.read(self.credential_service(), self.credential_account())
         if raw is None:
             raise CredentialNotFoundError(
                 f"No tokens for codex profile {self.profile_name!r}. Re-authenticate via Electron."
@@ -199,11 +199,13 @@ class CodexOAuth(BaseOAuthStrategy):
             raise AuthError("OAuth refresh response is not a JSON object")
 
         refreshed = _normalize_token_response(data, creds)
-        self._write_to_store(refreshed)
+        await self._write_to_store(refreshed)
         return refreshed
 
-    def _write_to_store(self, creds: dict) -> None:
-        self._store.write(self.keychain_service(), self.keychain_account(), json.dumps(creds))
+    async def _write_to_store(self, creds: dict) -> None:
+        await self._store.write(
+            self.credential_service(), self.credential_account(), json.dumps(creds)
+        )
 
 
 async def exchange_authorization_code(

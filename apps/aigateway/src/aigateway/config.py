@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     port: int = 9105
     log_level: str = "info"
     database_url: SecretStr = Field(
-        default=SecretStr("postgres://aigateway:aigateway@localhost:5432/aigateway"),
+        default=SecretStr("sqlite://./aigateway.sqlite3"),
         validation_alias="AIGATEWAY_DATABASE_URL",
     )
     jwt_secret: SecretStr | None = Field(default=None, validation_alias="AIGATEWAY_JWT_SECRET")

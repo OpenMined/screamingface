@@ -32,7 +32,7 @@ from .oauth_config import (
 )
 
 if TYPE_CHECKING:
-    from aigateway.core.credential_store import CredentialStore
+    from aigateway.core.credential_blob.store import CredentialBlobStore
 
 
 class CodexProviderPlugin(ProviderPluginBase):
@@ -56,7 +56,7 @@ class CodexProviderPlugin(ProviderPluginBase):
         self,
         profile_name: str,
         *,
-        credential_store: CredentialStore | None = None,
+        credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> OAuthStrategy:
         return CodexOAuth(

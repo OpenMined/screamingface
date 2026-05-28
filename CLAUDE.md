@@ -56,6 +56,7 @@ These are **mandatory** for all code in this repo. PRs that violate them must be
   - Core defines interfaces ("ports"); plugins/adapters implement them.
   - Model runners (Claude, Gemini, Codex, Ollama), transports (HTTP, IPC), storage, and UI are **adapters** — they sit outside the core.
   - Discovery/wiring of plugins happens via a registry, not via direct imports in core.
+- **AIGateway credential storage:** `apps/aigateway` uses ORMStore through Tortoise (`credential_blobs`): SQLite locally, Postgres in hosted/prod. No OS keychain/libsecret/Credential Manager usage in AIGateway.
 
 ## Personas
 

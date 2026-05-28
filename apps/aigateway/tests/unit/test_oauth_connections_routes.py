@@ -148,7 +148,7 @@ def test_anthropic_connection_uses_public_url_for_callback(authenticated_client)
 
 
 def test_anthropic_connection_lifecycle_and_label_conflict(
-    authenticated_client, fake_keychain
+    authenticated_client, credential_blobs
 ) -> None:
     account_id = _account_id(authenticated_client)
     authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
@@ -174,7 +174,7 @@ def test_anthropic_connection_lifecycle_and_label_conflict(
     assert (
         body["credential_locator"]["service"] == f"aigateway:anthropic:{account_id}:{connection_id}"
     )
-    assert fake_keychain.read(body["credential_locator"]["service"], "default") is not None
+    assert credential_blobs.read(body["credential_locator"]["service"], "default") is not None
 
     duplicate_label = authenticated_client.post(
         "/v1/oauth/connections",
@@ -271,7 +271,7 @@ def test_failed_anthropic_connection_can_retry_same_label(authenticated_client) 
     )
 
 
-def test_refresh_error_releases_label_for_reauth(authenticated_client, fake_keychain) -> None:
+def test_refresh_error_releases_label_for_reauth(authenticated_client, credential_blobs) -> None:
     authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
     start = authenticated_client.post(
         "/v1/oauth/connections",
@@ -286,7 +286,7 @@ def test_refresh_error_releases_label_for_reauth(authenticated_client, fake_keyc
         == 200
     )
     connection = authenticated_client.get(f"/v1/oauth/connections/{connection_id}").json()
-    fake_keychain.delete(connection["credential_locator"]["service"], "default")
+    credential_blobs.delete(connection["credential_locator"]["service"], "default")
 
     refresh = authenticated_client.post(f"/v1/oauth/connections/{connection_id}/refresh")
     assert refresh.status_code == 401
@@ -349,7 +349,7 @@ def test_patch_connection_label_conflict_returns_409(authenticated_client) -> No
 
 
 def test_codex_duplicate_connection_returns_existing(
-    authenticated_client, fake_keychain, monkeypatch
+    authenticated_client, credential_blobs, monkeypatch
 ) -> None:
     account_id = _account_id(authenticated_client)
     authenticated_client.app.state.codex_http_factory = _codex_token_factory()
@@ -397,7 +397,7 @@ def test_codex_duplicate_connection_returns_existing(
         "/v1/oauth/connections", params={"provider": "codex", "status": "active"}
     )
     assert [item["id"] for item in active.json()["connections"]] == [first_id]
-    assert fake_keychain.read(f"aigateway:codex:{account_id}:{second_id}", "default") is None
+    assert credential_blobs.read(f"aigateway:codex:{account_id}:{second_id}", "default") is None
 
 
 def test_connection_lookup_is_account_scoped(

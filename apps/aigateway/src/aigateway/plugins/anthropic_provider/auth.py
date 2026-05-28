@@ -1,9 +1,4 @@
-"""Anthropic OAuth strategy keyed by an account-scoped credential name.
-
-Each profile has its own keychain entry under
-`aigateway:anthropic:<account_id>:<profile_name>`. The token blob is the flat shape
-defined in the spec (snake_case keys; expires_at_ms in milliseconds).
-"""
+"""Anthropic OAuth strategy keyed by an account-scoped credential name."""
 
 from __future__ import annotations
 
@@ -13,7 +8,7 @@ import time
 
 import httpx
 
-from aigateway.core.credential_store import CredentialStore, get_credential_store
+from aigateway.core.credential_blob.store import CredentialBlobStore, ORMStore
 from aigateway.core.errors import AuthError, CredentialNotFoundError
 from aigateway.core.oauth_base import BaseOAuthStrategy
 
@@ -28,11 +23,11 @@ from .oauth_config import (
 logger = logging.getLogger(__name__)
 
 
-def keychain_service_for(profile_name: str) -> str:
+def credential_service_for(profile_name: str) -> str:
     return f"aigateway:anthropic:{profile_name}"
 
 
-_ACCOUNT = "default"  # keychain account is stable; the service name carries ownership
+_ACCOUNT = "default"  # credential account is stable; service name carries ownership
 
 
 class AnthropicOAuth(BaseOAuthStrategy):
@@ -40,25 +35,25 @@ class AnthropicOAuth(BaseOAuthStrategy):
         self,
         profile_name: str,
         *,
-        credential_store: CredentialStore | None = None,
+        credential_store: CredentialBlobStore | None = None,
         account: str | None = None,
         http_client_factory=None,
     ) -> None:
         super().__init__(profile_name=profile_name)
-        self._store = credential_store or get_credential_store()
+        self._store = credential_store or ORMStore()
         self._account = account if account is not None else _ACCOUNT
         self._http_factory = http_client_factory or (
             lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0))
         )
 
-    def keychain_service(self) -> str:
-        return keychain_service_for(self.profile_name)
+    def credential_service(self) -> str:
+        return credential_service_for(self.profile_name)
 
-    def keychain_account(self) -> str:
+    def credential_account(self) -> str:
         return self._account
 
-    def _read_credential(self) -> dict:
-        raw = self._store.read(self.keychain_service(), self.keychain_account())
+    async def _read_credential(self) -> dict:
+        raw = await self._store.read(self.credential_service(), self.credential_account())
         if raw is None:
             raise CredentialNotFoundError(
                 f"No tokens for anthropic profile {self.profile_name!r}. "
@@ -114,7 +109,7 @@ class AnthropicOAuth(BaseOAuthStrategy):
             raise AuthError(f"OAuth refresh response not JSON: {exc}") from exc
 
         new_creds = self._convert_refresh_response(data)
-        self._write_to_store(new_creds)
+        await self._write_to_store(new_creds)
         return new_creds
 
     def _convert_refresh_response(self, data: dict) -> dict:
@@ -128,8 +123,10 @@ class AnthropicOAuth(BaseOAuthStrategy):
             "token_type": data.get("token_type", "Bearer"),
         }
 
-    def _write_to_store(self, creds: dict) -> None:
-        self._store.write(self.keychain_service(), self.keychain_account(), json.dumps(creds))
+    async def _write_to_store(self, creds: dict) -> None:
+        await self._store.write(
+            self.credential_service(), self.credential_account(), json.dumps(creds)
+        )
 
 
 async def exchange_authorization_code(

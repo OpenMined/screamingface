@@ -6,6 +6,9 @@ Ollama, …) via [LiteLLM](https://github.com/BerriAI/litellm). Provider
 concerns — OAuth tokens, refresh, response shaping — live in self-contained
 plugins under `src/aigateway/plugins/`.
 
+Local development uses SQLite at `sqlite://./aigateway.sqlite3` by default.
+Hosted deployments should set `AIGATEWAY_DATABASE_URL` to Postgres.
+
 ## Quick start
 
 ```bash
@@ -57,7 +60,7 @@ rate-limiting such as Cloudflare or `nginx limit_req`. v1 does not implement
 application-level rate limiting on `/v1/auth/login`.
 
 Multi-worker deployments (`uvicorn --workers N` or a process manager equivalent)
-MUST set `AIGATEWAY_JWT_SECRET` explicitly. The generated keychain fallback is a
+MUST set `AIGATEWAY_JWT_SECRET` explicitly. The generated database fallback is a
 local/single-worker convenience only.
 
 ## Operations
@@ -67,8 +70,8 @@ local/single-worker convenience only.
 Changing the JWT secret invalidates all sessions.
 
 For explicit-env deployments, change `AIGATEWAY_JWT_SECRET` and restart all
-workers. For local generated-secret deployments, delete the keychain entry with
-service `aigateway:jwt-secret` and account `default`, then restart.
+workers. For local generated-secret deployments, delete the `credential_blobs`
+row with service `aigateway:jwt-secret` and account `default`, then restart.
 
 ### Rotate `AIGATEWAY_PROVISIONING_TOKEN`
 
