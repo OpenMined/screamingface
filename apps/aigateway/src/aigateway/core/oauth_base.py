@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 from .plugin_base import OAuthStrategy
 
 if TYPE_CHECKING:
-    from .credential_store import CredentialStore
+    from .credential_blob.store import CredentialBlobStore
 
 
 class BaseOAuthStrategy(OAuthStrategy):
@@ -27,7 +27,7 @@ class BaseOAuthStrategy(OAuthStrategy):
     """
 
     refresh_window_seconds: int = 60
-    _store: CredentialStore
+    _store: CredentialBlobStore
 
     def __init__(self, profile_name: str) -> None:
         self.profile_name = profile_name
@@ -59,7 +59,7 @@ class BaseOAuthStrategy(OAuthStrategy):
 
         async with self._lock:
             if self._cached is None:
-                self._cached = self._read_credential()
+                self._cached = await self._read_credential()
             if self._is_expired(self._cached):
                 self._cached = await self._refresh_credential(self._cached)
 
@@ -71,39 +71,39 @@ class BaseOAuthStrategy(OAuthStrategy):
     async def refresh(self) -> None:
         async with self._lock:
             if self._cached is None:
-                self._cached = self._read_credential()
+                self._cached = await self._read_credential()
             self._cached = await self._refresh_credential(self._cached)
 
-    def persist_credentials(self, credentials: dict[str, Any]) -> None:
+    async def persist_credentials(self, credentials: dict[str, Any]) -> None:
         """Store a credential blob after callback's code-for-token exchange."""
         self._cached = credentials
-        self._write_to_store(credentials)
+        await self._write_to_store(credentials)
 
-    def delete_credentials(self) -> None:
+    async def delete_credentials(self) -> None:
         self._cached = None
-        self._store.delete(self.keychain_service(), self.keychain_account())
+        await self._store.delete(self.credential_service(), self.credential_account())
 
     async def refresh_credentials(self) -> None:
         await self.refresh()
 
     @abstractmethod
-    def keychain_service(self) -> str:
-        """OS keychain `service` string for this profile's tokens."""
+    def credential_service(self) -> str:
+        """Credential blob `service` string for this profile's tokens."""
 
     @abstractmethod
-    def keychain_account(self) -> str:
-        """OS keychain `account` string for this profile's tokens."""
+    def credential_account(self) -> str:
+        """Credential blob `account` string for this profile's tokens."""
 
     @abstractmethod
-    def _write_to_store(self, creds: dict[str, Any]) -> None:
-        """Persist `creds` to the OS keychain entry."""
+    async def _write_to_store(self, creds: dict[str, Any]) -> None:
+        """Persist `creds` to the credential blob store."""
 
     def _header_override(self) -> dict[str, str] | None:
         """Override to short-circuit OAuth (e.g. when an API-key env var is set)."""
         return None
 
     @abstractmethod
-    def _read_credential(self) -> dict[str, Any]: ...
+    async def _read_credential(self) -> dict[str, Any]: ...
 
     @abstractmethod
     def _is_expired(self, creds: dict[str, Any]) -> bool: ...

@@ -50,12 +50,26 @@ const EXTERNAL_CLAUDE_AUTHORIZE_URL =
     state: 's1',
   }).toString();
 
+const HOSTED_CLAUDE_AUTHORIZE_URL =
+  'https://claude.com/cai/oauth/authorize?' +
+  new URLSearchParams({
+    response_type: 'code',
+    client_id: 'public-client-id',
+    redirect_uri: 'https://gateway.screamingface.ai/callback',
+    scope: 'read write',
+    code_challenge: 'challenge',
+    code_challenge_method: 'S256',
+    state: 's1',
+  }).toString();
+
+const BROWSER_BACKEND = 'browser-backend';
+
 beforeEach(() => {
   openExternal.mockClear();
-  clearPendingAuthState('browser-backend');
-  clearPendingAuthState('browser-backend', 'work');
-  clearPendingAuthState('browser-backend', 'personal');
-  clearPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001');
+  clearPendingAuthState(BROWSER_BACKEND);
+  clearPendingAuthState(BROWSER_BACKEND, 'work');
+  clearPendingAuthState(BROWSER_BACKEND, 'personal');
+  clearPendingConnectionAuthState(BROWSER_BACKEND, '00000000-0000-0000-0000-000000000001');
   clearPendingAuthState('other-backend');
 });
 afterEach(() => {
@@ -93,7 +107,7 @@ describe('runOAuthLauncher', () => {
 
     const result = await runOAuthLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       pollIntervalMs: 1,
       timeoutMs: 5_000,
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -147,7 +161,7 @@ describe('runOAuthLauncher', () => {
 
     const result = await runOAuthLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       pollIntervalMs: 1,
       timeoutMs: 10,
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -179,7 +193,7 @@ describe('runOAuthLauncher', () => {
 
     const result = await runOAuthLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       pollIntervalMs: 60_000,
       timeoutMs: 120_000,
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -188,7 +202,7 @@ describe('runOAuthLauncher', () => {
 
     expect(result.kind).toBe('failed');
     if (result.kind === 'failed') expect(result.reason).toBe('cancelled');
-    expect(getPendingAuthState('browser-backend')).toBe('profile-state');
+    expect(getPendingAuthState(BROWSER_BACKEND)).toBe('profile-state');
   });
 
   it('short-circuits to provider_error when status is error', async () => {
@@ -206,7 +220,7 @@ describe('runOAuthLauncher', () => {
     ]);
     const result = await runOAuthLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       pollIntervalMs: 1,
       timeoutMs: 5_000,
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -233,7 +247,7 @@ describe('runOAuthLauncher', () => {
 
     await runOAuthLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       profileName: 'work',
       pollIntervalMs: 1,
       timeoutMs: 5_000,
@@ -262,21 +276,21 @@ describe('runOAuthLauncher', () => {
 
     await runOAuthLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       profileName: 'work',
       timeoutMs: 0,
       fetchImpl: workFetch as unknown as typeof fetch,
     });
     await runOAuthLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       profileName: 'personal',
       timeoutMs: 0,
       fetchImpl: personalFetch as unknown as typeof fetch,
     });
 
-    expect(getPendingAuthState('browser-backend', 'work')).toBe('state-work');
-    expect(getPendingAuthState('browser-backend', 'personal')).toBe('state-personal');
+    expect(getPendingAuthState(BROWSER_BACKEND, 'work')).toBe('state-work');
+    expect(getPendingAuthState(BROWSER_BACKEND, 'personal')).toBe('state-personal');
   });
 
   it('returns gateway_error when /auth/start returns 502', async () => {
@@ -289,7 +303,7 @@ describe('runOAuthLauncher', () => {
     ]);
     const result = await runOAuthLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       pollIntervalMs: 1,
       timeoutMs: 5_000,
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -344,7 +358,7 @@ describe('runOAuthLauncher', () => {
 
     const result = await runOAuthLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       pollIntervalMs: 1,
       timeoutMs: 5_000,
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -380,7 +394,7 @@ describe('runOAuthLauncher', () => {
 
     const result = await runOAuthConnectionLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       label: 'work-anthropic',
       pollIntervalMs: 1,
       timeoutMs: 5_000,
@@ -403,7 +417,7 @@ describe('runOAuthLauncher', () => {
       expect(result.connection?.id).toBe('00000000-0000-0000-0000-000000000111');
     }
     expect(
-      getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
+      getPendingConnectionAuthState(BROWSER_BACKEND, '00000000-0000-0000-0000-000000000001'),
     ).toBeNull();
   });
 
@@ -433,7 +447,7 @@ describe('runOAuthLauncher', () => {
 
     const result = await runOAuthConnectionLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       pollIntervalMs: 1,
       timeoutMs: 10,
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -442,7 +456,7 @@ describe('runOAuthLauncher', () => {
     expect(result.kind).toBe('failed');
     if (result.kind === 'failed') expect(result.reason).toBe('timeout');
     expect(
-      getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
+      getPendingConnectionAuthState(BROWSER_BACKEND, '00000000-0000-0000-0000-000000000001'),
     ).toBe('connection-state');
   });
 
@@ -474,7 +488,7 @@ describe('runOAuthLauncher', () => {
 
     const result = await runOAuthConnectionLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       pollIntervalMs: 60_000,
       timeoutMs: 120_000,
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -484,14 +498,14 @@ describe('runOAuthLauncher', () => {
     expect(result.kind).toBe('failed');
     if (result.kind === 'failed') expect(result.reason).toBe('cancelled');
     expect(
-      getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
+      getPendingConnectionAuthState(BROWSER_BACKEND, '00000000-0000-0000-0000-000000000001'),
     ).toBe('connection-state');
   });
 
   it('clears all pending OAuth states on logout cleanup', async () => {
     await runOAuthLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       timeoutMs: 0,
       fetchImpl: makeFetch([
         () =>
@@ -503,7 +517,7 @@ describe('runOAuthLauncher', () => {
     });
     await runOAuthConnectionLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       timeoutMs: 0,
       fetchImpl: makeFetch([
         () =>
@@ -518,16 +532,16 @@ describe('runOAuthLauncher', () => {
       ]) as unknown as typeof fetch,
     });
 
-    expect(getPendingAuthState('browser-backend')).toBe('profile-state');
+    expect(getPendingAuthState(BROWSER_BACKEND)).toBe('profile-state');
     expect(
-      getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
+      getPendingConnectionAuthState(BROWSER_BACKEND, '00000000-0000-0000-0000-000000000001'),
     ).toBe('connection-state');
 
     clearPendingOAuthStates();
 
-    expect(getPendingAuthState('browser-backend')).toBeNull();
+    expect(getPendingAuthState(BROWSER_BACKEND)).toBeNull();
     expect(
-      getPendingConnectionAuthState('browser-backend', '00000000-0000-0000-0000-000000000001'),
+      getPendingConnectionAuthState(BROWSER_BACKEND, '00000000-0000-0000-0000-000000000001'),
     ).toBeNull();
   });
 
@@ -555,7 +569,7 @@ describe('runOAuthLauncher', () => {
 
     const result = await runOAuthConnectionLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       label: 'work-anthropic',
       pollIntervalMs: 1,
       timeoutMs: 5_000,
@@ -565,6 +579,45 @@ describe('runOAuthLauncher', () => {
 
     expect(openExternal).toHaveBeenCalledWith(EXTERNAL_CLAUDE_AUTHORIZE_URL);
     expect(result.kind).toBe('complete');
+  });
+
+  it('rejects connection OAuth with hosted gateway redirect_uri', async () => {
+    const fetchMock = makeFetch([
+      () =>
+        new Response(
+          JSON.stringify({
+            connection_id: '00000000-0000-0000-0000-000000000001',
+            authorize_url: HOSTED_CLAUDE_AUTHORIZE_URL,
+            state: 'connection-state',
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        ),
+      () =>
+        new Response(
+          JSON.stringify({
+            id: '00000000-0000-0000-0000-000000000001',
+            label: 'work-anthropic',
+            status: 'active',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    ]);
+
+    const result = await runOAuthConnectionLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: BROWSER_BACKEND,
+      label: 'work-anthropic',
+      pollIntervalMs: 1,
+      timeoutMs: 5_000,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+
+    expect(result.kind).toBe('failed');
+    if (result.kind === 'failed') {
+      expect(result.message).toBe('blocked unexpected OAuth authorize URL');
+    }
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects unsafe connection ids before opening browser or polling', async () => {
@@ -582,7 +635,7 @@ describe('runOAuthLauncher', () => {
 
     const result = await runOAuthConnectionLauncher({
       sfBaseUrl: 'http://127.0.0.1:1234',
-      backendName: 'browser-backend',
+      backendName: BROWSER_BACKEND,
       pollIntervalMs: 1,
       timeoutMs: 10,
       fetchImpl: fetchMock as unknown as typeof fetch,

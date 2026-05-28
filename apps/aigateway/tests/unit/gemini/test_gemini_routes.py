@@ -11,14 +11,14 @@ from fastapi import HTTPException
 
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileState, credential_name_for, profile_id_for
-from aigateway.plugins.gemini_provider.auth import keychain_service_for
+from aigateway.plugins.gemini_provider.auth import credential_service_for
 
 
 def _account_id(client) -> str:
     return client.get("/v1/auth/me").json()["id"]
 
 
-def _seed_authenticated_gemini_profile(fake_keychain, account_id: str, **extra) -> None:
+def _seed_authenticated_gemini_profile(credential_blobs, account_id: str, **extra) -> None:
     creds = {
         "access_token": "ya29.oauth",
         "refresh_token": "refresh-1",
@@ -26,8 +26,8 @@ def _seed_authenticated_gemini_profile(fake_keychain, account_id: str, **extra) 
         "token_type": "Bearer",
     }
     creds.update(extra)
-    fake_keychain.write(
-        keychain_service_for(credential_name_for(account_id, "default")),
+    credential_blobs.write(
+        credential_service_for(credential_name_for(account_id, "default")),
         "default",
         json.dumps(creds),
     )
@@ -105,12 +105,12 @@ async def test_gemini_streaming_rejected_before_dispatch(monkeypatch, authentica
 
 @pytest.mark.asyncio
 async def test_gemini_authenticated_profile_uses_oauth_not_env_key_or_client_key(
-    monkeypatch, fake_keychain, authenticated_client
+    monkeypatch, credential_blobs, authenticated_client
 ) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "env-key")
     account_id = _account_id(authenticated_client)
-    _seed_authenticated_gemini_profile(fake_keychain, account_id)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    _seed_authenticated_gemini_profile(credential_blobs, account_id)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "gemini-cli", "default"),
@@ -150,17 +150,17 @@ async def test_gemini_authenticated_profile_uses_oauth_not_env_key_or_client_key
 
 @pytest.mark.asyncio
 async def test_gemini_refresh_error_marks_profile_error(
-    monkeypatch, fake_keychain, authenticated_client
+    monkeypatch, credential_blobs, authenticated_client
 ) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     account_id = _account_id(authenticated_client)
     _seed_authenticated_gemini_profile(
-        fake_keychain,
+        credential_blobs,
         account_id,
         expires_at_ms=int((time.time() - 60) * 1000),
     )
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "gemini-cli", "default"),
@@ -199,14 +199,14 @@ async def test_gemini_refresh_error_marks_profile_error(
 
 @pytest.mark.asyncio
 async def test_gemini_dispatch_401_marks_profile_error_and_reauth_url(
-    monkeypatch, fake_keychain, authenticated_client
+    monkeypatch, credential_blobs, authenticated_client
 ) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     account_id = _account_id(authenticated_client)
     credential_name = credential_name_for(account_id, "default")
-    _seed_authenticated_gemini_profile(fake_keychain, account_id)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    _seed_authenticated_gemini_profile(credential_blobs, account_id)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "gemini-cli", "default"),
@@ -258,10 +258,10 @@ async def test_gemini_dispatch_401_marks_profile_error_and_reauth_url(
 
 @pytest.mark.asyncio
 async def test_error_profile_is_rejected_before_dispatch(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "gemini-cli", "default"),
@@ -294,17 +294,17 @@ async def test_error_profile_is_rejected_before_dispatch(
 
 @pytest.mark.asyncio
 async def test_gemini_manual_refresh_error_marks_profile_error(
-    monkeypatch, fake_keychain, authenticated_client
+    monkeypatch, credential_blobs, authenticated_client
 ) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     account_id = _account_id(authenticated_client)
     _seed_authenticated_gemini_profile(
-        fake_keychain,
+        credential_blobs,
         account_id,
         expires_at_ms=int((time.time() + 3600) * 1000),
     )
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "gemini-cli", "default"),
@@ -349,17 +349,17 @@ async def test_gemini_manual_refresh_error_marks_profile_error(
 
 @pytest.mark.asyncio
 async def test_gemini_manual_refresh_success_restores_error_profile(
-    monkeypatch, fake_keychain, authenticated_client
+    monkeypatch, credential_blobs, authenticated_client
 ) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     account_id = _account_id(authenticated_client)
     _seed_authenticated_gemini_profile(
-        fake_keychain,
+        credential_blobs,
         account_id,
         expires_at_ms=int((time.time() + 3600) * 1000),
     )
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "gemini-cli", "default"),

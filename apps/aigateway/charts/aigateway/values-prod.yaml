@@ -1,0 +1,30 @@
+# OAuth pending state is process-local until the D-AIGW-009 pending-state follow-up.
+replicaCount: 1
+
+publicUrl: https://gateway.screamingface.ai
+
+auth:
+  createSecret: true
+  existingSecret: aigw-auth
+
+database:
+  existingSecret: aigw-db
+  existingSecretKey: database-url
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: gateway.screamingface.ai
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: aigw-tls
+      hosts:
+        - gateway.screamingface.ai
+
+networkPolicy:
+  enabled: true

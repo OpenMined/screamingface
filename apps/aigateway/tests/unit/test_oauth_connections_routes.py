@@ -70,6 +70,30 @@ def _codex_token_factory(email: str = "codex@example.com", sub: str = "codex-sub
     return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
 
 
+def _gemini_token_factory(email: str = "gemini@example.com", sub: str = "gemini-sub"):
+    id_token = _jwt(
+        {
+            "sub": sub,
+            "email": email,
+            "name": "Gemini User",
+            "exp": int(time.time()) + 3600,
+        }
+    )
+    transport = httpx.MockTransport(
+        lambda _req: httpx.Response(
+            200,
+            json={
+                "access_token": "gemini-access",
+                "refresh_token": "gemini-refresh",
+                "id_token": id_token,
+                "expires_in": 3600,
+                "token_type": "Bearer",
+            },
+        )
+    )
+    return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
+
+
 def _failing_token_factory():
     transport = httpx.MockTransport(
         lambda _req: httpx.Response(400, json={"error": "invalid_grant"})
@@ -136,8 +160,72 @@ def test_anthropic_connection_uses_request_host_port_for_callback(
     assert query["redirect_uri"] == ["http://localhost:9106/callback"]
 
 
+def test_anthropic_connection_uses_public_url_for_callback(authenticated_client) -> None:
+    authenticated_client.app.state.settings.public_url = "https://aigateway.example.com"
+
+    start = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "anthropic", "label": "public-anthropic"},
+    )
+
+    assert start.status_code == 201
+    query = parse_qs(urlparse(start.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == ["https://aigateway.example.com/callback"]
+
+
+def test_anthropic_connection_accepts_redirect_uri_override(authenticated_client) -> None:
+    redirect_uri = "http://localhost:9105/callback"
+
+    start = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={
+            "provider": "anthropic",
+            "label": "override-anthropic",
+            "redirect_uri": redirect_uri,
+        },
+    )
+
+    assert start.status_code == 201
+    query = parse_qs(urlparse(start.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == [redirect_uri]
+    pending = authenticated_client.app.state.pending_auth.peek(start.json()["state"])
+    assert pending.redirect_uri == redirect_uri
+
+
+def test_anthropic_connection_redirect_uri_override_wins_over_public_url(
+    authenticated_client,
+) -> None:
+    authenticated_client.app.state.settings.public_url = "https://aigateway.example.com"
+    redirect_uri = "http://localhost:9105/callback"
+
+    start = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={
+            "provider": "anthropic",
+            "label": "override-public-anthropic",
+            "redirect_uri": redirect_uri,
+        },
+    )
+
+    assert start.status_code == 201
+    query = parse_qs(urlparse(start.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == [redirect_uri]
+
+
+def test_codex_connection_rejects_unconfigured_redirect_override_port(
+    authenticated_client,
+) -> None:
+    start = authenticated_client.post(
+        "/v1/oauth/connections",
+        json={"provider": "codex", "redirect_uri": "http://localhost:9105/auth/callback"},
+    )
+
+    assert start.status_code == 400
+    assert start.json()["detail"]["code"] == "invalid_redirect_uri"
+
+
 def test_anthropic_connection_lifecycle_and_label_conflict(
-    authenticated_client, fake_keychain
+    authenticated_client, credential_blobs
 ) -> None:
     account_id = _account_id(authenticated_client)
     authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
@@ -163,7 +251,7 @@ def test_anthropic_connection_lifecycle_and_label_conflict(
     assert (
         body["credential_locator"]["service"] == f"aigateway:anthropic:{account_id}:{connection_id}"
     )
-    assert fake_keychain.read(body["credential_locator"]["service"], "default") is not None
+    assert credential_blobs.read(body["credential_locator"]["service"], "default") is not None
 
     duplicate_label = authenticated_client.post(
         "/v1/oauth/connections",
@@ -171,6 +259,43 @@ def test_anthropic_connection_lifecycle_and_label_conflict(
     )
     assert duplicate_label.status_code == 409
     assert duplicate_label.json()["detail"]["code"] == "label_conflict"
+
+
+def test_gemini_connection_uses_canonical_credential_locator(
+    authenticated_client,
+    credential_blobs,
+) -> None:
+    account_id = _account_id(authenticated_client)
+    setattr(authenticated_client.app.state, "gemini-cli_http_factory", _gemini_token_factory())
+
+    start = authenticated_client.post("/v1/oauth/connections", json={"provider": "gemini-cli"})
+    assert start.status_code == 201
+    state = start.json()["state"]
+    connection_id = start.json()["connection_id"]
+    query = parse_qs(urlparse(start.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == ["http://localhost:9105/oauth2callback"]
+
+    callback = authenticated_client.get("/oauth2callback", params={"code": "code", "state": state})
+    assert callback.status_code == 200
+
+    detail = authenticated_client.get(f"/v1/oauth/connections/{connection_id}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["provider"] == "gemini-cli"
+    assert body["status"] == "active"
+    assert body["label"] == "gemini@example.com"
+    assert body["credential_locator"] == {
+        "service": f"aigateway:gemini:{account_id}:{connection_id}",
+        "account": "default",
+    }
+    assert credential_blobs.read(body["credential_locator"]["service"], "default") is not None
+    assert (
+        credential_blobs.read(f"aigateway:gemini-cli:{account_id}:{connection_id}", "default")
+        is None
+    )
+
+    assert authenticated_client.delete(f"/v1/oauth/connections/{connection_id}").status_code == 204
+    assert credential_blobs.read(body["credential_locator"]["service"], "default") is None
 
 
 def test_anthropic_connection_can_reconnect_after_delete(authenticated_client) -> None:
@@ -260,7 +385,7 @@ def test_failed_anthropic_connection_can_retry_same_label(authenticated_client) 
     )
 
 
-def test_refresh_error_releases_label_for_reauth(authenticated_client, fake_keychain) -> None:
+def test_refresh_error_releases_label_for_reauth(authenticated_client, credential_blobs) -> None:
     authenticated_client.app.state.anthropic_http_factory = _anthropic_token_factory()
     start = authenticated_client.post(
         "/v1/oauth/connections",
@@ -275,7 +400,7 @@ def test_refresh_error_releases_label_for_reauth(authenticated_client, fake_keyc
         == 200
     )
     connection = authenticated_client.get(f"/v1/oauth/connections/{connection_id}").json()
-    fake_keychain.delete(connection["credential_locator"]["service"], "default")
+    credential_blobs.delete(connection["credential_locator"]["service"], "default")
 
     refresh = authenticated_client.post(f"/v1/oauth/connections/{connection_id}/refresh")
     assert refresh.status_code == 401
@@ -338,7 +463,7 @@ def test_patch_connection_label_conflict_returns_409(authenticated_client) -> No
 
 
 def test_codex_duplicate_connection_returns_existing(
-    authenticated_client, fake_keychain, monkeypatch
+    authenticated_client, credential_blobs, monkeypatch
 ) -> None:
     account_id = _account_id(authenticated_client)
     authenticated_client.app.state.codex_http_factory = _codex_token_factory()
@@ -386,7 +511,7 @@ def test_codex_duplicate_connection_returns_existing(
         "/v1/oauth/connections", params={"provider": "codex", "status": "active"}
     )
     assert [item["id"] for item in active.json()["connections"]] == [first_id]
-    assert fake_keychain.read(f"aigateway:codex:{account_id}:{second_id}", "default") is None
+    assert credential_blobs.read(f"aigateway:codex:{account_id}:{second_id}", "default") is None
 
 
 def test_connection_lookup_is_account_scoped(

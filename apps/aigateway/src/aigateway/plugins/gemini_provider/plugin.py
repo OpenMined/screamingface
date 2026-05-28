@@ -33,7 +33,7 @@ from .oauth_config import (
 )
 
 if TYPE_CHECKING:
-    from aigateway.core.credential_store import CredentialStore
+    from aigateway.core.credential_blob.store import CredentialBlobStore
 
 
 _CLIENT_AUTH_HEADER_NAMES = {
@@ -59,6 +59,9 @@ def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
 class GeminiProviderPlugin(ProviderPluginBase):
     custom_llm_provider = "gemini-cli"
 
+    def credential_service_provider(self) -> str:
+        return "gemini"
+
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
 
@@ -76,7 +79,7 @@ class GeminiProviderPlugin(ProviderPluginBase):
         self,
         profile_name: str,
         *,
-        credential_store: CredentialStore | None = None,
+        credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> OAuthStrategy:
         return GeminiOAuth(

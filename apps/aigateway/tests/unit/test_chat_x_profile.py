@@ -20,17 +20,19 @@ from aigateway.core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
-from aigateway.plugins.anthropic_provider.auth import keychain_service_for
-from aigateway.plugins.codex_provider.auth import keychain_service_for as codex_keychain_service_for
+from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from aigateway.plugins.codex_provider.auth import (
+    credential_service_for as codex_credential_service_for,
+)
 
 
 def _account_id(client) -> str:
     return client.get("/v1/auth/me").json()["id"]
 
 
-def _seed_authenticated_profile(fake_keychain, account_id: str) -> None:
-    fake_keychain.write(
-        keychain_service_for(credential_name_for(account_id, "default")),
+def _seed_authenticated_profile(credential_blobs, account_id: str) -> None:
+    credential_blobs.write(
+        credential_service_for(credential_name_for(account_id, "default")),
         "default",
         json.dumps(
             {
@@ -44,14 +46,14 @@ def _seed_authenticated_profile(fake_keychain, account_id: str) -> None:
 
 
 def _seed_authenticated_connection(
-    fake_keychain,
+    credential_blobs,
     account_id: str,
     connection_id: str | UUID,
     *,
     access_token: str = "connection-tok",
 ) -> None:
-    fake_keychain.write(
-        keychain_service_for(credential_key_for(account_id, connection_id)),
+    credential_blobs.write(
+        credential_service_for(credential_key_for(account_id, connection_id)),
         "default",
         json.dumps(
             {
@@ -80,9 +82,9 @@ async def _create_active_connection(
     return await store.complete(connection, label=label, identity=None)
 
 
-def _seed_authenticated_codex_profile(fake_keychain, account_id: str) -> None:
-    fake_keychain.write(
-        codex_keychain_service_for(credential_name_for(account_id, "default")),
+def _seed_authenticated_codex_profile(credential_blobs, account_id: str) -> None:
+    credential_blobs.write(
+        codex_credential_service_for(credential_name_for(account_id, "default")),
         "default",
         json.dumps(
             {
@@ -130,11 +132,11 @@ async def test_chat_404_when_codex_profile_missing(authenticated_client) -> None
 
 
 def test_chat_uses_single_active_oauth_connection_when_profile_missing(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
     connection = authenticated_client.portal.call(_create_active_connection, account_id)
-    _seed_authenticated_connection(fake_keychain, account_id, connection.id)
+    _seed_authenticated_connection(credential_blobs, account_id, connection.id)
     captured: dict = {}
 
     async def fake_chat_completion(_self, body):
@@ -170,7 +172,7 @@ def test_chat_uses_single_active_oauth_connection_when_profile_missing(
 
 
 def test_chat_requires_profile_label_when_multiple_oauth_connections_exist(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
     first = authenticated_client.portal.call(
@@ -179,9 +181,9 @@ def test_chat_requires_profile_label_when_multiple_oauth_connections_exist(
     second = authenticated_client.portal.call(
         partial(_create_active_connection, account_id, label="personal-anthropic")
     )
-    _seed_authenticated_connection(fake_keychain, account_id, first.id, access_token="work-tok")
+    _seed_authenticated_connection(credential_blobs, account_id, first.id, access_token="work-tok")
     _seed_authenticated_connection(
-        fake_keychain, account_id, second.id, access_token="personal-tok"
+        credential_blobs, account_id, second.id, access_token="personal-tok"
     )
 
     ambiguous = authenticated_client.post(
@@ -252,7 +254,7 @@ def test_chat_wrong_connection_label_returns_valid_labels(authenticated_client) 
 
 
 def test_chat_empty_x_profile_header_uses_default_ambiguity(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
     authenticated_client.portal.call(
@@ -276,11 +278,11 @@ def test_chat_empty_x_profile_header_uses_default_ambiguity(
 
 
 def test_chat_cannot_use_other_accounts_oauth_connection(
-    fake_keychain, authenticated_client, provisioned_user_factory
+    credential_blobs, authenticated_client, provisioned_user_factory
 ) -> None:
     admin_account_id = _account_id(authenticated_client)
     connection = authenticated_client.portal.call(_create_active_connection, admin_account_id)
-    _seed_authenticated_connection(fake_keychain, admin_account_id, connection.id)
+    _seed_authenticated_connection(credential_blobs, admin_account_id, connection.id)
 
     provisioned_user_factory("bob", "bob-pass1")
     login = authenticated_client.post(
@@ -300,11 +302,11 @@ def test_chat_cannot_use_other_accounts_oauth_connection(
     assert resp.status_code == 404
 
 
-def test_chat_uses_oauth_connection_for_anonymous_local_mode(fake_keychain, client) -> None:
+def test_chat_uses_oauth_connection_for_anonymous_local_mode(credential_blobs, client) -> None:
     client.app.state.settings.auth_enabled = False
     account_id = str(ANONYMOUS_ACCOUNT_ID)
     connection = client.portal.call(_create_active_connection, account_id)
-    _seed_authenticated_connection(fake_keychain, account_id, connection.id)
+    _seed_authenticated_connection(credential_blobs, account_id, connection.id)
     captured: dict = {}
 
     async def fake_chat_completion(_self, body):
@@ -335,9 +337,9 @@ def test_chat_uses_oauth_connection_for_anonymous_local_mode(fake_keychain, clie
 
 
 @pytest.mark.asyncio
-async def test_chat_409_when_profile_pending(fake_keychain, authenticated_client) -> None:
+async def test_chat_409_when_profile_pending(credential_blobs, authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "default"),
@@ -359,11 +361,11 @@ async def test_chat_409_when_profile_pending(fake_keychain, authenticated_client
 
 
 @pytest.mark.asyncio
-async def test_chat_merges_profile_defaults(fake_keychain, authenticated_client) -> None:
+async def test_chat_merges_profile_defaults(credential_blobs, authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
-    _seed_authenticated_profile(fake_keychain, account_id)
+    _seed_authenticated_profile(credential_blobs, account_id)
 
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "default"),
@@ -409,12 +411,12 @@ async def test_chat_merges_profile_defaults(fake_keychain, authenticated_client)
 
 @pytest.mark.asyncio
 async def test_chat_skips_anthropic_profile_reasoning_default(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
-    _seed_authenticated_profile(fake_keychain, account_id)
+    _seed_authenticated_profile(credential_blobs, account_id)
 
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "default"),
@@ -455,11 +457,13 @@ async def test_chat_skips_anthropic_profile_reasoning_default(
 
 
 @pytest.mark.asyncio
-async def test_chat_removes_anthropic_reasoning_none(fake_keychain, authenticated_client) -> None:
+async def test_chat_removes_anthropic_reasoning_none(
+    credential_blobs, authenticated_client
+) -> None:
     account_id = _account_id(authenticated_client)
-    _seed_authenticated_profile(fake_keychain, account_id)
+    _seed_authenticated_profile(credential_blobs, account_id)
 
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "default"),
@@ -501,11 +505,11 @@ async def test_chat_removes_anthropic_reasoning_none(fake_keychain, authenticate
 
 @pytest.mark.asyncio
 async def test_chat_cannot_use_other_accounts_profile(
-    fake_keychain, authenticated_client, provisioned_user_factory
+    credential_blobs, authenticated_client, provisioned_user_factory
 ) -> None:
     admin_account_id = _account_id(authenticated_client)
-    _seed_authenticated_profile(fake_keychain, admin_account_id)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    _seed_authenticated_profile(credential_blobs, admin_account_id)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(admin_account_id, "anthropic", "shared"),
@@ -544,11 +548,11 @@ def test_chat_requires_auth(client) -> None:
 
 @pytest.mark.asyncio
 async def test_chat_rejects_codex_stream_before_litellm(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
-    _seed_authenticated_codex_profile(fake_keychain, account_id)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    _seed_authenticated_codex_profile(credential_blobs, account_id)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "codex", "default"),
@@ -580,11 +584,11 @@ async def test_chat_rejects_codex_stream_before_litellm(
 
 @pytest.mark.asyncio
 async def test_chat_streams_through_provider_plugin_boundary(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
-    _seed_authenticated_profile(fake_keychain, account_id)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    _seed_authenticated_profile(credential_blobs, account_id)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "default"),
@@ -624,11 +628,11 @@ async def test_chat_streams_through_provider_plugin_boundary(
 
 @pytest.mark.asyncio
 async def test_chat_overwrites_client_api_key_for_codex_oauth(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
-    _seed_authenticated_codex_profile(fake_keychain, account_id)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    _seed_authenticated_codex_profile(credential_blobs, account_id)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "codex", "default"),
@@ -670,11 +674,11 @@ async def test_chat_overwrites_client_api_key_for_codex_oauth(
 
 @pytest.mark.asyncio
 async def test_chat_maps_codex_reasoning_effort_to_reasoning(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
-    _seed_authenticated_codex_profile(fake_keychain, account_id)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    _seed_authenticated_codex_profile(credential_blobs, account_id)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "codex", "default"),
@@ -716,10 +720,10 @@ async def test_chat_maps_codex_reasoning_effort_to_reasoning(
 
 
 @pytest.mark.asyncio
-async def test_chat_maps_litellm_rate_limit_to_429(fake_keychain, authenticated_client) -> None:
+async def test_chat_maps_litellm_rate_limit_to_429(credential_blobs, authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
-    _seed_authenticated_profile(fake_keychain, account_id)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    _seed_authenticated_profile(credential_blobs, account_id)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "default"),

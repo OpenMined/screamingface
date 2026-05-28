@@ -23,6 +23,7 @@ from aigateway.core.oauth.store import (
 )
 from aigateway.core.oauth_pkce import generate_pkce, generate_state
 from aigateway.core.pending_auth import PendingAuthEntry
+from aigateway.core.plugin_base import credential_service_provider_for
 
 from .auth import _redirect_uri_for
 
@@ -75,6 +76,13 @@ async def start_connection_oauth(
     account_id = str(current.id)
     connection_id = uuid4()
     label = body.label or f"pending-{connection_id}"
+    code_verifier, code_challenge = generate_pkce()
+    state = generate_state()
+    redirect_uri: str | None = None
+    if body.redirect_uri is not None:
+        redirect_uri = await _redirect_uri_for(
+            request, body.provider, cfg, state, body.redirect_uri
+        )
     store = _store(request)
     if body.label and await store.find_by_label(account_id, body.provider, body.label) is not None:
         raise HTTPException(
@@ -87,6 +95,7 @@ async def start_connection_oauth(
             provider=body.provider,
             label=label,
             connection_id=connection_id,
+            credential_provider=credential_service_provider_for(plugin, body.provider),
         )
     except IntegrityError as exc:
         raise HTTPException(
@@ -94,9 +103,8 @@ async def start_connection_oauth(
             detail={"code": "label_conflict", "provider": body.provider, "label": label},
         ) from exc
 
-    code_verifier, code_challenge = generate_pkce()
-    state = generate_state()
-    redirect_uri = await _redirect_uri_for(request, body.provider, cfg, state)
+    if redirect_uri is None:
+        redirect_uri = await _redirect_uri_for(request, body.provider, cfg, state)
     request.app.state.pending_auth.put(
         state,
         PendingAuthEntry(
@@ -160,7 +168,7 @@ async def delete_connection(connection_id: UUID, request: Request, current: Curr
     connection = await store.get(str(current.id), connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-    _delete_credentials(request, connection.credential_locator)
+    await _delete_credentials(request, connection.credential_locator)
     await store.mark_revoked(connection)
 
 
@@ -283,11 +291,11 @@ async def _get_visible_connection(
     return response_from_connection(connection)
 
 
-def _delete_credentials(request: Request, locator: dict) -> None:
+async def _delete_credentials(request: Request, locator: dict) -> None:
     service = locator.get("service")
     account = locator.get("account")
     if isinstance(service, str) and isinstance(account, str):
-        request.app.state.credential_store.delete(service, account)
+        await request.app.state.credential_store.delete(service, account)
 
 
 def _duplicate_id(message: str | None) -> UUID | None:

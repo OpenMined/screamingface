@@ -1,3 +1,7 @@
+# Superseded By SF-219
+
+This historical plan describes an OS credential-store design for AIGateway. It is superseded by SF-219, which replaces AIGateway runtime credential storage with Tortoise-backed `ORMStore` and the `credential_blobs` table. Do not use this document to reintroduce OS credential storage under `apps/aigateway`.
+
 # aigw-*-backend OAuth Authenticate button — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -860,7 +864,7 @@ git commit -m "feat(llm-base): add auth_kind field to /backends/status"
 **Files:**
 - Test: `apps/server/tests/e2e/test_aigw_auth_e2e.py`
 
-This task uses the existing subprocess pattern from `apps/server/tests/e2e/test_aigw_claude_e2e.py`. We boot a real aigateway with the fake-keychain credential store + a fake Anthropic OAuth server. We exercise the SF auth-proxy + gateway through real HTTP.
+This task uses the existing subprocess pattern from `apps/server/tests/e2e/test_aigw_claude_e2e.py`. We boot a real aigateway with a fake in-memory credential store + a fake Anthropic OAuth server. We exercise the SF auth-proxy + gateway through real HTTP.
 
 - [ ] **Step 1: Write the integration test scaffolding**
 
@@ -869,7 +873,7 @@ This task uses the existing subprocess pattern from `apps/server/tests/e2e/test_
 """End-to-end: SF aigw-claude-backend auth-proxy ↔ real aigateway.
 
 Boots a real aigateway subprocess with:
-- a fake in-memory credential store (no real keychain)
+- a fake in-memory credential store (no real OS credential store)
 - a fake Anthropic OAuth provider via httpx MockTransport injected
   through ``app.state.anthropic_http_factory``
 
@@ -906,13 +910,13 @@ def _free_port() -> int:
 
 @pytest.fixture
 def aigw_subprocess(tmp_path) -> Iterator[dict]:
-    """Boot a real aigateway with a fake keychain + fake Anthropic OAuth."""
+    """Boot a real aigateway with a fake credential store + fake Anthropic OAuth."""
     port = _free_port()
     env = os.environ.copy()
     env["AIGATEWAY_PORT"] = str(port)
-    env["AIGATEWAY_FAKE_KEYCHAIN"] = "1"
+    env["AIGATEWAY_FAKE_CREDENTIAL_STORE"] = "1"
     env["AIGATEWAY_FAKE_ANTHROPIC_OAUTH"] = "1"
-    env["AIGATEWAY_KEYCHAIN_FILE"] = str(tmp_path / "fake-kc.json")
+    env["AIGATEWAY_CREDENTIAL_STORE_FILE"] = str(tmp_path / "fake-kc.json")
 
     proc = subprocess.Popen(
         [sys.executable, "-m", "aigateway"],
@@ -947,7 +951,7 @@ def aigw_subprocess(tmp_path) -> Iterator[dict]:
 ```
 
 NOTE: The harness above relies on two env-driven test-only switches in
-`apps/aigateway/src/aigateway/main.py` — `AIGATEWAY_FAKE_KEYCHAIN` and
+`apps/aigateway/src/aigateway/main.py` — `AIGATEWAY_FAKE_CREDENTIAL_STORE` and
 `AIGATEWAY_FAKE_ANTHROPIC_OAUTH`. These must be added in the same task
 (see Step 2 below) before the fixture works.
 
@@ -956,11 +960,11 @@ NOTE: The harness above relies on two env-driven test-only switches in
 In `apps/aigateway/src/aigateway/main.py`, near the top of `create_app`, after `registry = ProviderRegistry()`:
 
 ```python
-    if os.getenv("AIGATEWAY_FAKE_KEYCHAIN") == "1":
+    if os.getenv("AIGATEWAY_FAKE_CREDENTIAL_STORE") == "1":
         from .core.credential_store import InMemoryCredentialStore
         from .core import credential_store as cs_mod
 
-        kc_path = os.getenv("AIGATEWAY_KEYCHAIN_FILE")
+        kc_path = os.getenv("AIGATEWAY_CREDENTIAL_STORE_FILE")
         store = InMemoryCredentialStore(persist_path=kc_path)
         cs_mod._fake_singleton = store  # type: ignore[attr-defined]
 
@@ -1125,10 +1129,10 @@ def aigw_subprocess_failing(tmp_path):
     port = _free_port()
     env = os.environ.copy()
     env["AIGATEWAY_PORT"] = str(port)
-    env["AIGATEWAY_FAKE_KEYCHAIN"] = "1"
+    env["AIGATEWAY_FAKE_CREDENTIAL_STORE"] = "1"
     env["AIGATEWAY_FAKE_ANTHROPIC_OAUTH"] = "1"
     env["AIGATEWAY_FAKE_ANTHROPIC_OAUTH_FAIL"] = "1"
-    env["AIGATEWAY_KEYCHAIN_FILE"] = str(tmp_path / "fake-kc.json")
+    env["AIGATEWAY_CREDENTIAL_STORE_FILE"] = str(tmp_path / "fake-kc.json")
     proc = subprocess.Popen(
         [sys.executable, "-m", "aigateway"],
         env=env,

@@ -3,24 +3,24 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from .credential_store import CredentialStore, get_credential_store
+from .credential_blob.store import CredentialBlobStore, ORMStore
 from .profile_models import Profile, ProfileIndex
 
 logger = logging.getLogger(__name__)
 
-INDEX_KEYCHAIN_SERVICE = "aigateway:index"
-_INDEX_ACCOUNT = "default"  # one keychain entry holds account-scoped profile metadata
+INDEX_CREDENTIAL_SERVICE = "aigateway:index"
+_INDEX_ACCOUNT = "default"  # one credential blob holds account-scoped profile metadata
 
 
 class ProfileIndexStore:
-    """Read/write the `aigateway:index` keychain entry under an asyncio.Lock."""
+    """Read/write the `aigateway:index` credential blob under an asyncio.Lock."""
 
-    def __init__(self, credential_store: CredentialStore | None = None) -> None:
-        self._store = credential_store or get_credential_store()
+    def __init__(self, credential_store: CredentialBlobStore | None = None) -> None:
+        self._store = credential_store or ORMStore()
         self._lock = asyncio.Lock()
 
     async def read(self) -> ProfileIndex:
-        raw = await asyncio.to_thread(self._store.read, INDEX_KEYCHAIN_SERVICE, _INDEX_ACCOUNT)
+        raw = await self._store.read(INDEX_CREDENTIAL_SERVICE, _INDEX_ACCOUNT)
         if raw is None:
             return ProfileIndex()
         return ProfileIndex.model_validate_json(raw)
@@ -31,23 +31,13 @@ class ProfileIndexStore:
         async with self._lock:
             idx = await self.read()
             idx.profiles = [p for p in idx.profiles if p.id != profile.id] + [profile]
-            await asyncio.to_thread(
-                self._store.write,
-                INDEX_KEYCHAIN_SERVICE,
-                _INDEX_ACCOUNT,
-                idx.model_dump_json(),
-            )
+            await self._store.write(INDEX_CREDENTIAL_SERVICE, _INDEX_ACCOUNT, idx.model_dump_json())
 
     async def remove(self, profile_id: str) -> None:
         async with self._lock:
             idx = await self.read()
             idx.profiles = [p for p in idx.profiles if p.id != profile_id]
-            await asyncio.to_thread(
-                self._store.write,
-                INDEX_KEYCHAIN_SERVICE,
-                _INDEX_ACCOUNT,
-                idx.model_dump_json(),
-            )
+            await self._store.write(INDEX_CREDENTIAL_SERVICE, _INDEX_ACCOUNT, idx.model_dump_json())
 
     async def list(self, account_id: str, provider: str | None = None) -> list[Profile]:
         idx = await self.read()

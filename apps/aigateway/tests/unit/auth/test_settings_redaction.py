@@ -27,6 +27,22 @@ def test_auth_enabled_defaults_true_and_parses_env_zero(monkeypatch, tmp_path) -
     assert Settings().auth_enabled is False
 
 
+def test_public_url_parses_env_and_strips_trailing_slash(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AIGATEWAY_PUBLIC_URL", "https://aigateway.example.com/base/")
+
+    assert Settings().public_url == "https://aigateway.example.com/base"
+
+
+def test_invalid_public_url_rejected() -> None:
+    try:
+        Settings(public_url="localhost:9105")
+    except ValueError as exc:
+        assert "public_url must be an absolute http(s) URL" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("invalid public_url was accepted")
+
+
 def test_short_secret_rejected() -> None:
     try:
         Settings(jwt_secret=SecretStr("short"))

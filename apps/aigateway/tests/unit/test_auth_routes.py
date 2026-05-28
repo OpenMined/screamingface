@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 from fastapi import HTTPException
+from tortoise import Tortoise
 from tortoise.exceptions import IntegrityError
 
 from aigateway.core.pending_auth import PendingAuthEntry
@@ -22,20 +23,23 @@ from aigateway.core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
+from aigateway.db import init_db
 from aigateway.plugins.codex_provider.oauth_config import CODEX_CLIENT_ID
 from aigateway.routes.auth import (
+    _close_loopback_callback,
     _complete_oauth_for_app,
     _connection_label,
     _expire_loopback_callback,
     _handle_loopback_callback,
     _http_response,
     _loopback_host_allowed,
+    close_loopback_callbacks,
 )
 
 
 @pytest.fixture
-def client_with_index(authenticated_client, fake_keychain):
-    return authenticated_client, fake_keychain
+def client_with_index(authenticated_client, credential_blobs):
+    return authenticated_client, credential_blobs
 
 
 def _account_id(client) -> str:
@@ -50,9 +54,9 @@ def test_list_profiles_empty(client_with_index) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_profiles_returns_seeded(fake_keychain, authenticated_client) -> None:
+async def test_list_profiles_returns_seeded(credential_blobs, authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "default"),
@@ -136,6 +140,108 @@ def test_start_oauth_invalid_host_falls_back_to_app_port(client_with_index) -> N
     assert query["redirect_uri"] == [f"http://localhost:{client.app.state.settings.port}/callback"]
 
 
+def test_start_oauth_uses_public_url_for_gateway_callback(client_with_index) -> None:
+    client, _ = client_with_index
+    client.app.state.settings.public_url = "https://aigateway.example.com/base"
+
+    resp = client.post("/v1/auth/anthropic/profiles", json={"name": "public-url"})
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == ["https://aigateway.example.com/base/callback"]
+
+
+def test_start_oauth_accepts_redirect_uri_override(client_with_index) -> None:
+    client, _ = client_with_index
+    redirect_uri = "http://localhost:9105/callback"
+
+    resp = client.post(
+        "/v1/auth/anthropic/profiles",
+        json={"name": "hosted", "redirect_uri": redirect_uri},
+    )
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == [redirect_uri]
+    pending = client.app.state.pending_auth.peek(resp.json()["state"])
+    assert pending.redirect_uri == redirect_uri
+
+
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "https://localhost:9105/callback",
+        "http://example.com:9105/callback",
+        "http://localhost:9105/oauth2callback",
+        "http://localhost:9105/callback?x=1",
+        "http://localhost:9105/callback#frag",
+        "http://user:pass@localhost:9105/callback",
+        "http://localhost/callback",
+        "http://localhost:0/callback",
+    ],
+)
+def test_start_oauth_rejects_invalid_redirect_uri_override(
+    client_with_index,
+    redirect_uri: str,
+) -> None:
+    client, _ = client_with_index
+
+    resp = client.post(
+        "/v1/auth/anthropic/profiles",
+        json={"name": "bad-redirect", "redirect_uri": redirect_uri},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "invalid_redirect_uri"
+
+
+def test_start_oauth_redirect_uri_override_wins_over_public_url(client_with_index) -> None:
+    client, _ = client_with_index
+    client.app.state.settings.public_url = "https://aigateway.example.com/base"
+    redirect_uri = "http://localhost:9105/callback"
+
+    resp = client.post(
+        "/v1/auth/anthropic/profiles",
+        json={"name": "override-public", "redirect_uri": redirect_uri},
+    )
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == [redirect_uri]
+
+
+@pytest.mark.parametrize("port", [1455, 1457])
+def test_start_oauth_codex_accepts_configured_redirect_override_port(
+    client_with_index,
+    port: int,
+) -> None:
+    client, _ = client_with_index
+    redirect_uri = f"http://localhost:{port}/auth/callback"
+
+    resp = client.post(
+        "/v1/auth/codex/profiles",
+        json={"name": f"codex-{port}", "redirect_uri": redirect_uri},
+    )
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == [redirect_uri]
+
+
+def test_start_oauth_codex_rejects_unconfigured_redirect_override_port(
+    client_with_index,
+) -> None:
+    client, _ = client_with_index
+
+    resp = client.post(
+        "/v1/auth/codex/profiles",
+        json={"name": "codex-bad-port", "redirect_uri": "http://localhost:9105/auth/callback"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "invalid_redirect_uri"
+
+
 def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -> None:
     client, _ = client_with_index
     account_id = _account_id(client)
@@ -166,6 +272,19 @@ def test_start_oauth_for_codex_returns_openai_authorize_url(client_with_index) -
     profile = client.get("/v1/auth/codex/profiles/work").json()
     assert profile["state"] == "pending"
     assert "offline_access" in profile["scopes"]
+
+
+def test_start_oauth_public_url_overrides_loopback_redirect_ports_for_codex(
+    client_with_index,
+) -> None:
+    client, _ = client_with_index
+    client.app.state.settings.public_url = "https://aigateway.example.com"
+
+    resp = client.post("/v1/auth/codex/profiles", json={"name": "public-codex"})
+
+    assert resp.status_code == 201
+    query = parse_qs(urlparse(resp.json()["authorize_url"]).query)
+    assert query["redirect_uri"] == ["https://aigateway.example.com/auth/callback"]
 
 
 def test_start_oauth_loopback_unavailable_returns_503(client_with_index, monkeypatch) -> None:
@@ -262,10 +381,10 @@ class _RecordingStrategy:
     async def get_authorization_header(self) -> dict[str, str]:
         return {}
 
-    def persist_credentials(self, creds: dict) -> None:
+    async def persist_credentials(self, creds: dict) -> None:
         self.creds = creds
 
-    def delete_credentials(self) -> None:
+    async def delete_credentials(self) -> None:
         self.deleted = True
 
     async def refresh_credentials(self) -> None:
@@ -389,6 +508,17 @@ def _raw_loopback_request(target: str, *, method: str = "GET", host: str = "loca
     return f"{method} {target} HTTP/1.1\r\nHost: {host}\r\n\r\n".encode("ascii")
 
 
+def _close_testclient_tortoise_connections(client) -> None:
+    # Some tests call async route internals directly on pytest's loop after
+    # TestClient has opened Tortoise connections on its portal loop.
+    client.portal.call(Tortoise.close_connections)
+
+
+async def _move_tortoise_to_pytest_loop(client, credential_blobs) -> None:
+    _close_testclient_tortoise_connections(client)
+    await init_db(f"sqlite://{credential_blobs.db_path}")
+
+
 async def _seed_pending_profile(
     client,
     account_id: str,
@@ -459,6 +589,43 @@ async def test_expire_loopback_callback_closes_registered_server(client_with_ind
     assert state not in client.app.state.loopback_oauth_callbacks
 
 
+@pytest.mark.asyncio
+async def test_close_loopback_callback_cancels_expiry_task(client_with_index) -> None:
+    client, _ = client_with_index
+    state = "state-to-close"
+    server = _FakeServer()
+    task = asyncio.create_task(asyncio.sleep(600))
+    client.app.state.loopback_oauth_callbacks = {state: server}
+    client.app.state.loopback_oauth_callback_tasks = {state: task}
+
+    await _close_loopback_callback(client.app, state)
+
+    assert server.closed is True
+    assert server.waited is True
+    assert task.done() is True
+    assert client.app.state.loopback_oauth_callbacks == {}
+    assert client.app.state.loopback_oauth_callback_tasks == {}
+
+
+@pytest.mark.asyncio
+async def test_close_loopback_callbacks_cleans_all_servers_and_tasks(client_with_index) -> None:
+    client, _ = client_with_index
+    servers = {"state-1": _FakeServer(), "state-2": _FakeServer()}
+    tasks = {
+        "state-1": asyncio.create_task(asyncio.sleep(600)),
+        "state-2": asyncio.create_task(asyncio.sleep(600)),
+    }
+    client.app.state.loopback_oauth_callbacks = servers.copy()
+    client.app.state.loopback_oauth_callback_tasks = tasks.copy()
+
+    await close_loopback_callbacks(client.app)
+
+    assert all(server.closed and server.waited for server in servers.values())
+    assert all(task.done() for task in tasks.values())
+    assert client.app.state.loopback_oauth_callbacks == {}
+    assert client.app.state.loopback_oauth_callback_tasks == {}
+
+
 def test_connection_label_uses_plugin_account_label_fallback() -> None:
     class _LabelPlugin:
         def account_label_from_credentials(self, _credentials: dict) -> str | None:
@@ -480,8 +647,9 @@ def test_connection_label_uses_plugin_account_label_fallback() -> None:
 
 @pytest.mark.asyncio
 async def test_handle_loopback_callback_completes_oauth(client_with_index) -> None:
-    client, _ = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
+    await _move_tortoise_to_pytest_loop(client, credential_blobs)
     state = "loopback-state"
     plugin = _GenericOAuthPlugin()
     server = _FakeServer()
@@ -510,9 +678,10 @@ async def test_handle_loopback_callback_completes_oauth(client_with_index) -> No
     assert server.closed is True
     assert server.waited is True
     assert state not in client.app.state.loopback_oauth_callbacks
-    profile = client.get("/v1/auth/generic/profiles/loopback")
-    assert profile.status_code == 200
-    assert profile.json()["state"] == "authenticated"
+    profile = await client.app.state.profile_index.get(account_id, "generic", "loopback")
+    assert profile is not None
+    assert profile.state == ProfileState.AUTHENTICATED
+    await Tortoise.close_connections()
 
 
 @pytest.mark.parametrize(
@@ -571,10 +740,42 @@ async def test_handle_loopback_callback_rejects_bad_requests(
     assert writer.closed is True
 
 
+@pytest.mark.parametrize(
+    "reader",
+    [
+        _FakeReader(_raw_loopback_request("/other?code=c&state=expected")),
+        _FakeReader(_raw_loopback_request("/callback?code=c&state=wrong")),
+        _FakeReader(_raw_loopback_request("/callback?code=c&state=expected", host="evil.test")),
+    ],
+)
+@pytest.mark.asyncio
+async def test_handle_loopback_callback_keeps_listener_for_stray_requests(
+    client_with_index,
+    reader,
+) -> None:
+    client, _ = client_with_index
+    server = _FakeServer()
+    client.app.state.loopback_oauth_callbacks = {"expected": server}
+
+    await _handle_loopback_callback(
+        client.app,
+        "generic",
+        "/callback",
+        "expected",
+        _as_stream_reader(reader),
+        _as_stream_writer(_FakeWriter()),
+    )
+
+    assert server.closed is False
+    assert server.waited is False
+    assert client.app.state.loopback_oauth_callbacks == {"expected": server}
+
+
 @pytest.mark.asyncio
 async def test_handle_loopback_callback_escapes_completion_errors(client_with_index) -> None:
-    client, _ = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
+    await _move_tortoise_to_pytest_loop(client, credential_blobs)
     state = "loopback-error-state"
     server = _FakeServer()
     client.app.state.providers._plugins["generic"] = _ExplodingOAuthPlugin()
@@ -596,9 +797,10 @@ async def test_handle_loopback_callback_escapes_completion_errors(client_with_in
     assert b"<script>bad</script>" not in writer.response
     assert server.closed is True
     assert server.waited is True
-    profile = client.get("/v1/auth/generic/profiles/loopback-error")
-    assert profile.status_code == 200
-    assert profile.json()["state"] == "error"
+    profile = await client.app.state.profile_index.get(account_id, "generic", "loopback-error")
+    assert profile is not None
+    assert profile.state == ProfileState.ERROR
+    await Tortoise.close_connections()
 
 
 def test_start_oauth_for_non_oauth_provider_400(client_with_index) -> None:
@@ -637,6 +839,54 @@ def test_exchange_code_uses_provider_exchange_hook(client_with_index) -> None:
     profile = client.get("/v1/auth/generic/profiles/work").json()
     assert profile["id"] == profile_id_for(account_id, "generic", "work")
     assert profile["state"] == "authenticated"
+
+
+def test_exchange_code_uses_redirect_uri_override(client_with_index) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    redirect_uri = "http://localhost:9105/callback"
+
+    start = client.post(
+        "/v1/auth/generic/profiles",
+        json={"name": "override", "redirect_uri": redirect_uri},
+    )
+    assert start.status_code == 201
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 200
+    assert plugin.exchange_request is not None
+    assert plugin.exchange_request.redirect_uri == redirect_uri
+
+
+def test_connection_exchange_uses_redirect_uri_override(client_with_index) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    redirect_uri = "http://localhost:9105/callback"
+
+    start = client.post(
+        "/v1/oauth/connections",
+        json={
+            "provider": "generic",
+            "label": "generic-override",
+            "redirect_uri": redirect_uri,
+        },
+    )
+    assert start.status_code == 201
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 200
+    assert plugin.exchange_request is not None
+    assert plugin.exchange_request.redirect_uri == redirect_uri
 
 
 def test_connection_completion_persists_credentials_after_store_complete(
@@ -724,10 +974,10 @@ def test_profiles_are_scoped_to_current_account(
 
 @pytest.mark.asyncio
 async def test_list_provider_profiles_returns_only_current_account(
-    fake_keychain, authenticated_client, provisioned_user_factory
+    credential_blobs, authenticated_client, provisioned_user_factory
 ) -> None:
     admin_account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(admin_account_id, "anthropic", "admin-owned"),
@@ -827,7 +1077,7 @@ def _html_failing_token_factory():
 
 
 def test_callback_completes_auth(client_with_index) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
@@ -848,16 +1098,16 @@ def test_callback_completes_auth(client_with_index) -> None:
     prof = client.get("/v1/auth/anthropic/profiles/work").json()
     assert prof["state"] == "authenticated"
 
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
-    blob = fake_keychain.read(
-        keychain_service_for(credential_name_for(account_id, "work")), "default"
+    blob = credential_blobs.read(
+        credential_service_for(credential_name_for(account_id, "work")), "default"
     )
     assert "new-tok" in blob
 
 
 def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_index) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     client.app.state.codex_http_factory = _mock_codex_token_factory()
 
@@ -879,10 +1129,10 @@ def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_ind
     assert prof["state"] == "authenticated"
     assert prof["account_label"] == "user@example.com"
 
-    from aigateway.plugins.codex_provider.auth import keychain_service_for
+    from aigateway.plugins.codex_provider.auth import credential_service_for
 
-    blob = fake_keychain.read(
-        keychain_service_for(credential_name_for(account_id, "work")), "default"
+    blob = credential_blobs.read(
+        credential_service_for(credential_name_for(account_id, "work")), "default"
     )
     assert blob is not None
     assert json.loads(blob)["refresh_token"] == "codex-refresh"
@@ -929,13 +1179,14 @@ def test_callback_exchange_failure_consumes_state_and_marks_profile_error(
 
 @pytest.mark.asyncio
 async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_with_index) -> None:
-    client, _ = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     plugin = _DelayedOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
 
     start = client.post("/v1/auth/generic/profiles", json={"name": "race"})
     state = start.json()["state"]
+    await _move_tortoise_to_pytest_loop(client, credential_blobs)
 
     results = await asyncio.gather(
         _complete_oauth_for_app(client.app, "generic", "code-one", state, account_id),
@@ -948,24 +1199,28 @@ async def test_complete_oauth_consumes_state_before_awaiting_exchange(client_wit
     assert len(errors) == 1
     assert errors[0].status_code == 400
     assert plugin.exchange_count == 1
-    prof = client.get("/v1/auth/generic/profiles/race").json()
-    assert prof["state"] == "authenticated"
+    profile = await client.app.state.profile_index.get(account_id, "generic", "race")
+    assert profile is not None
+    assert profile.state == ProfileState.AUTHENTICATED
+    await Tortoise.close_connections()
 
 
 @pytest.mark.asyncio
 async def test_complete_oauth_invalidates_provider_profile_session(client_with_index) -> None:
-    client, _ = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     plugin = _GenericOAuthPlugin()
     client.app.state.providers._plugins["generic"] = plugin
 
     start = client.post("/v1/auth/generic/profiles", json={"name": "reauth"})
+    await _move_tortoise_to_pytest_loop(client, credential_blobs)
 
     await _complete_oauth_for_app(
         client.app, "generic", "code-one", start.json()["state"], account_id
     )
 
     assert plugin.invalidated_profiles == [credential_name_for(account_id, "reauth")]
+    await Tortoise.close_connections()
 
 
 def test_callback_error_html_escapes_provider_response(client_with_index) -> None:
@@ -1037,7 +1292,7 @@ def test_patch_updates_defaults(client_with_index) -> None:
 
 def test_exchange_code_runs_oauth(client_with_index) -> None:
     """POST /v1/auth/{provider}/exchange-code completes auth same as GET callback."""
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
@@ -1054,10 +1309,10 @@ def test_exchange_code_runs_oauth(client_with_index) -> None:
     prof = client.get("/v1/auth/anthropic/profiles/paste").json()
     assert prof["state"] == "authenticated"
 
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
-    blob = fake_keychain.read(
-        keychain_service_for(credential_name_for(account_id, "paste")), "default"
+    blob = credential_blobs.read(
+        credential_service_for(credential_name_for(account_id, "paste")), "default"
     )
     assert "new-tok" in blob
 
@@ -1243,15 +1498,15 @@ def test_refresh_missing_profile_404(client_with_index) -> None:
 
 @pytest.mark.asyncio
 async def test_refresh_uses_app_store_and_provider_http_factory(
-    fake_keychain, authenticated_client
+    credential_blobs, authenticated_client
 ) -> None:
     account_id = _account_id(authenticated_client)
     credential_name = credential_name_for(account_id, "refreshme")
 
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
-    fake_keychain.write(
-        keychain_service_for(credential_name),
+    credential_blobs.write(
+        credential_service_for(credential_name),
         "default",
         json.dumps(
             {
@@ -1262,7 +1517,7 @@ async def test_refresh_uses_app_store_and_provider_http_factory(
             }
         ),
     )
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "anthropic", "refreshme"),
@@ -1277,20 +1532,20 @@ async def test_refresh_uses_app_store_and_provider_http_factory(
     resp = authenticated_client.post("/v1/auth/anthropic/profiles/refreshme/refresh")
 
     assert resp.status_code == 200
-    blob = fake_keychain.read(keychain_service_for(credential_name), "default")
+    blob = credential_blobs.read(credential_service_for(credential_name), "default")
     assert blob is not None
     assert json.loads(blob)["access_token"] == "new-tok"
 
 
 @pytest.mark.asyncio
 async def test_refresh_without_oauth_strategy_returns_400(client_with_index, monkeypatch) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     plugin = _GenericOAuthPlugin()
     monkeypatch.setattr(plugin, "oauth_strategy_for", lambda *_args, **_kwargs: None)
     client.app.state.providers._plugins["generic"] = plugin
 
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
         Profile(
             id=profile_id_for(account_id, "generic", "needs-refresh"),
@@ -1308,24 +1563,28 @@ async def test_refresh_without_oauth_strategy_returns_400(client_with_index, mon
 
 
 def test_delete_removes_profile_and_tokens(client_with_index) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     account_id = _account_id(client)
     client.app.state.anthropic_http_factory = _mock_token_factory()
 
     start = client.post("/v1/auth/anthropic/profiles", json={"name": "z"})
     client.get("/v1/auth/anthropic/callback", params={"code": "c", "state": start.json()["state"]})
 
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
     assert (
-        fake_keychain.read(keychain_service_for(credential_name_for(account_id, "z")), "default")
+        credential_blobs.read(
+            credential_service_for(credential_name_for(account_id, "z")), "default"
+        )
         is not None
     )
 
     resp = client.delete("/v1/auth/anthropic/profiles/z")
     assert resp.status_code == 204
     assert (
-        fake_keychain.read(keychain_service_for(credential_name_for(account_id, "z")), "default")
+        credential_blobs.read(
+            credential_service_for(credential_name_for(account_id, "z")), "default"
+        )
         is None
     )
     g = client.get("/v1/auth/anthropic/profiles/z")

@@ -43,6 +43,16 @@ def test_ensemble_highlight_handles_paren_list() -> None:
     assert "url" in types
 
 
+def test_ensemble_highlight_handles_backend_call() -> None:
+    client = _client()
+    resp = client.get("/ensemble/highlight", params={"q": "/claude()!hello kitty"})
+    assert resp.status_code == 200
+    tokens = resp.json()["tokens"]
+
+    assert {"type": "url", "value": "/claude", "depth": 0} in tokens
+    assert {"type": "intent", "value": "hello kitty", "depth": 0} in tokens
+
+
 def test_ensemble_highlight_missing_q_returns_400() -> None:
     client = _client()
     resp = client.get("/ensemble/highlight")

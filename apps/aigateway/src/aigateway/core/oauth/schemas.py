@@ -37,6 +37,7 @@ class OAuthConnectionListResponse(BaseModel):
 class CreateOAuthConnectionRequest(BaseModel):
     provider: str
     label: OAuthConnectionLabel | None = None
+    redirect_uri: str | None = None
 
 
 class PatchOAuthConnectionRequest(BaseModel):

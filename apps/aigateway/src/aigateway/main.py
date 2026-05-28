@@ -10,7 +10,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .config import Settings
-from .core import credential_store as credential_store_module
 from .core.auth.bootstrap_admin import ensure_admin_account
 from .core.auth.jwt_secret import get_or_create_jwt_secret
 from .core.auth.local_only import AuthDisabledLocalOnlyMiddleware
@@ -19,7 +18,7 @@ from .core.auth.log_filter import (
     install_provisioning_token_redaction,
 )
 from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
-from .core.credential_store import JsonFileCredentialStore, get_credential_store
+from .core.credential_blob.store import ORMStore
 from .core.loader import load_plugins
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
@@ -28,7 +27,6 @@ from .db import close_db, init_db
 from .routes import accounts, auth, auth_session, chat, health, models, oauth_connections
 
 logger = logging.getLogger(__name__)
-_ORIGINAL_GET_CREDENTIAL_STORE = get_credential_store
 
 
 def _unsigned_jwt(payload: dict) -> str:
@@ -50,10 +48,77 @@ def _attach_log_filter() -> None:
                 handler.addFilter(RedactProvisioningTokenFilter())
 
 
-def _default_credential_store():
-    if get_credential_store is not _ORIGINAL_GET_CREDENTIAL_STORE:
-        return get_credential_store()
-    return credential_store_module.get_credential_store()
+def _configure_fake_anthropic_oauth(app: FastAPI) -> None:
+    if os.getenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH") != "1":
+        return
+    import httpx
+
+    fail_mode = os.getenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH_FAIL") == "1"
+
+    def _fake_handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host in (
+            "platform.claude.com",
+            "console.anthropic.com",
+        ) and req.url.path.endswith("/oauth/token"):
+            if fail_mode:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "fake-tok",
+                    "refresh_token": "fake-rt",
+                    "expires_in": 3600,
+                    "token_type": "Bearer",
+                },
+            )
+        return httpx.Response(404, json={"error": "unmapped"})
+
+    def _factory() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(_fake_handler),
+            timeout=httpx.Timeout(30.0),
+        )
+
+    app.state.anthropic_http_factory = _factory
+
+
+def _configure_fake_codex_oauth(app: FastAPI) -> None:
+    if os.getenv("AIGATEWAY_FAKE_CODEX_OAUTH") != "1":
+        return
+    import httpx
+
+    fail_mode = os.getenv("AIGATEWAY_FAKE_CODEX_OAUTH_FAIL") == "1"
+
+    def _fake_handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host == "auth.openai.com" and req.url.path == "/oauth/token":
+            if fail_mode:
+                return httpx.Response(400, json={"error": "invalid_grant"})
+            token_payload = {
+                "sub": "codex-sub-1",
+                "email": "codex-user@example.com",
+                "exp": int(time.time()) + 3600,
+                "https://api.openai.com/auth": {"chatgpt_account_id": "acct-codex-1"},
+            }
+            token = _unsigned_jwt(token_payload)
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": token,
+                    "refresh_token": "fake-codex-rt",
+                    "id_token": token,
+                    "expires_in": 3600,
+                    "token_type": "Bearer",
+                },
+            )
+        return httpx.Response(404, json={"error": "unmapped"})
+
+    def _factory() -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(_fake_handler),
+            timeout=httpx.Timeout(30.0),
+        )
+
+    app.state.codex_http_factory = _factory
 
 
 @asynccontextmanager
@@ -76,9 +141,7 @@ async def _lifespan(app):
         # explicitly authenticates via the UI rather than seeing a "default"
         # profile they did not authorize through the gateway.
         #
-        # When the fake-keychain test hook is active, bootstrap (if enabled)
-        # uses the same fake store so it cannot pull in real local credentials
-        # behind the test's back.
+        # Bootstrap uses the same DB-backed store as normal runtime credentials.
         if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
             for plugin in app.state.providers.all():
                 try:
@@ -94,6 +157,7 @@ async def _lifespan(app):
                     )
         yield
     finally:
+        await auth.close_loopback_callbacks(app)
         await close_db()
 
 
@@ -110,90 +174,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     load_plugins(registry)
     app.state.providers = registry
 
-    # Test-only hooks (do not affect production behavior).
-    # When AIGATEWAY_FAKE_KEYCHAIN=1 is set, swap the OS-keychain-backed
-    # credential store for a JSON-file-backed one, and likewise install a
-    # MockTransport-backed httpx factory for the Anthropic OAuth token
-    # endpoint when AIGATEWAY_FAKE_ANTHROPIC_OAUTH=1 or
-    # AIGATEWAY_FAKE_CODEX_OAUTH=1. These are gated by env vars so they only
-    # ever activate in the e2e test harness.
-    if os.getenv("AIGATEWAY_FAKE_KEYCHAIN") == "1":
-        kc_path = os.getenv("AIGATEWAY_KEYCHAIN_FILE")
-        if not kc_path:
-            raise RuntimeError("AIGATEWAY_FAKE_KEYCHAIN=1 requires AIGATEWAY_KEYCHAIN_FILE=<path>")
-        credential_store = JsonFileCredentialStore(kc_path)
-        app.state._fake_credential_store = credential_store
-    else:
-        credential_store = _default_credential_store()
+    # Test-only OAuth endpoint hooks are gated by env vars so they only activate
+    # in e2e harnesses. Credential storage itself is always DB-backed.
+    credential_store = ORMStore()
     app.state.credential_store = credential_store
     app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
 
-    if os.getenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH") == "1":
-        import httpx
-
-        fail_mode = os.getenv("AIGATEWAY_FAKE_ANTHROPIC_OAUTH_FAIL") == "1"
-
-        def _fake_handler(req: httpx.Request) -> httpx.Response:
-            if req.url.host in (
-                "platform.claude.com",
-                "console.anthropic.com",
-            ) and req.url.path.endswith("/oauth/token"):
-                if fail_mode:
-                    return httpx.Response(400, json={"error": "invalid_grant"})
-                return httpx.Response(
-                    200,
-                    json={
-                        "access_token": "fake-tok",
-                        "refresh_token": "fake-rt",
-                        "expires_in": 3600,
-                        "token_type": "Bearer",
-                    },
-                )
-            return httpx.Response(404, json={"error": "unmapped"})
-
-        def _factory() -> httpx.AsyncClient:
-            return httpx.AsyncClient(
-                transport=httpx.MockTransport(_fake_handler),
-                timeout=httpx.Timeout(30.0),
-            )
-
-        app.state.anthropic_http_factory = _factory
-
-    if os.getenv("AIGATEWAY_FAKE_CODEX_OAUTH") == "1":
-        import httpx
-
-        fail_mode = os.getenv("AIGATEWAY_FAKE_CODEX_OAUTH_FAIL") == "1"
-
-        def _fake_handler(req: httpx.Request) -> httpx.Response:
-            if req.url.host == "auth.openai.com" and req.url.path == "/oauth/token":
-                if fail_mode:
-                    return httpx.Response(400, json={"error": "invalid_grant"})
-                token_payload = {
-                    "sub": "codex-sub-1",
-                    "email": "codex-user@example.com",
-                    "exp": int(time.time()) + 3600,
-                    "https://api.openai.com/auth": {"chatgpt_account_id": "acct-codex-1"},
-                }
-                token = _unsigned_jwt(token_payload)
-                return httpx.Response(
-                    200,
-                    json={
-                        "access_token": token,
-                        "refresh_token": "fake-codex-rt",
-                        "id_token": token,
-                        "expires_in": 3600,
-                        "token_type": "Bearer",
-                    },
-                )
-            return httpx.Response(404, json={"error": "unmapped"})
-
-        def _factory() -> httpx.AsyncClient:
-            return httpx.AsyncClient(
-                transport=httpx.MockTransport(_fake_handler),
-                timeout=httpx.Timeout(30.0),
-            )
-
-        app.state.codex_http_factory = _factory
+    _configure_fake_anthropic_oauth(app)
+    _configure_fake_codex_oauth(app)
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
 

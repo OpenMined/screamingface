@@ -1,12 +1,16 @@
+# Superseded By SF-219
+
+This historical plan describes an OS credential-store design for AIGateway. It is superseded by SF-219, which replaces AIGateway runtime credential storage with Tortoise-backed `ORMStore` and the `credential_blobs` table. Do not use this document to reintroduce OS credential storage under `apps/aigateway`.
+
 # AI Gateway profile-based OAuth — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Refactor `apps/aigateway/` to support multiple per-provider OAuth profiles with editable per-account defaults, replacing SF-138/139's single-identity hardcode.
 
-**Architecture:** A two-layer keychain store (`aigateway:index` JSON entry holding profile metadata + defaults, one `aigateway:<provider>:<profile_name>` entry per profile holding tokens). New `/v1/auth/*` endpoints let Electron list profiles, kick off OAuth (gateway returns `authorize_url`), host the callback, edit defaults, and delete profiles. Chat requests select an identity via the `X-Profile` header; gateway looks up the profile, merges its defaults into the OpenAI body where the body omits a field, fetches the (refreshed-if-needed) bearer, and dispatches via `litellm.acompletion`.
+**Architecture:** A two-layer credential store (`aigateway:index` JSON entry holding profile metadata + defaults, one `aigateway:<provider>:<profile_name>` entry per profile holding tokens). New `/v1/auth/*` endpoints let Electron list profiles, kick off OAuth (gateway returns `authorize_url`), host the callback, edit defaults, and delete profiles. Chat requests select an identity via the `X-Profile` header; gateway looks up the profile, merges its defaults into the OpenAI body where the body omits a field, fetches the (refreshed-if-needed) bearer, and dispatches via `litellm.acompletion`.
 
-**Tech Stack:** Python 3.12 + FastAPI + LiteLLM + httpx + pydantic + the existing `MacOSKeychainStore` / `LinuxLibsecretStore` / `WindowsCredentialManagerStore` from SF-139. Tests via pytest + `httpx.MockTransport` for outbound HTTP and a fake `CredentialStore` for keychain.
+**Tech Stack:** Python 3.12 + FastAPI + LiteLLM + httpx + pydantic + the existing `MacOSCredentialStore` / `LinuxCredentialStore` / `WindowsCredentialStore` from SF-139. Tests via pytest + `httpx.MockTransport` for outbound HTTP and a fake `CredentialStore` for storage.
 
 **Spec:** `docs/superpowers/specs/2026-04-30-aigateway-profile-auth-design.md`
 
@@ -21,10 +25,10 @@
 | Path | Responsibility |
 |---|---|
 | `src/aigateway/core/profile_models.py` | Pydantic `Profile`, `ProfileDefaults`, `ProfileState`, `ProfileIndex` schema models. |
-| `src/aigateway/core/profile_index.py` | `ProfileIndexStore`: reads/writes the `aigateway:index` keychain entry under an `asyncio.Lock`. |
+| `src/aigateway/core/profile_index.py` | `ProfileIndexStore`: reads/writes the `aigateway:index` credential store entry under an `asyncio.Lock`. |
 | `src/aigateway/core/pending_auth.py` | In-memory `PendingAuthTable` (state → verifier+profile_id) with TTL sweep. |
 | `src/aigateway/core/oauth_pkce.py` | `generate_pkce()` returning code_verifier + code_challenge; `generate_state()` returning a CSRF token. |
-| `src/aigateway/core/bootstrap.py` | `bootstrap_from_claude_code()`: one-time import of CC keychain entry into the gateway's index + tokens. |
+| `src/aigateway/core/bootstrap.py` | `bootstrap_from_claude_code()`: one-time import of CC credential store entry into the gateway's index + tokens. |
 | `src/aigateway/routes/auth.py` | All `/v1/auth/*` endpoints. |
 | `src/aigateway/plugins/anthropic_provider/oauth_config.py` | `AUTHORIZE_URL`, `TOKEN_URL`, `SCOPES`, `CLIENT_ID` constants for Anthropic. |
 
@@ -33,7 +37,7 @@
 | Path | What changes |
 |---|---|
 | `src/aigateway/core/plugin_base.py` | `ProviderPluginBase` adds `oauth_config()` (returning provider OAuth metadata) and `oauth_strategy_for(profile_name)` (factory) instead of single-instance `oauth_strategy()`. |
-| `src/aigateway/core/oauth_base.py` | `BaseOAuthStrategy.__init__` takes `profile_name`, reads `aigateway:<provider>:<name>` keychain entry (not `Claude Code-credentials`). |
+| `src/aigateway/core/oauth_base.py` | `BaseOAuthStrategy.__init__` takes `profile_name`, reads `aigateway:<provider>:<name>` credential store entry (not `Claude Code-credentials`). |
 | `src/aigateway/core/errors.py` | New: `ProfileNotFoundError`, `ProfilePendingAuthError`, `BootstrapError`. |
 | `src/aigateway/plugins/anthropic_provider/auth.py` | Read/write `aigateway:anthropic:<profile_name>` instead of `Claude Code-credentials`. Add `_exchange_authorization_code()` for the OAuth callback. |
 | `src/aigateway/plugins/anthropic_provider/plugin.py` | Implement `oauth_config()` and `oauth_strategy_for(name)`. Drop the cached single-instance `_strategy`. |
@@ -53,7 +57,7 @@
 
 ### Test helpers
 
-- `tests/conftest.py` — adds a `fake_keychain` fixture (in-memory `CredentialStore` shared across tests) and a `client_with_profiles` fixture that wires that fake into `create_app()`.
+- `tests/conftest.py` — adds a `credential_blobs` fixture (in-memory `CredentialStore` shared across tests) and a `client_with_profiles` fixture that wires that fake into `create_app()`.
 
 ---
 
@@ -166,14 +170,14 @@ git commit -m "feat(SF-143): profile data models for aigateway multi-identity au
 
 ---
 
-## Task 2: ProfileIndexStore (read/write `aigateway:index` keychain entry)
+## Task 2: ProfileIndexStore (read/write `aigateway:index` credential store entry)
 
 **Files:**
 - Create: `src/aigateway/core/profile_index.py`
 - Test: `tests/unit/test_profile_index.py` (extend Task 1's file)
-- Modify: `tests/conftest.py` (add `fake_keychain` fixture)
+- Modify: `tests/conftest.py` (add `credential_blobs` fixture)
 
-- [ ] **Step 2.1: Add the `fake_keychain` fixture**
+- [ ] **Step 2.1: Add the `credential_blobs` fixture**
 
 `tests/conftest.py` (new file if it doesn't exist):
 
@@ -185,7 +189,7 @@ import pytest
 from aigateway.core.credential_store import CredentialStore
 
 
-class FakeKeychain(CredentialStore):
+class FakeCredentialStore(CredentialStore):
     def __init__(self) -> None:
         self._data: dict[tuple[str, str], str] = {}
 
@@ -203,8 +207,8 @@ class FakeKeychain(CredentialStore):
 
 
 @pytest.fixture
-def fake_keychain() -> FakeKeychain:
-    return FakeKeychain()
+def credential_blobs() -> FakeCredentialStore:
+    return FakeCredentialStore()
 ```
 
 Also extend `CredentialStore` ABC at `src/aigateway/core/credential_store.py` to require `delete`. Add to each concrete impl:
@@ -214,7 +218,7 @@ Also extend `CredentialStore` ABC at `src/aigateway/core/credential_store.py` to
 @abstractmethod
 def delete(self, service: str, account: str) -> None: ...
 
-# In MacOSKeychainStore:
+# In MacOSCredentialStore:
 def delete(self, service: str, account: str) -> None:
     try:
         result = subprocess.run(
@@ -233,7 +237,7 @@ def delete(self, service: str, account: str) -> None:
             f"{result.stderr.strip() or '<no stderr>'}"
         )
 
-# In LinuxLibsecretStore:
+# In LinuxCredentialStore:
 def delete(self, service: str, account: str) -> None:
     if shutil.which("secret-tool") is None:
         raise RuntimeError("`secret-tool` not found")
@@ -247,7 +251,7 @@ def delete(self, service: str, account: str) -> None:
     except subprocess.CalledProcessError:
         return  # idempotent
 
-# In WindowsCredentialManagerStore:
+# In WindowsCredentialStore:
 def delete(self, service: str, account: str) -> None:
     keyring = _try_import_keyring()
     if keyring is None:
@@ -265,21 +269,21 @@ Append to `tests/unit/test_profile_index.py`:
 ```python
 import pytest
 
-from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
+from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileDefaults
 
 
 @pytest.mark.asyncio
-async def test_index_store_returns_empty_index_when_keychain_empty(fake_keychain) -> None:
-    store = ProfileIndexStore(credential_store=fake_keychain)
+async def test_index_store_returns_empty_index_when_credential store_empty(credential_blobs) -> None:
+    store = ProfileIndexStore(credential_store=credential_blobs)
     idx = await store.read()
     assert idx.version == 1
     assert idx.profiles == []
 
 
 @pytest.mark.asyncio
-async def test_index_store_round_trip(fake_keychain) -> None:
-    store = ProfileIndexStore(credential_store=fake_keychain)
+async def test_index_store_round_trip(credential_blobs) -> None:
+    store = ProfileIndexStore(credential_store=credential_blobs)
     p = Profile(
         id="anthropic:default",
         provider="anthropic",
@@ -290,13 +294,13 @@ async def test_index_store_round_trip(fake_keychain) -> None:
     idx = await store.read()
     assert len(idx.profiles) == 1
     assert idx.profiles[0].id == "anthropic:default"
-    raw = fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default")
+    raw = credential_blobs.read(INDEX_CREDENTIAL_SERVICE, "default")
     assert "anthropic:default" in raw
 
 
 @pytest.mark.asyncio
-async def test_index_store_upsert_replaces_by_id(fake_keychain) -> None:
-    store = ProfileIndexStore(credential_store=fake_keychain)
+async def test_index_store_upsert_replaces_by_id(credential_blobs) -> None:
+    store = ProfileIndexStore(credential_store=credential_blobs)
     await store.upsert(Profile(id="anthropic:default", provider="anthropic", name="default"))
     await store.upsert(Profile(
         id="anthropic:default",
@@ -310,8 +314,8 @@ async def test_index_store_upsert_replaces_by_id(fake_keychain) -> None:
 
 
 @pytest.mark.asyncio
-async def test_index_store_remove(fake_keychain) -> None:
-    store = ProfileIndexStore(credential_store=fake_keychain)
+async def test_index_store_remove(credential_blobs) -> None:
+    store = ProfileIndexStore(credential_store=credential_blobs)
     await store.upsert(Profile(id="anthropic:default", provider="anthropic", name="default"))
     await store.remove("anthropic:default")
     idx = await store.read()
@@ -342,19 +346,19 @@ from .profile_models import Profile, ProfileIndex
 
 logger = logging.getLogger(__name__)
 
-INDEX_KEYCHAIN_SERVICE = "aigateway:index"
+INDEX_CREDENTIAL_SERVICE = "aigateway:index"
 _INDEX_ACCOUNT = "default"  # single-tenant; every install has one index
 
 
 class ProfileIndexStore:
-    """Read/write the `aigateway:index` keychain entry under an asyncio.Lock."""
+    """Read/write the `aigateway:index` credential store entry under an asyncio.Lock."""
 
     def __init__(self, credential_store: CredentialStore | None = None) -> None:
         self._store = credential_store or get_credential_store()
         self._lock = asyncio.Lock()
 
     async def read(self) -> ProfileIndex:
-        raw = await asyncio.to_thread(self._store.read, INDEX_KEYCHAIN_SERVICE, _INDEX_ACCOUNT)
+        raw = await asyncio.to_thread(self._store.read, INDEX_CREDENTIAL_SERVICE, _INDEX_ACCOUNT)
         if raw is None:
             return ProfileIndex()
         return ProfileIndex.model_validate_json(raw)
@@ -365,7 +369,7 @@ class ProfileIndexStore:
             idx.profiles = [p for p in idx.profiles if p.id != profile.id] + [profile]
             await asyncio.to_thread(
                 self._store.write,
-                INDEX_KEYCHAIN_SERVICE,
+                INDEX_CREDENTIAL_SERVICE,
                 _INDEX_ACCOUNT,
                 idx.model_dump_json(),
             )
@@ -376,7 +380,7 @@ class ProfileIndexStore:
             idx.profiles = [p for p in idx.profiles if p.id != profile_id]
             await asyncio.to_thread(
                 self._store.write,
-                INDEX_KEYCHAIN_SERVICE,
+                INDEX_CREDENTIAL_SERVICE,
                 _INDEX_ACCOUNT,
                 idx.model_dump_json(),
             )
@@ -401,7 +405,7 @@ Expected: 6 passed.
 
 ```bash
 git add apps/aigateway/src/aigateway/core/profile_index.py apps/aigateway/src/aigateway/core/credential_store.py apps/aigateway/tests/unit/test_profile_index.py apps/aigateway/tests/conftest.py
-git commit -m "feat(SF-143): profile index keychain store with delete capability"
+git commit -m "feat(SF-143): profile index credential store with delete capability"
 ```
 
 ---
@@ -608,7 +612,7 @@ class ProfilePendingAuthError(AigwError):
 
 
 class BootstrapError(AigwError):
-    """Failed to bootstrap the gateway profile index from an existing CC keychain."""
+    """Failed to bootstrap the gateway profile index from an existing CC credential store."""
 ```
 
 - [ ] **Step 4.2: Write failing test extending `ProviderPluginBase` contract**
@@ -767,16 +771,16 @@ git commit -m "feat(SF-143): ProviderPluginBase contract for multi-profile OAuth
 
 - [ ] **Step 5.1: Write the failing test — anthropic auth keyed by profile name**
 
-Replace the body of `tests/unit/anthropic/test_anthropic_auth.py` to use the new keychain key. Update the helper:
+Replace the body of `tests/unit/anthropic/test_anthropic_auth.py` to use the new credential store key. Update the helper:
 
 ```python
-# Replace test_keychain_service_constant (used to assert "Claude Code-credentials")
+# Replace test_credential_service_constant (used to assert "Claude Code-credentials")
 @pytest.mark.asyncio
-async def test_keychain_service_uses_aigateway_namespace() -> None:
-    """Profiles are stored under aigateway:anthropic:<name>, not Claude Code's keychain."""
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
-    assert keychain_service_for("default") == "aigateway:anthropic:default"
-    assert keychain_service_for("work") == "aigateway:anthropic:work"
+async def test_credential_service_uses_aigateway_namespace() -> None:
+    """Profiles are stored under aigateway:anthropic:<name>, not Claude Code's credential store."""
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
+    assert credential_service_for("default") == "aigateway:anthropic:default"
+    assert credential_service_for("work") == "aigateway:anthropic:work"
 ```
 
 Update each existing test that constructs `AnthropicOAuth(...)` to pass `profile_name="default"`. Pattern:
@@ -845,7 +849,7 @@ assert written["refresh_token"] == "rt-2"
 cd apps/aigateway && uv run pytest tests/unit/anthropic/test_anthropic_auth.py -v
 ```
 
-Expected: failures on `keychain_service_for` import and tests asserting new shapes.
+Expected: failures on `credential_service_for` import and tests asserting new shapes.
 
 - [ ] **Step 5.3: Update `BaseOAuthStrategy` to take `profile_name` and expose helpers**
 
@@ -861,8 +865,8 @@ class BaseOAuthStrategy(OAuthStrategy):
         self._lock = asyncio.Lock()
 
     @abstractmethod
-    def keychain_service(self) -> str:
-        """Return the OS keychain `service` string for this profile's tokens.
+    def credential_service(self) -> str:
+        """Return the OS credential store `service` string for this profile's tokens.
 
         Used by the auth routes to delete tokens on profile delete and to
         write tokens after the OAuth callback exchange. Provider plugins
@@ -870,8 +874,8 @@ class BaseOAuthStrategy(OAuthStrategy):
         """
 
     @abstractmethod
-    def keychain_account(self) -> str:
-        """Return the OS keychain `account` string for this profile's tokens."""
+    def credential_account(self) -> str:
+        """Return the OS credential store `account` string for this profile's tokens."""
 
     def set_credentials(self, creds: dict) -> None:
         """Store a credential blob (used after callback's code-for-token exchange)."""
@@ -889,7 +893,7 @@ class BaseOAuthStrategy(OAuthStrategy):
 ```
 
 Remove the previous no-arg `__init__`. Subclasses (`AnthropicOAuth`) must implement
-`keychain_service()`, `keychain_account()`, and `_write_to_store()`.
+`credential_service()`, `credential_account()`, and `_write_to_store()`.
 
 - [ ] **Step 5.4: Create anthropic OAuth config constants**
 
@@ -914,14 +918,14 @@ ANTHROPIC_BETA = ",".join(
 ANTHROPIC_REDIRECT_PATH = "/v1/auth/anthropic/callback"
 ```
 
-- [ ] **Step 5.5: Refactor `auth.py` to use per-profile keychain**
+- [ ] **Step 5.5: Refactor `auth.py` to use per-profile credential store**
 
 `src/aigateway/plugins/anthropic_provider/auth.py`:
 
 ```python
 """Anthropic OAuth strategy keyed by profile name.
 
-Each profile has its own keychain entry under
+Each profile has its own credential store entry under
 `aigateway:anthropic:<profile_name>`. The token blob is the flat shape
 defined in the spec (snake_case keys; expires_at_ms in milliseconds).
 """
@@ -949,11 +953,11 @@ from .oauth_config import (
 logger = logging.getLogger(__name__)
 
 
-def keychain_service_for(profile_name: str) -> str:
+def credential_service_for(profile_name: str) -> str:
     return f"aigateway:anthropic:{profile_name}"
 
 
-_ACCOUNT = "default"  # single account inside each provider keychain entry
+_ACCOUNT = "default"  # single account inside each provider credential store entry
 
 
 class AnthropicOAuth(BaseOAuthStrategy):
@@ -973,14 +977,14 @@ class AnthropicOAuth(BaseOAuthStrategy):
             lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0))
         )
 
-    def keychain_service(self) -> str:
-        return keychain_service_for(self.profile_name)
+    def credential_service(self) -> str:
+        return credential_service_for(self.profile_name)
 
-    def keychain_account(self) -> str:
+    def credential_account(self) -> str:
         return self._account
 
     def _read_credential(self) -> dict:
-        raw = self._store.read(self.keychain_service(), self.keychain_account())
+        raw = self._store.read(self.credential_service(), self.credential_account())
         if raw is None:
             raise CredentialNotFoundError(
                 f"No tokens for anthropic profile {self.profile_name!r}. Re-authenticate via Electron."
@@ -1049,7 +1053,7 @@ class AnthropicOAuth(BaseOAuthStrategy):
         }
 
     def _write_to_store(self, creds: dict) -> None:
-        self._store.write(self.keychain_service(), self.keychain_account(), json.dumps(creds))
+        self._store.write(self.credential_service(), self.credential_account(), json.dumps(creds))
 
 
 async def exchange_authorization_code(
@@ -1154,12 +1158,12 @@ Expected: all pass.
 
 ```bash
 git add apps/aigateway/src/aigateway/core/oauth_base.py apps/aigateway/src/aigateway/plugins/anthropic_provider/ apps/aigateway/tests/unit/anthropic/
-git commit -m "feat(SF-143): per-profile keychain entries + auth code exchange"
+git commit -m "feat(SF-143): per-profile credential store entries + auth code exchange"
 ```
 
 ---
 
-## Task 6: Bootstrap from Claude Code keychain
+## Task 6: Bootstrap from Claude Code credential store
 
 **Files:**
 - Create: `src/aigateway/core/bootstrap.py`
@@ -1176,15 +1180,15 @@ import time
 import pytest
 
 from aigateway.core.bootstrap import bootstrap_from_claude_code
-from aigateway.core.profile_index import INDEX_KEYCHAIN_SERVICE, ProfileIndexStore
-from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexStore
+from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 
 CC_SERVICE = "Claude Code-credentials"
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_imports_cc_default_when_index_empty(fake_keychain) -> None:
+async def test_bootstrap_imports_cc_default_when_index_empty(credential_blobs) -> None:
     cc_payload = json.dumps(
         {
             "claudeAiOauth": {
@@ -1195,53 +1199,53 @@ async def test_bootstrap_imports_cc_default_when_index_empty(fake_keychain) -> N
             }
         }
     )
-    fake_keychain.write(CC_SERVICE, "alice", cc_payload)
+    credential_blobs.write(CC_SERVICE, "alice", cc_payload)
 
     await bootstrap_from_claude_code(
-        credential_store=fake_keychain,
-        index_store=ProfileIndexStore(credential_store=fake_keychain),
+        credential_store=credential_blobs,
+        index_store=ProfileIndexStore(credential_store=credential_blobs),
         cc_account="alice",
     )
 
-    aigw_payload = fake_keychain.read(keychain_service_for("default"), "default")
+    aigw_payload = credential_blobs.read(credential_service_for("default"), "default")
     assert aigw_payload is not None
     converted = json.loads(aigw_payload)
     assert converted["access_token"] == "cc-tok"
     assert converted["refresh_token"] == "cc-rt"
     assert "expires_at_ms" in converted
 
-    idx_raw = fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default")
+    idx_raw = credential_blobs.read(INDEX_CREDENTIAL_SERVICE, "default")
     assert idx_raw is not None
     assert "anthropic:default" in idx_raw
 
     # CC entry untouched
-    assert fake_keychain.read(CC_SERVICE, "alice") == cc_payload
+    assert credential_blobs.read(CC_SERVICE, "alice") == cc_payload
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_noop_when_index_already_exists(fake_keychain) -> None:
-    fake_keychain.write(INDEX_KEYCHAIN_SERVICE, "default", '{"version":1,"profiles":[]}')
-    fake_keychain.write(
+async def test_bootstrap_noop_when_index_already_exists(credential_blobs) -> None:
+    credential_blobs.write(INDEX_CREDENTIAL_SERVICE, "default", '{"version":1,"profiles":[]}')
+    credential_blobs.write(
         CC_SERVICE,
         "alice",
         json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y", "expiresAt": 1}}),
     )
     await bootstrap_from_claude_code(
-        credential_store=fake_keychain,
-        index_store=ProfileIndexStore(credential_store=fake_keychain),
+        credential_store=credential_blobs,
+        index_store=ProfileIndexStore(credential_store=credential_blobs),
         cc_account="alice",
     )
-    assert fake_keychain.read(keychain_service_for("default"), "default") is None
+    assert credential_blobs.read(credential_service_for("default"), "default") is None
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_noop_when_cc_entry_missing(fake_keychain) -> None:
+async def test_bootstrap_noop_when_cc_entry_missing(credential_blobs) -> None:
     await bootstrap_from_claude_code(
-        credential_store=fake_keychain,
-        index_store=ProfileIndexStore(credential_store=fake_keychain),
+        credential_store=credential_blobs,
+        index_store=ProfileIndexStore(credential_store=credential_blobs),
         cc_account="alice",
     )
-    assert fake_keychain.read(INDEX_KEYCHAIN_SERVICE, "default") is None
+    assert credential_blobs.read(INDEX_CREDENTIAL_SERVICE, "default") is None
 ```
 
 - [ ] **Step 6.2: Run to verify failure**
@@ -1257,7 +1261,7 @@ Expected: ImportError on `aigateway.core.bootstrap`.
 `src/aigateway/core/bootstrap.py`:
 
 ```python
-"""One-time import of Claude Code's keychain entry into the gateway's index.
+"""One-time import of Claude Code's credential store entry into the gateway's index.
 
 Runs on FastAPI startup. If the gateway has no profile index yet but the
 Claude Code CLI has stored credentials on this machine, copy the token
@@ -1279,7 +1283,7 @@ from aigateway.core.credential_store import CredentialStore, get_credential_stor
 from aigateway.core.errors import BootstrapError
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
-from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 logger = logging.getLogger(__name__)
 
@@ -1302,7 +1306,7 @@ async def bootstrap_from_claude_code(
 
     cc_raw = store.read(CLAUDE_CODE_SERVICE, account)
     if cc_raw is None:
-        logger.info("bootstrap: no Claude Code keychain entry found; nothing to import")
+        logger.info("bootstrap: no Claude Code credential store entry found; nothing to import")
         return
 
     try:
@@ -1316,11 +1320,11 @@ async def bootstrap_from_claude_code(
         }
     except (KeyError, ValueError, TypeError) as exc:
         raise BootstrapError(
-            f"Claude Code keychain entry has unexpected shape: {exc}"
+            f"Claude Code credential store entry has unexpected shape: {exc}"
         ) from exc
 
     store.write(
-        keychain_service_for("default"),
+        credential_service_for("default"),
         "default",
         json.dumps(converted),
     )
@@ -1348,7 +1352,7 @@ Expected: 3 passed.
 
 ```bash
 git add apps/aigateway/src/aigateway/core/bootstrap.py apps/aigateway/tests/unit/test_bootstrap.py
-git commit -m "feat(SF-143): bootstrap gateway profile from Claude Code keychain"
+git commit -m "feat(SF-143): bootstrap gateway profile from Claude Code credential store"
 ```
 
 ---
@@ -1376,18 +1380,18 @@ from aigateway.main import create_app
 
 
 @pytest.fixture
-def client_with_index(fake_keychain, monkeypatch):
+def client_with_index(credential_blobs, monkeypatch):
     """Patch the global credential store so create_app() picks up our fake."""
     from aigateway.core import credential_store as cs_module
 
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(cs_module, "get_credential_store", lambda: credential_blobs)
     # Also patch the bootstrap import path to use the fake
     from aigateway.core import bootstrap as bs_module
 
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(bs_module, "get_credential_store", lambda: credential_blobs)
 
     app = create_app()
-    return TestClient(app), fake_keychain
+    return TestClient(app), credential_blobs
 
 
 @pytest.mark.asyncio
@@ -1399,8 +1403,8 @@ async def test_list_profiles_empty(client_with_index) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_profiles_returns_seeded(fake_keychain) -> None:
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+async def test_list_profiles_returns_seeded(credential_blobs) -> None:
+    idx = ProfileIndexStore(credential_store=credential_blobs)
     await idx.upsert(
         Profile(
             id="anthropic:default",
@@ -1412,9 +1416,9 @@ async def test_list_profiles_returns_seeded(fake_keychain) -> None:
     )
 
     from aigateway.core import credential_store as cs_module
-    cs_module.get_credential_store = lambda: fake_keychain  # type: ignore
+    cs_module.get_credential_store = lambda: credential_blobs  # type: ignore
     from aigateway.core import bootstrap as bs_module
-    bs_module.get_credential_store = lambda: fake_keychain  # type: ignore
+    bs_module.get_credential_store = lambda: credential_blobs  # type: ignore
 
     app = create_app()
     client = TestClient(app)
@@ -1563,7 +1567,7 @@ from aigateway.plugins.anthropic_provider import auth as anthropic_auth_module
 
 
 def test_callback_completes_auth(client_with_index, monkeypatch) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
 
     def mock_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -1610,8 +1614,8 @@ def test_callback_completes_auth(client_with_index, monkeypatch) -> None:
     assert prof["state"] == "authenticated"
 
     # Tokens written
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
-    blob = fake_keychain.read(keychain_service_for("work"), "default")
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
+    blob = credential_blobs.read(credential_service_for("work"), "default")
     assert "new-tok" in blob
 
 
@@ -1797,7 +1801,7 @@ Append to `tests/unit/test_auth_routes.py`:
 
 ```python
 def test_status_returns_pending_then_authenticated(client_with_index, monkeypatch) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
 
     import httpx
     transport = httpx.MockTransport(
@@ -1843,7 +1847,7 @@ def test_patch_updates_defaults(client_with_index) -> None:
 
 
 def test_delete_removes_profile_and_tokens(client_with_index) -> None:
-    client, fake_keychain = client_with_index
+    client, credential_blobs = client_with_index
     import httpx
     transport = httpx.MockTransport(
         lambda req: httpx.Response(200, json={
@@ -1854,12 +1858,12 @@ def test_delete_removes_profile_and_tokens(client_with_index) -> None:
     start = client.post("/v1/auth/anthropic/profiles", json={"name": "z"})
     client.get("/v1/auth/anthropic/callback", params={"code": "c", "state": start.json()["state"]})
 
-    from aigateway.plugins.anthropic_provider.auth import keychain_service_for
-    assert fake_keychain.read(keychain_service_for("z"), "default") is not None
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
+    assert credential_blobs.read(credential_service_for("z"), "default") is not None
 
     resp = client.delete("/v1/auth/anthropic/profiles/z")
     assert resp.status_code == 204
-    assert fake_keychain.read(keychain_service_for("z"), "default") is None
+    assert credential_blobs.read(credential_service_for("z"), "default") is None
     g = client.get("/v1/auth/anthropic/profiles/z")
     assert g.status_code == 404
 ```
@@ -1923,7 +1927,7 @@ async def delete_profile(provider: str, name: str, request: Request):
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
     strategy = plugin.oauth_strategy_for(name)
     if strategy is not None and hasattr(strategy, "_store"):
-        strategy._store.delete(strategy.keychain_service(), strategy.keychain_account())
+        strategy._store.delete(strategy.credential_service(), strategy.credential_account())
     await _index_store(request).remove(p.id)
 
 
@@ -1993,13 +1997,13 @@ from fastapi.testclient import TestClient
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
 from aigateway.main import create_app
-from aigateway.plugins.anthropic_provider.auth import keychain_service_for
+from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 
-def _seed_authenticated_profile(fake_keychain, defaults=None) -> None:
+def _seed_authenticated_profile(credential_blobs, defaults=None) -> None:
     import time
-    fake_keychain.write(
-        keychain_service_for("default"),
+    credential_blobs.write(
+        credential_service_for("default"),
         "default",
         json.dumps({
             "access_token": "tok",
@@ -2011,11 +2015,11 @@ def _seed_authenticated_profile(fake_keychain, defaults=None) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_404_when_profile_missing(fake_keychain, monkeypatch) -> None:
+async def test_chat_404_when_profile_missing(credential_blobs, monkeypatch) -> None:
     from aigateway.core import credential_store as cs_module
     from aigateway.core import bootstrap as bs_module
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(cs_module, "get_credential_store", lambda: credential_blobs)
+    monkeypatch.setattr(bs_module, "get_credential_store", lambda: credential_blobs)
 
     client = TestClient(create_app())
     resp = client.post(
@@ -2028,13 +2032,13 @@ async def test_chat_404_when_profile_missing(fake_keychain, monkeypatch) -> None
 
 
 @pytest.mark.asyncio
-async def test_chat_409_when_profile_pending(fake_keychain, monkeypatch) -> None:
+async def test_chat_409_when_profile_pending(credential_blobs, monkeypatch) -> None:
     from aigateway.core import credential_store as cs_module
     from aigateway.core import bootstrap as bs_module
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(cs_module, "get_credential_store", lambda: credential_blobs)
+    monkeypatch.setattr(bs_module, "get_credential_store", lambda: credential_blobs)
 
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    idx = ProfileIndexStore(credential_store=credential_blobs)
     await idx.upsert(
         Profile(id="anthropic:default", provider="anthropic", name="default", state=ProfileState.PENDING)
     )
@@ -2048,14 +2052,14 @@ async def test_chat_409_when_profile_pending(fake_keychain, monkeypatch) -> None
 
 
 @pytest.mark.asyncio
-async def test_chat_merges_profile_defaults(fake_keychain, monkeypatch) -> None:
+async def test_chat_merges_profile_defaults(credential_blobs, monkeypatch) -> None:
     from aigateway.core import credential_store as cs_module
     from aigateway.core import bootstrap as bs_module
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(cs_module, "get_credential_store", lambda: credential_blobs)
+    monkeypatch.setattr(bs_module, "get_credential_store", lambda: credential_blobs)
 
-    _seed_authenticated_profile(fake_keychain)
-    idx = ProfileIndexStore(credential_store=fake_keychain)
+    _seed_authenticated_profile(credential_blobs)
+    idx = ProfileIndexStore(credential_store=credential_blobs)
     await idx.upsert(
         Profile(
             id="anthropic:default",
@@ -2294,11 +2298,11 @@ Append to `tests/unit/test_bootstrap.py`:
 from fastapi.testclient import TestClient
 
 
-def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch) -> None:
+def test_app_lifespan_runs_bootstrap(credential_blobs, monkeypatch) -> None:
     import json
     import time
 
-    fake_keychain.write(
+    credential_blobs.write(
         CC_SERVICE,
         "alice",
         json.dumps({
@@ -2313,9 +2317,9 @@ def test_app_lifespan_runs_bootstrap(fake_keychain, monkeypatch) -> None:
     monkeypatch.setenv("USER", "alice")
 
     from aigateway.core import credential_store as cs_module
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(cs_module, "get_credential_store", lambda: credential_blobs)
     from aigateway.core import bootstrap as bs_module
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
+    monkeypatch.setattr(bs_module, "get_credential_store", lambda: credential_blobs)
 
     from aigateway.main import create_app
     app = create_app()
@@ -2409,7 +2413,7 @@ def test_anthropic_round_trip_via_default_profile() -> None:
 cd apps/aigateway && AIGW_LIVE=1 uv run pytest tests/live/ -v
 ```
 
-Expected: 1 passed (assuming a working CC keychain entry exists on the test machine).
+Expected: 1 passed (assuming a working CC credential store entry exists on the test machine).
 
 - [ ] **Step 12.3: Run full suite (unit + live) one more time**
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+import uuid
 from collections.abc import Callable, Generator
 from pathlib import Path
 
@@ -8,27 +10,68 @@ import pytest
 from fastapi.testclient import TestClient
 from tortoise import Tortoise
 
-from aigateway.core.credential_store import CredentialStore
 from aigateway.db import build_tortoise_config
 
 
-class FakeKeychain(CredentialStore):
-    def __init__(self) -> None:
-        self._data: dict[tuple[str, str], str] = {}
+class _AsyncCredentialBlobProbe:
+    def __init__(self, probe: CredentialBlobProbe) -> None:
+        self._probe = probe
+
+    async def read(self, service: str, account: str) -> str | None:
+        return self._probe.read(service, account)
+
+    async def write(self, service: str, account: str, value: str) -> None:
+        self._probe.write(service, account, value)
+
+    async def delete(self, service: str, account: str) -> None:
+        self._probe.delete(service, account)
+
+
+class CredentialBlobProbe:
+    def __init__(self, db_path: Path) -> None:
+        self._db_path = db_path
+        self.store = _AsyncCredentialBlobProbe(self)
+
+    @property
+    def db_path(self) -> Path:
+        return self._db_path
 
     def read(self, service: str, account: str) -> str | None:
-        return self._data.get((service, account))
+        with sqlite3.connect(self._db_path) as conn:
+            row = conn.execute(
+                "select value from credential_blobs where service = ? and account = ?",
+                (service, account),
+            ).fetchone()
+        return row[0] if row is not None else None
 
     def write(self, service: str, account: str, value: str) -> None:
-        self._data[(service, account)] = value
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                """
+                insert into credential_blobs (id, service, account, value, created_at, updated_at)
+                values (?, ?, ?, ?, datetime('now'), datetime('now'))
+                on conflict(service, account) do update set
+                    value = excluded.value,
+                    updated_at = datetime('now')
+                """,
+                (str(uuid.uuid4()), service, account, value),
+            )
 
     def delete(self, service: str, account: str) -> None:
-        self._data.pop((service, account), None)
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                "delete from credential_blobs where service = ? and account = ?",
+                (service, account),
+            )
 
 
 @pytest.fixture
-def fake_keychain() -> FakeKeychain:
-    return FakeKeychain()
+def credential_blobs(tmp_path: Path, monkeypatch) -> CredentialBlobProbe:
+    db_path = tmp_path / "aigateway.sqlite3"
+    database_url = f"sqlite://{db_path}"
+    monkeypatch.setenv("AIGATEWAY_DATABASE_URL", database_url)
+    _prepare_sqlite_db(database_url)
+    return CredentialBlobProbe(db_path)
 
 
 @pytest.fixture(autouse=True)
@@ -54,31 +97,11 @@ def _prepare_sqlite_db(database_url: str) -> None:
 
 
 @pytest.fixture
-def patch_credential_factories(fake_keychain, monkeypatch) -> FakeKeychain:
-    from aigateway import main as main_module
-    from aigateway.core import credential_store as cs_module
-    from aigateway.core import profile_index as pi_module
-    from aigateway.plugins.anthropic_provider import auth as auth_module
-    from aigateway.plugins.anthropic_provider import bootstrap as bs_module
-    from aigateway.plugins.gemini_provider import auth as gemini_auth_module
-
-    monkeypatch.setattr(cs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(pi_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(bs_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(auth_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(gemini_auth_module, "get_credential_store", lambda: fake_keychain)
-    monkeypatch.setattr(main_module, "get_credential_store", lambda: fake_keychain)
-    return fake_keychain
-
-
-@pytest.fixture
 def client(
-    tmp_path: Path,
     monkeypatch,
-    patch_credential_factories,
+    credential_blobs,
 ) -> Generator[TestClient, None, None]:
-    db_path = tmp_path / "aigateway.sqlite3"
-    database_url = f"sqlite://{db_path}"
+    database_url = f"sqlite://{credential_blobs.db_path}"
     monkeypatch.setenv("AIGATEWAY_DATABASE_URL", database_url)
     monkeypatch.setenv("AIGATEWAY_ADMIN_PASSWORD", "test-admin-password")
     monkeypatch.setenv("AIGATEWAY_JWT_SECRET", "x" * 32)
@@ -89,6 +112,7 @@ def client(
 
     with TestClient(create_app()) as test_client:
         yield test_client
+    asyncio.run(Tortoise.close_connections())
 
 
 @pytest.fixture
