@@ -24,21 +24,24 @@ jobs:
 
       - uses: actions/configure-pages@v6
 
-      - name: Stage allowlisted public file
+      - name: Stage website plus allowlisted artifact
         run: |
           set -euo pipefail
           source_file="output_artifacts/eval_results/livetruth-latest.eval.jsonl"
-          stage_dir="public-scoreboard"
+          stage_dir="public-pages"
 
           test -f "$source_file"
+          test -f web/public/index.html
           rm -rf "$stage_dir"
           mkdir -p "$stage_dir"
+          cp -R web/public/. "$stage_dir/"
           cp "$source_file" "$stage_dir/livetruth-latest.eval.jsonl"
-          test "$(find "$stage_dir" -type f | wc -l | tr -d ' ')" = "1"
+          test -f "$stage_dir/index.html"
+          test -f "$stage_dir/livetruth-latest.eval.jsonl"
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: public-scoreboard
+          path: public-pages
 
       - uses: actions/deploy-pages@v5
         id: deployment
