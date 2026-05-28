@@ -82,7 +82,12 @@ class StatePlugin(Plugin):
             if self.registry.is_empty:
                 logger.info("state plugin: no models registered, skipping Tortoise.init")
                 return
-            await Tortoise.init(config=config)
+            # _enable_global_fallback: under uvicorn, Tortoise.init runs in the
+            # lifespan-startup task, but each request runs in a separate task with
+            # no active TortoiseContext. Without the global fallback, every DB query
+            # from a request handler raises "No TortoiseContext is currently active".
+            # In-process tests share the task/context, so they don't surface this.
+            await Tortoise.init(config=config, _enable_global_fallback=True)
             await Tortoise.generate_schemas(safe=True)
             self.registry.mark_initialized()
             app.state.state_ready = True
