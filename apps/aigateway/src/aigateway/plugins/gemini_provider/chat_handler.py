@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -62,6 +63,32 @@ def _profile_header_value(headers: dict[str, Any]) -> str:
     return "default"
 
 
+_RESET_AFTER_RE = re.compile(r"reset after (\d+(?:\.\d+)?)\s*s", re.IGNORECASE)
+_RETRY_DELAY_RE = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
+
+
+def parse_gemini_retry_after(response_text: str, headers: Any) -> float | None:
+    """Extract a retry-after delay (seconds) from a Gemini 429.
+
+    Google surfaces the reset window in the response *body* (a ``RetryInfo``
+    ``retryDelay`` or the human "reset after Ns" phrasing), not a standard
+    ``Retry-After`` header — so the generic header parser misses it. Honors a
+    real header first, then ``retryDelay``, then the prose form. Returns
+    ``None`` when nothing matches (caller falls back to exponential backoff).
+    """
+    raw = headers.get("retry-after") if headers is not None else None
+    if raw is not None:
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+    for pattern in (_RETRY_DELAY_RE, _RESET_AFTER_RE):
+        match = pattern.search(response_text or "")
+        if match:
+            return max(0.0, float(match.group(1)))
+    return None
+
+
 def _error_from_response(response: httpx.Response, provider_name: str) -> CustomLLMError:
     status = response.status_code
     if status in (401, 403):
@@ -69,12 +96,16 @@ def _error_from_response(response: httpx.Response, provider_name: str) -> Custom
             status_code=status,
             message=f"Gemini {provider_name} rejected credentials",
         )
-    preview = response.text[:500]
+    body = response.text
+    preview = body[:500]
     suffix = f": {preview}" if preview else ""
-    return CustomLLMError(
+    error = CustomLLMError(
         status_code=status,
         message=f"Gemini {provider_name} request failed with status {status}{suffix}",
     )
+    # Stash the provider's own reset window so the retry loop can honor it.
+    error.retry_after = parse_gemini_retry_after(body, response.headers)  # type: ignore[attr-defined]
+    return error
 
 
 class GeminiCustomLLM(CustomLLM):
