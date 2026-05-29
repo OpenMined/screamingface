@@ -1,0 +1,258 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1360 1234" width="1360" height="1234"><style>text{font-family:"JetBrains Mono","DejaVu Sans Mono",monospace;paint-order:stroke fill;stroke:rgba(2,6,23,0.75);stroke-width:1;stroke-linejoin:round;stroke-linecap:round;}</style><rect width="100%" height="100%" fill="#020617"/>
+        <defs>
+          <marker id="ah" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#64748b" /></marker>
+          <marker id="ah-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" /></marker>
+          <marker id="ah-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#34d399" /></marker>
+          <marker id="ah-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" /></marker>
+          <marker id="ah-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" /></marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- LEGEND -->
+        <text x="40" y="58" fill="white" font-size="10" font-weight="600">Legend</text>
+        <rect x="100" y="49" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="122" y="57" fill="#94a3b8" font-size="8">Desktop</text>
+        <rect x="190" y="49" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="212" y="57" fill="#94a3b8" font-size="8">Server / backend</text>
+        <rect x="330" y="49" width="16" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/><text x="352" y="57" fill="#94a3b8" font-size="8">Gateway path</text>
+        <rect x="450" y="49" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="472" y="57" fill="#94a3b8" font-size="8">Datastore</text>
+        <rect x="540" y="49" width="16" height="10" rx="2" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/><text x="562" y="57" fill="#94a3b8" font-size="8">Interceptor</text>
+
+        <!-- ===================== DESKTOP REGION ===================== -->
+        <rect x="40" y="85" width="545" height="885" rx="12" fill="rgba(8, 51, 68, 0.06)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
+        <rect x="54" y="92" width="280" height="17" rx="3" fill="rgba(15, 23, 42, 0.92)" stroke="rgba(148, 163, 184, 0.5)" stroke-width="1"/>
+        <text x="62" y="105" fill="#22d3ee" font-size="11" font-weight="700">Desktop App (Electron)</text>
+
+        <!-- Renderer sub-group -->
+        <rect x="62" y="120" width="500" height="250" rx="8" fill="transparent" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="74" y="138" fill="#22d3ee" font-size="9" font-weight="600">Renderer (React · AppShell · Sidebar · StatusBar)</text>
+        <!-- Views -->
+        <rect x="78" y="150" width="225" height="205" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="190" y="170" fill="white" font-size="11" font-weight="600" text-anchor="middle">Views</text>
+        <text x="92" y="192" fill="#94a3b8" font-size="9">• DashboardView (venv/server</text>
+        <text x="104" y="205" fill="#94a3b8" font-size="9">/backend status + logs)</text>
+        <text x="92" y="223" fill="#94a3b8" font-size="9">• SessionsView (REPL sessions)</text>
+        <text x="92" y="241" fill="#94a3b8" font-size="9">• EvalStudioView (runs list</text>
+        <text x="104" y="254" fill="#94a3b8" font-size="9">+ detail · "Run Locally")</text>
+        <text x="92" y="272" fill="#94a3b8" font-size="9">• RunView (RunButton +</text>
+        <text x="104" y="285" fill="#94a3b8" font-size="9">RunProgress)</text>
+        <text x="92" y="303" fill="#94a3b8" font-size="9">• SettingsView (plugins/RJSF)</text>
+        <text x="92" y="321" fill="#94a3b8" font-size="9">• PluginHost (federated)</text>
+
+        <!-- Hooks -->
+        <rect x="320" y="150" width="225" height="205" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="432" y="170" fill="white" font-size="11" font-weight="600" text-anchor="middle">Hooks → fetch</text>
+        <text x="334" y="192" fill="#94a3b8" font-size="9">• useServerStatus</text>
+        <text x="334" y="210" fill="#94a3b8" font-size="9">• useVenvStatus · usePlugins</text>
+        <text x="334" y="228" fill="#94a3b8" font-size="9">• useSessions</text>
+        <text x="334" y="246" fill="#94a3b8" font-size="9">• useEvalRunsList</text>
+        <text x="334" y="264" fill="#94a3b8" font-size="9">• useEvalRunDetail</text>
+        <text x="334" y="282" fill="#94a3b8" font-size="9">• useEvalRun (fire /ensemble</text>
+        <text x="346" y="295" fill="#94a3b8" font-size="9">+ poll /eval_runs 2s)</text>
+        <text x="334" y="313" fill="#94a3b8" font-size="9">• useBackendStatus</text>
+        <text x="334" y="335" fill="#22d3ee" font-size="8">all I/O via electronAPI bridge</text>
+
+        <!-- Preload sub-group -->
+        <rect x="62" y="385" width="500" height="66" rx="8" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="312" y="404" fill="white" font-size="11" font-weight="600" text-anchor="middle">Preload — contextBridge.electronAPI</text>
+        <text x="312" y="423" fill="#94a3b8" font-size="9" text-anchor="middle">namespaces: server · venv · config · backends · session · plugins · popup</text>
+        <text x="312" y="440" fill="#22d3ee" font-size="8" text-anchor="middle">contextIsolation · requireTrustedIpcSender()</text>
+
+        <!-- Main process sub-group -->
+        <rect x="62" y="466" width="500" height="490" rx="8" fill="rgba(8, 51, 68, 0.18)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="74" y="484" fill="#22d3ee" font-size="9" font-weight="600">Main process — IPC handlers + services</text>
+
+        <rect x="78" y="496" width="235" height="96" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="195" y="515" fill="white" font-size="11" font-weight="600" text-anchor="middle">ServerProcess</text>
+        <text x="92" y="535" fill="#94a3b8" font-size="9">spawns `sf run --subprocess`</text>
+        <text x="92" y="551" fill="#94a3b8" font-size="9">reads ready{host,port,pid}</text>
+        <text x="92" y="567" fill="#94a3b8" font-size="9">health-check /health 10s</text>
+        <text x="92" y="583" fill="#94a3b8" font-size="9">auto-restart after 3 fails</text>
+
+        <rect x="327" y="496" width="218" height="96" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="436" y="515" fill="white" font-size="11" font-weight="600" text-anchor="middle">VenvManager</text>
+        <text x="341" y="535" fill="#94a3b8" font-size="9">uv venv / uv sync</text>
+        <text x="341" y="551" fill="#94a3b8" font-size="9">detect · bootstrap</text>
+        <text x="341" y="567" fill="#94a3b8" font-size="9">progress events →</text>
+        <text x="341" y="583" fill="#94a3b8" font-size="9">renderer</text>
+
+        <rect x="78" y="606" width="235" height="92" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="195" y="625" fill="white" font-size="11" font-weight="600" text-anchor="middle">BackendStatusService</text>
+        <text x="92" y="645" fill="#94a3b8" font-size="9">polls /backends/status 30s</text>
+        <text x="92" y="661" fill="#94a3b8" font-size="9">OAuth launch + code exchange</text>
+        <text x="92" y="677" fill="#94a3b8" font-size="9">reauth / rate-limit alerts</text>
+        <text x="92" y="691" fill="#94a3b8" font-size="8">gateway login → /aigateway/session</text>
+
+        <rect x="327" y="606" width="218" height="92" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="436" y="625" fill="white" font-size="11" font-weight="600" text-anchor="middle">SessionManager</text>
+        <text x="341" y="645" fill="#94a3b8" font-size="9">spawns Claude / Codex</text>
+        <text x="341" y="661" fill="#94a3b8" font-size="9">/ Gemini REPL sessions</text>
+        <text x="341" y="677" fill="#94a3b8" font-size="9">per-session logs →</text>
+        <text x="341" y="691" fill="#94a3b8" font-size="9">renderer</text>
+
+        <rect x="78" y="712" width="235" height="78" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="195" y="731" fill="white" font-size="11" font-weight="600" text-anchor="middle">ConfigService</text>
+        <text x="92" y="751" fill="#94a3b8" font-size="9">reads/writes sf.json</text>
+        <text x="92" y="767" fill="#94a3b8" font-size="9">watches file → change events</text>
+        <text x="92" y="783" fill="#94a3b8" font-size="9">debounced writes</text>
+
+        <rect x="327" y="712" width="218" height="78" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="436" y="731" fill="white" font-size="11" font-weight="600" text-anchor="middle">PluginManager</text>
+        <text x="341" y="751" fill="#94a3b8" font-size="9">list / install / activate</text>
+        <text x="341" y="767" fill="#94a3b8" font-size="9">catalog · discover</text>
+        <text x="341" y="783" fill="#94a3b8" font-size="9">→ renderer events</text>
+
+        <text x="312" y="822" fill="#22d3ee" font-size="9" text-anchor="middle" font-weight="600">server.fetch() bypasses renderer (trusts self-signed localhost cert)</text>
+        <text x="312" y="840" fill="#94a3b8" font-size="8" text-anchor="middle">adds X-SF-Desktop-Secret header to authorize main → server calls</text>
+
+        <!-- Packaging note -->
+        <rect x="78" y="862" width="467" height="80" rx="6" fill="rgba(30, 41, 59, 0.45)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="312" y="882" fill="white" font-size="10" font-weight="600" text-anchor="middle">Build &amp; Packaging</text>
+        <text x="312" y="901" fill="#94a3b8" font-size="9" text-anchor="middle">electron-vite (main/preload/renderer) · electron-builder</text>
+        <text x="312" y="917" fill="#94a3b8" font-size="9" text-anchor="middle">bundles server + aigateway src, prebuilt Python + uv, wheel cache</text>
+        <text x="312" y="933" fill="#94a3b8" font-size="9" text-anchor="middle">targets: macOS dmg/zip · Linux AppImage · Windows NSIS</text>
+
+        <!-- ===================== SERVER REGION ===================== -->
+        <rect x="625" y="85" width="690" height="885" rx="12" fill="rgba(6, 78, 59, 0.06)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+        <rect x="639" y="92" width="320" height="17" rx="3" fill="rgba(15, 23, 42, 0.92)" stroke="rgba(148, 163, 184, 0.5)" stroke-width="1"/>
+        <text x="647" y="105" fill="#34d399" font-size="11" font-weight="700">Server (FastAPI :8000 · sf CLI · uv)</text>
+
+        <!-- Core -->
+        <rect x="645" y="120" width="650" height="92" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="970" y="139" fill="white" font-size="11" font-weight="700" text-anchor="middle">core — registries (define the "ports")</text>
+        <text x="660" y="160" fill="#94a3b8" font-size="9">PluginRegistry (discover · topo-sort deps · activate)</text>
+        <text x="660" y="177" fill="#94a3b8" font-size="9">HookRegistry (emit / emit_chain) · ClassRegistry (_inherit mixins)</text>
+        <text x="660" y="194" fill="#94a3b8" font-size="9">RouteRegistry · FrontendRegistry · admin_router: /health /plugins /config/validate</text>
+
+        <!-- Foundation -->
+        <rect x="645" y="226" width="650" height="120" rx="8" fill="rgba(6, 78, 59, 0.32)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="970" y="245" fill="white" font-size="11" font-weight="700" text-anchor="middle">Foundation plugins (shared ABCs / infra — no business routes)</text>
+        <text x="660" y="266" fill="#94a3b8" font-size="9">• llm-base — Backend · AuthStrategy · Adapter · CredentialStore · /backends/status</text>
+        <text x="660" y="283" fill="#94a3b8" font-size="9">• backend-api-base — Run wire format  ·  aigw-base — gateway client (mode/url)</text>
+        <text x="660" y="300" fill="#94a3b8" font-size="9">• frontend-base — proxy/trace helpers</text>
+        <text x="660" y="317" fill="#94a3b8" font-size="9">• data-store → /data  ·  state — Tortoise SQLite (~/.screamingface/state.db)</text>
+        <text x="660" y="334" fill="#94a3b8" font-size="9">• tracing — OpenTelemetry → Phoenix :6006  ·  plugin-audit (CLI)</text>
+
+        <!-- URL4 / Ensemble / Eval -->
+        <rect x="645" y="360" width="650" height="108" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="970" y="379" fill="white" font-size="11" font-weight="700" text-anchor="middle">URL4 · Ensemble · Eval</text>
+        <text x="660" y="400" fill="#94a3b8" font-size="9">• url4-executor → GET /ensemble  (EnsembleInterpreter)</text>
+        <text x="672" y="416" fill="#94a3b8" font-size="9">fan-out + reduce · broadcast · collection iteration · X-SF-Run-Id header</text>
+        <text x="660" y="434" fill="#94a3b8" font-size="9">• url4-specs — named expression library (SOTA flavors)</text>
+        <text x="660" y="451" fill="#94a3b8" font-size="9">• eval-runs → /eval_runs (Tortoise)  ·  python-runner → /python (sandboxed)</text>
+
+        <!-- Backends -->
+        <rect x="645" y="482" width="650" height="190" rx="8" fill="rgba(6, 78, 59, 0.18)" stroke="#34d399" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="657" y="500" fill="#34d399" font-size="9" font-weight="600">Backend plugins — model adapters (one Claude/Codex/Gemini backend active at a time)</text>
+
+        <rect x="660" y="510" width="300" height="150" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="810" y="529" fill="white" font-size="10" font-weight="600" text-anchor="middle">Direct API backends</text>
+        <text x="674" y="550" fill="#94a3b8" font-size="9">• claude-backend-api → /claude</text>
+        <text x="674" y="568" fill="#94a3b8" font-size="9">• codex-backend-api → /codex</text>
+        <text x="674" y="586" fill="#94a3b8" font-size="9">• gemini-backend-api → /gemini</text>
+        <text x="674" y="604" fill="#94a3b8" font-size="9">• ollama-backend-api → /ollama</text>
+        <text x="674" y="628" fill="#34d399" font-size="8">handle_backend_call() for URL4</text>
+        <text x="674" y="643" fill="#34d399" font-size="8">OAuth from local CLI creds</text>
+
+        <rect x="980" y="510" width="300" height="150" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1130" y="529" fill="white" font-size="10" font-weight="600" text-anchor="middle">AIGateway backends</text>
+        <text x="994" y="550" fill="#94a3b8" font-size="9">• aigw-claude-backend → /claude</text>
+        <text x="994" y="568" fill="#94a3b8" font-size="9">• aigw-codex-backend → /codex</text>
+        <text x="994" y="586" fill="#94a3b8" font-size="9">• aigw-gemini-backend → /gemini</text>
+        <text x="994" y="604" fill="#94a3b8" font-size="9">• aigw-runner (spawns gateway)</text>
+        <text x="994" y="622" fill="#94a3b8" font-size="9">• aigw-callback → /aigw/callback</text>
+        <text x="994" y="645" fill="#fbbf24" font-size="8">gateway owns OAuth + refresh</text>
+
+        <text x="970" y="505" fill="#fb7185" font-size="8" text-anchor="middle">direct ⊕ gateway are mutually exclusive (conflicts)</text>
+
+        <!-- Frontends + Interceptors -->
+        <rect x="645" y="686" width="650" height="200" rx="8" fill="rgba(6, 78, 59, 0.12)" stroke="#34d399" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="657" y="704" fill="#34d399" font-size="9" font-weight="600">Frontend proxies + Interceptors — capture coding-CLI traffic</text>
+
+        <rect x="660" y="714" width="300" height="160" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="810" y="733" fill="white" font-size="10" font-weight="600" text-anchor="middle">Frontend proxies (own HTTP server)</text>
+        <text x="674" y="754" fill="#94a3b8" font-size="9">• claude-frontend :9101</text>
+        <text x="674" y="772" fill="#94a3b8" font-size="9">• gemini-frontend :9102</text>
+        <text x="674" y="790" fill="#94a3b8" font-size="9">• codex-frontend :9103</text>
+        <text x="674" y="808" fill="#94a3b8" font-size="9">• ollama-frontend :9103</text>
+        <text x="674" y="831" fill="#22d3ee" font-size="8">transparent proxy → upstream provider</text>
+        <text x="674" y="846" fill="#22d3ee" font-size="8">request/response redaction + tracing</text>
+        <text x="674" y="863" fill="#22d3ee" font-size="8">can run an active URL4 spec inline</text>
+
+        <rect x="980" y="714" width="300" height="160" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="1130" y="733" fill="white" font-size="10" font-weight="600" text-anchor="middle">Interceptors (route CLI → frontend)</text>
+        <text x="994" y="754" fill="#94a3b8" font-size="9">• claude-intercept</text>
+        <text x="1006" y="769" fill="#94a3b8" font-size="8">/etc/hosts + in-mem DNS override</text>
+        <text x="994" y="788" fill="#94a3b8" font-size="9">• claude-env-intercept</text>
+        <text x="1006" y="803" fill="#94a3b8" font-size="8">sets ANTHROPIC_API_BASE</text>
+        <text x="994" y="822" fill="#94a3b8" font-size="9">• mitmproxy-intercept :8888</text>
+        <text x="1006" y="837" fill="#94a3b8" font-size="8">domain + process → frontend</text>
+        <text x="994" y="861" fill="#fb7185" font-size="8">e.g. api.anthropic.com + claude →</text>
+        <text x="1006" y="873" fill="#fb7185" font-size="8">claude-frontend:9101</text>
+
+        <!-- DI annotation arrow: plugins depend on core -->
+        <line x1="970" y1="226" x2="970" y2="214" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <text x="1089" y="224" fill="#34d399" font-size="8" text-anchor="middle">plugins depend on core ports (never reverse)</text>
+
+        <!-- ===================== CROSS-REGION ARROWS ===================== -->
+        <!-- Renderer hooks -> Preload -->
+        <line x1="432" y1="355" x2="432" y2="383" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#ah-cyan)"/>
+        <line x1="190" y1="355" x2="190" y2="383" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#ah-cyan)"/>
+        <text x="312" y="372" fill="#22d3ee" font-size="8" text-anchor="middle">window.electronAPI (IPC)</text>
+        <!-- Preload -> Main -->
+        <line x1="312" y1="451" x2="312" y2="464" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#ah-cyan)"/>
+
+        <!-- HTTP cross arrow (data plane) -->
+        <line x1="586" y1="180" x2="643" y2="180" stroke="#22d3ee" stroke-width="2" marker-end="url(#ah-cyan)"/>
+        <text x="586" y="160" fill="#22d3ee" font-size="8" text-anchor="middle">HTTPS API: /ensemble · /eval_runs · /plugins · /backends/status</text>
+        <!-- leader from ServerProcess area up to http arrow -->
+        <path d="M 565 180 L 605 180" fill="none" stroke="#22d3ee" stroke-width="0.8" stroke-dasharray="2,2"/>
+
+        <!-- SPAWN cross arrow (control plane) -->
+        <line x1="586" y1="540" x2="643" y2="540" stroke="#34d399" stroke-width="2.5" marker-end="url(#ah-emerald)"/>
+        <text x="616" y="524" fill="#34d399" font-size="8" text-anchor="middle">spawns: sf run --subprocess (child)</text>
+
+        <!-- ===================== BOTTOM EGRESS BAND ===================== -->
+        <rect x="660" y="980" width="290" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="805" y="1006" fill="white" font-size="11" font-weight="600" text-anchor="middle">Upstream providers</text>
+        <text x="805" y="1023" fill="#94a3b8" font-size="8" text-anchor="middle">Anthropic · OpenAI · Google · Ollama</text>
+
+        <rect x="990" y="980" width="290" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1135" y="1006" fill="white" font-size="11" font-weight="600" text-anchor="middle">AIGateway :9105</text>
+        <text x="1135" y="1023" fill="#94a3b8" font-size="8" text-anchor="middle">see Scope 3 — auth flow</text>
+
+        <!-- Direct backends + frontends -> providers -->
+        <path d="M 760 874 L 760 974" fill="none" stroke="#34d399" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#ah-emerald)"/>
+        <text x="765" y="926" fill="#34d399" font-size="8" text-anchor="middle">direct + proxy → upstream</text>
+        <!-- gateway backends -> AIGateway -->
+        <path d="M 1130 660 L 1130 974" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#ah-amber)"/>
+        <text x="1131" y="940" fill="#fbbf24" font-size="8" text-anchor="middle">chat via gateway</text>
+      <text x="20" y="1092" fill="white" font-size="13" font-weight="700">Notes</text>
+<rect x="20.0" y="1106" width="318.0" height="108" rx="10" fill="rgba(15,23,42,0.5)" stroke="#1e293b" stroke-width="1"/>
+<circle cx="38.0" cy="1126" r="4.5" fill="#22d3ee"/>
+<text x="50.0" y="1130" fill="white" font-size="12" font-weight="600">Electron processes</text>
+<text x="34.0" y="1148" fill="#94a3b8" font-size="9">• Renderer hooks never touch the network directly</text>
+<text x="34.0" y="1166" fill="#94a3b8" font-size="9">• All I/O crosses the preload electronAPI bridge</text>
+<text x="34.0" y="1184" fill="#94a3b8" font-size="9">• Main owns server lifecycle, venv, sessions, config</text>
+<text x="34.0" y="1202" fill="#94a3b8" font-size="9">• server.fetch() in main bypasses renderer SSL pinning</text>
+<rect x="354.0" y="1106" width="318.0" height="108" rx="10" fill="rgba(15,23,42,0.5)" stroke="#1e293b" stroke-width="1"/>
+<circle cx="372.0" cy="1126" r="4.5" fill="#34d399"/>
+<text x="384.0" y="1130" fill="white" font-size="12" font-weight="600">Core = ports</text>
+<text x="368.0" y="1148" fill="#94a3b8" font-size="9">• 5 registries: Plugin, Hook, Class, Route, Frontend</text>
+<text x="368.0" y="1166" fill="#94a3b8" font-size="9">• Core defines interfaces; plugins are the adapters</text>
+<text x="368.0" y="1184" fill="#94a3b8" font-size="9">• Plugins import core, never the reverse (DI)</text>
+<text x="368.0" y="1202" fill="#94a3b8" font-size="9">• Discovery + topological activation via registry</text>
+<rect x="688.0" y="1106" width="318.0" height="108" rx="10" fill="rgba(15,23,42,0.5)" stroke="#1e293b" stroke-width="1"/>
+<circle cx="706.0" cy="1126" r="4.5" fill="#fbbf24"/>
+<text x="718.0" y="1130" fill="white" font-size="12" font-weight="600">Frontend + Backend pairs</text>
+<text x="702.0" y="1148" fill="#94a3b8" font-size="9">• Each model has a frontend proxy and a backend adapter</text>
+<text x="702.0" y="1166" fill="#94a3b8" font-size="9">• Backend = direct API OR via AIGateway (exclusive)</text>
+<text x="702.0" y="1184" fill="#94a3b8" font-size="9">• Frontends proxy intercepted coding-CLI traffic</text>
+<text x="702.0" y="1202" fill="#94a3b8" font-size="9">• Interceptors steer CLIs to the right frontend port</text>
+<rect x="1022.0" y="1106" width="318.0" height="108" rx="10" fill="rgba(15,23,42,0.5)" stroke="#1e293b" stroke-width="1"/>
+<circle cx="1040.0" cy="1126" r="4.5" fill="#a78bfa"/>
+<text x="1052.0" y="1130" fill="white" font-size="12" font-weight="600">The ensemble</text>
+<text x="1036.0" y="1148" fill="#94a3b8" font-size="9">• url4-executor parses a URL4 expression on /ensemble</text>
+<text x="1036.0" y="1166" fill="#94a3b8" font-size="9">• Fan-out: run N backends in parallel</text>
+<text x="1036.0" y="1184" fill="#94a3b8" font-size="9">• Reduce: feed all responses to a reducer model</text>
+<text x="1036.0" y="1202" fill="#94a3b8" font-size="9">• eval-runs records accuracy; RunView polls it</text>
+</svg>
