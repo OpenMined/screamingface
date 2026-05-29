@@ -139,27 +139,34 @@ class FrontendPluginBase(Plugin):
     def _current_spec_expressions(self) -> dict[str, str]:
         """Current ``{name: expression}`` for url4-specs.
 
-        Reads **fresh config from disk first** — the same source as the
-        ``GET /plugins/url4-specs/settings`` endpoint — so a spec added at
-        runtime is immediately visible (in the active_spec enum AND for
-        resolution) without restarting the server. The running plugin's
-        in-memory ``.settings`` can be stale because a config/sf.json edit
-        doesn't push into the already-initialized plugin. Falls back to the
-        in-memory settings if the fresh read is unavailable.
+        Merges two sources so a spec is visible no matter how it was added,
+        with the **running in-memory config winning** on name conflicts:
+
+        - In-memory ``url4-specs`` plugin ``.settings`` — authoritative for
+          this process. It reflects the config the server actually booted
+          with (which may be supplied inline via ``--config-json``, with no
+          file on disk) and is updated live by ``POST /plugins/url4-specs/
+          settings``.
+        - A fresh on-disk ``load_config()`` read — *supplements* names the
+          running config doesn't have, catching a spec added by editing
+          ``sf.json`` directly without going through the settings endpoint.
+
+        A blind disk-first read is wrong: ``load_config()`` reads ``./sf.json``
+        relative to cwd, which is NOT necessarily the config the server booted
+        with — so it can shadow the real running specs with an unrelated file.
         """
+        out: dict[str, str] = {}
+
         try:
             from screamingface.core.config import load_config
 
             raw = load_config().plugin_config.get("url4-specs") or {}
             specs = raw.get("specs")
             if isinstance(specs, dict):
-                out: dict[str, str] = {}
                 for name, spec in specs.items():
                     expr = spec.get("expression") if isinstance(spec, dict) else None
                     if expr:
                         out[name] = expr
-                if out:
-                    return out
         except Exception:
             logger.debug("Fresh url4-specs config unavailable; using in-memory", exc_info=True)
 
@@ -167,12 +174,11 @@ class FrontendPluginBase(Plugin):
             self._app.state.plugins.active_plugins.get("url4-specs") if self._app else None
         )
         if specs_plugin and specs_plugin.settings:
-            return {
-                name: spec.expression
-                for name, spec in specs_plugin.settings.specs.items()
-                if spec.expression
-            }
-        return {}
+            for name, spec in specs_plugin.settings.specs.items():
+                if spec.expression:
+                    out[name] = spec.expression
+
+        return out
 
     def _get_spec_names(self) -> list[str] | None:
         names = list(self._current_spec_expressions().keys())
