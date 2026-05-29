@@ -32,6 +32,16 @@ class Settings(BaseSettings):
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
     public_url: str | None = Field(default=None, validation_alias="AIGATEWAY_PUBLIC_URL")
 
+    retry_max_attempts: int = Field(default=3, validation_alias="AIGW_RETRY_MAX_ATTEMPTS")
+    retry_backoff_base_seconds: float = Field(
+        default=0.5, validation_alias="AIGW_RETRY_BACKOFF_BASE"
+    )
+    retry_backoff_max_seconds: float = Field(default=8.0, validation_alias="AIGW_RETRY_BACKOFF_MAX")
+    retry_max_total_wait_seconds: float = Field(
+        default=30.0, validation_alias="AIGW_RETRY_MAX_WAIT"
+    )
+    retry_jitter_seconds: float = Field(default=0.25, validation_alias="AIGW_RETRY_JITTER")
+
     @field_validator("jwt_secret", "provisioning_token")
     @classmethod
     def _validate_secret_length(cls, value: SecretStr | None) -> SecretStr | None:
