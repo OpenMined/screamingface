@@ -54,14 +54,7 @@ def is_retryable_status(exc: BaseException) -> bool:
     return _status_code(exc) in RETRYABLE_STATUS_CODES
 
 
-def parse_retry_after_seconds(exc: BaseException) -> float | None:
-    """Read an integer ``Retry-After`` (delta-seconds) off the exception's response.
-
-    Returns ``None`` for absent/malformed/HTTP-date values so the caller falls
-    back to exponential backoff. Never raises.
-    """
-    response = getattr(exc, "response", None)
-    headers = getattr(response, "headers", None)
+def _seconds_from_headers(headers: Any) -> float | None:
     if headers is None:
         return None
     raw = headers.get("retry-after")
@@ -72,6 +65,22 @@ def parse_retry_after_seconds(exc: BaseException) -> float | None:
     except (TypeError, ValueError):
         return None  # HTTP-date form unsupported -> backoff fallback
     return max(0.0, value)
+
+
+def parse_retry_after_seconds(exc: BaseException) -> float | None:
+    """Read an integer ``Retry-After`` (delta-seconds) off the exception.
+
+    Checks ``exc.response.headers`` first (LiteLLM exceptions) then
+    ``exc.headers`` (FastAPI ``HTTPException`` — how the aigateway provider
+    plugins surface upstream 429s, e.g. the Gemini reset hint). Returns
+    ``None`` for absent/malformed/HTTP-date values so the caller falls back to
+    exponential backoff. Never raises.
+    """
+    response_headers = getattr(getattr(exc, "response", None), "headers", None)
+    seconds = _seconds_from_headers(response_headers)
+    if seconds is not None:
+        return seconds
+    return _seconds_from_headers(getattr(exc, "headers", None))
 
 
 async def with_overload_retry[T](

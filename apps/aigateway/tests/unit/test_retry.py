@@ -16,6 +16,8 @@ from aigateway.core.retry import (
 class _StatusError(Exception):
     """Minimal stand-in for a LiteLLM exception carrying status_code + response."""
 
+    headers: dict[str, str] | None = None
+
     def __init__(self, status_code: int, retry_after: str | None = None) -> None:
         super().__init__(f"status {status_code}")
         self.status_code = status_code
@@ -66,6 +68,29 @@ def test_parse_retry_after_malformed_returns_none() -> None:
 
 def test_parse_retry_after_absent_returns_none() -> None:
     assert parse_retry_after_seconds(_StatusError(429)) is None
+
+
+class _HeaderError(Exception):
+    """Mimics FastAPI HTTPException: carries ``.headers`` but no ``.response``."""
+
+    def __init__(self, status_code: int, headers: dict[str, str]) -> None:
+        super().__init__(f"status {status_code}")
+        self.status_code = status_code
+        self.headers = headers
+
+
+def test_parse_retry_after_reads_exc_headers() -> None:
+    assert parse_retry_after_seconds(_HeaderError(429, {"retry-after": "3"})) == 3.0
+
+
+def test_parse_retry_after_headers_absent_returns_none() -> None:
+    assert parse_retry_after_seconds(_HeaderError(429, {})) is None
+
+
+def test_parse_retry_after_prefers_response_over_headers() -> None:
+    exc = _StatusError(429, retry_after="2")
+    exc.headers = {"retry-after": "9"}  # response header wins over exc.headers
+    assert parse_retry_after_seconds(exc) == 2.0
 
 
 @pytest.mark.asyncio
