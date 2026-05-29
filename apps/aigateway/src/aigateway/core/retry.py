@@ -12,14 +12,12 @@ import logging
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..config import Settings
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 # 429 rate-limited, 503 service-unavailable, 529 overloaded (Anthropic).
 RETRYABLE_STATUS_CODES = frozenset({429, 503, 529})
@@ -76,7 +74,7 @@ def parse_retry_after_seconds(exc: BaseException) -> float | None:
     return max(0.0, value)
 
 
-async def with_overload_retry(
+async def with_overload_retry[T](
     dispatch: Callable[[], Awaitable[T]],
     *,
     policy: RetryPolicy,
