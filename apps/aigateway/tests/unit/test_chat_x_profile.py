@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import time
 from functools import partial
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from litellm.exceptions import RateLimitError
+from litellm.exceptions import RateLimitError, ServiceUnavailableError
 
 from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
@@ -736,7 +737,10 @@ async def test_chat_maps_litellm_rate_limit_to_429(credential_blobs, authenticat
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(429, headers={"retry-after": "7"}, request=request)
 
+    calls = {"n": 0}
+
     async def fake_chat_completion(_self, _body):
+        calls["n"] += 1
         raise RateLimitError(
             "limited",
             llm_provider="anthropic",
@@ -744,9 +748,12 @@ async def test_chat_maps_litellm_rate_limit_to_429(credential_blobs, authenticat
             response=response,
         )
 
-    with patch(
-        "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
-        fake_chat_completion,
+    with (
+        patch(
+            "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
+            fake_chat_completion,
+        ),
+        patch("aigateway.core.retry.asyncio.sleep", new_callable=AsyncMock),
     ):
         resp = authenticated_client.post(
             "/v1/chat/completions",
@@ -759,3 +766,145 @@ async def test_chat_maps_litellm_rate_limit_to_429(credential_blobs, authenticat
     assert resp.status_code == 429
     assert resp.headers["retry-after"] == "7"
     assert resp.json()["detail"]["code"] == "rate_limited"
+    assert calls["n"] == 4  # 1 initial + 3 retries (default AIGW_RETRY_MAX_ATTEMPTS=3)
+
+
+def _seed_anthropic_profile(credential_blobs, account_id: str):
+    _seed_authenticated_profile(credential_blobs, account_id)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    return idx.upsert(
+        Profile(
+            id=profile_id_for(account_id, "anthropic", "default"),
+            account_id=account_id,
+            provider="anthropic",
+            name="default",
+            state=ProfileState.AUTHENTICATED,
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_retries_rate_limit_then_succeeds(
+    credential_blobs, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    await _seed_anthropic_profile(credential_blobs, account_id)
+
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(429, headers={"retry-after": "1"}, request=request)
+    calls = {"n": 0}
+
+    async def flaky_chat_completion(_self, _body):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RateLimitError(
+                "limited",
+                llm_provider="anthropic",
+                model="anthropic/claude-sonnet-4-5",
+                response=response,
+            )
+        return SimpleNamespace(
+            model_dump=lambda: {"id": "x", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    with (
+        patch(
+            "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
+            flaky_chat_completion,
+        ),
+        patch("aigateway.core.retry.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        resp = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "anthropic/claude-sonnet-4-5",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert calls["n"] == 2  # gateway absorbed the 429
+
+
+@pytest.mark.asyncio
+async def test_chat_retries_service_unavailable_then_succeeds(
+    credential_blobs, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    await _seed_anthropic_profile(credential_blobs, account_id)
+
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(503, request=request)
+    calls = {"n": 0}
+
+    async def flaky_chat_completion(_self, _body):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ServiceUnavailableError(
+                "overloaded",
+                llm_provider="anthropic",
+                model="anthropic/claude-sonnet-4-5",
+                response=response,
+            )
+        return SimpleNamespace(
+            model_dump=lambda: {"id": "x", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    with (
+        patch(
+            "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
+            flaky_chat_completion,
+        ),
+        patch("aigateway.core.retry.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        resp = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "anthropic/claude-sonnet-4-5",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_chat_persistent_rate_limit_still_returns_429(
+    credential_blobs, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    await _seed_anthropic_profile(credential_blobs, account_id)
+
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(429, headers={"retry-after": "1"}, request=request)
+    calls = {"n": 0}
+
+    async def always_limited(_self, _body):
+        calls["n"] += 1
+        raise RateLimitError(
+            "limited",
+            llm_provider="anthropic",
+            model="anthropic/claude-sonnet-4-5",
+            response=response,
+        )
+
+    with (
+        patch(
+            "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
+            always_limited,
+        ),
+        patch("aigateway.core.retry.asyncio.sleep", new_callable=AsyncMock),
+    ):
+        resp = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "anthropic/claude-sonnet-4-5",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert resp.status_code == 429
+    assert resp.headers["retry-after"] == "1"
+    assert resp.json()["detail"]["code"] == "rate_limited"
+    assert calls["n"] == 4  # 1 initial + 3 retries (default AIGW_RETRY_MAX_ATTEMPTS=3)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
@@ -26,6 +27,7 @@ from ..core.oauth.store import OAuthConnectionStore, credential_key_for
 from ..core.profile_index import ProfileIndexStore
 from ..core.profile_models import Profile, ProfileDefaults, ProfileState, credential_name_for
 from ..core.registry import ProviderRegistry
+from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -196,10 +198,11 @@ def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any
 
 
 def _retry_after_headers(exc: Exception) -> dict[str, str]:
-    response = getattr(exc, "response", None)
-    headers = getattr(response, "headers", None)
-    retry_after = headers.get("retry-after") if headers is not None else None
-    return {"Retry-After": retry_after} if retry_after else {}
+    seconds = parse_retry_after_seconds(exc)
+    if seconds is None:
+        return {}
+    # delta-seconds is an integer; round up so clients do not retry early.
+    return {"Retry-After": str(math.ceil(seconds))}
 
 
 def _litellm_http_exception(exc: Exception) -> HTTPException:
@@ -312,11 +315,16 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
         if connection is not None:
             await _oauth_connection_store(request).touch_last_used(connection)
 
+    # NOTE: overload retry covers the non-streaming path only; streaming responses
+    # commit a 200 status before dispatch, so a mid-stream 429/503 cannot be retried.
     if body.get("stream"):
         return StreamingResponse(_stream(plugin, body), media_type="text/event-stream")
 
     try:
-        response = await plugin.chat_completion(body)
+        response = await with_overload_retry(
+            lambda: plugin.chat_completion(body),
+            policy=RetryPolicy.from_settings(request.app.state.settings),
+        )
     except HTTPException as exc:
         if connection is not None and _should_mark_profile_error_on_dispatch_status(
             plugin, exc.status_code
