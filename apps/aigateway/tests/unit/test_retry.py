@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 import pytest
 
@@ -24,8 +26,8 @@ class _StatusError(Exception):
             )
 
 
-def _policy(**kw) -> RetryPolicy:
-    base = dict(
+def _policy(**kw: Any) -> RetryPolicy:
+    base: dict[str, Any] = dict(
         max_retries=3,
         backoff_base_seconds=0.5,
         backoff_max_seconds=8.0,
