@@ -6,10 +6,9 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from screamingface.plugins.aigw_base.desktop_secret import require_desktop_secret
 from screamingface.plugins.eval_runs._hook_payloads import (
     HOOK_RUN_FAILED,
     HOOK_RUN_FINISHED,
@@ -71,7 +70,6 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
         "/ensemble/highlight",
         response_model=None,
         operation_id="url4_highlight",
-        dependencies=[Depends(require_desktop_secret)],
     )
     async def url4_highlight(q: str | None = None) -> JSONResponse:
         if not q:
@@ -87,7 +85,6 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
         "/ensemble",
         response_model=None,
         operation_id="url4_resolve",
-        dependencies=[Depends(require_desktop_secret)],
     )
     async def url4_resolve(
         request: Request,

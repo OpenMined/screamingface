@@ -11,9 +11,8 @@ Resolution must read the blob back from the SAME locus, so ``_resolve_expression
 mirrors ``_store_prompt_blob``'s guard:
 
 - in-process when ``app.state.blob_store`` exists, else
-- HTTP ``GET {backend_url}/ensemble`` with the ``X-SF-Desktop-Secret`` header
-  (SF-174 guards ``/ensemble``; the per-session process reads the same shared
-  secret via ``SF_DESKTOP_SECRET_FILE``).
+- HTTP ``GET {backend_url}/ensemble`` (no auth — the desktop-secret ACL on the
+  SF server was removed in SF-211).
 
 History: SF-230 resolved in-process whenever ``app is not None``. Because the
 proxy runs as a separate per-session app whose ``app`` lacks ``blob_store``, the
@@ -109,15 +108,14 @@ async def test_inprocess_used_when_app_owns_blob_store(monkeypatch: pytest.Monke
 
 
 @pytest.mark.anyio
-async def test_http_with_secret_when_app_lacks_blob_store(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No local blob store -> blob is on the main server; resolve via HTTP /ensemble
-    and carry the desktop secret so SF-174's guard accepts it."""
-    monkeypatch.setattr(mod, "configured_desktop_secret", lambda: "s3cr3t")
+async def test_http_fallback_when_app_lacks_blob_store() -> None:
+    """No local blob store -> blob is on the main server; resolve via HTTP
+    /ensemble (no auth — the desktop-secret ACL was removed in SF-211)."""
     captured: dict[str, Any] = {}
 
     def handler(req: httpx.Request) -> httpx.Response:
         captured["url"] = str(req.url)
-        captured["secret"] = req.headers.get(mod.DESKTOP_SECRET_HEADER)
+        captured["headers"] = dict(req.headers)
         return httpx.Response(200, text="ensemble-result")
 
     with _mock_ensemble_transport(handler):
@@ -130,26 +128,7 @@ async def test_http_with_secret_when_app_lacks_blob_store(monkeypatch: pytest.Mo
 
     assert result == "ensemble-result"
     assert captured["url"].startswith("http://gateway/ensemble?q=")
-    assert captured["secret"] == "s3cr3t"
-
-
-@pytest.mark.anyio
-async def test_http_no_secret_header_when_secret_unset(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If no desktop secret is configured, no header is sent (guard is a no-op then)."""
-    monkeypatch.setattr(mod, "configured_desktop_secret", lambda: None)
-    captured: dict[str, Any] = {}
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        captured["secret"] = req.headers.get(mod.DESKTOP_SECRET_HEADER)
-        return httpx.Response(200, text="ok")
-
-    with _mock_ensemble_transport(handler):
-        result = await _resolve_expression(
-            "(https://x)", app=None, backend_url="http://gateway", tracer=_NullTracer()
-        )
-
-    assert result == "ok"
-    assert captured["secret"] is None
+    assert "x-sf-desktop-secret" not in captured["headers"]
 
 
 @pytest.mark.anyio

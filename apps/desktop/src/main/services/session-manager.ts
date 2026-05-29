@@ -8,7 +8,6 @@ import { EventEmitter } from 'events';
 import { app, dialog, BrowserWindow } from 'electron';
 import { is } from '@electron-toolkit/utils';
 import { configService } from './config-service';
-import { getDesktopSecretPath } from './desktop-secret';
 import { backendStatusService } from './backend-status';
 
 export type SessionStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'error';
@@ -252,9 +251,7 @@ class SessionManager extends EventEmitter {
     return new Promise<void>((resolve, reject) => {
       const child = spawn(this.sfBin, args, {
         cwd: this.serverCwd,
-        // Forward the desktop secret so the session's url4 resolver can call the
-        // main server's secret-protected /ensemble (mirrors server-process.ts).
-        env: { ...process.env, SF_DESKTOP_SECRET_FILE: getDesktopSecretPath() },
+        env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 

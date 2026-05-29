@@ -25,12 +25,11 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, cast
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .client import AigwGatewayClient, AigwGatewayClientError
-from .desktop_secret import require_desktop_secret
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +85,7 @@ def build_aigw_auth_proxy_router(
     request targets ``profile_name``). Explicitly-named profiles get no
     defaults forwarded; the user can PATCH them on the gateway directly.
     """
-    router = APIRouter(
-        tags=[f"{path_prefix.lstrip('/')}-auth"],
-        dependencies=[Depends(require_desktop_secret)],
-    )
+    router = APIRouter(tags=[f"{path_prefix.lstrip('/')}-auth"])
     base = gateway_url.rstrip("/")
     factory = http_client_factory or _default_http_factory
 

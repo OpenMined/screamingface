@@ -26,7 +26,6 @@ from screamingface.plugins.aigw_base.config import (
     is_runner_disabled,
     resolve_aigw_runtime_config,
 )
-from screamingface.plugins.aigw_base.desktop_secret import require_desktop_secret
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +56,6 @@ def create_router(app: Any = None) -> APIRouter:
         - ``help_text`` (str|null) — user-facing explanation
         """
         if _wants_status_v2(request):
-            require_desktop_secret(request)
             return JSONResponse(content=await _build_status_v2(app), status_code=200)
 
         return JSONResponse(content=await _collect_backend_status(app), status_code=200)

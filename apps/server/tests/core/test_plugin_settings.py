@@ -145,49 +145,7 @@ def test_plugin_schema_endpoint(settings_client: TestClient) -> None:
     assert "active_spec" in schema["properties"]
 
 
-def test_aigw_plugin_schema_requires_desktop_secret_when_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
-
-    class DummySettings(PluginSettings):
-        value: str = "ok"
-
-    class AigwSchemaPlugin(Plugin):
-        name = "aigw-test-backend"
-        settings_class = DummySettings
-        schema_requires_desktop_secret = True
-
-        def __init__(self) -> None:
-            self.customize_count = 0
-
-        def customize_schema(self, schema: dict) -> dict:
-            self.customize_count += 1
-            schema["x-customized"] = True
-            return schema
-
-    plugin = AigwSchemaPlugin()
-    app = FastAPI()
-    app.state.plugins = SimpleNamespace(active_plugins={plugin.name: plugin})
-    register_admin_routes(app)
-    client = TestClient(app)
-
-    missing = client.get(f"/plugins/{plugin.name}/schema")
-    allowed = client.get(
-        f"/plugins/{plugin.name}/schema",
-        headers={"X-SF-Desktop-Secret": "test-secret"},
-    )
-
-    assert missing.status_code == 401
-    assert plugin.customize_count == 1
-    assert allowed.status_code == 200
-    assert allowed.json()["x-customized"] is True
-
-
-def test_real_aigw_plugin_schema_requires_secret_before_gateway_fetch(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+def test_real_aigw_plugin_schema_lists_gateway_profiles() -> None:
     gateway_requests: list[str] = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -213,18 +171,10 @@ def test_real_aigw_plugin_schema_requires_secret_before_gateway_fetch(
     register_admin_routes(app)
     client = TestClient(app)
 
-    missing = client.get(f"/plugins/{plugin.name}/schema")
+    resp = client.get(f"/plugins/{plugin.name}/schema")
 
-    assert missing.status_code == 401
-    assert gateway_requests == []
-
-    allowed = client.get(
-        f"/plugins/{plugin.name}/schema",
-        headers={"X-SF-Desktop-Secret": "test-secret"},
-    )
-
-    assert allowed.status_code == 200
-    assert allowed.json()["properties"]["auth_profile"]["enum"] == [
+    assert resp.status_code == 200
+    assert resp.json()["properties"]["auth_profile"]["enum"] == [
         "default",
         "work-anthropic",
     ]
@@ -234,11 +184,7 @@ def test_real_aigw_plugin_schema_requires_secret_before_gateway_fetch(
     ]
 
 
-def test_non_aigw_plugin_schema_remains_public_when_desktop_secret_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
-
+def test_plugin_schema_is_public() -> None:
     class DummySettings(PluginSettings):
         value: str = "ok"
 

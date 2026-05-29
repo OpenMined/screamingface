@@ -39,7 +39,6 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
     tags: ClassVar[list[str]] = ["product:aigw"]
     depends: ClassVar[list[str]] = ["llm-base", "backend-api-base", "aigw-base"]
     conflicts: ClassVar[list[str]] = []
-    schema_requires_desktop_secret: ClassVar[bool] = True
 
     # Provider key used by the AI Gateway.
     # Subclasses MUST set this if they want the auth-proxy router mounted.

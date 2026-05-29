@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .client import (
@@ -16,7 +16,6 @@ from .client import (
     parse_gateway_expires_at,
 )
 from .config import resolve_aigw_runtime_config
-from .desktop_secret import require_desktop_secret
 
 
 class GatewayLoginBody(BaseModel):
@@ -25,7 +24,7 @@ class GatewayLoginBody(BaseModel):
 
 
 def create_router(app: Any) -> APIRouter:
-    router = APIRouter(tags=["aigw-base"], dependencies=[Depends(require_desktop_secret)])
+    router = APIRouter(tags=["aigw-base"])
 
     @router.get("/aigateway/session")
     async def gateway_session() -> dict[str, Any]:
