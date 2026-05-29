@@ -15,20 +15,23 @@ uv run uvicorn scoreboard.main:app --port 9106 --reload
 curl -sf http://localhost:9106/healthz
 ```
 
-`/healthz` is a liveness probe only. It does not query the database and does not prove Postgres connectivity.
+By default, local runs use a SQLite database file named `scoreboard.sqlite3` in the current working directory. Delete that file to reset local data. If you previously exported `SCOREBOARD_DATABASE_URL`, unset it first with `unset SCOREBOARD_DATABASE_URL` to use the default.
+
+`/healthz` is a liveness probe only. It does not query the database and does not prove database connectivity.
 
 ### Running Against Local Postgres
 
-The default `SCOREBOARD_DATABASE_URL` expects a local Postgres database at `postgres://scoreboard:scoreboard@localhost:5432/scoreboard`.
+Set `SCOREBOARD_DATABASE_URL` when you want to run against Postgres instead of the default local SQLite file.
 
 ```bash
 docker run --rm -d --name sf-scoreboard-postgres \
   -e POSTGRES_USER=scoreboard \
   -e POSTGRES_PASSWORD=scoreboard \
   -e POSTGRES_DB=scoreboard \
-  -p 5432:5432 \
+  -p 5434:5432 \
   postgres:16-alpine
 
+export SCOREBOARD_DATABASE_URL='postgres://scoreboard:scoreboard@localhost:5434/scoreboard'
 uv run tortoise migrate
 uv run uvicorn scoreboard.main:app --port 9106 --reload
 ```
@@ -54,7 +57,7 @@ Settings are read from environment variables with the `SCOREBOARD_` prefix.
 | `SCOREBOARD_HOST` | `127.0.0.1` | Host used by the `scoreboard` console script. |
 | `SCOREBOARD_PORT` | `9106` | Port used by the `scoreboard` console script. |
 | `SCOREBOARD_LOG_LEVEL` | `info` | Uvicorn log level. |
-| `SCOREBOARD_DATABASE_URL` | `postgres://scoreboard:scoreboard@localhost:5432/scoreboard` | Tortoise database URL. |
+| `SCOREBOARD_DATABASE_URL` | `sqlite://./scoreboard.sqlite3` | Tortoise database URL. |
 | `SCOREBOARD_CORS_ORIGINS` | `["*"]` | JSON list of allowed CORS origins. |
 
 `SCOREBOARD_CORS_ORIGINS` defaults to `["*"]` because the scaffold has no authenticated routes and never sets cookies. D-SCORE-007 will tighten this once the leaderboard write path lands.
@@ -69,7 +72,7 @@ uv run ruff format --check .
 uv run pyright
 ```
 
-Unit tests use SQLite through Tortoise's isolated `tortoise_test_context`, so the persistence layer can be validated without a local Postgres server. Postgres-backed tests can opt into a database URL by setting `SCOREBOARD_TEST_DATABASE_URL`.
+The runtime default uses SQLite for local runs, and unit tests use SQLite through Tortoise's isolated `tortoise_test_context`, so the persistence layer can be validated without a local Postgres server. Postgres-backed tests can opt into a database URL by setting `SCOREBOARD_TEST_DATABASE_URL`.
 
 ## Layout
 
