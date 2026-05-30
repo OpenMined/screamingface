@@ -57,7 +57,7 @@ def is_retryable_status(exc: BaseException) -> bool:
 def _seconds_from_headers(headers: Any) -> float | None:
     if headers is None:
         return None
-    raw = headers.get("retry-after")
+    raw = _case_insensitive_header(headers, "retry-after")
     if raw is None:
         return None
     try:
@@ -65,6 +65,31 @@ def _seconds_from_headers(headers: Any) -> float | None:
     except (TypeError, ValueError):
         return None  # HTTP-date form unsupported -> backoff fallback
     return max(0.0, value)
+
+
+def _case_insensitive_header(headers: Any, name: str) -> Any:
+    """Read ``name`` from ``headers`` regardless of key casing.
+
+    ``httpx.Headers`` is case-insensitive natively, but FastAPI's
+    ``HTTPException`` stores ``headers`` as the literal dict passed in
+    (so the key is whatever the caller wrote, typically ``"Retry-After"``).
+    A plain ``dict.get("retry-after")`` would miss it and silently drop the
+    hint.
+    """
+    target = name.lower()
+    try:
+        value = headers.get(name)
+    except AttributeError:
+        return None
+    if value is not None:
+        return value
+    items = getattr(headers, "items", None)
+    if items is None:
+        return None
+    for key, val in items():
+        if isinstance(key, str) and key.lower() == target:
+            return val
+    return None
 
 
 def parse_retry_after_seconds(exc: BaseException) -> float | None:

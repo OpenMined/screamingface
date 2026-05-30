@@ -93,6 +93,19 @@ def test_parse_retry_after_prefers_response_over_headers() -> None:
     assert parse_retry_after_seconds(exc) == 2.0
 
 
+def test_parse_retry_after_handles_fastapi_httpexception_header_casing() -> None:
+    """FastAPI's ``HTTPException(headers=...)`` keeps the dict as-is, so the
+    key is ``"Retry-After"`` (capitalized) — not the httpx-style lowercase.
+    Regression for the live runtime path: the gemini plugin raises
+    ``HTTPException(headers={"Retry-After": str(seconds)})``; if this lookup is
+    case-sensitive the hint is silently dropped and retry falls back to
+    exponential backoff."""
+    from fastapi import HTTPException
+
+    exc = HTTPException(status_code=429, detail={}, headers={"Retry-After": "4"})
+    assert parse_retry_after_seconds(exc) == 4.0
+
+
 @pytest.mark.asyncio
 async def test_overload_then_success_returns_value() -> None:
     calls = {"n": 0}
