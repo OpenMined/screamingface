@@ -21,6 +21,7 @@ from litellm.exceptions import (
 )
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.concurrency import provider_slot
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.models import OAuthConnection
 from ..core.oauth.store import OAuthConnectionStore, credential_key_for
@@ -205,6 +206,27 @@ def _retry_after_headers(exc: Exception) -> dict[str, str]:
     return {"Retry-After": str(math.ceil(seconds))}
 
 
+async def _dispatch_with_backpressure(
+    request: Request,
+    plugin: Any,
+    provider: str,
+    body: dict[str, Any],
+) -> Any:
+    """Run ``plugin.chat_completion`` under the gateway's backpressure stack:
+    a per-provider concurrency slot wrapping the overload-retry loop.
+
+    The slot is held across retries so a provider's concurrent-pressure
+    ceiling includes backoff time — preventing the thundering-herd quota
+    re-exhaustion that pure reactive retry could not solve.
+    """
+    settings = request.app.state.settings
+    async with provider_slot(request.app, provider, settings.provider_max_concurrency):
+        return await with_overload_retry(
+            lambda: plugin.chat_completion(body),
+            policy=RetryPolicy.from_settings(settings),
+        )
+
+
 def _litellm_http_exception(exc: Exception) -> HTTPException:
     status = int(getattr(exc, "status_code", 502) or 502)
     code = "provider_error"
@@ -321,10 +343,7 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
         return StreamingResponse(_stream(plugin, body), media_type="text/event-stream")
 
     try:
-        response = await with_overload_retry(
-            lambda: plugin.chat_completion(body),
-            policy=RetryPolicy.from_settings(request.app.state.settings),
-        )
+        response = await _dispatch_with_backpressure(request, plugin, provider, body)
     except HTTPException as exc:
         if connection is not None and _should_mark_profile_error_on_dispatch_status(
             plugin, exc.status_code
