@@ -27,3 +27,16 @@ def test_provider_max_concurrency_default() -> None:
 def test_provider_max_concurrency_env_override(monkeypatch) -> None:
     monkeypatch.setenv("AIGW_PROVIDER_MAX_CONCURRENCY", "0")
     assert Settings().provider_max_concurrency == 0
+
+
+def test_provider_concurrency_overrides_default_empty() -> None:
+    assert Settings().provider_max_concurrency_overrides == {}
+
+
+def test_provider_concurrency_overrides_env_json(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES",
+        '{"gemini": 1, "anthropic": 8}',
+    )
+    s = Settings()
+    assert s.provider_max_concurrency_overrides == {"gemini": 1, "anthropic": 8}

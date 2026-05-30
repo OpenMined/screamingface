@@ -17,7 +17,36 @@ from typing import Any
 
 import pytest
 
-from aigateway.core.concurrency import provider_slot
+from aigateway.core.concurrency import effective_provider_limit, provider_slot
+
+
+class _Settings:
+    """Minimal settings stand-in for the helper."""
+
+    def __init__(self, default: int, overrides: dict[str, int] | None = None) -> None:
+        self.provider_max_concurrency = default
+        self.provider_max_concurrency_overrides = overrides or {}
+
+
+def test_effective_limit_returns_global_when_no_override() -> None:
+    assert effective_provider_limit(_Settings(4), "claude") == 4
+
+
+def test_effective_limit_returns_override_when_present() -> None:
+    assert effective_provider_limit(_Settings(4, {"gemini": 1}), "gemini") == 1
+
+
+def test_effective_limit_override_lookup_is_case_insensitive() -> None:
+    """Providers in chat.py are lowercase ('gemini'); a Gemini-cased
+    override key in the env JSON should still apply."""
+    assert effective_provider_limit(_Settings(4, {"Gemini": 1}), "gemini") == 1
+
+
+def test_effective_limit_other_providers_unaffected_by_override() -> None:
+    """A tight gemini override must not throttle claude/codex."""
+    s = _Settings(4, {"gemini": 1})
+    assert effective_provider_limit(s, "claude") == 4
+    assert effective_provider_limit(s, "codex") == 4
 
 
 def _app() -> Any:

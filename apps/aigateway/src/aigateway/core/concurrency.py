@@ -18,6 +18,22 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 
+def effective_provider_limit(settings: Any, provider: str) -> int:
+    """Return the concurrency cap that should apply to ``provider``.
+
+    Uses ``provider_max_concurrency_overrides[provider]`` (case-insensitive
+    on the override key) when present, otherwise falls back to the global
+    ``provider_max_concurrency``. ``0`` means "unlimited" — see
+    :func:`provider_slot`.
+    """
+    overrides = getattr(settings, "provider_max_concurrency_overrides", None) or {}
+    key = provider.lower()
+    for override_key, override_value in overrides.items():
+        if override_key.lower() == key:
+            return int(override_value)
+    return int(settings.provider_max_concurrency)
+
+
 def _registry(app: Any) -> dict[str, asyncio.Semaphore]:
     reg = getattr(app.state, "provider_semaphores", None)
     if reg is None:

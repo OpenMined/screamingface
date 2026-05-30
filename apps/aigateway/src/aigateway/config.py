@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     provider_max_concurrency: int = Field(
         default=4, validation_alias="AIGW_PROVIDER_MAX_CONCURRENCY"
     )
+    # Per-provider overrides to the global cap. Gemini Code Assist's
+    # per-account quota is so tight (~1 concurrent req) that the default of 4
+    # still 429s on collection fan-outs — set ``{"gemini": 1}`` here while
+    # leaving claude/codex at the global default. JSON-parsed from the env var.
+    provider_max_concurrency_overrides: dict[str, int] = Field(
+        default_factory=dict,
+        validation_alias="AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES",
+    )
 
     @field_validator("jwt_secret", "provisioning_token")
     @classmethod

@@ -21,7 +21,7 @@ from litellm.exceptions import (
 )
 
 from ..core.auth.middleware import CurrentAccount
-from ..core.concurrency import provider_slot
+from ..core.concurrency import effective_provider_limit, provider_slot
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.models import OAuthConnection
 from ..core.oauth.store import OAuthConnectionStore, credential_key_for
@@ -220,7 +220,7 @@ async def _dispatch_with_backpressure(
     re-exhaustion that pure reactive retry could not solve.
     """
     settings = request.app.state.settings
-    async with provider_slot(request.app, provider, settings.provider_max_concurrency):
+    async with provider_slot(request.app, provider, effective_provider_limit(settings, provider)):
         return await with_overload_retry(
             lambda: plugin.chat_completion(body),
             policy=RetryPolicy.from_settings(settings),
