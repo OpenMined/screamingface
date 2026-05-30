@@ -41,6 +41,9 @@ class Settings(BaseSettings):
         default=30.0, validation_alias="AIGW_RETRY_MAX_WAIT"
     )
     retry_jitter_seconds: float = Field(default=0.25, validation_alias="AIGW_RETRY_JITTER")
+    provider_max_concurrency: int = Field(
+        default=4, validation_alias="AIGW_PROVIDER_MAX_CONCURRENCY"
+    )
 
     @field_validator("jwt_secret", "provisioning_token")
     @classmethod

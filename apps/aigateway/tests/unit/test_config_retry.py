@@ -18,3 +18,12 @@ def test_retry_settings_env_override(monkeypatch) -> None:
     s = Settings()
     assert s.retry_max_attempts == 0
     assert s.retry_max_total_wait_seconds == 12.5
+
+
+def test_provider_max_concurrency_default() -> None:
+    assert Settings().provider_max_concurrency == 4
+
+
+def test_provider_max_concurrency_env_override(monkeypatch) -> None:
+    monkeypatch.setenv("AIGW_PROVIDER_MAX_CONCURRENCY", "0")
+    assert Settings().provider_max_concurrency == 0
