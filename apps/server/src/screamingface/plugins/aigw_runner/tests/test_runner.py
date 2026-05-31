@@ -149,6 +149,55 @@ def test_setup_spawns_subprocess_and_registers_hooks(fake_aigw_dir: Path) -> Non
     mock_thread.assert_called_once()
 
 
+def test_setup_injects_aigw_env_into_gateway_subprocess(fake_aigw_dir: Path) -> None:
+    """``aigw_env`` from plugin config must reach the aigateway subprocess.
+
+    Real-world repro: the SF server is launched by the Electron desktop app,
+    which strips the user's shell env. Without this config channel there is
+    no way to configure AIGW_PROVIDER_MAX_CONCURRENCY (and friends) for the
+    spawned gateway.
+    """
+    db_path = fake_aigw_dir / "aigateway.db"
+    plugin = _make_plugin(
+        fake_aigw_dir,
+        database_path=str(db_path),
+        uv_bin="/custom/uv",
+        aigw_env={
+            "AIGW_PROVIDER_MAX_CONCURRENCY": "1",
+            "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": '{"gemini":1}',
+        },
+    )
+
+    fake_proc = MagicMock(spec=subprocess.Popen)
+    fake_proc.poll.return_value = None
+    fake_proc.stdout = MagicMock()
+    fake_proc.stdout.__iter__.return_value = iter([])
+    fake_proc.pid = 12346
+
+    with (
+        patch("screamingface.plugins.aigw_runner.plugin.subprocess.run") as mock_run,
+        patch(
+            "screamingface.plugins.aigw_runner.plugin.subprocess.Popen",
+            return_value=fake_proc,
+        ) as mock_popen,
+        patch("screamingface.plugins.aigw_runner.plugin._wait_for_health", return_value=True),
+        patch("screamingface.plugins.aigw_runner.plugin._is_port_open", return_value=False),
+        patch("screamingface.plugins.aigw_runner.plugin.atexit.register"),
+        patch("screamingface.plugins.aigw_runner.plugin.threading.Thread"),
+    ):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        mock_run.return_value.stderr = ""
+        plugin.preflight()
+        plugin.setup(cast(Any, MagicMock()), MagicMock(), MagicMock(), MagicMock())
+
+    env = mock_popen.call_args.kwargs["env"]
+    assert env["AIGW_PROVIDER_MAX_CONCURRENCY"] == "1"
+    assert env["AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES"] == '{"gemini":1}'
+    # AIGATEWAY_* defaults still applied — aigw_env injects, doesn't replace.
+    assert env["AIGATEWAY_AUTH_ENABLED"] == "false"
+
+
 def test_setup_stops_stale_local_gateway_before_spawning(fake_aigw_dir: Path) -> None:
     plugin = _make_plugin(fake_aigw_dir, uv_bin="/custom/uv")
     fake_proc = MagicMock(spec=subprocess.Popen)
