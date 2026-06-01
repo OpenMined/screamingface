@@ -18,18 +18,37 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 
+def _provider_match_keys(provider: str) -> set[str]:
+    """Override keys that should match a derived ``provider`` string.
+
+    The gateway derives ``provider`` from the model prefix
+    (``routes/chat.py``: ``model.split("/", 1)[0]``), which for Gemini is
+    ``gemini-cli`` (model ``gemini-cli/gemini-2.5-flash``). Operators
+    naturally write the *family* name ``gemini`` in the override, so accept
+    both the full provider string and its ``-cli``-stripped family name.
+    Matching is exact (after lowercasing) on either form — an arbitrary
+    prefix like ``gem`` must not match.
+    """
+    p = provider.lower()
+    keys = {p}
+    if p.endswith("-cli"):
+        keys.add(p.removesuffix("-cli"))
+    return keys
+
+
 def effective_provider_limit(settings: Any, provider: str) -> int:
     """Return the concurrency cap that should apply to ``provider``.
 
-    Uses ``provider_max_concurrency_overrides[provider]`` (case-insensitive
-    on the override key) when present, otherwise falls back to the global
-    ``provider_max_concurrency``. ``0`` means "unlimited" — see
+    Uses ``provider_max_concurrency_overrides`` keyed by either the full
+    derived provider string (e.g. ``gemini-cli``) or its family name
+    (``gemini``), case-insensitive, when present; otherwise falls back to the
+    global ``provider_max_concurrency``. ``0`` means "unlimited" — see
     :func:`provider_slot`.
     """
     overrides = getattr(settings, "provider_max_concurrency_overrides", None) or {}
-    key = provider.lower()
+    match_keys = _provider_match_keys(provider)
     for override_key, override_value in overrides.items():
-        if override_key.lower() == key:
+        if override_key.lower() in match_keys:
             return int(override_value)
     return int(settings.provider_max_concurrency)
 

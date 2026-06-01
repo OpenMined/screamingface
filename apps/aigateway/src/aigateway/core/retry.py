@@ -134,7 +134,11 @@ async def with_overload_retry[T](
                 delay = min(
                     policy.backoff_base_seconds * 2**attempt,
                     policy.backoff_max_seconds,
-                ) + random.uniform(0.0, policy.jitter_seconds)
+                )
+            # Jitter both paths (backoff *and* honored Retry-After): concurrent
+            # siblings handed the same reset window must de-synchronise, else
+            # they wake in lockstep and re-collide on the next window.
+            delay += random.uniform(0.0, policy.jitter_seconds)
             if total_waited + delay > policy.max_total_wait_seconds:
                 raise
             attempt += 1

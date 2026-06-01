@@ -158,6 +158,30 @@ async def test_always_overload_raises_original_after_max_retries() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retry_after_path_gets_jitter() -> None:
+    """The honored Retry-After delay must also receive jitter so concurrent
+    siblings handed the same reset window de-synchronise instead of waking in
+    lockstep and re-colliding."""
+    slept: list[float] = []
+    calls = {"n": 0}
+
+    async def dispatch() -> str:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _StatusError(429, retry_after="5")
+        return "ok"
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    result = await with_overload_retry(dispatch, policy=_policy(jitter_seconds=0.5), sleep=sleep)
+    assert result == "ok"
+    assert len(slept) == 1
+    # 5s Retry-After + jitter in [0, 0.5]
+    assert 5.0 <= slept[0] <= 5.5
+
+
+@pytest.mark.asyncio
 async def test_exponential_backoff_when_no_retry_after() -> None:
     slept: list[float] = []
 

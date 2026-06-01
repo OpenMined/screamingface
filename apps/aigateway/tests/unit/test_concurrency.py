@@ -49,6 +49,23 @@ def test_effective_limit_other_providers_unaffected_by_override() -> None:
     assert effective_provider_limit(s, "codex") == 4
 
 
+def test_effective_limit_family_key_matches_cli_provider() -> None:
+    """The gateway derives provider 'gemini-cli' from model 'gemini-cli/...', but
+    operators naturally write the family name 'gemini' in the override. The
+    family key must match the -cli provider (the SF-233 foot-gun this fixes)."""
+    assert effective_provider_limit(_Settings(4, {"gemini": 1}), "gemini-cli") == 1
+
+
+def test_effective_limit_exact_cli_key_still_matches() -> None:
+    assert effective_provider_limit(_Settings(4, {"gemini-cli": 1}), "gemini-cli") == 1
+
+
+def test_effective_limit_partial_prefix_does_not_match() -> None:
+    """Only the full provider or its -cli-stripped family should match; an
+    arbitrary prefix must not."""
+    assert effective_provider_limit(_Settings(4, {"gem": 1}), "gemini-cli") == 4
+
+
 def _app() -> Any:
     return SimpleNamespace(state=SimpleNamespace())
 
