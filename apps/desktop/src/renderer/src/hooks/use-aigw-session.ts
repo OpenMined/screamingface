@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { AigwLoginResult, AigwSessionSnapshot } from '../../../preload/types';
+import type {
+  AigwLoginOptions,
+  AigwLoginResult,
+  AigwSessionSnapshot,
+} from '../../../preload/types';
 
 const initialSnapshot: AigwSessionSnapshot = {
   hasValidJwt: false,
@@ -8,6 +12,7 @@ const initialSnapshot: AigwSessionSnapshot = {
   username: null,
   gatewayUrl: 'http://127.0.0.1:9105',
   rememberAvailable: true,
+  secureStorageAvailable: true,
   storedInPlaintext: false,
   lastError: null,
 };
@@ -51,7 +56,7 @@ export function useAigwSession() {
     async (
       username: string,
       password: string,
-      options?: { persist?: boolean },
+      options?: AigwLoginOptions,
     ): Promise<AigwLoginResult> => {
       const result = await window.electronAPI.aigwSession.login(username, password, options);
       setSnapshot(result.snapshot);

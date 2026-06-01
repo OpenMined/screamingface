@@ -989,8 +989,8 @@ export function BackendStatusPanel({
         <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm">
           <p className="font-medium text-foreground">Sign in to AIGateway</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Gateway-backed provider connections are hidden until the Desktop session is
-            authenticated.
+            Provider connections require gateway authentication before Desktop can load or manage
+            them.
           </p>
           <button
             type="button"

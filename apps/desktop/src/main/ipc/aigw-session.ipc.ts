@@ -21,7 +21,12 @@ export function registerAigwSessionHandlers(): void {
 
   ipcMain.handle(
     'aigw-session:login',
-    async (event, username: string, password: string, options?: { persist?: boolean }) => {
+    async (
+      event,
+      username: string,
+      password: string,
+      options?: { persist?: boolean; allowPlaintextStorage?: boolean },
+    ) => {
       requireTrustedIpcSender(event);
       const result = await aigwSessionService.login({ username, password }, options);
       if (result.ok) void backendStatusService.refresh();

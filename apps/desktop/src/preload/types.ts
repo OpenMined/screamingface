@@ -180,6 +180,7 @@ export interface AigwSessionSnapshot {
   username: string | null;
   gatewayUrl: string;
   rememberAvailable: boolean;
+  secureStorageAvailable: boolean;
   storedInPlaintext: boolean;
   lastError: string | null;
 }
@@ -187,6 +188,11 @@ export interface AigwSessionSnapshot {
 export type AigwLoginResult =
   | { ok: true; snapshot: AigwSessionSnapshot; warning?: string }
   | { ok: false; message: string; snapshot: AigwSessionSnapshot };
+
+export interface AigwLoginOptions {
+  persist?: boolean;
+  allowPlaintextStorage?: boolean;
+}
 
 export type OAuthLauncherResult =
   | { kind: 'complete'; connection?: OAuthConnection; isDuplicate?: boolean }
@@ -281,7 +287,7 @@ export interface ElectronAPI {
     login: (
       username: string,
       password: string,
-      options?: { persist?: boolean },
+      options?: AigwLoginOptions,
     ) => Promise<AigwLoginResult>;
     logout: () => Promise<AigwSessionSnapshot>;
     setGatewayUrl: (gatewayUrl: string) => Promise<AigwSessionSnapshot>;

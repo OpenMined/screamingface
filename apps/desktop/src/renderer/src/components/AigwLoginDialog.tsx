@@ -15,15 +15,18 @@ export function AigwLoginDialog({ open, session, onClose, onSignedIn }: AigwLogi
   const [remember, setRemember] = useState(true);
   const [gatewayUrl, setGatewayUrl] = useState(session.gatewayUrl);
   const [showUrl, setShowUrl] = useState(false);
+  const [allowPlaintextStorage, setAllowPlaintextStorage] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const plaintextStorageNeedsConsent = remember && !session.secureStorageAvailable;
 
   useEffect(() => {
     if (!open) return;
     setUsername(session.username ?? '');
     setPassword('');
     setGatewayUrl(session.gatewayUrl);
+    setAllowPlaintextStorage(false);
     setError(session.lastError);
   }, [open, session.gatewayUrl, session.lastError, session.username]);
 
@@ -35,11 +38,20 @@ export function AigwLoginDialog({ open, session, onClose, onSignedIn }: AigwLogi
     setBusy(true);
     setError(null);
     try {
+      if (plaintextStorageNeedsConsent && !allowPlaintextStorage) {
+        setError(
+          'OS-provided encryption is unavailable. Confirm plaintext storage or turn off saving.',
+        );
+        return;
+      }
       const trimmedGatewayUrl = gatewayUrl.trim();
       if (trimmedGatewayUrl && trimmedGatewayUrl !== session.gatewayUrl) {
         await session.setGatewayUrl(trimmedGatewayUrl);
       }
-      const result = await session.login(username.trim(), password, { persist: remember });
+      const loginOptions = plaintextStorageNeedsConsent
+        ? { persist: remember, allowPlaintextStorage }
+        : { persist: remember };
+      const result = await session.login(username.trim(), password, loginOptions);
       if (!result.ok) {
         setError(result.message);
         return;
@@ -50,7 +62,9 @@ export function AigwLoginDialog({ open, session, onClose, onSignedIn }: AigwLogi
       if (result.warning) {
         toast({
           variant: 'warning',
-          title: 'Credentials saved without OS encryption',
+          title: result.warning.includes('not saved')
+            ? 'Password not saved'
+            : 'Credentials saved without OS encryption',
           description: result.warning,
         });
       }
@@ -70,8 +84,8 @@ export function AigwLoginDialog({ open, session, onClose, onSignedIn }: AigwLogi
             Sign in to AIGateway
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Desktop stores your password locally so it can refresh short-lived JWT sessions
-            silently.
+            Desktop keeps you signed in by refreshing short-lived gateway sessions. Save your
+            password only if you want automatic login after restart.
           </p>
         </div>
 
@@ -146,10 +160,33 @@ export function AigwLoginDialog({ open, session, onClose, onSignedIn }: AigwLogi
             <input
               type="checkbox"
               checked={remember}
-              onChange={(event) => setRemember(event.target.checked)}
+              onChange={(event) => {
+                setRemember(event.target.checked);
+                if (!event.target.checked) setAllowPlaintextStorage(false);
+              }}
             />
-            Remember me on this device
+            Save password on this device for future launches
           </label>
+
+          <p className="text-xs text-muted-foreground">
+            {remember
+              ? session.secureStorageAvailable
+                ? 'Saved with OS-provided encryption. Session tokens are not written to disk.'
+                : 'OS-provided encryption is unavailable. Saving will write the password to local plaintext config.'
+              : 'Not saved to disk. Desktop keeps credentials in memory for this app session only.'}
+          </p>
+
+          {plaintextStorageNeedsConsent && (
+            <label className="flex items-start gap-2 rounded-md border border-chart-2/40 bg-chart-2/10 px-3 py-2 text-xs text-foreground">
+              <input
+                className="mt-0.5"
+                type="checkbox"
+                checked={allowPlaintextStorage}
+                onChange={(event) => setAllowPlaintextStorage(event.target.checked)}
+              />
+              <span>I understand this will save my AIGateway password in plaintext.</span>
+            </label>
+          )}
 
           {error && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -167,7 +204,12 @@ export function AigwLoginDialog({ open, session, onClose, onSignedIn }: AigwLogi
             </button>
             <button
               type="submit"
-              disabled={busy || !username.trim() || !password}
+              disabled={
+                busy ||
+                !username.trim() ||
+                !password ||
+                (plaintextStorageNeedsConsent && !allowPlaintextStorage)
+              }
               className="rounded-md bg-chart-1 px-3 py-1.5 text-xs font-semibold text-background hover:bg-chart-1/90 disabled:opacity-60"
             >
               {busy ? 'Signing in...' : 'Sign in'}

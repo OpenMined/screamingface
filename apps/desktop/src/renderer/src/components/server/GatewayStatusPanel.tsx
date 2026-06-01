@@ -65,7 +65,9 @@ export function GatewayStatusPanel({
               : 'mt-3 flex items-center justify-between gap-3'
           }
         >
-          <p className="text-xs text-muted-foreground">Sign in once; Desktop will refresh JWTs.</p>
+          <p className="text-xs text-muted-foreground">
+            Sign in once; Desktop keeps the gateway session fresh.
+          </p>
           <button
             type="button"
             onClick={onLoginRequest}

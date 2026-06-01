@@ -69,6 +69,7 @@ const snapshot = {
   username: 'admin',
   gatewayUrl: 'http://gateway',
   rememberAvailable: true,
+  secureStorageAvailable: true,
   storedInPlaintext: false,
   lastError: null,
 };

@@ -18,6 +18,7 @@ const loggedOutSnapshot = {
   username: null,
   gatewayUrl: 'https://gateway.example.com',
   rememberAvailable: true,
+  secureStorageAvailable: true,
   storedInPlaintext: false,
   lastError: null,
 };
@@ -113,5 +114,71 @@ describe('AigwLoginDialog', () => {
         description: 'AIGateway password was saved in plaintext.',
       });
     });
+  });
+
+  it('labels OS-provided encryption save failures as not saved', async () => {
+    const session = makeSession({
+      login: vi.fn(async () => ({
+        ok: true,
+        warning: 'AIGateway password was not saved because OS-provided encryption failed.',
+        snapshot: { ...loggedOutSnapshot, hasValidJwt: true, isLoggedIn: true },
+      })),
+    });
+
+    render(<AigwLoginDialog open session={session} onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'test123' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
+
+    await waitFor(() => {
+      expect(toast).toHaveBeenCalledWith({
+        variant: 'warning',
+        title: 'Password not saved',
+        description: 'AIGateway password was not saved because OS-provided encryption failed.',
+      });
+    });
+  });
+
+  it('requires explicit consent before plaintext password storage', async () => {
+    const session = makeSession({
+      secureStorageAvailable: false,
+      login: vi.fn(async () => ({
+        ok: true,
+        snapshot: { ...loggedOutSnapshot, hasValidJwt: true, isLoggedIn: true },
+      })),
+    });
+
+    render(<AigwLoginDialog open session={session} onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'admin' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'test123' } });
+    expect(screen.getByRole('button', { name: /^Sign in$/i })).toHaveProperty('disabled', true);
+
+    fireEvent.click(
+      screen.getByLabelText('I understand this will save my AIGateway password in plaintext.'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Sign in$/i }));
+
+    await waitFor(() => {
+      expect(session.login).toHaveBeenCalledWith('admin', 'test123', {
+        persist: true,
+        allowPlaintextStorage: true,
+      });
+    });
+  });
+
+  it('explains session-only login when password saving is off', async () => {
+    const session = makeSession();
+
+    render(<AigwLoginDialog open session={session} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('Save password on this device for future launches'));
+
+    expect(
+      screen.getByText(
+        'Not saved to disk. Desktop keeps credentials in memory for this app session only.',
+      ),
+    ).toBeTruthy();
   });
 });

@@ -1,3 +1,6 @@
+import { EventEmitter } from 'events';
+import https from 'https';
+import type { ClientRequest, IncomingMessage } from 'http';
 import { describe, expect, it, vi } from 'vitest';
 
 const electronMocks = vi.hoisted(() => ({
@@ -175,7 +178,7 @@ describe('AigwSessionService', () => {
     expect(requestJson).toHaveBeenCalledTimes(2);
   });
 
-  it('falls back to plaintext persistence with a warning when safeStorage is unavailable', async () => {
+  it('requires explicit consent before plaintext persistence when safeStorage is unavailable', async () => {
     const config = makeConfig({ plugin_config: { 'aigw-base': {} } });
     const { requestJson } = makeRequestJson([
       { token: 'jwt-plain', expiresAt: '2026-01-01T01:00:00.000Z' },
@@ -184,7 +187,19 @@ describe('AigwSessionService', () => {
 
     await service.init();
     await service.setServerUrl('http://127.0.0.1:8001');
-    const result = await service.login({ username: 'admin', password: 'test123' });
+
+    const blocked = await service.login({ username: 'admin', password: 'test123' });
+
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) {
+      expect(blocked.message).toContain('OS-provided encryption is unavailable');
+    }
+    expect(requestJson).not.toHaveBeenCalled();
+
+    const result = await service.login(
+      { username: 'admin', password: 'test123' },
+      { allowPlaintextStorage: true },
+    );
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -196,6 +211,78 @@ describe('AigwSessionService', () => {
       aigw_credentials_plaintext: 'test123',
       aigw_credentials_storage: 'plaintext',
     });
+  });
+
+  it('does not fall back to plaintext when OS-provided encryption fails without consent', async () => {
+    const config = makeConfig({ plugin_config: { 'aigw-base': {} } });
+    const safeStorage = makeSafeStorage(true);
+    safeStorage.encryptString.mockImplementation(() => {
+      throw new Error('keychain locked');
+    });
+    const { requestJson } = makeRequestJson([
+      { token: 'jwt-keychain-fail', expiresAt: '2026-01-01T01:00:00.000Z' },
+    ]);
+    const service = makeService({ config, safeStorage, requestJson });
+
+    await service.init();
+    await service.setServerUrl('http://127.0.0.1:8001');
+    const result = await service.login({ username: 'admin', password: 'test123' });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.warning).toContain('password was not saved');
+      expect(result.snapshot.storedInPlaintext).toBe(false);
+    }
+    expect(await service.getJwt()).toBe('jwt-keychain-fail');
+    expect(aigwBase(config.current())).toMatchObject({});
+    expect(aigwBase(config.current())).not.toHaveProperty('aigw_credentials_plaintext');
+    expect(aigwBase(config.current())).not.toHaveProperty('aigw_credentials_enc');
+  });
+
+  it('verifies SF server certificates for non-loopback HTTPS server URLs', async () => {
+    const config = makeConfig({ plugin_config: { 'aigw-base': {} } });
+    const safeStorage = makeSafeStorage(true);
+    const spy = mockHttpsLoginResponse(true);
+    const service = new AigwSessionService({
+      config: config.store,
+      safeStorage,
+      desktopSecretHeader: () => ({ 'X-SF-Desktop-Secret': 'desktop-secret' }),
+      now: () => new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    try {
+      await service.init();
+      await service.setServerUrl('https://sf.example.com');
+      const result = await service.login({ username: 'admin', password: 'test123' });
+
+      expect(result.ok).toBe(true);
+      expect(spy).toHaveBeenCalledOnce();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('allows invalid SF server certificates only for loopback HTTPS server URLs', async () => {
+    const config = makeConfig({ plugin_config: { 'aigw-base': {} } });
+    const safeStorage = makeSafeStorage(true);
+    const spy = mockHttpsLoginResponse(false);
+    const service = new AigwSessionService({
+      config: config.store,
+      safeStorage,
+      desktopSecretHeader: () => ({ 'X-SF-Desktop-Secret': 'desktop-secret' }),
+      now: () => new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    try {
+      await service.init();
+      await service.setServerUrl('https://127.0.0.1:8443');
+      const result = await service.login({ username: 'admin', password: 'test123' });
+
+      expect(result.ok).toBe(true);
+      expect(spy).toHaveBeenCalledOnce();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('honors remember-me off by clearing persisted credentials while keeping the in-run JWT', async () => {
@@ -272,3 +359,32 @@ describe('AigwSessionService', () => {
     expect(service.setGatewayUrl('http://[::1]:9105').gatewayUrl).toBe('http://[::1]:9105');
   });
 });
+
+function mockHttpsLoginResponse(expectedRejectUnauthorized: boolean) {
+  return vi.spyOn(https, 'request').mockImplementation(((
+    _url: unknown,
+    options: unknown,
+    callback: unknown,
+  ) => {
+    expect(options).toMatchObject({ rejectUnauthorized: expectedRejectUnauthorized });
+    return Object.assign(new EventEmitter(), {
+      destroy: vi.fn(),
+      end: vi.fn(() => {
+        const response = Object.assign(new EventEmitter(), { statusCode: 200 }) as IncomingMessage;
+        if (typeof callback === 'function') callback(response);
+        response.emit(
+          'data',
+          Buffer.from(
+            JSON.stringify({
+              authenticated: true,
+              token: 'jwt-tls',
+              expires_at: '2026-01-01T01:00:00.000Z',
+            }),
+          ),
+        );
+        response.emit('end');
+      }),
+      write: vi.fn(),
+    }) as unknown as ClientRequest;
+  }) as never);
+}

@@ -28,6 +28,7 @@ export interface AigwSessionSnapshot {
   username: string | null;
   gatewayUrl: string;
   rememberAvailable: boolean;
+  secureStorageAvailable: boolean;
   storedInPlaintext: boolean;
   lastError: string | null;
 }
@@ -39,6 +40,7 @@ export type AigwLoginResult =
 export interface AigwLoginOptions {
   silent?: boolean;
   persist?: boolean;
+  allowPlaintextStorage?: boolean;
 }
 
 interface ConfigStore {
@@ -102,7 +104,7 @@ export class AigwSessionService extends EventEmitter {
     this.credentialsPersisted = this.credentials !== null;
     this.emitChanged();
     if (this.serverUrl && this.credentials) {
-      await this.login(this.credentials, { persist: this.credentialsPersisted, silent: true });
+      await this.login(this.credentials, this.silentLoginOptions());
     }
     return this.snapshot();
   }
@@ -115,7 +117,7 @@ export class AigwSessionService extends EventEmitter {
     this.clearJwtOnly();
     this.emitChanged();
     if (this.initialized && this.serverUrl && this.credentials) {
-      await this.login(this.credentials, { persist: this.credentialsPersisted, silent: true });
+      await this.login(this.credentials, this.silentLoginOptions());
     }
     return this.snapshot();
   }
@@ -133,10 +135,7 @@ export class AigwSessionService extends EventEmitter {
     const hadJwt = this.jwt !== null;
     this.clearJwtOnly();
     if (this.credentials) {
-      const result = await this.login(this.credentials, {
-        persist: this.credentialsPersisted,
-        silent: true,
-      });
+      const result = await this.login(this.credentials, this.silentLoginOptions());
       if (result.ok && this.hasValidJwt(JWT_REFRESH_BUFFER_MS)) return this.jwt;
     }
     if (hadJwt) this.emitExpired('AIGateway session expired');
@@ -148,10 +147,7 @@ export class AigwSessionService extends EventEmitter {
       this.emitExpired('AIGateway login required');
       return null;
     }
-    const result = await this.login(this.credentials, {
-      persist: this.credentialsPersisted,
-      silent: true,
-    });
+    const result = await this.login(this.credentials, this.silentLoginOptions());
     if (result.ok) return this.jwt;
     this.emitExpired(result.message);
     return null;
@@ -163,7 +159,16 @@ export class AigwSessionService extends EventEmitter {
   ): Promise<AigwLoginResult> {
     const persist = options.persist ?? true;
     if (!this.serverUrl) {
-      return this.loginFailure('SF server is not running', options.silent === true);
+      return this.loginFailure(
+        'SF server is not running. Start the Desktop server and try again.',
+        options.silent === true,
+      );
+    }
+    if (persist && !this.encryptionAvailable() && options.allowPlaintextStorage !== true) {
+      return this.loginFailure(
+        'OS-provided encryption is unavailable. Uncheck "Save password" to sign in for this Desktop session only, or allow plaintext storage.',
+        options.silent === true,
+      );
     }
 
     try {
@@ -173,7 +178,7 @@ export class AigwSessionService extends EventEmitter {
         body: JSON.stringify({ ...credentials, gateway_url: this.gatewayUrl() }),
       });
       if (response.status < 200 || response.status >= 300) {
-        return this.loginFailure(extractErrorMessage(response) ?? `HTTP ${response.status}`, false);
+        return this.loginFailure(describeLoginResponse(response), false);
       }
 
       const token = readStringField(response.json, 'token');
@@ -188,14 +193,14 @@ export class AigwSessionService extends EventEmitter {
       this.credentialsPersisted = persist;
       this.lastError = null;
       const warning = persist
-        ? this.saveCredentials(credentials)
+        ? this.saveCredentials(credentials, options.allowPlaintextStorage === true)
         : this.clearPersistedCredentials();
       this.emitChanged();
       const snapshot = this.snapshot();
       return warning ? { ok: true, snapshot, warning } : { ok: true, snapshot };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return this.loginFailure(message, options.silent === true);
+      return this.loginFailure(describeNetworkError(message), options.silent === true);
     }
   }
 
@@ -250,6 +255,7 @@ export class AigwSessionService extends EventEmitter {
       username: username ?? null,
       gatewayUrl: this.gatewayUrl(),
       rememberAvailable: true,
+      secureStorageAvailable: this.encryptionAvailable(),
       storedInPlaintext: this.storedInPlaintext,
       lastError: this.lastError,
     };
@@ -284,6 +290,14 @@ export class AigwSessionService extends EventEmitter {
     return { ok: false, message, snapshot: this.snapshot() };
   }
 
+  private silentLoginOptions(): AigwLoginOptions {
+    return {
+      persist: this.credentialsPersisted,
+      silent: true,
+      allowPlaintextStorage: this.storedInPlaintext,
+    };
+  }
+
   private loadCredentials(): AigwCredentials | null {
     const baseConfig = readAigwBaseConfig(this.config.read());
     const username = readStringField(baseConfig, USERNAME_KEY);
@@ -307,7 +321,10 @@ export class AigwSessionService extends EventEmitter {
     return { username, password: plaintext };
   }
 
-  private saveCredentials(credentials: AigwCredentials): string | undefined {
+  private saveCredentials(
+    credentials: AigwCredentials,
+    allowPlaintextStorage: boolean,
+  ): string | undefined {
     const config = this.config.read();
     const pluginConfig = readPluginConfig(config);
     const baseConfig = readAigwBaseConfig(config);
@@ -328,8 +345,24 @@ export class AigwSessionService extends EventEmitter {
         this.config.write(config);
         return undefined;
       } catch {
-        // Fall through to plaintext with an explicit renderer warning.
+        if (!allowPlaintextStorage) {
+          pluginConfig[AIGW_BASE_PLUGIN] = baseConfig;
+          config.plugin_config = pluginConfig;
+          this.config.write(config);
+          this.credentialsPersisted = false;
+          this.storedInPlaintext = false;
+          return 'AIGateway password was not saved because OS-provided encryption failed. You are signed in for this Desktop session only.';
+        }
       }
+    }
+
+    if (!allowPlaintextStorage) {
+      pluginConfig[AIGW_BASE_PLUGIN] = baseConfig;
+      config.plugin_config = pluginConfig;
+      this.config.write(config);
+      this.credentialsPersisted = false;
+      this.storedInPlaintext = false;
+      return 'AIGateway password was not saved because OS-provided encryption is unavailable. You are signed in for this Desktop session only.';
     }
 
     baseConfig[PLAINTEXT_PASSWORD_KEY] = credentials.password;
@@ -338,7 +371,7 @@ export class AigwSessionService extends EventEmitter {
     pluginConfig[AIGW_BASE_PLUGIN] = baseConfig;
     config.plugin_config = pluginConfig;
     this.config.write(config);
-    return 'AIGateway password was saved in plaintext because OS keychain encryption is unavailable.';
+    return 'AIGateway password was saved in plaintext because OS-provided encryption is unavailable.';
   }
 
   private clearPersistedCredentials(): string | undefined {
@@ -417,6 +450,10 @@ function validateGatewayUrl(value: string): string {
 
 function insecureGatewayUrlAllowed(hostname: string): boolean {
   if (process.env['SF_AIGW_ALLOW_INSECURE_EXTERNAL'] === '1') return true;
+  return isLoopbackHost(hostname);
+}
+
+function isLoopbackHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (normalized === 'localhost') return true;
   const version = isIP(normalized);
@@ -427,6 +464,11 @@ function insecureGatewayUrlAllowed(hostname: string): boolean {
 
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, '');
+}
+
+function shouldVerifyServerCertificate(parsed: URL): boolean {
+  if (process.env['SF_DESKTOP_ALLOW_INSECURE_SERVER_TLS'] === '1') return false;
+  return !isLoopbackHost(parsed.hostname);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -453,22 +495,21 @@ function nodeRequest(
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const mod = parsed.protocol === 'https:' ? https : http;
-    const req = mod.request(
-      url,
-      {
-        method: init?.method ?? 'GET',
-        headers: init?.headers,
-        timeout: REQUEST_TIMEOUT_MS,
-        rejectUnauthorized: false,
-      },
-      (res) => {
-        let body = '';
-        res.on('data', (chunk: Buffer) => {
-          body += chunk.toString();
-        });
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
-      },
-    );
+    const requestOptions = {
+      method: init?.method ?? 'GET',
+      headers: init?.headers,
+      timeout: REQUEST_TIMEOUT_MS,
+      ...(parsed.protocol === 'https:'
+        ? { rejectUnauthorized: shouldVerifyServerCertificate(parsed) }
+        : {}),
+    };
+    const req = mod.request(url, requestOptions, (res) => {
+      let body = '';
+      res.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+      });
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+    });
     req.on('timeout', () => {
       req.destroy();
       reject(new Error('timeout'));
@@ -490,4 +531,34 @@ function extractErrorMessage(response: JsonResponse): string | undefined {
     }
   }
   return response.body || undefined;
+}
+
+function extractErrorCode(response: JsonResponse): string | undefined {
+  if (!isRecord(response.json)) return undefined;
+  const code = readStringField(response.json, 'code');
+  if (code) return code;
+  const detail = response.json.detail;
+  return isRecord(detail) ? readStringField(detail, 'code') : undefined;
+}
+
+function describeLoginResponse(response: JsonResponse): string {
+  const detail = extractErrorMessage(response);
+  const code = extractErrorCode(response);
+  if (response.status === 401) return detail ?? 'Invalid AIGateway username or password.';
+  if (code === 'invalid_gateway_url') return `Check the AIGateway URL. ${detail ?? ''}`.trim();
+  if (code === 'gateway_unreachable') {
+    return `AIGateway is unreachable. Check the URL and that the gateway is running.${detail ? ` ${detail}` : ''}`;
+  }
+  if (code === 'local_managed') return detail ?? 'Gateway login is external-mode only.';
+  return detail ?? `HTTP ${response.status}`;
+}
+
+function describeNetworkError(message: string): string {
+  if (message === 'timeout') {
+    return 'Timed out reaching the SF server. Check the Desktop server status and try again.';
+  }
+  if (/self-signed|certificate|CERT_/i.test(message)) {
+    return `Could not verify the SF server certificate. Loopback development servers are allowed; for non-loopback servers, use a trusted certificate. ${message}`;
+  }
+  return message;
 }
