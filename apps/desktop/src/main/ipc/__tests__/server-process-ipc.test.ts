@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({
     start: vi.fn(),
     stop: vi.fn(),
   },
+  aigwSessionService: {
+    setServerUrl: vi.fn(),
+  },
   browserWindowGetAllWindows: vi.fn(() => []),
   desktopSecretHeader: vi.fn(() => ({ 'X-SF-Desktop-Secret': 'desktop-secret' })),
   httpRequest: vi.fn(),
@@ -37,6 +40,9 @@ vi.mock('http', () => ({ default: { request: mocks.httpRequest }, request: mocks
 vi.mock('https', () => ({ default: { request: mocks.httpsRequest }, request: mocks.httpsRequest }));
 vi.mock('../../services/backend-status', () => ({
   backendStatusService: mocks.backendStatusService,
+}));
+vi.mock('../../services/aigw-session', () => ({
+  aigwSessionService: mocks.aigwSessionService,
 }));
 vi.mock('../../services/desktop-secret', () => ({
   desktopSecretHeader: mocks.desktopSecretHeader,

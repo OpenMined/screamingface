@@ -20,6 +20,7 @@ export interface SessionInfo {
   status: SessionStatus;
   createdAt: string;
   workingDir: string;
+  pluginConfig?: Record<string, Record<string, unknown>>;
 }
 
 interface ReadyEvent {

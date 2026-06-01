@@ -4,6 +4,7 @@ import { registerPluginHandlers } from './plugin-manager.ipc';
 import { registerConfigHandlers } from './config.ipc';
 import { registerSessionHandlers } from './session.ipc';
 import { registerBackendStatusHandlers } from './backend-status.ipc';
+import { registerAigwSessionHandlers } from './aigw-session.ipc';
 
 export function registerAllHandlers(): void {
   registerConfigHandlers();
@@ -11,5 +12,6 @@ export function registerAllHandlers(): void {
   registerServerHandlers();
   registerPluginHandlers();
   registerSessionHandlers();
+  registerAigwSessionHandlers();
   registerBackendStatusHandlers();
 }

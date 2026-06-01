@@ -36,9 +36,10 @@ interface SidebarProps {
   currentView: View;
   onNavigate: (view: View) => void;
   plugins: PluginManifest[];
+  onAigwLoginRequest?: () => void;
 }
 
-export function Sidebar({ currentView, onNavigate, plugins }: SidebarProps) {
+export function Sidebar({ currentView, onNavigate, plugins, onAigwLoginRequest }: SidebarProps) {
   const { statuses, pollingError, refresh } = useBackendStatus();
   const gatewayStatus = isBackendStatusV2(statuses) ? statuses : null;
   const showPollingError = pollingError !== null && pollingError.consecutiveFailures >= 2;
@@ -118,6 +119,7 @@ export function Sidebar({ currentView, onNavigate, plugins }: SidebarProps) {
           <GatewayStatusPanel
             status={gatewayStatus}
             compact
+            onLoginRequest={onAigwLoginRequest}
             onChanged={() => {
               void refresh();
             }}

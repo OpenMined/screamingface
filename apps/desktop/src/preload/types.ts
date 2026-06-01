@@ -173,6 +173,21 @@ export type ExchangeOAuthCodeResult =
 
 export type GatewayLoginResult = { ok: true } | { ok: false; message?: string };
 
+export interface AigwSessionSnapshot {
+  hasValidJwt: boolean;
+  jwtExpiresAt: string | null;
+  isLoggedIn: boolean;
+  username: string | null;
+  gatewayUrl: string;
+  rememberAvailable: boolean;
+  storedInPlaintext: boolean;
+  lastError: string | null;
+}
+
+export type AigwLoginResult =
+  | { ok: true; snapshot: AigwSessionSnapshot; warning?: string }
+  | { ok: false; message: string; snapshot: AigwSessionSnapshot };
+
 export type OAuthLauncherResult =
   | { kind: 'complete'; connection?: OAuthConnection; isDuplicate?: boolean }
   | {
@@ -258,6 +273,20 @@ export interface ElectronAPI {
     onStatusChanged: (callback: (status: BackendStatusResponse) => void) => () => void;
     onPollingError: (callback: (error: BackendPollingError | null) => void) => () => void;
     onAlert: (callback: (alert: BackendAlert) => void) => () => void;
+  };
+  aigwSession: {
+    getState: () => Promise<AigwSessionSnapshot>;
+    getJwt: () => Promise<string | null>;
+    isLoggedIn: () => Promise<boolean>;
+    login: (
+      username: string,
+      password: string,
+      options?: { persist?: boolean },
+    ) => Promise<AigwLoginResult>;
+    logout: () => Promise<AigwSessionSnapshot>;
+    setGatewayUrl: (gatewayUrl: string) => Promise<AigwSessionSnapshot>;
+    onChanged: (callback: (snapshot: AigwSessionSnapshot) => void) => () => void;
+    onExpired: (callback: (snapshot: AigwSessionSnapshot) => void) => () => void;
   };
   session: {
     pickDir: () => Promise<string | null>;

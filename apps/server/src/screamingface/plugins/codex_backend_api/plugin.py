@@ -44,19 +44,19 @@ class CodexBackendApiSettings(BackendApiSettingsBase):
     )
 
 
-def _maybe_aigw_source(settings: CodexBackendApiSettings):
+def _maybe_aigw_source(settings: CodexBackendApiSettings, app: FastAPI | None = None):
     """Return an AigwTokenSource configured from settings, or None."""
     if not settings.connection_id:
         return None
     from screamingface.plugins.llm_base.aigw_token_source import (
         AigwTokenSource,
-        aigw_jwt_from_env,
+        aigw_jwt_provider_for_app,
     )
 
     return AigwTokenSource(
         connection_id=settings.connection_id,
         aigw_url=settings.aigw_url,
-        aigw_jwt_provider=aigw_jwt_from_env,
+        aigw_jwt_provider=aigw_jwt_provider_for_app(app),
     )
 
 
@@ -102,7 +102,7 @@ class CodexBackendApiPlugin(BackendApiPluginBase):
         )
 
         settings: CodexBackendApiSettings = self.settings  # type: ignore[assignment]
-        aigw_source = _maybe_aigw_source(settings)
+        aigw_source = _maybe_aigw_source(settings, app)
         backend = OpenAIBackend(aigw_source=aigw_source)
 
         return CodexBackendApiInterpreter(
