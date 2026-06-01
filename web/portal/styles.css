@@ -38,11 +38,47 @@ p { text-wrap: pretty; }
 .page { min-height: 100vh; display: flex; flex-direction: column; }
 .main { flex: 1; }
 
-.hero { padding: 48px 20px 32px; max-width: 896px; margin: 0 auto; text-align: center; }
+.hero { padding: 48px 20px 32px; max-width: 960px; margin: 0 auto; text-align: center; }
 .hero .emoji { font-size: 64px; margin-bottom: 16px; user-select: none; }
 .hero h1 { font-size: 44px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; margin-bottom: 16px; }
 .hero p { max-width: 600px; margin: 0 auto 12px; line-height: 1.6; }
 .hero .hero-id { font-size: 28px; }
+
+/* Proof points */
+.proof-grid, .summary-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin: 28px auto 0;
+  text-align: left;
+}
+.proof-grid { max-width: 860px; }
+.summary-grid { grid-template-columns: 1fr; margin: 0 0 24px; }
+@media (min-width: 760px) {
+  .proof-grid, .summary-grid { grid-template-columns: repeat(3, 1fr); }
+}
+.proof-card, .summary-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  padding: 18px;
+}
+.proof-kicker {
+  display: block;
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  opacity: 0.68;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.proof-card strong, .summary-card strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 22px;
+  line-height: 1.2;
+}
+.proof-card span:last-child, .summary-card span:last-child { line-height: 1.45; }
 
 .section { padding: 8px 20px 56px; }
 .section-inner { max-width: 960px; margin: 0 auto; }
@@ -61,6 +97,7 @@ p { text-wrap: pretty; }
   gap: 10px;
 }
 .card-title { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+.card-id { font-size: 12px; opacity: 0.68; overflow-wrap: anywhere; }
 .card-meta { line-height: 1.55; }
 .card-meta.empty { opacity: 0.6; font-style: italic; }
 .card-links { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }

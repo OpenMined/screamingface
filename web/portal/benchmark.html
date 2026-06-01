@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Benchmark Leaderboard — ScreamingFace</title>
-  <meta name="description" content="Top community-submitted ScreamingFace ensemble results for a single benchmark.">
+  <meta name="description" content="A ScreamingFace benchmark leaderboard with accuracy, question counts, providers, verification status, and local rerun links.">
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
   <link rel="stylesheet" href="styles.css">
@@ -21,9 +21,24 @@
       <section class="section">
         <div class="section-inner">
           <div class="notice" role="note">
-            This is a community-submitted, unverified leaderboard. Entries marked
-            “Verified” have been independently reproduced by the OpenMined team;
-            the absence of a badge means an entry has not been verified.
+            Treat this as a public scoreboard, not a trust oracle. "Verified" means
+            OpenMined independently reproduced the run; unbadged rows are community
+            submissions that still need reproduction.
+          </div>
+
+          <div id="leaderboard-summary" class="summary-grid" aria-label="Leaderboard summary" hidden>
+            <div class="summary-card">
+              <span class="proof-kicker">Best accuracy</span>
+              <strong id="summary-best">-</strong>
+            </div>
+            <div class="summary-card">
+              <span class="proof-kicker">Specs shown</span>
+              <strong id="summary-specs">-</strong>
+            </div>
+            <div class="summary-card">
+              <span class="proof-kicker">Verified rows</span>
+              <strong id="summary-verified">-</strong>
+            </div>
           </div>
 
           <div id="leaderboard-status" class="state" role="status" aria-live="polite">Loading…</div>

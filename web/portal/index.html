@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ScreamingFace Leaderboards</title>
-  <meta name="description" content="Community-submitted benchmark leaderboards for ScreamingFace — an AI ensemble that combines Claude Code, Gemini CLI, Codex, and Ollama.">
+  <title>ScreamingFace Benchmark Receipts</title>
+  <meta name="description" content="Public ScreamingFace benchmark results with accuracy, providers, verification status, and local rerun links.">
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
   <link rel="stylesheet" href="styles.css">
@@ -14,9 +14,26 @@
     <main class="main">
       <section class="hero">
         <div class="emoji">😱</div>
-        <h1>ScreamingFace Leaderboards</h1>
-        <p>Community-submitted benchmark results from the ScreamingFace ensemble — Claude Code, Gemini CLI, Codex, and Ollama, combined to beat state-of-the-art.</p>
-        <p><a href="/">Install →</a></p>
+        <h1>ScreamingFace benchmark receipts.</h1>
+        <p>Public results for specs you can inspect and rerun locally. Accuracy, providers, verification status, and the exact run link stay attached to every row.</p>
+        <p><a href="/">Install screamingface - one command</a></p>
+        <div class="proof-grid" aria-label="Leaderboard proof points">
+          <div class="proof-card">
+            <span class="proof-kicker">Live data</span>
+            <strong id="benchmark-count">-</strong>
+            <span id="benchmark-count-label">benchmarks indexed</span>
+          </div>
+          <div class="proof-card">
+            <span class="proof-kicker">Verification</span>
+            <strong>Badge, not belief</strong>
+            <span>Only independently reproduced runs get marked Verified.</span>
+          </div>
+          <div class="proof-card">
+            <span class="proof-kicker">Reproducibility</span>
+            <strong>Run Locally</strong>
+            <span>Leaderboard rows keep their URL4 expression for reruns.</span>
+          </div>
+        </div>
       </section>
 
       <section class="section">

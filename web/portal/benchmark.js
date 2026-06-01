@@ -108,6 +108,22 @@
     });
   }
 
+  function renderSummary(entries) {
+    var summaryNode = document.getElementById("leaderboard-summary");
+    if (!summaryNode) return;
+    if (!entries.length) {
+      summaryNode.hidden = true;
+      return;
+    }
+
+    var best = Math.max.apply(null, entries.map(function (entry) { return entry.accuracy; }));
+    var verified = entries.filter(function (entry) { return entry.verified_by_openmined === true; }).length;
+    document.getElementById("summary-best").textContent = P.formatPercent(best);
+    document.getElementById("summary-specs").textContent = P.formatCount(entries.length, "spec", "specs");
+    document.getElementById("summary-verified").textContent = P.formatCount(verified, "row", "rows");
+    summaryNode.hidden = false;
+  }
+
   function init() {
     var statusNode = document.getElementById("leaderboard-status");
     var wrap = document.getElementById("leaderboard-wrap");
@@ -139,6 +155,7 @@
           P.showEmpty(statusNode, "No submissions yet. Be the first.");
           return;
         }
+        renderSummary(state.entries);
         renderHead(document.getElementById("leaderboard-head"));
         renderBody(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);

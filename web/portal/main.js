@@ -169,6 +169,10 @@ window.ScorePortal = (function () {
     if (value === null || value === undefined || value === "") return EM_DASH;
     return String(value);
   }
+  function formatCount(value, singular, plural) {
+    var count = typeof value === "number" && !isNaN(value) ? value : 0;
+    return count.toLocaleString() + " " + (count === 1 ? singular : plural);
+  }
 
   /* ---- badges & deep links -------------------------------------------- */
   // Returns a green "Verified" pill only when verified_by_openmined === true;
@@ -205,6 +209,7 @@ window.ScorePortal = (function () {
   function benchmarkCard(b) {
     var card = el("article", "card");
     card.appendChild(el("h2", "card-title", b.display_name || b.id));
+    card.appendChild(el("p", "card-id mono", b.id));
 
     if (b.description) {
       card.appendChild(el("p", "card-meta", b.description));
@@ -226,6 +231,14 @@ window.ScorePortal = (function () {
     return card;
   }
 
+  function updateBenchmarkCount(count) {
+    var countNode = document.getElementById("benchmark-count");
+    var labelNode = document.getElementById("benchmark-count-label");
+    if (!countNode || !labelNode) return;
+    countNode.textContent = String(count);
+    labelNode.textContent = count === 1 ? "benchmark indexed" : "benchmarks indexed";
+  }
+
   function initIndex() {
     var statusNode = document.getElementById("benchmark-status");
     var listNode = document.getElementById("benchmark-list");
@@ -235,8 +248,9 @@ window.ScorePortal = (function () {
     fetchJson("/v1/benchmarks").then(
       function (data) {
         var benchmarks = (data && data.benchmarks) || [];
+        updateBenchmarkCount(benchmarks.length);
         if (benchmarks.length === 0) {
-          showEmpty(statusNode, "No benchmarks yet.");
+          showEmpty(statusNode, "No public benchmarks yet. The API is live; rows will appear here as soon as benchmark specs are registered.");
           return;
         }
         clear(listNode);
@@ -270,6 +284,7 @@ window.ScorePortal = (function () {
     formatDate: formatDate,
     formatProviders: formatProviders,
     formatSubmitter: formatSubmitter,
+    formatCount: formatCount,
     createVerifiedBadge: createVerifiedBadge,
     buildRunHref: buildRunHref,
     createRunLink: createRunLink,
