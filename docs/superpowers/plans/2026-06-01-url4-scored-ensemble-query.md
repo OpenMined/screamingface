@@ -39,7 +39,7 @@ Matches the codebase's existing "pre-parse before grammar" approach (`split_inte
 
 ```
 ( https://screamingface.ai/livetruth-latest.eval.jsonl *(
-    consensus=/claude($item.question)!'Answer this fill-in-the-blank question with the single most likely short answer. Return only the answer, no other text.',
+    consensus=/claude($item.question)!'Answer this fill-in-the-blank question with the single most likely short answer. Return only the answer and no other text.',
     /python(/data/code/check_correct.py)!{"question":"$item.question","expected":"$item.expected_answer","correct_answer":"$item.expected_answer","consensus":"$consensus"}
   ) ;foreach.concurrency=10;foreach.on_error=collect
 )!/python(/data/code/calculate_accuracy.py)
@@ -47,7 +47,11 @@ Matches the codebase's existing "pre-parse before grammar" approach (`split_inte
 
 Per row the body is a 2-element list: bind `consensus` to the model's answer (`/claude(q)!'…'`), then call `check_correct` with `$item.expected_answer` + `$consensus`. The collection feeds all per-row verdicts as a JSON array to `calculate_accuracy`.
 
-> **Grammar prereq (M5.0):** the multi-key `check_correct` payload `{"a":…,"b":…}` has commas that the intent text rule (`/[^,()]+/`) would treat as list separators. A small `json_blob` grammar rule (balanced `{…}`, one nesting level) added to the intent atom makes the whole `{…}` parse as one token, fixing both the list-split and the intent text. The `checks:` collection label is dropped in v1 (it was only useful for a `$checks` reference, which v1 doesn't use). **Fast-follow:** support `name=(group)!reduce` to bind a reduced 3-way weighted ensemble.
+> **Grammar prereq (M5.0):** the multi-key `check_correct` payload `{"a":…,"b":…}` has commas that the intent text rule (`/[^,()]+/`) would treat as list separators. A small `json_blob` grammar rule (balanced `{…}`, one nesting level) added to the intent atom makes the whole `{…}` parse as one token. The `checks:` collection label is dropped in v1 (it was only useful for a `$checks` reference, which v1 doesn't use).
+>
+> **Two grammar gaps discovered (fast-follows, NOT done):**
+> 1. **Quoted-intent commas.** A backend-call intent like `!'…the answer, no other text.'` truncates at the comma — the intent atom has no quoted-string rule. v1 sidesteps this with a **comma-free prompt** (above). A `quoted = /'[^']*'/` rule added to the intent atom (like `json_blob`) would fix it — and would also fix **MainOne/MainTwo**, whose stored prompts contain commas inside quotes and therefore mis-parse today.
+> 2. **Binding a reduced ensemble.** `name=(weighted fanout)!reduce` doesn't parse (`eq_value` can't take a group-with-intent), which is why v1 uses a single-model consensus. Needed for the 3-way weighted ensemble.
 
 ---
 
