@@ -222,6 +222,32 @@ def substitute_item(template: str, item_json: str) -> str:
     return bare_pattern.sub(item_json, result)
 
 
+async def resolve_ensemble(items, reducer_instruction, *, processor, app, env=None):
+    """Fan-out the backend-call ``items`` in parallel, then reduce via the
+    ``processor`` backend using weighted-label reducer input. Returns the
+    reducer's text. Dependency-neutral: imports resolve/dispatch locally so
+    the AST-walker layer can call this without a circular import.
+    """
+    import asyncio
+
+    from screamingface.plugins.url4_executor.url4_ast import Url4BackendCall, Url4Text
+    from screamingface.plugins.url4_executor.url4_resolve import _dispatch_backend_call, resolve
+
+    responses = list(await asyncio.gather(*[resolve(it, app, env) for it in items]))
+    entries = [
+        FanoutResponse(
+            text=resp,
+            name=it.name if isinstance(it, Url4BackendCall) else None,
+            weight=it.weight if isinstance(it, Url4BackendCall) else None,
+        )
+        for it, resp in zip(items, responses, strict=True)
+    ]
+    instruction = substitute_response_vars(reducer_instruction, entries)
+    reducer_input = build_reducer_input(entries, instruction)
+    reducer_node = Url4BackendCall(path=processor, intent=Url4Text(value=reducer_input))
+    return await _dispatch_backend_call(reducer_node, app, env)
+
+
 # ---------------------------------------------------------------------------
 # Legacy aliases — retained for back-compat with callers / tests that
 # imported the underscore-prefixed private names before SF-108.
@@ -242,6 +268,7 @@ __all__ = [
     "_substitute_item",
     "_substitute_response_vars",
     "build_reducer_input",
+    "resolve_ensemble",
     "split_collection_iteration",
     "substitute_env_vars",
     "substitute_item",
