@@ -1,5 +1,6 @@
 import pytest
 
+from screamingface.plugins.url4_executor.ensemble import EnsembleInterpreter
 from screamingface.plugins.url4_executor.ensemble_helpers import resolve_ensemble
 from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.tests.test_ensemble import _FakeDispatchPlugin, _make_app
@@ -53,3 +54,22 @@ async def test_resolve_ensemble_fans_out_and_reduces():
     )
     assert out == "REDUCED"  # the processor's reduce output (4th /claude call)
     assert len(claude.calls) == 4  # 3 fan-out + 1 reduce
+
+
+@pytest.mark.asyncio
+async def test_binding_reduced_ensemble_resolves_to_consensus():
+    # 2 fan-out claude calls (Paris/Parris) + 1 reduce call (the processor) -> REDUCED-Paris
+    claude = _FakeDispatchPlugin(
+        name="claude", paths=["/claude"], responses=["Paris", "Parris", "REDUCED-Paris"]
+    )
+    py = _FakeDispatchPlugin(name="python-runner", paths=["/python"], responses=["ok"])
+    app = _make_app(claude, py)
+    interp = EnsembleInterpreter(app=app, processor="/claude")  # reducer backend = /claude
+    expr = (
+        "(consensus=(claude:0.6:/claude(q)!'a', claude:0.4:/claude(q)!'b')!'combine weighted', "
+        '/python(/data/code/x.py)!{"c":"$consensus"})'
+    )
+    await interp.evaluate(expr)
+    py_call = next(c for c in py.calls if "x.py" in c[1])
+    assert py_call[0] == '{"c":"REDUCED-Paris"}'  # $consensus = reduced output
+    assert len(claude.calls) == 3  # 2 fan-out + 1 reduce
