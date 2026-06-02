@@ -34,8 +34,12 @@ live in :mod:`ensemble_helpers`).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from typing import Any, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard
+
+if TYPE_CHECKING:
+    from screamingface.plugins.url4_executor.decoder import ForeachDirectives
 
 from screamingface.plugins.url4_executor.ensemble_helpers import (
     FanoutResponse,
@@ -109,13 +113,17 @@ class EnsembleInterpreter(Url4Interpreter):
                 }
             )
 
+            from screamingface.plugins.url4_executor.decoder import split_foreach_annotations
+
+            source_expr, directives = split_foreach_annotations(source_expr)
+
             # 1. Collection iteration (``source*(body)``) — matched by
             #    scanning for ``*(`` at depth 0.
             collection_source, iteration_body = split_collection_iteration(source_expr)
             if collection_source is not None and iteration_body is not None:
                 set_span_attrs({"url4.collection_iteration": True})
                 return await self._collection_iterate(
-                    collection_source, iteration_body, raw_intent or "", env
+                    collection_source, iteration_body, raw_intent or "", env, directives
                 )
 
             source_node = parse(source_expr) if source_expr else None
@@ -144,6 +152,7 @@ class EnsembleInterpreter(Url4Interpreter):
         iteration_body: str,
         intent: str,
         env: Env | None = None,
+        directives: ForeachDirectives | None = None,
     ) -> str:
         """Iterate over a collection, applying the body expression to each item.
 
@@ -154,9 +163,15 @@ class EnsembleInterpreter(Url4Interpreter):
         4. Evaluate the substituted expression per item (may recurse
            into ensemble fan-out-reduce).
         5. Newline-join all results.
+
+        If ``directives.concurrency`` is set, a semaphore caps the number
+        of items evaluated in parallel. If ``directives.on_error == "collect"``,
+        per-item exceptions are captured as ``{"error": ...}`` JSON elements
+        instead of aborting the whole iteration.
         """
         from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
         from screamingface.plugins.url4_executor.collection_parser import parse_collection
+        from screamingface.plugins.url4_executor.decoder import ForeachDirectives
         from screamingface.plugins.url4_executor.url4 import resolve_str
 
         with traced("url4.collection_iterate"):
@@ -167,12 +182,31 @@ class EnsembleInterpreter(Url4Interpreter):
             if not items:
                 return ""
 
+            directives = directives or ForeachDirectives()
+
             async def _process_one(item_json: str) -> str:
                 substituted_body = substitute_item(iteration_body, item_json)
                 full_expr = f"({substituted_body})!{intent}" if intent else f"({substituted_body})"
                 return await self.evaluate(full_expr, env)
 
-            results = list(await asyncio.gather(*[_process_one(item) for item in items]))
+            sem = asyncio.Semaphore(directives.concurrency) if directives.concurrency else None
+
+            async def _guarded(item_json: str) -> str:
+                if sem is None:
+                    return await _process_one(item_json)
+                async with sem:
+                    return await _process_one(item_json)
+
+            if directives.on_error == "collect":
+                raw = await asyncio.gather(*[_guarded(i) for i in items], return_exceptions=True)
+                results = [
+                    r
+                    if not isinstance(r, BaseException)
+                    else json.dumps({"error": {"kind": type(r).__name__, "message": str(r)}})
+                    for r in raw
+                ]
+            else:
+                results = list(await asyncio.gather(*[_guarded(i) for i in items]))
             set_span_attrs({"url4.collection.result_count": len(results)})
             return "\n".join(results)
 
