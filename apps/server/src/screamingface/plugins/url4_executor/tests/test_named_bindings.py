@@ -159,13 +159,17 @@ def test_resolve_colon_binding_returns_resolved_group() -> None:
 
 
 def test_list_with_binding_preserves_source_order() -> None:
+    # "let" semantics: binding (x=hi) sets up scope; the non-binding body
+    # ("plain") is the sole output.  The binding value is NOT echoed.
     result = asyncio.run(resolve(parse("(x=hi, plain)"), app=None, env=Env.root()))
-    assert result == "hi\nplain"
+    assert result == "plain"
 
 
 def test_list_bindings_resolved_before_non_bindings() -> None:
+    # "let" semantics: bindings a=1, b=2 are set up first; only the
+    # non-binding body item "c" appears in the output.
     result = asyncio.run(resolve(parse("(a=1, b=2, c)"), app=None, env=Env.root()))
-    assert result == "1\n2\nc"
+    assert result == "c"
 
 
 def test_list_without_bindings_unchanged() -> None:

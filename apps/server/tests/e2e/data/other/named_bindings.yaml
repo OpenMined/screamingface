@@ -1,7 +1,9 @@
 # DEMO-005 (SF-152): named-binding parser + resolver behavior.
 # No real backends — these exercise the grammar and the two-pass list
-# resolution end-to-end through /ensemble. Binding values are joined
-# inline in source order, matching Url4List behaviour.
+# resolution end-to-end through /ensemble. Bindings still populate the
+# scope (so later items can reference $name), but in a MIXED list the
+# bindings are setup ("let" semantics): only the non-binding body is
+# output. A pure-binding list still outputs its bound values. (SF-34)
 
 - id: eq_binding_text
   description: "a=1 returns the bound value (eager, plain text)"
@@ -21,23 +23,23 @@
     status: 200
     contains_all: ["a", "b"]
 
-- id: list_with_eq_binding_preserves_order
-  description: "(x=hi, plain) resolves binding first, then sibling text, in source order"
+- id: list_with_eq_binding_body_is_output
+  description: "(x=hi, plain) — binding is setup; only the non-binding body 'plain' is output (let semantics)"
   ticket: SF-152
   backends: []
   expression: "(x=hi, plain)"
   expect:
     status: 200
-    contains_all: ["hi", "plain"]
+    contains_all: ["plain"]
 
 - id: list_multiple_bindings_and_sibling
-  description: "(a=1, b=2, c) — bindings sequential first, then non-binding sibling"
+  description: "(a=1, b=2, c) — bindings are setup; only the non-binding body 'c' is output (let semantics)"
   ticket: SF-152
   backends: []
   expression: "(a=1, b=2, c)"
   expect:
     status: 200
-    contains_all: ["1", "2", "c"]
+    contains_all: ["c"]
 
 - id: weighted_backend_label_still_routes_as_backend_call
   description: "claude:0.40:/nonexistent()!x must fall through to backend_call (502, not a binding)"
