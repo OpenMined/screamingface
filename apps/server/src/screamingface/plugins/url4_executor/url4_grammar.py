@@ -15,6 +15,7 @@ from screamingface.plugins.url4_executor.url4_ast import (
     Url4ExpandedSource,
     Url4List,
     Url4Node,
+    Url4Reduce,
     Url4RelUrl,
     Url4Text,
     Url4Url,
@@ -66,10 +67,18 @@ GRAMMAR = r"""
     # call)" — so groups are allowed too. Excludes nested bindings to
     # avoid `a=b=c` ambiguity (a group containing a binding is fine
     # because a Url4List frame sits between the outer and inner bind).
+    # grouped_reduce must come FIRST so ``(...)!intent`` wins over bare
+    # ``(...)`` which would fall through to the ``group`` alternative.
     eq_value
-        = group
+        = grouped_reduce
+        | group
         | atom_no_binding
         ;
+
+    # A group with a trailing reduce intent: ``(a, b)!intent`` or
+    # ``(a, b)!*`` (broadcast). Used as the RHS of a named binding so
+    # ``consensus=(fanout)!reduce`` parses to a Url4Reduce node.
+    grouped_reduce = grp:group '!' [ star:'*' ] intent:atom_no_bc ;
 
     atom_no_binding
         = backend_call
@@ -214,6 +223,13 @@ class Url4Semantics:
         kind = "=" if sep == "=" else ":"
         return Url4Binding(name=ast.name, value=ast.value, kind=kind)
 
+    def grouped_reduce(self, ast):
+        grp = ast.grp
+        items = grp.items if isinstance(grp, Url4List) else ()
+        return Url4Reduce(
+            items=items, intent=ast.intent, broadcast=bool(getattr(ast, "star", None))
+        )
+
     def eq_value(self, ast):
         return ast
 
@@ -239,7 +255,8 @@ class Url4Semantics:
                 | Url4List
                 | Url4BackendCall
                 | Url4ExpandedSource
-                | Url4Binding,
+                | Url4Binding
+                | Url4Reduce,
             )
         ]
         return Url4List(items=tuple(nodes))

@@ -91,8 +91,28 @@ class Url4Binding:
     kind: Literal["=", ":"]
 
 
+@dataclass(frozen=True)
+class Url4Reduce:
+    """A group with a trailing reduce intent: ``(a, b, c)!intent`` (or ``!*``).
+
+    Used as a binding value so a name can bind a *reduced* ensemble
+    (fan-out the items, reduce via the intent). ``broadcast`` is True for ``!*``.
+    """
+
+    items: tuple[Url4Node, ...]
+    intent: Url4Node | None
+    broadcast: bool = False
+
+
 Url4Node = (
-    Url4Url | Url4RelUrl | Url4Text | Url4List | Url4BackendCall | Url4ExpandedSource | Url4Binding
+    Url4Url
+    | Url4RelUrl
+    | Url4Text
+    | Url4List
+    | Url4BackendCall
+    | Url4ExpandedSource
+    | Url4Binding
+    | Url4Reduce
 )
 
 
@@ -102,6 +122,7 @@ __all__ = [
     "Url4ExpandedSource",
     "Url4List",
     "Url4Node",
+    "Url4Reduce",
     "Url4RelUrl",
     "Url4Text",
     "Url4Url",
