@@ -24,6 +24,8 @@ from screamingface.plugins.eval_runs._hook_payloads import HOOK_QUESTION_CHECKED
 from screamingface.plugins.python_runner._default_scripts import load_vendored_defaults
 from screamingface.plugins.python_runner.runner import (
     PythonRunnerError,
+    _script_defines_main,
+    run_script_main,
     run_script_source,
 )
 from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
@@ -147,7 +149,10 @@ class PythonRunnerPlugin(Plugin):
 
             t0 = time.monotonic()
             try:
-                result = await run_script_source(source, payload)
+                if _script_defines_main(source):
+                    result = await run_script_main(source, payload)
+                else:
+                    result = await run_script_source(source, payload)
             except PythonRunnerError as e:
                 duration_ms = int((time.monotonic() - t0) * 1000)
                 set_span_attrs(
