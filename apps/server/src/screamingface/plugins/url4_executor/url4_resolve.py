@@ -96,6 +96,12 @@ async def _resolve_list(node: Url4List, app: Any, env: Env) -> str:
         for i, value in zip(non_binding_indices, gathered, strict=True):
             results[i] = value
 
+    non_binding_results: list[str] = [
+        r for i in non_binding_indices if (r := results[i]) is not None
+    ]
+    if non_binding_results:
+        return "\n".join(non_binding_results)
+    # pure-binding list (no body): output the binding values, source order (DEMO-005)
     return "\n".join(r for r in results if r is not None)
 
 
