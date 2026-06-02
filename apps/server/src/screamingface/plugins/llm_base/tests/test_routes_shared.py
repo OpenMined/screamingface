@@ -188,33 +188,3 @@ def test_run_retries_configured_fallback_model_on_429() -> None:
     assert resp.status_code == 200
     assert resp.json()["so"] == "fallback ok"
     assert backend.models == ["primary/model", "fallback/model"]
-
-
-def test_aigw_run_route_rejects_missing_desktop_secret_when_configured(monkeypatch) -> None:
-    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
-    app = FastAPI()
-    settings = SimpleNamespace(default_model=None, timeout_seconds=300.0, profiles={})
-    router = build_backend_api_router(
-        BackendApiConfig(
-            name="aigw-test-backend",
-            path_prefix="/test",
-            default_model="test/model",
-            backend=_OkBackend(),
-            settings=settings,
-            app=app,
-            build_interpreter=lambda: None,
-            span_prefix="test",
-        )
-    )
-    app.include_router(router)
-    client = TestClient(app)
-
-    missing = client.post("/test/run", json={"prompt": "hi"})
-    allowed = client.post(
-        "/test/run",
-        json={"prompt": "hi"},
-        headers={"X-SF-Desktop-Secret": "test-secret"},
-    )
-
-    assert missing.status_code == 401
-    assert allowed.status_code == 200

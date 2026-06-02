@@ -297,3 +297,126 @@ class TestEnsembleParserRouting:
         resp = httpx.get(f"{ensemble_url}/data/{key}", timeout=10)
         assert resp.status_code == 200
         assert resp.text == "test content"
+
+
+# ============================================================================
+# Collection-iteration source failure — the "MainOne" spec
+# ============================================================================
+#
+# The HLE 3-provider ensemble spec uses an unreachable collection source
+# (github.com/openmined/HLE.jsonl → 404, the GitHub web page, not the raw
+# file). A `source*(...)` iteration must FETCH and parse that collection
+# *first* to produce the $items to iterate over. When that fetch fails the
+# whole evaluation aborts BEFORE the per-item fan-out runs.
+#
+# This is exactly why Phoenix shows no ensemble-level interaction for this
+# spec: the ensemble fan-out (`url4.ensemble.fanout`) never executes. The
+# trace shows the failed source fetch (`url4.fetch`) and nothing deeper.
+# That is correct behaviour, not a missing-instrumentation bug.
+#
+# Offline-safe: the request fails at the network boundary (404 with a
+# connection, or a connect error without one) — either way the fan-out is
+# never reached, so no live LLM credential is required.
+# ============================================================================
+
+# Provider prompt reused for all three weighted sources (verbatim from the spec).
+_HLE_PROMPT = (
+    "Answer this question. If it is multiple choice, return a probability "
+    "distribution over the answer choices as JSON. "
+    'Format: {"A": 0.7, "B": 0.2, "C": 0.05,"D": 0.05}. '
+    "Return only the JSON object."
+)
+
+_HLE_ENSEMBLE_EXPRESSION = (
+    "https://github.com/openmined/HLE.jsonl*("
+    f"claude:0.40:/claude($item.question)!'{_HLE_PROMPT}',"
+    f"codex:0.30:/codex($item.question)!'{_HLE_PROMPT}',"
+    f"gemini:0.30:/gemini($item.question)!'{_HLE_PROMPT}'"
+    ")!'Compute a weighted average of these distributions using source weights "
+    "claude=0.40, codex=0.30, gemini=0.30. Return the single answer letter with "
+    "the highest combined probability.'"
+)
+
+
+class TestCollectionSourceFetchFailure:
+    def test_unreachable_source_aborts_before_ensemble_fanout(
+        self,
+        ensemble_url: str,
+        otlp_collector: OTLPCollector,
+    ) -> None:
+        """An unreachable collection source fails the fetch, so the ensemble
+        fan-out never runs — hence no `url4.ensemble.fanout` span.
+
+        Documents the observed "Phoenix shows no ensemble interaction" symptom
+        for the HLE/MainOne spec: it's the source fetch dying first, not the
+        ensemble being un-instrumented.
+        """
+        otlp_collector.clear()
+
+        resp = _get_ensemble(ensemble_url, q=_HLE_ENSEMBLE_EXPRESSION, processor="/claude")
+
+        # Evaluation fails at the source fetch -> server error (404 observed as 502).
+        assert resp.status_code >= 500, f"expected 5xx, got {resp.status_code}: {resp.text[:300]}"
+
+        # Give the OTLP exporter a beat to flush whatever spans were produced.
+        otlp_collector.wait_for_spans(1, timeout=10)
+        span_names = [s.name for s in otlp_collector.spans]
+
+        # The fan-out (and reducer) must NOT have run — this is the crux.
+        assert not otlp_collector.find_spans(name="url4.ensemble.fanout"), (
+            f"ensemble fan-out should never run when the source fetch fails; spans={span_names}"
+        )
+        assert not otlp_collector.find_spans(name="url4.ensemble.reduce"), (
+            f"reducer should never run when the source fetch fails; spans={span_names}"
+        )
+
+        # ...and the failure IS recorded on the trace (status ERROR=2 + an
+        # exception event) so it's visible in Phoenix, not a silent 502.
+        evaluate_spans = otlp_collector.find_spans(name="url4.evaluate")
+        assert evaluate_spans, f"expected a url4.evaluate span; spans={span_names}"
+        assert any(s.status_code == 2 for s in evaluate_spans), (
+            "the source-fetch failure should mark url4.evaluate as ERROR; "
+            f"statuses={[s.status_code for s in evaluate_spans]}"
+        )
+
+    def test_reachable_source_reaches_collection_iteration(
+        self,
+        ensemble_url: str,
+        otlp_collector: OTLPCollector,
+    ) -> None:
+        """Contrast with the 404 case: a REACHABLE JSONL source is fetched and
+        parsed, so evaluation progresses into the collection iteration (and the
+        per-item ensemble fan-out) — i.e. Phoenix WOULD show ensemble spans.
+
+        The fan-out then errors offline (this server has only claude-backend-api;
+        /codex and /gemini are unregistered, and /claude has no test credential),
+        so the request still ends 5xx — but the trace now shows the source was
+        fetched 200 and iteration started, unlike the HLE 404 case above.
+        """
+        expression = (
+            "https://screamingface.ai/livetruth-latest.eval.jsonl*("
+            f"claude:0.40:/claude($item.question)!'{_HLE_PROMPT}',"
+            f"codex:0.30:/codex($item.question)!'{_HLE_PROMPT}',"
+            f"gemini:0.30:/gemini($item.question)!'{_HLE_PROMPT}'"
+            ")!'Compute a weighted average of these distributions using source "
+            "weights claude=0.40, codex=0.30, gemini=0.30. Return the single answer "
+            "letter with the highest combined probability.'"
+        )
+        otlp_collector.clear()
+        # The fan-out then errors offline (no codex/gemini plugin, no creds), so
+        # the request still ends in an error — we only care that it got past the
+        # fetch into iteration, asserted via spans below.
+        _get_ensemble(ensemble_url, q=expression, processor="/claude")
+        otlp_collector.wait_for_spans(1, timeout=15)
+        span_names = sorted({s.name for s in otlp_collector.spans})
+        fetch_spans = otlp_collector.find_spans(name="url4.fetch")
+        fetched_urls = [s.attributes.get("http.url", "") for s in fetch_spans]
+
+        # The source was reachable, so the fetch succeeded (no 404 abort) and
+        # evaluation entered collection iteration — the key contrast.
+        assert any("livetruth" in u for u in fetched_urls), (
+            f"expected a url4.fetch span for the livetruth source; got {fetched_urls}"
+        )
+        assert otlp_collector.find_spans(name="url4.collection_iterate"), (
+            f"collection iteration should start for a reachable source; spans={span_names}"
+        )

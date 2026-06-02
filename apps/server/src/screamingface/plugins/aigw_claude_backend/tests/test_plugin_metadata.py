@@ -25,10 +25,6 @@ def test_plugin_dependency_chain() -> None:
     assert "backend-api-base" in AigwClaudeBackendPlugin.depends
 
 
-def test_schema_endpoint_requires_desktop_secret() -> None:
-    assert AigwClaudeBackendPlugin.schema_requires_desktop_secret is True
-
-
 def test_plugin_conflicts_with_legacy_claude_backend() -> None:
     """aigw-claude-backend takes over /claude; cannot coexist with the legacy direct-API plugin."""
     assert AigwClaudeBackendPlugin.conflicts == ["claude-backend-api"]

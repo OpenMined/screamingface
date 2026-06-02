@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spec History — ScreamingFace</title>
+  <meta name="description" content="Submission history for a single ScreamingFace benchmark spec, including accuracy, verification status, and local rerun support.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <main class="main">
+      <section class="hero">
+        <h1 id="spec-id" class="mono hero-id">Spec</h1>
+        <p id="spec-benchmark"></p>
+        <p><a id="back-link" href="index.html">← Back to leaderboard</a></p>
+      </section>
+
+      <section class="section">
+        <div class="section-inner">
+          <div class="notice" role="note">
+            History is newest-first. The Run Locally link uses the newest submission
+            for this spec, so you can reproduce the latest public claim before
+            trusting it.
+          </div>
+
+          <div id="spec-status" class="state" role="status" aria-live="polite">Loading…</div>
+
+          <div id="spec-content" hidden>
+            <div class="history-meta">
+              <span class="stat">Best accuracy <strong id="best-accuracy">—</strong></span>
+              <span class="stat" id="submission-count"></span>
+            </div>
+
+            <div id="run-region" class="run-region" hidden></div>
+
+            <div class="table-wrap">
+              <table class="leaderboard-table">
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>By</th>
+                    <th class="num">Accuracy</th>
+                    <th class="num">Questions</th>
+                    <th>Verified</th>
+                  </tr>
+                </thead>
+                <tbody id="history-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>😱 screamingface, built by <a href="https://openmined.org">OpenMined</a></span>
+      <a href="https://github.com/OpenMined/screamingface">GitHub</a>
+    </footer>
+  </div>
+
+  <script src="main.js" defer></script>
+  <script src="spec.js" defer></script>
+</body>
+</html>

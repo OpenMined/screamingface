@@ -26,10 +26,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
-from screamingface.plugins.aigw_base.desktop_secret import require_desktop_secret
 from screamingface.plugins.backend_api_base.models import RunRequest, RunResponse
 from screamingface.plugins.llm_base._route_telemetry import (
     record_ignored_fields,
@@ -110,9 +109,8 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
     op = cfg.operation_id_prefix
     backend = cfg.backend
     settings = cfg.settings
-    privileged_dependencies = (
-        [Depends(require_desktop_secret)] if cfg.name.startswith("aigw-") else []
-    )
+    # No desktop-secret ACL on the local SF server (SF-211).
+    privileged_dependencies: list = []
 
     @router.get(f"{prefix}/health", response_model=None, operation_id=f"{op}_health")
     async def health() -> JSONResponse:

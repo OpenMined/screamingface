@@ -12,8 +12,7 @@ from screamingface.plugins.llm_base import routes as status_routes
 from screamingface.plugins.llm_base.routes import STATUS_V2_ACCEPT, create_router
 
 
-def test_legacy_backends_status_exempt_from_desktop_secret(monkeypatch) -> None:
-    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+def test_legacy_backends_status_no_auth_required() -> None:
     app = FastAPI()
     app.include_router(create_router(app=None))
 
@@ -23,25 +22,17 @@ def test_legacy_backends_status_exempt_from_desktop_secret(monkeypatch) -> None:
     assert response.json() == {}
 
 
-def test_status_v2_requires_desktop_secret_when_configured(monkeypatch) -> None:
-    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+def test_status_v2_no_auth_required() -> None:
     app = FastAPI()
     app.include_router(create_router(app=None))
-    client = TestClient(app)
 
-    missing = client.get("/backends/status", headers={"accept": STATUS_V2_ACCEPT})
-    allowed = client.get(
-        "/backends/status",
-        headers={"accept": STATUS_V2_ACCEPT, "X-SF-Desktop-Secret": "test-secret"},
-    )
+    response = TestClient(app).get("/backends/status", headers={"accept": STATUS_V2_ACCEPT})
 
-    assert missing.status_code == 401
-    assert allowed.status_code == 200
-    assert allowed.json()["version"] == 2
+    assert response.status_code == 200
+    assert response.json()["version"] == 2
 
 
-def test_health_exempt_from_desktop_secret(monkeypatch) -> None:
-    monkeypatch.setenv("SF_DESKTOP_SECRET", "test-secret")
+def test_health_no_auth_required() -> None:
     app = create_app(AppConfig(plugins=[]))
 
     response = TestClient(app).get("/health")

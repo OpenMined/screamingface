@@ -188,8 +188,12 @@ def substitute_item(template: str, item_json: str) -> str:
     result = field_pattern.sub(_field_replacer, template)
 
     # Bare ``$item`` (not followed by ``.<fieldname>``) substitution.
+    # Use a callable replacement so the item value is inserted literally — a
+    # string replacement would have re interpret backslash sequences in the
+    # data (e.g. ``\u`` JSON unicode escapes) and raise "bad escape", which the
+    # callable form avoids (its return value is never escape-processed).
     bare_pattern = re.compile(r"\$item(?!\.[a-zA-Z_])")
-    return bare_pattern.sub(item_json, result)
+    return bare_pattern.sub(lambda _match: item_json, result)
 
 
 # ---------------------------------------------------------------------------

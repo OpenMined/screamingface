@@ -19,6 +19,7 @@ import shutil
 import socket
 import threading
 import time
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import httpx
@@ -135,15 +136,53 @@ class FrontendPluginBase(Plugin):
     # Schema customization
     # ------------------------------------------------------------------
 
-    def _get_spec_names(self) -> list[str] | None:
-        if not self._app:
-            return None
-        specs_plugin = self._app.state.plugins.active_plugins.get("url4-specs")
+    def _current_spec_expressions(self) -> dict[str, str]:
+        """Current ``{name: expression}`` for url4-specs.
+
+        Merges two sources so a spec is visible no matter how it was added,
+        with the **running in-memory config winning** on name conflicts:
+
+        - In-memory ``url4-specs`` plugin ``.settings`` — authoritative for
+          this process. It reflects the config the server actually booted
+          with (which may be supplied inline via ``--config-json``, with no
+          file on disk) and is updated live by ``POST /plugins/url4-specs/
+          settings``.
+        - A fresh on-disk ``load_config()`` read — *supplements* names the
+          running config doesn't have, catching a spec added by editing
+          ``sf.json`` directly without going through the settings endpoint.
+
+        A blind disk-first read is wrong: ``load_config()`` reads ``./sf.json``
+        relative to cwd, which is NOT necessarily the config the server booted
+        with — so it can shadow the real running specs with an unrelated file.
+        """
+        out: dict[str, str] = {}
+
+        try:
+            from screamingface.core.config import load_config
+
+            raw = load_config().plugin_config.get("url4-specs") or {}
+            specs = raw.get("specs")
+            if isinstance(specs, dict):
+                for name, spec in specs.items():
+                    expr = spec.get("expression") if isinstance(spec, dict) else None
+                    if expr:
+                        out[name] = expr
+        except Exception:
+            logger.debug("Fresh url4-specs config unavailable; using in-memory", exc_info=True)
+
+        specs_plugin = (
+            self._app.state.plugins.active_plugins.get("url4-specs") if self._app else None
+        )
         if specs_plugin and specs_plugin.settings:
-            names = list(specs_plugin.settings.specs.keys())
-            if names:
-                return names
-        return None
+            for name, spec in specs_plugin.settings.specs.items():
+                if spec.expression:
+                    out[name] = spec.expression
+
+        return out
+
+    def _get_spec_names(self) -> list[str] | None:
+        names = list(self._current_spec_expressions().keys())
+        return names or None
 
     def customize_schema(self, schema: dict) -> dict:
         props = schema.get("properties", {})
@@ -183,16 +222,14 @@ class FrontendPluginBase(Plugin):
     def _get_spec_urls(self) -> list[tuple[str, str]]:
         """Get (name, expression_url) pairs for active specs."""
         spec_names = self._collect_spec_names()
-        if not spec_names or not self._app:
+        if not spec_names:
             return []
-        specs_plugin = self._app.state.plugins.active_plugins.get("url4-specs")
-        if not specs_plugin or not specs_plugin.settings:
-            return []
+        current = self._current_spec_expressions()
         result: list[tuple[str, str]] = []
         for name in spec_names:
-            spec = specs_plugin.settings.specs.get(name)
-            if spec and spec.expression:
-                result.append((name, spec.expression))
+            expr = current.get(name)
+            if expr:
+                result.append((name, expr))
         return result
 
     def get_active_expression(self) -> str | None:
@@ -232,14 +269,19 @@ class FrontendPluginBase(Plugin):
                     resolved_parts.append(self._cache[name])
                     logger.info("Cache hit for spec %r (%d chars)", name, len(self._cache[name]))
                     continue
-                try:
-                    result = self._fetch_sync(url, timeout)
-                    if result:
-                        self._cache[name] = result
-                        resolved_parts.append(result)
-                        logger.info("Resolved spec %r (%d chars)", name, len(result))
-                except Exception:
-                    logger.warning("Failed to resolve spec %r", name, exc_info=True)
+                with _traced_resolve(name) as span:
+                    try:
+                        result = self._fetch_sync(url, timeout)
+                        if result:
+                            self._cache[name] = result
+                            resolved_parts.append(result)
+                            logger.info("Resolved spec %r (%d chars)", name, len(result))
+                    except Exception as exc:
+                        # Record on the span so the failure is visible in Phoenix —
+                        # the resolution is non-fatal (the chat proceeds without
+                        # context), so we deliberately don't re-raise.
+                        logger.warning("Failed to resolve spec %r", name, exc_info=True)
+                        _mark_span_error(span, exc, name)
 
             if resolved_parts:
                 self._resolved_context = "\n\n".join(resolved_parts)
@@ -270,10 +312,14 @@ class FrontendPluginBase(Plugin):
         base = self._get_backend_url()
         result_holder: list[str] = []
 
+        error_holder: list[BaseException] = []
+
         def _run() -> None:
             loop = asyncio.new_event_loop()
             try:
                 result_holder.append(loop.run_until_complete(_fetch(base, expression)))
+            except BaseException as exc:  # noqa: BLE001 — re-raised to the caller below
+                error_holder.append(exc)
             finally:
                 loop.close()
 
@@ -281,6 +327,10 @@ class FrontendPluginBase(Plugin):
         thread.start()
         thread.join(timeout=timeout)
 
+        # Surface the real failure (e.g. /ensemble 502 with the url4 error)
+        # instead of masking everything as a timeout.
+        if error_holder:
+            raise error_holder[0]
         if not result_holder:
             raise TimeoutError(f"Spec resolution timed out after {timeout}s")
         return result_holder[0]
@@ -365,6 +415,43 @@ async def _fetch(base_url: str, expression: str) -> str:
         resp = await client.get(f"{base_url}/ensemble", params={"q": expression})
         resp.raise_for_status()
         return resp.text
+
+
+@contextmanager
+def _traced_resolve(spec_name: str):  # type: ignore[no-untyped-def]
+    """Span around static spec resolution so failures surface in Phoenix.
+
+    Without this, a failed static-spec resolution was only logged and the
+    proxy trace looked successful — leaving no error visible in the trace.
+    Yields the span (or None when OpenTelemetry isn't installed).
+    """
+    try:
+        from opentelemetry import trace
+    except ImportError:
+        yield None
+        return
+    tracer = trace.get_tracer("screamingface.frontend-base")
+    with tracer.start_as_current_span("url4.static_resolve") as span:
+        if span.is_recording():
+            span.set_attribute("sf.plugin", "frontend-base")
+            span.set_attribute("url4.spec", spec_name)
+        yield span
+
+
+def _mark_span_error(span: Any, exc: Exception, spec_name: str) -> None:
+    """Record an exception + ERROR status on ``span`` (no-op without OTel)."""
+    if span is None or not span.is_recording():
+        return
+    try:
+        from opentelemetry.trace import Status, StatusCode
+
+        span.set_attribute("url4.status", "error")
+        span.set_attribute("url4.error", str(exc))
+        span.set_attribute("url4.failed_spec", spec_name)
+        span.record_exception(exc)
+        span.set_status(Status(StatusCode.ERROR, str(exc)))
+    except ImportError:
+        pass
 
 
 def _wait_for_port(port: int, host: str = "127.0.0.1", timeout: float = 5.0) -> bool:
