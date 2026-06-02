@@ -35,19 +35,19 @@ Matches the codebase's existing "pre-parse before grammar" approach (`split_inte
 
 ### Canonical query this plan builds toward (v1, readable form)
 
+**v1 (chosen): single-model consensus** — a 3-way weighted ensemble bound to a name needs a grammar extension (binding a `(group)!reduce` value); v1 uses a single-model consensus, which is a backend-call binding that already parses. The 3-way weighted ensemble is a fast-follow.
+
 ```
-( checks:https://screamingface.ai/livetruth-latest.eval.jsonl *(
-    consensus=(
-      claude:0.40:/claude($item.question)!'Answer this fill-in-the-blank question with the single most likely short answer. Return only the answer, no other text.',
-      codex:0.30:/codex($item.question)!'Answer this fill-in-the-blank question with the single most likely short answer. Return only the answer, no other text.',
-      gemini:0.30:/gemini($item.question)!'Answer this fill-in-the-blank question with the single most likely short answer. Return only the answer, no other text.'
-    )!'These are candidate answers from sources weighted claude=0.40, codex=0.30, gemini=0.30. Return the single best short answer supported by the weighted majority. Return only the answer, no other text.',
+( https://screamingface.ai/livetruth-latest.eval.jsonl *(
+    consensus=/claude($item.question)!'Answer this fill-in-the-blank question with the single most likely short answer. Return only the answer, no other text.',
     /python(/data/code/check_correct.py)!{"question":"$item.question","expected":"$item.expected_answer","correct_answer":"$item.expected_answer","consensus":"$consensus"}
   ) ;foreach.concurrency=10;foreach.on_error=collect
 )!/python(/data/code/calculate_accuracy.py)
 ```
 
-Per row the body is a 2-element list: bind `consensus` to the weighted ensemble result, then call `check_correct` with `$item.expected_answer` + `$consensus`. The collection then feeds all per-row verdicts as a JSON array to `calculate_accuracy`.
+Per row the body is a 2-element list: bind `consensus` to the model's answer (`/claude(q)!'…'`), then call `check_correct` with `$item.expected_answer` + `$consensus`. The collection feeds all per-row verdicts as a JSON array to `calculate_accuracy`.
+
+> **Grammar prereq (M5.0):** the multi-key `check_correct` payload `{"a":…,"b":…}` has commas that the intent text rule (`/[^,()]+/`) would treat as list separators. A small `json_blob` grammar rule (balanced `{…}`, one nesting level) added to the intent atom makes the whole `{…}` parse as one token, fixing both the list-split and the intent text. The `checks:` collection label is dropped in v1 (it was only useful for a `$checks` reference, which v1 doesn't use). **Fast-follow:** support `name=(group)!reduce` to bind a reduced 3-way weighted ensemble.
 
 ---
 
