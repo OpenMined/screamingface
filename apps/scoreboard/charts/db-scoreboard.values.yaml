@@ -1,0 +1,8 @@
+fullnameOverride: scoreboard-db
+
+auth:
+  username: scoreboard
+  database: scoreboard
+
+secret:
+  name: scoreboard-db

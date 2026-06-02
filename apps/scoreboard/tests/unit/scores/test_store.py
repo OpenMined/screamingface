@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from tortoise import Tortoise
 
-from scoreboard.scores.models import IdempotencyKey, Score
+from scoreboard.scores.models import Benchmark, IdempotencyKey, Score
 from scoreboard.scores.schemas import ScoreSubmission
 from scoreboard.scores.store import ScoreStore
 
@@ -61,6 +61,31 @@ async def test_register_benchmark_and_list_benchmarks(tortoise_db: None) -> None
 
     assert registered.id == "hle"
     assert benchmarks == [registered]
+
+
+async def test_register_benchmark_updates_existing_row(tortoise_db: None) -> None:
+    store = ScoreStore()
+
+    await store.register_benchmark(
+        benchmark_id="hle",
+        display_name="Humanity's Last Exam",
+        description="Fixture benchmark",
+        dataset_url="https://example.test/hle.jsonl",
+    )
+    updated = await store.register_benchmark(
+        benchmark_id="hle",
+        display_name="News Hallucinations",
+        description="OpenMined HLE benchmark",
+        dataset_url="https://github.com/openmined/HLE.jsonl",
+    )
+    benchmarks = await store.list_benchmarks()
+
+    assert await Benchmark.all().count() == 1
+    assert updated.id == "hle"
+    assert updated.display_name == "News Hallucinations"
+    assert updated.description == "OpenMined HLE benchmark"
+    assert updated.dataset_url == "https://github.com/openmined/HLE.jsonl"
+    assert benchmarks == [updated]
 
 
 async def test_submit_inserts_and_returns_score(tortoise_db: None) -> None:

@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - "web/public/**"
+      - "web/portal/**"
+      - ".github/workflows/deploy-website.yml"
 
   workflow_dispatch:
 
@@ -27,9 +29,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare Pages artifact
+        env:
+          SCOREBOARD_API_BASE: ${{ vars.SCOREBOARD_API_BASE || 'https://scoreboard.screamingface.ai' }}
+        run: |
+          rm -rf /tmp/sf-pages
+          mkdir -p /tmp/sf-pages/portal
+          cp -R web/public/. /tmp/sf-pages/
+          cp -R web/portal/. /tmp/sf-pages/portal/
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          api_base = os.environ["SCOREBOARD_API_BASE"].rstrip("/")
+          snippet = f"<script>window.SCOREBOARD_API_BASE = {json.dumps(api_base)};</script>"
+          marker = '<script src="main.js" defer></script>'
+
+          portal_dir = Path("/tmp/sf-pages/portal")
+          for name in ("index.html", "benchmark.html", "spec.html"):
+              path = portal_dir / name
+              text = path.read_text()
+              if snippet in text:
+                  continue
+              if marker not in text:
+                  raise SystemExit(f"missing main.js marker in {path}")
+              path.write_text(text.replace(marker, f"{snippet}\n  {marker}", 1))
+          PY
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: web/public
+          path: /tmp/sf-pages
 
       - uses: actions/deploy-pages@v4
         id: deployment
