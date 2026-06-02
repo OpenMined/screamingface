@@ -1,0 +1,115 @@
+"""Reactive backpressure: retry rate-limited / overloaded upstream dispatches.
+
+Status-code driven (duck-typed on ``status_code``), so it covers LiteLLM's
+``RateLimitError`` / ``ServiceUnavailableError`` (which carry ``status_code``)
+and any exception exposing one of the retryable codes. Stdlib-only.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import random
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..config import Settings
+
+logger = logging.getLogger(__name__)
+
+# 429 rate-limited, 503 service-unavailable, 529 overloaded (Anthropic).
+RETRYABLE_STATUS_CODES = frozenset({429, 503, 529})
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    max_retries: int = 3
+    backoff_base_seconds: float = 0.5
+    backoff_max_seconds: float = 8.0
+    max_total_wait_seconds: float = 30.0
+    jitter_seconds: float = 0.25
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> RetryPolicy:
+        return cls(
+            max_retries=settings.retry_max_attempts,
+            backoff_base_seconds=settings.retry_backoff_base_seconds,
+            backoff_max_seconds=settings.retry_backoff_max_seconds,
+            max_total_wait_seconds=settings.retry_max_total_wait_seconds,
+            jitter_seconds=settings.retry_jitter_seconds,
+        )
+
+
+def _status_code(exc: BaseException) -> int | None:
+    code = getattr(exc, "status_code", None)
+    # bool is an int subclass; reject it explicitly.
+    if isinstance(code, bool) or not isinstance(code, int):
+        return None
+    return code
+
+
+def is_retryable_status(exc: BaseException) -> bool:
+    return _status_code(exc) in RETRYABLE_STATUS_CODES
+
+
+def parse_retry_after_seconds(exc: BaseException) -> float | None:
+    """Read an integer ``Retry-After`` (delta-seconds) off the exception's response.
+
+    Returns ``None`` for absent/malformed/HTTP-date values so the caller falls
+    back to exponential backoff. Never raises.
+    """
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    raw = headers.get("retry-after")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None  # HTTP-date form unsupported -> backoff fallback
+    return max(0.0, value)
+
+
+async def with_overload_retry[T](
+    dispatch: Callable[[], Awaitable[T]],
+    *,
+    policy: RetryPolicy,
+    sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
+) -> T:
+    """Run ``dispatch``; retry on retryable overload statuses with backoff.
+
+    Honors ``Retry-After`` when present, else exponential backoff + jitter.
+    Bounded by ``max_retries`` and a cumulative ``max_total_wait_seconds``
+    budget. Re-raises the original exception on exhaustion or non-retryable
+    errors.
+    """
+    attempt = 0
+    total_waited = 0.0
+    while True:
+        try:
+            return await dispatch()
+        except Exception as exc:
+            if not is_retryable_status(exc) or attempt >= policy.max_retries:
+                raise
+            delay = parse_retry_after_seconds(exc)
+            if delay is None:
+                delay = min(
+                    policy.backoff_base_seconds * 2**attempt,
+                    policy.backoff_max_seconds,
+                ) + random.uniform(0.0, policy.jitter_seconds)
+            if total_waited + delay > policy.max_total_wait_seconds:
+                raise
+            attempt += 1
+            total_waited += delay
+            logger.warning(
+                "aigw upstream overload (status=%s); retry %d/%d after %.2fs",
+                _status_code(exc),
+                attempt,
+                policy.max_retries,
+                delay,
+            )
+            await sleep(delay)
