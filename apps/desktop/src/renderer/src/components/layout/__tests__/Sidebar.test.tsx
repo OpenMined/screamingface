@@ -7,8 +7,7 @@ const getPollingError = vi.fn(async () => null);
 const onStatusChanged = vi.fn(() => () => {});
 const onPollingError = vi.fn(() => () => {});
 const refresh = vi.fn(async () => ({}));
-const loginGateway = vi.fn(async () => ({ ok: true }));
-const logoutGateway = vi.fn(async () => undefined);
+const logoutAigwSession = vi.fn(async () => undefined);
 
 (window as unknown as { electronAPI: unknown }).electronAPI = {
   backends: {
@@ -17,8 +16,9 @@ const logoutGateway = vi.fn(async () => undefined);
     onStatusChanged,
     onPollingError,
     refresh,
-    loginGateway,
-    logoutGateway,
+  },
+  aigwSession: {
+    logout: logoutAigwSession,
   },
 };
 
@@ -37,9 +37,7 @@ beforeEach(() => {
   onPollingError.mockClear();
   refresh.mockClear();
   refresh.mockResolvedValue({});
-  loginGateway.mockClear();
-  loginGateway.mockResolvedValue({ ok: true });
-  logoutGateway.mockClear();
+  logoutAigwSession.mockClear();
 });
 
 describe('Sidebar gateway status', () => {
@@ -57,51 +55,22 @@ describe('Sidebar gateway status', () => {
       action: 'login_gateway',
     });
 
+    const onAigwLoginRequest = vi.fn();
     const { container } = render(
-      <Sidebar currentView="dashboard" onNavigate={vi.fn()} plugins={[]} />,
+      <Sidebar
+        currentView="dashboard"
+        onNavigate={vi.fn()}
+        plugins={[]}
+        onAigwLoginRequest={onAigwLoginRequest}
+      />,
     );
     const sidebar = container.querySelector('aside');
     if (!sidebar) throw new Error('sidebar not rendered');
 
-    const username = await within(sidebar).findByPlaceholderText(/Gateway username/i);
-    const password = within(sidebar).getByPlaceholderText(/Password/i);
-    fireEvent.change(username, { target: { value: 'admin' } });
-    fireEvent.change(password, { target: { value: 'secret-password' } });
+    await within(sidebar).findByText('AIGateway connection');
     fireEvent.click(within(sidebar).getByRole('button', { name: /Sign in/i }));
 
-    await waitFor(() => expect(loginGateway).toHaveBeenCalledWith('admin', 'secret-password'));
-  });
-
-  it('clears gateway password after failed login', async () => {
-    loginGateway.mockResolvedValue({ ok: false, message: 'bad credentials' });
-    getStatus.mockResolvedValue({
-      version: 2,
-      gateway: {
-        mode: 'external',
-        managed_by_runner: false,
-        reachable: true,
-        authenticated: false,
-        auth_required: true,
-        url: 'https://gateway.example.com',
-      },
-      action: 'login_gateway',
-    });
-
-    const { container } = render(
-      <Sidebar currentView="dashboard" onNavigate={vi.fn()} plugins={[]} />,
-    );
-    const sidebar = container.querySelector('aside');
-    if (!sidebar) throw new Error('sidebar not rendered');
-
-    const username = await within(sidebar).findByPlaceholderText(/Gateway username/i);
-    const password = within(sidebar).getByPlaceholderText(/Password/i) as HTMLInputElement;
-    fireEvent.change(username, { target: { value: 'admin' } });
-    fireEvent.change(password, { target: { value: 'secret-password' } });
-    fireEvent.click(within(sidebar).getByRole('button', { name: /Sign in/i }));
-
-    await waitFor(() => expect(loginGateway).toHaveBeenCalledWith('admin', 'secret-password'));
-    await waitFor(() => expect(password.value).toBe(''));
-    expect(await within(sidebar).findByText('bad credentials')).toBeTruthy();
+    expect(onAigwLoginRequest).toHaveBeenCalledOnce();
   });
 
   it('keeps compact gateway login stacked inside the sidebar', async () => {
@@ -124,10 +93,11 @@ describe('Sidebar gateway status', () => {
     const sidebar = container.querySelector('aside');
     if (!sidebar) throw new Error('sidebar not rendered');
 
-    const form = (await within(sidebar).findByPlaceholderText(/Gateway username/i)).closest('form');
+    const button = await within(sidebar).findByRole('button', { name: /Sign in/i });
+    const wrapper = button.parentElement;
 
-    expect(form?.className).toContain('flex-col');
-    expect(form?.className).not.toContain('sm:grid-cols');
+    expect(wrapper?.className).toContain('flex-col');
+    expect(wrapper?.className).not.toContain('sm:grid-cols');
   });
 
   it('does not show gateway login for local managed mode', async () => {
@@ -147,7 +117,7 @@ describe('Sidebar gateway status', () => {
     render(<Sidebar currentView="dashboard" onNavigate={vi.fn()} plugins={[]} />);
 
     await waitFor(() => expect(getStatus).toHaveBeenCalled());
-    expect(screen.queryByPlaceholderText(/Gateway username/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Sign in/i })).toBeNull();
   });
 
   it('shows polling failures after repeated backend status errors', async () => {
@@ -195,6 +165,6 @@ describe('Sidebar gateway status', () => {
 
     expect(await screen.findByText('Connected to https://gateway.example.com')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Log out/i }));
-    await waitFor(() => expect(logoutGateway).toHaveBeenCalled());
+    await waitFor(() => expect(logoutAigwSession).toHaveBeenCalled());
   });
 });

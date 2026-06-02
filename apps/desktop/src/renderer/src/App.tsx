@@ -9,14 +9,18 @@ import { SettingsView } from '@/views/SettingsView';
 import { PluginHost } from '@/components/plugins/PluginHost';
 import { useServerStatus } from '@/hooks/use-server-status';
 import { usePlugins } from '@/hooks/use-plugins';
+import { useAigwSession } from '@/hooks/use-aigw-session';
+import { AigwLoginDialog } from '@/components/AigwLoginDialog';
 import type { RunPayload } from '@/components/run/types';
 
 export function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [runPayload, setRunPayload] = useState<RunPayload | null>(null);
+  const [aigwLoginOpen, setAigwLoginOpen] = useState(false);
   const server = useServerStatus();
   const { activePlugins } = usePlugins();
+  const aigwSession = useAigwSession();
 
   useEffect(() => {
     window.electronAPI.config.read().then(setConfig);
@@ -45,12 +49,26 @@ export function App() {
     return onPayload?.(openRun);
   }, [openRun]);
 
+  useEffect(() => {
+    if (aigwSession.expiredNonce > 0) setAigwLoginOpen(true);
+  }, [aigwSession.expiredNonce]);
+
+  const openAigwLogin = useCallback(() => {
+    setAigwLoginOpen(true);
+  }, []);
+
+  const refreshBackends = useCallback(() => {
+    void window.electronAPI.backends.refresh();
+  }, []);
+
   const serverUrl = server.info
     ? `${server.info.scheme}://${server.info.host === '0.0.0.0' ? 'localhost' : server.info.host}:${server.info.port}`
     : '';
 
   const renderView = () => {
-    if (currentView === 'dashboard') return <DashboardView server={server} />;
+    if (currentView === 'dashboard') {
+      return <DashboardView server={server} onAigwLoginRequest={openAigwLogin} />;
+    }
     if (currentView === 'sessions') return <SessionsView />;
     if (currentView === 'eval-studio') return <EvalStudioView onRunLocally={openRun} />;
     if (currentView === 'settings') return <SettingsView />;
@@ -86,7 +104,7 @@ export function App() {
       );
     }
 
-    return <DashboardView server={server} />;
+    return <DashboardView server={server} onAigwLoginRequest={openAigwLogin} />;
   };
 
   return (
@@ -96,8 +114,15 @@ export function App() {
       serverStatus={server.status}
       serverPort={server.info?.port}
       plugins={activePlugins}
+      onAigwLoginRequest={openAigwLogin}
     >
       {renderView()}
+      <AigwLoginDialog
+        open={aigwLoginOpen}
+        session={aigwSession}
+        onClose={() => setAigwLoginOpen(false)}
+        onSignedIn={refreshBackends}
+      />
     </AppShell>
   );
 }

@@ -11,9 +11,10 @@ import { useVenvStatus } from '@/hooks/use-venv-status';
 
 interface DashboardViewProps {
   server: ServerStatusController;
+  onAigwLoginRequest?: () => void;
 }
 
-export function DashboardView({ server }: DashboardViewProps) {
+export function DashboardView({ server, onAigwLoginRequest }: DashboardViewProps) {
   const venv = useVenvStatus();
   const [tracingEnabled, setTracingEnabled] = useState(false);
   const { status, info, logs, start, stop, restart, clearLogs } = server;
@@ -76,7 +77,7 @@ export function DashboardView({ server }: DashboardViewProps) {
               </button>
             )}
           </div>
-          <BackendStatusPanel />
+          <BackendStatusPanel onAigwLoginRequest={onAigwLoginRequest} />
           <ServerLogs logs={logs} onClear={clearLogs} />
         </>
       )}

@@ -5,6 +5,7 @@ import { registerAllHandlers } from './ipc';
 import { log } from './debug-log';
 import { sessionManager } from './services/session-manager';
 import { serverProcess } from './services/server-process';
+import { aigwSessionService } from './services/aigw-session';
 import { isAllowedExternalBrowserUrl, isAllowedPopupUrl } from './services/external-url-policy';
 import { requireTrustedIpcSender } from './ipc/sender-validation';
 
@@ -148,7 +149,7 @@ app.on('certificate-error', (event, _webContents, url, _error, _cert, callback) 
 
 log(`[main] module loaded`);
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   log(`[main] app.whenReady()`);
   // Accept self-signed certs for local server (covers fetch/XHR in renderer)
   session.defaultSession.setCertificateVerifyProc((request, callback) => {
@@ -159,6 +160,7 @@ app.whenReady().then(() => {
     }
   });
 
+  await aigwSessionService.init();
   registerAllHandlers();
   registerPopupHandlers();
   createWindow();

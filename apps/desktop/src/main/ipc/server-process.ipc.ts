@@ -3,6 +3,7 @@ import https from 'https';
 import http from 'http';
 import { serverProcess } from '../services/server-process';
 import { backendStatusService } from '../services/backend-status';
+import { aigwSessionService } from '../services/aigw-session';
 import { desktopSecretHeader } from '../services/desktop-secret';
 import { isAllowedServerFetchUrl } from '../services/external-url-policy';
 import { requireTrustedIpcSender } from './sender-validation';
@@ -110,9 +111,12 @@ export function registerServerHandlers(): void {
       const { info } = serverProcess.getStatus();
       if (info) {
         const host = info.host === '0.0.0.0' ? '127.0.0.1' : info.host;
-        backendStatusService.start(`${info.scheme}://${host}:${info.port}`);
+        const serverUrl = `${info.scheme}://${host}:${info.port}`;
+        void aigwSessionService.setServerUrl(serverUrl);
+        backendStatusService.start(serverUrl);
       }
     } else if (status === 'stopped' || status === 'error') {
+      void aigwSessionService.setServerUrl(null);
       backendStatusService.stop();
     }
   });

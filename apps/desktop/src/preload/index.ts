@@ -1,9 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { ElectronAPI } from './types';
 
-function onEvent(channel: string, callback: (...args: unknown[]) => void): () => void {
+function onEvent<T extends unknown[]>(channel: string, callback: (...args: T) => void): () => void {
   const handler = (_event: Electron.IpcRendererEvent, ...args: unknown[]): void => {
-    callback(...args);
+    callback(...(args as T));
   };
   ipcRenderer.on(channel, handler);
   return () => ipcRenderer.removeListener(channel, handler);
@@ -77,6 +77,17 @@ const api: ElectronAPI = {
     onStatusChanged: (cb) => onEvent('backends:statusChanged', cb),
     onPollingError: (cb) => onEvent('backends:pollingError', cb),
     onAlert: (cb) => onEvent('backends:alert', cb),
+  },
+  aigwSession: {
+    getState: () => ipcRenderer.invoke('aigw-session:get-state'),
+    getJwt: () => ipcRenderer.invoke('aigw-session:get-jwt'),
+    isLoggedIn: () => ipcRenderer.invoke('aigw-session:is-logged-in'),
+    login: (username, password, options?) =>
+      ipcRenderer.invoke('aigw-session:login', username, password, options),
+    logout: () => ipcRenderer.invoke('aigw-session:logout'),
+    setGatewayUrl: (gatewayUrl) => ipcRenderer.invoke('aigw-session:set-gateway-url', gatewayUrl),
+    onChanged: (cb) => onEvent('aigw-session:changed', cb),
+    onExpired: (cb) => onEvent('aigw-session:expired', cb),
   },
   session: {
     pickDir: () => ipcRenderer.invoke('session:pickDir'),

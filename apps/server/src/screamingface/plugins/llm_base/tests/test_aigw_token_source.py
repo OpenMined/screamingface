@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
+from screamingface.plugins.aigw_base.client import gateway_session_state
 from screamingface.plugins.llm_base.aigw_token_source import (
     AigwAuthError,
     AigwTokenError,
     AigwTokenSource,
+    aigw_jwt_provider_for_app,
 )
 
 
@@ -160,3 +163,35 @@ async def test_jwt_provider_called_each_fetch_attempt():
     await src.fetch_token()
     await src.fetch_token()
     assert sent_headers == ["Bearer jwt-1", "Bearer jwt-2"]
+
+
+@pytest.mark.asyncio
+async def test_app_jwt_provider_reads_gateway_session_state(monkeypatch):
+    monkeypatch.delenv("SF_AIGW_JWT", raising=False)
+    app = SimpleNamespace(state=SimpleNamespace())
+    gateway_session_state(app).set_token("session-jwt", datetime.now(UTC) + timedelta(minutes=5))
+
+    provider = aigw_jwt_provider_for_app(app)
+
+    assert await provider() == "session-jwt"
+
+
+@pytest.mark.asyncio
+async def test_app_jwt_provider_falls_back_to_env(monkeypatch):
+    monkeypatch.setenv("SF_AIGW_JWT", "env-jwt")
+    app = SimpleNamespace(state=SimpleNamespace())
+
+    provider = aigw_jwt_provider_for_app(app)
+
+    assert await provider() == "env-jwt"
+
+
+@pytest.mark.asyncio
+async def test_app_jwt_provider_raises_relogin_error_without_session_or_env(monkeypatch):
+    monkeypatch.delenv("SF_AIGW_JWT", raising=False)
+    app = SimpleNamespace(state=SimpleNamespace())
+
+    provider = aigw_jwt_provider_for_app(app)
+
+    with pytest.raises(AigwAuthError, match="sign in from Desktop"):
+        await provider()

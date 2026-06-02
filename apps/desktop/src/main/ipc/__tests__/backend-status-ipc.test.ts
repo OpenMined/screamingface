@@ -121,7 +121,7 @@ describe('backend status IPC', () => {
 
   it('forwards polling errors to renderer windows', () => {
     const send = vi.fn();
-    mocks.browserWindowGetAllWindows.mockReturnValue([{ webContents: { send } }]);
+    mocks.browserWindowGetAllWindows.mockReturnValue([{ webContents: { send } }] as never);
 
     registerBackendStatusHandlers();
 
