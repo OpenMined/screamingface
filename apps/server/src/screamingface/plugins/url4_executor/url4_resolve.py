@@ -14,6 +14,7 @@ from urllib.parse import quote, urlparse, urlunparse
 
 import httpx
 
+from screamingface.plugins.url4_executor.ensemble_helpers import substitute_env_vars
 from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4_ast import (
     Url4BackendCall,
@@ -119,6 +120,7 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
         )
 
     intent_text = "" if node.intent is None else await resolve(node.intent, app, env)
+    intent_text = substitute_env_vars(intent_text, env)
     sources_text = node.packed_context or ""
 
     from screamingface.core.helpers import get_plugins_registry

@@ -1,3 +1,5 @@
+import pytest
+
 from screamingface.plugins.url4_executor.ensemble_helpers import substitute_env_vars
 from screamingface.plugins.url4_executor.scope import Env
 
@@ -36,3 +38,31 @@ def test_substitutes_two_bindings_in_one_string():
 def test_resolves_from_parent_scope():
     env = Env.root().child(consensus="X").child(other="Y")
     assert substitute_env_vars("$consensus", env) == "X"
+
+
+@pytest.mark.asyncio
+async def test_resolve_intent_substitutes_env_var():
+    from screamingface.plugins.url4_executor.interpreter import resolve_intent
+
+    env = Env.root().child(consensus="B")
+    assert await resolve_intent("'pick $consensus'", None, env) == "pick B"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_substitutes_env_var_in_payload():
+    from screamingface.plugins.url4_executor.tests.test_ensemble import (
+        _FakeDispatchPlugin,
+        _make_app,
+    )
+    from screamingface.plugins.url4_executor.url4 import parse
+    from screamingface.plugins.url4_executor.url4_ast import Url4BackendCall
+    from screamingface.plugins.url4_executor.url4_resolve import _dispatch_backend_call
+
+    py = _FakeDispatchPlugin(name="python-runner", paths=["/python"], responses=["ECHO"])
+    app = _make_app(py)
+    node = parse('/python(/data/code/x.py)!{"c":"$consensus"}')
+    assert isinstance(node, Url4BackendCall)
+    env = Env.root().child(consensus="B")
+    await _dispatch_backend_call(node, app, env)
+    intent_seen = py.calls[0][0]  # (intent, sources, app)
+    assert intent_seen == '{"c":"B"}'
