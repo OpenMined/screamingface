@@ -117,6 +117,10 @@ class EnsembleInterpreter(Url4Interpreter):
         with traced("url4.evaluate"):
             if env is None:
                 env = Env.root()
+            try:
+                env.lookup("__processor__")
+            except KeyError:
+                env = env.child(__processor__=self._processor)
             set_span_attrs({"url4.expression": expr[:500]})
             source_expr, raw_intent, broadcast = split_intent(expr.strip())
             set_span_attrs(
