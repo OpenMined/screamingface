@@ -68,6 +68,22 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROCESSOR = "/claude"
 
 
+def _strip_one_paren_layer(expr: str) -> str | None:
+    """If ``expr`` is exactly one balanced ``(...)`` group, return its interior; else None."""
+    e = expr.strip()
+    if not (e.startswith("(") and e.endswith(")")):
+        return None
+    depth = 0
+    for i, ch in enumerate(e):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0 and i != len(e) - 1:
+                return None  # the first group closes before the end -> not a single wrapper
+    return e[1:-1]
+
+
 class EnsembleInterpreter(Url4Interpreter):
     """URL4 interpreter with fan-out-reduce + collection iteration + broadcast.
 
@@ -117,6 +133,24 @@ class EnsembleInterpreter(Url4Interpreter):
 
             source_expr, directives = split_foreach_annotations(source_expr)
 
+            # 0. Collection-level reducer:
+            #    "(DATA*(BODY) ;foreach...)!/python(reducer)". The ``;foreach.*``
+            #    directives sit INSIDE the outer parens, so the top-level
+            #    split_foreach_annotations above did NOT see them — re-extract
+            #    them from the UNWRAPPED inner expression.
+            if raw_intent is not None:
+                inner = _strip_one_paren_layer(source_expr)
+                if inner is not None:
+                    inner_clean, inner_directives = split_foreach_annotations(inner)
+                    inner_src, inner_intent, _ = split_intent(inner_clean)
+                    coll_src, coll_body = split_collection_iteration(inner_src)
+                    if coll_src is not None and coll_body is not None:
+                        set_span_attrs({"url4.collection_reduce": True})
+                        rows = await self._collect_rows(
+                            coll_src, coll_body, inner_intent or "", env, inner_directives
+                        )
+                        return await self._collection_reduce(rows, raw_intent, env)
+
             # 1. Collection iteration (``source*(body)``) — matched by
             #    scanning for ``*(`` at depth 0.
             collection_source, iteration_body = split_collection_iteration(source_expr)
@@ -146,15 +180,15 @@ class EnsembleInterpreter(Url4Interpreter):
     # Strategy 1: collection iteration (SF-91)
     # ------------------------------------------------------------------
 
-    async def _collection_iterate(
+    async def _collect_rows(
         self,
         collection_source: str,
         iteration_body: str,
         intent: str,
         env: Env | None = None,
         directives: ForeachDirectives | None = None,
-    ) -> str:
-        """Iterate over a collection, applying the body expression to each item.
+    ) -> list[str]:
+        """Iterate over a collection, returning the per-row result LIST.
 
         1. Resolve the collection source (fetch URL/blob).
         2. Parse the body as a collection (JSON array, JSONL, CSV).
@@ -162,7 +196,7 @@ class EnsembleInterpreter(Url4Interpreter):
            the body and the intent.
         4. Evaluate the substituted expression per item (may recurse
            into ensemble fan-out-reduce).
-        5. Newline-join all results.
+        5. Return the list of per-row results (no join).
 
         If ``directives.concurrency`` is set, a semaphore caps the number
         of items evaluated in parallel. If ``directives.on_error == "collect"``,
@@ -180,7 +214,7 @@ class EnsembleInterpreter(Url4Interpreter):
             set_span_attrs({"url4.collection.item_count": len(items)})
 
             if not items:
-                return ""
+                return []
 
             directives = directives or ForeachDirectives()
 
@@ -208,7 +242,54 @@ class EnsembleInterpreter(Url4Interpreter):
             else:
                 results = list(await asyncio.gather(*[_guarded(i) for i in items]))
             set_span_attrs({"url4.collection.result_count": len(results)})
-            return "\n".join(results)
+            return results
+
+    async def _collection_iterate(
+        self,
+        collection_source: str,
+        iteration_body: str,
+        intent: str,
+        env: Env | None = None,
+        directives: ForeachDirectives | None = None,
+    ) -> str:
+        """Iterate over a collection, newline-joining the per-row results.
+
+        Thin wrapper over :meth:`_collect_rows` that joins the rows with
+        newlines (the historical SF-91/SF-34-M3 behaviour).
+        """
+        rows = await self._collect_rows(collection_source, iteration_body, intent, env, directives)
+        return "\n".join(rows)
+
+    @staticmethod
+    def _maybe_json(text: str):
+        """Parse a per-row result string to JSON if possible, else keep the raw string."""
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return text
+
+    async def _collection_reduce(
+        self, rows: list[str], reducer_intent: str, env: Env | None
+    ) -> str:
+        """Feed the per-row result array to a collection-level reducer node.
+
+        Each row is parsed to JSON when possible so the reducer receives a
+        real array of objects; otherwise the raw string is kept.
+        """
+        from screamingface.plugins.url4_executor.decoder import split_intent
+        from screamingface.plugins.url4_executor.url4 import parse
+        from screamingface.plugins.url4_executor.url4_ast import Url4BackendCall
+        from screamingface.plugins.url4_executor.url4_resolve import (
+            _dispatch_backend_call_with_intent,
+        )
+
+        array_json = json.dumps([self._maybe_json(r) for r in rows])
+        reducer_src, _reducer_intent, _bcast = split_intent(reducer_intent)
+        node = parse(reducer_src)
+        if isinstance(node, Url4BackendCall):
+            return await _dispatch_backend_call_with_intent(node, array_json, self.app, env)
+        # text reducer fallback: hand the array to the default reducer
+        return await self.process(array_json, reducer_intent, env)
 
     # ------------------------------------------------------------------
     # Strategy 2: intent broadcasting (SF-93, ``!*``)

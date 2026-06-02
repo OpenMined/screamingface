@@ -144,6 +144,27 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
     )
 
 
+async def _dispatch_backend_call_with_intent(
+    node: Url4BackendCall, intent_json: str, app: Any, env: Env | None = None
+) -> str:
+    """Dispatch a backend_call but with its intent replaced by ``intent_json``.
+
+    Used by the collection-level reducer: the per-row result array is handed
+    to the reducer node (e.g. ``/python(calculate_accuracy.py)``) as its
+    payload. Because we construct the :class:`Url4Text` node directly (not by
+    parsing a string), the JSON array's internal commas are safe — they never
+    hit the grammar.
+    """
+    replaced = Url4BackendCall(
+        path=node.path,
+        packed_context=node.packed_context,
+        intent=Url4Text(value=intent_json),
+        name=node.name,
+        weight=node.weight,
+    )
+    return await _dispatch_backend_call(replaced, app, env)
+
+
 async def _resolve_expanded_source(
     node: Url4ExpandedSource, app: Any, env: Env | None = None
 ) -> str:
