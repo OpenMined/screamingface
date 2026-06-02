@@ -137,6 +137,7 @@ GRAMMAR = r"""
     atom_no_bc
         = url
         | relurl
+        | json_blob
         | text
         ;
 
@@ -145,6 +146,11 @@ GRAMMAR = r"""
     relurl = value:/\/(?:[^\s,()]|\([^()]*\))*/ ;
 
     text = value:/[^,()]+/ ;
+
+    # A JSON-object intent payload: balanced { ... } allowing one level of
+    # nested {}. Lets a backend-call intent carry a multi-key JSON payload
+    # whose internal commas would otherwise split the enclosing list.
+    json_blob = value:/\{(?:[^{}]|\{[^{}]*\})*\}/ ;
 """
 
 
@@ -156,6 +162,9 @@ class Url4Semantics:
         return Url4RelUrl(value=ast.value.strip())
 
     def text(self, ast):
+        return Url4Text(value=ast.value.strip())
+
+    def json_blob(self, ast):
         return Url4Text(value=ast.value.strip())
 
     def backend_call(self, ast):
