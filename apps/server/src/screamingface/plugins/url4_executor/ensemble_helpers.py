@@ -5,9 +5,10 @@ can shrink to a thin dispatch over the four evaluation strategies
 (collection iteration, broadcast, ensemble fan-out, single-source).
 
 Public names (unprefixed): ``FanoutResponse``, ``build_reducer_input``,
-``substitute_response_vars``, ``split_collection_iteration``,
-``substitute_item``. The legacy underscore-prefixed aliases are kept
-for back-compat with existing callers and tests.
+``substitute_response_vars``, ``substitute_env_vars``,
+``split_collection_iteration``, ``substitute_item``. The legacy
+underscore-prefixed aliases are kept for back-compat with existing
+callers and tests.
 """
 
 from __future__ import annotations
@@ -15,6 +16,10 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from screamingface.plugins.url4_executor.scope import Env
 
 
 @dataclass
@@ -120,6 +125,31 @@ def substitute_response_vars(instruction: str, entries: list[FanoutResponse]) ->
     return instruction
 
 
+def substitute_env_vars(text: str, env: Env | None) -> str:
+    """Replace ``$name`` tokens with values from the ``Env`` scope chain.
+
+    Generalises SF-90's fan-out-only substitution to arbitrary named
+    bindings (``name=`` / ``name:``) resolved via ``Env.lookup``.
+    ``$item`` / ``$item.<field>`` are NOT touched (collection iteration
+    owns those via ``substitute_item``). Unknown names are left verbatim.
+    """
+    if not text or env is None or "$" not in text:
+        return text
+    token = re.compile(r"\$([a-zA-Z_][a-zA-Z0-9_]*)")
+
+    def _replace(m: re.Match) -> str:
+        name = m.group(1)
+        if name == "item":  # reserved: substitute_item owns $item / $item.field
+            return m.group(0)
+        try:
+            value = env.lookup(name)
+        except KeyError:
+            return m.group(0)
+        return value if isinstance(value, str) else str(value)
+
+    return token.sub(_replace, text)
+
+
 def split_collection_iteration(source_expr: str) -> tuple[str | None, str | None]:
     """Detect the ``source*(body)`` collection-iteration pattern.
 
@@ -217,6 +247,7 @@ __all__ = [
     "_substitute_response_vars",
     "build_reducer_input",
     "split_collection_iteration",
+    "substitute_env_vars",
     "substitute_item",
     "substitute_response_vars",
 ]
