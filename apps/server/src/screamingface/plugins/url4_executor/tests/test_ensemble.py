@@ -512,7 +512,17 @@ class TestSubstituteItem:
             '{"q":"hi"}',
         )
         assert "hi" in result
-        assert '{"q":"hi"}' in result or "hi" in result
+
+    def test_bare_item_with_unicode_escape_in_data(self):
+        """Regression: a bare $item whose raw JSON contains a ``\\u`` unicode
+        escape must not crash. A string re.sub replacement parses ``\\u``
+        eagerly and raises 'bad escape \\u' (the bug seen on real JSONL
+        datasets); the callable form inserts the value literally."""
+        # Non-raw string: each \\u00e9 is a single backslash + u00e9, exactly
+        # how a JSONL line stores a unicode escape.
+        item_json = '{"question": "caf\\u00e9 r\\u00e9sum\\u00e9"}'
+        assert "\\u00e9" in item_json  # sanity: a real single-backslash \\u escape
+        assert _substitute_item("$item", item_json) == item_json
 
 
 @pytest.mark.anyio

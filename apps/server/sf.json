@@ -37,8 +37,8 @@
       "database_path": null,
       "uv_bin": null,
       "auth_enabled": false,
-      "startup_timeout_seconds": 60.0,
-      "migrations_timeout_seconds": 30.0,
+      "startup_timeout_seconds": 60,
+      "migrations_timeout_seconds": 30,
       "enabled": true
     },
     "aigw-base": {
@@ -241,32 +241,11 @@
     },
     "url4-specs": {
       "specs": {
-        "all-docs": {
-          "expression": "(https://docs.a.com, https://docs.b.com)"
-        },
-        "news-feed": {
-          "expression": "(https://news.com/feed, https://blog.com/rss)"
-        },
-        "internal-apis": {
-          "expression": "(https://api.internal.dev/v1, https://api.internal.dev/v2)"
-        },
-        "simple-test": {
-          "expression": "Hello from url4 spec"
-        },
-        "httpbin-robots": {
-          "expression": "(https://httpbin.org/robots.txt)!'Summarize this robots.txt'"
-        },
         "anthropic-cookbook": {
           "expression": "(https://raw.githubusercontent.com/anthropics/anthropic-cookbook/main/README.md)!$prompt"
         },
-        "cat-breeds": {
-          "expression": "(https://raw.githubusercontent.com/multimandan/PetSave/refs/heads/master/cat-breeds.txt)!$prompt"
-        },
-        "cat-breeds-2": {
-          "expression": "(https://raw.githubusercontent.com/multimandan/PetSave/refs/heads/master/cat-breeds.txt, $prompt)!'Answer the user question using the provided context'"
-        },
-        "cat-breeds-3sources": {
-          "expression": "/claude?q=%28https://raw.githubusercontent.com/phiggins/phiggins_coding_challenge/master/examples/cat_breeds.csv%2Chttps://raw.githubusercontent.com/prasertcbs/basic-dataset/master/cat.csv%2Chttps://raw.githubusercontent.com/multimandan/PetSave/refs/heads/master/cat-breeds.txt%29%21$prompt"
+        "MainOne": {
+          "expression": "https://screamingface.ai/livetruth-latest.eval.jsonl*(claude:0.40:/claude($item.question)!'Answer this question. If it is multiple choice, return a probability distribution over the answer choices as JSON. Format: {\"A\": 0.7, \"B\": 0.2, \"C\": 0.05,\"D\": 0.05}. Return only the JSON object.',codex:0.30:/codex($item.question)!'Answer this question. If it is multiple choice, return a probability distribution over the answer choices as JSON. Format: {\"A\": 0.7, \"B\": 0.2, \"C\": 0.05,\"D\": 0.05}. Return only the JSON object.', gemini:0.30:/gemini($item.question)!'Answer this question. If it is multiple choice, return a probability distribution over the answer choices as JSON. Format: {\"A\": 0.7, \"B\": 0.2, \"C\": 0.05,\"D\": 0.05}. Return only the JSON object.')!'Compute a weighted average of these distributions using source weights claude=0.40, codex=0.30, gemini=0.30. Return the single answer letter with the highest combined probability.'"
         }
       }
     }

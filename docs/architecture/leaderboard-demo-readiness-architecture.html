@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Leaderboard Demo — Readiness Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'JetBrains Mono', monospace; background: #020617; min-height: 100vh; padding: 2rem; color: white; }
+    .container { max-width: 1320px; margin: 0 auto; }
+    .header { margin-bottom: 1.5rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #22d3ee; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+    .diagram-container { background: rgba(15, 23, 42, 0.5); border-radius: 1rem; border: 1px solid #1e293b; padding: 1.5rem; overflow-x: auto; }
+    svg { width: 100%; min-width: 1100px; display: block; }
+    svg text { paint-order: stroke fill; stroke: rgba(2, 6, 23, 0.75); stroke-width: 1; stroke-linejoin: round; stroke-linecap: round; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+    .card { background: rgba(15, 23, 42, 0.5); border-radius: 0.75rem; border: 1px solid #1e293b; padding: 1.25rem; }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.emerald { background: #34d399; } .card-dot.amber { background: #fbbf24; } .card-dot.rose { background: #fb7185; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+    .toolbar { display: flex; gap: 0.5rem; margin-left: auto; flex-shrink: 0; align-items: center; }
+    .toolbar-toggle { background: transparent; border: none; color: #475569; cursor: pointer; font-size: 1.25rem; line-height: 1; padding: 0.25rem 0.5rem; border-radius: 0.375rem; transition: color 0.2s, background 0.2s; }
+    .toolbar-toggle:hover { color: #94a3b8; background: rgba(30, 41, 59, 0.5); }
+    .toolbar-actions { display: none; gap: 0.5rem; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar-actions button { background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: #94a3b8; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-family: inherit; font-size: 0.75rem; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+    .toolbar-actions button:hover { background: rgba(51, 65, 85, 0.8); color: white; border-color: #475569; }
+    @media print { body { background: #020617; padding: 1rem; } .toolbar { display: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>Leaderboard Demo — Readiness</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">What's built vs. not for the demo loop, and feature-readiness for the HLE 3-provider URL4 query</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1240 1060">
+        <defs>
+          <marker id="ah-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#64748b" /></marker>
+          <marker id="ah-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#34d399" /></marker>
+          <marker id="ah-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" /></marker>
+          <marker id="ah-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" /></marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- ===== STATUS LEGEND ===== -->
+        <rect x="24" y="24" width="300" height="74" rx="8" fill="rgba(15,23,42,0.92)" stroke="#334155" stroke-width="1"/>
+        <text x="38" y="44" fill="white" font-size="11" font-weight="700">Status legend</text>
+        <circle cx="46" cy="62" r="5" fill="rgba(6,78,59,0.6)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="58" y="65" fill="#94a3b8" font-size="9">✓ READY (built / works)</text>
+        <circle cx="46" cy="80" r="5" fill="rgba(136,19,55,0.5)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="58" y="83" fill="#94a3b8" font-size="9">✗ NOT READY (not built / broken)</text>
+        <circle cx="210" cy="62" r="5" fill="rgba(120,53,15,0.4)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="222" y="65" fill="#94a3b8" font-size="9">~ PARTIAL</text>
+        <line x1="200" y1="76" x2="216" y2="76" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"/>
+        <text x="222" y="83" fill="#94a3b8" font-size="9">missing connector</text>
+
+        <!-- ============================================================ -->
+        <!-- BAND 1: Leaderboard Demo loop — component readiness          -->
+        <!-- ============================================================ -->
+        <rect x="20" y="120" width="1200" height="400" rx="12" fill="rgba(251,191,36,0.04)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+        <rect x="32" y="128" width="430" height="18" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="40" y="141" fill="#fbbf24" font-size="11" font-weight="700">BAND 1 · Leaderboard Demo loop — component readiness</text>
+
+        <!-- Public Portal (web) NOT BUILT -->
+        <rect x="50" y="200" width="150" height="78" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="60" y="218" fill="#fb7185" font-size="8" font-weight="700">✗ NOT READY</text>
+        <text x="125" y="238" fill="white" font-size="11" font-weight="600" text-anchor="middle">Public Portal</text>
+        <text x="125" y="254" fill="#94a3b8" font-size="8" text-anchor="middle">D-SCORE-005</text>
+        <text x="125" y="268" fill="#94a3b8" font-size="8" text-anchor="middle">web/ is empty stub</text>
+
+        <!-- Scoreboard service READY -->
+        <rect x="50" y="380" width="190" height="88" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="60" y="398" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="145" y="418" fill="white" font-size="11" font-weight="600" text-anchor="middle">Scoreboard :9106</text>
+        <text x="145" y="433" fill="#94a3b8" font-size="8" text-anchor="middle">+ PostgreSQL · D-SCORE-001/2/4</text>
+        <text x="145" y="447" fill="#94a3b8" font-size="8" text-anchor="middle">GET /v1/leaderboard</text>
+        <text x="145" y="460" fill="#94a3b8" font-size="8" text-anchor="middle">POST /v1/scores</text>
+
+        <!-- sf:// deep link NOT BUILT (connector) -->
+        <rect x="262" y="212" width="138" height="58" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"/>
+        <text x="272" y="229" fill="#fb7185" font-size="8" font-weight="700">✗ NOT READY</text>
+        <text x="331" y="246" fill="white" font-size="10" font-weight="600" text-anchor="middle">sf:// deep link</text>
+        <text x="331" y="260" fill="#94a3b8" font-size="8" text-anchor="middle">DEMO-018 · trigger</text>
+
+        <!-- Desktop app sub-group -->
+        <rect x="430" y="172" width="610" height="130" rx="10" fill="rgba(8,51,68,0.12)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4"/>
+        <rect x="442" y="178" width="120" height="16" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="450" y="190" fill="#22d3ee" font-size="9" font-weight="600">Desktop app (Electron)</text>
+
+        <!-- RunView READY -->
+        <rect x="452" y="206" width="172" height="84" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="462" y="224" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="538" y="242" fill="white" font-size="11" font-weight="600" text-anchor="middle">RunView</text>
+        <text x="538" y="257" fill="#94a3b8" font-size="8" text-anchor="middle">SF-167 / DEMO-020</text>
+        <text x="538" y="270" fill="#94a3b8" font-size="8" text-anchor="middle">PR #222 (unmerged)</text>
+        <text x="538" y="283" fill="#94a3b8" font-size="8" text-anchor="middle">fires startRun()</text>
+
+        <!-- URL4 editor NOT BUILT -->
+        <rect x="644" y="206" width="172" height="84" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="654" y="224" fill="#fb7185" font-size="8" font-weight="700">✗ NOT READY</text>
+        <text x="730" y="242" fill="white" font-size="11" font-weight="600" text-anchor="middle">URL4 editor</text>
+        <text x="730" y="257" fill="#94a3b8" font-size="8" text-anchor="middle">SF-182 / DEMO-023</text>
+        <text x="730" y="270" fill="#94a3b8" font-size="8" text-anchor="middle">edit + re-run</text>
+        <text x="730" y="283" fill="#94a3b8" font-size="8" text-anchor="middle">(next)</text>
+
+        <!-- Eval Studio READY -->
+        <rect x="836" y="206" width="190" height="84" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="846" y="224" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="931" y="242" fill="white" font-size="11" font-weight="600" text-anchor="middle">Eval Studio</text>
+        <text x="931" y="257" fill="#94a3b8" font-size="8" text-anchor="middle">SF-168 / DEMO-021 · merged</text>
+        <text x="931" y="270" fill="#94a3b8" font-size="8" text-anchor="middle">GET /eval_runs</text>
+
+        <!-- SF→Scoreboard ingestion NOT BUILT (connector) -->
+        <rect x="288" y="392" width="152" height="64" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4"/>
+        <text x="298" y="409" fill="#fb7185" font-size="8" font-weight="700">✗ NOT READY</text>
+        <text x="364" y="426" fill="white" font-size="10" font-weight="600" text-anchor="middle">SF→Scoreboard</text>
+        <text x="364" y="439" fill="white" font-size="10" font-weight="600" text-anchor="middle">ingestion</text>
+        <text x="364" y="452" fill="#94a3b8" font-size="8" text-anchor="middle">D-SCORE-006</text>
+
+        <!-- SF server READY -->
+        <rect x="470" y="386" width="222" height="92" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="480" y="404" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="581" y="422" fill="white" font-size="11" font-weight="600" text-anchor="middle">SF server :8000 — eval engine</text>
+        <text x="581" y="437" fill="#94a3b8" font-size="8" text-anchor="middle">/ensemble fan-out + Python scoring</text>
+        <text x="581" y="450" fill="#94a3b8" font-size="8" text-anchor="middle">→ eval_runs persistence</text>
+        <text x="581" y="465" fill="#94a3b8" font-size="8" text-anchor="middle">recent fixes SF-228 / 230 / 231</text>
+
+        <!-- aigateway READY -->
+        <rect x="720" y="394" width="190" height="78" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="730" y="412" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="815" y="430" fill="white" font-size="11" font-weight="600" text-anchor="middle">aigateway :9105</text>
+        <text x="815" y="445" fill="#94a3b8" font-size="8" text-anchor="middle">OAuth / model access</text>
+        <text x="815" y="458" fill="#94a3b8" font-size="8" text-anchor="middle">Dmitry aigateway track</text>
+
+        <!-- ===== BAND 1 arrows ===== -->
+        <!-- Portal -> sf:// deep link -->
+        <line x1="200" y1="240" x2="260" y2="240" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#ah-rose)"/>
+        <!-- sf:// deep link -> RunView -->
+        <line x1="400" y1="240" x2="450" y2="240" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#ah-rose)"/>
+        <rect x="276" y="180" width="116" height="14" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="334" y="190" fill="#fb7185" font-size="8" text-anchor="middle">① click "Run Locally"</text>
+        <line x1="334" y1="194" x2="334" y2="210" stroke="#fb7185" stroke-width="0.6" stroke-dasharray="2,2"/>
+
+        <!-- URL4 editor -> RunView (edit -> re-run) -->
+        <line x1="644" y1="280" x2="626" y2="280" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#ah-slate)"/>
+        <rect x="556" y="294" width="120" height="14" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="616" y="304" fill="#94a3b8" font-size="8" text-anchor="middle">⑥ edit → re-run</text>
+        <line x1="635" y1="294" x2="635" y2="282" stroke="#94a3b8" stroke-width="0.6" stroke-dasharray="2,2"/>
+
+        <!-- RunView -> SF server (GET /ensemble) -->
+        <line x1="538" y1="290" x2="560" y2="384" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <rect x="384" y="330" width="158" height="14" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="463" y="340" fill="#34d399" font-size="8" text-anchor="middle">② GET /ensemble (+secret)</text>
+        <line x1="542" y1="337" x2="552" y2="350" stroke="#34d399" stroke-width="0.6" stroke-dasharray="2,2"/>
+
+        <!-- SF server -> aigateway -->
+        <line x1="692" y1="432" x2="718" y2="432" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-slate)"/>
+        <rect x="640" y="476" width="150" height="14" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="715" y="486" fill="#94a3b8" font-size="8" text-anchor="middle">③ model calls via OAuth</text>
+        <line x1="706" y1="476" x2="706" y2="450" stroke="#94a3b8" stroke-width="0.6" stroke-dasharray="2,2"/>
+
+        <!-- SF server -> Eval Studio (writes/reads eval_runs) -->
+        <path d="M 692 410 Q 860 360 931 292" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <rect x="838" y="344" width="160" height="14" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="918" y="354" fill="#34d399" font-size="8" text-anchor="middle">④ eval_runs → Eval Studio</text>
+        <line x1="868" y1="358" x2="852" y2="351" stroke="#34d399" stroke-width="0.6" stroke-dasharray="2,2"/>
+
+        <!-- SF server -> ingestion (submit score, missing) -->
+        <line x1="470" y1="432" x2="442" y2="424" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#ah-rose)"/>
+        <!-- ingestion -> Scoreboard -->
+        <line x1="288" y1="424" x2="242" y2="424" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#ah-rose)"/>
+        <rect x="250" y="468" width="200" height="14" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="350" y="478" fill="#fb7185" font-size="8" text-anchor="middle">⑦ POST /v1/scores (MISSING)</text>
+        <line x1="350" y1="468" x2="360" y2="456" stroke="#fb7185" stroke-width="0.6" stroke-dasharray="2,2"/>
+
+        <!-- Scoreboard -> Portal (GET /v1/leaderboard) closes loop -->
+        <line x1="145" y1="380" x2="135" y2="280" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <rect x="40" y="320" width="92" height="26" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="86" y="332" fill="#94a3b8" font-size="8" text-anchor="middle">GET</text>
+        <text x="86" y="342" fill="#94a3b8" font-size="8" text-anchor="middle">/v1/leaderboard</text>
+        <line x1="132" y1="333" x2="139" y2="332" stroke="#34d399" stroke-width="0.6" stroke-dasharray="2,2"/>
+
+        <!-- ============================================================ -->
+        <!-- BAND 2: URL4 query pipeline — feature readiness              -->
+        <!-- ============================================================ -->
+        <rect x="20" y="560" width="1200" height="470" rx="12" fill="rgba(251,191,36,0.04)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+        <rect x="32" y="568" width="400" height="18" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="40" y="581" fill="#fbbf24" font-size="11" font-weight="700">BAND 2 · URL4 query pipeline — feature readiness</text>
+        <rect x="690" y="568" width="430" height="18" rx="3" fill="rgba(6,78,59,0.5)" stroke="#34d399" stroke-width="1"/>
+        <text x="905" y="581" fill="#e2e8f0" font-size="9" font-weight="600" text-anchor="middle">8/10 READY · 2 blockers (#9 python exec, #10 hints) · 1 data-URL fix</text>
+
+        <!-- Row 1: stages 1-5 (y=620, h=96) -->
+        <!-- 1 Fetch source READY -->
+        <rect x="60" y="620" width="200" height="96" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="70" y="638" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="160" y="656" fill="white" font-size="10" font-weight="600" text-anchor="middle">1 · Fetch source</text>
+        <text x="160" y="670" fill="#94a3b8" font-size="8" text-anchor="middle">https:// JSONL</text>
+        <text x="160" y="683" fill="#94a3b8" font-size="8" text-anchor="middle">_fetch_url</text>
+        <text x="160" y="696" fill="#94a3b8" font-size="8" text-anchor="middle">url4_resolve.py:196</text>
+        <text x="160" y="710" fill="#fb7185" font-size="7" text-anchor="middle">⚠ data-URL is broken (below)</text>
+
+        <!-- 2 Collection iterate READY -->
+        <rect x="290" y="620" width="200" height="96" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="300" y="638" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="390" y="656" fill="white" font-size="10" font-weight="600" text-anchor="middle">2 · Collection iterate</text>
+        <text x="390" y="670" fill="#94a3b8" font-size="8" text-anchor="middle">source * ( ... )</text>
+        <text x="390" y="683" fill="#94a3b8" font-size="8" text-anchor="middle">JSONL → items</text>
+        <text x="390" y="696" fill="#94a3b8" font-size="8" text-anchor="middle">ensemble.py:141</text>
+
+        <!-- 3 $item READY -->
+        <rect x="520" y="620" width="200" height="96" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="530" y="638" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="620" y="656" fill="white" font-size="10" font-weight="600" text-anchor="middle">3 · $item / $item.field</text>
+        <text x="620" y="670" fill="#94a3b8" font-size="8" text-anchor="middle">$item.answer</text>
+        <text x="620" y="683" fill="#94a3b8" font-size="8" text-anchor="middle">$item.question</text>
+        <text x="620" y="696" fill="#94a3b8" font-size="8" text-anchor="middle">ensemble_helpers.py:164</text>
+
+        <!-- 4 Named bindings READY -->
+        <rect x="750" y="620" width="200" height="96" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="760" y="638" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="850" y="656" fill="white" font-size="10" font-weight="600" text-anchor="middle">4 · Named bindings</text>
+        <text x="850" y="670" fill="#94a3b8" font-size="8" text-anchor="middle">name=expr  /  name:expr</text>
+        <text x="850" y="683" fill="#94a3b8" font-size="8" text-anchor="middle">DEMO-005</text>
+        <text x="850" y="696" fill="#94a3b8" font-size="8" text-anchor="middle">url4_grammar.py:45</text>
+
+        <!-- 5 Weighted sources READY -->
+        <rect x="980" y="620" width="200" height="96" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="990" y="638" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="1080" y="656" fill="white" font-size="10" font-weight="600" text-anchor="middle">5 · Weighted sources</text>
+        <text x="1080" y="670" fill="#94a3b8" font-size="8" text-anchor="middle">claude:0.40:/claude(..)</text>
+        <text x="1080" y="683" fill="#94a3b8" font-size="8" text-anchor="middle">label:weight: parse</text>
+        <text x="1080" y="696" fill="#94a3b8" font-size="8" text-anchor="middle">url4_grammar.py:113</text>
+
+        <!-- Row 2: stages 6-10 (y=830) -->
+        <!-- 6 Backend calls READY -->
+        <rect x="60" y="830" width="200" height="96" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="70" y="848" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="160" y="866" fill="white" font-size="10" font-weight="600" text-anchor="middle">6 · Backend calls</text>
+        <text x="160" y="880" fill="#94a3b8" font-size="8" text-anchor="middle">/claude /codex /gemini</text>
+        <text x="160" y="893" fill="#94a3b8" font-size="8" text-anchor="middle">backend_call_paths</text>
+        <text x="160" y="906" fill="#94a3b8" font-size="8" text-anchor="middle">url4_resolve.py:106</text>
+
+        <!-- 7 Intent READY -->
+        <rect x="290" y="830" width="200" height="96" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="300" y="848" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="390" y="866" fill="white" font-size="10" font-weight="600" text-anchor="middle">7 · Intent  !'…'</text>
+        <text x="390" y="880" fill="#94a3b8" font-size="8" text-anchor="middle">apply prompt to source</text>
+        <text x="390" y="893" fill="#94a3b8" font-size="8" text-anchor="middle">decoder.py:6</text>
+
+        <!-- 8 Broadcast intent READY -->
+        <rect x="520" y="830" width="200" height="96" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="530" y="848" fill="#34d399" font-size="8" font-weight="700">✓ READY</text>
+        <text x="620" y="866" fill="white" font-size="10" font-weight="600" text-anchor="middle">8 · Broadcast  !*'…'</text>
+        <text x="620" y="880" fill="#94a3b8" font-size="8" text-anchor="middle">per-element intent</text>
+        <text x="620" y="893" fill="#94a3b8" font-size="8" text-anchor="middle">(validate distribution)</text>
+        <text x="620" y="906" fill="#94a3b8" font-size="8" text-anchor="middle">ensemble.py:183</text>
+
+        <!-- 9 Python scoring NOT READY -->
+        <rect x="750" y="830" width="200" height="96" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="760" y="848" fill="#fb7185" font-size="8" font-weight="700">✗ NOT READY</text>
+        <text x="850" y="866" fill="white" font-size="10" font-weight="600" text-anchor="middle">9 · Python scoring</text>
+        <text x="850" y="880" fill="#94a3b8" font-size="8" text-anchor="middle">!/data/check_correct.py</text>
+        <text x="850" y="893" fill="#94a3b8" font-size="8" text-anchor="middle">returns TEXT, not executed</text>
+        <text x="850" y="906" fill="#fb7185" font-size="7" text-anchor="middle">use /python(src)!'payload'</text>
+
+        <!-- 10 Exec hints NOT READY -->
+        <rect x="980" y="830" width="200" height="96" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="990" y="848" fill="#fb7185" font-size="8" font-weight="700">✗ NOT READY</text>
+        <text x="1080" y="866" fill="white" font-size="10" font-weight="600" text-anchor="middle">10 · Exec hints</text>
+        <text x="1080" y="880" fill="#94a3b8" font-size="8" text-anchor="middle">;foreach.concurrency=10</text>
+        <text x="1080" y="893" fill="#94a3b8" font-size="8" text-anchor="middle">;foreach.on_error=collect</text>
+        <text x="1080" y="906" fill="#fb7185" font-size="7" text-anchor="middle">no impl · gather, no limit</text>
+
+        <!-- Row1 flow arrows -->
+        <line x1="260" y1="668" x2="288" y2="668" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <line x1="490" y1="668" x2="518" y2="668" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <line x1="720" y1="668" x2="748" y2="668" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <line x1="950" y1="668" x2="978" y2="668" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+
+        <!-- snake connector: stage 5 -> stage 6 -->
+        <path d="M 1080 716 L 1080 770 Q 1080 782 1068 782 L 172 782 Q 160 782 160 794 L 160 828" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#ah-slate)"/>
+        <rect x="560" y="775" width="120" height="14" rx="3" fill="rgba(15,23,42,0.92)" stroke="rgba(148,163,184,0.6)" stroke-width="1"/>
+        <text x="620" y="785" fill="#94a3b8" font-size="8" text-anchor="middle">pipeline continues ↓</text>
+
+        <!-- Row2 flow arrows -->
+        <line x1="260" y1="878" x2="288" y2="878" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <line x1="490" y1="878" x2="518" y2="878" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <line x1="720" y1="878" x2="748" y2="878" stroke="#fb7185" stroke-width="1.5" marker-end="url(#ah-rose)"/>
+        <line x1="950" y1="878" x2="978" y2="878" stroke="#fb7185" stroke-width="1.5" marker-end="url(#ah-rose)"/>
+
+        <!-- data-URL fix annotation under stage 1 -->
+        <rect x="60" y="945" width="430" height="58" rx="6" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="72" y="963" fill="#fb7185" font-size="8" font-weight="700">⚠ DATA-URL FIX</text>
+        <text x="72" y="978" fill="#94a3b8" font-size="8">github.com/openmined/HLE.jsonl → 404 HTML page (web UI, not the file).</text>
+        <text x="72" y="992" fill="#94a3b8" font-size="8">Use raw.githubusercontent.com/... or file:///abs/path/sample.jsonl</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header"><div class="card-dot emerald"></div><h3>READY (built / works)</h3></div>
+        <ul>
+          <li>• SF server :8000 eval engine — /ensemble + Python scoring + eval_runs</li>
+          <li>• Desktop RunView (SF-167, PR #222) + Eval Studio (merged)</li>
+          <li>• Scoreboard service + read/write API (D-SCORE-001/2/4)</li>
+          <li>• URL4: fetch, iterate, $item, bindings, weights, backend calls, intent, broadcast</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot rose"></div><h3>NOT BUILT (loop gaps)</h3></div>
+        <ul>
+          <li>• sf:// deep link (DEMO-018) — leaderboard → desktop trigger</li>
+          <li>• SF→Scoreboard ingestion (D-SCORE-006) — no score submitter</li>
+          <li>• Public portal web UI (D-SCORE-005) — web/ empty</li>
+          <li>• URL4 editor in RunView (SF-182 / DEMO-023) — next</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot amber"></div><h3>To run THIS query — 3 blockers</h3></div>
+        <ul>
+          <li>• #9 Python scoring: !/data/*.py returns text; needs /python(src)!'payload'</li>
+          <li>• #10 Exec hints: ;foreach.concurrency / on_error not implemented</li>
+          <li>• Data URL: github.com blob 404s → use raw.githubusercontent.com</li>
+          <li>• Everything else in the expression is supported today</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">screamingface • Leaderboard Demo readiness • bands: demo loop + URL4 query pipeline</p>
+  </div>
+
+  <script>
+    async function copyAsImage(btn) {
+      const orig = btn.textContent;
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+    async function downloadPNG(btn) {
+      const orig = btn.textContent; btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const link = document.createElement('a'); link.download = 'leaderboard-demo-readiness.png'; link.href = canvas.toDataURL('image/png'); link.click();
+        btn.textContent = '✓ Done!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+    async function downloadPDF(btn) {
+      const orig = btn.textContent; btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('leaderboard-demo-readiness.pdf');
+        btn.textContent = '✓ Done!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+  </script>
+</body>
+</html>
