@@ -354,8 +354,6 @@ def _database_url(settings: AigwRunnerSettings) -> str:
 def _gateway_env(settings: AigwRunnerSettings, database_url: str) -> dict[str, str]:
     env = os.environ.copy()
     env.pop("VIRTUAL_ENV", None)
-    env["AIGATEWAY_DATABASE_URL"] = database_url
-    env["AIGATEWAY_AUTH_ENABLED"] = "false"
     # Inject configured AIGW_* / other env so it survives launchers that
     # strip the user's shell env (notably the Electron desktop app).
     for key, value in settings.aigw_env.items():
@@ -363,6 +361,8 @@ def _gateway_env(settings: AigwRunnerSettings, database_url: str) -> dict[str, s
     # Runner-owned invariants for local-managed mode must win over aigw_env.
     env["AIGATEWAY_DATABASE_URL"] = database_url
     env["AIGATEWAY_AUTH_ENABLED"] = "false"
+    return env
+
 
 def _is_port_open(host: str, port: int) -> bool:
     try:
