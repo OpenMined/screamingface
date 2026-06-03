@@ -20,7 +20,9 @@ _DEFAULT_MODEL = "o4-mini"
 
 
 def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRouter:
-    backend = OpenAIBackend()
+    from screamingface.plugins.codex_backend_api.plugin import _maybe_aigw_source
+
+    backend = OpenAIBackend(aigw_source=_maybe_aigw_source(settings, app))
 
     def build_interpreter() -> Any:
         from screamingface.plugins.codex_backend_api.interpreter import (

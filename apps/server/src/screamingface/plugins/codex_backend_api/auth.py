@@ -58,20 +58,36 @@ TOKEN_EXCHANGE_SUBJECT_TYPE = "urn:ietf:params:oauth:token-type:id_token"
 REFRESH_WINDOW_SECONDS = 60
 
 
-def _decode_jwt_exp(token: str) -> float | None:
-    """Return the unsigned JWT ``exp`` claim (seconds since epoch), or None."""
+def _decode_jwt_payload(token: str) -> dict:
+    """Return unsigned JWT claims, or an empty dict for opaque/malformed tokens."""
     parts = token.split(".")
     if len(parts) < 2:
-        return None
+        return {}
     payload_b64 = parts[1]
     padding = 4 - len(payload_b64) % 4
     if padding != 4:
         payload_b64 += "=" * padding
     try:
         payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-        return float(payload["exp"])
     except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _decode_jwt_exp(token: str) -> float | None:
+    """Return the unsigned JWT ``exp`` claim (seconds since epoch), or None."""
+    exp = _decode_jwt_payload(token).get("exp")
+    if isinstance(exp, int | float):
+        return float(exp)
+    return None
+
+
+def _decode_chatgpt_account_id(token: str) -> str | None:
+    auth_claims = _decode_jwt_payload(token).get("https://api.openai.com/auth")
+    if not isinstance(auth_claims, dict):
         return None
+    account_id = auth_claims.get("chatgpt_account_id")
+    return account_id if isinstance(account_id, str) and account_id else None
 
 
 class CodexOAuth(OAuthStrategy):
@@ -161,11 +177,15 @@ class CodexOAuth(OAuthStrategy):
         Codex's _build_headers only reads access_token. The refresh_token /
         id_token fields aren't used on the aigw path because aigw owns refresh.
         """
-        return {
+        creds = {
             "access_token": access_token,
             "refresh_token": "",
             "id_token": "",
         }
+        account_id = _decode_chatgpt_account_id(access_token)
+        if account_id:
+            creds["account_id"] = account_id
+        return creds
 
     async def _refresh_credential(self, creds: dict) -> dict:
         body = {
@@ -229,9 +249,14 @@ class CodexOAuth(OAuthStrategy):
 
     def get_account_id(self) -> str:
         """Return the ``chatgpt_account_id`` from the cached tokens."""
-        if self._cached is None:
-            self._cached = self._read_credential()
-        return self._cached.get("account_id", "")
+        cached = getattr(self, "_cached", None)
+        if cached is None:
+            if self._aigw_source is not None:
+                return ""
+            cached = self._read_credential()
+            self._cached = cached
+        account_id = cached.get("account_id", "")
+        return account_id if isinstance(account_id, str) else ""
 
     # Backward-compat alias — legacy tests still call ``_read_from_file``.
     _read_from_file = _read_credential

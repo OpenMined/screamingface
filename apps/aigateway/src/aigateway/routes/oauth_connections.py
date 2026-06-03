@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from tortoise.exceptions import IntegrityError
 
 from aigateway.core.auth.middleware import CurrentAccount
-from aigateway.core.errors import AuthError, CredentialNotFoundError, ReauthRequiredError
+from aigateway.core.errors import AuthError, CredentialNotFoundError
 from aigateway.core.oauth.schemas import (
     CreateOAuthConnectionRequest,
     OAuthConnectionListResponse,
@@ -20,6 +20,10 @@ from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
     response_from_connection,
+)
+from aigateway.core.oauth.token_service import (
+    OAuthConnectionTokenError,
+    oauth_connection_token_service,
 )
 from aigateway.core.oauth_pkce import generate_pkce, generate_state
 from aigateway.core.pending_auth import PendingAuthEntry
@@ -189,44 +193,22 @@ async def get_connection_token(
     """
     from datetime import UTC, datetime
 
-    store = _store(request)
-    connection = await store.get(str(current.id), connection_id)
-    if connection is None:
-        raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-    if connection.status != "active":
-        raise HTTPException(status_code=409, detail={"code": "connection_not_active"})
-    plugin = request.app.state.providers.get(connection.provider)
-    if plugin is None:
-        raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
-    strategy = plugin.oauth_strategy_for(
-        credential_key_for(current.id, connection.id),
-        credential_store=request.app.state.credential_store,
-        http_client_factory=getattr(request.app.state, f"{connection.provider}_http_factory", None),
-    )
-    if strategy is None:
-        raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
     try:
-        access_token, expires_at_ms, refreshed = await strategy.get_token_with_expiry()
-    except (CredentialNotFoundError, ReauthRequiredError) as exc:
-        # Credential missing, or the refresh token was rejected by the provider
-        # (revoked / invalid_grant). The connection cannot recover without a new
-        # browser auth, so mark it errored and tell the caller to re-auth.
-        await store.mark_error(connection, str(exc))
-        raise HTTPException(
-            status_code=401, detail={"code": "auth_required", "message": str(exc)}
-        ) from exc
-    except AuthError as exc:
-        # Transient upstream refresh failure (network error, provider 5xx). Leave
-        # the connection active and surface 503 so callers back off and retry.
-        raise HTTPException(
-            status_code=503, detail={"code": "upstream_refresh_failed", "message": str(exc)}
-        ) from exc
-    if refreshed:
-        await store.touch_last_refreshed(connection)
-    await store.touch_last_used(connection)
+        token = await oauth_connection_token_service(request.app).get_token(
+            account_id=current.id,
+            connection_id=connection_id,
+            store=_store(request),
+            providers=request.app.state.providers,
+            credential_store=request.app.state.credential_store,
+            http_client_factory_for=lambda provider: getattr(
+                request.app.state, f"{provider}_http_factory", None
+            ),
+        )
+    except OAuthConnectionTokenError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return OAuthConnectionTokenResponse(
-        access_token=access_token,
-        expires_at=datetime.fromtimestamp(expires_at_ms / 1000, tz=UTC),
+        access_token=token.access_token,
+        expires_at=datetime.fromtimestamp(token.expires_at_ms / 1000, tz=UTC),
     )
 
 

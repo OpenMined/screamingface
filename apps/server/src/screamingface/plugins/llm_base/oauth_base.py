@@ -62,6 +62,10 @@ class OAuthStrategy(AuthStrategy):
         if override is not None:
             return override
 
+        if self._aigw_source is not None:
+            self._cached = await self._fetch_via_aigw()
+            return self._build_headers(self._cached)
+
         # Fast path: cache hit, still fresh.
         if self._cached is not None and not self._is_expired(self._cached):
             return self._build_headers(self._cached)
@@ -79,6 +83,13 @@ class OAuthStrategy(AuthStrategy):
 
     async def refresh(self) -> None:
         """Force a refresh regardless of cached expiry."""
+        if self._aigw_source is not None:
+            self._cached = None
+            if hasattr(self._aigw_source, "invalidate_cache"):
+                self._aigw_source.invalidate_cache()
+            self._cached = await self._fetch_via_aigw()
+            return
+
         async with self._lock:
             if self._cached is None:
                 self._cached = await self._load_credential()
@@ -87,6 +98,8 @@ class OAuthStrategy(AuthStrategy):
     def invalidate_cache(self) -> None:
         """Drop in-memory state. The next header build re-reads the store."""
         self._cached = None
+        if self._aigw_source is not None and hasattr(self._aigw_source, "invalidate_cache"):
+            self._aigw_source.invalidate_cache()
 
     # ------------------------------------------------------------------
     # Subclass hooks
