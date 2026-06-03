@@ -39,7 +39,11 @@
       "auth_enabled": false,
       "startup_timeout_seconds": 60,
       "migrations_timeout_seconds": 30,
-      "enabled": true
+      "enabled": true,
+      "aigw_env": {
+        "AIGW_PROVIDER_MAX_CONCURRENCY": "4",
+        "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": "{\"gemini-cli\":1}"
+      }
     },
     "aigw-base": {
       "mode": "local_managed",
@@ -50,7 +54,7 @@
       "auth_profile": "default",
       "default_model": "codex/gpt-5.4-mini",
       "default_effort": "medium",
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "max_budget_usd": null,
       "permission_mode": null,
       "dangerously_skip_permissions": false,
@@ -80,9 +84,10 @@
     "aigw-gemini-backend": {
       "gateway_url": "http://127.0.0.1:9105",
       "auth_profile": "default",
-      "default_model": "gemini-cli/gemini-2.5-flash",
+      "default_model": "gemini-cli/gemini-2.5-flash-lite",
       "default_effort": "medium",
-      "timeout_seconds": 300,
+      "interpreter_system_prompt": "You are a helpful assistant. Answer the user's question based only on the provided context. Be concise and factual.",
+      "timeout_seconds": 600,
       "max_budget_usd": null,
       "permission_mode": null,
       "dangerously_skip_permissions": false,
@@ -114,7 +119,7 @@
       "auth_profile": "default",
       "default_model": "anthropic/claude-sonnet-4-5",
       "default_effort": "medium",
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "max_budget_usd": null,
       "permission_mode": null,
       "dangerously_skip_permissions": false,
@@ -246,6 +251,9 @@
         },
         "MainOne": {
           "expression": "https://screamingface.ai/livetruth-latest.eval.jsonl*(claude:0.40:/claude($item.question)!'Answer this question. If it is multiple choice, return a probability distribution over the answer choices as JSON. Format: {\"A\": 0.7, \"B\": 0.2, \"C\": 0.05,\"D\": 0.05}. Return only the JSON object.',codex:0.30:/codex($item.question)!'Answer this question. If it is multiple choice, return a probability distribution over the answer choices as JSON. Format: {\"A\": 0.7, \"B\": 0.2, \"C\": 0.05,\"D\": 0.05}. Return only the JSON object.', gemini:0.30:/gemini($item.question)!'Answer this question. If it is multiple choice, return a probability distribution over the answer choices as JSON. Format: {\"A\": 0.7, \"B\": 0.2, \"C\": 0.05,\"D\": 0.05}. Return only the JSON object.')!'Compute a weighted average of these distributions using source weights claude=0.40, codex=0.30, gemini=0.30. Return the single answer letter with the highest combined probability.'"
+        },
+        "MainTwo": {
+          "expression": "https://screamingface.ai/livetruth-latest.eval.jsonl*(claude:0.57:/claude($item.question)!'Answer this question. If it is multiple choice, return a probability distribution over the answer choices as JSON. Format: {\"A\": 0.7, \"B\": 0.2, \"C\": 0.05,\"D\": 0.05}. Return only the JSON object.',codex:0.43:/codex($item.question)!'Answer this question. If it is multiple choice, return a probability distribution over the answer choices as JSON. Format: {\"A\": 0.7, \"B\": 0.2, \"C\": 0.05,\"D\": 0.05}. Return only the JSON object.')!'Compute a weighted average of these distributions using source weights claude=0.57, codex=0.43. Return the single answer letter with the highest combined probability.'"
         }
       }
     }
