@@ -6,10 +6,10 @@ from typing import Any
 
 from tortoise import Tortoise
 
-DEFAULT_DATABASE_URL = "postgres://scoreboard:scoreboard@localhost:5432/scoreboard"
-DEFAULT_CONFIGURED_DATABASE_URL = os.getenv(
-    "SCOREBOARD_DATABASE_URL",
-    DEFAULT_DATABASE_URL,
+from .config import DEFAULT_DATABASE_URL, normalize_database_url
+
+DEFAULT_CONFIGURED_DATABASE_URL = normalize_database_url(
+    os.getenv("SCOREBOARD_DATABASE_URL", DEFAULT_DATABASE_URL)
 )
 
 TORTOISE_CONFIG: dict[str, Any] = {

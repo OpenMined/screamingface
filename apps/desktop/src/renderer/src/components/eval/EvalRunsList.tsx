@@ -3,10 +3,12 @@ import { cn } from '@/lib/utils';
 import { useEvalRunsList } from '@/hooks/use-eval-runs';
 import { EvalStatusBadge } from './EvalStatusBadge';
 import type { EvalRunSummary } from './types';
+import type { RunPayload } from '@/components/run/types';
 
 interface Props {
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onRunLocally?: (payload: RunPayload) => void;
 }
 
 function formatPercent(accuracy: number | null): string {
@@ -19,7 +21,7 @@ function formatTime(iso: string): string {
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
-export function EvalRunsList({ selectedId, onSelect }: Props) {
+export function EvalRunsList({ selectedId, onSelect, onRunLocally }: Props) {
   const { data, loading, error } = useEvalRunsList();
 
   if (loading && data.length === 0) {
@@ -46,6 +48,7 @@ export function EvalRunsList({ selectedId, onSelect }: Props) {
           <th className="px-3 py-2 text-left font-medium">Status</th>
           <th className="px-3 py-2 text-right font-medium">Accuracy</th>
           <th className="px-3 py-2 text-right font-medium">Correct / Total</th>
+          <th className="px-3 py-2 text-left font-medium"></th>
         </tr>
       </thead>
       <tbody>
@@ -68,6 +71,20 @@ export function EvalRunsList({ selectedId, onSelect }: Props) {
               <td className="px-3 py-2 text-right tabular-nums">{formatPercent(run.accuracy)}</td>
               <td className="px-3 py-2 text-right tabular-nums text-xs text-muted-foreground">
                 {run.correct_questions ?? 0} / {run.total_questions ?? 0}
+              </td>
+              <td className="px-3 py-2 text-left">
+                {onRunLocally && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRunLocally({ spec: run.spec_name, expression: run.url4_expression });
+                    }}
+                    className="text-xs text-primary underline"
+                  >
+                    Run Locally
+                  </button>
+                )}
               </td>
             </tr>
           );

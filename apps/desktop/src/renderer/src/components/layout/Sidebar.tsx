@@ -11,7 +11,13 @@ import type { BackendPollingError, PluginManifest } from '../../../../preload/ty
 import { GatewayStatusPanel } from '@/components/server/GatewayStatusPanel';
 import { isBackendStatusV2, useBackendStatus } from '@/hooks/use-backend-status';
 
-export type View = 'dashboard' | 'sessions' | 'eval-studio' | 'settings' | `plugin:${string}`;
+export type View =
+  | 'dashboard'
+  | 'sessions'
+  | 'eval-studio'
+  | 'run'
+  | 'settings'
+  | `plugin:${string}`;
 
 interface NavItem {
   id: View;
@@ -30,9 +36,10 @@ interface SidebarProps {
   currentView: View;
   onNavigate: (view: View) => void;
   plugins: PluginManifest[];
+  onAigwLoginRequest?: () => void;
 }
 
-export function Sidebar({ currentView, onNavigate, plugins }: SidebarProps) {
+export function Sidebar({ currentView, onNavigate, plugins, onAigwLoginRequest }: SidebarProps) {
   const { statuses, pollingError, refresh } = useBackendStatus();
   const gatewayStatus = isBackendStatusV2(statuses) ? statuses : null;
   const showPollingError = pollingError !== null && pollingError.consecutiveFailures >= 2;
@@ -112,6 +119,7 @@ export function Sidebar({ currentView, onNavigate, plugins }: SidebarProps) {
           <GatewayStatusPanel
             status={gatewayStatus}
             compact
+            onLoginRequest={onAigwLoginRequest}
             onChanged={() => {
               void refresh();
             }}

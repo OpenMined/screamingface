@@ -7,9 +7,22 @@ repos:
       - id: ruff-format
   - repo: local
     hooks:
-      - id: pyright
-        name: pyright
+      - id: pyright-server
+        name: pyright (server)
         entry: uv run --directory apps/server pyright
         language: system
+        files: ^apps/server/.*\.py$
+        pass_filenames: false
+      - id: pyright-scoreboard
+        name: pyright (scoreboard)
+        entry: uv run --directory apps/scoreboard pyright
+        language: system
+        files: ^apps/scoreboard/.*\.py$
+        pass_filenames: false
+      - id: pytest-scoreboard
+        name: pytest (scoreboard unit)
+        entry: uv run --directory apps/scoreboard pytest tests/unit/ -q
+        language: system
         types: [python]
+        files: ^apps/scoreboard/(src|tests)/.*\.py$
         pass_filenames: false

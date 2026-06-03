@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScreamingFace Benchmark Receipts</title>
+  <meta name="description" content="Public ScreamingFace benchmark results with accuracy, providers, verification status, and local rerun links.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <main class="main">
+      <section class="hero">
+        <div class="emoji">😱</div>
+        <h1>ScreamingFace benchmark receipts.</h1>
+        <p>Public results for specs you can inspect and rerun locally. Accuracy, providers, verification status, and the exact run link stay attached to every row.</p>
+        <p><a href="/">Install screamingface - one command</a></p>
+        <div class="proof-grid" aria-label="Leaderboard proof points">
+          <div class="proof-card">
+            <span class="proof-kicker">Live data</span>
+            <strong id="benchmark-count">-</strong>
+            <span id="benchmark-count-label">benchmarks indexed</span>
+          </div>
+          <div class="proof-card">
+            <span class="proof-kicker">Verification</span>
+            <strong>Badge, not belief</strong>
+            <span>Only independently reproduced runs get marked Verified.</span>
+          </div>
+          <div class="proof-card">
+            <span class="proof-kicker">Reproducibility</span>
+            <strong>Run Locally</strong>
+            <span>Leaderboard rows keep their URL4 expression for reruns.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-inner">
+          <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
+          <section id="benchmark-list" class="card-grid" aria-label="Benchmarks" hidden></section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>😱 screamingface, built by <a href="https://openmined.org">OpenMined</a></span>
+      <a href="https://github.com/OpenMined/screamingface">GitHub</a>
+    </footer>
+  </div>
+
+  <script src="main.js" defer></script>
+</body>
+</html>

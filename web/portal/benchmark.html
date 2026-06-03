@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Benchmark Leaderboard — ScreamingFace</title>
+  <meta name="description" content="A ScreamingFace benchmark leaderboard with accuracy, question counts, providers, verification status, and local rerun links.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <main class="main">
+      <section class="hero">
+        <h1 id="benchmark-name">Leaderboard</h1>
+        <p id="benchmark-desc"></p>
+        <p><a href="index.html">← All benchmarks</a></p>
+      </section>
+
+      <section class="section">
+        <div class="section-inner">
+          <div class="notice" role="note">
+            Treat this as a public scoreboard, not a trust oracle. "Verified" means
+            OpenMined independently reproduced the run; unbadged rows are community
+            submissions that still need reproduction.
+          </div>
+
+          <div id="leaderboard-summary" class="summary-grid" aria-label="Leaderboard summary" hidden>
+            <div class="summary-card">
+              <span class="proof-kicker">Best accuracy</span>
+              <strong id="summary-best">-</strong>
+            </div>
+            <div class="summary-card">
+              <span class="proof-kicker">Specs shown</span>
+              <strong id="summary-specs">-</strong>
+            </div>
+            <div class="summary-card">
+              <span class="proof-kicker">Verified rows</span>
+              <strong id="summary-verified">-</strong>
+            </div>
+          </div>
+
+          <div id="leaderboard-status" class="state" role="status" aria-live="polite">Loading…</div>
+
+          <div id="leaderboard-wrap" class="table-wrap" hidden>
+            <table class="leaderboard-table">
+              <thead id="leaderboard-head"></thead>
+              <tbody id="leaderboard-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>😱 screamingface, built by <a href="https://openmined.org">OpenMined</a></span>
+      <a href="https://github.com/OpenMined/screamingface">GitHub</a>
+    </footer>
+  </div>
+
+  <script src="main.js" defer></script>
+  <script src="benchmark.js" defer></script>
+</body>
+</html>

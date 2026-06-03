@@ -18,6 +18,7 @@ import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 
@@ -130,4 +131,42 @@ async def aigw_jwt_from_env() -> str:
     return jwt
 
 
-__all__ = ["AigwTokenSource", "AigwTokenError", "AigwAuthError", "aigw_jwt_from_env"]
+async def aigw_jwt_from_gateway_session(app: Any) -> str:
+    """JWT provider for SF's in-memory Desktop -> AIGateway session."""
+
+    app_state = getattr(app, "state", None)
+    if app_state is not None:
+        from screamingface.plugins.aigw_base.client import gateway_session_state
+
+        token = gateway_session_state(app).valid_token()
+        if token:
+            return token
+
+    jwt = os.environ.get("SF_AIGW_JWT", "").strip()
+    if jwt:
+        return jwt
+    raise AigwAuthError(
+        "AIGateway session is missing or expired — sign in from Desktop or set SF_AIGW_JWT."
+    )
+
+
+def aigw_jwt_provider_for_app(app: Any | None) -> Callable[[], Awaitable[str]]:
+    """Return the best JWT provider for a provider plugin instance."""
+
+    if app is None:
+        return aigw_jwt_from_env
+
+    async def _provider() -> str:
+        return await aigw_jwt_from_gateway_session(app)
+
+    return _provider
+
+
+__all__ = [
+    "AigwTokenSource",
+    "AigwTokenError",
+    "AigwAuthError",
+    "aigw_jwt_from_env",
+    "aigw_jwt_from_gateway_session",
+    "aigw_jwt_provider_for_app",
+]

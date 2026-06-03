@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+from ipaddress import ip_address
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -16,11 +19,13 @@ from .client import (
     parse_gateway_expires_at,
 )
 from .config import resolve_aigw_runtime_config
+from .settings import AigwBaseSettings
 
 
 class GatewayLoginBody(BaseModel):
     username: str
     password: str
+    gateway_url: str | None = None
 
 
 def create_router(app: Any) -> APIRouter:
@@ -38,18 +43,21 @@ def create_router(app: Any) -> APIRouter:
 
     @router.post("/aigateway/session/login")
     async def gateway_login(body: GatewayLoginBody) -> dict[str, Any]:
+        if body.gateway_url:
+            _apply_gateway_url_override(app, body.gateway_url)
         config = resolve_aigw_runtime_config(app)
         if config.mode != "external":
             raise HTTPException(
                 status_code=400,
                 detail={"code": "local_managed", "message": "Gateway login is external-mode only"},
             )
+        _validate_gateway_url(config.gateway_url)
 
         try:
             resp = await AigwGatewayClient(app).request(
                 "POST",
                 "/v1/auth/login",
-                json=body.model_dump(),
+                json={"username": body.username, "password": body.password},
                 allow_unauthenticated=True,
             )
         except AigwGatewayClientError as exc:
@@ -80,6 +88,7 @@ def create_router(app: Any) -> APIRouter:
         return {
             "authenticated": True,
             "expires_at": state.expires_at.isoformat() if state.expires_at else None,
+            "token": token,
         }
 
     @router.post("/aigateway/session/logout")
@@ -95,3 +104,59 @@ def _safe_json(resp: httpx.Response) -> Any:
         return resp.json()
     except ValueError:
         return {"raw": resp.text[:500]}
+
+
+def _apply_gateway_url_override(app: Any, gateway_url: str) -> None:
+    normalized = _validate_gateway_url(gateway_url)
+    config = getattr(getattr(app, "state", None), "config", None)
+    plugin_config = getattr(config, "plugin_config", None)
+    if isinstance(plugin_config, dict):
+        base = plugin_config.setdefault("aigw-base", {})
+        if isinstance(base, dict):
+            base["mode"] = "external"
+            base["gateway_url"] = normalized
+
+    plugins = getattr(getattr(app, "state", None), "plugins", None)
+    active_plugins = getattr(plugins, "active_plugins", {})
+    plugin = active_plugins.get("aigw-base") if isinstance(active_plugins, dict) else None
+    settings = getattr(plugin, "settings", None)
+    if isinstance(settings, AigwBaseSettings):
+        settings.mode = "external"
+        settings.gateway_url = normalized
+
+
+def _validate_gateway_url(gateway_url: str) -> str:
+    parsed = urlparse(gateway_url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_gateway_url", "message": "Gateway URL must use http or https"},
+        )
+    if parsed.username or parsed.password:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_gateway_url",
+                "message": "Gateway URL must not include credentials",
+            },
+        )
+    if parsed.scheme == "http" and not _insecure_gateway_url_allowed(parsed.hostname or ""):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_gateway_url",
+                "message": "External AIGateway URL must use HTTPS unless it is loopback",
+            },
+        )
+    return gateway_url.strip().rstrip("/")
+
+
+def _insecure_gateway_url_allowed(host: str) -> bool:
+    if os.getenv("SF_AIGW_ALLOW_INSECURE_EXTERNAL") == "1":
+        return True
+    if host == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False

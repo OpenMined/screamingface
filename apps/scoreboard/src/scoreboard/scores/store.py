@@ -120,11 +120,13 @@ class ScoreStore:
         description: str | None = None,
         dataset_url: str | None = None,
     ) -> BenchmarkSchema:
-        benchmark = await Benchmark.create(
+        benchmark, _ = await Benchmark.update_or_create(
+            defaults={
+                "display_name": display_name,
+                "description": description,
+                "dataset_url": dataset_url,
+            },
             id=benchmark_id,
-            display_name=display_name,
-            description=description,
-            dataset_url=dataset_url,
         )
         return _benchmark_to_schema(benchmark)
 

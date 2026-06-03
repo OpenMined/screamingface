@@ -900,7 +900,9 @@ function BackendRow({
   );
 }
 
-export function BackendStatusPanel() {
+export function BackendStatusPanel({
+  onAigwLoginRequest,
+}: { onAigwLoginRequest?: () => void } = {}) {
   const { statuses, loaded, refresh } = useBackendStatus();
   const [refreshing, setRefreshing] = useState(false);
   const { toast } = useToast();
@@ -981,6 +983,22 @@ export function BackendStatusPanel() {
               <div className="h-3 w-32 rounded bg-muted/50" />
             </div>
           ))}
+        </div>
+      )}
+      {suppressProviderUi && (
+        <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm">
+          <p className="font-medium text-foreground">Sign in to AIGateway</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Provider connections require gateway authentication before Desktop can load or manage
+            them.
+          </p>
+          <button
+            type="button"
+            onClick={onAigwLoginRequest}
+            className="mt-3 rounded bg-chart-1 px-2.5 py-1 text-xs font-semibold text-background hover:bg-chart-1/90"
+          >
+            Sign in
+          </button>
         </div>
       )}
       <div className="divide-y divide-border">

@@ -1,0 +1,218 @@
+# Scoreboard Deployment
+
+This runbook deploys `apps/scoreboard` as a containerized FastAPI service on Kubernetes. The app chart is database-agnostic: it reads `SCOREBOARD_DATABASE_URL` from a Secret, runs Tortoise migrations as a Helm pre-install/pre-upgrade Job, and seeds configured benchmarks as a post-install/post-upgrade Job.
+
+## Artifacts
+
+- Container image: `ghcr.io/openmined/screamingface-scoreboard:<version>`.
+- App chart: `oci://ghcr.io/openmined/screamingface/charts/scoreboard`.
+- Demo database chart in this repo: `apps/scoreboard/charts/db`.
+
+The demo database chart is a single `postgres:16-alpine` Deployment with a PVC. It is useful for k3s smoke tests and demos, but it has no HA, backups, PITR, or managed upgrade policy.
+
+## Local k3s Smoke Image
+
+Build an amd64 image for a single-node Linux k3s server:
+
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  -f apps/scoreboard/Dockerfile \
+  -t ghcr.io/openmined/screamingface-scoreboard:sf188-local \
+  --load \
+  .
+```
+
+Check the image size target from the SCORE-007 acceptance criteria:
+
+```bash
+SIZE_BYTES=$(docker image inspect ghcr.io/openmined/screamingface-scoreboard:sf188-local --format '{{.Size}}')
+test "$SIZE_BYTES" -lt 209715200
+```
+
+Import the local image into k3s containerd when you do not want to push a temporary tag:
+
+```bash
+docker save ghcr.io/openmined/screamingface-scoreboard:sf188-local \
+  | ssh adminuser@40.76.107.241 \
+      "sudo k3s ctr -n k8s.io images import --platform linux/amd64 -"
+```
+
+Verify it is available to pods:
+
+```bash
+ssh adminuser@40.76.107.241 \
+  "sudo k3s ctr -n k8s.io images ls | grep screamingface-scoreboard"
+```
+
+## Demo Database
+
+Install the generic Postgres chart with the scoreboard values overlay:
+
+```bash
+helm upgrade --install scoreboard-db apps/scoreboard/charts/db \
+  --namespace scoreboard \
+  --create-namespace \
+  --values apps/scoreboard/charts/db-scoreboard.values.yaml \
+  --wait
+```
+
+The chart creates `Secret/scoreboard-db` with `username`, `password`, `database`, and `database-url`. The app chart consumes only the `database-url` key.
+
+For production, replace this chart with managed Postgres or a Postgres operator. Create a Secret with a `database-url` key and point `database.existingSecret` at it.
+
+## App Install
+
+Use a real HTTPS hostname in production. For a temporary k3s smoke test, `nip.io` can map a hostname to an IP without creating DNS records. For example, `scoreboard.40.76.107.241.nip.io` resolves to `40.76.107.241` and works with Traefik host-based Ingress.
+
+```bash
+helm upgrade --install scoreboard apps/scoreboard/charts/scoreboard \
+  --namespace scoreboard \
+  --set image.tag=sf188-local \
+  --set ingress.className=traefik \
+  --set "ingress.hosts[0].host=scoreboard.40.76.107.241.nip.io" \
+  --set "ingress.hosts[0].paths[0].path=/" \
+  --set "ingress.hosts[0].paths[0].pathType=Prefix" \
+  --set 'cors.origins[0]=*' \
+  --wait
+```
+
+Quote indexed `--set` keys in shells such as zsh. If you override a list item, set the full `host` and `paths` structure.
+
+## Production Install
+
+For production, use managed Postgres and a Secret with a `database-url` key:
+
+```bash
+kubectl -n scoreboard create secret generic scoreboard-db \
+  --from-literal=database-url='postgres://scoreboard:<password>@<host>:5432/scoreboard'
+
+helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/scoreboard \
+  --version 0.1.0 \
+  --namespace scoreboard \
+  --values apps/scoreboard/charts/scoreboard/values-prod.yaml \
+  --set database.existingSecret=scoreboard-db \
+  --set database.existingSecretKey=database-url \
+  --wait
+```
+
+`values-prod.yaml` sets three app replicas, Traefik ingress, TLS annotations, production CORS for `https://screamingface.ai`, and NetworkPolicy enabled. Adjust `ingress.className` if the production cluster uses a different ingress controller.
+
+## Benchmark Seeding
+
+The app chart runs `python -m scoreboard.seed` after install and upgrade. Seed data comes from `.Values.seedBenchmarks.benchmarks` and is passed through `SCOREBOARD_SEED_BENCHMARKS_JSON`.
+
+The default seed registers the HLE benchmark:
+
+```yaml
+seedBenchmarks:
+  enabled: true
+  benchmarks:
+    - id: hle
+      display_name: News Hallucinations
+      description: OpenMined HLE benchmark
+      dataset_url: https://github.com/openmined/HLE.jsonl
+```
+
+Re-running the Job is safe because benchmark registration is an upsert. Disable seeding with `--set seedBenchmarks.enabled=false`.
+
+## Smoke Checks
+
+Run the Helm test and check public health:
+
+```bash
+helm test scoreboard --namespace scoreboard --timeout 3m
+curl -fsS http://scoreboard.40.76.107.241.nip.io/healthz
+curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/benchmarks
+```
+
+Submit a smoke score with an idempotency key:
+
+```bash
+curl -fsS -X POST http://scoreboard.40.76.107.241.nip.io/v1/scores \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: score-007-smoke-1" \
+  -d '{"version":1,"benchmark_id":"hle","spec_id":"score-007-smoke","url4_expression":"url4://smoke","submitted_by":"score-007","accuracy":0.5,"total_questions":2,"correct_questions":1,"ran_with_providers":["smoke"],"client_name":"curl","client_version":"0.1.0","client_platform":"k3s"}'
+
+curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/leaderboard/hle
+```
+
+The SCORE-007 initial task mentions POSTing from SF desktop, but current D-SCORE-006 in this repo is AIGateway desktop login, not scoreboard score publishing. Use the public API smoke above until a desktop submission task exists.
+
+## Portal And CORS
+
+The static portal under `web/portal` reads `window.SCOREBOARD_API_BASE` before falling back to `http://localhost:9106`. The Pages deploy workflow injects that value into the published artifact.
+
+Production CORS must include the portal origin, not the path:
+
+```yaml
+cors:
+  origins:
+    - https://screamingface.ai
+```
+
+After a Pages deploy, open `https://screamingface.ai/portal/` and verify the browser console has no CORS failures while fetching `/v1/benchmarks`.
+
+## Migrations
+
+The app chart runs:
+
+```bash
+python -m tortoise -c scoreboard.db.TORTOISE_CONFIG migrate
+```
+
+This runs in a Helm hook Job before app Deployment rollout. Do not run `Tortoise.generate_schemas()` in production and do not run migrations in app startup.
+
+## Upgrade And Rollback
+
+Upgrade:
+
+```bash
+helm upgrade scoreboard apps/scoreboard/charts/scoreboard \
+  --namespace scoreboard \
+  --reuse-values \
+  --set image.tag=<new-tag> \
+  --wait
+```
+
+Rollback:
+
+```bash
+helm history scoreboard --namespace scoreboard
+helm rollback scoreboard <revision> --namespace scoreboard --wait
+```
+
+Helm rollback does not roll back database schema migrations. Keep migrations forward-compatible where possible.
+
+## Troubleshooting
+
+Inspect resources:
+
+```bash
+kubectl -n scoreboard get pods,job,svc,ingress,pvc
+helm status scoreboard --namespace scoreboard
+```
+
+Inspect logs:
+
+```bash
+kubectl -n scoreboard logs job/scoreboard-scoreboard-migrate
+kubectl -n scoreboard logs job/scoreboard-scoreboard-seed-benchmarks
+kubectl -n scoreboard logs deploy/scoreboard-scoreboard
+```
+
+Check the database Secret:
+
+```bash
+kubectl -n scoreboard get secret scoreboard-db -o jsonpath='{.data.database-url}' | base64 --decode
+```
+
+If GHCR image pulls fail, create an image pull Secret and set `imagePullSecrets[0].name=<secret-name>`.
+
+## Operations Notes
+
+- The container listens on `0.0.0.0:9106` and exposes `/healthz`.
+- `/healthz` is a liveness endpoint and does not query the database; Helm test also calls `/v1/benchmarks` for a DB-backed check.
+- The migration and seed Jobs use the same image and database Secret as the app Deployment.
+- The demo DB PVC owns the database state; deleting it deletes the database.
+- Backups, HA Postgres, PodMonitor, and HPA are follow-up infrastructure work.
