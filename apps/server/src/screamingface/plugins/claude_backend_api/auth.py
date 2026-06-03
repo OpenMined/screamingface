@@ -157,9 +157,8 @@ class ClaudeCodeOAuth(OAuthStrategy):
         for _build_headers (which only reads accessToken). We stamp sensible
         defaults so the rest of the strategy machinery has a complete dict.
 
-        expiresAt is set far in the future so _is_expired never triggers a
-        second fetch — AigwTokenSource handles its own cache + refresh
-        internally. The OAuthStrategy cache just needs to stay "fresh".
+        OAuthStrategy does not cache aigw-shaped creds; AigwTokenSource owns
+        cache + refresh and this shape only feeds _build_headers.
         """
         import time
 

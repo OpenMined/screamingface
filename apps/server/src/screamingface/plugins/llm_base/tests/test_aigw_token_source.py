@@ -38,6 +38,17 @@ def _mk_source(handler, *, jwt: str = "jwt-A") -> AigwTokenSource:
     )
 
 
+def _mode_app(mode: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        state=SimpleNamespace(
+            config=SimpleNamespace(
+                plugin_config={"aigw-base": {"mode": mode, "gateway_url": "http://aigw.test"}}
+            ),
+            plugins=SimpleNamespace(active_plugins={}),
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_fetches_and_returns_access_token():
     def handler(req: httpx.Request) -> httpx.Response:
@@ -47,6 +58,26 @@ async def test_fetches_and_returns_access_token():
 
     src = _mk_source(handler)
     assert await src.fetch_token() == "tok-A"
+
+
+@pytest.mark.asyncio
+async def test_local_managed_mode_omits_gateway_jwt(monkeypatch):
+    monkeypatch.delenv("SF_AIGW_JWT", raising=False)
+    sent_authorization: list[str | None] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        sent_authorization.append(req.headers.get("authorization"))
+        return httpx.Response(200, json=_ok_payload(access_token="tok-local"))
+
+    src = AigwTokenSource(
+        connection_id="conn-1",
+        aigw_url="http://aigw.test",
+        aigw_jwt_provider=aigw_jwt_provider_for_app(_mode_app("local_managed")),
+        http_transport=httpx.MockTransport(handler),
+    )
+
+    assert await src.fetch_token() == "tok-local"
+    assert sent_authorization == [None]
 
 
 @pytest.mark.asyncio
@@ -168,7 +199,7 @@ async def test_jwt_provider_called_each_fetch_attempt():
 @pytest.mark.asyncio
 async def test_app_jwt_provider_reads_gateway_session_state(monkeypatch):
     monkeypatch.delenv("SF_AIGW_JWT", raising=False)
-    app = SimpleNamespace(state=SimpleNamespace())
+    app = _mode_app("external")
     gateway_session_state(app).set_token("session-jwt", datetime.now(UTC) + timedelta(minutes=5))
 
     provider = aigw_jwt_provider_for_app(app)
@@ -179,7 +210,7 @@ async def test_app_jwt_provider_reads_gateway_session_state(monkeypatch):
 @pytest.mark.asyncio
 async def test_app_jwt_provider_falls_back_to_env(monkeypatch):
     monkeypatch.setenv("SF_AIGW_JWT", "env-jwt")
-    app = SimpleNamespace(state=SimpleNamespace())
+    app = _mode_app("external")
 
     provider = aigw_jwt_provider_for_app(app)
 
@@ -189,9 +220,18 @@ async def test_app_jwt_provider_falls_back_to_env(monkeypatch):
 @pytest.mark.asyncio
 async def test_app_jwt_provider_raises_relogin_error_without_session_or_env(monkeypatch):
     monkeypatch.delenv("SF_AIGW_JWT", raising=False)
-    app = SimpleNamespace(state=SimpleNamespace())
+    app = _mode_app("external")
 
     provider = aigw_jwt_provider_for_app(app)
 
     with pytest.raises(AigwAuthError, match="sign in from Desktop"):
         await provider()
+
+
+@pytest.mark.asyncio
+async def test_local_managed_app_jwt_provider_returns_empty_token(monkeypatch):
+    monkeypatch.delenv("SF_AIGW_JWT", raising=False)
+
+    provider = aigw_jwt_provider_for_app(_mode_app("local_managed"))
+
+    assert await provider() == ""

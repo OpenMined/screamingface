@@ -33,7 +33,9 @@ _DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 def create_router(settings: ClaudeBackendApiSettings, app: Any = None) -> APIRouter:
-    backend = AnthropicBackend()
+    from screamingface.plugins.claude_backend_api.plugin import _maybe_aigw_source
+
+    backend = AnthropicBackend(aigw_source=_maybe_aigw_source(settings, app))
 
     def build_interpreter() -> Any:
         # Lazy import — interpreter imports from this module.

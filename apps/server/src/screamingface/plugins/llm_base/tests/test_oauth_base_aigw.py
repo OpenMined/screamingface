@@ -42,6 +42,20 @@ async def test_aigw_source_replaces_keychain_read():
 
 
 @pytest.mark.asyncio
+async def test_aigw_source_remains_authoritative_for_each_header_request():
+    fake_source = AsyncMock(spec=AigwTokenSource)
+    fake_source.fetch_token.side_effect = ["aigw-token-1", "aigw-token-2"]
+    strat = _FakeStrategy(aigw_source=fake_source)
+
+    first = await strat.get_authorization_header()
+    second = await strat.get_authorization_header()
+
+    assert first == {"Authorization": "Bearer aigw-token-1"}
+    assert second == {"Authorization": "Bearer aigw-token-2"}
+    assert fake_source.fetch_token.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_aigw_source_unset_uses_existing_path():
     """Sanity: without aigw_source the existing abstract hooks are called."""
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import time
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -31,8 +32,13 @@ from screamingface.plugins.llm_base.errors import AuthError, CredentialNotFoundE
 
 def _make_jwt(exp: float) -> str:
     """Build a minimal JWT with the given exp claim (no real signature)."""
+    return _make_jwt_from_payload({"exp": exp})
+
+
+def _make_jwt_from_payload(payload_dict: dict) -> str:
+    """Build a minimal JWT with the given claims (no real signature)."""
     header = base64.urlsafe_b64encode(json.dumps({"alg": "RS256"}).encode()).rstrip(b"=")
-    payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).rstrip(b"=")
+    payload = base64.urlsafe_b64encode(json.dumps(payload_dict).encode()).rstrip(b"=")
     sig = base64.urlsafe_b64encode(b"fake-signature").rstrip(b"=")
     return f"{header.decode()}.{payload.decode()}.{sig.decode()}"
 
@@ -355,3 +361,17 @@ async def test_codex_oauth_uses_aigw_source_when_set():
 
     assert headers == {"Authorization": "Bearer aigw-codex-token"}
     fake.fetch_token.assert_awaited_once()
+
+
+def test_codex_oauth_aigw_shape_extracts_chatgpt_account_id():
+    token = _make_jwt_from_payload(
+        {
+            "exp": time.time() + 3600,
+            "https://api.openai.com/auth": {"chatgpt_account_id": "acct-aigw"},
+        }
+    )
+    auth = CodexOAuth(aigw_source=object())  # type: ignore[arg-type]
+
+    creds = auth._aigw_creds_shape(token, datetime.now())
+
+    assert creds["account_id"] == "acct-aigw"

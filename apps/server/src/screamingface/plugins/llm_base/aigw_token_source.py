@@ -80,6 +80,9 @@ class AigwTokenSource:
             self._cache = entry
             return entry.access_token
 
+    def invalidate_cache(self) -> None:
+        self._cache = None
+
     @property
     def connection_id(self) -> str:
         return self._connection_id
@@ -90,9 +93,10 @@ class AigwTokenSource:
         client_kwargs: dict = {"timeout": self._timeout}
         if self._transport is not None:
             client_kwargs["transport"] = self._transport
+        headers = {"Authorization": f"Bearer {jwt}"} if jwt else {}
         try:
             async with httpx.AsyncClient(**client_kwargs) as client:
-                resp = await client.get(url, headers={"Authorization": f"Bearer {jwt}"})
+                resp = await client.get(url, headers=headers)
         except httpx.RequestError as exc:
             raise AigwTokenError(f"aigw unreachable at {url}: {exc}") from exc
 
@@ -133,6 +137,11 @@ async def aigw_jwt_from_env() -> str:
 
 async def aigw_jwt_from_gateway_session(app: Any) -> str:
     """JWT provider for SF's in-memory Desktop -> AIGateway session."""
+
+    from screamingface.plugins.aigw_base.config import resolve_aigw_runtime_config
+
+    if resolve_aigw_runtime_config(app).mode == "local_managed":
+        return ""
 
     app_state = getattr(app, "state", None)
     if app_state is not None:

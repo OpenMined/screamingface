@@ -121,8 +121,8 @@ class GeminiAuth(OAuthStrategy):
     def _is_expired(self, creds: dict) -> bool:
         """``expiry_date`` is unix epoch in **milliseconds**."""
         if self._aigw_source is not None:
-            # On the aigw path the helper owns expiry; OAuthStrategy's cache
-            # only needs to stay notionally "fresh".
+            # OAuthStrategy bypasses its outer cache on the aigw path; this is
+            # retained as a guard for tests and direct private-hook callers.
             return False
         # existing logic
         expiry_ms = creds.get("expiry_date", 0)
