@@ -14,6 +14,7 @@ from urllib.parse import quote, urlparse, urlunparse
 
 import httpx
 
+from screamingface.plugins.url4_executor.ensemble_helpers import substitute_env_vars
 from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4_ast import (
     Url4BackendCall,
@@ -95,6 +96,12 @@ async def _resolve_list(node: Url4List, app: Any, env: Env) -> str:
         for i, value in zip(non_binding_indices, gathered, strict=True):
             results[i] = value
 
+    non_binding_results: list[str] = [
+        r for i in non_binding_indices if (r := results[i]) is not None
+    ]
+    if non_binding_results:
+        return "\n".join(non_binding_results)
+    # pure-binding list (no body): output the binding values, source order (DEMO-005)
     return "\n".join(r for r in results if r is not None)
 
 
@@ -119,6 +126,7 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
         )
 
     intent_text = "" if node.intent is None else await resolve(node.intent, app, env)
+    intent_text = substitute_env_vars(intent_text, env)
     sources_text = node.packed_context or ""
 
     from screamingface.core.helpers import get_plugins_registry
@@ -140,6 +148,27 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
         "Activate a plugin that declares this path in its "
         "backend_call_paths attribute."
     )
+
+
+async def _dispatch_backend_call_with_intent(
+    node: Url4BackendCall, intent_json: str, app: Any, env: Env | None = None
+) -> str:
+    """Dispatch a backend_call but with its intent replaced by ``intent_json``.
+
+    Used by the collection-level reducer: the per-row result array is handed
+    to the reducer node (e.g. ``/python(calculate_accuracy.py)``) as its
+    payload. Because we construct the :class:`Url4Text` node directly (not by
+    parsing a string), the JSON array's internal commas are safe — they never
+    hit the grammar.
+    """
+    replaced = Url4BackendCall(
+        path=node.path,
+        packed_context=node.packed_context,
+        intent=Url4Text(value=intent_json),
+        name=node.name,
+        weight=node.weight,
+    )
+    return await _dispatch_backend_call(replaced, app, env)
 
 
 async def _resolve_expanded_source(

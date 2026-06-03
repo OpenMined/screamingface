@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from screamingface.plugins.url4_executor.decoder import split_intent
+from screamingface.plugins.url4_executor.ensemble_helpers import substitute_env_vars
 from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4 import resolve_str
 from screamingface.plugins.url4_executor.url4_resolve import _fetch_relative, _fetch_url
@@ -32,7 +33,7 @@ async def resolve_intent(intent: str, app: Any = None, env: Env | None = None) -
         return await _fetch_relative(app, intent)
     if intent.startswith(("http://", "https://")):
         return await _fetch_url(intent)
-    return intent.strip("'\"")
+    return substitute_env_vars(intent.strip("'\""), env)
 
 
 class Url4Interpreter:

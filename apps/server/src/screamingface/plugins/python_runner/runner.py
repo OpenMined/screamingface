@@ -9,6 +9,7 @@ DEMO-013.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import hashlib
 import json
@@ -21,7 +22,7 @@ from typing import Any, Literal
 
 from screamingface.plugins.python_runner.sandbox import build_subprocess_argv
 
-__all__ = ["PythonRunnerError", "run_script_source"]
+__all__ = ["PythonRunnerError", "run_script_main", "run_script_source"]
 
 ErrorKind = Literal["nonzero_exit", "invalid_output", "timeout", "io_error"]
 
@@ -63,18 +64,51 @@ def _cache_script(source: str) -> Path:
     return target
 
 
-async def run_script_source(
-    source: str,
-    payload: dict[str, Any],
-    timeout: float = 30.0,
-) -> dict[str, Any]:
-    """Run Python source in a subprocess; return parsed JSON output."""
-    script_path = _cache_script(source)
-    payload_bytes = json.dumps(payload).encode("utf-8")
-
-    argv = build_subprocess_argv(script_path)
+def _script_defines_main(source: str) -> bool:
+    """True if the source defines a top-level ``def main`` (call-main mode)."""
     try:
-        proc = await asyncio.create_subprocess_exec(
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    return any(
+        isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef) and n.name == "main"
+        for n in tree.body
+    )
+
+
+# Harness that imports a user script as a module (skipping __main__),
+# introspects main()'s signature, and calls it with only its declared params.
+# Uses importlib.util so the __main__ guard in user scripts is never triggered.
+_MAIN_HARNESS = (
+    "import json, sys, inspect, importlib.util\n"
+    "_spec = importlib.util.spec_from_file_location('_url4_user', sys.argv[1])\n"
+    "_mod = importlib.util.module_from_spec(_spec)\n"
+    "_spec.loader.exec_module(_mod)\n"
+    "_payload = json.loads(sys.stdin.read() or 'null')\n"
+    "_params = list(inspect.signature(_mod.main).parameters)\n"
+    "if isinstance(_payload, dict):\n"
+    "    _result = _mod.main(**{k: v for k, v in _payload.items() if k in _params})\n"
+    "elif isinstance(_payload, list) and len(_params) == 1:\n"
+    "    _result = _mod.main(_payload)\n"
+    "else:\n"
+    "    _result = _mod.main(_payload)\n"
+    "sys.stdout.write(json.dumps(_result))\n"
+)
+
+
+async def _spawn_collect(
+    argv: list[str],
+    stdin_bytes: bytes,
+    timeout: float,
+) -> tuple[int, bytes, bytes]:
+    """Spawn a subprocess, feed stdin, collect (returncode, stdout, stderr).
+
+    Raises PythonRunnerError(kind="io_error") on OSError and
+    PythonRunnerError(kind="timeout") when *timeout* is exceeded.
+    """
+    _spawn = asyncio.create_subprocess_exec
+    try:
+        proc = await _spawn(
             *argv,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
@@ -86,7 +120,7 @@ async def run_script_source(
 
     try:
         stdout_b, stderr_b = await asyncio.wait_for(
-            proc.communicate(input=payload_bytes),
+            proc.communicate(input=stdin_bytes),
             timeout=timeout,
         )
     except TimeoutError as e:
@@ -97,9 +131,20 @@ async def run_script_source(
             message=f"Script exceeded {timeout}s timeout",
         ) from e
 
+    return proc.returncode or 0, stdout_b, stderr_b
+
+
+def _parse_output(
+    stdout_b: bytes,
+    stderr_b: bytes,
+    exit_code: int,
+) -> dict[str, Any]:
+    """Decode subprocess output and return parsed JSON.
+
+    Raises PythonRunnerError on nonzero exit or invalid JSON.
+    """
     stdout = stdout_b.decode("utf-8", errors="replace")
     stderr = stderr_b.decode("utf-8", errors="replace")
-    exit_code = proc.returncode
 
     if exit_code != 0:
         raise PythonRunnerError(
@@ -123,3 +168,36 @@ async def run_script_source(
             stderr=stderr,
             exit_code=exit_code,
         ) from e
+
+
+async def run_script_source(
+    source: str,
+    payload: dict[str, Any],
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    """Run Python source in a subprocess; return parsed JSON output."""
+    script_path = _cache_script(source)
+    payload_bytes = json.dumps(payload).encode("utf-8")
+    argv = build_subprocess_argv(script_path)
+    exit_code, stdout_b, stderr_b = await _spawn_collect(argv, payload_bytes, timeout)
+    return _parse_output(stdout_b, stderr_b, exit_code)
+
+
+async def run_script_main(
+    source: str,
+    payload: Any,
+    timeout: float = 30.0,
+) -> Any:
+    """Import user script as a module and call its ``main()`` with introspected kwargs.
+
+    The script's ``if __name__ == "__main__":`` block is never executed.
+    Only the parameters declared by ``main()`` are extracted from *payload*;
+    extra keys in a dict payload are silently dropped.
+    """
+    harness_path = _cache_script(_MAIN_HARNESS)
+    user_path = _cache_script(source)
+    payload_bytes = json.dumps(payload).encode("utf-8")
+    # harness is the launched script; user script path is passed as argv[1]
+    argv = build_subprocess_argv(harness_path, extra_args=[user_path])
+    exit_code, stdout_b, stderr_b = await _spawn_collect(argv, payload_bytes, timeout)
+    return _parse_output(stdout_b, stderr_b, exit_code)

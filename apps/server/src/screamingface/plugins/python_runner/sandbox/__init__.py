@@ -29,13 +29,18 @@ def sandbox_is_enabled() -> bool:
     return os.environ.get("SF_PYTHON_RUNNER__SANDBOX", "").lower() != "off"
 
 
-def build_subprocess_argv(script_path: Path) -> list[str]:
+def build_subprocess_argv(script_path: Path, extra_args=None) -> list[str]:
     """Argv to launch `script_path` under the python interpreter.
 
     On darwin with sandbox on: wraps with sandbox-exec + macos.sb.
     Anywhere else (or with SF_PYTHON_RUNNER__SANDBOX=off): plain argv,
     logging a one-shot warning on non-darwin platforms.
+
+    extra_args: optional sequence of additional positional arguments appended
+    after ``script_path`` in the returned argv (e.g. a user-script path when
+    the launched script is a harness).
     """
+    extra = [str(a) for a in (extra_args or [])]
     if sandbox_is_enabled():
         spec_root = str(script_path.parent.resolve())
         # PY_PREFIX is the *real* cpython install (resolves symlinks); when
@@ -57,6 +62,7 @@ def build_subprocess_argv(script_path: Path) -> list[str]:
             str(SANDBOX_PROFILE_PATH),
             sys.executable,
             str(script_path),
+            *extra,
         ]
 
     global _warned_unsupported
@@ -66,4 +72,4 @@ def build_subprocess_argv(script_path: Path) -> list[str]:
             sys.platform,
         )
         _warned_unsupported = True
-    return [sys.executable, str(script_path)]
+    return [sys.executable, str(script_path), *extra]
