@@ -22,6 +22,7 @@ from screamingface.plugins.url4_executor.url4_ast import (
     Url4ExpandedSource,
     Url4List,
     Url4Node,
+    Url4Reduce,
     Url4RelUrl,
     Url4Text,
     Url4Url,
@@ -57,6 +58,25 @@ async def resolve(node: Url4Node, app: Any = None, env: Env | None = None) -> st
         # value. Sibling-visibility registration only applies inside
         # a Url4List frame (see _resolve_list).
         return await resolve(node.value, app, env)
+    if isinstance(node, Url4Reduce):
+        if node.broadcast:
+            raise NotImplementedError(
+                "name=(group)!*intent (broadcast binding) is not supported yet"
+            )
+        from screamingface.plugins.url4_executor.ensemble_helpers import resolve_ensemble
+        from screamingface.plugins.url4_executor.interpreter import resolve_intent
+
+        processor = "/claude"
+        if env is not None:
+            try:
+                processor = env.lookup("__processor__")
+            except KeyError:
+                pass
+        intent_str = getattr(node.intent, "value", "") if node.intent is not None else ""
+        reducer_instruction = await resolve_intent(intent_str, app, env) if intent_str else ""
+        return await resolve_ensemble(
+            node.items, reducer_instruction, processor=processor, app=app, env=env
+        )
     raise TypeError(f"Unknown node type: {type(node)}")
 
 

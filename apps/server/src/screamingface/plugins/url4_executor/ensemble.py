@@ -42,16 +42,13 @@ if TYPE_CHECKING:
     from screamingface.plugins.url4_executor.decoder import ForeachDirectives
 
 from screamingface.plugins.url4_executor.ensemble_helpers import (
-    FanoutResponse,
     _build_reducer_input,  # noqa: F401 — legacy re-export
     _ResponseEntry,  # noqa: F401 — legacy re-export
     _split_collection_iteration,  # noqa: F401 — legacy re-export
     _substitute_item,  # noqa: F401 — legacy re-export
     _substitute_response_vars,  # noqa: F401 — legacy re-export
-    build_reducer_input,
     split_collection_iteration,
     substitute_item,
-    substitute_response_vars,
 )
 from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
 from screamingface.plugins.url4_executor.scope import Env
@@ -120,6 +117,10 @@ class EnsembleInterpreter(Url4Interpreter):
         with traced("url4.evaluate"):
             if env is None:
                 env = Env.root()
+            try:
+                env.lookup("__processor__")
+            except KeyError:
+                env = env.child(__processor__=self._processor)
             set_span_attrs({"url4.expression": expr[:500]})
             source_expr, raw_intent, broadcast = split_intent(expr.strip())
             set_span_attrs(
@@ -344,16 +345,15 @@ class EnsembleInterpreter(Url4Interpreter):
         """Fan-out N backend calls, reduce via the configured processor.
 
         1. Resolve the outer intent (reducer instruction).
-        2. Dispatch each ``Url4BackendCall`` in parallel.
+        2. Dispatch each ``Url4BackendCall`` in parallel (via resolve_ensemble).
         3. On any failure, abort with the error (Q6=a).
         4. Build the reducer input as separate sections (Q2=ii, Q3=b).
         5. Call the reducer backend via the processor path.
         6. Return the reducer's response.
         """
         from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
+        from screamingface.plugins.url4_executor.ensemble_helpers import resolve_ensemble
         from screamingface.plugins.url4_executor.interpreter import resolve_intent
-        from screamingface.plugins.url4_executor.url4 import Url4Text
-        from screamingface.plugins.url4_executor.url4_resolve import _dispatch_backend_call
 
         with traced("url4.ensemble.resolve_intent"):
             reducer_instruction = (
@@ -364,34 +364,16 @@ class EnsembleInterpreter(Url4Interpreter):
         with traced("url4.ensemble.fanout"):
             items = source_node.items
             set_span_attrs({"url4.ensemble.fanout_count": len(items)})
-            # asyncio.gather with return_exceptions=False (default) cancels
-            # remaining tasks and raises the first exception (Q6=a).
-            responses: list[str] = list(
-                await asyncio.gather(*[resolve(item, self.app, env) for item in items])
-            )
-            set_span_attrs({"url4.ensemble.response_count": len(responses)})
 
         with traced("url4.ensemble.reduce"):
             set_span_attrs({"url4.ensemble.processor": self._processor})
-
-            response_entries = [
-                FanoutResponse(
-                    text=resp,
-                    name=item.name if isinstance(item, Url4BackendCall) else None,
-                    weight=item.weight if isinstance(item, Url4BackendCall) else None,
-                )
-                for item, resp in zip(items, responses, strict=True)
-            ]
-
-            reducer_instruction = substitute_response_vars(reducer_instruction, response_entries)
-            reducer_input = build_reducer_input(response_entries, reducer_instruction)
-            set_span_attrs({"url4.ensemble.reducer_input_length": len(reducer_input)})
-
-            reducer_node = Url4BackendCall(
-                path=self._processor,
-                intent=Url4Text(value=reducer_input),
+            result = await resolve_ensemble(
+                items,
+                reducer_instruction,
+                processor=self._processor,
+                app=self.app,
+                env=env,
             )
-            result = await _dispatch_backend_call(reducer_node, self.app, env)
 
             result_preview = result[:4000]
             if len(result) > 4000:
