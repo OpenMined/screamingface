@@ -97,6 +97,16 @@ class AigwRunnerSettings(PluginSettings):
             "in tests / dev where the gateway is already running."
         ),
     )
+    aigw_env: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Extra environment variables to inject into the spawned aigateway "
+            "subprocess. Use this to configure AIGW_* settings (retry, "
+            "per-provider concurrency caps) when the SF server is launched "
+            "by something — e.g. the Electron desktop app — that does not "
+            "forward the user's shell env."
+        ),
+    )
 
     @field_validator("aigateway_dir", "database_path", "uv_bin", mode="before")
     @classmethod
@@ -344,6 +354,11 @@ def _database_url(settings: AigwRunnerSettings) -> str:
 def _gateway_env(settings: AigwRunnerSettings, database_url: str) -> dict[str, str]:
     env = os.environ.copy()
     env.pop("VIRTUAL_ENV", None)
+    # Inject configured AIGW_* / other env so it survives launchers that
+    # strip the user's shell env (notably the Electron desktop app).
+    for key, value in settings.aigw_env.items():
+        env[key] = str(value)
+    # Runner-owned invariants for local-managed mode must win over aigw_env.
     env["AIGATEWAY_DATABASE_URL"] = database_url
     env["AIGATEWAY_AUTH_ENABLED"] = "false"
     return env

@@ -16,7 +16,47 @@ from aigateway.plugins.gemini_provider.chat_handler import (
     GEMINI_API_BASE,
     GeminiCustomLLM,
     ensure_litellm_gemini_provider_registered,
+    parse_gemini_retry_after,
 )
+
+
+def test_parse_gemini_retry_after_from_reset_after_text() -> None:
+    body = (
+        '{"error": {"code": 429, "message": "You have exhausted your capacity '
+        'on this model. Your quota will reset after 3s.", "status": "RESOURCE_EXHAUSTED"}}'
+    )
+    assert parse_gemini_retry_after(body, {}) == 3.0
+
+
+def test_parse_gemini_retry_after_from_retry_delay_field() -> None:
+    body = '{"error": {"details": [{"@type": "...RetryInfo", "retryDelay": "5s"}]}}'
+    assert parse_gemini_retry_after(body, {}) == 5.0
+
+
+def test_parse_gemini_retry_after_prefers_header() -> None:
+    assert parse_gemini_retry_after("reset after 9s", {"retry-after": "2"}) == 2.0
+
+
+def test_parse_gemini_retry_after_none_when_absent() -> None:
+    assert parse_gemini_retry_after('{"error": {"code": 429}}', {}) is None
+
+
+def test_parse_gemini_retry_after_compound_daily_quota() -> None:
+    """Daily-quota exhaustion reports a compound 'XhYmZs' window, not 'Ns'.
+    Regression for the observed live form 'reset after 22h11m3s'."""
+    body = (
+        '{"error": {"code": 429, "message": "You have exhausted your capacity. '
+        'Your quota will reset after 22h11m3s.", "status": "RESOURCE_EXHAUSTED"}}'
+    )
+    assert parse_gemini_retry_after(body, {}) == 22 * 3600 + 11 * 60 + 3
+
+
+def test_parse_gemini_retry_after_compound_minutes_seconds() -> None:
+    assert parse_gemini_retry_after("quota will reset after 1m30s.", {}) == 90.0
+
+
+def test_parse_gemini_retry_after_plain_seconds_still_works() -> None:
+    assert parse_gemini_retry_after("reset after 8s.", {}) == 8.0
 
 
 def _http_factory(transport: httpx.MockTransport):

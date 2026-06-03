@@ -32,6 +32,29 @@ class Settings(BaseSettings):
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
     public_url: str | None = Field(default=None, validation_alias="AIGATEWAY_PUBLIC_URL")
 
+    retry_max_attempts: int = Field(default=3, validation_alias="AIGW_RETRY_MAX_ATTEMPTS")
+    retry_backoff_base_seconds: float = Field(
+        default=0.5, validation_alias="AIGW_RETRY_BACKOFF_BASE"
+    )
+    retry_backoff_max_seconds: float = Field(default=8.0, validation_alias="AIGW_RETRY_BACKOFF_MAX")
+    retry_max_total_wait_seconds: float = Field(
+        default=30.0, validation_alias="AIGW_RETRY_MAX_WAIT"
+    )
+    retry_jitter_seconds: float = Field(default=0.25, validation_alias="AIGW_RETRY_JITTER")
+    provider_max_concurrency: int = Field(
+        default=4, validation_alias="AIGW_PROVIDER_MAX_CONCURRENCY"
+    )
+    # Per-provider overrides to the global cap. Gemini Code Assist's
+    # per-account quota is so tight (~1 concurrent req) that the default of 4
+    # still 429s on collection fan-outs — set ``{"gemini": 1}`` here while
+    # leaving claude/codex at the global default. The key may be the family
+    # name (``gemini``) or the full derived provider string (``gemini-cli``);
+    # both match. JSON-parsed from the env var.
+    provider_max_concurrency_overrides: dict[str, int] = Field(
+        default_factory=dict,
+        validation_alias="AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES",
+    )
+
     @field_validator("jwt_secret", "provisioning_token")
     @classmethod
     def _validate_secret_length(cls, value: SecretStr | None) -> SecretStr | None:
