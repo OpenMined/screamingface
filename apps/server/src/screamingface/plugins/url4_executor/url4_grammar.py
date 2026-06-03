@@ -138,6 +138,7 @@ GRAMMAR = r"""
         = url
         | relurl
         | json_blob
+        | quoted
         | text
         ;
 
@@ -151,6 +152,10 @@ GRAMMAR = r"""
     # nested {}. Lets a backend-call intent carry a multi-key JSON payload
     # whose internal commas would otherwise split the enclosing list.
     json_blob = value:/\{(?:[^{}]|\{[^{}]*\})*\}/ ;
+
+    # A quoted-string intent: '…' or "…" — commas inside are part of the
+    # string, not list separators. Twin of json_blob for quoted prompts.
+    quoted = value:/'[^']*'|"[^"]*"/ ;
 """
 
 
@@ -165,6 +170,9 @@ class Url4Semantics:
         return Url4Text(value=ast.value.strip())
 
     def json_blob(self, ast):
+        return Url4Text(value=ast.value.strip())
+
+    def quoted(self, ast):
         return Url4Text(value=ast.value.strip())
 
     def backend_call(self, ast):
