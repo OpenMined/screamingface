@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -62,6 +63,54 @@ def _profile_header_value(headers: dict[str, Any]) -> str:
     return "default"
 
 
+# "reset after 8s" / "reset after 1m30s" / "reset after 22h11m3s" — a run of
+# number+unit components (the daily-quota form is compound, not plain seconds).
+_RESET_AFTER_RE = re.compile(r"reset after\s+((?:\d+(?:\.\d+)?\s*[hms])+)", re.IGNORECASE)
+_RETRY_DELAY_RE = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
+_DURATION_COMPONENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([hms])", re.IGNORECASE)
+_UNIT_SECONDS = {"h": 3600.0, "m": 60.0, "s": 1.0}
+
+
+def _compound_duration_to_seconds(token: str) -> float | None:
+    """Sum a Google-style duration like ``22h11m3s`` / ``1m30s`` / ``8s`` into
+    seconds. Returns ``None`` if no h/m/s component is present."""
+    total = 0.0
+    matched = False
+    for value, unit in _DURATION_COMPONENT_RE.findall(token):
+        matched = True
+        total += float(value) * _UNIT_SECONDS[unit.lower()]
+    return total if matched else None
+
+
+def parse_gemini_retry_after(response_text: str, headers: Any) -> float | None:
+    """Extract a retry-after delay (seconds) from a Gemini 429.
+
+    Google surfaces the reset window in the response *body* (a ``RetryInfo``
+    ``retryDelay`` in seconds, or the human "reset after <duration>" phrasing
+    which may be compound, e.g. ``22h11m3s`` on daily-quota exhaustion), not a
+    standard ``Retry-After`` header — so the generic header parser misses it.
+    Honors a real header first, then ``retryDelay``, then the prose form.
+    Returns ``None`` when nothing matches (caller falls back to exponential
+    backoff).
+    """
+    raw = headers.get("retry-after") if headers is not None else None
+    if raw is not None:
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+    text = response_text or ""
+    delay_match = _RETRY_DELAY_RE.search(text)
+    if delay_match:
+        return max(0.0, float(delay_match.group(1)))
+    reset_match = _RESET_AFTER_RE.search(text)
+    if reset_match:
+        seconds = _compound_duration_to_seconds(reset_match.group(1))
+        if seconds is not None:
+            return max(0.0, seconds)
+    return None
+
+
 def _error_from_response(response: httpx.Response, provider_name: str) -> CustomLLMError:
     status = response.status_code
     if status in (401, 403):
@@ -69,12 +118,16 @@ def _error_from_response(response: httpx.Response, provider_name: str) -> Custom
             status_code=status,
             message=f"Gemini {provider_name} rejected credentials",
         )
-    preview = response.text[:500]
+    body = response.text
+    preview = body[:500]
     suffix = f": {preview}" if preview else ""
-    return CustomLLMError(
+    error = CustomLLMError(
         status_code=status,
         message=f"Gemini {provider_name} request failed with status {status}{suffix}",
     )
+    # Stash the provider's own reset window so the retry loop can honor it.
+    error.retry_after = parse_gemini_retry_after(body, response.headers)  # type: ignore[attr-defined]
+    return error
 
 
 class GeminiCustomLLM(CustomLLM):

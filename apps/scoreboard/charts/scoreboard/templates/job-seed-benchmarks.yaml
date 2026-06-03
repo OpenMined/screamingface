@@ -1,0 +1,48 @@
+{{- if .Values.seedBenchmarks.enabled -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "scoreboard.fullname" . }}-seed-benchmarks
+  labels:
+    {{- include "scoreboard.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    {{- with .Values.seedBenchmarks.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  backoffLimit: {{ .Values.seedBenchmarks.backoffLimit }}
+  ttlSecondsAfterFinished: {{ .Values.seedBenchmarks.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "scoreboard.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: seed-benchmarks
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ .Values.seedBenchmarks.serviceAccountName | quote }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: seed-benchmarks
+          image: {{ include "scoreboard.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - python
+            - -m
+            - scoreboard.seed
+          env:
+            - name: SCOREBOARD_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "database.existingSecret is required" .Values.database.existingSecret }}
+                  key: {{ .Values.database.existingSecretKey }}
+            - name: SCOREBOARD_SEED_BENCHMARKS_JSON
+              value: {{ .Values.seedBenchmarks.benchmarks | toJson | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+{{- end }}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
@@ -42,6 +43,19 @@ _CLIENT_AUTH_HEADER_NAMES = {
     "x-goog-api-key",
     "x-goog-user-project",
 }
+
+
+def _retry_after_header(exc: CustomLLMError) -> dict[str, str]:
+    """Surface the provider's reset window as a Retry-After header.
+
+    ``_error_from_response`` stashes the parsed delay on ``exc.retry_after``;
+    promoting it to a header lets the gateway's retry loop honor the *real*
+    window instead of guessing via exponential backoff.
+    """
+    seconds = getattr(exc, "retry_after", None)
+    if seconds is None:
+        return {}
+    return {"Retry-After": str(math.ceil(seconds))}
 
 
 def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
@@ -168,6 +182,7 @@ class GeminiProviderPlugin(ProviderPluginBase):
             raise HTTPException(
                 status_code=int(exc.status_code or 502),
                 detail=_detail_for_error(exc),
+                headers=_retry_after_header(exc),
             ) from exc
 
 

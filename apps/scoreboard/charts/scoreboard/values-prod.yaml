@@ -1,0 +1,35 @@
+replicaCount: 3
+
+cors:
+  origins:
+    - https://screamingface.ai
+
+database:
+  existingSecret: scoreboard-db
+  existingSecretKey: database-url
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: scoreboard.screamingface.ai
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: scoreboard-tls
+      hosts:
+        - scoreboard.screamingface.ai
+
+networkPolicy:
+  enabled: true
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 128Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
