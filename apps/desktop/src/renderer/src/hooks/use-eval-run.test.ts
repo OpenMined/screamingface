@@ -83,3 +83,21 @@ it('does not mark failed when the ensemble fetch rejects (run drives state via p
   });
   expect(result.current.runState).toBe('running');
 });
+
+it('mints a fresh run_id when an edited expression override is supplied', async () => {
+  fetchMock.mockResolvedValue({ ok: false, status: 0, body: '' });
+  const pinned = { spec: 'HLE', expression: 'a(b)', runId: 'pinned-id' };
+  const { result } = renderHook(() => useEvalRun(pinned));
+
+  // No override -> reuses the pinned deep-link run id.
+  act(() => result.current.startRun());
+  const plainCall = fetchMock.mock.calls.find((c) => String(c[0]).includes('/ensemble?q='));
+  expect(plainCall?.[1].headers['X-SF-Run-Id']).toBe('pinned-id');
+
+  // Override (edited expression) -> fresh id, never the pinned one.
+  act(() => result.current.startRun('edited(expr)'));
+  const editedCall = fetchMock.mock.calls.find((c) => String(c[0]).includes('edited'));
+  const editedId = editedCall?.[1].headers['X-SF-Run-Id'];
+  expect(editedId).toBeTruthy();
+  expect(editedId).not.toBe('pinned-id');
+});

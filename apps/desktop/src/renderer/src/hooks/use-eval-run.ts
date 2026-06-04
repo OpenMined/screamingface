@@ -48,7 +48,12 @@ export function useEvalRun(payload: RunPayload) {
     (expressionOverride?: string) => {
       if (!base) return;
       const expression = expressionOverride ?? payload.expression;
-      const runId = payload.runId ?? crypto.randomUUID();
+      // An edited expression is always a new run, so never reuse a pinned
+      // (deep-link) runId for it; mint a fresh one.
+      const runId =
+        expressionOverride !== undefined
+          ? crypto.randomUUID()
+          : (payload.runId ?? crypto.randomUUID());
       setRun(null);
       setRunState('running');
       // Fire-and-forget: this drives server-side run creation. The main-side

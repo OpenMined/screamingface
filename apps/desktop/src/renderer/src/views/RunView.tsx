@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useEvalRun } from '@/hooks/use-eval-run';
 import { Url4Viewer } from '@/components/Url4Viewer';
+import { Url4Editor } from '@/components/Url4Editor';
 import { RunButton } from '@/components/run/RunButton';
 import { RunProgress } from '@/components/run/RunProgress';
 import type { RunPayload } from '@/components/run/types';
@@ -12,6 +14,7 @@ interface RunViewProps {
 
 export function RunView({ payload, serverUrl, onViewEvalStudio }: RunViewProps) {
   const { run, runState, startRun } = useEvalRun(payload);
+  const [editing, setEditing] = useState(false);
 
   return (
     <div className="flex max-w-3xl flex-col gap-6 p-6">
@@ -20,9 +23,26 @@ export function RunView({ payload, serverUrl, onViewEvalStudio }: RunViewProps) 
         <h1 className="text-xl font-semibold">{payload.spec || 'Ad-hoc run'}</h1>
       </header>
 
-      <section>
-        <div className="mb-2 text-xs text-muted-foreground">URL4 expression</div>
-        <Url4Viewer expression={payload.expression} serverUrl={serverUrl} mode="expanded" />
+      <section className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <div className="text-xs text-muted-foreground">URL4 expression</div>
+          <button
+            type="button"
+            onClick={() => setEditing((e) => !e)}
+            className="text-sm text-primary underline"
+          >
+            {editing ? 'Cancel edit' : 'Edit URL4'}
+          </button>
+        </div>
+        {editing ? (
+          <Url4Editor
+            initial={payload.expression}
+            serverUrl={serverUrl}
+            onRun={(expr) => startRun(expr)}
+          />
+        ) : (
+          <Url4Viewer expression={payload.expression} serverUrl={serverUrl} mode="expanded" />
+        )}
       </section>
 
       <section className="flex flex-col gap-3">
