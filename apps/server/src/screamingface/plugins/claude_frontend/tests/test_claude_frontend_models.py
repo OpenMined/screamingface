@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -305,7 +304,11 @@ class TestPrependSystemContext:
 
 
 # ---------------------------------------------------------------------------
-# Proxy integration tests (cached context injection)
+# Proxy integration tests (TERMINAL synthesis — no upstream inference forward)
+#
+# Migrated from the pre-SF-240 "context injection into the forwarded upstream
+# system prompt" assertions. The inference route is now terminal: the resolved
+# url4 context becomes the response BODY, and no httpx.AsyncClient.post fires.
 # ---------------------------------------------------------------------------
 
 
@@ -326,7 +329,7 @@ class _FakePlugin:
 def proxy_app_with_context() -> FastAPI:
     settings = ClaudeFrontendSettings(
         upstream_url="https://api.anthropic.com",
-        embed_target="system",
+        active_spec="static-spec",
     )
     app = FastAPI()
     router = create_router(settings, plugin=_FakePlugin("cached url4 docs"))
@@ -338,29 +341,17 @@ def proxy_app_with_context() -> FastAPI:
 def proxy_app_no_context() -> FastAPI:
     settings = ClaudeFrontendSettings(upstream_url="https://api.anthropic.com")
     app = FastAPI()
-    router = create_router(settings)
+    router = create_router(settings, plugin=_FakePlugin(None))
     app.include_router(router)
     return app
 
 
-_DEFAULT_SYS_PROMPT = (
-    "You are a helpful assistant. Answer the user's question based only on "
-    "the provided context. Be concise and factual."
-)
-_INJECT_PREFIX = _DEFAULT_SYS_PROMPT + "\n\n"
-
-
-class TestProxyContextInjection:
-    prefix = _INJECT_PREFIX
-
-    def test_injects_cached_context(self, proxy_app_with_context: FastAPI) -> None:
+class TestProxyTerminalSynthesis:
+    def test_resolved_context_becomes_response_body(self, proxy_app_with_context: FastAPI) -> None:
+        """The static-resolved url4 context is synthesized as the response text."""
         client = TestClient(proxy_app_with_context)
-        mock_response = httpx.Response(200, json={"id": "msg_1", "content": []})
-
-        with patch(
-            "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
-        ) as mock_post:
-            client.post(
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+            resp = client.post(
                 "/v1/messages",
                 json={
                     "model": "claude-sonnet-4-20250514",
@@ -370,19 +361,17 @@ class TestProxyContextInjection:
                 },
                 headers={"x-api-key": "test-key"},
             )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["type"] == "message"
+        assert data["content"][0]["text"] == "cached url4 docs"
+        assert not mock_post.called
 
-        call_kwargs = mock_post.call_args
-        sent_body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json", {})
-        assert sent_body["system"] == f"Be helpful\n\n{self.prefix}cached url4 docs"
-
-    def test_no_context_passthrough(self, proxy_app_no_context: FastAPI) -> None:
+    def test_no_context_synthesizes_empty_no_upstream(self, proxy_app_no_context: FastAPI) -> None:
+        """No active spec → empty synthesized envelope, no upstream inference call."""
         client = TestClient(proxy_app_no_context)
-        mock_response = httpx.Response(200, json={"id": "msg_2", "content": []})
-
-        with patch(
-            "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
-        ) as mock_post:
-            client.post(
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+            resp = client.post(
                 "/v1/messages",
                 json={
                     "model": "claude-sonnet-4-20250514",
@@ -392,77 +381,29 @@ class TestProxyContextInjection:
                 },
                 headers={"x-api-key": "test-key"},
             )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["type"] == "message"
+        assert data["content"][0]["text"] == ""
+        assert not mock_post.called
 
-        call_kwargs = mock_post.call_args
-        sent_body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json", {})
-        assert sent_body["system"] == "Be helpful"
-
-    def test_extra_fields_survive_round_trip(self, proxy_app_with_context: FastAPI) -> None:
+    def test_streaming_synthesizes_resolved_context_no_upstream(
+        self, proxy_app_with_context: FastAPI
+    ) -> None:
         client = TestClient(proxy_app_with_context)
-        mock_response = httpx.Response(200, json={"id": "msg_3", "content": []})
-
-        with patch(
-            "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
-        ) as mock_post:
-            client.post(
+        with patch("httpx.AsyncClient.stream") as mock_stream:
+            resp = client.post(
                 "/v1/messages",
                 json={
                     "model": "claude-sonnet-4-20250514",
                     "max_tokens": 1024,
                     "messages": [{"role": "user", "content": "Hi"}],
-                    "unknown_field": "should survive",
+                    "stream": True,
                 },
                 headers={"x-api-key": "test-key"},
             )
-
-        call_kwargs = mock_post.call_args
-        sent_body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json", {})
-        assert sent_body["unknown_field"] == "should survive"
-
-    def test_context_injected_into_none_system(self, proxy_app_with_context: FastAPI) -> None:
-        client = TestClient(proxy_app_with_context)
-        mock_response = httpx.Response(200, json={"id": "msg_4", "content": []})
-
-        with patch(
-            "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
-        ) as mock_post:
-            client.post(
-                "/v1/messages",
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 1024,
-                    "messages": [{"role": "user", "content": "Hi"}],
-                    # No system prompt
-                },
-                headers={"x-api-key": "test-key"},
-            )
-
-        call_kwargs = mock_post.call_args
-        sent_body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json", {})
-        assert isinstance(sent_body["system"], list)
-        assert sent_body["system"][0]["text"] == f"{self.prefix}cached url4 docs"
-
-    def test_context_injected_into_list_system(self, proxy_app_with_context: FastAPI) -> None:
-        client = TestClient(proxy_app_with_context)
-        mock_response = httpx.Response(200, json={"id": "msg_5", "content": []})
-
-        with patch(
-            "httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response
-        ) as mock_post:
-            client.post(
-                "/v1/messages",
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 1024,
-                    "messages": [{"role": "user", "content": "Hi"}],
-                    "system": [{"type": "text", "text": "original"}],
-                },
-                headers={"x-api-key": "test-key"},
-            )
-
-        call_kwargs = mock_post.call_args
-        sent_body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json", {})
-        assert isinstance(sent_body["system"], list)
-        assert len(sent_body["system"]) == 2
-        assert sent_body["system"][0]["text"] == "original"
-        assert sent_body["system"][-1]["text"] == f"{self.prefix}cached url4 docs"
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        assert "cached url4 docs" in resp.text
+        assert "message_stop" in resp.text
+        assert not mock_stream.called

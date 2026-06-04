@@ -3,33 +3,34 @@
 Two resolution paths live here:
 
 - **``$prompt`` substitution** (:func:`resolve_prompt_expression`) —
-  the active spec contains the ``$prompt`` sentinel. The user's last
-  message text is stored as a blob, the sentinel is substituted with
-  the blob URL, the full expression is evaluated through url4, and
-  the result is embedded back into the outgoing request.
+  the active spec contains the ``$prompt`` sentinel. The serialized
+  conversation transcript is stored as a blob, the sentinel is
+  substituted with the blob URL, and the full expression is evaluated
+  through url4 to a terminal result string.
 
 - **Static resolution** (:func:`resolve_static_context`) — the active
   spec has no ``$prompt``. The plugin's cached resolved context is
-  embedded directly.
+  returned directly.
 
-Both paths return ``None`` on success (request body is mutated in
-place) and a :class:`JSONResponse` error on failure — the proxy
-short-circuits with that response instead of forwarding. Error
-responses are shaped as fake-200 Anthropic messages so Claude Code
-surfaces the error text in the chat UI.
+Both paths return a ``(resolved_text, error_dict)`` tuple: on success
+``(text, None)``; on any failure (including an empty/None result —
+fail-loud, O5b) ``(None, error_envelope_dict)``. The handler renders
+the success text via M1's builders/streamers, or feeds the error
+envelope's text through the SAME builder/streamer as a visible fake-200
+(blocking-and-screaming, PR #244). No body mutation; no embed_context.
 
-Extracted from ``proxy.py`` during SF-107.
+Extracted from ``proxy.py`` during SF-107; rewritten to the tuple
+contract during SF-240 (M2).
 """
 
 from __future__ import annotations
 
 import logging
-import traceback
 from typing import Any
 
 import httpx
-from fastapi.responses import JSONResponse
 
+from screamingface.plugins.frontend_base.terminal_response import extract_error_text
 from screamingface.plugins.llm_base.constants import PROMPT_PREVIEW_LIMIT
 
 logger = logging.getLogger(__name__)
@@ -45,43 +46,28 @@ def _truncate(text: str, limit: int = PROMPT_PREVIEW_LIMIT) -> str:
 
 
 def _build_error_response(
-    body: dict[str, Any],
     *,
     spec_name: str,
-    header: str,
     raw_expression: str,
-    substituted: str | None,
     exc: Exception,
-) -> JSONResponse:
-    """Build a fake-200 Anthropic response whose text is the url4 error."""
-    tb_str = "".join(traceback.format_exception(exc))
-    lines: list[str] = [
-        f"[url4 error] {header} for spec '{spec_name}'",
-        "",
-        f"Expression: {_truncate(raw_expression, 200)}",
-    ]
-    if substituted is not None:
-        lines.append(f"Substituted: {_truncate(substituted, 200)}")
-    lines += [
-        "",
-        f"Error: {exc.__class__.__name__}: {exc}",
-        "",
-        "Traceback:",
-        tb_str,
-    ]
-    return JSONResponse(
-        content={
-            "id": f"sf_error_{id(exc):x}",
-            "type": "message",
-            "role": "assistant",
-            "content": [{"type": "text", "text": "\n".join(lines)}],
-            "model": body.get("model", "unknown"),
-            "stop_reason": "end_turn",
-            "stop_sequence": None,
-            "usage": {"input_tokens": 0, "output_tokens": 0},
-        },
-        status_code=200,
-    )
+) -> dict[str, Any]:
+    """Build an Anthropic-shaped error envelope dict (not a ``JSONResponse``).
+
+    Error text lands in ``content[0].text`` so the CLI renders it (#244). The
+    handler wraps this in a ``JSONResponse`` (unary) or feeds ``content[0].text``
+    to ``stream_anthropic_sse`` (streaming).
+    """
+    error_text = extract_error_text(exc, spec_name, raw_expression)
+    return {
+        "id": f"sf_error_{id(exc):x}",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": error_text}],
+        "model": "unknown",
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 0, "output_tokens": 0},
+    }
 
 
 async def _store_prompt_blob(
@@ -188,31 +174,30 @@ async def _resolve_expression(
 
 
 async def resolve_prompt_expression(
-    body: dict[str, Any],
+    body: dict[str, Any],  # noqa: ARG001 — kept for signature symmetry with the static path
     *,
     raw_expression: str,
     settings: Any,
     plugin: Any,  # noqa: ARG001 — reserved for future plugin-scoped hooks
     app: Any,
     tracer: Any,
-    last_user_text: str,
-    embed_context: Any,
-) -> JSONResponse | None:
-    """Substitute ``$prompt``, resolve, embed the result back into body.
+    prompt_text: str,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Substitute ``$prompt`` with a transcript blob, resolve, return ``(text, error)``.
 
-    ``tracer`` is a :class:`frontend_base.ProxyTracer`. Returns ``None``
-    on success (body mutated in place) or a :class:`JSONResponse` if
-    anything in the pipeline raises; the proxy uses that return value
-    to short-circuit with a fake-200 error response.
+    Decision A: ``prompt_text`` is the FULL serialized transcript (built by the
+    handler via ``serialize_transcript``). On success returns ``(resolved_text, None)``;
+    on any failure — including an empty result (O5b, fail-loud) — returns
+    ``(None, error_envelope_dict)``. ``tracer`` is a :class:`frontend_base.ProxyTracer`.
+    No body mutation; no embed_context.
     """
-    substituted: str | None = None
     with tracer.start_current_span("url4.$prompt") as prompt_span:
         try:
             if prompt_span and prompt_span.is_recording():
                 tracer.set_attrs(
                     {
                         "url4.raw_expression": raw_expression,
-                        "url4.user_text_length": len(last_user_text),
+                        "url4.prompt_text_length": len(prompt_text),
                     },
                     span=prompt_span,
                 )
@@ -220,7 +205,7 @@ async def resolve_prompt_expression(
             backend_url = settings.backend_url.rstrip("/") if settings.backend_url else None
 
             blob_key = await _store_prompt_blob(
-                last_user_text,
+                prompt_text,
                 app=app,
                 backend_url=backend_url,
                 tracer=tracer,
@@ -244,6 +229,10 @@ async def resolve_prompt_expression(
                 tracer=tracer,
             )
 
+            if not final_text:
+                # O5b: an empty resolution is fail-loud.
+                raise RuntimeError("$prompt resolved to empty")
+
             if prompt_span and prompt_span.is_recording():
                 tracer.set_attrs(
                     {
@@ -254,16 +243,8 @@ async def resolve_prompt_expression(
                     span=prompt_span,
                 )
 
-            if final_text:
-                embed_context(body, final_text, settings)
-                logger.info(
-                    "$prompt: blob=%s resolved %d chars → target=%s mode=%s",
-                    blob_key,
-                    len(final_text),
-                    settings.embed_target,
-                    settings.embed_mode,
-                )
-            return None
+            logger.info("$prompt: blob=%s resolved %d chars", blob_key, len(final_text))
+            return final_text, None
 
         except Exception as exc:
             if prompt_span and prompt_span.is_recording():
@@ -271,44 +252,35 @@ async def resolve_prompt_expression(
                 prompt_span.set_attribute("url4.error", str(exc))
                 prompt_span.record_exception(exc)
             logger.warning("$prompt substitution failed", exc_info=True)
-            return _build_error_response(
-                body,
+            return None, _build_error_response(
                 spec_name=settings.active_spec or "unknown",
-                header="Resolution failed",
                 raw_expression=raw_expression,
-                substituted=substituted,
                 exc=exc,
             )
 
 
 def resolve_static_context(
-    body: dict[str, Any],
+    body: dict[str, Any],  # noqa: ARG001 — kept for signature symmetry with the $prompt path
     *,
     raw_expression: str,
     settings: Any,
     plugin: Any,
-    embed_context: Any,
-) -> JSONResponse | None:
-    """No ``$prompt`` — use plugin-cached resolved context."""
+) -> tuple[str | None, dict[str, Any] | None]:
+    """No ``$prompt`` — use plugin-cached resolved context. Fail-loud on None/empty (O5b)."""
     try:
         resolved_context = plugin.resolve_context() if plugin else None
+        if not resolved_context:
+            return None, _build_error_response(
+                spec_name=settings.active_spec or "unknown",
+                raw_expression=raw_expression,
+                exc=RuntimeError("Static spec resolved to empty"),
+            )
+        logger.info("Static context resolved: %d chars", len(resolved_context))
+        return resolved_context, None
     except Exception as exc:
         logger.warning("Static context resolution failed", exc_info=True)
-        return _build_error_response(
-            body,
+        return None, _build_error_response(
             spec_name=settings.active_spec or "unknown",
-            header="Static context resolution failed",
             raw_expression=raw_expression,
-            substituted=None,
             exc=exc,
         )
-
-    if resolved_context:
-        embed_context(body, resolved_context, settings)
-        logger.info(
-            "Injected cached url4 context (%d chars) embed_target=%s embed_mode=%s",
-            len(resolved_context),
-            settings.embed_target,
-            settings.embed_mode,
-        )
-    return None
