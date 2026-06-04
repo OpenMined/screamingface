@@ -289,9 +289,16 @@ def resolve_static_context(
     plugin: Any,
     embed_context: Any,
 ) -> JSONResponse | None:
-    """No ``$prompt`` — use plugin-cached resolved context."""
+    """No ``$prompt`` — use plugin-cached resolved context.
+
+    Reads the plugin's cached context **non-blocking** (``get_cached_context``):
+    it returns immediately with cached text or ``None`` and warms in the
+    background, so the chat is never blocked on a (potentially 5-minute)
+    ensemble resolve. The trade-off: a cold spec resolves on a *subsequent*
+    request, not the first one.
+    """
     try:
-        resolved_context = plugin.resolve_context() if plugin else None
+        resolved_context = plugin.get_cached_context() if plugin else None
     except Exception as exc:
         logger.warning("Static context resolution failed", exc_info=True)
         return _build_error_response(

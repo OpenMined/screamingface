@@ -315,10 +315,11 @@ class _FakePlugin:
 
     def get_active_expression(self) -> str | None:
         if self._context:
-            return "static-spec"  # Non-$prompt expression → triggers resolve_context()
+            return "static-spec"  # Non-$prompt expression → triggers static resolve
         return None
 
-    def resolve_context(self) -> str | None:
+    def get_cached_context(self) -> str | None:
+        # Non-blocking cached read used by the static hot path (SF-237).
         return self._context
 
 
