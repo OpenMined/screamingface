@@ -22,6 +22,26 @@ if TYPE_CHECKING:
     from screamingface.plugins.url4_executor.scope import Env
 
 
+# Mirrors the json_blob grammar atom (url4_grammar.py): a balanced {...}
+# allowing one level of nesting. Substituted values that land INSIDE such a
+# span must be JSON-escaped so control chars/quotes in model output don't
+# break json.loads downstream (python-runner).
+_JSON_BLOB_RE = re.compile(r"\{(?:[^{}]|\{[^{}]*\})*\}")
+
+
+def _json_blob_spans(text: str) -> list[tuple[int, int]]:
+    return [m.span() for m in _JSON_BLOB_RE.finditer(text)]
+
+
+def _in_json_blob(pos: int, spans: list[tuple[int, int]]) -> bool:
+    return any(start <= pos < end for start, end in spans)
+
+
+def _escape_for_json_string(s: str) -> str:
+    """Escape a plain string for safe insertion inside a JSON string literal."""
+    return json.dumps(s)[1:-1]
+
+
 @dataclass
 class FanoutResponse:
     """A fan-out response paired with its source metadata.
@@ -136,6 +156,7 @@ def substitute_env_vars(text: str, env: Env | None) -> str:
     if not text or env is None or "$" not in text:
         return text
     token = re.compile(r"\$([a-zA-Z_][a-zA-Z0-9_]*)")
+    blob_spans = _json_blob_spans(text)
 
     def _replace(m: re.Match) -> str:
         name = m.group(1)
@@ -145,7 +166,10 @@ def substitute_env_vars(text: str, env: Env | None) -> str:
             value = env.lookup(name)
         except KeyError:
             return m.group(0)
-        return value if isinstance(value, str) else str(value)
+        val_str = value if isinstance(value, str) else str(value)
+        if _in_json_blob(m.start(), blob_spans):
+            return _escape_for_json_string(val_str)
+        return val_str
 
     return token.sub(_replace, text)
 
@@ -201,6 +225,7 @@ def substitute_item(template: str, item_json: str) -> str:
     """
     field_pattern = re.compile(r"\$item\.([a-zA-Z_][a-zA-Z0-9_]*)")
     parsed_item: dict | None = None
+    blob_spans = _json_blob_spans(template)
 
     def _field_replacer(match: re.Match) -> str:
         nonlocal parsed_item
@@ -212,7 +237,11 @@ def substitute_item(template: str, item_json: str) -> str:
         field = match.group(1)
         if isinstance(parsed_item, dict) and field in parsed_item:
             val = parsed_item[field]
-            return val if isinstance(val, str) else json.dumps(val)
+            if isinstance(val, str):
+                if _in_json_blob(match.start(), blob_spans):
+                    return _escape_for_json_string(val)
+                return val
+            return json.dumps(val)
         return match.group(0)  # unknown field — leave as-is
 
     result = field_pattern.sub(_field_replacer, template)
