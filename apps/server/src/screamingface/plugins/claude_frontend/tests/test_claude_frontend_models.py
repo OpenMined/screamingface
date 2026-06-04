@@ -318,8 +318,8 @@ class _FakePlugin:
             return "static-spec"  # Non-$prompt expression → triggers static resolve
         return None
 
-    def get_cached_context(self) -> str | None:
-        # Non-blocking cached read used by the static hot path (SF-237).
+    def resolve_context(self) -> str | None:
+        # Blocking resolve used by the static path (SF-237: blocking + screaming).
         return self._context
 
 
@@ -467,3 +467,47 @@ class TestProxyContextInjection:
         assert len(sent_body["system"]) == 2
         assert sent_body["system"][0]["text"] == "original"
         assert sent_body["system"][-1]["text"] == f"{self.prefix}cached url4 docs"
+
+
+# ---------------------------------------------------------------------------
+# Static resolve is blocking + screaming (SF-237)
+# ---------------------------------------------------------------------------
+
+
+class _RaisingPlugin:
+    """Plugin whose blocking ``resolve_context`` fails (e.g. resolve timeout)."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    def resolve_context(self) -> str | None:
+        raise self._exc
+
+
+class _StaticSettings:
+    active_spec = "spec-a"
+    embed_target = "system"
+    embed_mode = "concat"
+
+
+class TestStaticResolveScreams:
+    def test_timeout_returns_url4_error_response(self) -> None:
+        from fastapi.responses import JSONResponse
+
+        from screamingface.plugins.claude_frontend._url4_context import resolve_static_context
+
+        embedded: list[str] = []
+        result = resolve_static_context(
+            {"model": "m"},
+            raw_expression="(https://x)!'y'",
+            settings=_StaticSettings(),
+            plugin=_RaisingPlugin(TimeoutError("Spec resolution timed out after 1200s")),
+            embed_context=lambda _b, text, _s: embedded.append(text),
+        )
+
+        assert isinstance(result, JSONResponse)
+        assert result.status_code == 200
+        text = bytes(result.body).decode("utf-8")
+        assert "[url4 error]" in text
+        assert "TimeoutError" in text
+        assert embedded == []  # nothing injected on failure

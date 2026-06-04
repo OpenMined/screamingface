@@ -138,3 +138,95 @@ async def test_raises_when_no_blob_store_app_and_no_backend_url() -> None:
         await _resolve_expression(
             "x", app=_app_without_blob_store(), backend_url=None, tracer=_NullTracer()
         )
+
+
+class _SlowInterpreter:
+    """In-process interpreter whose ``evaluate`` outlives a tiny timeout."""
+
+    def __init__(self, app: Any = None) -> None:
+        self._app = app
+
+    async def evaluate(self, _expr: str) -> str:
+        import asyncio
+
+        await asyncio.sleep(5)
+        return "never"
+
+
+@pytest.mark.anyio
+async def test_inprocess_resolve_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SF-237: the in-process branch is bounded by ``resolve_timeout`` — a slow
+    interpreter raises ``TimeoutError`` (so the caller can scream)."""
+    import asyncio
+
+    monkeypatch.setattr(interpreter_mod, "Url4Interpreter", _SlowInterpreter)
+
+    with pytest.raises(asyncio.TimeoutError):
+        await _resolve_expression(
+            "(https://x)!intent",
+            app=_app_with_blob_store(),
+            backend_url=None,
+            tracer=_NullTracer(),
+            resolve_timeout=0.05,
+        )
+
+
+class _FakeBlobStore:
+    def store(self, _data: bytes, _content_type: str) -> str:
+        return "blobkey"
+
+
+class _RecordingSpan:
+    def is_recording(self) -> bool:
+        return False
+
+    def set_attribute(self, *_args: Any) -> None:
+        return None
+
+    def record_exception(self, *_args: Any) -> None:
+        return None
+
+
+class _PromptTracer(_NullTracer):
+    @contextmanager
+    def start_current_span(self, _name: str) -> Any:
+        yield _RecordingSpan()
+
+    def set_attrs(self, _attrs: dict[str, Any], *, span: Any = None) -> None:  # type: ignore[override]
+        return None
+
+
+@pytest.mark.anyio
+async def test_resolve_prompt_expression_screams_on_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A resolve timeout in the ``$prompt`` path returns a ``_build_error_response``."""
+    from fastapi.responses import JSONResponse
+
+    from screamingface.plugins.claude_frontend._url4_context import resolve_prompt_expression
+
+    monkeypatch.setattr(interpreter_mod, "Url4Interpreter", _SlowInterpreter)
+
+    app = SimpleNamespace(state=SimpleNamespace(blob_store=_FakeBlobStore()))
+    settings = SimpleNamespace(
+        backend_url=None,
+        active_spec="spec-a",
+        resolve_timeout=0.05,
+        embed_target="user",
+        embed_mode="concat",
+    )
+
+    result = await resolve_prompt_expression(
+        {"model": "m"},
+        raw_expression="(https://x)!$prompt",
+        settings=settings,
+        plugin=None,
+        app=app,
+        tracer=_PromptTracer(),
+        last_user_text="hello",
+        embed_context=lambda _b, _t, _s: None,
+    )
+
+    assert isinstance(result, JSONResponse)
+    assert result.status_code == 200
+    assert "[url4 error]" in bytes(result.body).decode("utf-8")

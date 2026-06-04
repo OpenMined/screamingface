@@ -19,7 +19,6 @@ import shutil
 import socket
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -39,13 +38,6 @@ if TYPE_CHECKING:
     from screamingface.core.routes import RouteRegistry
 
 logger = logging.getLogger(__name__)
-
-# Bounded, shared pool used ONLY for background ``_warm`` submission. Two
-# workers keep concurrency bounded so a stuck ensemble can't spawn an unbounded
-# number of warm threads. ``_fetch_sync`` deliberately does NOT use this pool
-# (it owns/borrows its own event loop), so a warm never nests a second pool
-# task and warms can never starve each other.
-_RESOLVE_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="url4-resolve")
 
 
 class FrontendSettingsBase(PluginSettings):
@@ -89,7 +81,7 @@ class FrontendSettingsBase(PluginSettings):
         description="Default backend path for ensemble fan-out.",
     )
     resolve_timeout: float = Field(
-        default=300.0,
+        default=1200.0,
         description="Max seconds to wait for url4 spec resolution on first request.",
     )
     resolve_failure_ttl: float = Field(
@@ -142,7 +134,6 @@ class FrontendPluginBase(Plugin):
         self._resolved_context: str | None = None
         self._active_key: str | None = None  # tracks which specs produced the cache
         self._neg_cache: dict[str, float] = {}  # spec_name → monotonic expiry
-        self._warming = False  # a background warm is in flight
         self._lock = threading.Lock()
         self._app: Any = None
 
@@ -254,12 +245,18 @@ class FrontendPluginBase(Plugin):
         return spec_urls[0][1]
 
     def resolve_context(self) -> str | None:
-        """Resolve active specs lazily.
+        """Resolve active specs lazily, **blocking** until done or failed.
 
         Cache hit (same spec set) returns cached text; cache miss
         fetches via :meth:`_fetch_sync` and stores. Specs containing
         ``$prompt`` are skipped — they need per-request substitution
         in the proxy.
+
+        Fail-loud: if a spec resolve raises (timeout, ``/ensemble`` 5xx,
+        …) the failure is negative-cached for ``resolve_failure_ttl`` and
+        then **re-raised** so the caller can surface a visible error. A
+        repeat call within the TTL re-raises immediately (fail-fast)
+        instead of re-running the ensemble.
         """
         spec_urls = self._get_spec_urls()
         spec_urls = [(n, e) for n, e in spec_urls if "$prompt" not in e]
@@ -283,12 +280,16 @@ class FrontendPluginBase(Plugin):
                     resolved_parts.append(self._cache[name])
                     logger.info("Cache hit for spec %r (%d chars)", name, len(self._cache[name]))
                     continue
-                # Negative cache: a recent failure/timeout suppresses re-running
-                # the (potentially 5-minute) ensemble until the TTL expires.
+                # Negative cache: a recent failure/timeout fails fast — re-raise
+                # immediately instead of re-running the (potentially long)
+                # ensemble until the TTL expires.
                 neg_expiry = self._neg_cache.get(name)
                 if neg_expiry is not None and time.monotonic() < neg_expiry:
-                    logger.info("Negative-cache hit for spec %r; skipping resolve", name)
-                    continue
+                    cooldown = neg_expiry - time.monotonic()
+                    logger.info("Negative-cache hit for spec %r; failing fast", name)
+                    raise RuntimeError(
+                        f"spec {name!r} resolution failed recently (cooldown {cooldown:.0f}s)"
+                    )
                 with _traced_resolve(name) as span:
                     try:
                         result = self._fetch_sync(url, timeout)
@@ -298,12 +299,13 @@ class FrontendPluginBase(Plugin):
                             resolved_parts.append(result)
                             logger.info("Resolved spec %r (%d chars)", name, len(result))
                     except Exception as exc:
-                        # Record on the span so the failure is visible in Phoenix —
-                        # the resolution is non-fatal (the chat proceeds without
-                        # context), so we deliberately don't re-raise.
+                        # Negative-cache the failure (so a repeat fails fast) and
+                        # record it on the span for Phoenix, then re-raise so the
+                        # caller surfaces a visible error in the CLI.
                         self._neg_cache[name] = time.monotonic() + settings.resolve_failure_ttl
                         logger.warning("Failed to resolve spec %r", name, exc_info=True)
                         _mark_span_error(span, exc, name)
+                        raise
 
             if resolved_parts:
                 self._resolved_context = "\n\n".join(resolved_parts)
@@ -317,56 +319,6 @@ class FrontendPluginBase(Plugin):
                 self._active_key = active_key
 
             return self._resolved_context
-
-    def get_cached_context(self) -> str | None:
-        """Non-blocking read of resolved url4 context for the request hot path.
-
-        Returns the cached context when warm (same spec set already resolved),
-        otherwise ``None`` — it NEVER blocks the chat on resolution. A cold read
-        schedules a single background warm via :meth:`_maybe_warm`; the resolved
-        context then shows up on a *subsequent* request, not this one.
-
-        Specs containing ``$prompt`` are excluded — those need per-request
-        substitution in the proxy and aren't resolvable here.
-        """
-        spec_urls = [(n, e) for n, e in self._get_spec_urls() if "$prompt" not in e]
-        if not spec_urls:
-            return None
-
-        active_key = ",".join(n for n, _ in spec_urls)
-        # Lock-free fast read — same fields ``resolve_context``'s fast path reads.
-        if self._active_key == active_key and self._resolved_context is not None:
-            return self._resolved_context
-
-        # Cold: kick off a single background warm and return None now.
-        self._maybe_warm()
-        return None
-
-    def _maybe_warm(self) -> None:
-        """Schedule one background warm if none is already in flight.
-
-        The critical section is intentionally tiny — flag-check + submit only.
-        The actual fetch lock lives inside :meth:`resolve_context`, acquired
-        later in the pool thread, so this never holds a lock across a fetch.
-        """
-        with self._lock:
-            if self._warming:
-                return
-            self._warming = True
-            _RESOLVE_POOL.submit(self._warm)
-
-    def _warm(self) -> None:
-        """Background warm: run the blocking resolve off the hot path.
-
-        Always clears ``_warming`` (try/finally) so a failed resolve never
-        wedges resolution permanently.
-        """
-        try:
-            self.resolve_context()
-        except Exception:
-            logger.warning("Background url4 warm failed", exc_info=True)
-        finally:
-            self._warming = False
 
     def _get_backend_url(self) -> str:
         """Return the base URL for backend/ensemble/data calls."""
@@ -382,15 +334,16 @@ class FrontendPluginBase(Plugin):
     def _fetch_sync(self, expression: str, timeout: float) -> str:
         """Resolve a url4 expression by calling the /ensemble endpoint.
 
-        Loop-aware and pool-free — this NEVER submits to ``_RESOLVE_POOL``, so a
-        background warm (which already runs on a pool thread) can't self-starve
-        by nesting a second pool task.
+        Loop-aware and pool-free — it owns/borrows its own event loop and never
+        leaks a thread.
 
         ``asyncio.wait_for(_fetch(...), timeout)`` bounds the resolve and cancels
-        the in-flight httpx request on timeout. Two execution paths:
+        the in-flight httpx request on timeout. The inner :func:`_fetch` also
+        gets ``timeout`` so its HTTP cap matches the resolve budget. Two
+        execution paths:
 
-        - **No running loop** (e.g. the claude background-warm pool thread): run
-          the coroutine directly via ``asyncio.run``.
+        - **No running loop** (e.g. a claude proxy worker thread): run the
+          coroutine directly via ``asyncio.run``.
         - **A loop is already running in THIS thread** (codex/gemini/ollama call
           ``resolve_context`` synchronously inside their async proxy handler):
           ``asyncio.run`` would raise, so offload to a private throwaway thread
@@ -401,7 +354,7 @@ class FrontendPluginBase(Plugin):
         base = self._get_backend_url()
 
         async def _runner() -> str:
-            return await asyncio.wait_for(_fetch(base, expression), timeout)
+            return await asyncio.wait_for(_fetch(base, expression, timeout), timeout)
 
         try:
             asyncio.get_running_loop()
@@ -509,9 +462,13 @@ class FrontendPluginBase(Plugin):
         self._thread = None
 
 
-async def _fetch(base_url: str, expression: str) -> str:
-    """Call /ensemble with a url4 expression and return plain text."""
-    async with httpx.AsyncClient(timeout=300, verify=False) as client:
+async def _fetch(base_url: str, expression: str, timeout: float) -> str:
+    """Call /ensemble with a url4 expression and return plain text.
+
+    ``timeout`` caps the inner HTTP request so it matches the resolve budget
+    (``resolve_timeout``) rather than a hardcoded value.
+    """
+    async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
         resp = await client.get(f"{base_url}/ensemble", params={"q": expression})
         resp.raise_for_status()
         return resp.text

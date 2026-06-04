@@ -23,6 +23,7 @@ Extracted from ``proxy.py`` during SF-107.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import traceback
 from typing import Any
@@ -42,6 +43,35 @@ def _truncate(text: str, limit: int = PROMPT_PREVIEW_LIMIT) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n... ({len(text) - limit} more chars)"
+
+
+# Header emitted by the scoring server (PR #243) when ``on_error=collect`` ran
+# and at least one backend errored. A degraded 200 carrying collected errors is
+# a *failure* for the frontend, not a success — surface it loudly.
+_COLLECTED_ERRORS_HEADER = "X-SF-Collected-Errors"
+
+
+def _raise_if_degraded(resp: httpx.Response) -> None:
+    """Best-effort degraded-200 detection.
+
+    If ``/ensemble`` returns a 200 but reports collected backend errors via
+    ``X-SF-Collected-Errors`` (> 0), raise so the caller screams. No-op when the
+    header is absent — it lands with PR #243, so on this branch this is inert
+    until that merges. Never parses the JSON body (that would couple the
+    frontend to the scoring-script shape).
+    """
+    raw = resp.headers.get(_COLLECTED_ERRORS_HEADER)
+    if raw is None:
+        return
+    try:
+        n_errors = int(raw)
+    except (TypeError, ValueError):
+        return
+    if n_errors > 0:
+        raise RuntimeError(
+            f"/ensemble returned a degraded result with {n_errors} collected "
+            f"backend error(s) ({_COLLECTED_ERRORS_HEADER}={raw})"
+        )
 
 
 def _build_error_response(
@@ -137,6 +167,7 @@ async def _resolve_expression(
     app: Any,
     backend_url: str | None,
     tracer: Any,
+    resolve_timeout: float = 1200.0,
 ) -> str:
     """Evaluate a url4 expression and return the final text.
 
@@ -151,12 +182,17 @@ async def _resolve_expression(
 
     The guard mirrors :func:`_store_prompt_blob` exactly; diverging the two is
     what caused store/resolve to target different stores (a 404 on ``/data``).
+
+    ``resolve_timeout`` bounds both branches (matching the static-spec
+    ``resolve_timeout``): the in-process interpreter is wrapped in
+    ``asyncio.wait_for`` and the HTTP branch caps ``httpx.Timeout``. On timeout
+    the raise propagates to :func:`resolve_prompt_expression`, which screams.
     """
     if app is not None and getattr(getattr(app, "state", None), "blob_store", None) is not None:
         from screamingface.plugins.url4_executor.interpreter import Url4Interpreter
 
         interpreter = Url4Interpreter(app=app)
-        return await interpreter.evaluate(expression)
+        return await asyncio.wait_for(interpreter.evaluate(expression), resolve_timeout)
 
     if backend_url:
         ens_url = f"{backend_url}/ensemble"
@@ -168,9 +204,12 @@ async def _resolve_expression(
                     "url4.expression": _truncate(expression, 500),
                 }
             )
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0), verify=False) as ec:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(resolve_timeout), verify=False
+            ) as ec:
                 ens_resp = await ec.get(ens_url, params={"q": expression})
                 ens_resp.raise_for_status()
+                _raise_if_degraded(ens_resp)  # best-effort (PR #243 header)
                 final_text = ens_resp.text
             tracer.set_attrs(
                 {
@@ -242,6 +281,7 @@ async def resolve_prompt_expression(
                 app=app,
                 backend_url=backend_url,
                 tracer=tracer,
+                resolve_timeout=getattr(settings, "resolve_timeout", 1200.0),
             )
 
             if prompt_span and prompt_span.is_recording():
@@ -289,16 +329,16 @@ def resolve_static_context(
     plugin: Any,
     embed_context: Any,
 ) -> JSONResponse | None:
-    """No ``$prompt`` — use plugin-cached resolved context.
+    """No ``$prompt`` — resolve and inject the plugin's url4 context.
 
-    Reads the plugin's cached context **non-blocking** (``get_cached_context``):
-    it returns immediately with cached text or ``None`` and warms in the
-    background, so the chat is never blocked on a (potentially 5-minute)
-    ensemble resolve. The trade-off: a cold spec resolves on a *subsequent*
-    request, not the first one.
+    **Blocking + fail-loud**: this calls :meth:`resolve_context`, which blocks
+    up to ``resolve_timeout`` on the ``/ensemble`` resolve and **re-raises** on
+    any failure (timeout, ``/ensemble`` 5xx, negative-cache cooldown). The
+    ``except`` below turns that raise into a visible ``[url4 error]`` response
+    so the CLI screams instead of silently proceeding without context.
     """
     try:
-        resolved_context = plugin.get_cached_context() if plugin else None
+        resolved_context = plugin.resolve_context() if plugin else None
     except Exception as exc:
         logger.warning("Static context resolution failed", exc_info=True)
         return _build_error_response(
