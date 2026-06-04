@@ -93,6 +93,10 @@ class EnsembleInterpreter(Url4Interpreter):
     def __init__(self, app: Any = None, *, processor: str | None = None) -> None:
         super().__init__(app)
         self._processor = processor or DEFAULT_PROCESSOR
+        # Count of per-row exceptions captured under ``;foreach.on_error=collect``
+        # across the whole request. Accumulated (not reset) because ``evaluate``
+        # recurses per row; the route reads it once after ``evaluate`` returns.
+        self._collected_errors = 0
 
     async def process(self, sources: str, intent: str | None, env: Env | None = None) -> str:
         """Fallback for non-ensemble expressions. Delegates to base class."""
@@ -234,12 +238,16 @@ class EnsembleInterpreter(Url4Interpreter):
 
             if directives.on_error == "collect":
                 raw = await asyncio.gather(*[_guarded(i) for i in items], return_exceptions=True)
+                error_count = sum(isinstance(r, BaseException) for r in raw)
                 results = [
                     r
                     if not isinstance(r, BaseException)
                     else json.dumps({"error": {"kind": type(r).__name__, "message": str(r)}})
                     for r in raw
                 ]
+                # Accumulate so nested/multiple collections in one request sum.
+                self._collected_errors += error_count
+                set_span_attrs({"url4.collection.errors_collected": error_count})
             else:
                 results = list(await asyncio.gather(*[_guarded(i) for i in items]))
             set_span_attrs({"url4.collection.result_count": len(results)})
