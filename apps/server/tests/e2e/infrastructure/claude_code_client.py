@@ -28,8 +28,30 @@ class ProxyResponse:
     headers: dict[str, str]
 
     @property
+    def response_text(self) -> str:
+        """Assistant text from the terminal Anthropic envelope (``body.content[0].text``).
+
+        Under the terminal cutover the proxy no longer forwards; the resolved
+        url4 text *becomes* the response. This is the canonical accessor for the
+        synthesized assistant message body.
+        """
+        content = self.body.get("content")
+        if isinstance(content, list):
+            return "".join(
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+        return ""
+
+    @property
     def echoed_body(self) -> dict[str, Any]:
-        """The forwarded request body echoed back by httpbin ``/anything``."""
+        """The forwarded request body echoed back by httpbin ``/anything``.
+
+        Retained for the few remaining forwarding routes (catchall / passthrough).
+        For the terminal ``/v1/messages`` path this is empty — use
+        :attr:`response_text` instead.
+        """
         return self.body.get("json", {})
 
     @property

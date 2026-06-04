@@ -18,17 +18,29 @@ class TestPromptSubstitution:
     """Tests for $prompt url4 specs — context injected into user message."""
 
     def test_prompt_text_mode(self, claude_client: ClaudeCodeClient):
-        """$prompt in intent position: user msg replaced with 'prompt + resolved context'."""
+        """$prompt blob carries the user prompt; resolved text becomes the response.
+
+        The user text goes into the serialized transcript ($prompt blob), the
+        spec resolves in-process, and the terminal text *is* the response. So the
+        original prompt and the resolved robots.txt source are both in
+        ``response_text``.
+        """
         resp = claude_client.send_message("Summarize this for me")
 
         assert resp.status_code == 200
 
-        content = resp.last_user_text
-        assert "Summarize this" in content, f"original prompt missing: {content[:200]}"
-        assert "User-agent" in content, f"resolved robots.txt missing: {content[:200]}"
+        text = resp.response_text
+        assert "Summarize this" in text, f"original prompt missing: {text[:200]}"
+        assert "User-agent" in text, f"resolved robots.txt missing: {text[:200]}"
 
     def test_prompt_skips_tool_result(self, claude_client: ClaudeCodeClient):
-        """Last user msg is pure tool_result → $prompt substitution skipped."""
+        """A pure-tool_result final turn contributes no text to the $prompt blob.
+
+        ``_extract_turns`` collects only ``type="text"`` blocks. The final user
+        turn is purely a ``tool_result`` block, so it yields empty text and is
+        dropped from the transcript. The earlier "Hello" user turn is what drives
+        the resolved response; the tool_result content/id never appear.
+        """
         # Set up multi-turn: user → assistant (tool_use) → user (tool_result)
         claude_client.send_message("Hello", track_history=True)
         claude_client.inject_assistant_response(
@@ -41,17 +53,15 @@ class TestPromptSubstitution:
 
         assert resp.status_code == 200
 
-        # The tool_result should be preserved as-is, not substituted
-        msgs = resp.forwarded_messages
-        last_user = msgs[-1] if msgs else None
-        assert last_user is not None
-
-        content = last_user.get("content", "")
-        if isinstance(content, list):
-            has_tool_result = any(
-                b.get("type") == "tool_result" for b in content if isinstance(b, dict)
-            )
-            assert has_tool_result, f"tool_result not preserved: {content}"
+        text = resp.response_text
+        # The prior plain-text user turn survives in the transcript:
+        assert "User: Hello" in text, f"prior user turn missing: {text[:200]}"
+        # The pure tool_result turn contributed no text — its id and payload
+        # are absent from the resolved response:
+        assert "t1" not in text
+        assert "file.txt" not in text
+        # Terminal resolution still ran (robots.txt source appended):
+        assert "User-agent" in text, f"resolved url4 source missing: {text[:200]}"
 
     def test_blob_dedup(self):
         """Same prompt text → same blob key (SHA-256 content hash)."""

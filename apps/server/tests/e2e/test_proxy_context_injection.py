@@ -87,35 +87,53 @@ def static_client(static_proxy):
 
 @pytest.mark.timeout(30)
 class TestStaticContextInjection:
-    """Tests for static spec (no $prompt) — context injected into system prompt."""
+    """Tests for the static spec (no $prompt) under the terminal cutover.
+
+    The proxy no longer forwards. The static spec
+    ``(robots.txt)!'You are an API testing assistant'`` resolves in-process to
+    its terminal text (intent + fetched robots.txt) and *becomes* the response
+    body. The client-sent ``system`` and extra body fields have no upstream to
+    land in, so they are ignored — assertions now target ``response_text``.
+    """
 
     def test_context_injection_with_string_system(self, static_client: ClaudeCodeClient):
-        """url4 context + original system prompt both present in forwarded request."""
+        """url4 context (source + intent) is the resolved terminal response text.
+
+        The client ``system`` ("Be helpful") is ignored — there is no upstream to
+        merge it into — so it is no longer asserted.
+        """
         resp = static_client.send_message("Hello", system="Be helpful")
 
         assert resp.status_code == 200
 
-        system = str(resp.forwarded_system)
-        assert "User-agent" in system, f"url4 source content missing: {system[:200]}"
-        assert "Be helpful" in system, f"original system prompt missing: {system[:200]}"
-        assert "API testing assistant" in system, f"intent text missing: {system[:200]}"
+        text = resp.response_text
+        assert "User-agent" in text, f"url4 source content missing: {text[:200]}"
+        assert "API testing assistant" in text, f"intent text missing: {text[:200]}"
 
     def test_context_injection_no_system(self, static_client: ClaudeCodeClient):
-        """url4 context injected even when no system prompt provided."""
+        """url4 context is resolved into the response even when no system prompt is sent."""
         resp = static_client.send_message("Hello")
 
         assert resp.status_code == 200
 
-        system = str(resp.forwarded_system)
-        assert "User-agent" in system, f"url4 source content missing: {system[:200]}"
-        assert "API testing assistant" in system, f"intent text missing: {system[:200]}"
+        text = resp.response_text
+        assert "User-agent" in text, f"url4 source content missing: {text[:200]}"
+        assert "API testing assistant" in text, f"intent text missing: {text[:200]}"
 
-    def test_extra_fields_passthrough(self, static_client: ClaudeCodeClient):
-        """Custom fields in the request body survive proxying."""
+    def test_extra_fields_tolerated(self, static_client: ClaudeCodeClient):
+        """Unknown extra body fields are tolerated by the terminal handler.
+
+        The terminal path does not forward, so extra fields cannot be echoed
+        back. Instead assert they are accepted without error: a well-formed
+        Anthropic message envelope is still returned (status 200, ``type`` =
+        ``message``) and the resolved url4 context is present.
+        """
         resp = static_client.send_message(
             "Hello",
             extra_body={"custom_field": "should_survive"},
         )
 
         assert resp.status_code == 200
-        assert resp.echoed_body.get("custom_field") == "should_survive"
+        assert resp.body["type"] == "message"
+        assert resp.body["role"] == "assistant"
+        assert "User-agent" in resp.response_text
