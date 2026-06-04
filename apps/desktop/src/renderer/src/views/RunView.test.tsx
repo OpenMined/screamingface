@@ -57,3 +57,16 @@ it('shows error + try again when failed', () => {
   expect(screen.getByText(/boom/)).toBeTruthy();
   expect(screen.getByRole('button', { name: /run again/i })).toBeTruthy();
 });
+
+it('toggles to the URL4 editor and re-runs with the edited expression', () => {
+  render(<RunView payload={payload} serverUrl="http://x" onViewEvalStudio={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole('button', { name: /edit url4/i }));
+
+  const textarea = screen.getByLabelText(/url4 expression editor/i) as HTMLTextAreaElement;
+  expect(textarea.value).toBe('transform(url, intent)');
+
+  fireEvent.change(textarea, { target: { value: 'edited(expr)!go' } });
+  fireEvent.click(screen.getByRole('button', { name: /re-run/i }));
+  expect(startRun).toHaveBeenCalledWith('edited(expr)!go');
+});
