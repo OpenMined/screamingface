@@ -152,15 +152,24 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
             }
         )
 
+        response: JSONResponse | PlainTextResponse
         if ast:
             source_expr, intent, _broadcast = split_intent(q)
             tree = parse(source_expr) if source_expr else None
-            return JSONResponse(
+            response = JSONResponse(
                 content={
                     "ast": _ast_to_dict(tree) if tree else None,
                     "result": result,
                 }
             )
-        return PlainTextResponse(content=result)
+        else:
+            response = PlainTextResponse(content=result)
+
+        # SF-236: surface ;foreach.on_error=collect failures so they are not
+        # silently dropped downstream. HTTP stays 200 (collect mode is robust).
+        collected_errors = getattr(interpreter, "_collected_errors", 0)
+        if collected_errors:
+            response.headers["X-SF-Collected-Errors"] = str(collected_errors)
+        return response
 
     return router
