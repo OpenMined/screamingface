@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import '@testing-library/jest-dom';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 
@@ -31,14 +32,14 @@ it('updates the live preview as the user types', () => {
 
 it('Reset is disabled when unchanged and restores the original after edits', () => {
   render(<Url4Editor initial={initial} serverUrl="http://x" onRun={vi.fn()} />);
-  const reset = screen.getByRole('button', { name: /reset/i }) as HTMLButtonElement;
-  expect(reset.disabled).toBe(true);
+  const reset = screen.getByRole('button', { name: /reset/i });
+  expect(reset).toBeDisabled();
   const textarea = screen.getByLabelText(/url4 expression editor/i) as HTMLTextAreaElement;
   fireEvent.change(textarea, { target: { value: 'edited' } });
-  expect(reset.disabled).toBe(false);
+  expect(reset).not.toBeDisabled();
   fireEvent.click(reset);
   expect(textarea.value).toBe(initial);
-  expect(reset.disabled).toBe(true);
+  expect(reset).toBeDisabled();
 });
 
 it('Re-run calls onRun with the current text', () => {
@@ -54,6 +55,16 @@ it('Re-run is disabled when the expression is blank', () => {
   render(<Url4Editor initial={initial} serverUrl="http://x" onRun={vi.fn()} />);
   const textarea = screen.getByLabelText(/url4 expression editor/i);
   fireEvent.change(textarea, { target: { value: '   ' } });
-  const rerun = screen.getByRole('button', { name: /re-run/i }) as HTMLButtonElement;
-  expect(rerun.disabled).toBe(true);
+  const rerun = screen.getByRole('button', { name: /re-run/i });
+  expect(rerun).toBeDisabled();
+});
+
+it('re-seeds the textarea when the initial prop changes', () => {
+  const { rerender } = render(
+    <Url4Editor initial={initial} serverUrl="http://x" onRun={vi.fn()} />,
+  );
+  const textarea = screen.getByLabelText(/url4 expression editor/i) as HTMLTextAreaElement;
+  expect(textarea.value).toBe(initial);
+  rerender(<Url4Editor initial="/codex(new)!q" serverUrl="http://x" onRun={vi.fn()} />);
+  expect(textarea.value).toBe('/codex(new)!q');
 });

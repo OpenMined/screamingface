@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
 import { Url4Viewer } from '@/components/Url4Viewer';
 
 interface Url4EditorProps {
@@ -10,6 +11,14 @@ interface Url4EditorProps {
 export function Url4Editor({ initial, serverUrl, onRun }: Url4EditorProps) {
   const [text, setText] = useState(initial);
   const isBlank = text.trim() === '';
+
+  // Re-seed the editor when the parent supplies a different source
+  // expression (e.g. a different leaderboard entry). Local edits to the
+  // same expression are preserved because the effect only fires when
+  // `initial` actually changes.
+  useEffect(() => {
+    setText(initial);
+  }, [initial]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -25,22 +34,26 @@ export function Url4Editor({ initial, serverUrl, onRun }: Url4EditorProps) {
         <Url4Viewer expression={text} serverUrl={serverUrl} mode="expanded" />
       </div>
       <div className="flex gap-2">
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => setText(initial)}
           disabled={text === initial}
-          className="self-start rounded-md border border-border px-3 py-1.5 text-sm disabled:opacity-50"
+          className="self-start"
         >
           Reset
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="default"
+          size="sm"
           onClick={() => onRun(text)}
           disabled={isBlank}
-          className="self-start rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+          className="self-start"
         >
           Re-run
-        </button>
+        </Button>
       </div>
     </div>
   );
