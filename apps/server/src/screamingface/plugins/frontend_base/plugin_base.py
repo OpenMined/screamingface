@@ -20,7 +20,6 @@ import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -41,12 +40,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Bounded, shared pool for all url4 spec resolution (background warms and the
-# blocking ``_fetch_sync`` body). Two workers keep concurrency bounded so a
-# stuck ensemble can't spawn an unbounded number of daemon threads. A
-# ``_warm()`` running ``resolve_context`` → ``_fetch_sync`` re-submits to this
-# SAME pool; the per-plugin ``_warming`` flag (one warm at a time) plus
-# ``max_workers=2`` keep that nesting from starving the pool.
+# Bounded, shared pool used ONLY for background ``_warm`` submission. Two
+# workers keep concurrency bounded so a stuck ensemble can't spawn an unbounded
+# number of warm threads. ``_fetch_sync`` deliberately does NOT use this pool
+# (it owns/borrows its own event loop), so a warm never nests a second pool
+# task and warms can never starve each other.
 _RESOLVE_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="url4-resolve")
 
 
@@ -384,27 +382,58 @@ class FrontendPluginBase(Plugin):
     def _fetch_sync(self, expression: str, timeout: float) -> str:
         """Resolve a url4 expression by calling the /ensemble endpoint.
 
-        Runs the async ``_fetch`` in a fresh event loop on the bounded
-        ``_RESOLVE_POOL`` and waits at most ``timeout`` seconds. On timeout the
-        future is cancelled and ``TimeoutError`` is raised — no leaked daemon
-        thread. A real upstream error (non-timeout) raised inside ``_fetch`` is
-        re-raised as-is by ``future.result()`` so the caller still sees it.
+        Loop-aware and pool-free — this NEVER submits to ``_RESOLVE_POOL``, so a
+        background warm (which already runs on a pool thread) can't self-starve
+        by nesting a second pool task.
+
+        ``asyncio.wait_for(_fetch(...), timeout)`` bounds the resolve and cancels
+        the in-flight httpx request on timeout. Two execution paths:
+
+        - **No running loop** (e.g. the claude background-warm pool thread): run
+          the coroutine directly via ``asyncio.run``.
+        - **A loop is already running in THIS thread** (codex/gemini/ollama call
+          ``resolve_context`` synchronously inside their async proxy handler):
+          ``asyncio.run`` would raise, so offload to a private throwaway thread
+          with its own loop. ``Thread.join(timeout)`` plus the inner
+          ``wait_for`` mean the worker exits within ``timeout`` — no leaked
+          thread. A real upstream (non-timeout) error propagates as-is.
         """
         base = self._get_backend_url()
 
-        def _run() -> str:
-            loop = asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(_fetch(base, expression))
-            finally:
-                loop.close()
+        async def _runner() -> str:
+            return await asyncio.wait_for(_fetch(base, expression), timeout)
 
-        future = _RESOLVE_POOL.submit(_run)
         try:
-            return future.result(timeout=timeout)
-        except FutureTimeoutError:
-            future.cancel()
-            raise TimeoutError(f"Spec resolution timed out after {timeout}s") from None
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop — own the loop directly.
+            try:
+                return asyncio.run(_runner())
+            except TimeoutError as exc:
+                raise TimeoutError(f"Spec resolution timed out after {timeout}s") from exc
+
+        # A loop is already running in THIS thread. Offload to a private
+        # throwaway thread with its own loop so ``asyncio.run`` is legal.
+        box_r: list[str] = []
+        box_e: list[BaseException] = []
+
+        def _worker() -> None:
+            try:
+                box_r.append(asyncio.run(_runner()))
+            except BaseException as e:  # noqa: BLE001 — surfaced to the caller below
+                box_e.append(e)
+
+        t = threading.Thread(target=_worker, name="url4-fetch", daemon=True)
+        t.start()
+        t.join(timeout=timeout + 1)  # inner asyncio.wait_for already enforces ``timeout``
+        if box_e:
+            exc = box_e[0]
+            if isinstance(exc, asyncio.TimeoutError):
+                raise TimeoutError(f"Spec resolution timed out after {timeout}s") from exc
+            raise exc
+        if not box_r:
+            raise TimeoutError(f"Spec resolution timed out after {timeout}s")
+        return box_r[0]
 
     # ------------------------------------------------------------------
     # Lifecycle

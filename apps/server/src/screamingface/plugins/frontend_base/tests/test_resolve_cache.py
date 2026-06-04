@@ -8,9 +8,13 @@ Three fixes are pinned here:
 2. **Non-blocking hot path** — ``get_cached_context()`` returns immediately
    (cached text or ``None``); it never blocks the chat on resolution. A cold
    read schedules a single background warm.
-3. **Bounded/cancellable fetch** — ``_fetch_sync`` uses a bounded pool so a
-   timeout raises ``TimeoutError`` (and cancels) instead of leaking a thread,
-   while a real upstream error is surfaced as-is.
+3. **Loop-aware, pool-free fetch** — ``_fetch_sync`` bounds the resolve with
+   ``asyncio.wait_for`` (cancelling the in-flight request on timeout → raises
+   ``TimeoutError``) while surfacing a real upstream error as-is. It never
+   submits to ``_RESOLVE_POOL`` and works both with and without an already
+   running event loop in the calling thread.
+4. **No warm self-starvation** — concurrent warms on separate plugin instances
+   resolve independently and quickly, because warms don't nest pool tasks.
 """
 
 from __future__ import annotations
@@ -198,6 +202,93 @@ def test_fetch_sync_surfaces_upstream_error() -> None:
             plugin._fetch_sync("(https://x)!'y'", timeout=5)
     finally:
         mod._fetch = original  # type: ignore[assignment]
+
+
+def test_fetch_sync_works_inside_running_loop() -> None:
+    """BLOCKER 2: ``_fetch_sync`` must work when a loop is already running.
+
+    codex/gemini/ollama call ``resolve_context`` (→ ``_fetch_sync``)
+    synchronously from inside their ``async def`` proxy handler, i.e. with the
+    uvicorn loop already running in the same thread. A bare ``asyncio.run`` in
+    ``_fetch_sync`` would raise ``RuntimeError: cannot be called from a running
+    event loop``; the loop-detection branch must offload to a private thread.
+    """
+    plugin = _make_plugin(spec_urls=[("spec-a", "(https://x)!'y'")])
+
+    import screamingface.plugins.frontend_base.plugin_base as mod
+
+    async def _ok_fetch(_base: str, _expr: str) -> str:
+        return "resolved inside loop"
+
+    original = mod._fetch
+    mod._fetch = _ok_fetch  # type: ignore[assignment]
+    plugin._get_backend_url = lambda: "http://localhost:8000"  # type: ignore[method-assign]
+
+    async def _call_from_loop() -> str:
+        # Sanity-check the precondition: a loop really is running in this thread.
+        asyncio.get_running_loop()
+        return plugin._fetch_sync("(https://x)!'y'", timeout=5)
+
+    try:
+        result = asyncio.run(_call_from_loop())
+    finally:
+        mod._fetch = original  # type: ignore[assignment]
+
+    assert result == "resolved inside loop"
+
+
+# ---------------------------------------------------------------------------
+# (3b) Concurrent warms must not self-starve (BLOCKER 1)
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_warms_do_not_starve() -> None:
+    """BLOCKER 1: two warms on separate plugins must both resolve fast.
+
+    The old ``_fetch_sync`` re-submitted to the SAME ``max_workers=2``
+    ``_RESOLVE_POOL`` and blocked on the nested future. Two concurrent warms
+    then occupied both workers while their nested fetches had nowhere to run,
+    so both stalled for the full ``resolve_timeout``. With ``_fetch_sync`` off
+    the pool, both warms complete in well under the timeout.
+    """
+    import screamingface.plugins.frontend_base.plugin_base as mod
+
+    async def _fast_fetch(_base: str, _expr: str) -> str:
+        return "resolved fast"
+
+    original = mod._fetch
+    mod._fetch = _fast_fetch  # type: ignore[assignment]
+
+    # Small resolve_timeout: if a warm ever stalled on pool starvation it would
+    # block for this long; the poll below (~3s) is the real assertion budget.
+    plugins = []
+    for i in range(2):
+        p = _make_plugin(
+            spec_urls=[(f"spec-{i}", f"(https://x{i})!'y'")],
+            resolve_timeout=10.0,
+        )
+        p._get_backend_url = lambda: "http://localhost:8000"  # type: ignore[method-assign]
+        plugins.append(p)
+
+    try:
+        # Fire both warms concurrently via the real background-warm path.
+        for p in plugins:
+            p._maybe_warm()
+
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            if all(p._resolved_context is not None for p in plugins):
+                break
+            time.sleep(0.01)
+    finally:
+        mod._fetch = original  # type: ignore[assignment]
+
+    for i, p in enumerate(plugins):
+        assert p._resolved_context == "resolved fast", (
+            f"plugin {i} did not warm in time (self-starvation regression?)"
+        )
+        # Warm flag cleared once resolution completed.
+        assert p._warming is False
 
 
 # ---------------------------------------------------------------------------
