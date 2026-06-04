@@ -257,6 +257,11 @@ class FrontendPluginBase(Plugin):
         then **re-raised** so the caller can surface a visible error. A
         repeat call within the TTL re-raises immediately (fail-fast)
         instead of re-running the ensemble.
+
+        Blocking: this monopolizes the calling session's event loop for up
+        to ``resolve_timeout`` (default 1200s) while resolving — intentional
+        for the single-client, per-session proxy model where each session
+        serves one client and nothing else needs that loop meanwhile.
         """
         spec_urls = self._get_spec_urls()
         spec_urls = [(n, e) for n, e in spec_urls if "$prompt" not in e]
@@ -342,14 +347,17 @@ class FrontendPluginBase(Plugin):
         gets ``timeout`` so its HTTP cap matches the resolve budget. Two
         execution paths:
 
-        - **No running loop** (e.g. a claude proxy worker thread): run the
-          coroutine directly via ``asyncio.run``.
-        - **A loop is already running in THIS thread** (codex/gemini/ollama call
-          ``resolve_context`` synchronously inside their async proxy handler):
-          ``asyncio.run`` would raise, so offload to a private throwaway thread
-          with its own loop. ``Thread.join(timeout)`` plus the inner
-          ``wait_for`` mean the worker exits within ``timeout`` — no leaked
-          thread. A real upstream (non-timeout) error propagates as-is.
+        - **A loop is already running in THIS thread** — the production path.
+          All four frontends call ``resolve_context`` synchronously from an
+          ``async def`` proxy handler running on the event-loop thread, so a
+          loop is already running and ``asyncio.run`` would raise. We therefore
+          offload to a private throwaway thread with its own loop.
+          ``Thread.join(timeout)`` plus the inner ``wait_for`` mean the worker
+          exits within ``timeout`` — no leaked thread. A real upstream
+          (non-timeout) error propagates as-is.
+        - **No running loop** — a fallback for non-async callers (e.g. tests or
+          a synchronous entrypoint): run the coroutine directly via
+          ``asyncio.run``.
         """
         base = self._get_backend_url()
 
