@@ -142,46 +142,50 @@ function ProfileRow({
   const isPending = profile.state === 'pending';
 
   return (
-    <div className="flex items-center justify-between py-1.5">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="relative inline-flex h-2 w-2 shrink-0">
-          {isPending && (
-            <span
-              className={cn(
-                'absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping',
-                cfg.dot,
-              )}
-            />
+    <div className="py-1.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="relative inline-flex h-2 w-2 shrink-0">
+            {isPending && (
+              <span
+                className={cn(
+                  'absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping',
+                  cfg.dot,
+                )}
+              />
+            )}
+            <span className={cn('relative inline-flex h-2 w-2 rounded-full', cfg.dot)} />
+          </span>
+          <span className="text-xs font-medium text-foreground truncate">{profile.name}</span>
+          {profile.account_label && (
+            <span className="text-xs text-muted-foreground truncate">{profile.account_label}</span>
           )}
-          <span className={cn('relative inline-flex h-2 w-2 rounded-full', cfg.dot)} />
-        </span>
-        <span className="text-xs font-medium text-foreground">{profile.name}</span>
-        {profile.account_label && (
-          <span className="text-xs text-muted-foreground truncate">{profile.account_label}</span>
-        )}
-        <span className="text-xs text-muted-foreground">· {cfg.label}</span>
-        {isPending && (
-          <span className="text-xs text-muted-foreground italic">— waiting on browser</span>
-        )}
+          <span className="shrink-0 text-xs text-muted-foreground">· {cfg.label}</span>
+          {isPending && (
+            <span className="shrink-0 text-xs text-muted-foreground italic">
+              — waiting on browser
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            disabled={busy}
+            onClick={onReauth}
+            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+          >
+            {busy ? 'Working…' : 'Re-authenticate'}
+          </button>
+          <button
+            disabled={busy}
+            onClick={onDelete}
+            aria-label={`Delete profile ${profile.name}`}
+            className="text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-60"
+          >
+            Delete
+          </button>
+        </div>
       </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        <button
-          disabled={busy}
-          onClick={onReauth}
-          className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
-        >
-          {busy ? 'Working…' : 'Re-authenticate'}
-        </button>
-        <button
-          disabled={busy}
-          onClick={onDelete}
-          aria-label={`Delete profile ${profile.name}`}
-          className="text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-60"
-        >
-          Delete
-        </button>
-      </div>
-      {error && <p className="basis-full text-xs text-destructive mt-1">{error}</p>}
+      {error && <p className="mt-1 pl-4 text-xs text-destructive">{error}</p>}
     </div>
   );
 }
@@ -484,48 +488,52 @@ function ConnectionRow({
   };
 
   return (
-    <div className="flex items-center justify-between py-1.5">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="relative inline-flex h-2 w-2 shrink-0">
-          {isPending && (
-            <span
-              className={cn(
-                'absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping',
-                cfg.dot,
-              )}
-            />
+    <div className="py-1.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="relative inline-flex h-2 w-2 shrink-0">
+            {isPending && (
+              <span
+                className={cn(
+                  'absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping',
+                  cfg.dot,
+                )}
+              />
+            )}
+            <span className={cn('relative inline-flex h-2 w-2 rounded-full', cfg.dot)} />
+          </span>
+          <span className="text-xs font-medium text-foreground truncate">{connection.label}</span>
+          {accountLabel && (
+            <span className="text-xs text-muted-foreground truncate">{accountLabel}</span>
           )}
-          <span className={cn('relative inline-flex h-2 w-2 rounded-full', cfg.dot)} />
-        </span>
-        <span className="text-xs font-medium text-foreground truncate">{connection.label}</span>
-        {accountLabel && (
-          <span className="text-xs text-muted-foreground truncate">{accountLabel}</span>
-        )}
-        <span className="text-xs text-muted-foreground">· {cfg.label}</span>
-        {connection.is_duplicate && (
-          <span className="text-xs text-muted-foreground italic">— already connected</span>
-        )}
-      </div>
-      <div className="flex items-center gap-1.5 shrink-0">
-        {connection.status === 'active' && (
+          <span className="shrink-0 text-xs text-muted-foreground">· {cfg.label}</span>
+          {connection.is_duplicate && (
+            <span className="shrink-0 text-xs text-muted-foreground italic">
+              — already connected
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {connection.status === 'active' && (
+            <button
+              disabled={busy}
+              onClick={onRefreshConnection}
+              className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+            >
+              {busy ? 'Working…' : 'Refresh'}
+            </button>
+          )}
           <button
             disabled={busy}
-            onClick={onRefreshConnection}
-            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+            onClick={onDelete}
+            aria-label={`Delete connection ${connection.label}`}
+            className="text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-60"
           >
-            {busy ? 'Working…' : 'Refresh'}
+            Delete
           </button>
-        )}
-        <button
-          disabled={busy}
-          onClick={onDelete}
-          aria-label={`Delete connection ${connection.label}`}
-          className="text-xs text-muted-foreground hover:text-destructive transition-colors disabled:opacity-60"
-        >
-          Delete
-        </button>
+        </div>
       </div>
-      {error && <p className="basis-full text-xs text-destructive mt-1">{error}</p>}
+      {error && <p className="mt-1 pl-4 text-xs text-destructive">{error}</p>}
     </div>
   );
 }
