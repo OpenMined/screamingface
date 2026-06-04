@@ -11,8 +11,10 @@ import json
 import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import litellm
 import pytest
 from fastapi.testclient import TestClient
 
@@ -239,3 +241,106 @@ def test_anthropic_tool_calls() -> None:
         tool_calls = body["choices"][0]["message"].get("tool_calls") or []
         assert tool_calls
         assert tool_calls[0]["function"]["name"] == "get_weather"
+
+
+# ---------------------------------------------------------------------------
+# Fan-out concurrency: prove the per-provider semaphore serializes upstream
+# claude calls so a high-concurrency url4 fan-out cannot trip the implicit
+# rate limit (which surfaces as a 429 or a masked 400 "credit balance too
+# low"). Mirrors AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES={"anthropic":1}.
+# ---------------------------------------------------------------------------
+
+_FANOUT_N = 6
+
+
+def _install_inflight_tracker(monkeypatch) -> dict[str, int]:
+    """Wrap ``litellm.acompletion`` (the upstream call the anthropic provider
+    makes *inside* ``provider_slot``) to record the peak number of concurrent
+    in-flight calls while still performing the real request.
+    """
+    real_acompletion = litellm.acompletion
+    inflight = {"cur": 0, "max": 0}
+
+    async def _tracked(*args, **kwargs):
+        inflight["cur"] += 1
+        inflight["max"] = max(inflight["max"], inflight["cur"])
+        try:
+            return await real_acompletion(*args, **kwargs)
+        finally:
+            inflight["cur"] -= 1
+
+    monkeypatch.setattr(litellm, "acompletion", _tracked)
+    return inflight
+
+
+def _fire_concurrent_haiku(client: TestClient, n: int) -> list:
+    """Fire ``n`` claude requests at the gateway concurrently (TestClient is
+    sync, so we submit from a thread pool; the ASGI app handles them on one
+    event loop where ``provider_slot`` gates upstream concurrency)."""
+
+    def _one(i: int):
+        return client.post(
+            "/v1/chat/completions",
+            headers={"X-Profile": "default"},
+            json={
+                "model": "anthropic/claude-haiku-4-5",
+                "messages": [{"role": "user", "content": f"Reply with exactly: ok{i}"}],
+                "max_tokens": 10,
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=n) as pool:
+        return list(pool.map(_one, range(n)))
+
+
+@pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
+def test_anthropic_fanout_serialized_under_cap_1(monkeypatch) -> None:
+    """With anthropic capped to 1, N concurrent claude requests are serialized
+    upstream (peak in-flight == 1) and ALL succeed — no implicit 429 /
+    'credit balance too low' from a concurrent thundering herd. This is the
+    behaviour the ``{"anthropic":1}`` concurrency override delivers.
+    """
+    _live_admin_password()
+    monkeypatch.setenv("AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES", '{"anthropic": 1}')
+    inflight = _install_inflight_tracker(monkeypatch)
+
+    with _live_client() as client:
+        _login_admin(client)
+        _require_default_profile(client)
+        responses = _fire_concurrent_haiku(client, _FANOUT_N)
+
+    for i, resp in enumerate(responses):
+        assert resp.status_code == 200, (
+            f"request {i} failed under serialized fan-out "
+            f"(HTTP {resp.status_code}): {resp.text[:400]}"
+        )
+    assert inflight["cur"] == 0
+    assert inflight["max"] == 1, (
+        f"anthropic cap=1 must serialize upstream calls, but peak in-flight was "
+        f"{inflight['max']} (expected 1)"
+    )
+
+
+@pytest.mark.skipif(not _live_enabled(), reason="AIGW_LIVE=1 not set")
+def test_anthropic_fanout_overlaps_without_cap(monkeypatch) -> None:
+    """Control for the serialization test: with the cap disabled
+    (``anthropic:0`` = unlimited), the SAME concurrent fan-out actually
+    overlaps upstream (peak in-flight > 1) — proving the tracker observes real
+    concurrency, so the cap=1 test's ``max == 1`` is a genuine guarantee, not a
+    TestClient artifact. Does not assert success: an unbounded herd is exactly
+    the failure mode the cap exists to prevent.
+    """
+    _live_admin_password()
+    monkeypatch.setenv("AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES", '{"anthropic": 0}')
+    inflight = _install_inflight_tracker(monkeypatch)
+
+    with _live_client() as client:
+        _login_admin(client)
+        _require_default_profile(client)
+        _fire_concurrent_haiku(client, _FANOUT_N)
+
+    assert inflight["max"] > 1, (
+        f"with the cap disabled the concurrent fan-out should overlap upstream "
+        f"(peak in-flight > 1), but saw {inflight['max']} — the harness is not "
+        f"exercising real concurrency, so the cap=1 assertion would be vacuous"
+    )
