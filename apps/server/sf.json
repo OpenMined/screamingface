@@ -42,7 +42,7 @@
       "enabled": true,
       "aigw_env": {
         "AIGW_PROVIDER_MAX_CONCURRENCY": "4",
-        "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": "{\"gemini-cli\":1}"
+        "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": "{\"gemini-cli\":1,\"anthropic\":1}"
       }
     },
     "aigw-base": {
