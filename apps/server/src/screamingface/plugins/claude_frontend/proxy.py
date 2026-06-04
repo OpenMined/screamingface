@@ -147,8 +147,9 @@ def create_router(
 
         resolved_text: str | None = None
         error_dict: dict[str, Any] | None = None
-        if is_prompt_spec:
-            assert raw_expression is not None
+        if raw_expression and "$prompt" in raw_expression:
+            # Branch on the raw value (not the ``is_prompt_spec`` bool) so pyright
+            # narrows ``raw_expression`` to ``str`` here — no production ``assert``.
             resolved_text, error_dict = await resolve_prompt_expression(
                 body,
                 raw_expression=raw_expression,

@@ -153,6 +153,43 @@ def test_static_spec_none_returns_error_envelope_fail_loud() -> None:
     assert "broken-spec" in data["content"][0]["text"]
 
 
+def test_unary_error_envelope_has_superset_usage_and_real_model() -> None:
+    """UNARY error envelope matches the success envelope: 4-key usage superset
+    (all ``0``) and ``model`` echoed from the request body (NOT ``"unknown"``)."""
+    settings = ClaudeFrontendSettings(
+        upstream_url="https://api.anthropic.com",
+        active_spec="broken-spec",
+        backend_url="http://localhost:8000",
+    )
+    app = FastAPI()
+    mock_plugin = MagicMock()
+    mock_plugin.get_active_expression.return_value = "some_expression"
+    mock_plugin.resolve_context.return_value = None  # static-spec resolution failure
+    app.include_router(create_router(settings, plugin=mock_plugin))
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/messages",
+        json={
+            "model": "claude-sonnet-4-5-20250929",
+            "messages": [{"role": "user", "content": "Test"}],
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["type"] == "message"
+    # Real model from the request body — never the hardcoded "unknown".
+    assert data["model"] == "claude-sonnet-4-5-20250929"
+    # 4-key superset-of-zeros, matching build_anthropic_message.
+    assert data["usage"] == {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    }
+
+
 def test_no_spec_synthesizes_empty_envelope_no_upstream_call() -> None:
     """No active spec → empty synthesized envelope, no upstream inference call (#3)."""
     settings = ClaudeFrontendSettings(

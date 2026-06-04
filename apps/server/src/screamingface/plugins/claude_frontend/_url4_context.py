@@ -50,12 +50,17 @@ def _build_error_response(
     spec_name: str,
     raw_expression: str,
     exc: Exception,
+    model: str,
 ) -> dict[str, Any]:
     """Build an Anthropic-shaped error envelope dict (not a ``JSONResponse``).
 
     Error text lands in ``content[0].text`` so the CLI renders it (#244). The
     handler wraps this in a ``JSONResponse`` (unary) or feeds ``content[0].text``
     to ``stream_anthropic_sse`` (streaming).
+
+    ``model`` echoes the request body's model, matching the success envelope
+    (``build_anthropic_message``) and the spec's pinned error envelope. ``usage``
+    is the 4-key superset-of-zeros, identical to the success builder.
     """
     error_text = extract_error_text(exc, spec_name, raw_expression)
     return {
@@ -63,10 +68,15 @@ def _build_error_response(
         "type": "message",
         "role": "assistant",
         "content": [{"type": "text", "text": error_text}],
-        "model": "unknown",
+        "model": model,
         "stop_reason": "end_turn",
         "stop_sequence": None,
-        "usage": {"input_tokens": 0, "output_tokens": 0},
+        "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        },
     }
 
 
@@ -174,7 +184,7 @@ async def _resolve_expression(
 
 
 async def resolve_prompt_expression(
-    body: dict[str, Any],  # noqa: ARG001 — kept for signature symmetry with the static path
+    body: dict[str, Any],
     *,
     raw_expression: str,
     settings: Any,
@@ -256,17 +266,19 @@ async def resolve_prompt_expression(
                 spec_name=settings.active_spec or "unknown",
                 raw_expression=raw_expression,
                 exc=exc,
+                model=body.get("model", "claude-opus-4-1-20250805"),
             )
 
 
 def resolve_static_context(
-    body: dict[str, Any],  # noqa: ARG001 — kept for signature symmetry with the $prompt path
+    body: dict[str, Any],
     *,
     raw_expression: str,
     settings: Any,
     plugin: Any,
 ) -> tuple[str | None, dict[str, Any] | None]:
     """No ``$prompt`` — use plugin-cached resolved context. Fail-loud on None/empty (O5b)."""
+    model = body.get("model", "claude-opus-4-1-20250805")
     try:
         resolved_context = plugin.resolve_context() if plugin else None
         if not resolved_context:
@@ -274,6 +286,7 @@ def resolve_static_context(
                 spec_name=settings.active_spec or "unknown",
                 raw_expression=raw_expression,
                 exc=RuntimeError("Static spec resolved to empty"),
+                model=model,
             )
         logger.info("Static context resolved: %d chars", len(resolved_context))
         return resolved_context, None
@@ -283,4 +296,5 @@ def resolve_static_context(
             spec_name=settings.active_spec or "unknown",
             raw_expression=raw_expression,
             exc=exc,
+            model=model,
         )
