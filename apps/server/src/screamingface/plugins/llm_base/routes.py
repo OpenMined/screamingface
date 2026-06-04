@@ -74,6 +74,14 @@ async def _collect_backend_status(app: Any = None) -> dict[str, Any]:
     for plugin in plugins.values():
         if not plugin.backend_call_paths:
             continue
+        # Only credentialed LLM backends belong in the auth/status sweep. A
+        # utility backend (e.g. python-runner) declares backend_call_paths so
+        # url4 can route to it but has no gateway provider or CLI auth command,
+        # so probing it for credentials is meaningless (404 -> false "reauth").
+        if not (
+            getattr(plugin, "gateway_provider", None) or getattr(plugin, "cli_auth_command", None)
+        ):
+            continue
         path = plugin.backend_call_paths[0]
         name = path.lstrip("/")
 
