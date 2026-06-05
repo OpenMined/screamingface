@@ -1,4 +1,3 @@
-// apps/desktop/src/renderer/src/components/eval/EvalRunsList.tsx
 import { cn } from '@/lib/utils';
 import { useEvalRunsList } from '@/hooks/use-eval-runs';
 import { EvalStatusBadge } from './EvalStatusBadge';
@@ -40,39 +39,26 @@ export function EvalRunsList({ selectedId, onSelect, onRunLocally }: Props) {
   }
 
   return (
-    <table className="w-full text-sm">
-      <thead className="sticky top-0 bg-background text-xs text-muted-foreground">
-        <tr className="border-b border-border">
-          <th className="px-3 py-2 text-left font-medium">Started</th>
-          <th className="px-3 py-2 text-left font-medium">Spec</th>
-          <th className="px-3 py-2 text-left font-medium">Status</th>
-          <th className="px-3 py-2 text-right font-medium">Accuracy</th>
-          <th className="px-3 py-2 text-right font-medium">Correct / Total</th>
-          <th className="px-3 py-2 text-left font-medium"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {data.map((run: EvalRunSummary) => {
-          const active = run.id === selectedId;
-          return (
-            <tr
-              key={run.id}
-              onClick={() => onSelect(run.id)}
-              className={cn(
-                'cursor-pointer border-b border-border/50 transition-colors hover:bg-accent/40',
-                active && 'bg-accent/60',
-              )}
-            >
-              <td className="px-3 py-2 text-xs">{formatTime(run.started_at)}</td>
-              <td className="px-3 py-2">{run.spec_name}</td>
-              <td className="px-3 py-2">
+    <div className="flex flex-col">
+      {data.map((run: EvalRunSummary) => {
+        const active = run.id === selectedId;
+        return (
+          <div
+            key={run.id}
+            onClick={() => onSelect(run.id)}
+            className={cn(
+              'cursor-pointer border-b border-border/50 px-3 py-3 transition-colors hover:bg-accent/40',
+              active && 'bg-accent/60',
+            )}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-foreground">{run.spec_name}</div>
+                <div className="text-xs text-muted-foreground">{formatTime(run.started_at)}</div>
+              </div>
+              <div className="flex items-center gap-2 whitespace-nowrap">
                 <EvalStatusBadge status={run.status} />
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">{formatPercent(run.accuracy)}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-xs text-muted-foreground">
-                {run.correct_questions ?? 0} / {run.total_questions ?? 0}
-              </td>
-              <td className="px-3 py-2 text-left">
+                <div className="text-right text-sm tabular-nums">{formatPercent(run.accuracy)}</div>
                 {onRunLocally && (
                   <button
                     type="button"
@@ -80,16 +66,16 @@ export function EvalRunsList({ selectedId, onSelect, onRunLocally }: Props) {
                       e.stopPropagation();
                       onRunLocally({ spec: run.spec_name, expression: run.url4_expression });
                     }}
-                    className="text-xs text-primary underline"
+                    className="whitespace-nowrap text-xs text-primary underline"
                   >
                     Run Locally
                   </button>
                 )}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
