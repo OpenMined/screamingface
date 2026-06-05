@@ -1048,12 +1048,13 @@ class TestInterceptE2E:
         assert not state_file.exists()
 
     def test_proxy_handles_intercepted_request(self, claude_intercept_app) -> None:
-        """POST /v1/messages on the frontend app gets proxied to upstream.
+        """POST /v1/messages on the frontend app is served by the terminal
+        ensemble handler — it synthesizes an Anthropic envelope and no longer
+        forwards to the real upstream.
 
         With the separate-interface architecture, proxy routes live on the
         frontend's own FastAPI app (not the main server).
         """
-        import httpx
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
@@ -1065,14 +1066,9 @@ class TestInterceptE2E:
         frontend_app = FastAPI()
         frontend_app.include_router(create_router(settings))
 
-        mock_response = httpx.Response(
-            200,
-            json={"id": "msg_123", "content": [{"type": "text", "text": "Hello"}]},
-        )
-
         with (
             TestClient(frontend_app) as client,
-            patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response),
+            patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post,
         ):
             resp = client.post(
                 "/v1/messages",
@@ -1084,7 +1080,13 @@ class TestInterceptE2E:
                 },
             )
             assert resp.status_code == 200
-            assert resp.json()["id"] == "msg_123"
+            body = resp.json()
+            # Terminal cutover: the ensemble result is synthesized into an
+            # Anthropic message envelope; the real upstream is never called.
+            assert body["type"] == "message"
+            assert body["role"] == "assistant"
+            assert body["id"].startswith("msg_")
+            assert not mock_post.called
 
     def test_requires_root_in_plugins_endpoint(self, claude_intercept_app) -> None:
         """GET /plugins returns requires_root: true for intercept."""

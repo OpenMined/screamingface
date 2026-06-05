@@ -42,21 +42,45 @@ class TestTraceStructure:
             f"No url4.$prompt span found. All spans: {[s.name for s in spans]}"
         )
 
-    def test_anthropic_request_body_span(
+    def test_terminal_message_span_no_upstream_request_body(
         self, claude_client: ClaudeCodeClient, otlp_collector: OTLPCollector
     ):
-        """The anthropic.request_body span should record model and message count."""
+        """Terminal /v1/messages emits the FastAPI server span + url4 spans, no upstream.
+
+        Under the terminal cutover there is no upstream inference forward, so the
+        old ``anthropic.request_body`` span no longer exists. Instead assert the
+        terminal span set: the auto-instrumented ``POST /v1/messages`` server
+        span (tagged ``sf.plugin=claude-frontend`` with the resolved
+        ``url4.result_length``) plus the in-process ``url4.evaluate`` resolution
+        span — and explicitly assert NO ``anthropic.request_body`` span.
+        """
         claude_client.send_message("Hello body trace")
 
         spans = otlp_collector.wait_for_spans(3, timeout=15)
-        body_spans = otlp_collector.find_spans(name="anthropic.request_body")
+        all_names = [s.name for s in spans]
 
-        assert len(body_spans) >= 1, (
-            f"No anthropic.request_body span found. All spans: {[s.name for s in spans]}"
+        # The upstream request-body span is GONE under the terminal cutover.
+        assert otlp_collector.find_spans(name="anthropic.request_body") == [], (
+            f"anthropic.request_body span should not exist under terminal cutover. "
+            f"All spans: {all_names}"
         )
 
-        body_span = body_spans[0]
-        assert body_span.attributes.get("sf.plugin") == "claude-frontend"
+        # The terminal server span for the inference route exists and is tagged
+        # by the frontend plugin (set via the handler's tracer.set_attrs).
+        msg_spans = otlp_collector.find_spans(name="POST /v1/messages")
+        assert len(msg_spans) >= 1, (
+            f"No 'POST /v1/messages' server span found. All spans: {all_names}"
+        )
+        msg_span = msg_spans[0]
+        assert msg_span.attributes.get("sf.plugin") == "claude-frontend"
+        assert "url4.result_length" in msg_span.attributes, (
+            f"resolved result length missing from server span. "
+            f"Attributes: {list(msg_span.attributes.keys())}"
+        )
+
+        # The in-process url4 resolution span exists (terminal resolution ran).
+        eval_spans = otlp_collector.find_spans(name="url4.evaluate")
+        assert len(eval_spans) >= 1, f"No 'url4.evaluate' span found. All spans: {all_names}"
 
     def test_prompt_span_attributes(
         self, claude_client: ClaudeCodeClient, otlp_collector: OTLPCollector

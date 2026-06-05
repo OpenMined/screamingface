@@ -72,6 +72,12 @@ def proxy_server() -> Generator[tuple[ServerManager, int], None, None]:
         mgr.stop()
 
 
+@pytest.mark.skip(
+    reason="Obsoleted by SF-240: claude_frontend /v1/messages is now a terminal "
+    "ensemble endpoint and no longer forwards to Anthropic on the inference route. "
+    "OAuth Bearer passthrough on non-inference routes is covered by "
+    "claude_frontend/tests/test_proxy.py."
+)
 @pytest.mark.timeout(60)
 def test_oauth_access_token_passthrough_round_trip(
     proxy_server: tuple[ServerManager, int],

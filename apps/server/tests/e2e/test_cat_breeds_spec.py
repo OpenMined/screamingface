@@ -173,7 +173,15 @@ class TestCatBreedsFullPipeline:
         cat_proxy: tuple[ServerManager, int],
         otlp_collector: OTLPCollector,
     ):
-        """Send a prompt about cats, verify Claude processes the 3 sources."""
+        """Send a prompt about cats, verify Claude processes the 3 sources.
+
+        Terminal cutover: the proxy no longer forwards. The spec
+        ``(src1,src2,src3)!$prompt`` resolves in-process — the $prompt transcript
+        (the apartment question) is sent with the 3 sources to the Claude CLI via
+        ``/claude``, and Claude's analysis *becomes* the response. So the
+        substantive cat-breed answer is in ``response_text``, not in a forwarded
+        user message.
+        """
         _, proxy_port = cat_proxy
         client = ClaudeCodeClient(proxy_url=f"http://127.0.0.1:{proxy_port}")
 
@@ -185,19 +193,22 @@ class TestCatBreedsFullPipeline:
 
         assert resp.status_code == 200
 
-        # The response is echoed by httpbin — check the forwarded user message
-        user_text = resp.last_user_text
+        # The resolved Claude analysis IS the terminal response body.
+        answer = resp.response_text
 
-        # The user message should contain the original prompt
-        assert "apartment" in user_text.lower(), (
-            f"Original prompt missing from user message: {user_text[:300]}"
+        # Claude's analysis should be substantive (it processed the 3 sources).
+        assert len(answer) > 100, (
+            f"Response too short ({len(answer)} chars) — Claude analysis may not "
+            f"have been resolved: {answer[:300]}"
         )
 
-        # The user message should contain Claude's response about cat breeds
-        # (the /claude endpoint processes the 3 sources and returns analysis)
-        assert len(user_text) > 100, (
-            f"User message too short ({len(user_text)} chars) — "
-            f"Claude response may not have been injected: {user_text[:300]}"
+        # The analysis should be on-topic: it should mention apartments (the
+        # question) and at least one concrete cat breed from the sources.
+        lowered = answer.lower()
+        assert "apartment" in lowered, f"Response not on-topic (no 'apartment'): {answer[:300]}"
+        known_breeds = ["persian", "siamese", "bengal", "maine", "bombay", "british"]
+        assert any(b in lowered for b in known_breeds), (
+            f"Response names no known cat breed from the sources: {answer[:300]}"
         )
 
     def test_cat_breeds_trace_shows_3_fetches(
