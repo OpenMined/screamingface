@@ -8,9 +8,9 @@ from aigateway.core.profile_index import INDEX_CREDENTIAL_SERVICE, ProfileIndexS
 from aigateway.core.profile_models import Profile, profile_id_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.anthropic_provider.bootstrap import bootstrap_from_claude_code
+from aigateway.plugins.anthropic_provider.settings import AnthropicPluginSettings
 from tests.conftest import _prepare_sqlite_db
 
-CC_SERVICE = "Claude Code-credentials"
 ACCOUNT_ID = "account-1"
 
 
@@ -34,6 +34,11 @@ def _auth_header(client: TestClient) -> dict[str, str]:
 
 @pytest.mark.asyncio
 async def test_bootstrap_imports_cc_default_when_index_empty(credential_blobs) -> None:
+    settings = AnthropicPluginSettings(
+        claude_code_keychain_service="Claude Code Custom",
+        keychain_account="account-custom",
+        bootstrap_user="alice",
+    )
     cc_payload = json.dumps(
         {
             "claudeAiOauth": {
@@ -44,16 +49,18 @@ async def test_bootstrap_imports_cc_default_when_index_empty(credential_blobs) -
             }
         }
     )
-    credential_blobs.write(CC_SERVICE, "alice", cc_payload)
+    credential_blobs.write(settings.claude_code_keychain_service, "alice", cc_payload)
 
     await bootstrap_from_claude_code(
         account_id=ACCOUNT_ID,
         credential_store=credential_blobs.store,
         index_store=ProfileIndexStore(credential_store=credential_blobs.store),
-        cc_account="alice",
+        settings=settings,
     )
 
-    aigw_payload = credential_blobs.read(credential_service_for(f"{ACCOUNT_ID}:default"), "default")
+    aigw_payload = credential_blobs.read(
+        credential_service_for(f"{ACCOUNT_ID}:default"), settings.keychain_account
+    )
     assert aigw_payload is not None
     converted = json.loads(aigw_payload)
     assert converted["access_token"] == "cc-tok"
@@ -65,11 +72,12 @@ async def test_bootstrap_imports_cc_default_when_index_empty(credential_blobs) -
     assert profile_id_for(ACCOUNT_ID, "anthropic", "default") in idx_raw
 
     # CC entry untouched
-    assert credential_blobs.read(CC_SERVICE, "alice") == cc_payload
+    assert credential_blobs.read(settings.claude_code_keychain_service, "alice") == cc_payload
 
 
 @pytest.mark.asyncio
 async def test_bootstrap_noop_when_index_already_exists(credential_blobs) -> None:
+    settings = AnthropicPluginSettings(claude_code_keychain_service="Claude Code Custom")
     await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
         Profile(
             id=profile_id_for(ACCOUNT_ID, "x", "y"),
@@ -79,7 +87,7 @@ async def test_bootstrap_noop_when_index_already_exists(credential_blobs) -> Non
         )
     )
     credential_blobs.write(
-        CC_SERVICE,
+        settings.claude_code_keychain_service,
         "alice",
         json.dumps({"claudeAiOauth": {"accessToken": "x", "refreshToken": "y", "expiresAt": 1}}),
     )
@@ -88,25 +96,29 @@ async def test_bootstrap_noop_when_index_already_exists(credential_blobs) -> Non
         credential_store=credential_blobs.store,
         index_store=ProfileIndexStore(credential_store=credential_blobs.store),
         cc_account="alice",
+        settings=settings,
     )
     assert credential_blobs.read(credential_service_for(f"{ACCOUNT_ID}:default"), "default") is None
 
 
 @pytest.mark.asyncio
 async def test_bootstrap_noop_when_cc_entry_missing(credential_blobs) -> None:
+    settings = AnthropicPluginSettings(bootstrap_user="alice")
     await bootstrap_from_claude_code(
         account_id=ACCOUNT_ID,
         credential_store=credential_blobs.store,
         index_store=ProfileIndexStore(credential_store=credential_blobs.store),
-        cc_account="alice",
+        settings=settings,
     )
     assert credential_blobs.read(INDEX_CREDENTIAL_SERVICE, "default") is None
 
 
 def test_app_lifespan_runs_anthropic_bootstrap(credential_blobs, monkeypatch, tmp_path) -> None:
     _configure_app_db(monkeypatch, tmp_path)
+    monkeypatch.setenv("AIGW_ANTHROPIC_BOOTSTRAP_USER", "alice")
+    settings = AnthropicPluginSettings()
     credential_blobs.write(
-        CC_SERVICE,
+        settings.claude_code_keychain_service,
         "alice",
         json.dumps(
             {
@@ -119,8 +131,11 @@ def test_app_lifespan_runs_anthropic_bootstrap(credential_blobs, monkeypatch, tm
             }
         ),
     )
-    monkeypatch.setenv("USER", "alice")
     monkeypatch.setenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE", "1")
+
+    from aigateway.plugins.anthropic_provider import plugin as anthropic_plugin
+
+    monkeypatch.setattr(anthropic_plugin.PLUGIN, "settings", settings)
 
     from aigateway.main import create_app
 

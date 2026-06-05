@@ -3,12 +3,18 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar, cast
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
     from .credential_blob.store import CredentialBlobStore
     from .oauth.identity import AccountIdentity
     from .profile_index import ProfileIndexStore
+
+
+class PluginSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
 
 
 @dataclass(frozen=True)
@@ -79,7 +85,7 @@ class OAuthCodeExchangeRequest:
     http_client_factory: Any | None = None
 
 
-class ProviderPluginBase(ABC):
+class ProviderPluginBase[TSettings: PluginSettings](ABC):
     """Contract for an aigateway provider plugin.
 
     Each plugin owns: model contributions, the OAuth strategy, and the
@@ -89,6 +95,10 @@ class ProviderPluginBase(ABC):
     """
 
     custom_llm_provider: str
+    settings_cls: ClassVar[type[PluginSettings]] = PluginSettings
+
+    def __init__(self, settings: TSettings | None = None) -> None:
+        self.settings = settings if settings is not None else cast(TSettings, self.settings_cls())
 
     @abstractmethod
     def register_models(self) -> list[ModelEntry]:
