@@ -28,6 +28,18 @@ class ClaudeFrontendSettings(FrontendSettingsBase):
     listen_port: int = 9101
     default_backend_path: str = "/claude"
 
+    filter_auxiliary_requests: bool = True
+    """When True, requests whose ``model`` matches ``utility_models`` AND which do
+    NOT carry Claude Code's main-loop signature are answered with a synthetic stub
+    instead of being resolved via /ensemble (Claude Code's Haiku title/topic/quota
+    calls). Set False for pure today-behavior."""
+
+    utility_models: list[str] = ["haiku"]
+    """Case-insensitive substrings identifying the utility/auxiliary model tier.
+    A request's ``model`` matches if it contains any of these (so 'haiku' covers
+    claude-3-5-haiku and claude-haiku-4-5, dated or undated). Set to ``[]`` to
+    disable model-based classification (e.g. when Haiku is the user's MAIN model)."""
+
 
 class ClaudeFrontendPlugin(FrontendPluginBase):
     name = "claude-frontend"
