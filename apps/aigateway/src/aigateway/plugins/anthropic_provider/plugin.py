@@ -14,35 +14,28 @@ from aigateway.core.plugin_base import (
 from .auth import AnthropicOAuth, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
 from .chat_handler import chat_completion, prepare_claude_code_body
-from .models import MODELS
-from .oauth_config import (
-    ANTHROPIC_AUTHORIZE_EXTRA_PARAMS,
-    ANTHROPIC_AUTHORIZE_URL,
-    ANTHROPIC_CLIENT_ID,
-    ANTHROPIC_REDIRECT_PATH,
-    ANTHROPIC_SCOPES,
-    ANTHROPIC_TOKEN_URL,
-)
+from .settings import AnthropicPluginSettings
 
 if TYPE_CHECKING:
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_index import ProfileIndexStore
 
 
-class AnthropicProviderPlugin(ProviderPluginBase):
+class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
     custom_llm_provider = "anthropic"
+    settings_cls = AnthropicPluginSettings
 
     def register_models(self) -> list[ModelEntry]:
-        return list(MODELS)
+        return list(self.settings.models)
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(
-            authorize_url=ANTHROPIC_AUTHORIZE_URL,
-            token_url=ANTHROPIC_TOKEN_URL,
-            client_id=ANTHROPIC_CLIENT_ID,
-            scopes=ANTHROPIC_SCOPES,
-            redirect_path=ANTHROPIC_REDIRECT_PATH,
-            extra_authorize_params=ANTHROPIC_AUTHORIZE_EXTRA_PARAMS,
+            authorize_url=self.settings.authorize_url,
+            token_url=self.settings.token_url,
+            client_id=self.settings.client_id,
+            scopes=list(self.settings.scopes),
+            redirect_path=self.settings.redirect_path,
+            extra_authorize_params=dict(self.settings.authorize_extra_params),
         )
 
     def oauth_strategy_for(
@@ -56,6 +49,7 @@ class AnthropicProviderPlugin(ProviderPluginBase):
             profile_name=profile_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
+            settings=self.settings,
         )
 
     def should_apply_profile_default(self, field: str) -> bool:
@@ -80,6 +74,7 @@ class AnthropicProviderPlugin(ProviderPluginBase):
             redirect_uri=request.redirect_uri,
             state=request.state,
             http_client_factory=request.http_client_factory,
+            settings=self.settings,
         )
 
     async def extract_identity(
@@ -104,6 +99,7 @@ class AnthropicProviderPlugin(ProviderPluginBase):
             account_id=account_id,
             credential_store=credential_store,
             index_store=index_store,
+            settings=self.settings,
         )
 
 

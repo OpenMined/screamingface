@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 
 from aigateway.core.credential_blob.store import CredentialBlobStore, ORMStore
 from aigateway.core.errors import BootstrapError
@@ -18,10 +17,9 @@ from aigateway.core.profile_models import (
 )
 
 from .auth import credential_service_for
+from .settings import AnthropicPluginSettings
 
 logger = logging.getLogger(__name__)
-
-CLAUDE_CODE_SERVICE = "Claude Code-credentials"
 
 
 async def bootstrap_from_claude_code(
@@ -29,17 +27,19 @@ async def bootstrap_from_claude_code(
     credential_store: CredentialBlobStore | None = None,
     index_store: ProfileIndexStore | None = None,
     cc_account: str | None = None,
+    settings: AnthropicPluginSettings | None = None,
 ) -> None:
+    config = settings or AnthropicPluginSettings()
     store = credential_store or ORMStore()
     idx = index_store or ProfileIndexStore(credential_store=store)
-    account = cc_account if cc_account is not None else os.environ.get("USER", "")
+    account = cc_account if cc_account is not None else config.bootstrap_user
 
     existing = await idx.list(account_id)
     if existing:
         logger.debug("bootstrap: account index already populated; skipping")
         return
 
-    cc_raw = await store.read(CLAUDE_CODE_SERVICE, account)
+    cc_raw = await store.read(config.claude_code_keychain_service, account)
     if cc_raw is None:
         logger.info("bootstrap: no Claude Code credential entry found; nothing to import")
         return
@@ -58,7 +58,7 @@ async def bootstrap_from_claude_code(
 
     await store.write(
         credential_service_for(credential_name_for(account_id, "default")),
-        "default",
+        config.keychain_account,
         json.dumps(converted),
     )
     profile = Profile(

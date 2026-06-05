@@ -17,13 +17,7 @@ from aigateway.core.errors import (
 )
 from aigateway.core.oauth_base import BaseOAuthStrategy
 
-from .oauth_config import (
-    ANTHROPIC_BETA,
-    ANTHROPIC_CLIENT_ID,
-    ANTHROPIC_REFRESH_SCOPES,
-    ANTHROPIC_TOKEN_URL,
-    ANTHROPIC_VERSION,
-)
+from .settings import AnthropicPluginSettings
 
 logger = logging.getLogger(__name__)
 
@@ -32,21 +26,20 @@ def credential_service_for(profile_name: str) -> str:
     return f"aigateway:anthropic:{profile_name}"
 
 
-_ACCOUNT = "default"  # credential account is stable; service name carries ownership
-
-
 class AnthropicOAuth(BaseOAuthStrategy):
     def __init__(
         self,
         profile_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
+        settings: AnthropicPluginSettings | None = None,
         account: str | None = None,
         http_client_factory=None,
     ) -> None:
         super().__init__(profile_name=profile_name)
+        self._settings = settings or AnthropicPluginSettings()
         self._store = credential_store or ORMStore()
-        self._account = account if account is not None else _ACCOUNT
+        self._account = account if account is not None else self._settings.keychain_account
         self._http_factory = http_client_factory or (
             lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0))
         )
@@ -81,21 +74,21 @@ class AnthropicOAuth(BaseOAuthStrategy):
     def _build_headers(self, creds: dict) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {creds['access_token']}",
-            "anthropic-version": ANTHROPIC_VERSION,
-            "anthropic-beta": ANTHROPIC_BETA,
+            "anthropic-version": self._settings.api_version,
+            "anthropic-beta": self._settings.beta,
         }
 
     async def _refresh_credential(self, creds: dict) -> dict:
         body = {
             "grant_type": "refresh_token",
             "refresh_token": creds["refresh_token"],
-            "client_id": ANTHROPIC_CLIENT_ID,
-            "scope": " ".join(ANTHROPIC_REFRESH_SCOPES),
+            "client_id": self._settings.client_id,
+            "scope": " ".join(self._settings.refresh_scopes),
         }
         try:
             async with self._http_factory() as client:
                 resp = await client.post(
-                    ANTHROPIC_TOKEN_URL,
+                    self._settings.token_url,
                     json=body,
                     headers={"content-type": "application/json"},
                 )
@@ -142,6 +135,7 @@ async def exchange_authorization_code(
     redirect_uri: str | None = None,
     state: str | None = None,
     http_client_factory=None,
+    settings: AnthropicPluginSettings | None = None,
 ) -> dict:
     """Exchange an authorization code for tokens. Used by the OAuth callback handler.
 
@@ -153,12 +147,13 @@ async def exchange_authorization_code(
 
     ``redirect_uri`` must match the one sent to ``/authorize`` (RFC 6749).
     """
+    config = settings or AnthropicPluginSettings()
     factory = http_client_factory or (lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0)))
     body: dict[str, str] = {
         "grant_type": "authorization_code",
         "code": code,
         "code_verifier": code_verifier,
-        "client_id": ANTHROPIC_CLIENT_ID,
+        "client_id": config.client_id,
     }
     if redirect_uri:
         body["redirect_uri"] = redirect_uri
@@ -166,7 +161,7 @@ async def exchange_authorization_code(
         body["state"] = state
     async with factory() as client:
         resp = await client.post(
-            ANTHROPIC_TOKEN_URL,
+            config.token_url,
             json=body,
             headers={"content-type": "application/json"},
         )
@@ -178,7 +173,7 @@ async def exchange_authorization_code(
         logger.error(
             "Anthropic token exchange failed: status=%d url=%s sent_keys=%s response=%s",
             resp.status_code,
-            ANTHROPIC_TOKEN_URL,
+            config.token_url,
             sorted(body.keys()),
             resp.text[:1000],
         )
