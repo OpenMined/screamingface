@@ -28,6 +28,10 @@ import httpx
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from screamingface.plugins.claude_frontend._classifier import (
+    AUX_STUB_TEXT,
+    is_auxiliary_request,
+)
 from screamingface.plugins.claude_frontend._session import SessionHook
 from screamingface.plugins.claude_frontend._url4_context import (
     resolve_prompt_expression,
@@ -131,6 +135,33 @@ def create_router(
         is_streaming = body.get("stream", False)
         model = body.get("model", "claude-opus-4-1-20250805")
         _record_trace_id(request)
+
+        # Auxiliary (utility-model) requests — Claude Code's title/topic/quota Haiku
+        # calls — must never reach /ensemble. The classifier forces USER for any real
+        # main-loop turn (identity/tools present) BEFORE the model check, so a real
+        # prompt is never stubbed. Auxiliary → minimal synthetic envelope, returned
+        # BEFORE session enrichment and url4 resolution (SF-241). Fail-loud: the
+        # decision is logged and recorded on the span, never silent.
+        if is_auxiliary_request(
+            body,
+            utility_models=settings.utility_models,
+            enabled=settings.filter_auxiliary_requests,
+        ):
+            _tracer.set_attrs({"url4.classified": "auxiliary", "url4.aux_model": model})
+            logger.info(
+                "[E2E-TRACE] PROXY classified AUX (model=%s) → synthetic, no /ensemble | stream=%s",
+                model,
+                is_streaming,
+            )
+            if is_streaming:
+                return StreamingResponse(
+                    stream_anthropic_sse(AUX_STUB_TEXT, model, prompt_text=""),
+                    media_type="text/event-stream",
+                )
+            return JSONResponse(
+                content=build_anthropic_message(AUX_STUB_TEXT, model, prompt_text=""),
+                status_code=200,
+            )
 
         # Stage 1: session enrichment
         session = SessionHook.from_request(
