@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -114,6 +117,80 @@ class TestShellEnv:
         from screamingface.plugins.claude_env_intercept.shellenv import current_exports
 
         assert current_exports() == {}
+
+    def test_render_banner_with_spec(self) -> None:
+        from screamingface.plugins.claude_env_intercept.shellenv import render_gateway_banner
+
+        out = render_gateway_banner("my-spec", "(https://x/r.txt)!$prompt")
+        assert "url4 ensemble gateway" in out
+        assert "my-spec" in out
+        assert "(https://x/r.txt)!$prompt" in out
+
+    def test_render_banner_no_spec_warns(self) -> None:
+        from screamingface.plugins.claude_env_intercept.shellenv import render_gateway_banner
+
+        for name, expr in [(None, None), ("", None), ("x", None)]:
+            out = render_gateway_banner(name, expr)
+            assert "WARNING" in out
+            assert "active url4 spec" in out
+
+    @pytest.mark.parametrize("shell", ["sh", "bash", "zsh"])
+    def test_function_prints_banner_to_stderr_and_runs_claude(self, tmp_path, shell) -> None:
+        from screamingface.plugins.claude_env_intercept.shellenv import (
+            build_claude_banner_function,
+            render_gateway_banner,
+        )
+
+        if shutil.which(shell) is None:
+            pytest.skip(f"{shell} not installed")
+
+        banner = render_gateway_banner("s p e c", "(a|b)!$prompt '\"`x` $(y) ! ()")
+        func = build_claude_banner_function(banner)
+
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        fake = bindir / "claude"
+        fake.write_text("#!/bin/sh\necho REAL_CLAUDE_RAN \"$@\"\n")
+        fake.chmod(0o755)
+
+        script = f"{func}\nclaude --model x\n"
+        env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
+        r = subprocess.run([shell, "-c", script], capture_output=True, text=True, env=env)
+
+        assert r.returncode == 0, r.stderr
+        assert "REAL_CLAUDE_RAN --model x" in r.stdout
+        assert "REAL_CLAUDE_RAN" not in r.stderr
+        assert "url4 ensemble gateway" in r.stderr
+        assert "$prompt" in r.stderr
+        assert "$(y)" in r.stderr
+
+    @pytest.mark.usefixtures("_patch_profile")
+    def test_add_exports_with_extra_lines_in_block(self, profile_file) -> None:
+        from screamingface.plugins.claude_env_intercept.shellenv import (
+            MARKER_BEGIN,
+            MARKER_END,
+            add_exports,
+        )
+
+        add_exports({"ANTHROPIC_BASE_URL": "http://127.0.0.1:9101"}, extra_lines=["claude() { :; }"])
+        content = profile_file.read_text()
+        assert 'export ANTHROPIC_BASE_URL="http://127.0.0.1:9101"' in content
+        assert "claude() { :; }" in content
+        assert content.index(MARKER_BEGIN) < content.index("claude() {") < content.index(MARKER_END)
+
+    @pytest.mark.usefixtures("_patch_profile")
+    def test_remove_exports_removes_extra_lines(self, profile_file) -> None:
+        from screamingface.plugins.claude_env_intercept.shellenv import (
+            MARKER_BEGIN,
+            add_exports,
+            remove_exports,
+        )
+
+        add_exports({"A": "1"}, extra_lines=["claude() { :; }"])
+        remove_exports()
+        content = profile_file.read_text()
+        assert MARKER_BEGIN not in content
+        assert "claude() {" not in content
 
 
 # ===================================================================

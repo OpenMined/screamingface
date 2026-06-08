@@ -7,6 +7,7 @@ Adds and removes a marker-delimited block of exports so Claude Code
 from __future__ import annotations
 
 import logging
+import shlex
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -34,15 +35,18 @@ def shell_profiles() -> list[Path]:
     return profiles
 
 
-def add_exports(env_vars: dict[str, str]) -> None:
-    """Add a marker block of exports to all shell profiles.
+def add_exports(env_vars: dict[str, str], extra_lines: list[str] | None = None) -> None:
+    """Add a marker block of exports (and optional raw shell lines) to all shell profiles.
 
-    Replaces any existing block to keep values current.
+    Replaces any existing block to keep values current. ``extra_lines`` are written
+    verbatim after the exports, inside the same marker block, so they are removed
+    together with the exports on teardown.
     """
-    # Build new block
     lines = [MARKER_BEGIN]
     for key, value in env_vars.items():
         lines.append(f'export {key}="{value}"')
+    if extra_lines:
+        lines.extend(extra_lines)
     lines.append(MARKER_END)
     block = "\n".join(lines) + "\n"
 
@@ -98,6 +102,40 @@ def current_exports() -> dict[str, str]:
                     result[key] = value.strip('"')
         return result
     return {}
+
+
+def render_gateway_banner(spec_name: str | None, expression: str | None) -> str:
+    """Render the plain-text launch banner shown when the user starts ``claude``.
+
+    Shows the active url4 spec + raw expression, or a warning when none is set.
+    Plain ASCII (no ANSI) so it bakes cleanly into a shell rc file.
+    """
+    lines = [
+        "  == ScreamingFace url4 ensemble gateway ==",
+        "  Your claude queries are answered by this gateway, not api.anthropic.com.",
+    ]
+    if spec_name and expression:
+        lines.append(f"  Active url4 spec: {spec_name}")
+        lines.append(f"    {expression}")
+    else:
+        lines.append("  WARNING: no active url4 spec set — responses will be empty.")
+        lines.append("    Set claude-frontend.active_spec in ScreamingFace settings.")
+    return "\n".join(lines)
+
+
+def build_claude_banner_function(banner_text: str) -> str:
+    """Build a POSIX-sh ``claude()`` wrapper that prints ``banner_text`` to stderr
+    then execs the real binary.
+
+    One ``printf '%s\\n' '<quoted>' >&2`` per banner line, each quoted via
+    ``shlex.quote`` so arbitrary url4 expressions cannot break out of the rc or be
+    re-evaluated by the shell. ``command claude`` bypasses this function (no
+    recursion); the banner never touches claude's stdout.
+    """
+    body = "\n".join(
+        f"  printf '%s\\n' {shlex.quote(line)} >&2" for line in banner_text.split("\n")
+    )
+    return 'claude() {\n' + body + '\n  command claude "$@"\n}'
 
 
 def _strip_marker_block(content: str) -> str:
