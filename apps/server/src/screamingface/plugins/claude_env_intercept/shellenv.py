@@ -135,7 +135,7 @@ def build_claude_banner_function(banner_text: str) -> str:
     body = "\n".join(
         f"  printf '%s\\n' {shlex.quote(line)} >&2" for line in banner_text.split("\n")
     )
-    return 'claude() {\n' + body + '\n  command claude "$@"\n}'
+    return "claude() {\n" + body + '\n  command claude "$@"\n}'
 
 
 def _strip_marker_block(content: str) -> str:

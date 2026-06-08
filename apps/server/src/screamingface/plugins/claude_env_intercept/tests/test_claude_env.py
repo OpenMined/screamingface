@@ -150,7 +150,7 @@ class TestShellEnv:
         bindir = tmp_path / "bin"
         bindir.mkdir()
         fake = bindir / "claude"
-        fake.write_text("#!/bin/sh\necho REAL_CLAUDE_RAN \"$@\"\n")
+        fake.write_text('#!/bin/sh\necho REAL_CLAUDE_RAN "$@"\n')
         fake.chmod(0o755)
 
         script = f"{func}\nclaude --model x\n"
@@ -172,7 +172,9 @@ class TestShellEnv:
             add_exports,
         )
 
-        add_exports({"ANTHROPIC_BASE_URL": "http://127.0.0.1:9101"}, extra_lines=["claude() { :; }"])
+        add_exports(
+            {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9101"}, extra_lines=["claude() { :; }"]
+        )
         content = profile_file.read_text()
         assert 'export ANTHROPIC_BASE_URL="http://127.0.0.1:9101"' in content
         assert "claude() { :; }" in content
@@ -371,3 +373,51 @@ class TestRegisterCLI:
             for g in app.registered_groups
         ]
         assert "claude-env-intercept" in group_names
+
+
+class TestSetupBanner:
+    @pytest.mark.usefixtures("_patch_profile")
+    def test_setup_writes_claude_banner_function(self, profile_file, monkeypatch) -> None:
+        from unittest.mock import MagicMock
+
+        import screamingface.plugins.claude_env_intercept.plugin as plg
+
+        monkeypatch.setattr(plg.subprocess, "run", lambda *a, **k: None)
+
+        cf = MagicMock()
+        cf.settings.active_spec = "cookbook"
+        cf.settings.listen_host = "127.0.0.1"
+        cf.settings.listen_port = 9101
+        cf.get_active_expression.return_value = "(https://x/r.txt)!$prompt"
+
+        app = MagicMock()
+        app.state.plugins.active_plugins.get.return_value = cf
+
+        plugin = plg.ClaudeEnvInterceptPlugin()
+        plugin.setup(app, MagicMock(), MagicMock(), MagicMock())
+
+        content = profile_file.read_text()
+        assert 'export ANTHROPIC_BASE_URL="http://127.0.0.1:9101"' in content
+        assert "claude() {" in content
+        assert "cookbook" in content
+        assert "$prompt" in content
+
+    @pytest.mark.usefixtures("_patch_profile")
+    def test_setup_no_active_spec_warns(self, profile_file, monkeypatch) -> None:
+        from unittest.mock import MagicMock
+
+        import screamingface.plugins.claude_env_intercept.plugin as plg
+
+        monkeypatch.setattr(plg.subprocess, "run", lambda *a, **k: None)
+        cf = MagicMock()
+        cf.settings.active_spec = None
+        cf.settings.listen_host = "127.0.0.1"
+        cf.settings.listen_port = 9101
+        cf.get_active_expression.return_value = None
+        app = MagicMock()
+        app.state.plugins.active_plugins.get.return_value = cf
+
+        plg.ClaudeEnvInterceptPlugin().setup(app, MagicMock(), MagicMock(), MagicMock())
+        content = profile_file.read_text()
+        assert "claude() {" in content
+        assert "WARNING" in content

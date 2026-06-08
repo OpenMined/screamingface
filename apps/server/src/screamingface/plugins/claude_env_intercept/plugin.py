@@ -13,7 +13,12 @@ import sys
 from typing import TYPE_CHECKING
 
 from screamingface.plugin import Plugin
-from screamingface.plugins.claude_env_intercept.shellenv import add_exports, remove_exports
+from screamingface.plugins.claude_env_intercept.shellenv import (
+    add_exports,
+    build_claude_banner_function,
+    remove_exports,
+    render_gateway_banner,
+)
 
 if TYPE_CHECKING:
     import typer
@@ -72,8 +77,18 @@ class ClaudeEnvInterceptPlugin(Plugin):
         # Build env vars
         env_vars: dict[str, str] = {"ANTHROPIC_BASE_URL": base_url}
 
-        # Write to shell profile
-        add_exports(env_vars)
+        # Build the `claude` launcher banner from the active spec, baked into the
+        # managed block so it shows at every `claude` launch (stderr only). Rendered
+        # now (not at launch) — dynamic config lookup is unreliable from an arbitrary
+        # shell cwd.
+        banner = render_gateway_banner(
+            cf_settings.active_spec,
+            cf_plugin.get_active_expression(),
+        )
+        banner_fn = build_claude_banner_function(banner)
+
+        # Write to shell profile: exports + the `claude` wrapper function.
+        add_exports(env_vars, extra_lines=[banner_fn])
         logger.info("Claude Code env configured: ANTHROPIC_BASE_URL=%s", base_url)
 
         # Also set via launchctl for current session (macOS)
