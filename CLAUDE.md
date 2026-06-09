@@ -58,6 +58,21 @@ These are **mandatory** for all code in this repo. PRs that violate them must be
   - Discovery/wiring of plugins happens via a registry, not via direct imports in core.
 - **AIGateway credential storage:** `apps/aigateway` uses ORMStore through Tortoise (`credential_blobs`): SQLite locally, Postgres in hosted/prod. No OS keychain/libsecret/Credential Manager usage in AIGateway.
 
+## Deprecated / Unmaintained Plugins
+
+The three legacy **claude-CLI traffic-intercept** plugins below are **no longer maintained** and are **not part of the pipeline we are building**. None of them is in the active `apps/server/sf.json` plugins list.
+
+- `apps/server/src/screamingface/plugins/claude_env_intercept` (`claude-env-intercept`)
+- `apps/server/src/screamingface/plugins/mitmproxy_intercept` (`mitmproxy-intercept`)
+- `apps/server/src/screamingface/plugins/claude_intercept` (`claude-intercept`)
+
+**Rules (mandatory):**
+
+- **Never add new features to these plugins.** Do not extend them, do not route new functionality through them. New gateway behavior belongs in the active pipeline — the frontend plugins (e.g. `claude_frontend` / `frontend_base`) that serve `/v1/messages`, not in an intercept shim.
+- **Do not treat them as a reference for "how the gateway works."** They are legacy CLI-redirection strategies, separate from the live request/response path.
+- **Touch them only to deprecate, delete, or keep them compiling** (e.g. shared-helper signature changes). Bug-fix-only otherwise.
+- If a task seems to require one of these, stop and confirm with the user first — it almost certainly belongs elsewhere.
+
 ## Personas
 
 This project uses a persona system to guide copy, design, positioning, and feature decisions. **Before doing any work that involves messaging, tone, design choices, or audience targeting**, consult the persona weighting guide.
