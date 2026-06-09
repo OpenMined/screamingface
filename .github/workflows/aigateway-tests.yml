@@ -104,7 +104,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: HupBaHa/cost-diff@047f332474ccd6c0be48dea5902386173b5bb29c # v0.1.1
+      - uses: HupBaHa/cost-diff@v0.1.2
         with:
           current-job-id: ${{ job.check_run_id }}
           baseline-event: push
