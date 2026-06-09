@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { X, Upload, ExternalLink, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Url4Viewer } from '@/components/Url4Viewer';
+import { Url4Field } from '@/components/Url4Field';
 import { useToast } from '@/hooks/use-toast';
 import { usePublishScore } from '@/hooks/use-publish-score';
 import {
@@ -126,7 +126,7 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                   URL4 expression {sanitize && hasDataRefs ? '(sanitized)' : ''}
                 </span>
                 <div className="rounded bg-muted/30 px-3 py-2">
-                  <Url4Viewer expression={expressionToPublish} serverUrl={serverUrl} />
+                  <Url4Field value={expressionToPublish} serverUrl={serverUrl} readOnly />
                 </div>
                 {hasDataRefs && (
                   <div className="mt-2 rounded border border-chart-5/40 bg-chart-5/10 px-3 py-2 text-xs">
