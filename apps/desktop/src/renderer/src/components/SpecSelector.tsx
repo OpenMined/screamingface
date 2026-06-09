@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Search, X, Eye, Check } from 'lucide-react';
 import { useServerStatus } from '@/hooks/use-server-status';
-import { Url4Viewer } from './Url4Viewer';
+import { Url4Field } from './Url4Field';
 
 interface Spec {
   name: string;
@@ -186,12 +186,7 @@ export function SpecSelector({ value, onChange, fallbackNames }: SpecSelectorPro
               </button>
             </div>
             <div className="rounded-lg border border-border bg-background p-4">
-              <Url4Viewer
-                expression={previewSpec.expression}
-                serverUrl={serverUrl}
-                fetchFn={fetchFromServer}
-                mode="expanded"
-              />
+              <Url4Field value={previewSpec.expression} serverUrl={serverUrl} readOnly />
             </div>
           </div>
         </div>

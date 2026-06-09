@@ -1,14 +1,14 @@
 // apps/desktop/src/renderer/src/components/eval/AddEvalRunDialog.tsx
 //
-// "+ Add url4" popup for Eval Studio (SF-248): name + url4 expression with live
-// validation against the server's /ensemble/highlight endpoint (400 on parse
-// error). On create, hands a RunPayload to the parent (same path as "Run
-// Locally"). The url4 field is a textarea for now; SF-249 swaps in the Monaco
-// url4 editor.
-import { useEffect, useRef, useState } from 'react';
+// "+ Add url4" popup for Eval Studio (SF-248): name + url4 expression (edited in
+// the Monaco url4 field). On create it hands a RunPayload to the parent (same
+// path as "Run Locally"); the run itself is the source of truth for url4 errors
+// — we intentionally don't gate on /ensemble/highlight, which false-errors on
+// the ensemble fan-out shape that /ensemble runs fine (SF-249).
+import { useState } from 'react';
 import { X, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Url4Viewer } from '@/components/Url4Viewer';
+import { Url4Field } from '@/components/Url4Field';
 import { useServerStatus } from '@/hooks/use-server-status';
 import type { RunPayload } from '@/components/run/types';
 
@@ -16,8 +16,6 @@ interface Props {
   onClose: () => void;
   onCreate: (payload: RunPayload) => void;
 }
-
-type Validity = 'empty' | 'validating' | 'valid' | 'invalid';
 
 export function AddEvalRunDialog({ onClose, onCreate }: Props) {
   const { info } = useServerStatus();
@@ -27,45 +25,8 @@ export function AddEvalRunDialog({ onClose, onCreate }: Props) {
 
   const [name, setName] = useState('');
   const [expression, setExpression] = useState('');
-  const [validity, setValidity] = useState<Validity>('empty');
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Debounced validation via the existing /ensemble/highlight endpoint, which
-  // returns 400 + a TatSu parse error for invalid url4.
-  useEffect(() => {
-    const expr = expression.trim();
-    if (!expr) {
-      setValidity('empty');
-      setValidationError(null);
-      return;
-    }
-    if (!serverUrl) return;
-    setValidity('validating');
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await window.electronAPI.server.fetch(
-          `${serverUrl}/ensemble/highlight?q=${encodeURIComponent(expr)}`,
-        );
-        if (res.ok) {
-          setValidity('valid');
-          setValidationError(null);
-        } else {
-          setValidity('invalid');
-          setValidationError(res.body?.slice(0, 200) || `Invalid url4 (HTTP ${res.status})`);
-        }
-      } catch (e) {
-        setValidity('invalid');
-        setValidationError((e as Error).message);
-      }
-    }, 400);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [expression, serverUrl]);
-
-  const canCreate = name.trim().length > 0 && validity === 'valid';
+  const canCreate = name.trim().length > 0 && expression.trim().length > 0;
 
   const handleCreate = (): void => {
     if (!canCreate) return;
@@ -98,39 +59,13 @@ export function AddEvalRunDialog({ onClose, onCreate }: Props) {
           </label>
 
           <div>
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">
-                URL4 expression <span className="text-destructive">*</span>
-              </span>
-              {validity === 'validating' && (
-                <span className="text-[11px] text-muted-foreground">checking…</span>
-              )}
-              {validity === 'valid' && <span className="text-[11px] text-chart-3">valid ✓</span>}
-              {validity === 'invalid' && (
-                <span className="text-[11px] text-destructive">invalid</span>
-              )}
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">
+              URL4 expression <span className="text-destructive">*</span>
+            </span>
+            <div className="rounded-md border border-border">
+              <Url4Field value={expression} onChange={setExpression} serverUrl={serverUrl} />
             </div>
-            <textarea
-              aria-label="URL4 expression"
-              spellCheck={false}
-              className="min-h-[120px] w-full rounded-md border border-border bg-background p-3 font-mono text-xs"
-              placeholder="(https://…)!$prompt"
-              value={expression}
-              onChange={(e) => setExpression(e.target.value)}
-            />
-            {validationError && (
-              <p className="mt-1 text-[11px] text-destructive">{validationError}</p>
-            )}
           </div>
-
-          {expression.trim() && validity === 'valid' && (
-            <div>
-              <span className="mb-1 block text-xs text-muted-foreground">Preview</span>
-              <div className="rounded-md border border-border p-3">
-                <Url4Viewer expression={expression} serverUrl={serverUrl} mode="expanded" />
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-border px-6 py-4">
