@@ -30,9 +30,7 @@ def _valid_payload(**overrides: Any) -> dict[str, Any]:
         "correct_questions": 3,
         "ran_with_providers": ["openai"],
         "ran_at_local": "2026-05-21T12:00:00+00:00",
-        "client_name": "scoreboard-test",
-        "client_version": "0.1.0",
-        "client_platform": "test",
+        "client": {"name": "scoreboard-test", "version": "0.1.0", "platform": "test"},
         "metadata": {"source": "unit"},
     }
     payload.update(overrides)

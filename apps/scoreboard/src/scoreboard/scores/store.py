@@ -62,9 +62,9 @@ def _submission_to_kwargs(submission: ScoreSubmission) -> dict[str, object]:
         "correct_questions": submission.correct_questions,
         "ran_with_providers": submission.ran_with_providers,
         "ran_at_local": submission.ran_at_local,
-        "client_name": submission.client_name,
-        "client_version": submission.client_version,
-        "client_platform": submission.client_platform,
+        "client_name": submission.client.name if submission.client else None,
+        "client_version": submission.client.version if submission.client else None,
+        "client_platform": submission.client.platform if submission.client else None,
         "metadata": submission.metadata,
     }
 

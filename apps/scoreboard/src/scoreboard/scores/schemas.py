@@ -57,9 +57,9 @@ class ScoreSubmission(BaseModel):
     correct_questions: int
     ran_with_providers: list[str]
     ran_at_local: datetime | None = None
-    client_name: str | None = None
-    client_version: str | None = None
-    client_platform: str | None = None
+    # Nested client metadata, matching the SF "Publish to Leaderboard" wire shape
+    # (D-SCORE-006). Persisted onto the flat client_* columns by the store.
+    client: ClientInfo | None = None
     metadata: dict[str, Any] | None = None
 
     @field_validator("url4_expression")
