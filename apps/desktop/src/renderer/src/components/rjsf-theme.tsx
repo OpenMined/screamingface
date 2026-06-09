@@ -27,7 +27,7 @@ import {
   useState,
 } from 'react';
 import { Check, ChevronDown, Copy, Plus } from 'lucide-react';
-import { Url4Viewer } from './Url4Viewer';
+import { Url4Field } from './Url4Field';
 import { SpecSelector } from './SpecSelector';
 
 // ---------------------------------------------------------------------------
@@ -273,12 +273,11 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
                     registry.formContext?.serverUrl &&
                     formData?.[p.name]?.[copyLink.field] && (
                       <>
-                        <Url4Viewer
-                          expression={formData[p.name][copyLink.field]}
+                        <Url4Field
+                          value={formData[p.name][copyLink.field]}
                           serverUrl={registry.formContext.serverUrl}
-                          fetchFn={registry.formContext.serverFetch}
-                          mode="expanded"
-                          className="mt-3 rounded-md bg-background p-3"
+                          readOnly
+                          className="mt-3 rounded-md bg-background"
                         />
                         <CopyLinkField
                           url={`${registry.formContext.serverUrl}${copyLink.path}?${copyLink.param}=${encodeURIComponent(formData[p.name][copyLink.field])}`}

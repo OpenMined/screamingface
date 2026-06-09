@@ -22,10 +22,8 @@ vi.mock('@/hooks/use-publish-score', () => ({
   }),
 }));
 vi.mock('@/hooks/use-toast', () => ({ useToast: () => ({ toast: toastMock }) }));
-vi.mock('@/components/Url4Viewer', () => ({
-  Url4Viewer: ({ expression }: { expression: string }) => (
-    <span data-testid="url4">{expression}</span>
-  ),
+vi.mock('@/components/Url4Field', () => ({
+  Url4Field: ({ value }: { value: string }) => <span data-testid="url4">{value}</span>,
 }));
 
 function makeRun(overrides: Partial<EvalRunDetail> = {}): EvalRunDetail {
