@@ -77,7 +77,7 @@ export function Url4Viewer({
   // Fallback: plain monospace text
   if (!tokens || error) {
     return (
-      <code className={`block font-mono text-xs text-muted-foreground ${className}`}>
+      <code className={`block font-mono text-xs break-words text-muted-foreground ${className}`}>
         {expression}
       </code>
     );
@@ -85,14 +85,14 @@ export function Url4Viewer({
 
   if (mode === 'expanded') {
     return (
-      <code className={`block font-mono text-xs whitespace-pre ${className}`}>
+      <code className={`block font-mono text-xs whitespace-pre-wrap break-words ${className}`}>
         {renderExpanded(tokens)}
       </code>
     );
   }
 
   return (
-    <code className={`block font-mono text-xs ${className}`}>
+    <code className={`block font-mono text-xs break-words ${className}`}>
       {tokens.map((t, i) => (
         <span key={i} className={TOKEN_CLASSES[t.type]}>
           {t.value}

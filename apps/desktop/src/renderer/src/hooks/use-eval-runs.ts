@@ -26,24 +26,31 @@ export function useEvalRunsList(limit = 50, offset = 0) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (!base) return;
-    setLoading(true);
-    try {
-      const runs = await fetchJson<EvalRunSummary[]>(
-        `${base}/eval_runs?limit=${limit}&offset=${offset}`,
-      );
-      setData(runs);
-      setError(null);
-    } catch (e) {
-      setError(e as Error);
-    } finally {
-      setLoading(false);
-    }
-  }, [base, limit, offset]);
+  const refresh = useCallback(
+    async (silent = false) => {
+      if (!base) return;
+      if (!silent) setLoading(true);
+      try {
+        const runs = await fetchJson<EvalRunSummary[]>(
+          `${base}/eval_runs?limit=${limit}&offset=${offset}`,
+        );
+        setData(runs);
+        setError(null);
+      } catch (e) {
+        setError(e as Error);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [base, limit, offset],
+  );
 
+  // Poll so newly-started runs and status changes appear without a manual
+  // refresh; silent polls keep the list visible (no loading flicker).
   useEffect(() => {
     void refresh();
+    const id = setInterval(() => void refresh(true), POLL_MS);
+    return () => clearInterval(id);
   }, [refresh]);
 
   return { data, loading, error, refresh };

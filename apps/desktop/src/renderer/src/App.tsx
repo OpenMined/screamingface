@@ -4,7 +4,6 @@ import type { View } from '@/components/layout/Sidebar';
 import { DashboardView } from '@/views/DashboardView';
 import { SessionsView } from '@/views/SessionsView';
 import { EvalStudioView } from '@/views/EvalStudioView';
-import { RunView } from '@/views/RunView';
 import { SettingsView } from '@/views/SettingsView';
 import { PluginHost } from '@/components/plugins/PluginHost';
 import { useServerStatus } from '@/hooks/use-server-status';
@@ -16,7 +15,7 @@ import type { RunPayload } from '@/components/run/types';
 export function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [config, setConfig] = useState<Record<string, unknown>>({});
-  const [runPayload, setRunPayload] = useState<RunPayload | null>(null);
+  const [pendingRun, setPendingRun] = useState<RunPayload | null>(null);
   const [aigwLoginOpen, setAigwLoginOpen] = useState(false);
   const server = useServerStatus();
   const { activePlugins } = usePlugins();
@@ -36,8 +35,10 @@ export function App() {
   );
 
   const openRun = useCallback((payload: RunPayload) => {
-    setRunPayload(payload);
-    setCurrentView('run');
+    // The run experience now lives inside Eval Studio; deep links land there
+    // and the view starts + selects the run.
+    setPendingRun(payload);
+    setCurrentView('eval-studio');
   }, []);
 
   useEffect(() => {
@@ -70,18 +71,12 @@ export function App() {
       return <DashboardView server={server} onAigwLoginRequest={openAigwLogin} />;
     }
     if (currentView === 'sessions') return <SessionsView />;
-    if (currentView === 'eval-studio') return <EvalStudioView onRunLocally={openRun} />;
-    if (currentView === 'settings') return <SettingsView />;
-    if (currentView === 'run') {
-      if (!runPayload) return <EvalStudioView onRunLocally={openRun} />;
+    if (currentView === 'eval-studio') {
       return (
-        <RunView
-          payload={runPayload}
-          serverUrl={serverUrl}
-          onViewEvalStudio={() => setCurrentView('eval-studio')}
-        />
+        <EvalStudioView pendingRun={pendingRun} onPendingConsumed={() => setPendingRun(null)} />
       );
     }
+    if (currentView === 'settings') return <SettingsView />;
 
     if (currentView.startsWith('plugin:')) {
       const pluginId = currentView.slice('plugin:'.length);

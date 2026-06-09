@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ImperativePanelHandle } from 'react-resizable-panels';
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus } from 'lucide-react';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
@@ -6,14 +6,39 @@ import { Button } from '@/components/ui/button';
 import { EvalRunsList } from '@/components/eval/EvalRunsList';
 import { EvalRunDetail } from '@/components/eval/EvalRunDetail';
 import { AddEvalRunDialog } from '@/components/eval/AddEvalRunDialog';
+import { useStartEvalRun } from '@/hooks/use-start-eval-run';
 import type { RunPayload } from '@/components/run/types';
 
 interface EvalStudioViewProps {
-  onRunLocally?: (payload: RunPayload) => void;
+  /** When set (e.g. via a deep link), starts that run and selects it on mount. */
+  pendingRun?: RunPayload | null;
+  /** Called after a pendingRun has been started, so the parent can clear it. */
+  onPendingConsumed?: () => void;
 }
 
-export function EvalStudioView({ onRunLocally }: EvalStudioViewProps = {}) {
+export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioViewProps = {}) {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const startEvalRun = useStartEvalRun();
+
+  // Start a run and immediately select it so the right panel shows it running
+  // (the detail panel polls running runs for live progress).
+  const runAndSelect = useCallback(
+    (payload: RunPayload): void => {
+      const runId = startEvalRun(payload);
+      if (runId) setSelectedRunId(runId);
+    },
+    [startEvalRun],
+  );
+
+  // Consume a deep-linked pending run exactly once.
+  const handledPendingRef = useRef<RunPayload | null>(null);
+  useEffect(() => {
+    if (pendingRun && handledPendingRef.current !== pendingRun) {
+      handledPendingRef.current = pendingRun;
+      runAndSelect(pendingRun);
+      onPendingConsumed?.();
+    }
+  }, [pendingRun, runAndSelect, onPendingConsumed]);
 
   const leftPanelRef = useRef<ImperativePanelHandle>(null);
   const rightPanelRef = useRef<ImperativePanelHandle>(null);
@@ -45,11 +70,9 @@ export function EvalStudioView({ onRunLocally }: EvalStudioViewProps = {}) {
           </p>
         </div>
         <div className="flex items-center gap-1">
-          {onRunLocally && (
-            <Button variant="outline" size="sm" className="mr-1" onClick={() => setAdding(true)}>
-              <Plus className="h-3.5 w-3.5" /> New run
-            </Button>
-          )}
+          <Button variant="outline" size="sm" className="mr-1" onClick={() => setAdding(true)}>
+            <Plus className="h-3.5 w-3.5" /> New run
+          </Button>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -91,7 +114,7 @@ export function EvalStudioView({ onRunLocally }: EvalStudioViewProps = {}) {
           <EvalRunsList
             selectedId={selectedRunId}
             onSelect={setSelectedRunId}
-            onRunLocally={onRunLocally}
+            onRunLocally={runAndSelect}
           />
         </ResizablePanel>
 
@@ -110,7 +133,7 @@ export function EvalStudioView({ onRunLocally }: EvalStudioViewProps = {}) {
           className="flex overflow-hidden"
         >
           {selectedRunId ? (
-            <EvalRunDetail runId={selectedRunId} onRunLocally={onRunLocally} />
+            <EvalRunDetail runId={selectedRunId} onRunLocally={runAndSelect} />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
               Select a run to see details
@@ -119,12 +142,7 @@ export function EvalStudioView({ onRunLocally }: EvalStudioViewProps = {}) {
         </ResizablePanel>
       </ResizablePanelGroup>
 
-      {adding && onRunLocally && (
-        <AddEvalRunDialog
-          onClose={() => setAdding(false)}
-          onCreate={(payload) => onRunLocally(payload)}
-        />
-      )}
+      {adding && <AddEvalRunDialog onClose={() => setAdding(false)} onCreate={runAndSelect} />}
     </div>
   );
 }
