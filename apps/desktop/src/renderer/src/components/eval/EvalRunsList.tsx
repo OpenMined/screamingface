@@ -1,3 +1,4 @@
+import { Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useEvalRunsList } from '@/hooks/use-eval-runs';
 import { EvalStatusBadge } from './EvalStatusBadge';
@@ -33,7 +34,7 @@ export function EvalRunsList({ selectedId, onSelect, onRunLocally }: Props) {
     return (
       <div className="flex h-full flex-col items-center justify-center p-8 text-center text-sm text-muted-foreground">
         <p className="mb-2 font-medium">No evaluation runs yet.</p>
-        <p className="text-xs">Click a leaderboard entry's "Run Locally" link to start one.</p>
+        <p className="text-xs">Use "New run" above, or the play button on a leaderboard entry.</p>
       </div>
     );
   }
@@ -47,7 +48,7 @@ export function EvalRunsList({ selectedId, onSelect, onRunLocally }: Props) {
             key={run.id}
             onClick={() => onSelect(run.id)}
             className={cn(
-              'cursor-pointer border-b border-border/50 px-3 py-3 transition-colors hover:bg-accent/40',
+              'cursor-pointer border-b border-border/50 px-6 py-3 transition-colors hover:bg-accent/40',
               active && 'bg-accent/60',
             )}
           >
@@ -62,13 +63,15 @@ export function EvalRunsList({ selectedId, onSelect, onRunLocally }: Props) {
                 {onRunLocally && (
                   <button
                     type="button"
+                    aria-label="Run locally"
+                    title="Run locally"
                     onClick={(e) => {
                       e.stopPropagation();
                       onRunLocally({ spec: run.spec_name, expression: run.url4_expression });
                     }}
-                    className="whitespace-nowrap text-xs text-primary underline"
+                    className="rounded p-1 text-primary transition-colors hover:bg-primary/10"
                   >
-                    Run Locally
+                    <Play className="h-4 w-4" />
                   </button>
                 )}
               </div>

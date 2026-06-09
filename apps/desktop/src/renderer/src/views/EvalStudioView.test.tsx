@@ -5,6 +5,7 @@ import { it, expect, vi, afterEach } from 'vitest';
 vi.mock('@/hooks/use-eval-runs', () => ({
   useEvalRunsList: () => ({ data: [], loading: false, error: null }),
 }));
+vi.mock('@/hooks/use-start-eval-run', () => ({ useStartEvalRun: () => () => null }));
 vi.mock('@/components/eval/EvalRunDetail', () => ({ EvalRunDetail: () => null }));
 
 afterEach(cleanup);
