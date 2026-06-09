@@ -25,8 +25,15 @@ from ..core.concurrency import effective_provider_limit, provider_slot
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.models import OAuthConnection
 from ..core.oauth.store import OAuthConnectionStore, credential_key_for
+from ..core.plugin_base import credential_strategy_from
 from ..core.profile_index import ProfileIndexStore
-from ..core.profile_models import Profile, ProfileDefaults, ProfileState, credential_name_for
+from ..core.profile_models import (
+    AuthType,
+    Profile,
+    ProfileDefaults,
+    ProfileState,
+    credential_name_for,
+)
 from ..core.registry import ProviderRegistry
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
 
@@ -176,6 +183,37 @@ async def _credential_target_for_chat(
     return profile, None, profile.defaults
 
 
+def _strategy_for_credential_target(
+    request: Request,
+    plugin: Any,
+    provider: str,
+    *,
+    account_id: str,
+    profile_name: str,
+    profile: Profile | None,
+    connection: OAuthConnection | None,
+) -> tuple[Any, str | None]:
+    """Resolve (strategy, credential_name) for the chat credential target,
+    branching on the target's auth_type discriminator."""
+    auth_type: AuthType
+    if connection is not None:
+        credential_name = credential_key_for(account_id, connection.id)
+        auth_type = connection.auth_type or "oauth"
+    elif profile is not None:
+        credential_name = credential_name_for(account_id, profile_name)
+        auth_type = profile.auth_type
+    else:
+        return None, None
+    strategy = credential_strategy_from(
+        plugin,
+        credential_name,
+        auth_type=auth_type,
+        credential_store=request.app.state.credential_store,
+        http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
+    )
+    return strategy, credential_name
+
+
 def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any) -> dict[str, Any]:
     """Body wins per field. Fields the body omits get the profile default."""
     if (
@@ -283,22 +321,15 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
             },
         )
 
-    strategy = None
-    credential_name: str | None = None
-    if connection is not None:
-        credential_name = credential_key_for(current.id, connection.id)
-        strategy = plugin.oauth_strategy_for(
-            credential_name,
-            credential_store=request.app.state.credential_store,
-            http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
-        )
-    elif profile is not None:
-        credential_name = credential_name_for(account_id, profile_name)
-        strategy = plugin.oauth_strategy_for(
-            credential_name,
-            credential_store=request.app.state.credential_store,
-            http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
-        )
+    strategy, credential_name = _strategy_for_credential_target(
+        request,
+        plugin,
+        provider,
+        account_id=account_id,
+        profile_name=profile_name,
+        profile=profile,
+        connection=connection,
+    )
     if strategy is not None:
         try:
             headers = await strategy.get_authorization_header()

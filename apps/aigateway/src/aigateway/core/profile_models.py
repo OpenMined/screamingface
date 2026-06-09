@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+AuthType = Literal["oauth", "api_key"]
 
 
 def profile_id_for(account_id: str, provider: str, name: str) -> str:
@@ -40,6 +43,7 @@ class Profile(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     last_refreshed_at: datetime | None = None
     state: ProfileState = ProfileState.PENDING
+    auth_type: AuthType = "oauth"
     defaults: ProfileDefaults = Field(default_factory=ProfileDefaults)
 
 

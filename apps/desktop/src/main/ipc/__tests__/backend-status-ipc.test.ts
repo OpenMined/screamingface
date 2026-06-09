@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   backendStatusService: {
@@ -141,5 +141,78 @@ describe('backend status IPC', () => {
     pollingErrorHandler(error);
 
     expect(send).toHaveBeenCalledWith('backends:pollingError', error);
+  });
+
+  describe('setProfileApiKey', () => {
+    const event = { senderFrame: { url: 'file:///Applications/ScreamingFace.app/index.html' } };
+
+    const getHandler = () => {
+      registerBackendStatusHandlers();
+      const handler = mocks.ipcHandlers.get('backends:setProfileApiKey');
+      if (!handler) throw new Error('setProfileApiKey handler was not registered');
+      return handler;
+    };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('PUTs the key to the SF auth proxy with the desktop secret', async () => {
+      const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', 'work', 'sk-ant-api03-xyz-1234');
+
+      expect(result).toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:8001/claude/auth/profiles/work/api-key',
+        expect.objectContaining({
+          method: 'PUT',
+          headers: expect.objectContaining({
+            'X-SF-Desktop-Secret': 'desktop-secret',
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({ api_key: 'sk-ant-api03-xyz-1234' }),
+        }),
+      );
+    });
+
+    it('surfaces the gateway error detail on failure', async () => {
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({ detail: { code: 'api_key_not_supported' } }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'codex', 'work', 'sk-proj-xyz-1234');
+
+      expect(result).toEqual({ ok: false, status: 400, message: 'api_key_not_supported' });
+    });
+
+    it('rejects too-short keys without touching the network', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', 'work', 'abc');
+
+      expect(result).toEqual({
+        ok: false,
+        status: 400,
+        message: 'API key is missing or too short',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects unsafe backend names', async () => {
+      mocks.isSafeBackendName.mockReturnValue(false);
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, '../evil', 'work', 'sk-ant-api03-xyz-1234');
+
+      expect(result).toEqual({ ok: false, status: 400, message: 'invalid backend name' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 });

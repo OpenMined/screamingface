@@ -45,6 +45,19 @@ def _env_api_key() -> str | None:
     return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 
+def _header_api_key(headers: dict[str, Any]) -> str | None:
+    """Per-profile API key injected by the gateway's ApiKeyStrategy.
+
+    Caller-supplied copies of this header are stripped by the plugin's
+    prepare_chat_body before the gateway merges strategy headers, so a value
+    seen here is always gateway-owned.
+    """
+    for key, value in headers.items():
+        if isinstance(key, str) and key.lower() == "x-goog-api-key" and value:
+            return str(value)
+    return None
+
+
 def _safe_extra_headers(headers: dict[str, Any]) -> dict[str, str]:
     safe: dict[str, str] = {}
     for key, value in headers.items():
@@ -171,6 +184,16 @@ class GeminiCustomLLM(CustomLLM):
                 timeout,
             )
 
+        profile_key = _header_api_key(headers or {})
+        if profile_key:
+            return await self._run_api_key(
+                model_slug,
+                normalized_messages,
+                optional_params or {},
+                profile_key,
+                timeout,
+            )
+
         env_key = _env_api_key()
         if env_key:
             return await self._run_api_key(
@@ -182,7 +205,10 @@ class GeminiCustomLLM(CustomLLM):
             )
         raise CustomLLMError(
             status_code=401,
-            message="Gemini requires an OAuth profile or GEMINI_API_KEY/GOOGLE_API_KEY",
+            message=(
+                "Gemini requires an OAuth profile, a profile API key, "
+                "or GEMINI_API_KEY/GOOGLE_API_KEY"
+            ),
         )
 
     def _session_for(self, session_key: str) -> _CodeAssistSession:

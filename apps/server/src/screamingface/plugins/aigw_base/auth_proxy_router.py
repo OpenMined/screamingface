@@ -8,6 +8,8 @@ Four routes per backend:
 - ``GET    {prefix}/auth/profiles`` — list profiles the gateway knows
   about for this provider.
 - ``DELETE {prefix}/auth/profiles/{name}`` — delete a named profile.
+- ``PUT    {prefix}/auth/profiles/{name}/api-key`` — set/replace a raw
+  provider API key on a profile (auth_type=api_key; no OAuth cycle).
 
 All forward to the aigateway's ``/v1/auth/{provider}/...`` endpoints.
 The SF server never sees the OAuth callback or the upstream token —
@@ -42,6 +44,11 @@ HttpClientFactory = Callable[[float], httpx.AsyncClient]
 class _ExchangeCodeBody(BaseModel):
     code: str
     state: str
+
+
+class _SetApiKeyBody(BaseModel):
+    api_key: str
+    defaults: dict[str, Any] | None = None
 
 
 class _StartConnectionBody(BaseModel):
@@ -227,6 +234,47 @@ def build_aigw_auth_proxy_router(
         if resp.status_code >= 400:
             raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
         return Response(status_code=204)
+
+    @router.put(f"{path_prefix}/auth/profiles/{{name}}/api-key")
+    async def set_profile_api_key(name: str, body: _SetApiKeyBody) -> JSONResponse:
+        """Store a raw provider API key on a gateway profile (no OAuth cycle).
+
+        The key passes through to the gateway, which owns all credential
+        state; it is never logged or persisted on the SF server.
+        """
+        path = f"/v1/auth/{gateway_provider}/profiles/{name}/api-key"
+        payload: dict[str, Any] = {"api_key": body.api_key}
+        if body.defaults is not None:
+            payload["defaults"] = body.defaults
+        try:
+            resp = await _gateway_request(
+                app,
+                factory,
+                timeout_seconds,
+                "PUT",
+                base,
+                path,
+                json=payload,
+            )
+        except httpx.RequestError as exc:
+            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "code": "gateway_unreachable",
+                    "message": f"AI Gateway unreachable at {base}: {exc}",
+                },
+            ) from exc
+
+        if resp.status_code >= 500:
+            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
+            raise HTTPException(
+                status_code=502,
+                detail={"code": "gateway_error", "upstream_status": resp.status_code},
+            )
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
     @router.get(f"{path_prefix}/auth/connections")
     async def list_connections() -> dict[str, Any]:

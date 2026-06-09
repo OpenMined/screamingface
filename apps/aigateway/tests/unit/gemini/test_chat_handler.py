@@ -283,6 +283,64 @@ async def test_handler_requires_oauth_or_env_key(monkeypatch) -> None:
     assert called is False
 
 
+@pytest.mark.asyncio
+async def test_profile_header_key_posts_to_public_gemini_api(monkeypatch) -> None:
+    """A gateway-injected x-goog-api-key (per-profile ApiKeyStrategy) selects
+    the public generativelanguage API path, same as the env-var fallback."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, json=_gemini_response("from profile key"))
+
+    custom = GeminiCustomLLM(http_client_factory=_http_factory(httpx.MockTransport(handler)))
+
+    response = await _complete(custom, headers={"x-goog-api-key": "profile-key"})
+
+    assert captured["url"] == f"{GEMINI_API_BASE}/models/gemini-2.5-flash:generateContent"
+    assert captured["headers"]["x-goog-api-key"] == "profile-key"
+    assert "authorization" not in captured["headers"]
+    assert response.choices[0].message.content == "from profile key"
+
+
+@pytest.mark.asyncio
+async def test_profile_header_key_takes_precedence_over_env_key(monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "env-key")
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = dict(request.headers)
+        return httpx.Response(200, json=_gemini_response())
+
+    custom = GeminiCustomLLM(http_client_factory=_http_factory(httpx.MockTransport(handler)))
+
+    await _complete(custom, headers={"x-goog-api-key": "profile-key"})
+
+    assert captured["headers"]["x-goog-api-key"] == "profile-key"
+
+
+@pytest.mark.asyncio
+async def test_oauth_token_takes_precedence_over_profile_header_key(monkeypatch) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        urls.append(str(request.url))
+        if request.url.path.endswith(":loadCodeAssist"):
+            return httpx.Response(200, json={"cloudaicompanionProject": "proj-1"})
+        return httpx.Response(200, json=_gemini_response())
+
+    custom = GeminiCustomLLM(http_client_factory=_http_factory(httpx.MockTransport(handler)))
+
+    await _complete(custom, api_key="oauth-tok", headers={"x-goog-api-key": "profile-key"})
+
+    assert all(url.startswith(CODE_ASSIST_ENDPOINT) for url in urls)
+
+
 def test_gemini_registration_is_idempotent(monkeypatch) -> None:
     monkeypatch.setattr(litellm, "custom_provider_map", [])
     monkeypatch.setattr(litellm, "_custom_providers", [])

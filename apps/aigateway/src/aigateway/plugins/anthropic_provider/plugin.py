@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.plugin_base import (
+    CredentialStrategy,
     ModelEntry,
     OAuthCodeExchangeRequest,
     OAuthConfig,
-    OAuthStrategy,
     ProviderPluginBase,
 )
 
-from .auth import AnthropicOAuth, exchange_authorization_code
+from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
 from .chat_handler import chat_completion, prepare_claude_code_body
 from .settings import AnthropicPluginSettings
@@ -19,6 +20,13 @@ from .settings import AnthropicPluginSettings
 if TYPE_CHECKING:
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_index import ProfileIndexStore
+
+
+def _api_key_headers(api_key: str) -> dict[str, str]:
+    # chat.py pops Authorization into body["api_key"]; LiteLLM then sends raw
+    # (non-"sk-ant-oat") keys upstream as x-api-key, and only OAuth tokens get
+    # the Bearer + oauth beta-header treatment.
+    return {"Authorization": f"Bearer {api_key}"}
 
 
 class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
@@ -44,12 +52,26 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         *,
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
-    ) -> OAuthStrategy:
+    ) -> CredentialStrategy:
         return AnthropicOAuth(
             profile_name=profile_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
             settings=self.settings,
+        )
+
+    def api_key_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        credential_store: CredentialBlobStore | None = None,
+    ) -> CredentialStrategy:
+        return ApiKeyStrategy(
+            profile_name,
+            service=credential_service_for(profile_name),
+            account=self.settings.keychain_account,
+            header_builder=_api_key_headers,
+            credential_store=credential_store,
         )
 
     def should_apply_profile_default(self, field: str) -> bool:

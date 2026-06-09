@@ -7,18 +7,20 @@ from fastapi import HTTPException
 from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
+from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.plugin_base import (
+    CredentialStrategy,
     ModelEntry,
     OAuthCodeExchangeRequest,
     OAuthConfig,
-    OAuthStrategy,
     ProviderPluginBase,
 )
 
 from .auth import (
     GeminiOAuth,
     account_label_from_credentials,
+    credential_service_for,
     exchange_authorization_code,
     extract_account_identity,
 )
@@ -95,11 +97,29 @@ class GeminiProviderPlugin(ProviderPluginBase):
         *,
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
-    ) -> OAuthStrategy:
+    ) -> CredentialStrategy:
         return GeminiOAuth(
             profile_name=profile_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
+        )
+
+    def api_key_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        credential_store: CredentialBlobStore | None = None,
+    ) -> CredentialStrategy:
+        # The injected x-goog-api-key rides extra_headers into the custom
+        # handler (caller-supplied copies are stripped in prepare_chat_body
+        # BEFORE the gateway merges strategy headers, so only the gateway-owned
+        # key survives) and selects the generativelanguage API-key path there.
+        return ApiKeyStrategy(
+            profile_name,
+            service=credential_service_for(profile_name),
+            account="default",
+            header_builder=lambda api_key: {"x-goog-api-key": api_key},
+            credential_store=credential_store,
         )
 
     async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict[str, Any]:

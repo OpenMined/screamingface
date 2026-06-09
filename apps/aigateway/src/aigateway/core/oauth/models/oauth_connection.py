@@ -18,6 +18,7 @@ class BaseOAuthConnection(Model):
     provider = fields.CharField(max_length=64, index=True)
     label = fields.CharField(max_length=255)
     status = fields.CharField(max_length=32, index=True)
+    auth_type = fields.CharField(max_length=16, default="oauth")
     identity_sub = fields.CharField(max_length=255, null=True)
     identity_email = fields.CharField(max_length=320, null=True)
     identity_name = fields.CharField(max_length=255, null=True)

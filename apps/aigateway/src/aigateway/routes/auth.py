@@ -28,9 +28,11 @@ from ..core.plugin_base import (
     OAuthCodeExchangeRequest,
     OAuthConfig,
     credential_service_provider_for,
+    credential_strategy_from,
 )
 from ..core.profile_index import ProfileIndexStore
 from ..core.profile_models import (
+    AuthType,
     Profile,
     ProfileDefaults,
     ProfileState,
@@ -68,18 +70,34 @@ def _credential_store_for_app(app):
     return app.state.credential_store
 
 
-def _oauth_strategy_for_app(app, plugin, provider: str, account_id: str, name: str):
-    return _oauth_strategy_for_credential_name(
+def _credential_strategy_for_app(
+    app,
+    plugin,
+    provider: str,
+    account_id: str,
+    name: str,
+    auth_type: AuthType = "oauth",
+):
+    return _credential_strategy_for_credential_name(
         app,
         plugin,
         provider,
         credential_name_for(account_id, name),
+        auth_type=auth_type,
     )
 
 
-def _oauth_strategy_for_credential_name(app, plugin, provider: str, credential_name: str):
-    return plugin.oauth_strategy_for(
+def _credential_strategy_for_credential_name(
+    app,
+    plugin,
+    provider: str,
+    credential_name: str,
+    auth_type: AuthType = "oauth",
+):
+    return credential_strategy_from(
+        plugin,
         credential_name,
+        auth_type=auth_type,
         credential_store=_credential_store_for_app(app),
         http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
     )
@@ -623,7 +641,7 @@ async def _complete_oauth_for_app(
         )
 
     credential_name = _credential_name_for_pending(pending)
-    strategy = _oauth_strategy_for_credential_name(app, plugin, provider, credential_name)
+    strategy = _credential_strategy_for_credential_name(app, plugin, provider, credential_name)
     if strategy is None:
         raise HTTPException(
             status_code=400,
@@ -712,6 +730,9 @@ async def _mark_profile_authenticated(app, pending: PendingAuthEntry, plugin, cr
     if profile is None:
         return
     profile.state = ProfileState.AUTHENTICATED
+    # A completed OAuth round-trip overwrites the credential slot, so the
+    # discriminator must flip back even if the profile was api_key before.
+    profile.auth_type = "oauth"
     label = plugin.account_label_from_credentials(creds)
     if label is not None:
         profile.account_label = label
@@ -741,7 +762,7 @@ async def _persist_connection_credentials(
     connection_id: str,
     creds: dict,
 ) -> None:
-    strategy = _oauth_strategy_for_credential_name(
+    strategy = _credential_strategy_for_credential_name(
         app,
         plugin,
         provider,
@@ -946,6 +967,7 @@ async def profile_status(
         )
     return {
         "state": p.state.value,
+        "auth_type": p.auth_type,
         "account_label": p.account_label,
         "last_refreshed_at": p.last_refreshed_at.isoformat() if p.last_refreshed_at else None,
     }
@@ -976,6 +998,69 @@ async def patch_profile(
     return p.model_dump(mode="json")
 
 
+class SetApiKeyRequest(BaseModel):
+    api_key: str
+    defaults: ProfileDefaults | None = None
+
+
+@router.put("/v1/auth/{provider}/profiles/{name}/api-key")
+async def set_profile_api_key(
+    provider: str,
+    name: str,
+    body: SetApiKeyRequest,
+    request: Request,
+    current: CurrentAccount,
+) -> dict:
+    """Create or update a profile that authenticates with a raw API key.
+
+    No OAuth round-trip: the profile is AUTHENTICATED as soon as the key is
+    stored. The key is persisted to the profile's credential blob slot (so a
+    later OAuth completion overwrites it, and delete removes it) and is never
+    echoed back in responses or logs.
+    """
+    plugin = _registry(request).get(provider)
+    if plugin is None:
+        raise HTTPException(
+            status_code=404, detail={"code": "unknown_provider", "provider": provider}
+        )
+    api_key = body.api_key.strip()
+    if len(api_key) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_api_key", "message": "api_key is missing or too short"},
+        )
+    account_id = str(current.id)
+    strategy = _credential_strategy_for_app(
+        request.app, plugin, provider, account_id, name, auth_type="api_key"
+    )
+    if strategy is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "api_key_not_supported", "provider": provider},
+        )
+
+    idx = _index_store(request)
+    profile = await idx.get(account_id, provider, name)
+    if profile is None:
+        profile = Profile(
+            id=profile_id_for(account_id, provider, name),
+            account_id=account_id,
+            provider=provider,
+            name=name,
+        )
+    if body.defaults is not None:
+        profile.defaults = body.defaults
+    profile.auth_type = "api_key"
+    profile.state = ProfileState.AUTHENTICATED
+    profile.last_refreshed_at = datetime.now(UTC)
+    profile.account_label = f"API key ····{api_key[-4:]}"
+
+    await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
+    await idx.upsert(profile)
+    _invalidate_profile_session(plugin, account_id, name)
+    return profile.model_dump(mode="json")
+
+
 @router.delete("/v1/auth/{provider}/profiles/{name}", status_code=204)
 async def delete_profile(provider: str, name: str, request: Request, current: CurrentAccount):
     plugin = _registry(request).get(provider)
@@ -985,7 +1070,9 @@ async def delete_profile(provider: str, name: str, request: Request, current: Cu
     p = await _index_store(request).get(account_id, provider, name)
     if p is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
-    strategy = _oauth_strategy_for_app(request.app, plugin, provider, account_id, name)
+    strategy = _credential_strategy_for_app(
+        request.app, plugin, provider, account_id, name, auth_type=p.auth_type
+    )
     if strategy is not None:
         await strategy.delete_credentials()
     _invalidate_profile_session(plugin, account_id, name)
@@ -1003,7 +1090,9 @@ async def refresh_profile(
     p = await _index_store(request).get(account_id, provider, name)
     if p is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
-    strategy = _oauth_strategy_for_app(request.app, plugin, provider, account_id, name)
+    strategy = _credential_strategy_for_app(
+        request.app, plugin, provider, account_id, name, auth_type=p.auth_type
+    )
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
 

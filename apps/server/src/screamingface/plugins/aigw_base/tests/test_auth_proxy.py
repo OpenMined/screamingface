@@ -794,3 +794,71 @@ def test_delete_profile_gateway_unreachable_becomes_502() -> None:
     resp = client.delete("/claude/auth/profiles/anything")
     assert resp.status_code == 502
     assert resp.json()["detail"]["code"] == "gateway_unreachable"
+
+
+def test_set_api_key_happy_path_forwards_to_gateway() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["url"] = str(req.url)
+        captured["method"] = req.method
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(
+            200,
+            json={
+                "id": "acct:anthropic:work",
+                "name": "work",
+                "state": "authenticated",
+                "auth_type": "api_key",
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.put(
+        "/claude/auth/profiles/work/api-key",
+        json={"api_key": "sk-ant-api03-xyz-1234"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["auth_type"] == "api_key"
+    assert captured["method"] == "PUT"
+    assert captured["url"] == "http://gateway/v1/auth/anthropic/profiles/work/api-key"
+    assert captured["body"] == {"api_key": "sk-ant-api03-xyz-1234"}
+
+
+def test_set_api_key_forwards_defaults() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(req.read().decode())
+        return httpx.Response(200, json={"state": "authenticated", "auth_type": "api_key"})
+
+    client = _make_client(handler)
+    resp = client.put(
+        "/claude/auth/profiles/work/api-key",
+        json={"api_key": "sk-ant-api03-xyz-1234", "defaults": {"max_tokens": 2048}},
+    )
+    assert resp.status_code == 200
+    assert captured["body"] == {
+        "api_key": "sk-ant-api03-xyz-1234",
+        "defaults": {"max_tokens": 2048},
+    }
+
+
+def test_set_api_key_gateway_400_passes_through() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"code": "api_key_not_supported", "provider": "codex"})
+
+    client = _make_client(handler)
+    resp = client.put("/claude/auth/profiles/work/api-key", json={"api_key": "sk-proj-123456"})
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "api_key_not_supported"
+
+
+def test_set_api_key_gateway_unreachable_becomes_502() -> None:
+    def handler(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=req)
+
+    client = _make_client(handler)
+    resp = client.put("/claude/auth/profiles/work/api-key", json={"api_key": "sk-ant-12345678"})
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "gateway_unreachable"

@@ -908,3 +908,139 @@ async def test_chat_persistent_rate_limit_still_returns_429(
     assert resp.headers["retry-after"] == "1"
     assert resp.json()["detail"]["code"] == "rate_limited"
     assert calls["n"] == 4  # 1 initial + 3 retries (default AIGW_RETRY_MAX_ATTEMPTS=3)
+
+
+async def _seed_api_key_profile(
+    credential_blobs,
+    account_id: str,
+    *,
+    provider: str,
+    service: str,
+    api_key: str,
+) -> None:
+    credential_blobs.write(
+        service,
+        "default",
+        json.dumps({"auth_type": "api_key", "api_key": api_key}),
+    )
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    await idx.upsert(
+        Profile(
+            id=profile_id_for(account_id, provider, "default"),
+            account_id=account_id,
+            provider=provider,
+            name="default",
+            state=ProfileState.AUTHENTICATED,
+            auth_type="api_key",
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_api_key_profile_passes_raw_anthropic_key(
+    credential_blobs, authenticated_client
+) -> None:
+    """An api_key profile dispatches with the raw key in body["api_key"]
+    (LiteLLM sends non-OAuth keys as x-api-key upstream) and injects no
+    OAuth-specific extra headers (anthropic-version/-beta)."""
+    account_id = _account_id(authenticated_client)
+    await _seed_api_key_profile(
+        credential_blobs,
+        account_id,
+        provider="anthropic",
+        service=credential_service_for(credential_name_for(account_id, "default")),
+        api_key="sk-ant-api03-raw-key",
+    )
+    captured: dict = {}
+
+    async def fake_chat_completion(_self, body):
+        captured.update(body)
+        return SimpleNamespace(
+            model_dump=lambda: {"id": "x", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    with patch(
+        "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion",
+        fake_chat_completion,
+    ):
+        resp = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "anthropic/claude-haiku-4-5",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert captured["api_key"] == "sk-ant-api03-raw-key"
+    assert "extra_headers" not in captured
+
+
+@pytest.mark.asyncio
+async def test_chat_api_key_profile_injects_gemini_header(
+    credential_blobs, authenticated_client
+) -> None:
+    from aigateway.plugins.gemini_provider.auth import (
+        credential_service_for as gemini_service_for,
+    )
+
+    account_id = _account_id(authenticated_client)
+    await _seed_api_key_profile(
+        credential_blobs,
+        account_id,
+        provider="gemini-cli",
+        service=gemini_service_for(credential_name_for(account_id, "default")),
+        api_key="AIzaSyChatKey",
+    )
+    captured: dict = {}
+
+    async def fake_chat_completion(_self, body):
+        captured.update(body)
+        return SimpleNamespace(
+            model_dump=lambda: {"id": "x", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    with patch(
+        "aigateway.plugins.gemini_provider.plugin.GeminiProviderPlugin.chat_completion",
+        fake_chat_completion,
+    ):
+        resp = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gemini-cli/gemini-2.5-flash",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert captured["extra_headers"]["x-goog-api-key"] == "AIzaSyChatKey"
+    assert "api_key" not in captured
+
+
+@pytest.mark.asyncio
+async def test_chat_api_key_profile_missing_blob_returns_401(
+    credential_blobs, authenticated_client
+) -> None:
+    account_id = _account_id(authenticated_client)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    await idx.upsert(
+        Profile(
+            id=profile_id_for(account_id, "anthropic", "default"),
+            account_id=account_id,
+            provider="anthropic",
+            name="default",
+            state=ProfileState.AUTHENTICATED,
+            auth_type="api_key",
+        )
+    )
+
+    resp = authenticated_client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "anthropic/claude-haiku-4-5",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["code"] == "auth_required"
