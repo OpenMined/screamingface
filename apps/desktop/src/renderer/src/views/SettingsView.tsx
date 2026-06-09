@@ -5,7 +5,7 @@ import type { RJSFSchema } from '@rjsf/utils';
 import { useServerStatus } from '../hooks/use-server-status';
 import { useToast } from '../hooks/use-toast';
 import { ThemedForm } from '../components/rjsf-theme';
-import { inlineRefs } from '../components/rjsf-utils';
+import { inlineRefs, buildCodeEditorUiSchema } from '../components/rjsf-utils';
 import type { DiscoveredPlugin } from '../../../preload/types';
 
 interface ServerConfig {
@@ -683,6 +683,7 @@ export function SettingsView() {
                                     omitExtraData
                                     uiSchema={{
                                       'ui:submitButtonOptions': { norender: true },
+                                      ...buildCodeEditorUiSchema(schema),
                                       ...([
                                         'claude-frontend',
                                         'codex-frontend',
