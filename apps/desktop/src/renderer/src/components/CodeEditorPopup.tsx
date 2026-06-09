@@ -24,7 +24,7 @@ export default function CodeEditorPopup({ title, language, value, onSave, onClos
   return (
     <div className="fixed inset-0 z-50 bg-black/50">
       {/* 5% inset from every app border */}
-      <div className="absolute inset-[5%] flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
+      <div className="absolute inset-[5%] flex flex-col overflow-hidden rounded-[10px] border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
           <h2 className="text-sm font-semibold text-foreground">{title}</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
