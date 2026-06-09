@@ -53,8 +53,8 @@ export function EvalRunDetail({
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto">
+    <div className="flex h-full w-full min-w-0 flex-col">
+      <div className="min-w-0 flex-1 overflow-y-auto">
         <header className="border-b border-border px-6 py-4">
           <div className="mb-2 flex items-center gap-3">
             <h2 className="text-base font-semibold">{data.spec_name}</h2>
