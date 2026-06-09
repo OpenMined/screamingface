@@ -32,3 +32,18 @@ it('calls onRunLocally with the row spec + expression', () => {
   fireEvent.click(screen.getByRole('button', { name: /run locally/i }));
   expect(onRunLocally).toHaveBeenCalledWith({ spec: 'HLE', expression: 'transform(url, intent)' });
 });
+
+it('renders compact rows (not a table) with spec name, date, status, accuracy', () => {
+  render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={vi.fn()} />);
+  expect(screen.queryByRole('table')).toBeNull();
+  expect(screen.getByText('HLE')).toBeTruthy();
+  expect(screen.getByText(/done/i)).toBeTruthy();
+  expect(screen.getByText('90.0%')).toBeTruthy();
+});
+
+it('selects the run when the row is clicked', () => {
+  const onSelect = vi.fn();
+  render(<EvalRunsList selectedId={null} onSelect={onSelect} onRunLocally={vi.fn()} />);
+  fireEvent.click(screen.getByText('HLE'));
+  expect(onSelect).toHaveBeenCalledWith('r1');
+});

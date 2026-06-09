@@ -37,7 +37,8 @@
     "@softarc/native-federation": "^3.5.4",
     "@softarc/native-federation-runtime": "^3.5.4",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-resizable-panels": "^2.1.9"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.7",
