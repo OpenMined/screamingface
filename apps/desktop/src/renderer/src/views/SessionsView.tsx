@@ -186,7 +186,7 @@ export function SessionsView() {
           onClick={() => setInstallPrompt(null)}
         >
           <div
-            className="relative w-[420px] overflow-hidden rounded-xl border border-border bg-card shadow-2xl"
+            className="relative w-[420px] overflow-hidden rounded-[10px] border border-border bg-card shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Gradient accent bar */}
