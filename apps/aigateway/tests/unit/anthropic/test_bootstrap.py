@@ -1,3 +1,4 @@
+import base64
 import json
 import time
 
@@ -9,7 +10,7 @@ from aigateway.core.profile_models import Profile, profile_id_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.anthropic_provider.bootstrap import bootstrap_from_claude_code
 from aigateway.plugins.anthropic_provider.settings import AnthropicPluginSettings
-from tests.conftest import _prepare_sqlite_db
+from tests.conftest import TEST_SECRET_KEY, _prepare_sqlite_db
 
 ACCOUNT_ID = "account-1"
 
@@ -20,6 +21,9 @@ def _configure_app_db(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("AIGATEWAY_ADMIN_PASSWORD", "test-admin-password")
     monkeypatch.setenv("AIGATEWAY_JWT_SECRET", "x" * 32)
     monkeypatch.setenv("AIGATEWAY_PROVISIONING_TOKEN", "p" * 32)
+    # Match the CredentialBlobProbe key so the app's ORMStore can decrypt
+    # credentials seeded via the probe.
+    monkeypatch.setenv("AIGATEWAY_SECRET_KEY", base64.b64encode(TEST_SECRET_KEY).decode())
     _prepare_sqlite_db(database_url)
 
 

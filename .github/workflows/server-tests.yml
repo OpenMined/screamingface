@@ -4,9 +4,11 @@ on:
   push:
     paths:
       - "apps/server/**"
+      - ".github/workflows/server-tests.yml"
   pull_request:
     paths:
       - "apps/server/**"
+      - ".github/workflows/server-tests.yml"
   workflow_dispatch:
 
 permissions:
@@ -82,3 +84,19 @@ jobs:
           coverageFile: apps/server/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           thresholdAll: 0.70
+
+  cost:
+    name: CI cost diff
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: HupBaHa/cost-diff@v0.1.2
+        with:
+          current-job-id: ${{ job.check_run_id }}
+          baseline-event: push
+          comment-mode: update

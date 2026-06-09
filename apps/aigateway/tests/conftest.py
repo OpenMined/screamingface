@@ -1,16 +1,49 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import os
 import sqlite3
 import uuid
 from collections.abc import Callable, Generator
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi.testclient import TestClient
 from tortoise import Tortoise
 
+from aigateway.core.secrets.local import _SECRET_ENVELOPE_RE
+from aigateway.core.secrets.mixin import SecretDecryptionError
 from aigateway.db import build_tortoise_config
+
+# Master key used by both the app (via AIGATEWAY_SECRET_KEY in the client fixture)
+# and the CredentialBlobProbe below, so the probe is a faithful double of the
+# encrypting ORMStore. These sync helpers mirror LocalSecretStore's v1 format;
+# they are sync (AES-GCM is CPU-bound) so the async probe wrapper can call them
+# from inside a running event loop without asyncio.run().
+TEST_SECRET_KEY = b"k" * 32
+_TEST_AESGCM = AESGCM(TEST_SECRET_KEY)
+
+
+def _test_encrypt(plaintext: str) -> str:
+    nonce = os.urandom(12)
+    ciphertext = _TEST_AESGCM.encrypt(nonce, plaintext.encode("utf-8"), None)
+    return f"v1:{base64.b64encode(nonce).decode()}:{base64.b64encode(ciphertext).decode()}"
+
+
+def _test_decrypt(value: str) -> str:
+    # Mirror LocalSecretStore.decrypt so the probe cannot diverge from the real
+    # store on the reject/passthrough branches (SF-221 review #2): v1 -> decrypt;
+    # any other versioned envelope -> raise; genuine legacy plaintext -> passthrough.
+    if value.startswith("v1:"):
+        _, nonce_b64, payload_b64 = value.split(":", 2)
+        nonce = base64.b64decode(nonce_b64)
+        payload = base64.b64decode(payload_b64)
+        return _TEST_AESGCM.decrypt(nonce, payload, None).decode("utf-8")
+    if _SECRET_ENVELOPE_RE.match(value):
+        raise SecretDecryptionError("non-v1 secret envelope this probe cannot decrypt")
+    return value
 
 
 class _AsyncCredentialBlobProbe:
@@ -37,6 +70,11 @@ class CredentialBlobProbe:
         return self._db_path
 
     def read(self, service: str, account: str) -> str | None:
+        """Logical (decrypted) credential value, mirroring ORMStore.read."""
+        raw = self.read_raw(service, account)
+        return None if raw is None else _test_decrypt(raw)
+
+    def read_raw(self, service: str, account: str) -> str | None:
         with sqlite3.connect(self._db_path) as conn:
             row = conn.execute(
                 "select value from credential_blobs where service = ? and account = ?",
@@ -44,17 +82,33 @@ class CredentialBlobProbe:
             ).fetchone()
         return row[0] if row is not None else None
 
+    def read_ciphertext_version(self, service: str, account: str) -> str | None:
+        with sqlite3.connect(self._db_path) as conn:
+            row = conn.execute(
+                "select ciphertext_version from credential_blobs where service = ? and account = ?",
+                (service, account),
+            ).fetchone()
+        return row[0] if row is not None else None
+
     def write(self, service: str, account: str, value: str) -> None:
+        """Store an encrypted credential value, mirroring ORMStore.write."""
+        self.write_raw(service, account, _test_encrypt(value), ciphertext_version="v1")
+
+    def write_raw(
+        self, service: str, account: str, value: str, ciphertext_version: str | None = None
+    ) -> None:
         with sqlite3.connect(self._db_path) as conn:
             conn.execute(
                 """
-                insert into credential_blobs (id, service, account, value, created_at, updated_at)
-                values (?, ?, ?, ?, datetime('now'), datetime('now'))
+                insert into credential_blobs
+                    (id, service, account, value, ciphertext_version, created_at, updated_at)
+                values (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
                 on conflict(service, account) do update set
                     value = excluded.value,
+                    ciphertext_version = excluded.ciphertext_version,
                     updated_at = datetime('now')
                 """,
-                (str(uuid.uuid4()), service, account, value),
+                (str(uuid.uuid4()), service, account, value, ciphertext_version),
             )
 
     def delete(self, service: str, account: str) -> None:
@@ -106,6 +160,10 @@ def client(
     monkeypatch.setenv("AIGATEWAY_ADMIN_PASSWORD", "test-admin-password")
     monkeypatch.setenv("AIGATEWAY_JWT_SECRET", "x" * 32)
     monkeypatch.setenv("AIGATEWAY_PROVISIONING_TOKEN", "p" * 32)
+    # Deterministic master key so the encrypted JWT-secret round-trips across the
+    # lifespan (proves the secret store is installed before the JWT bootstrap), and
+    # so the app's ORMStore and the CredentialBlobProbe share one key.
+    monkeypatch.setenv("AIGATEWAY_SECRET_KEY", base64.b64encode(TEST_SECRET_KEY).decode())
     _prepare_sqlite_db(database_url)
 
     from aigateway.main import create_app

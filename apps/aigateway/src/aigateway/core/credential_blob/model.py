@@ -14,6 +14,18 @@ class BaseCredentialBlob(Model):
     service = fields.CharField(max_length=255, index=True)
     account = fields.CharField(max_length=255, index=True)
     value = fields.TextField()
+    # Encoding version stamped at write time (SF-221). Write-time annotation for
+    # future key rotation; decryption keys off the self-describing value prefix,
+    # not this column. Nullable so the migration can ADD COLUMN to an already-
+    # populated table without a backfill; legacy pre-encryption rows carry NULL
+    # ("unknown version") until their next write stamps "v1".
+    #
+    # NOTE: the ``default="v1"`` is ORM-side only — Tortoise emits no SQL DEFAULT,
+    # so any row created outside ORMStore.write (and every pre-existing row) is
+    # NULL, not "v1". Future rotation tooling must treat NULL as
+    # "pre-encryption/unknown" rather than assume "v1" (e.g.
+    # ``WHERE ciphertext_version IS NULL OR ciphertext_version != 'vN'``).
+    ciphertext_version = fields.CharField(max_length=16, null=True, default="v1")
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
 

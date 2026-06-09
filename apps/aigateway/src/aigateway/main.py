@@ -23,6 +23,7 @@ from .core.loader import load_plugins
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
+from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .db import close_db, init_db
 from .routes import accounts, auth, auth_session, chat, health, models, oauth_connections
 
@@ -126,6 +127,16 @@ async def _lifespan(app):
     database_url = app.state.settings.database_url.get_secret_value()
     await init_db(database_url)
     try:
+        # Install the encryption-at-rest provider BEFORE any credential read/write.
+        # The JWT-secret bootstrap and provider bootstrap below both go through the
+        # now-encrypting ORMStore, so the active secret store must exist first.
+        secret_store = await build_secret_store(
+            app.state.settings.secret_provider,
+            app.state.settings.secret_key,
+        )
+        set_active_secret_store(secret_store)
+        app.state.secret_store = secret_store
+
         credential_store = app.state.credential_store
         app.state.jwt_secret = await get_or_create_jwt_secret(
             credential_store,
@@ -158,6 +169,9 @@ async def _lifespan(app):
         yield
     finally:
         await auth.close_loopback_callbacks(app)
+        # Clear the process-wide active store so it does not leak across app
+        # instances (e.g. multiple TestClient lifecycles in one process).
+        set_active_secret_store(None)
         await close_db()
 
 
