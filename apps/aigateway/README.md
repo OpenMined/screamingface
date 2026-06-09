@@ -9,6 +9,36 @@ plugins under `src/aigateway/plugins/`.
 Local development uses SQLite at `sqlite://./aigateway.sqlite3` by default.
 Hosted deployments should set `AIGATEWAY_DATABASE_URL` to Postgres.
 
+## Secrets at rest
+
+Credential values stored in `credential_blobs` (OAuth tokens, the JWT secret) are
+encrypted at rest with AES-256-GCM via an abstract `SecretStoreMixin` (see
+`core/secrets/`). `ORMStore` encrypts on write and decrypts on read, so call
+sites are unchanged. Ciphertext is stored as `v1:<nonce-b64>:<ciphertext-b64>`.
+
+Configuration:
+
+| Env var | Required | Default | Notes |
+|---|---|---|---|
+| `AIGATEWAY_SECRET_KEY` | hosted / multi-worker | auto-generated (local) | base64 of 32 raw bytes |
+| `AIGATEWAY_SECRET_PROVIDER` | no | `local` | `local` (AES-GCM) or `kms` (stub) |
+
+Generate a key:
+
+```bash
+python -c 'import os,base64;print(base64.b64encode(os.urandom(32)).decode())'
+```
+
+If `AIGATEWAY_SECRET_KEY` is unset under the `local` provider, the gateway
+generates one and persists it to the `secret_master_keys` table, logging a
+warning. This is a single-worker local convenience only. **Multi-worker
+(`uvicorn --workers N`) and hosted deployments MUST set `AIGATEWAY_SECRET_KEY`**
+so every worker shares one key — and so the master key does not live inside the
+same database it protects.
+
+Rows written before encryption was introduced (plaintext) are read transparently
+and upgraded to ciphertext on their next write; no migration step is required.
+
 ## Quick start
 
 ```bash
@@ -77,6 +107,28 @@ row with service `aigateway:jwt-secret` and account `default`, then restart.
 
 Change the `AIGATEWAY_PROVISIONING_TOKEN` environment variable and restart the
 gateway. Existing JWTs are unaffected.
+
+### Rotate `AIGATEWAY_SECRET_KEY`
+
+The master key encrypts every credential in `credential_blobs`. **Losing it makes
+all stored OAuth tokens unrecoverable** — users must re-authenticate.
+
+Full online key rotation (dual-read with the old key, re-encrypt on next write) is
+not implemented yet; the `ciphertext_version` column and versioned format exist so
+it can be added without a schema change. Until then:
+
+- **Hosted / explicit key:** rotating `AIGATEWAY_SECRET_KEY` invalidates all
+  existing encrypted rows (they can no longer be decrypted). Treat it as a
+  credential reset — rotate the key and have users re-authenticate their providers.
+- **Local generated key:** delete the `secret_master_keys` row (`provider='local'`)
+  and restart; the gateway generates a fresh key. Existing rows become
+  undecryptable, so re-authenticate providers.
+
+> **SQLite downgrade caveat (local dev only):** `tortoise downgrade` past `0005`
+> on SQLite rebuilds `credential_blobs` and, due to a Tortoise SQLite
+> table-rebuild limitation, drops its `(service, account)` unique constraint and
+> indexes. Re-run `tortoise migrate` forward (or recreate the dev DB) to restore
+> them. Postgres downgrade (`ALTER TABLE … DROP COLUMN`) is unaffected.
 
 ## Layout
 

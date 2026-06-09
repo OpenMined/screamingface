@@ -32,6 +32,21 @@ class Settings(BaseSettings):
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
     public_url: str | None = Field(default=None, validation_alias="AIGATEWAY_PUBLIC_URL")
 
+    # Encryption-at-rest for credential_blobs (SF-221). secret_key is the master
+    # key for the default `local` AES-GCM provider; when unset in local dev it is
+    # auto-generated and persisted in the secret_master_keys table. Multi-worker /
+    # hosted deployments MUST set AIGATEWAY_SECRET_KEY so every worker shares one key.
+    #
+    # Content (base64 + exactly-32-bytes) is intentionally NOT validated here: a
+    # field_validator that raises would let Pydantic capture the rejected key in
+    # the ValidationError (input_value=), leaking it into startup logs despite the
+    # SecretStr type. The single source of truth for key validation is
+    # ``secrets.master_key._decode_key``, which runs at startup (in the lifespan,
+    # for the providers that actually use the key) and raises a clean RuntimeError
+    # that never echoes the value.
+    secret_key: SecretStr | None = Field(default=None, validation_alias="AIGATEWAY_SECRET_KEY")
+    secret_provider: str = Field(default="local", validation_alias="AIGATEWAY_SECRET_PROVIDER")
+
     retry_max_attempts: int = Field(default=3, validation_alias="AIGW_RETRY_MAX_ATTEMPTS")
     retry_backoff_base_seconds: float = Field(
         default=0.5, validation_alias="AIGW_RETRY_BACKOFF_BASE"
@@ -87,4 +102,12 @@ class Settings(BaseSettings):
             raise ValueError("public_url must be an absolute http(s) URL")
         if parsed.query or parsed.fragment:
             raise ValueError("public_url must not include query or fragment")
+        return normalized
+
+    @field_validator("secret_provider")
+    @classmethod
+    def _validate_secret_provider(cls, value: str) -> str:
+        normalized = value.lower()
+        if normalized not in {"local", "kms"}:
+            raise ValueError("AIGATEWAY_SECRET_PROVIDER must be 'local' or 'kms'")
         return normalized
