@@ -93,6 +93,9 @@ class PythonRunnerPlugin(Plugin):
     conflicts: list[str] = []
     settings_class = PythonRunnerSettings
     backend_call_paths: list[str] = ["/python"]
+    # Executes scripts; no credentials and no /health route, so it must be
+    # excluded from the /backends/status credential walk (SF-246).
+    requires_auth: bool = False
 
     async def handle_backend_call(
         self,
