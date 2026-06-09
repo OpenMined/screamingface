@@ -1,6 +1,6 @@
 // apps/desktop/src/renderer/src/components/eval/EvalRunDetail.tsx
 import { useState } from 'react';
-import { Upload } from 'lucide-react';
+import { Upload, Play } from 'lucide-react';
 import { useServerStatus } from '@/hooks/use-server-status';
 import { useEvalRunDetail } from '@/hooks/use-eval-runs';
 import { Url4Viewer } from '@/components/Url4Viewer';
@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { EvalStatusBadge } from './EvalStatusBadge';
 import { EvalQuestionsTable } from './EvalQuestionsTable';
 import { PublishToLeaderboardDialog } from './PublishToLeaderboardDialog';
+import type { RunPayload } from '@/components/run/types';
 
 function formatPercent(accuracy: number | null): string {
   if (accuracy === null) return '—';
@@ -20,7 +21,13 @@ function formatTime(iso: string | null): string {
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`;
 }
 
-export function EvalRunDetail({ runId }: { runId: string }) {
+export function EvalRunDetail({
+  runId,
+  onRunLocally,
+}: {
+  runId: string;
+  onRunLocally?: (payload: RunPayload) => void;
+}) {
   const { info } = useServerStatus();
   const { data, loading, error } = useEvalRunDetail(runId);
   const [publishing, setPublishing] = useState(false);
@@ -57,6 +64,15 @@ export function EvalRunDetail({ runId }: { runId: string }) {
         <div className="mb-3 rounded bg-muted/30 px-3 py-2">
           <Url4Viewer expression={data.url4_expression} serverUrl={serverUrl} />
         </div>
+        {onRunLocally && (
+          <Button
+            size="lg"
+            className="mb-3 w-full"
+            onClick={() => onRunLocally({ spec: data.spec_name, expression: data.url4_expression })}
+          >
+            <Play className="h-4 w-4" /> Run Locally
+          </Button>
+        )}
         <dl className="grid grid-cols-4 gap-3 text-xs">
           <div>
             <dt className="text-muted-foreground">Accuracy</dt>

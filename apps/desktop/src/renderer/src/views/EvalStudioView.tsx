@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
 import type { ImperativePanelHandle } from 'react-resizable-panels';
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus } from 'lucide-react';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { Button } from '@/components/ui/button';
 import { EvalRunsList } from '@/components/eval/EvalRunsList';
 import { EvalRunDetail } from '@/components/eval/EvalRunDetail';
+import { AddEvalRunDialog } from '@/components/eval/AddEvalRunDialog';
 import type { RunPayload } from '@/components/run/types';
 
 interface EvalStudioViewProps {
@@ -18,6 +19,7 @@ export function EvalStudioView({ onRunLocally }: EvalStudioViewProps = {}) {
   const rightPanelRef = useRef<ImperativePanelHandle>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const toggleLeft = () => {
     const panel = leftPanelRef.current;
@@ -43,6 +45,11 @@ export function EvalStudioView({ onRunLocally }: EvalStudioViewProps = {}) {
           </p>
         </div>
         <div className="flex items-center gap-1">
+          {onRunLocally && (
+            <Button variant="outline" size="sm" className="mr-1" onClick={() => setAdding(true)}>
+              <Plus className="h-3.5 w-3.5" /> New run
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -103,7 +110,7 @@ export function EvalStudioView({ onRunLocally }: EvalStudioViewProps = {}) {
           className="flex overflow-hidden"
         >
           {selectedRunId ? (
-            <EvalRunDetail runId={selectedRunId} />
+            <EvalRunDetail runId={selectedRunId} onRunLocally={onRunLocally} />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
               Select a run to see details
@@ -111,6 +118,13 @@ export function EvalStudioView({ onRunLocally }: EvalStudioViewProps = {}) {
           )}
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      {adding && onRunLocally && (
+        <AddEvalRunDialog
+          onClose={() => setAdding(false)}
+          onCreate={(payload) => onRunLocally(payload)}
+        />
+      )}
     </div>
   );
 }

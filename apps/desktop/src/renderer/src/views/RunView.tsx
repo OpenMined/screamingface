@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import { useEvalRun } from '@/hooks/use-eval-run';
 import { Url4Viewer } from '@/components/Url4Viewer';
 import { Url4Editor } from '@/components/Url4Editor';
@@ -18,6 +19,13 @@ export function RunView({ payload, serverUrl, onViewEvalStudio }: RunViewProps) 
 
   return (
     <div className="flex max-w-3xl flex-col gap-6 p-6">
+      <button
+        type="button"
+        onClick={onViewEvalStudio}
+        className="flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to Eval Studio
+      </button>
       <header>
         <div className="text-xs text-muted-foreground">Spec</div>
         <h1 className="text-xl font-semibold">{payload.spec || 'Ad-hoc run'}</h1>
