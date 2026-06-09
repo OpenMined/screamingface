@@ -10,7 +10,7 @@ import pytest_asyncio
 from scoreboard.config import Settings
 from scoreboard.main import create_app
 from scoreboard.scores.models import Score
-from scoreboard.scores.schemas import ScoreSubmission
+from scoreboard.scores.schemas import ClientInfo, ScoreSubmission
 from scoreboard.scores.store import ScoreStore
 
 pytestmark = pytest.mark.asyncio
@@ -44,9 +44,7 @@ def _submission(
         correct_questions=correct_questions,
         ran_with_providers=providers or ["openai"],
         ran_at_local=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
-        client_name="scoreboard-test",
-        client_version="0.1.0",
-        client_platform="test",
+        client=ClientInfo(name="scoreboard-test", version="0.1.0", platform="test"),
         metadata={"source": "unit"},
     )
 
