@@ -31,11 +31,13 @@
     "@base-ui/react": "^1.2.0",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
+    "@monaco-editor/react": "^4.7.0",
     "@rjsf/core": "^6.4.1",
     "@rjsf/utils": "^6.4.1",
     "@rjsf/validator-ajv8": "^6.4.1",
     "@softarc/native-federation": "^3.5.4",
     "@softarc/native-federation-runtime": "^3.5.4",
+    "monaco-editor": "^0.55.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-resizable-panels": "^2.1.9"

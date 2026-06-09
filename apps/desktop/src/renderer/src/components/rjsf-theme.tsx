@@ -5,8 +5,10 @@ import type {
   ArrayFieldItemTemplateProps,
   ArrayFieldTemplateProps,
   BaseInputTemplateProps,
+  FieldProps,
   FieldTemplateProps,
   ObjectFieldTemplateProps,
+  RegistryFieldsType,
   RegistryWidgetsType,
   RJSFSchema,
   TemplatesType,
@@ -14,6 +16,7 @@ import type {
   WrapIfAdditionalTemplateProps,
 } from '@rjsf/utils';
 import { ADDITIONAL_PROPERTY_FLAG } from '@rjsf/utils';
+import { CodeDictField } from './rjsf-CodeDictField';
 import {
   Component,
   type ComponentType,
@@ -74,7 +77,6 @@ function humanizeTitle(title: string): string {
   return title.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
-
 // ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
@@ -109,7 +111,7 @@ function BaseInputTemplate(props: BaseInputTemplateProps) {
         list={listId}
         type={type === 'number' || type === 'integer' ? 'number' : 'text'}
         value={value ?? ''}
-        placeholder={placeholder || (schema as any)['x-placeholder']}
+        placeholder={placeholder || (schema as { 'x-placeholder'?: string })['x-placeholder']}
         disabled={disabled || readonly}
         autoFocus={autofocus}
         onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value)}
@@ -242,9 +244,7 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
           <p className="text-[10px] text-muted-foreground/60">{schema.description}</p>
         )}
         {properties.length === 0 && (
-          <p className="text-xs text-muted-foreground/50 py-3 text-center">
-            No entries yet
-          </p>
+          <p className="text-xs text-muted-foreground/50 py-3 text-center">No entries yet</p>
         )}
         {properties.map((p) => {
           const isExpanded = expandedKey === p.name;
@@ -575,14 +575,20 @@ const widgets: RegistryWidgetsType = {
   SpecSelectorWidget: SpecSelectorWidget as ComponentType<WidgetProps>,
 };
 
+const fields: RegistryFieldsType = {
+  CodeDictField: CodeDictField as ComponentType<FieldProps>,
+};
+
 // ---------------------------------------------------------------------------
 // Export: pre-themed Form component
 // ---------------------------------------------------------------------------
 
-export function ThemedForm<T = unknown>(props: Omit<FormProps<T>, 'templates' | 'widgets'>) {
+export function ThemedForm<T = unknown>(
+  props: Omit<FormProps<T>, 'templates' | 'widgets' | 'fields'>,
+) {
   return (
     <RJSFErrorBoundary name="ThemedForm">
-      <Form {...props} templates={templates} widgets={widgets} />
+      <Form {...props} templates={templates} widgets={widgets} fields={fields} />
     </RJSFErrorBoundary>
   );
 }
