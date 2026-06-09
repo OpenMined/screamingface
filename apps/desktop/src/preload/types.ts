@@ -202,6 +202,12 @@ export type OAuthLauncherResult =
       message?: string;
     };
 
+export interface PublishContext {
+  scoreboardUrl: string;
+  portalUrl: string;
+  client: { name: string; version: string; platform: string };
+}
+
 export interface ElectronAPI {
   popup: {
     open: (url: string, title?: string) => Promise<void>;
@@ -246,6 +252,10 @@ export interface ElectronAPI {
     read: () => Promise<Record<string, unknown>>;
     write: (config: Record<string, unknown>) => Promise<void>;
     onChanged: (callback: (config: Record<string, unknown>) => void) => () => void;
+  };
+  publish: {
+    getContext: () => Promise<PublishContext>;
+    openExternal: (url: string) => Promise<void>;
   };
   backends: {
     getStatus: () => Promise<BackendStatusResponse>;

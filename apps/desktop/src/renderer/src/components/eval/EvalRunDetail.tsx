@@ -1,9 +1,13 @@
 // apps/desktop/src/renderer/src/components/eval/EvalRunDetail.tsx
+import { useState } from 'react';
+import { Upload } from 'lucide-react';
 import { useServerStatus } from '@/hooks/use-server-status';
 import { useEvalRunDetail } from '@/hooks/use-eval-runs';
 import { Url4Viewer } from '@/components/Url4Viewer';
+import { Button } from '@/components/ui/button';
 import { EvalStatusBadge } from './EvalStatusBadge';
 import { EvalQuestionsTable } from './EvalQuestionsTable';
+import { PublishToLeaderboardDialog } from './PublishToLeaderboardDialog';
 
 function formatPercent(accuracy: number | null): string {
   if (accuracy === null) return '—';
@@ -19,6 +23,7 @@ function formatTime(iso: string | null): string {
 export function EvalRunDetail({ runId }: { runId: string }) {
   const { info } = useServerStatus();
   const { data, loading, error } = useEvalRunDetail(runId);
+  const [publishing, setPublishing] = useState(false);
 
   const serverUrl = info
     ? `${info.scheme}://${info.host === '0.0.0.0' ? 'localhost' : info.host}:${info.port}`
@@ -38,6 +43,16 @@ export function EvalRunDetail({ runId }: { runId: string }) {
         <div className="mb-2 flex items-center gap-3">
           <h2 className="text-base font-semibold">{data.spec_name}</h2>
           <EvalStatusBadge status={data.status} />
+          {data.status === 'done' && data.accuracy !== null && !!data.total_questions && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setPublishing(true)}
+            >
+              <Upload className="h-3.5 w-3.5" /> Publish to Leaderboard
+            </Button>
+          )}
         </div>
         <div className="mb-3 rounded bg-muted/30 px-3 py-2">
           <Url4Viewer expression={data.url4_expression} serverUrl={serverUrl} />
@@ -71,6 +86,13 @@ export function EvalRunDetail({ runId }: { runId: string }) {
       <div className="flex-1 overflow-auto">
         <EvalQuestionsTable questions={data.questions} />
       </div>
+      {publishing && (
+        <PublishToLeaderboardDialog
+          run={data}
+          serverUrl={serverUrl}
+          onClose={() => setPublishing(false)}
+        />
+      )}
     </div>
   );
 }
