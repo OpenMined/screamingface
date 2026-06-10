@@ -1,11 +1,13 @@
 // apps/desktop/src/renderer/src/components/eval/EvalRunDetail.tsx
 import { useState } from 'react';
-import { Upload, Play, Pencil } from 'lucide-react';
+import { Upload, Play, Pencil, Trash2 } from 'lucide-react';
 import { useServerStatus } from '@/hooks/use-server-status';
 import { useEvalRunDetail } from '@/hooks/use-eval-runs';
+import { useEvalRunActions } from '@/hooks/use-eval-run-actions';
 import { Url4Field } from '@/components/Url4Field';
 import { Url4Editor } from '@/components/Url4Editor';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EvalStatusBadge } from './EvalStatusBadge';
 import { EvalQuestionsTable } from './EvalQuestionsTable';
 import { PublishToLeaderboardDialog } from './PublishToLeaderboardDialog';
@@ -25,14 +27,19 @@ function formatTime(iso: string | null): string {
 export function EvalRunDetail({
   runId,
   onRunLocally,
+  onDeleted,
 }: {
   runId: string;
   onRunLocally?: (payload: RunPayload) => void;
+  onDeleted?: () => void;
 }) {
   const { info } = useServerStatus();
   const { data, loading, error } = useEvalRunDetail(runId);
+  const { deleteRun } = useEvalRunActions();
   const [publishing, setPublishing] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const serverUrl = info
     ? `${info.scheme}://${info.host === '0.0.0.0' ? 'localhost' : info.host}:${info.port}`
@@ -52,6 +59,14 @@ export function EvalRunDetail({
     setEditing(false);
   };
 
+  const confirmDelete = async (): Promise<void> => {
+    setDeleting(true);
+    const ok = await deleteRun(runId);
+    setDeleting(false);
+    setConfirmingDelete(false);
+    if (ok) onDeleted?.();
+  };
+
   return (
     <div className="flex h-full w-full min-w-0 flex-col">
       <div className="min-w-0 flex-1 overflow-y-auto">
@@ -59,16 +74,21 @@ export function EvalRunDetail({
           <div className="mb-2 flex items-center gap-3">
             <h2 className="text-base font-semibold">{data.spec_name}</h2>
             <EvalStatusBadge status={data.status} />
-            {data.status === 'done' && data.accuracy !== null && !!data.total_questions && (
+            <div className="ml-auto flex items-center gap-2">
+              {data.status === 'done' && data.accuracy !== null && !!data.total_questions && (
+                <Button variant="outline" size="sm" onClick={() => setPublishing(true)}>
+                  <Upload className="h-3.5 w-3.5" /> Publish to Leaderboard
+                </Button>
+              )}
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                className="ml-auto"
-                onClick={() => setPublishing(true)}
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => setConfirmingDelete(true)}
               >
-                <Upload className="h-3.5 w-3.5" /> Publish to Leaderboard
+                <Trash2 className="h-3.5 w-3.5" /> Delete
               </Button>
-            )}
+            </div>
           </div>
           {editing ? (
             <div className="mb-3">
@@ -136,6 +156,17 @@ export function EvalRunDetail({
           run={data}
           serverUrl={serverUrl}
           onClose={() => setPublishing(false)}
+        />
+      )}
+      {confirmingDelete && (
+        <ConfirmDialog
+          title="Delete this run?"
+          message={`"${data.spec_name}" and its question results will be permanently removed. This can't be undone.`}
+          confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+          destructive
+          busy={deleting}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => setConfirmingDelete(false)}
         />
       )}
     </div>

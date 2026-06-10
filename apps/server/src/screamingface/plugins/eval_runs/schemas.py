@@ -39,9 +39,16 @@ class EvalRunSummaryOut(BaseModel):
     total_questions: int | None = None
     correct_questions: int | None = None
     error: str | None = None
+    favorite: bool = False
 
 
 class EvalRunOut(EvalRunSummaryOut):
     """Detail view — includes questions."""
 
     questions: list[EvalQuestionOut] = []
+
+
+class EvalRunPatchIn(BaseModel):
+    """Mutable fields on an eval run (currently just favorite)."""
+
+    favorite: bool

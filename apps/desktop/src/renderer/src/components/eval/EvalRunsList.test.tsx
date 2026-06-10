@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import { it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { it, expect, vi, afterEach, beforeEach } from 'vitest';
 import type { EvalRunSummary } from './types';
 
 const rows: EvalRunSummary[] = [
@@ -15,13 +15,41 @@ const rows: EvalRunSummary[] = [
     total_questions: 10,
     correct_questions: 9,
     error: null,
+    favorite: false,
+  },
+  {
+    id: 'r2',
+    spec_name: 'GPQA',
+    url4_expression: 'x',
+    started_at: '2026-01-02T00:00:00Z',
+    finished_at: null,
+    status: 'running',
+    accuracy: null,
+    total_questions: null,
+    correct_questions: null,
+    error: null,
+    favorite: true,
   },
 ];
 
-vi.mock('@/hooks/use-eval-runs', () => ({
-  useEvalRunsList: () => ({ data: rows, loading: false, error: null }),
+const { refresh, toggleFavorite, deleteRun } = vi.hoisted(() => ({
+  refresh: vi.fn(),
+  toggleFavorite: vi.fn().mockResolvedValue(true),
+  deleteRun: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock('@/hooks/use-eval-runs', () => ({
+  useEvalRunsList: () => ({ data: rows, loading: false, error: null, refresh }),
+}));
+vi.mock('@/hooks/use-eval-run-actions', () => ({
+  useEvalRunActions: () => ({ toggleFavorite, deleteRun }),
+}));
+
+beforeEach(() => {
+  refresh.mockClear();
+  toggleFavorite.mockClear();
+  deleteRun.mockClear();
+});
 afterEach(cleanup);
 
 import { EvalRunsList } from './EvalRunsList';
@@ -29,7 +57,7 @@ import { EvalRunsList } from './EvalRunsList';
 it('calls onRunLocally with the row spec + expression', () => {
   const onRunLocally = vi.fn();
   render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={onRunLocally} />);
-  fireEvent.click(screen.getByRole('button', { name: /run locally/i }));
+  fireEvent.click(screen.getAllByRole('button', { name: /run locally/i })[0]);
   expect(onRunLocally).toHaveBeenCalledWith({ spec: 'HLE', expression: 'transform(url, intent)' });
 });
 
@@ -46,4 +74,47 @@ it('selects the run when the row is clicked', () => {
   render(<EvalRunsList selectedId={null} onSelect={onSelect} onRunLocally={vi.fn()} />);
   fireEvent.click(screen.getByText('HLE'));
   expect(onSelect).toHaveBeenCalledWith('r1');
+});
+
+it('reflects favorite state via the star control', () => {
+  render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={vi.fn()} />);
+  // r1 is not favorited (label "Favorite"), r2 is (label "Unfavorite").
+  expect(screen.getByRole('button', { name: 'Favorite' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Unfavorite' })).toBeTruthy();
+});
+
+it('toggles favorite on the un-favorited row', async () => {
+  render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Favorite' }));
+  await waitFor(() => expect(toggleFavorite).toHaveBeenCalledWith('r1', true));
+  expect(refresh).toHaveBeenCalled();
+});
+
+it('deletes a run only after the confirm dialog is accepted', async () => {
+  const onRunDeleted = vi.fn();
+  render(
+    <EvalRunsList
+      selectedId="r1"
+      onSelect={vi.fn()}
+      onRunLocally={vi.fn()}
+      onRunDeleted={onRunDeleted}
+    />,
+  );
+  // Clicking the row trash opens a confirm; nothing is deleted yet.
+  fireEvent.click(screen.getAllByRole('button', { name: /delete run/i })[0]);
+  expect(deleteRun).not.toHaveBeenCalled();
+  expect(screen.getByText(/delete this run/i)).toBeTruthy();
+
+  // Confirm.
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  await waitFor(() => expect(deleteRun).toHaveBeenCalledWith('r1'));
+  expect(onRunDeleted).toHaveBeenCalledWith('r1');
+});
+
+it('cancels deletion without calling deleteRun', () => {
+  render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={vi.fn()} />);
+  fireEvent.click(screen.getAllByRole('button', { name: /delete run/i })[0]);
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(deleteRun).not.toHaveBeenCalled();
+  expect(screen.queryByText(/delete this run/i)).toBeNull();
 });

@@ -38,6 +38,7 @@ function makeRun(overrides: Partial<EvalRunDetail> = {}): EvalRunDetail {
     total_questions: 1000,
     correct_questions: 810,
     error: null,
+    favorite: false,
     questions: [],
     ...overrides,
   };
