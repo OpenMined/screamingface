@@ -7,6 +7,7 @@ import { useState, type ReactNode } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import { X, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/CopyButton';
 // Side-effect: configure monaco to run bundled (no CDN) before it mounts.
 import '@/lib/monaco-setup';
 
@@ -53,9 +54,12 @@ export default function CodeEditorPopup({
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
           <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <CopyButton value={draft} />
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1">
           <Editor
