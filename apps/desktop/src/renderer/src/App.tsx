@@ -5,6 +5,7 @@ import { DashboardView } from '@/views/DashboardView';
 import { SessionsView } from '@/views/SessionsView';
 import { EvalStudioView } from '@/views/EvalStudioView';
 import { Url4StudioView } from '@/views/Url4StudioView';
+import { CodeStudioView } from '@/views/CodeStudioView';
 import { SettingsView } from '@/views/SettingsView';
 import { PluginHost } from '@/components/plugins/PluginHost';
 import { useServerStatus } from '@/hooks/use-server-status';
@@ -78,6 +79,7 @@ export function App() {
       );
     }
     if (currentView === 'url4-studio') return <Url4StudioView />;
+    if (currentView === 'code-studio') return <CodeStudioView />;
     if (currentView === 'settings') return <SettingsView />;
 
     if (currentView.startsWith('plugin:')) {
