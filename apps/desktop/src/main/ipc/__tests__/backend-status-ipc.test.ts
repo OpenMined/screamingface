@@ -214,5 +214,42 @@ describe('backend status IPC', () => {
       expect(result).toEqual({ ok: false, status: 400, message: 'invalid backend name' });
       expect(fetchMock).not.toHaveBeenCalled();
     });
+
+    it('reports a missing SF server without touching the network', async () => {
+      mocks.backendStatusService.getServerUrl.mockReturnValue(null);
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', 'work', 'sk-ant-api03-xyz-1234');
+
+      expect(result).toEqual({ ok: false, status: 0, message: 'SF server is not running' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('maps a network failure to gateway unreachable', async () => {
+      const fetchMock = vi.fn(async () => {
+        throw new Error('ECONNREFUSED');
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', 'work', 'sk-ant-api03-xyz-1234');
+
+      expect(result).toEqual({ ok: false, status: 0, message: 'gateway unreachable' });
+    });
+
+    it('falls back to status-only when the error body is not JSON', async () => {
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new Error('not json');
+        },
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', 'work', 'sk-ant-api03-xyz-1234');
+
+      expect(result).toEqual({ ok: false, status: 500, message: undefined });
+    });
   });
 });

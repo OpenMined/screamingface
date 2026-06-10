@@ -1,6 +1,6 @@
 """Auth-proxy router for aigw-*-backend plugins.
 
-Four routes per backend:
+Profile-auth routes per backend:
 
 - ``POST   {prefix}/auth/start`` — start an OAuth cycle; returns the
   upstream provider authorize URL.
@@ -25,6 +25,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol, cast
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, HTTPException, Response
@@ -242,38 +243,21 @@ def build_aigw_auth_proxy_router(
         The key passes through to the gateway, which owns all credential
         state; it is never logged or persisted on the SF server.
         """
-        path = f"/v1/auth/{gateway_provider}/profiles/{name}/api-key"
+        # FastAPI hands us the percent-decoded name; re-encode so names with
+        # reserved characters cannot mis-route the upstream PUT (SF-244 F22).
+        path = f"/v1/auth/{gateway_provider}/profiles/{quote(name, safe='')}/api-key"
         payload: dict[str, Any] = {"api_key": body.api_key}
         if body.defaults is not None:
             payload["defaults"] = body.defaults
-        try:
-            resp = await _gateway_request(
-                app,
-                factory,
-                timeout_seconds,
-                "PUT",
-                base,
-                path,
-                json=payload,
-            )
-        except httpx.RequestError as exc:
-            logger.warning("aigw auth-proxy: gateway unreachable at %s: %s", base, exc)
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "code": "gateway_unreachable",
-                    "message": f"AI Gateway unreachable at {base}: {exc}",
-                },
-            ) from exc
-
-        if resp.status_code >= 500:
-            logger.warning("aigw auth-proxy: gateway returned %d", resp.status_code)
-            raise HTTPException(
-                status_code=502,
-                detail={"code": "gateway_error", "upstream_status": resp.status_code},
-            )
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=resp.status_code, detail=_safe_json(resp))
+        resp = await _gateway_response(
+            app,
+            factory,
+            timeout_seconds,
+            "PUT",
+            base,
+            path,
+            json=payload,
+        )
         return JSONResponse(content=resp.json(), status_code=resp.status_code)
 
     @router.get(f"{path_prefix}/auth/connections")
@@ -352,9 +336,16 @@ def build_aigw_auth_proxy_router(
 
 def _safe_json(resp: httpx.Response) -> Any:
     try:
-        return resp.json()
+        body = resp.json()
     except ValueError:
         return {"raw": resp.text[:500]}
+    if isinstance(body, dict) and "detail" in body:
+        # The gateway is FastAPI too: its error bodies arrive as
+        # {"detail": {...}}. Re-raising that verbatim would double-wrap
+        # ({"detail": {"detail": ...}}) and hide the code/message from the
+        # desktop's body.detail parsing (SF-244 audit F05).
+        return body["detail"]
+    return body
 
 
 def _callback_bridge(app: Any) -> Any:

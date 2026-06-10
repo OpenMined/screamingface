@@ -8,13 +8,37 @@ from __future__ import annotations
 
 import json
 
-from aigateway.core.profile_models import credential_name_for
+import httpx
+import pytest
+
+from aigateway.core.profile_index import ProfileIndexStore
+from aigateway.core.profile_models import (
+    Profile,
+    ProfileState,
+    credential_name_for,
+    profile_id_for,
+)
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.gemini_provider.auth import (
     credential_service_for as gemini_credential_service_for,
 )
 
 ANTHROPIC_KEY = "sk-ant-api03-test-key-1234"
+
+
+def _oauth_token_factory():
+    transport = httpx.MockTransport(
+        lambda _req: httpx.Response(
+            200,
+            json={
+                "access_token": "oauth-tok",
+                "refresh_token": "oauth-rt",
+                "expires_in": 3600,
+                "token_type": "Bearer",
+            },
+        )
+    )
+    return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
 
 
 def _account_id(client) -> str:
@@ -68,12 +92,27 @@ def test_set_api_key_replaces_existing_key(authenticated_client, credential_blob
     )
 
 
-def test_set_api_key_over_oauth_profile_flips_auth_type(
+@pytest.mark.asyncio
+async def test_set_api_key_over_oauth_profile_flips_auth_type(
     authenticated_client, credential_blobs
 ) -> None:
-    """A profile is exactly one auth at a time: setting a key replaces the
-    OAuth token blob in the shared credential slot and flips the discriminator."""
+    """A profile is exactly one auth at a time: setting a key on an EXISTING
+    authenticated OAuth profile replaces the token blob in the shared
+    credential slot and flips auth_type/account_label/scopes (audit F17/F24)."""
     account_id = _account_id(authenticated_client)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    await idx.upsert(
+        Profile(
+            id=profile_id_for(account_id, "anthropic", "default"),
+            account_id=account_id,
+            provider="anthropic",
+            name="default",
+            state=ProfileState.AUTHENTICATED,
+            auth_type="oauth",
+            account_label="user@example.com",
+            scopes=["org:create_api_key"],
+        )
+    )
     service = credential_service_for(credential_name_for(account_id, "default"))
     credential_blobs.write(
         service,
@@ -91,7 +130,10 @@ def test_set_api_key_over_oauth_profile_flips_auth_type(
     resp = _put_api_key(authenticated_client, "anthropic", "default", ANTHROPIC_KEY)
 
     assert resp.status_code == 200
-    assert resp.json()["auth_type"] == "api_key"
+    body = resp.json()
+    assert body["auth_type"] == "api_key"
+    assert body["account_label"] == "API key ····1234"
+    assert body["scopes"] == []  # OAuth scopes are meaningless for API keys
     assert json.loads(credential_blobs.read(service, "default")) == {
         "auth_type": "api_key",
         "api_key": ANTHROPIC_KEY,
@@ -177,6 +219,107 @@ def test_refresh_api_key_profile_is_noop(authenticated_client, credential_blobs)
     assert resp.json()["auth_type"] == "api_key"
     service = credential_service_for(credential_name_for(account_id, "keyed"))
     assert json.loads(credential_blobs.read(service, "default"))["api_key"] == ANTHROPIC_KEY
+
+
+def test_refresh_api_key_profile_with_missing_blob_marks_error(
+    authenticated_client, credential_blobs
+) -> None:
+    """Refresh must not report success when the key blob is gone: the
+    strategy re-validates the blob and the lifecycle flips ERROR (audit F09)."""
+    account_id = _account_id(authenticated_client)
+    assert (
+        _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY).status_code == 200
+    )
+    service = credential_service_for(credential_name_for(account_id, "keyed"))
+    credential_blobs.delete(service, "default")
+
+    resp = authenticated_client.post("/v1/auth/anthropic/profiles/keyed/refresh")
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["code"] == "auth_required"
+    status = authenticated_client.get("/v1/auth/anthropic/profiles/keyed/status")
+    assert status.json()["state"] == "error"
+
+
+def test_set_api_key_cancels_pending_oauth_flow(authenticated_client, credential_blobs) -> None:
+    """A late OAuth callback (pending TTL 600s) must not overwrite a key that
+    was stored after the flow began (audit F10)."""
+    account_id = _account_id(authenticated_client)
+    authenticated_client.app.state.anthropic_http_factory = _oauth_token_factory()
+    start = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "keyed"})
+    assert start.status_code == 201
+    state = start.json()["state"]
+
+    assert (
+        _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY).status_code == 200
+    )
+
+    auth_header = authenticated_client.headers.pop("Authorization")
+    try:
+        late = authenticated_client.get("/callback", params={"code": "late-code", "state": state})
+    finally:
+        authenticated_client.headers["Authorization"] = auth_header
+    assert late.status_code == 400  # pending state was consumed by the key PUT
+
+    service = credential_service_for(credential_name_for(account_id, "keyed"))
+    assert json.loads(credential_blobs.read(service, "default")) == {
+        "auth_type": "api_key",
+        "api_key": ANTHROPIC_KEY,
+    }
+    profile = authenticated_client.get("/v1/auth/anthropic/profiles/keyed").json()
+    assert profile["auth_type"] == "api_key"
+    assert profile["state"] == "authenticated"
+
+
+def test_oauth_completion_flips_auth_type_back_to_oauth(
+    authenticated_client, credential_blobs
+) -> None:
+    """Re-OAuth of a former api_key profile must flip the discriminator back
+    (audit F11), and starting the flow must NOT desync it beforehand (F08)."""
+    account_id = _account_id(authenticated_client)
+    assert (
+        _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY).status_code == 200
+    )
+    authenticated_client.app.state.anthropic_http_factory = _oauth_token_factory()
+
+    start = authenticated_client.post("/v1/auth/anthropic/profiles", json={"name": "keyed"})
+    assert start.status_code == 201
+    started = authenticated_client.get("/v1/auth/anthropic/profiles/keyed").json()
+    # Flow START keeps the api_key identity (only state goes pending) — F08.
+    assert started["auth_type"] == "api_key"
+    assert started["account_label"] == "API key ····1234"
+    assert started["state"] == "pending"
+
+    auth_header = authenticated_client.headers.pop("Authorization")
+    try:
+        cb = authenticated_client.get(
+            "/callback", params={"code": "auth-code", "state": start.json()["state"]}
+        )
+    finally:
+        authenticated_client.headers["Authorization"] = auth_header
+    assert cb.status_code == 200
+
+    profile = authenticated_client.get("/v1/auth/anthropic/profiles/keyed").json()
+    assert profile["auth_type"] == "oauth"
+    assert profile["state"] == "authenticated"
+    service = credential_service_for(credential_name_for(account_id, "keyed"))
+    assert json.loads(credential_blobs.read(service, "default"))["access_token"] == "oauth-tok"
+
+
+def test_patch_profile_preserves_api_key_auth_type(authenticated_client) -> None:
+    """PATCHing defaults must not reset the discriminator (audit F12)."""
+    assert (
+        _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY).status_code == 200
+    )
+
+    resp = authenticated_client.patch(
+        "/v1/auth/anthropic/profiles/keyed",
+        json={"defaults": {"max_tokens": 1024}},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["auth_type"] == "api_key"
+    assert resp.json()["defaults"]["max_tokens"] == 1024
 
 
 def test_legacy_profile_index_defaults_to_oauth_auth_type(

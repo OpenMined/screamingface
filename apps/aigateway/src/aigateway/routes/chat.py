@@ -192,9 +192,9 @@ def _strategy_for_credential_target(
     profile_name: str,
     profile: Profile | None,
     connection: OAuthConnection | None,
-) -> tuple[Any, str | None]:
-    """Resolve (strategy, credential_name) for the chat credential target,
-    branching on the target's auth_type discriminator."""
+) -> tuple[Any, str | None, AuthType]:
+    """Resolve (strategy, credential_name, auth_type) for the chat credential
+    target, branching on the target's auth_type discriminator."""
     auth_type: AuthType
     if connection is not None:
         credential_name = credential_key_for(account_id, connection.id)
@@ -203,7 +203,7 @@ def _strategy_for_credential_target(
         credential_name = credential_name_for(account_id, profile_name)
         auth_type = profile.auth_type
     else:
-        return None, None
+        return None, None, "oauth"
     strategy = credential_strategy_from(
         plugin,
         credential_name,
@@ -211,7 +211,79 @@ def _strategy_for_credential_target(
         credential_store=request.app.state.credential_store,
         http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
     )
-    return strategy, credential_name
+    return strategy, credential_name, auth_type
+
+
+def _reauth_url_for(provider: str, profile_name: str, auth_type: AuthType) -> str:
+    base = f"/v1/auth/{provider}/profiles/{profile_name}"
+    return f"{base}/api-key" if auth_type == "api_key" else base
+
+
+async def _mark_profile_error_fresh(
+    request: Request,
+    *,
+    account_id: str,
+    provider: str,
+    profile_name: str,
+) -> None:
+    """Re-fetch the profile before flipping state so a long-running dispatch
+    never clobbers concurrent index writes (e.g. a PUT api-key changing
+    auth_type/account_label mid-flight) with its stale snapshot."""
+    idx: ProfileIndexStore = request.app.state.profile_index
+    fresh = await idx.get(account_id, provider, profile_name)
+    if fresh is not None:
+        fresh.state = ProfileState.ERROR
+        await idx.upsert(fresh)
+
+
+async def _dispatch_failure_response(
+    request: Request,
+    exc: HTTPException,
+    *,
+    plugin: Any,
+    provider: str,
+    account_id: str,
+    profile_name: str,
+    profile: Profile | None,
+    connection: OAuthConnection | None,
+    credential_name: str | None,
+    auth_type: AuthType,
+) -> HTTPException:
+    """Mark the credential target on auth-meaning dispatch failures.
+
+    Shared by the HTTPException path (custom handlers raise these) and the
+    LiteLLM-exception path (e.g. anthropic AuthenticationError), so a bad
+    stored credential flips the profile/connection to ERROR regardless of
+    which exception family the provider dispatch uses.
+    """
+    if not _should_mark_profile_error_on_dispatch_status(plugin, exc.status_code):
+        return exc
+    detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+    if connection is not None:
+        await _oauth_connection_store(request).mark_error(
+            connection,
+            str(detail.get("message", str(exc.detail))),
+        )
+        if credential_name is not None:
+            _invalidate_profile_session(plugin, credential_name)
+        return exc
+    if profile is None:
+        return exc
+    await _mark_profile_error_fresh(
+        request, account_id=account_id, provider=provider, profile_name=profile_name
+    )
+    if credential_name is not None:
+        _invalidate_profile_session(plugin, credential_name)
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={
+            "code": detail.get("code", "auth_required"),
+            "message": detail.get("message", str(exc.detail)),
+            "reauth_url": detail.get(
+                "reauth_url", _reauth_url_for(provider, profile_name, auth_type)
+            ),
+        },
+    )
 
 
 def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any) -> dict[str, Any]:
@@ -288,6 +360,11 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
     body = await request.json()
     if not isinstance(body, dict) or "model" not in body or "messages" not in body:
         raise HTTPException(status_code=400, detail="model and messages are required")
+    # The gateway owns upstream routing. A caller-supplied api_base would make
+    # LiteLLM send the injected credential (API key / OAuth token) to an
+    # arbitrary host — an exfiltration vector (SF-244 audit F03). Providers
+    # that need one (ollama) set their own in prepare_chat_body.
+    body.pop("api_base", None)
 
     profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
     model = body.get("model", "")
@@ -321,7 +398,7 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
             },
         )
 
-    strategy, credential_name = _strategy_for_credential_target(
+    strategy, credential_name, auth_type = _strategy_for_credential_target(
         request,
         plugin,
         provider,
@@ -330,6 +407,13 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
         profile=profile,
         connection=connection,
     )
+    if strategy is None and credential_name is not None and auth_type == "api_key":
+        # Never fall through to an unauthenticated dispatch when the target
+        # says api_key but the provider has no API-key strategy (SF-244 F15).
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "api_key_not_supported", "provider": provider},
+        )
     if strategy is not None:
         try:
             headers = await strategy.get_authorization_header()
@@ -338,7 +422,11 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
                 await _oauth_connection_store(request).mark_error(connection, str(exc))
             raise HTTPException(
                 status_code=401,
-                detail={"code": "auth_required", "message": str(exc)},
+                detail={
+                    "code": "auth_required",
+                    "message": str(exc),
+                    "reauth_url": _reauth_url_for(provider, profile_name, auth_type),
+                },
             )
         except AuthError as exc:
             if connection is not None:
@@ -346,8 +434,12 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
                 if credential_name is not None:
                     _invalidate_profile_session(plugin, credential_name)
             elif profile is not None:
-                profile.state = ProfileState.ERROR
-                await request.app.state.profile_index.upsert(profile)
+                await _mark_profile_error_fresh(
+                    request,
+                    account_id=account_id,
+                    provider=provider,
+                    profile_name=profile_name,
+                )
                 if credential_name is not None:
                     _invalidate_profile_session(plugin, credential_name)
             raise HTTPException(
@@ -355,7 +447,7 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
                 detail={
                     "code": "auth_required",
                     "message": str(exc),
-                    "reauth_url": f"/v1/auth/{provider}/profiles/{profile_name}",
+                    "reauth_url": _reauth_url_for(provider, profile_name, auth_type),
                 },
             )
         auth_value = headers.pop("Authorization", None)
@@ -376,34 +468,18 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
     try:
         response = await _dispatch_with_backpressure(request, plugin, provider, body)
     except HTTPException as exc:
-        if connection is not None and _should_mark_profile_error_on_dispatch_status(
-            plugin, exc.status_code
-        ):
-            detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
-            await _oauth_connection_store(request).mark_error(
-                connection,
-                str(detail.get("message", str(exc.detail))),
-            )
-            if credential_name is not None:
-                _invalidate_profile_session(plugin, credential_name)
-            raise
-        if profile is not None and _should_mark_profile_error_on_dispatch_status(
-            plugin, exc.status_code
-        ):
-            profile.state = ProfileState.ERROR
-            await request.app.state.profile_index.upsert(profile)
-            if credential_name is not None:
-                _invalidate_profile_session(plugin, credential_name)
-            detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
-            detail = {
-                "code": detail.get("code", "auth_required"),
-                "message": detail.get("message", str(exc.detail)),
-                "reauth_url": detail.get(
-                    "reauth_url", f"/v1/auth/{provider}/profiles/{profile_name}"
-                ),
-            }
-            raise HTTPException(status_code=exc.status_code, detail=detail) from exc
-        raise
+        raise await _dispatch_failure_response(
+            request,
+            exc,
+            plugin=plugin,
+            provider=provider,
+            account_id=account_id,
+            profile_name=profile_name,
+            profile=profile,
+            connection=connection,
+            credential_name=credential_name,
+            auth_type=auth_type,
+        )
     except (
         RateLimitError,
         UnsupportedParamsError,
@@ -414,7 +490,18 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
         ServiceUnavailableError,
         Timeout,
     ) as exc:
-        raise _litellm_http_exception(exc) from exc
+        raise await _dispatch_failure_response(
+            request,
+            _litellm_http_exception(exc),
+            plugin=plugin,
+            provider=provider,
+            account_id=account_id,
+            profile_name=profile_name,
+            profile=profile,
+            connection=connection,
+            credential_name=credential_name,
+            auth_type=auth_type,
+        ) from exc
     dumpable = cast(Any, response)
     return dumpable.model_dump() if hasattr(dumpable, "model_dump") else response
 

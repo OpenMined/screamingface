@@ -248,9 +248,18 @@ function ProfileRow({
             type="password"
             value={keyInput}
             autoComplete="off"
+            disabled={busy}
             onChange={(e) => {
               setKeyInput(e.target.value);
               setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setReplacingKey(false);
+                setKeyInput('');
+                setError(null);
+              }
             }}
             placeholder="paste new API key"
             aria-label="New API key"
@@ -272,6 +281,7 @@ function ProfileRow({
 
 function ProfilesSubPanel({ name }: { name: string }) {
   const [profiles, setProfiles] = useState<BackendProfile[]>([]);
+  const [listError, setListError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
@@ -287,6 +297,10 @@ function ProfilesSubPanel({ name }: { name: string }) {
   const refresh = useCallback(async () => {
     const result = await window.electronAPI.backends.listProfiles(name);
     setProfiles(result.profiles ?? []);
+    // Keep the error discriminator: rendering "No profiles yet." for a
+    // transient fetch failure right after a key save reads as data loss
+    // (SF-244 audit F20).
+    setListError(result.error ?? null);
     setLoaded(true);
   }, [name]);
 
@@ -444,7 +458,12 @@ function ProfilesSubPanel({ name }: { name: string }) {
 
   return (
     <div className="ml-6 mt-1 mb-2 border-t border-border pt-2">
-      {loaded && profiles.length === 0 && (
+      {loaded && listError && (
+        <p className="text-xs text-destructive py-1">
+          Couldn&apos;t load profiles — gateway unreachable.
+        </p>
+      )}
+      {loaded && !listError && profiles.length === 0 && (
         <p className="text-xs text-muted-foreground py-1">No profiles yet.</p>
       )}
       {profiles.map((p) => (
@@ -462,12 +481,13 @@ function ProfilesSubPanel({ name }: { name: string }) {
         <form onSubmit={onAdd} className="flex items-center gap-2 py-1.5 flex-wrap">
           <select
             value={newAuthType}
+            disabled={submitting}
             onChange={(e) => {
               setNewAuthType(e.target.value as 'oauth' | 'api_key');
               setAddError(null);
             }}
             aria-label="Authentication type"
-            className="rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+            className="rounded border border-border bg-background px-1.5 py-0.5 text-xs disabled:opacity-60"
           >
             <option value="oauth">OAuth</option>
             <option value="api_key">API key</option>
@@ -476,6 +496,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
             autoFocus
             type="text"
             value={newName}
+            disabled={submitting}
             onChange={(e) => {
               setNewName(e.target.value);
               setAddError(null);
@@ -487,13 +508,14 @@ function ProfilesSubPanel({ name }: { name: string }) {
               }
             }}
             placeholder="profile name (e.g. work)"
-            className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs"
+            className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs disabled:opacity-60"
           />
           {newAuthType === 'api_key' && (
             <input
               type="password"
               value={newApiKey}
               autoComplete="off"
+              disabled={submitting}
               onChange={(e) => {
                 setNewApiKey(e.target.value);
                 setAddError(null);
@@ -506,7 +528,7 @@ function ProfilesSubPanel({ name }: { name: string }) {
               }}
               placeholder="paste API key"
               aria-label="API key"
-              className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono"
+              className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono disabled:opacity-60"
             />
           )}
           <button
@@ -519,7 +541,8 @@ function ProfilesSubPanel({ name }: { name: string }) {
           <button
             type="button"
             onClick={onCancel}
-            className="text-xs text-muted-foreground hover:text-foreground"
+            disabled={submitting}
+            className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
           >
             Cancel
           </button>

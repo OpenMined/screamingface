@@ -66,8 +66,10 @@ class ApiKeyStrategy(CredentialStrategy):
         await self._store.delete(self._service, self._account)
 
     async def refresh_credentials(self) -> None:
-        """No-op: raw API keys cannot be refreshed, only replaced."""
-        return None
+        """Raw API keys cannot be refreshed, only replaced — but a refresh
+        must not report success for a profile whose blob is gone or corrupt
+        (SF-244 audit F09), so re-validate that a well-formed key exists."""
+        await self._read_api_key()
 
     async def _read_api_key(self) -> str:
         raw = await self._store.read(self._service, self._account)

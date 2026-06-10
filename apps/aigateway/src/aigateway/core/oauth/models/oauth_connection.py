@@ -18,7 +18,10 @@ class BaseOAuthConnection(Model):
     provider = fields.CharField(max_length=64, index=True)
     label = fields.CharField(max_length=255)
     status = fields.CharField(max_length=32, index=True)
-    auth_type = fields.CharField(max_length=16, default="oauth")
+    # db_default is required alongside default: tortoise emits a SQL DEFAULT
+    # clause only for db_default, and the ADD COLUMN is NOT NULL — without it
+    # the migration fails on any database with existing rows (SF-244 audit F01).
+    auth_type = fields.CharField(max_length=16, default="oauth", db_default="oauth")
     identity_sub = fields.CharField(max_length=255, null=True)
     identity_email = fields.CharField(max_length=320, null=True)
     identity_name = fields.CharField(max_length=255, null=True)

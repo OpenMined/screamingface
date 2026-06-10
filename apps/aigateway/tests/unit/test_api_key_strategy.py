@@ -102,7 +102,7 @@ async def test_persist_rejects_empty_api_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_refresh_is_a_noop() -> None:
+async def test_refresh_validates_but_never_mutates() -> None:
     strategy, store = _strategy()
     await strategy.persist_credentials({"api_key": "raw-key-123"})
     before = dict(store.data)
@@ -111,6 +111,23 @@ async def test_refresh_is_a_noop() -> None:
 
     assert store.data == before
     assert await strategy.get_authorization_header() == {"x-test-api-key": "raw-key-123"}
+
+
+@pytest.mark.asyncio
+async def test_refresh_with_missing_blob_raises_credential_not_found() -> None:
+    """Refresh must not report success for a profile whose key blob is gone
+    (audit F09) — the route lifecycle relies on this to flip ERROR."""
+    strategy, _ = _strategy()
+    with pytest.raises(CredentialNotFoundError):
+        await strategy.refresh_credentials()
+
+
+@pytest.mark.asyncio
+async def test_refresh_with_oauth_shaped_blob_raises_auth_error() -> None:
+    strategy, store = _strategy()
+    store.data[("aigateway:testprov:acct:default", "default")] = json.dumps({"access_token": "tok"})
+    with pytest.raises(AuthError):
+        await strategy.refresh_credentials()
 
 
 @pytest.mark.asyncio

@@ -532,15 +532,23 @@ async def start_oauth(
         params.update(cfg.extra_authorize_params)
     authorize_url = f"{cfg.authorize_url}?{urlencode(params)}"
 
-    profile = Profile(
-        id=profile_id,
-        account_id=account_id,
-        provider=provider,
-        name=body.name,
-        scopes=cfg.scopes,
-        state=ProfileState.PENDING,
-        defaults=body.defaults or ProfileDefaults(),
-    )
+    # Update the existing profile in place instead of replacing it wholesale:
+    # an api_key profile keeps its auth_type/account_label/defaults until the
+    # OAuth flow actually COMPLETES (completion flips auth_type to "oauth" in
+    # _mark_profile_authenticated). A wholesale reset at flow start would
+    # desync the index from the still-stored API-key blob (SF-244 audit F08).
+    profile = await _index_store(request).get(account_id, provider, body.name)
+    if profile is None:
+        profile = Profile(
+            id=profile_id,
+            account_id=account_id,
+            provider=provider,
+            name=body.name,
+        )
+    profile.scopes = list(cfg.scopes)
+    profile.state = ProfileState.PENDING
+    if body.defaults is not None:
+        profile.defaults = body.defaults
     await _index_store(request).upsert(profile)
 
     return {
@@ -1039,6 +1047,12 @@ async def set_profile_api_key(
             detail={"code": "api_key_not_supported", "provider": provider},
         )
 
+    # Cancel any in-flight OAuth flow for this profile: a late callback
+    # (pending TTL is 600s) would otherwise silently overwrite the key we are
+    # about to store (SF-244 audit F10). Mirrors start_oauth's stale cleanup.
+    for stale_state in _pending(request).pop_for_profile(account_id, provider, name):
+        await _close_loopback_callback(request.app, stale_state)
+
     idx = _index_store(request)
     profile = await idx.get(account_id, provider, name)
     if profile is None:
@@ -1054,6 +1068,7 @@ async def set_profile_api_key(
     profile.state = ProfileState.AUTHENTICATED
     profile.last_refreshed_at = datetime.now(UTC)
     profile.account_label = f"API key ····{api_key[-4:]}"
+    profile.scopes = []  # OAuth scopes are meaningless for API-key auth (F24)
 
     await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
     await idx.upsert(profile)

@@ -110,6 +110,59 @@ async def test_chat_completion_preserves_billing_header_through_litellm() -> Non
 
 
 @pytest.mark.asyncio
+async def test_api_key_request_carries_no_billing_header_and_uses_x_api_key() -> None:
+    """Raw API keys are billed directly: no Claude-Code attribution block may
+    be injected (audit F02), and LiteLLM must send the key as x-api-key, not
+    Authorization (audit F18 — the plan's pinned litellm-upgrade risk)."""
+    client = FakeClient()
+
+    response = await chat_completion(
+        {
+            "model": "anthropic/claude-sonnet-4-6",
+            "api_key": "sk-ant-api03-raw-key",
+            "messages": [
+                {"role": "system", "content": "You are concise."},
+                {"role": "user", "content": "Reply exactly: ready"},
+            ],
+            "max_tokens": 20,
+            "client": client,
+            "no-log": True,
+        }
+    )
+
+    sent = client.calls[-1]
+    headers = {str(k).lower(): v for k, v in (sent["headers"] or {}).items()}
+    assert headers["x-api-key"] == "sk-ant-api03-raw-key"
+    assert "authorization" not in headers
+    assert "oauth" not in str(headers.get("anthropic-beta", ""))
+    body_text = str(sent["json"])
+    assert "x-anthropic-billing-header" not in body_text
+    assert response.choices[0].message.content == "ready"
+
+
+@pytest.mark.asyncio
+async def test_oauth_request_uses_bearer_authorization_header() -> None:
+    """The sk-ant-oat prefix is what selects the OAuth treatment in LiteLLM —
+    pin it so an upgrade changing the routing fails loudly (audit F18)."""
+    client = FakeClient()
+
+    await chat_completion(
+        {
+            "model": "anthropic/claude-sonnet-4-6",
+            "api_key": "sk-ant-oat01-test",
+            "messages": [{"role": "user", "content": "Reply exactly: ready"}],
+            "max_tokens": 20,
+            "client": client,
+            "no-log": True,
+        }
+    )
+
+    headers = {str(k).lower(): v for k, v in (client.calls[-1]["headers"] or {}).items()}
+    assert headers.get("authorization") == "Bearer sk-ant-oat01-test"
+    assert "x-api-key" not in headers
+
+
+@pytest.mark.asyncio
 async def test_tools_remain_mapped_by_litellm() -> None:
     client = FakeClient()
 

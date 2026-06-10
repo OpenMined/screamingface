@@ -15,8 +15,25 @@ _FINGERPRINT_INDICES = (4, 7, 20)
 _BILLING_HEADER_PREFIX = "x-anthropic-billing-header:"
 
 
+def uses_claude_code_attribution(api_key: Any) -> bool:
+    """Claude-Code attribution (the billing-header system block) belongs only
+    on OAuth subscription traffic. Raw API keys are billed directly and must
+    not carry the spoofed block (SF-244 audit F02)."""
+    return isinstance(api_key, str) and api_key.startswith("sk-ant-oat")
+
+
+def _prepared_body(body: dict[str, Any]) -> dict[str, Any]:
+    if uses_claude_code_attribution(body.get("api_key")):
+        return prepare_claude_code_body(body)
+    return body
+
+
 async def chat_completion(body: dict[str, Any]) -> Any:
-    return await litellm.acompletion(**prepare_claude_code_body(body))
+    return await litellm.acompletion(**_prepared_body(body))
+
+
+async def chat_completion_stream(body: dict[str, Any]) -> Any:
+    return await litellm.acompletion(**_prepared_body(body))
 
 
 def prepare_claude_code_body(body: dict[str, Any]) -> dict[str, Any]:

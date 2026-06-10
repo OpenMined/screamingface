@@ -9,6 +9,6 @@ class Migration(migrations.Migration):
         ops.AddField(
             model_name="OAuthConnection",
             name="auth_type",
-            field=fields.CharField(default="oauth", max_length=16),
+            field=fields.CharField(default="oauth", db_default="oauth", max_length=16),
         ),
     ]

@@ -844,14 +844,48 @@ def test_set_api_key_forwards_defaults() -> None:
     }
 
 
-def test_set_api_key_gateway_400_passes_through() -> None:
+def test_set_api_key_gateway_400_passes_through_unwrapped() -> None:
+    """The gateway is FastAPI: its real error body is {"detail": {...}}. The
+    proxy must unwrap it so the SF response is single-wrapped and the desktop
+    can read body.detail.code (SF-244 audit F05)."""
+
     def handler(_req: httpx.Request) -> httpx.Response:
-        return httpx.Response(400, json={"code": "api_key_not_supported", "provider": "codex"})
+        return httpx.Response(
+            400,
+            json={"detail": {"code": "api_key_not_supported", "provider": "codex"}},
+        )
 
     client = _make_client(handler)
     resp = client.put("/claude/auth/profiles/work/api-key", json={"api_key": "sk-proj-123456"})
     assert resp.status_code == 400
-    assert resp.json()["detail"]["code"] == "api_key_not_supported"
+    assert resp.json()["detail"] == {"code": "api_key_not_supported", "provider": "codex"}
+
+
+def test_set_api_key_gateway_5xx_becomes_502_gateway_error() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom")
+
+    client = _make_client(handler)
+    resp = client.put("/claude/auth/profiles/work/api-key", json={"api_key": "sk-ant-12345678"})
+    assert resp.status_code == 502
+    assert resp.json()["detail"]["code"] == "gateway_error"
+    assert resp.json()["detail"]["upstream_status"] == 500
+
+
+def test_set_api_key_encodes_profile_name_into_upstream_path() -> None:
+    captured: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["raw_path"] = req.url.raw_path.decode()
+        return httpx.Response(200, json={"state": "authenticated", "auth_type": "api_key"})
+
+    client = _make_client(handler)
+    resp = client.put(
+        "/claude/auth/profiles/team%231/api-key",
+        json={"api_key": "sk-ant-12345678"},
+    )
+    assert resp.status_code == 200
+    assert captured["raw_path"] == "/v1/auth/anthropic/profiles/team%231/api-key"
 
 
 def test_set_api_key_gateway_unreachable_becomes_502() -> None:

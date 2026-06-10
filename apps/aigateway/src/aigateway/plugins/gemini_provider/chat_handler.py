@@ -13,7 +13,7 @@ import litellm
 from litellm.llms.custom_llm import CustomLLM, CustomLLMError
 from litellm.types.utils import ModelResponse
 
-from .auth import GEMINI_PROFILE_HEADER, GEMINI_USER_AGENT
+from .auth import CLIENT_AUTH_HEADER_NAMES, GEMINI_PROFILE_HEADER, GEMINI_USER_AGENT
 from .message_adapter import (
     PROVIDER,
     build_generate_content_body,
@@ -25,13 +25,7 @@ GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
 CODE_ASSIST_API_VERSION = "v1internal"
 _HANDLER: GeminiCustomLLM | None = None
-_CLIENT_AUTH_HEADER_NAMES = {
-    "authorization",
-    "content-type",
-    "x-aigw-gemini-profile",
-    "x-goog-api-key",
-    "x-goog-user-project",
-}
+_CLIENT_AUTH_HEADER_NAMES = CLIENT_AUTH_HEADER_NAMES
 
 
 @dataclass
@@ -45,13 +39,16 @@ def _env_api_key() -> str | None:
     return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 
-def _header_api_key(headers: dict[str, Any]) -> str | None:
+def _header_api_key(headers: Any) -> str | None:
     """Per-profile API key injected by the gateway's ApiKeyStrategy.
 
     Caller-supplied copies of this header are stripped by the plugin's
     prepare_chat_body before the gateway merges strategy headers, so a value
-    seen here is always gateway-owned.
+    seen here is always gateway-owned. Tolerates non-dict input: on the
+    chatless path the raw caller value reaches us unnormalized (SF-244 F06).
     """
+    if not isinstance(headers, dict):
+        return None
     for key, value in headers.items():
         if isinstance(key, str) and key.lower() == "x-goog-api-key" and value:
             return str(value)

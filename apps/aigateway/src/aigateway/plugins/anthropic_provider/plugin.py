@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
@@ -14,7 +15,7 @@ from aigateway.core.plugin_base import (
 
 from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
-from .chat_handler import chat_completion, prepare_claude_code_body
+from .chat_handler import chat_completion, chat_completion_stream
 from .settings import AnthropicPluginSettings
 
 if TYPE_CHECKING:
@@ -74,6 +75,12 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
             credential_store=credential_store,
         )
 
+    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+        # Stored keys/tokens get no validation at set time (plan D6); an
+        # upstream 401 after header injection means the credential is bad, so
+        # flip the target to ERROR like gemini does (SF-244 audit F14).
+        return status_code == 401
+
     def should_apply_profile_default(self, field: str) -> bool:
         # The legacy SF Claude backend ignored default_effort. Applying it as a
         # gateway profile default enables Anthropic thinking on every request and
@@ -81,13 +88,21 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         return field != "reasoning_effort"
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        # Claude-Code attribution moved to dispatch time (chat_handler):
+        # prepare runs before auth resolution, so the OAuth-vs-API-key
+        # decision the billing block depends on is not known yet (SF-244 F02).
         out = dict(body)
         if out.get("reasoning_effort") == "none":
             out.pop("reasoning_effort", None)
-        return prepare_claude_code_body(out)
+        return out
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:
         return await chat_completion(body)
+
+    async def chat_completion_stream(self, body: dict[str, Any]) -> AsyncIterator[Any]:
+        stream = await chat_completion_stream(body)
+        async for chunk in stream:
+            yield chunk
 
     async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict:
         return await exchange_authorization_code(

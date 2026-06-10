@@ -18,6 +18,7 @@ from aigateway.core.plugin_base import (
 )
 
 from .auth import (
+    CLIENT_AUTH_HEADER_NAMES,
     GeminiOAuth,
     account_label_from_credentials,
     credential_service_for,
@@ -39,12 +40,7 @@ if TYPE_CHECKING:
     from aigateway.core.credential_blob.store import CredentialBlobStore
 
 
-_CLIENT_AUTH_HEADER_NAMES = {
-    "authorization",
-    "x-aigw-gemini-profile",
-    "x-goog-api-key",
-    "x-goog-user-project",
-}
+_CLIENT_AUTH_HEADER_NAMES = CLIENT_AUTH_HEADER_NAMES
 
 
 def _retry_after_header(exc: CustomLLMError) -> dict[str, str]:
@@ -175,6 +171,10 @@ class GeminiProviderPlugin(ProviderPluginBase):
                 for key, value in extra_headers.items()
                 if isinstance(key, str) and key.lower() not in _CLIENT_AUTH_HEADER_NAMES
             }
+        elif "extra_headers" in out:
+            # A non-dict value would crash the handler downstream on the
+            # chatless path (SF-244 audit F06); drop it like ollama does.
+            out.pop("extra_headers", None)
         return out
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:
