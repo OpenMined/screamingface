@@ -16,6 +16,7 @@ export interface EvalRunSummary {
   total_questions: number | null;
   correct_questions: number | null;
   error: string | null;
+  favorite: boolean;
 }
 
 export interface EvalQuestion {

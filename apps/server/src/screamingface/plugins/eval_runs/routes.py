@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from screamingface.plugins.eval_runs.schemas import (
     EvalQuestionOut,
     EvalRunOut,
+    EvalRunPatchIn,
     EvalRunSummaryOut,
 )
 
@@ -46,5 +47,28 @@ def create_router() -> APIRouter:
             **summary,
             questions=[EvalQuestionOut.model_validate(q) for q in questions],
         )
+
+    @router.patch(
+        "/eval_runs/{run_id}",
+        response_model=EvalRunSummaryOut,
+        operation_id="eval_runs_patch",
+    )
+    async def patch_run(request: Request, run_id: UUID, body: EvalRunPatchIn) -> EvalRunSummaryOut:
+        store = request.app.state.eval_run_store
+        run = await store.set_favorite(run_id, body.favorite)
+        if run is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        return EvalRunSummaryOut.model_validate(run)
+
+    @router.delete(
+        "/eval_runs/{run_id}",
+        status_code=204,
+        operation_id="eval_runs_delete",
+    )
+    async def delete_run(request: Request, run_id: UUID) -> Response:
+        store = request.app.state.eval_run_store
+        if not await store.delete(run_id):
+            raise HTTPException(status_code=404, detail="run not found")
+        return Response(status_code=204)
 
     return router

@@ -130,3 +130,44 @@ async def test_status_transition(app_with_eval_runs: FastAPI) -> None:
     )
     assert updated.status == "done"
     assert updated.accuracy == 0.75
+
+
+async def test_set_favorite_toggles(app_with_eval_runs: FastAPI) -> None:
+    store = EvalRunStore()
+    run = await store.create(spec_name="x", url4_expression="x", started_at=datetime.now(UTC))
+    assert run.favorite is False
+
+    updated = await store.set_favorite(run.id, True)
+    assert updated is not None
+    assert updated.favorite is True
+    refetched = await store.get(run.id)
+    assert refetched is not None and refetched.favorite is True
+
+    cleared = await store.set_favorite(run.id, False)
+    assert cleared is not None
+    assert cleared.favorite is False
+
+
+async def test_set_favorite_missing_returns_none(app_with_eval_runs: FastAPI) -> None:
+    from uuid import uuid4
+
+    store = EvalRunStore()
+    assert await store.set_favorite(uuid4(), True) is None
+
+
+async def test_list_summaries_favorites_first(app_with_eval_runs: FastAPI) -> None:
+    store = EvalRunStore()
+    base = datetime(2026, 5, 13, 10, 0, 0, tzinfo=UTC)
+    runs = [
+        await store.create(
+            spec_name=f"spec-{i}",
+            url4_expression="x",
+            started_at=base.replace(hour=10 + i),
+        )
+        for i in range(3)
+    ]
+    # Favorite the oldest; it should lead, then the rest by recency.
+    await store.set_favorite(runs[0].id, True)
+
+    listed = await store.list_summaries(limit=10)
+    assert [r.spec_name for r in listed] == ["spec-0", "spec-2", "spec-1"]

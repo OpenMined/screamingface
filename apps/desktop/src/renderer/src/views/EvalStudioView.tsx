@@ -30,6 +30,11 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
     [startEvalRun],
   );
 
+  // Clear the right panel when the selected run is deleted.
+  const handleRunDeleted = useCallback((id: string): void => {
+    setSelectedRunId((current) => (current === id ? null : current));
+  }, []);
+
   // Consume a deep-linked pending run exactly once.
   const handledPendingRef = useRef<RunPayload | null>(null);
   useEffect(() => {
@@ -115,6 +120,7 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
             selectedId={selectedRunId}
             onSelect={setSelectedRunId}
             onRunLocally={runAndSelect}
+            onRunDeleted={handleRunDeleted}
           />
         </ResizablePanel>
 
@@ -133,7 +139,11 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
           className="flex overflow-hidden"
         >
           {selectedRunId ? (
-            <EvalRunDetail runId={selectedRunId} onRunLocally={runAndSelect} />
+            <EvalRunDetail
+              runId={selectedRunId}
+              onRunLocally={runAndSelect}
+              onDeleted={() => handleRunDeleted(selectedRunId)}
+            />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
               Select a run to see details

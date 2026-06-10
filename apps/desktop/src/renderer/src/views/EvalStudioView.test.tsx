@@ -3,7 +3,10 @@ import { render, screen, cleanup } from '@testing-library/react';
 import { it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('@/hooks/use-eval-runs', () => ({
-  useEvalRunsList: () => ({ data: [], loading: false, error: null }),
+  useEvalRunsList: () => ({ data: [], loading: false, error: null, refresh: vi.fn() }),
+}));
+vi.mock('@/hooks/use-eval-run-actions', () => ({
+  useEvalRunActions: () => ({ toggleFavorite: vi.fn(), deleteRun: vi.fn() }),
 }));
 vi.mock('@/hooks/use-start-eval-run', () => ({ useStartEvalRun: () => () => null }));
 vi.mock('@/components/eval/EvalRunDetail', () => ({ EvalRunDetail: () => null }));
