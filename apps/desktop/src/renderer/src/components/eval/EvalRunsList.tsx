@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { useEvalRunsList } from '@/hooks/use-eval-runs';
 import { useEvalRunActions } from '@/hooks/use-eval-run-actions';
 import { EvalStatusBadge } from './EvalStatusBadge';
+import { formatAccuracy, isUngradedDone } from './format';
 import type { EvalRunSummary } from './types';
 import type { RunPayload } from '@/components/run/types';
 
@@ -10,11 +11,6 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onRunLocally?: (payload: RunPayload) => void;
-}
-
-function formatPercent(accuracy: number | null): string {
-  if (accuracy === null) return '—';
-  return `${(accuracy * 100).toFixed(1)}%`;
 }
 
 function formatTime(iso: string): string {
@@ -65,7 +61,12 @@ export function EvalRunsList({ selectedId, onSelect, onRunLocally }: Props) {
               </div>
               {/* Right indicators on one line, vertically centered: pct, status, star, run. */}
               <div className="flex items-center gap-2 whitespace-nowrap">
-                <span className="text-sm tabular-nums">{formatPercent(run.accuracy)}</span>
+                <span
+                  className="text-sm tabular-nums"
+                  title={isUngradedDone(run) ? 'Not graded — 0 checked questions' : undefined}
+                >
+                  {formatAccuracy(run)}
+                </span>
                 <EvalStatusBadge status={run.status} />
                 <button
                   type="button"

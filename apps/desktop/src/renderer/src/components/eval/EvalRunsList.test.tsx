@@ -18,15 +18,17 @@ const rows: EvalRunSummary[] = [
     favorite: false,
   },
   {
+    // A finished run that graded nothing (inference-only spec) — must read
+    // "not graded", never "0.0%".
     id: 'r2',
     spec_name: 'GPQA',
     url4_expression: 'x',
     started_at: '2026-01-02T00:00:00Z',
-    finished_at: null,
-    status: 'running',
-    accuracy: null,
-    total_questions: null,
-    correct_questions: null,
+    finished_at: '2026-01-02T00:01:00Z',
+    status: 'done',
+    accuracy: 0,
+    total_questions: 0,
+    correct_questions: 0,
     error: null,
     favorite: true,
   },
@@ -63,8 +65,15 @@ it('renders compact rows (not a table) with spec name, date, status, accuracy', 
   render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={vi.fn()} />);
   expect(screen.queryByRole('table')).toBeNull();
   expect(screen.getByText('HLE')).toBeTruthy();
-  expect(screen.getByText(/done/i)).toBeTruthy();
+  expect(screen.getAllByText(/done/i).length).toBeGreaterThan(0);
   expect(screen.getByText('90.0%')).toBeTruthy();
+});
+
+it('shows "not graded" (—) instead of 0.0% for a finished run with 0 questions', () => {
+  render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={vi.fn()} />);
+  // r2 is done with 0/0 — it must not render a misleading 0.0%.
+  expect(screen.queryByText('0.0%')).toBeNull();
+  expect(screen.getByTitle(/not graded/i)).toBeTruthy();
 });
 
 it('selects the run when the row is clicked', () => {
