@@ -5,6 +5,7 @@ import {
   Puzzle,
   Terminal,
   Workflow,
+  FileCode2,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -17,6 +18,7 @@ export type View =
   | 'sessions'
   | 'eval-studio'
   | 'url4-studio'
+  | 'code-studio'
   | 'settings'
   | `plugin:${string}`;
 
@@ -31,6 +33,7 @@ const coreItems: NavItem[] = [
   { id: 'sessions', label: 'Sessions', icon: Terminal },
   { id: 'eval-studio', label: 'Eval Studio', icon: FlaskConical },
   { id: 'url4-studio', label: 'URL4 Studio', icon: Workflow },
+  { id: 'code-studio', label: 'Code Studio', icon: FileCode2 },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 

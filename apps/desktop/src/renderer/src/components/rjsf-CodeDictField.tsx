@@ -8,11 +8,9 @@ import { Suspense, lazy, useState } from 'react';
 import type { FieldProps } from '@rjsf/utils';
 import { FileCode, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { isValidScriptName, SCRIPT_NAME_HINT } from '@/lib/script-name';
 
 const CodeEditorPopup = lazy(() => import('@/components/CodeEditorPopup'));
-
-// Mirrors the python-runner backend rule (VALID_SCRIPT_NAME): a Python identifier.
-const VALID_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 function languageOf(uiSchema: FieldProps['uiSchema']): string {
   const opts = (uiSchema?.['ui:options'] ?? {}) as Record<string, unknown>;
@@ -32,10 +30,8 @@ export function CodeDictField(props: FieldProps) {
 
   const handleAdd = (): void => {
     const name = newName.trim();
-    if (!VALID_NAME.test(name)) {
-      setNameError(
-        'Use a Python identifier: start with a letter/underscore; letters, digits, underscores only.',
-      );
+    if (!isValidScriptName(name)) {
+      setNameError(SCRIPT_NAME_HINT);
       return;
     }
     if (name in data) {
