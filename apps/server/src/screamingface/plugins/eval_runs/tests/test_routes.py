@@ -117,6 +117,22 @@ async def test_patch_missing_returns_404(async_client: httpx.AsyncClient) -> Non
     assert r.json() == {"detail": "run not found"}
 
 
+async def test_patch_updates_url4_expression(async_client: httpx.AsyncClient) -> None:
+    store = EvalRunStore()
+    run = await store.create(
+        spec_name="x", url4_expression="/claude()!old", started_at=datetime.now(UTC), favorite=True
+    )
+
+    r = await async_client.patch(f"/eval_runs/{run.id}", json={"url4_expression": "/claude()!new"})
+    assert r.status_code == 200
+    assert r.json()["url4_expression"] == "/claude()!new"
+    # favorite is untouched when not included in the patch.
+    assert r.json()["favorite"] is True
+    assert (await async_client.get(f"/eval_runs/{run.id}")).json()[
+        "url4_expression"
+    ] == "/claude()!new"
+
+
 async def test_list_sorts_favorites_first(async_client: httpx.AsyncClient) -> None:
     store = EvalRunStore()
     base = datetime(2026, 5, 13, 10, 0, 0, tzinfo=UTC)

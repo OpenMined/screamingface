@@ -1,6 +1,6 @@
 // apps/desktop/src/renderer/src/components/eval/EvalRunDetail.tsx
 import { useState, lazy, Suspense } from 'react';
-import { Upload, Play, Pencil, Trash2 } from 'lucide-react';
+import { Upload, Play, Pencil, Trash2, Save } from 'lucide-react';
 import type { OnMount } from '@monaco-editor/react';
 import { useServerStatus } from '@/hooks/use-server-status';
 import { useEvalRunDetail } from '@/hooks/use-eval-runs';
@@ -45,8 +45,8 @@ export function EvalRunDetail({
   onDeleted?: () => void;
 }) {
   const { info } = useServerStatus();
-  const { data, loading, error } = useEvalRunDetail(runId);
-  const { deleteRun } = useEvalRunActions();
+  const { data, loading, error, refresh } = useEvalRunDetail(runId);
+  const { deleteRun, saveExpression } = useEvalRunActions();
   const [publishing, setPublishing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -68,6 +68,11 @@ export function EvalRunDetail({
   const triggerRun = (expression: string): void => {
     onRunLocally?.({ spec: data.spec_name, expression });
     setEditing(false);
+  };
+
+  // Persist an edited expression onto this run, then refetch so the panel updates.
+  const handleSaveExpression = async (expression: string): Promise<void> => {
+    if (await saveExpression(runId, expression)) await refresh();
   };
 
   const confirmDelete = async (): Promise<void> => {
@@ -168,9 +173,12 @@ export function EvalRunDetail({
             value={data.url4_expression}
             inset="10%"
             onEditorMount={mountUrl4Editor}
-            confirmLabel="Re-run"
-            confirmIcon={<Play className="h-4 w-4" />}
-            onSave={triggerRun}
+            confirmLabel="Save"
+            confirmIcon={<Save className="h-4 w-4" />}
+            onSave={(expr) => void handleSaveExpression(expr)}
+            secondaryLabel="Re-run"
+            secondaryIcon={<Play className="h-4 w-4" />}
+            onSecondary={triggerRun}
             onClose={() => setEditing(false)}
           />
         </Suspense>

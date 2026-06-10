@@ -22,6 +22,10 @@ interface Props {
   onEditorMount?: OnMount;
   confirmLabel?: string;
   confirmIcon?: ReactNode;
+  /** Optional second action (e.g. "Re-run"), shown left of the primary button. */
+  secondaryLabel?: string;
+  secondaryIcon?: ReactNode;
+  onSecondary?: (value: string) => void;
 }
 
 export default function CodeEditorPopup({
@@ -34,6 +38,9 @@ export default function CodeEditorPopup({
   onEditorMount,
   confirmLabel = 'Save',
   confirmIcon = <Save className="h-4 w-4" />,
+  secondaryLabel,
+  secondaryIcon,
+  onSecondary,
 }: Props) {
   const [draft, setDraft] = useState(value);
 
@@ -70,6 +77,17 @@ export default function CodeEditorPopup({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
+          {onSecondary && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                onSecondary(draft);
+                onClose();
+              }}
+            >
+              {secondaryIcon} {secondaryLabel}
+            </Button>
+          )}
           <Button
             onClick={() => {
               onSave(draft);

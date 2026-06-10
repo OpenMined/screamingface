@@ -62,5 +62,28 @@ export function useEvalRunActions() {
     [base, toast],
   );
 
-  return { toggleFavorite, deleteRun };
+  const saveExpression = useCallback(
+    async (id: string, url4Expression: string): Promise<boolean> => {
+      if (!base) return false;
+      try {
+        const res = await window.electronAPI.server.fetch(`${base}/eval_runs/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url4_expression: url4Expression }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.body}`);
+        return true;
+      } catch (e) {
+        toast({
+          variant: 'error',
+          title: 'Could not save expression',
+          description: (e as Error).message,
+        });
+        return false;
+      }
+    },
+    [base, toast],
+  );
+
+  return { toggleFavorite, deleteRun, saveExpression };
 }
