@@ -58,49 +58,45 @@ export function EvalRunsList({ selectedId, onSelect, onRunLocally }: Props) {
               active && 'bg-accent/60',
             )}
           >
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium text-foreground">{run.spec_name}</div>
                 <div className="text-xs text-muted-foreground">{formatTime(run.started_at)}</div>
               </div>
-              {/* Right indicators: top row = percent + status, bottom row = star + run. */}
-              <div className="flex flex-col items-end gap-1 whitespace-nowrap">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm tabular-nums">{formatPercent(run.accuracy)}</span>
-                  <EvalStatusBadge status={run.status} />
-                </div>
-                <div className="flex items-center gap-1">
+              {/* Right indicators on one line, vertically centered: pct, status, star, run. */}
+              <div className="flex items-center gap-2 whitespace-nowrap">
+                <span className="text-sm tabular-nums">{formatPercent(run.accuracy)}</span>
+                <EvalStatusBadge status={run.status} />
+                <button
+                  type="button"
+                  aria-label={run.favorite ? 'Unfavorite' : 'Favorite'}
+                  aria-pressed={run.favorite}
+                  title={run.favorite ? 'Unfavorite' : 'Favorite'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void onToggleFavorite(run);
+                  }}
+                  className={cn(
+                    'rounded p-1 transition-colors hover:bg-accent',
+                    run.favorite ? 'text-chart-5' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <Star className={cn('h-4 w-4', run.favorite && 'fill-current')} />
+                </button>
+                {onRunLocally && (
                   <button
                     type="button"
-                    aria-label={run.favorite ? 'Unfavorite' : 'Favorite'}
-                    aria-pressed={run.favorite}
-                    title={run.favorite ? 'Unfavorite' : 'Favorite'}
+                    aria-label="Run locally"
+                    title="Run locally"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void onToggleFavorite(run);
+                      onRunLocally({ spec: run.spec_name, expression: run.url4_expression });
                     }}
-                    className={cn(
-                      'rounded p-1 transition-colors hover:bg-accent',
-                      run.favorite ? 'text-chart-5' : 'text-muted-foreground hover:text-foreground',
-                    )}
+                    className="rounded p-1 text-primary transition-colors hover:bg-primary/10"
                   >
-                    <Star className={cn('h-4 w-4', run.favorite && 'fill-current')} />
+                    <Play className="h-4 w-4" />
                   </button>
-                  {onRunLocally && (
-                    <button
-                      type="button"
-                      aria-label="Run locally"
-                      title="Run locally"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onRunLocally({ spec: run.spec_name, expression: run.url4_expression });
-                      }}
-                      className="rounded p-1 text-primary transition-colors hover:bg-primary/10"
-                    >
-                      <Play className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
+                )}
               </div>
             </div>
           </div>
