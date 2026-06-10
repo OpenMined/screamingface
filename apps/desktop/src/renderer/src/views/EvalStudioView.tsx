@@ -120,7 +120,6 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
             selectedId={selectedRunId}
             onSelect={setSelectedRunId}
             onRunLocally={runAndSelect}
-            onRunDeleted={handleRunDeleted}
           />
         </ResizablePanel>
 

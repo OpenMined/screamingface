@@ -32,23 +32,21 @@ const rows: EvalRunSummary[] = [
   },
 ];
 
-const { refresh, toggleFavorite, deleteRun } = vi.hoisted(() => ({
+const { refresh, toggleFavorite } = vi.hoisted(() => ({
   refresh: vi.fn(),
   toggleFavorite: vi.fn().mockResolvedValue(true),
-  deleteRun: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('@/hooks/use-eval-runs', () => ({
   useEvalRunsList: () => ({ data: rows, loading: false, error: null, refresh }),
 }));
 vi.mock('@/hooks/use-eval-run-actions', () => ({
-  useEvalRunActions: () => ({ toggleFavorite, deleteRun }),
+  useEvalRunActions: () => ({ toggleFavorite }),
 }));
 
 beforeEach(() => {
   refresh.mockClear();
   toggleFavorite.mockClear();
-  deleteRun.mockClear();
 });
 afterEach(cleanup);
 
@@ -90,31 +88,7 @@ it('toggles favorite on the un-favorited row', async () => {
   expect(refresh).toHaveBeenCalled();
 });
 
-it('deletes a run only after the confirm dialog is accepted', async () => {
-  const onRunDeleted = vi.fn();
-  render(
-    <EvalRunsList
-      selectedId="r1"
-      onSelect={vi.fn()}
-      onRunLocally={vi.fn()}
-      onRunDeleted={onRunDeleted}
-    />,
-  );
-  // Clicking the row trash opens a confirm; nothing is deleted yet.
-  fireEvent.click(screen.getAllByRole('button', { name: /delete run/i })[0]);
-  expect(deleteRun).not.toHaveBeenCalled();
-  expect(screen.getByText(/delete this run/i)).toBeTruthy();
-
-  // Confirm.
-  fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-  await waitFor(() => expect(deleteRun).toHaveBeenCalledWith('r1'));
-  expect(onRunDeleted).toHaveBeenCalledWith('r1');
-});
-
-it('cancels deletion without calling deleteRun', () => {
+it('has no delete control in the list (delete lives in the detail panel)', () => {
   render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={vi.fn()} />);
-  fireEvent.click(screen.getAllByRole('button', { name: /delete run/i })[0]);
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(deleteRun).not.toHaveBeenCalled();
-  expect(screen.queryByText(/delete this run/i)).toBeNull();
+  expect(screen.queryByRole('button', { name: /delete run/i })).toBeNull();
 });

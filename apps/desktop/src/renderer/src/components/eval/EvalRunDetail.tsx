@@ -1,17 +1,28 @@
 // apps/desktop/src/renderer/src/components/eval/EvalRunDetail.tsx
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { Upload, Play, Pencil, Trash2 } from 'lucide-react';
+import type { OnMount } from '@monaco-editor/react';
 import { useServerStatus } from '@/hooks/use-server-status';
 import { useEvalRunDetail } from '@/hooks/use-eval-runs';
 import { useEvalRunActions } from '@/hooks/use-eval-run-actions';
+import { registerUrl4Language } from '@/lib/url4-language';
 import { Url4Field } from '@/components/Url4Field';
-import { Url4Editor } from '@/components/Url4Editor';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EvalStatusBadge } from './EvalStatusBadge';
 import { EvalQuestionsTable } from './EvalQuestionsTable';
 import { PublishToLeaderboardDialog } from './PublishToLeaderboardDialog';
 import type { RunPayload } from '@/components/run/types';
+
+// Lazy so the heavy monaco bundle only loads when the editor popup opens.
+const CodeEditorPopup = lazy(() => import('@/components/CodeEditorPopup'));
+
+// Register the url4 language on the popup's monaco instance and apply it to the model.
+const mountUrl4Editor: OnMount = (editor, monaco) => {
+  registerUrl4Language(monaco);
+  const model = editor.getModel();
+  if (model) monaco.editor.setModelLanguage(model, 'url4');
+};
 
 function formatPercent(accuracy: number | null): string {
   if (accuracy === null) return '—';
@@ -90,38 +101,18 @@ export function EvalRunDetail({
               </Button>
             </div>
           </div>
-          {editing ? (
-            <div className="mb-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">
-                  Edit URL4 expression
-                </span>
-                <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-                  Cancel
-                </Button>
-              </div>
-              <Url4Editor initial={data.url4_expression} serverUrl={serverUrl} onRun={triggerRun} />
+          <div className="mb-3 rounded border border-border bg-muted/30">
+            <Url4Field value={data.url4_expression} serverUrl={serverUrl} readOnly />
+          </div>
+          {onRunLocally && (
+            <div className="mb-3 flex items-center gap-2">
+              <Button size="lg" className="flex-1" onClick={() => triggerRun(data.url4_expression)}>
+                <Play className="h-4 w-4" /> Run Locally
+              </Button>
+              <Button variant="outline" size="lg" onClick={() => setEditing(true)}>
+                <Pencil className="h-4 w-4" /> Edit
+              </Button>
             </div>
-          ) : (
-            <>
-              <div className="mb-3 rounded border border-border bg-muted/30">
-                <Url4Field value={data.url4_expression} serverUrl={serverUrl} readOnly />
-              </div>
-              {onRunLocally && (
-                <div className="mb-3 flex items-center gap-2">
-                  <Button
-                    size="lg"
-                    className="flex-1"
-                    onClick={() => triggerRun(data.url4_expression)}
-                  >
-                    <Play className="h-4 w-4" /> Run Locally
-                  </Button>
-                  <Button variant="outline" size="lg" onClick={() => setEditing(true)}>
-                    <Pencil className="h-4 w-4" /> Edit
-                  </Button>
-                </div>
-              )}
-            </>
           )}
           <dl className="grid grid-cols-4 gap-3 text-xs">
             <div>
@@ -168,6 +159,21 @@ export function EvalRunDetail({
           onConfirm={() => void confirmDelete()}
           onCancel={() => setConfirmingDelete(false)}
         />
+      )}
+      {editing && (
+        <Suspense fallback={null}>
+          <CodeEditorPopup
+            title="Edit URL4 expression"
+            language="url4"
+            value={data.url4_expression}
+            inset="10%"
+            onEditorMount={mountUrl4Editor}
+            confirmLabel="Re-run"
+            confirmIcon={<Play className="h-4 w-4" />}
+            onSave={triggerRun}
+            onClose={() => setEditing(false)}
+          />
+        </Suspense>
       )}
     </div>
   );
