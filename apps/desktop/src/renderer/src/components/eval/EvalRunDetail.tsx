@@ -6,6 +6,7 @@ import { useServerStatus } from '@/hooks/use-server-status';
 import { useEvalRunDetail } from '@/hooks/use-eval-runs';
 import { useEvalRunActions } from '@/hooks/use-eval-run-actions';
 import { registerUrl4Language } from '@/lib/url4-language';
+import { formatUrl4 } from '@/lib/url4-format';
 import { Url4Field } from '@/components/Url4Field';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -181,6 +182,7 @@ export function EvalRunDetail({
             confirmLabel="Save"
             confirmIcon={<Save className="h-4 w-4" />}
             onSave={(expr) => void handleSaveExpression(expr)}
+            onFormat={(expr) => formatUrl4(serverUrl, expr)}
             secondaryLabel="Re-run"
             secondaryIcon={<Play className="h-4 w-4" />}
             onSecondary={triggerRun}

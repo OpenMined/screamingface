@@ -5,7 +5,7 @@
 // monaco bundle out of the settings form until the user opens an editor.
 import { useState, type ReactNode } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
-import { X, Save } from 'lucide-react';
+import { X, Save, AlignLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/CopyButton';
 // Side-effect: configure monaco to run bundled (no CDN) before it mounts.
@@ -27,6 +27,8 @@ interface Props {
   secondaryLabel?: string;
   secondaryIcon?: ReactNode;
   onSecondary?: (value: string) => void;
+  /** Optional pretty-formatter; when provided, a "Format" button appears. */
+  onFormat?: (value: string) => Promise<string | null>;
 }
 
 export default function CodeEditorPopup({
@@ -42,8 +44,18 @@ export default function CodeEditorPopup({
   secondaryLabel,
   secondaryIcon,
   onSecondary,
+  onFormat,
 }: Props) {
   const [draft, setDraft] = useState(value);
+  const [formatting, setFormatting] = useState(false);
+
+  const handleFormat = async (): Promise<void> => {
+    if (!onFormat) return;
+    setFormatting(true);
+    const next = await onFormat(draft);
+    setFormatting(false);
+    if (next !== null && next !== undefined) setDraft(next);
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50">
@@ -73,33 +85,48 @@ export default function CodeEditorPopup({
               fontSize: 13,
               scrollBeyondLastLine: false,
               automaticLayout: true,
-              tabSize: 4,
+              tabSize: language === 'url4' ? 2 : 4,
+              insertSpaces: true,
             }}
           />
         </div>
-        <div className="flex justify-end gap-2 border-t border-border px-4 py-2">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          {onSecondary && (
+        <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2">
+          <div>
+            {onFormat && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={formatting}
+                onClick={() => void handleFormat()}
+              >
+                <AlignLeft className="h-4 w-4" /> {formatting ? 'Formatting…' : 'Format'}
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            {onSecondary && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  onSecondary(draft);
+                  onClose();
+                }}
+              >
+                {secondaryIcon} {secondaryLabel}
+              </Button>
+            )}
             <Button
-              variant="outline"
               onClick={() => {
-                onSecondary(draft);
+                onSave(draft);
                 onClose();
               }}
             >
-              {secondaryIcon} {secondaryLabel}
+              {confirmIcon} {confirmLabel}
             </Button>
-          )}
-          <Button
-            onClick={() => {
-              onSave(draft);
-              onClose();
-            }}
-          >
-            {confirmIcon} {confirmLabel}
-          </Button>
+          </div>
         </div>
       </div>
     </div>

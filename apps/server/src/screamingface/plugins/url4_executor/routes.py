@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import BaseModel
 
 from screamingface.plugins.eval_runs._hook_payloads import (
     HOOK_RUN_FAILED,
@@ -16,6 +17,7 @@ from screamingface.plugins.eval_runs._hook_payloads import (
 )
 from screamingface.plugins.url4_executor.decoder import split_intent
 from screamingface.plugins.url4_executor.ensemble import EnsembleInterpreter
+from screamingface.plugins.url4_executor.formatter import format_url4_safe
 from screamingface.plugins.url4_executor.highlight import tokenize
 from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4 import (
@@ -63,8 +65,22 @@ def _ast_to_dict(node) -> dict | str:
     return {"type": "text", "value": node.value}
 
 
+class Url4FormatIn(BaseModel):
+    q: str
+
+
 def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
     router = APIRouter(tags=["url4-executor"])
+
+    @router.post(
+        "/ensemble/format",
+        response_model=None,
+        operation_id="url4_format",
+    )
+    async def url4_format(body: Url4FormatIn) -> JSONResponse:
+        # POST (not GET) so large expressions aren't capped by URL length.
+        formatted, error = format_url4_safe(body.q)
+        return JSONResponse(content={"formatted": formatted, "error": error})
 
     @router.get(
         "/ensemble/highlight",
