@@ -9,6 +9,7 @@ import { Pencil, Trash2, Save, Check, X } from 'lucide-react';
 import type { OnMount } from '@monaco-editor/react';
 import { useServerStatus } from '@/hooks/use-server-status';
 import { registerUrl4Language } from '@/lib/url4-language';
+import { formatUrl4 } from '@/lib/url4-format';
 import { Url4Field } from '@/components/Url4Field';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -148,6 +149,7 @@ export function Url4SpecDetail({ spec, onRename, onDelete, onSaveExpression }: P
             confirmLabel="Save"
             confirmIcon={<Save className="h-4 w-4" />}
             onSave={(expr) => onSaveExpression(spec.name, expr)}
+            onFormat={(expr) => formatUrl4(serverUrl, expr)}
             onClose={() => setEditingExpr(false)}
           />
         </Suspense>
