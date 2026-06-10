@@ -114,5 +114,5 @@ export function useEvalRunDetail(runId: string | null) {
     };
   }, [runId, base, fetchOnce]);
 
-  return { data, loading, error };
+  return { data, loading, error, refresh: fetchOnce };
 }

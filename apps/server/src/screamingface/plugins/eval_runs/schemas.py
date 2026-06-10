@@ -49,6 +49,7 @@ class EvalRunOut(EvalRunSummaryOut):
 
 
 class EvalRunPatchIn(BaseModel):
-    """Mutable fields on an eval run (currently just favorite)."""
+    """Mutable fields on an eval run. Only the fields provided are updated."""
 
-    favorite: bool
+    favorite: bool | None = None
+    url4_expression: str | None = None

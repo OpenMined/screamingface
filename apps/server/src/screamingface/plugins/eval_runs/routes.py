@@ -55,7 +55,8 @@ def create_router() -> APIRouter:
     )
     async def patch_run(request: Request, run_id: UUID, body: EvalRunPatchIn) -> EvalRunSummaryOut:
         store = request.app.state.eval_run_store
-        run = await store.set_favorite(run_id, body.favorite)
+        fields = body.model_dump(exclude_unset=True)
+        run = await store.patch(run_id, **fields) if fields else await store.get(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="run not found")
         return EvalRunSummaryOut.model_validate(run)
