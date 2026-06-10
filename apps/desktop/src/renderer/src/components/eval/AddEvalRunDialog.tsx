@@ -6,9 +6,10 @@
 // — we intentionally don't gate on /ensemble/highlight, which false-errors on
 // the ensemble fan-out shape that /ensemble runs fine (SF-249).
 import { useState } from 'react';
-import { X, Play } from 'lucide-react';
+import { X, Play, ListChecks } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Url4Field } from '@/components/Url4Field';
+import { Url4SpecPickerDialog } from './Url4SpecPickerDialog';
 import { useServerStatus } from '@/hooks/use-server-status';
 import type { RunPayload } from '@/components/run/types';
 
@@ -25,6 +26,7 @@ export function AddEvalRunDialog({ onClose, onCreate }: Props) {
 
   const [name, setName] = useState('');
   const [expression, setExpression] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const canCreate = name.trim().length > 0 && expression.trim().length > 0;
 
@@ -59,9 +61,18 @@ export function AddEvalRunDialog({ onClose, onCreate }: Props) {
           </label>
 
           <div>
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">
-              URL4 expression <span className="text-destructive">*</span>
-            </span>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">
+                URL4 expression <span className="text-destructive">*</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setPickerOpen(true)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <ListChecks className="h-3.5 w-3.5" /> Choose from saved specs
+              </button>
+            </div>
             <div className="rounded-md border border-border">
               <Url4Field value={expression} onChange={setExpression} serverUrl={serverUrl} />
             </div>
@@ -77,6 +88,17 @@ export function AddEvalRunDialog({ onClose, onCreate }: Props) {
           </Button>
         </div>
       </div>
+
+      {pickerOpen && (
+        <Url4SpecPickerDialog
+          onClose={() => setPickerOpen(false)}
+          onPick={(spec) => {
+            setName(spec.name);
+            setExpression(spec.expression);
+            setPickerOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
