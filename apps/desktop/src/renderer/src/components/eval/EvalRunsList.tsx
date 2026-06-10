@@ -1,9 +1,7 @@
-import { useState } from 'react';
-import { Play, Star, Trash2 } from 'lucide-react';
+import { Play, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useEvalRunsList } from '@/hooks/use-eval-runs';
 import { useEvalRunActions } from '@/hooks/use-eval-run-actions';
-import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EvalStatusBadge } from './EvalStatusBadge';
 import type { EvalRunSummary } from './types';
 import type { RunPayload } from '@/components/run/types';
@@ -12,8 +10,6 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onRunLocally?: (payload: RunPayload) => void;
-  /** Called after a run is deleted so the parent can clear its selection. */
-  onRunDeleted?: (id: string) => void;
 }
 
 function formatPercent(accuracy: number | null): string {
@@ -26,27 +22,12 @@ function formatTime(iso: string): string {
   return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
-export function EvalRunsList({ selectedId, onSelect, onRunLocally, onRunDeleted }: Props) {
+export function EvalRunsList({ selectedId, onSelect, onRunLocally }: Props) {
   const { data, loading, error, refresh } = useEvalRunsList();
-  const { toggleFavorite, deleteRun } = useEvalRunActions();
-  const [pendingDelete, setPendingDelete] = useState<EvalRunSummary | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const { toggleFavorite } = useEvalRunActions();
 
   const onToggleFavorite = async (run: EvalRunSummary): Promise<void> => {
     if (await toggleFavorite(run.id, !run.favorite)) await refresh(true);
-  };
-
-  const confirmDelete = async (): Promise<void> => {
-    if (!pendingDelete) return;
-    setDeleting(true);
-    const id = pendingDelete.id;
-    const ok = await deleteRun(id);
-    setDeleting(false);
-    setPendingDelete(null);
-    if (ok) {
-      onRunDeleted?.(id);
-      await refresh(true);
-    }
   };
 
   if (loading && data.length === 0) {
@@ -82,70 +63,49 @@ export function EvalRunsList({ selectedId, onSelect, onRunLocally, onRunDeleted 
                 <div className="truncate font-medium text-foreground">{run.spec_name}</div>
                 <div className="text-xs text-muted-foreground">{formatTime(run.started_at)}</div>
               </div>
-              <div className="flex items-center gap-1 whitespace-nowrap">
-                <EvalStatusBadge status={run.status} />
-                <div className="mr-1 text-right text-sm tabular-nums">
-                  {formatPercent(run.accuracy)}
+              {/* Right indicators: top row = percent + status, bottom row = star + run. */}
+              <div className="flex flex-col items-end gap-1 whitespace-nowrap">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm tabular-nums">{formatPercent(run.accuracy)}</span>
+                  <EvalStatusBadge status={run.status} />
                 </div>
-                <button
-                  type="button"
-                  aria-label={run.favorite ? 'Unfavorite' : 'Favorite'}
-                  aria-pressed={run.favorite}
-                  title={run.favorite ? 'Unfavorite' : 'Favorite'}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void onToggleFavorite(run);
-                  }}
-                  className={cn(
-                    'rounded p-1 transition-colors hover:bg-accent',
-                    run.favorite ? 'text-chart-5' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  <Star className={cn('h-4 w-4', run.favorite && 'fill-current')} />
-                </button>
-                {onRunLocally && (
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    aria-label="Run locally"
-                    title="Run locally"
+                    aria-label={run.favorite ? 'Unfavorite' : 'Favorite'}
+                    aria-pressed={run.favorite}
+                    title={run.favorite ? 'Unfavorite' : 'Favorite'}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onRunLocally({ spec: run.spec_name, expression: run.url4_expression });
+                      void onToggleFavorite(run);
                     }}
-                    className="rounded p-1 text-primary transition-colors hover:bg-primary/10"
+                    className={cn(
+                      'rounded p-1 transition-colors hover:bg-accent',
+                      run.favorite ? 'text-chart-5' : 'text-muted-foreground hover:text-foreground',
+                    )}
                   >
-                    <Play className="h-4 w-4" />
+                    <Star className={cn('h-4 w-4', run.favorite && 'fill-current')} />
                   </button>
-                )}
-                <button
-                  type="button"
-                  aria-label="Delete run"
-                  title="Delete run"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setPendingDelete(run);
-                  }}
-                  className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                  {onRunLocally && (
+                    <button
+                      type="button"
+                      aria-label="Run locally"
+                      title="Run locally"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRunLocally({ spec: run.spec_name, expression: run.url4_expression });
+                      }}
+                      className="rounded p-1 text-primary transition-colors hover:bg-primary/10"
+                    >
+                      <Play className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         );
       })}
-
-      {pendingDelete && (
-        <ConfirmDialog
-          title="Delete this run?"
-          message={`"${pendingDelete.spec_name}" and its question results will be permanently removed. This can't be undone.`}
-          confirmLabel={deleting ? 'Deleting…' : 'Delete'}
-          destructive
-          busy={deleting}
-          onConfirm={() => void confirmDelete()}
-          onCancel={() => setPendingDelete(null)}
-        />
-      )}
     </div>
   );
 }
