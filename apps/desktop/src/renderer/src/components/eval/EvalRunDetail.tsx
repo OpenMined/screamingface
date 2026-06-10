@@ -12,6 +12,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EvalStatusBadge } from './EvalStatusBadge';
 import { EvalQuestionsTable } from './EvalQuestionsTable';
 import { PublishToLeaderboardDialog } from './PublishToLeaderboardDialog';
+import { formatAccuracy, isUngradedDone } from './format';
 import type { RunPayload } from '@/components/run/types';
 
 // Lazy so the heavy monaco bundle only loads when the editor popup opens.
@@ -23,11 +24,6 @@ const mountUrl4Editor: OnMount = (editor, monaco) => {
   const model = editor.getModel();
   if (model) monaco.editor.setModelLanguage(model, 'url4');
 };
-
-function formatPercent(accuracy: number | null): string {
-  if (accuracy === null) return '—';
-  return `${(accuracy * 100).toFixed(1)}%`;
-}
 
 function formatTime(iso: string | null): string {
   if (!iso) return '—';
@@ -122,7 +118,9 @@ export function EvalRunDetail({
           <dl className="grid grid-cols-4 gap-3 text-xs">
             <div>
               <dt className="text-muted-foreground">Accuracy</dt>
-              <dd className="font-medium tabular-nums">{formatPercent(data.accuracy)}</dd>
+              <dd className="font-medium tabular-nums">
+                {isUngradedDone(data) ? 'Not graded' : formatAccuracy(data)}
+              </dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Correct / Total</dt>
@@ -139,6 +137,13 @@ export function EvalRunDetail({
               <dd className="tabular-nums">{formatTime(data.finished_at)}</dd>
             </div>
           </dl>
+          {isUngradedDone(data) && (
+            <div className="mt-3 rounded border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              Not graded — this run recorded 0 checked questions. The spec has no grading step (a{' '}
+              <code>/python(check_correct.py)</code> node comparing answers to ground truth), so
+              there's no accuracy to report.
+            </div>
+          )}
           {data.error && (
             <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {data.error}
