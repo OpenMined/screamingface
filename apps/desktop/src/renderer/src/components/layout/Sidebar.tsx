@@ -4,6 +4,7 @@ import {
   Settings,
   Puzzle,
   Terminal,
+  Workflow,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -11,7 +12,13 @@ import type { BackendPollingError, PluginManifest } from '../../../../preload/ty
 import { GatewayStatusPanel } from '@/components/server/GatewayStatusPanel';
 import { isBackendStatusV2, useBackendStatus } from '@/hooks/use-backend-status';
 
-export type View = 'dashboard' | 'sessions' | 'eval-studio' | 'settings' | `plugin:${string}`;
+export type View =
+  | 'dashboard'
+  | 'sessions'
+  | 'eval-studio'
+  | 'url4-studio'
+  | 'settings'
+  | `plugin:${string}`;
 
 interface NavItem {
   id: View;
@@ -23,6 +30,7 @@ const coreItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'sessions', label: 'Sessions', icon: Terminal },
   { id: 'eval-studio', label: 'Eval Studio', icon: FlaskConical },
+  { id: 'url4-studio', label: 'URL4 Studio', icon: Workflow },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 

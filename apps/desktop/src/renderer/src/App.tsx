@@ -4,6 +4,7 @@ import type { View } from '@/components/layout/Sidebar';
 import { DashboardView } from '@/views/DashboardView';
 import { SessionsView } from '@/views/SessionsView';
 import { EvalStudioView } from '@/views/EvalStudioView';
+import { Url4StudioView } from '@/views/Url4StudioView';
 import { SettingsView } from '@/views/SettingsView';
 import { PluginHost } from '@/components/plugins/PluginHost';
 import { useServerStatus } from '@/hooks/use-server-status';
@@ -76,6 +77,7 @@ export function App() {
         <EvalStudioView pendingRun={pendingRun} onPendingConsumed={() => setPendingRun(null)} />
       );
     }
+    if (currentView === 'url4-studio') return <Url4StudioView />;
     if (currentView === 'settings') return <SettingsView />;
 
     if (currentView.startsWith('plugin:')) {
