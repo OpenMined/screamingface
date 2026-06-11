@@ -14,7 +14,7 @@
   function historyRow(s) {
     var tr = document.createElement("tr");
     tr.appendChild(P.el("td", null, P.formatDate(s.submitted_at)));
-    tr.appendChild(P.el("td", "wrap", P.formatSubmitter(s.submitted_by)));
+    tr.appendChild(P.el("td", "cell-wrap", P.formatSubmitter(s.submitted_by)));
     tr.appendChild(P.el("td", "num", P.formatPercent(s.accuracy)));
     tr.appendChild(P.el("td", "num", P.formatQuestions(s.total_questions)));
     var verTd = document.createElement("td");

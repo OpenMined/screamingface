@@ -95,7 +95,7 @@
 
       tr.appendChild(P.el("td", "num", entry.rank));
 
-      var specTd = P.el("td", "wrap");
+      var specTd = P.el("td", "cell-wrap");
       specTd.appendChild(P.link("mono", "spec.html?benchmark=" + encodeURIComponent(state.benchmarkId) + "&spec=" + encodeURIComponent(entry.spec_id), entry.spec_id));
       // Color must not be the only carrier of the sota meaning.
       if (isSota) specTd.appendChild(P.el("span", "sr-only", " (state of the art)"));

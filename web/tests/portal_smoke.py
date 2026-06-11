@@ -369,6 +369,31 @@ def main() -> int:
                 == "Copy",
             )
 
+            # Cells must keep the brand table padding — the old `wrap` cell
+            # class collided with the brand's `.wrap` page-column class and
+            # inherited 40px/96px page padding, inflating rows to ~180px.
+            spec_pad = (
+                page.locator("#leaderboard-body tr")
+                .first.locator("td")
+                .nth(1)
+                .evaluate("el => getComputedStyle(el).padding")
+            )
+            check(
+                "T20",
+                "benchmark: spec cell keeps table padding (no .wrap collision)",
+                spec_pad == "8px 12px",
+                spec_pad,
+            )
+            row_h = page.locator("#leaderboard-body tr").first.evaluate(
+                "el => el.offsetHeight"
+            )
+            check(
+                "T20",
+                "benchmark: row height is content-sized (< 90px)",
+                row_h < 90,
+                f"{row_h}px",
+            )
+
             # ---- climb accuracy chart (viz-a direction, SF-266 phase 2a) ----
             climb = page.locator("#leaderboard-climb")
             check(
