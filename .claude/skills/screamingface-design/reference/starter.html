@@ -1,0 +1,62 @@
+<!doctype html>
+<!--
+  screamingface design system — STARTER / canonical page shell.
+  Copy this as the skeleton for any new static surface. It wires the four
+  fonts, the tokens, the component stylesheet, the sticky rail, the column,
+  a masthead, one .stats component, and the light/dark toggle. Everything
+  uses semantic tokens — no raw hex, no shadows, no rounded corners, no
+  purple. Open in a browser and hit the toggle to verify both themes.
+-->
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>screamingface — starter</title>
+  <!-- the four families: EB Garamond (h1), IBM Plex Sans (prose), IBM Plex Mono (data/labels), Rubik (wordmark) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=EB+Garamond:wght@500;600&family=Rubik:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="./tokens.css">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <!-- sticky infra rail: wordmark left, crumbs, theme toggle right -->
+  <nav class="rail">
+    <span class="brand"><span class="m">😱</span> screamingface</span>
+    <span class="sep">·</span>
+    <span class="crumbs"><a href="#" class="here">starter</a></span>
+    <span class="spacer"></span>
+    <button class="toggle" id="theme">◐ dark</button>
+  </nav>
+
+  <main class="wrap">
+    <header class="masthead">
+      <span class="eyebrow">honest-agi-live · starter shell</span>
+      <h1>Private data turns a 45% model into a 91% one.</h1>
+    </header>
+    <p class="lead">One opening line in Plex Sans — lead with the outcome, then how it works. Replace with real copy; no lorem.</p>
+
+    <!-- the only accent on the page lands on the win number, via .gain -->
+    <div class="stats">
+      <div class="s"><div class="k">frontier model, alone</div><div class="v">45<span class="u">%</span></div></div>
+      <div class="s"><div class="k">+ the private source</div><div class="v gain">83<span class="u">%</span></div></div>
+      <div class="s"><div class="k">ensemble + source · SOTA</div><div class="v gain">91<span class="u">%</span></div></div>
+    </div>
+
+    <div class="foot">
+      <span>😱 honest-agi-live · starter</span>
+      <span>brand.screamingface.ai · internal</span>
+    </div>
+  </main>
+
+  <script>
+    // Light and dark are co-equal designed modes — never tint one from the other.
+    var root = document.documentElement, btn = document.getElementById('theme');
+    btn.addEventListener('click', function () {
+      var dark = root.getAttribute('data-theme') === 'dark';
+      root.setAttribute('data-theme', dark ? 'light' : 'dark');
+      btn.textContent = dark ? '◐ dark' : '◐ light';
+    });
+  </script>
+</body>
+</html>
