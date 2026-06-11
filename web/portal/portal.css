@@ -59,7 +59,7 @@ th[aria-sort="descending"] .sort-button .arrow { opacity: 1; }
 /* min-width keeps narrow viewports from crushing the column to a sliver —
    the .table-wrap x-scroll takes over instead. Derived from the space scale
    (2 × the largest step) so it stays tied to the token system. */
-td.wrap { white-space: normal; overflow-wrap: break-word; min-width: calc(2 * var(--space-12)); }
+td.cell-wrap { white-space: normal; overflow-wrap: break-word; min-width: calc(2 * var(--space-12)); }
 table .btn { white-space: nowrap; }
 
 /* ---- spec page run region ------------------------------------------- */

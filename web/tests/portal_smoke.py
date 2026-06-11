@@ -202,6 +202,22 @@ def main() -> int:
             "T2", f"no {sink} usage in portal JS", re.search(sink, js_sources) is None
         )
 
+    # Published data receipts: sf.json URL4 specs and the scoreboard's
+    # livetruth dataset_url reference these at the site root — the deploy
+    # workflow must package them or the live URLs 404 (regression of
+    # 2026-06-11: a main deploy dropped the probe-branch-published copies).
+    workflow_text = (ROOT / ".github" / "workflows" / "deploy-website.yml").read_text()
+    # (livetruth-masking.dataset.jsonl is deliberately unpublished for now.)
+    for artifact in ("output_artifacts/eval_results/livetruth-latest.eval.jsonl",):
+        check(
+            "T21",
+            f"deploy workflow publishes {Path(artifact).name}",
+            artifact in workflow_text,
+        )
+        check(
+            "T21", f"{Path(artifact).name} tracked in repo", (ROOT / artifact).is_file()
+        )
+
     api_srv = ThreadingHTTPServer(("127.0.0.1", 0), StubApi)
     api_port = api_srv.server_address[1]
     threading.Thread(target=api_srv.serve_forever, daemon=True).start()
@@ -367,6 +383,31 @@ def main() -> int:
                     or ""
                 ).strip()
                 == "Copy",
+            )
+
+            # Cells must keep the brand table padding — the old `wrap` cell
+            # class collided with the brand's `.wrap` page-column class and
+            # inherited 40px/96px page padding, inflating rows to ~180px.
+            spec_pad = (
+                page.locator("#leaderboard-body tr")
+                .first.locator("td")
+                .nth(1)
+                .evaluate("el => getComputedStyle(el).padding")
+            )
+            check(
+                "T20",
+                "benchmark: spec cell keeps table padding (no .wrap collision)",
+                spec_pad == "8px 12px",
+                spec_pad,
+            )
+            row_h = page.locator("#leaderboard-body tr").first.evaluate(
+                "el => el.offsetHeight"
+            )
+            check(
+                "T20",
+                "benchmark: row height is content-sized (< 90px)",
+                row_h < 90,
+                f"{row_h}px",
             )
 
             # ---- climb accuracy chart (viz-a direction, SF-266 phase 2a) ----

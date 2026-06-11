@@ -230,7 +230,7 @@ window.ScorePortal = (function () {
     var tr = document.createElement("tr");
     tr.appendChild(el("td", null, b.display_name || b.id));
     tr.appendChild(el("td", "mono", b.id));
-    tr.appendChild(el("td", "wrap", b.description ? b.description : EM_DASH));
+    tr.appendChild(el("td", "cell-wrap", b.description ? b.description : EM_DASH));
 
     // dataset_url is API-provided/untrusted: only render it when it is a real
     // http(s) URL, so a javascript:/data: scheme can never reach the href.
