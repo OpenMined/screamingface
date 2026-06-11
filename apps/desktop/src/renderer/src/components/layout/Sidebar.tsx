@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { BrandMark } from '@/components/layout/BrandMark';
 import type { BackendPollingError, PluginManifest } from '../../../../preload/types';
 import { GatewayStatusPanel } from '@/components/server/GatewayStatusPanel';
 import { isBackendStatusV2, useBackendStatus } from '@/hooks/use-backend-status';
@@ -34,8 +35,10 @@ const coreItems: NavItem[] = [
   { id: 'eval-studio', label: 'Eval Studio', icon: FlaskConical },
   { id: 'url4-studio', label: 'URL4 Studio', icon: Workflow },
   { id: 'code-studio', label: 'Code Studio', icon: FileCode2 },
-  { id: 'settings', label: 'Settings', icon: Settings },
 ];
+
+// Settings is pinned to the bottom of the sidebar, separate from the main nav.
+const settingsItem: NavItem = { id: 'settings', label: 'Settings', icon: Settings };
 
 interface SidebarProps {
   currentView: View;
@@ -56,10 +59,7 @@ export function Sidebar({ currentView, onNavigate, plugins, onAigwLoginRequest }
         className="flex items-center gap-2 px-4 pb-3 pt-8"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        <span className="text-lg">&#x1F631;</span>
-        <span className="font-heading text-sm font-semibold text-sidebar-foreground">
-          screamingface
-        </span>
+        <BrandMark />
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 px-2 py-2">
@@ -131,6 +131,22 @@ export function Sidebar({ currentView, onNavigate, plugins, onAigwLoginRequest }
           />
         </div>
       )}
+
+      {/* Settings pinned to the bottom */}
+      <nav className="border-t border-sidebar-border px-2 py-2">
+        <button
+          onClick={() => onNavigate(settingsItem.id)}
+          className={cn(
+            'flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors',
+            currentView === settingsItem.id
+              ? 'bg-sidebar-accent text-sidebar-primary'
+              : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
+          )}
+        >
+          <settingsItem.icon className="h-4 w-4" />
+          {settingsItem.label}
+        </button>
+      </nav>
     </aside>
   );
 }

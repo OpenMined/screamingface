@@ -10,7 +10,7 @@ interface ServerStatusCardProps {
 const statusConfig: Record<ServerStatus, { color: string; label: string }> = {
   stopped: { color: 'bg-muted-foreground', label: 'Stopped' },
   starting: { color: 'bg-chart-1 animate-pulse', label: 'Starting' },
-  ready: { color: 'bg-chart-3', label: 'Running' },
+  ready: { color: 'bg-gain', label: 'Running' },
   error: { color: 'bg-destructive', label: 'Error' },
   restarting: { color: 'bg-chart-1 animate-pulse', label: 'Restarting' },
 };
@@ -29,7 +29,7 @@ export function ServerStatusCard({ status, port, scheme }: ServerStatusCardProps
           </div>
         </div>
         {status === 'ready' && port && (
-          <code className="rounded bg-secondary px-2 py-0.5 text-xs text-chart-3">
+          <code className="rounded bg-secondary px-2 py-0.5 text-xs text-gain">
             {scheme}://localhost:{port}
           </code>
         )}

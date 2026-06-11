@@ -22,7 +22,7 @@ const LEVEL_STYLES: Record<LogLevel, string> = {
   warning: 'text-[#f8c073]',
   error: 'text-[#cc677b]',
   critical: 'text-[#cc677b] font-bold',
-  system: 'text-[#53bea9]',
+  system: 'text-gain',
 };
 
 const LEVEL_BADGE: Record<LogLevel, { text: string; className: string } | null> = {
@@ -92,7 +92,7 @@ function LogLine({ line }: { line: string }) {
         title="Copy line"
       >
         {copied ? (
-          <Check className="h-3 w-3 text-chart-3" />
+          <Check className="h-3 w-3 text-gain" />
         ) : (
           <Copy className="h-3 w-3 text-muted-foreground hover:text-foreground" />
         )}
@@ -160,7 +160,7 @@ export function ServerLogs({ logs, onClear }: ServerLogsProps) {
             title="Copy logs"
           >
             {copied ? (
-              <Check className="h-3.5 w-3.5 text-chart-3" />
+              <Check className="h-3.5 w-3.5 text-gain" />
             ) : (
               <Copy className="h-3.5 w-3.5" />
             )}

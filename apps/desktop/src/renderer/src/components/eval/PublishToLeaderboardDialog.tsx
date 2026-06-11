@@ -94,7 +94,7 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-4">
           {status === 'success' && result ? (
             <div className="space-y-4 py-6 text-center">
-              <CheckCircle2 className="mx-auto h-10 w-10 text-chart-3" />
+              <CheckCircle2 className="mx-auto h-10 w-10 text-gain" />
               <p className="text-sm font-medium text-foreground">Published to the leaderboard.</p>
               <Button variant="outline" onClick={handleViewLeaderboard}>
                 <ExternalLink className="h-4 w-4" /> View on leaderboard

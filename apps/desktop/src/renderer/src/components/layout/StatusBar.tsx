@@ -4,7 +4,7 @@ import type { ServerStatus } from '../../../../preload/types';
 const statusColors: Record<ServerStatus, string> = {
   stopped: 'bg-muted-foreground',
   starting: 'bg-chart-1 animate-pulse',
-  ready: 'bg-chart-3',
+  ready: 'bg-gain',
   error: 'bg-destructive',
   restarting: 'bg-chart-1 animate-pulse',
 };

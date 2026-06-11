@@ -6,9 +6,10 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-heading: 'Rubik', system-ui, sans-serif;
-  --font-mono: 'Sometype Mono', ui-monospace, monospace;
+  /* screamingface brand fonts: Garamond for h1/display only, Plex Sans body, Plex Mono data/labels */
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-heading: 'EB Garamond', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -22,6 +23,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  --color-gain: var(--gain);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -42,81 +44,69 @@
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) * 2);
   --radius-xl: calc(var(--radius) * 4);
-  --radius-2xl: 999px;
+  --radius-2xl: 0;
 }
 
-/* OpenMined-derived dark palette */
+/* screamingface brand — dark tokens (from .claude/skills/screamingface-design/reference/tokens.css).
+   Near-monochrome: only --gain (green) / --destructive=blind (red) / --primary=mark (amber)
+   carry meaning. No purple. Square (radius 0), hairline borders. */
 .dark {
-  --background: #14121a;
-  --foreground: #fcfcfd;
+  --background: #0a0b0d; /* bg */
+  --foreground: #e8eaed; /* ink */
 
-  --card: #1e1b26;
-  --card-foreground: #fcfcfd;
+  --card: #131519; /* surface */
+  --card-foreground: #e8eaed;
 
-  --popover: #1e1b26;
-  --popover-foreground: #fcfcfd;
+  --popover: #131519; /* surface */
+  --popover-foreground: #e8eaed;
 
-  /* Primary: OM gold */
-  --primary: #f8c073;
-  --primary-foreground: #1a1720;
+  /* Primary = the 😱 amber spark (UI accent only, never data) */
+  --primary: #e0a23c; /* mark */
+  --primary-foreground: #0a0b0d; /* bg */
 
-  --secondary: #2a2633;
-  --secondary-foreground: #fcfcfd;
+  --secondary: #1a1d22; /* surface-2 */
+  --secondary-foreground: #e8eaed;
 
-  --muted: #2a2633;
-  --muted-foreground: #8a8699;
+  --muted: #1a1d22; /* surface-2 */
+  --muted-foreground: #9aa0aa; /* ink-2 */
 
-  --accent: #2a2633;
-  --accent-foreground: #fcfcfd;
+  --accent: #1a1d22; /* surface-2 */
+  --accent-foreground: #e8eaed;
 
-  --destructive: #cc677b;
+  --destructive: #f0726f; /* blind */
 
-  --border: #2e2a3a;
-  --input: #2e2a3a;
-  --ring: #f8c073;
+  /* gain = model can read the source / correct / SOTA (success/active) */
+  --gain: #35d07f;
 
-  /* OM chart palette: gold -> orange -> teal -> violet -> red */
-  --chart-1: #f8c073;
-  --chart-2: #f79763;
-  --chart-3: #53bea9;
-  --chart-4: #6976ae;
-  --chart-5: #cc677b;
+  --border: #20232a; /* line */
+  --input: #20232a; /* line */
+  --ring: #e0a23c; /* mark */
 
-  --radius: 0.5rem;
+  /* categorical data palette (charts) — colorblind-aware, NO purple */
+  --chart-1: #4e79a7; /* cat-blue */
+  --chart-2: #59a14f; /* cat-green */
+  --chart-3: #d6a13c; /* cat-amber */
+  --chart-4: #b4574a; /* cat-rust */
+  --chart-5: #cf5d7a; /* cat-rose */
 
-  --sidebar: #1e1b26;
-  --sidebar-foreground: #fcfcfd;
-  --sidebar-primary: #f8c073;
-  --sidebar-primary-foreground: #1a1720;
-  --sidebar-accent: #2a2633;
-  --sidebar-accent-foreground: #fcfcfd;
-  --sidebar-border: #2e2a3a;
-  --sidebar-ring: #f8c073;
+  --radius: 0;
+
+  --sidebar: #131519; /* surface */
+  --sidebar-foreground: #e8eaed;
+  --sidebar-primary: #e0a23c; /* mark */
+  --sidebar-primary-foreground: #0a0b0d;
+  --sidebar-accent: #1a1d22; /* surface-2 */
+  --sidebar-accent-foreground: #e8eaed;
+  --sidebar-border: #20232a; /* line */
+  --sidebar-ring: #e0a23c; /* mark */
 }
 
-/* OM gradient utilities */
-@layer utilities {
-  .gradient-gold {
-    background: linear-gradient(67deg, #f8c073, #f79763);
-  }
-  .gradient-teal {
-    background: linear-gradient(67deg, #52a8c5, #53bea9);
-  }
-  .gradient-violet {
-    background: linear-gradient(67deg, #6976ae, #52a8c5);
-  }
-  .text-gradient-gold {
-    background: linear-gradient(67deg, #f8c073, #f79763);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-}
+/* Brand: gradients are an anti-rule — flat fills only. (Removed OM gradient utilities.) */
 
-/* Dark scrollbars */
+/* Dark scrollbars — hairline, square */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2e2a3a transparent;
+  scrollbar-color: var(--border) transparent;
 }
 *::-webkit-scrollbar {
   width: 6px;
@@ -126,11 +116,11 @@
   background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background: #2e2a3a;
-  border-radius: 3px;
+  background: var(--border);
+  border-radius: 0;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background: #3e3a4a;
+  background: var(--muted-foreground);
 }
 
 @layer base {
@@ -142,13 +132,17 @@
     /* Prevent white flash during load */
     overflow: hidden;
   }
-  h1,
+  /* Brand reserves the display serif (EB Garamond) for h1 only.
+     h2–h6 follow body sans here; per-screen widgets apply mono-caps labels where the brand calls for them. */
+  h1 {
+    font-family: var(--font-heading), serif;
+    text-wrap: balance;
+  }
   h2,
   h3,
   h4,
   h5,
   h6 {
-    font-family: var(--font-heading), sans-serif;
     text-wrap: balance;
   }
   p {
