@@ -81,7 +81,7 @@ class FrontendSettingsBase(PluginSettings):
         description="Default backend path for ensemble fan-out.",
     )
     resolve_timeout: float = Field(
-        default=300.0,
+        default=1200.0,
         description="Max seconds to wait for url4 spec resolution on first request.",
     )
     embed_target: Literal["system", "user"] = Field(
@@ -317,7 +317,7 @@ class FrontendPluginBase(Plugin):
         def _run() -> None:
             loop = asyncio.new_event_loop()
             try:
-                result_holder.append(loop.run_until_complete(_fetch(base, expression)))
+                result_holder.append(loop.run_until_complete(_fetch(base, expression, timeout)))
             except BaseException as exc:  # noqa: BLE001 — re-raised to the caller below
                 error_holder.append(exc)
             finally:
@@ -409,9 +409,9 @@ class FrontendPluginBase(Plugin):
         self._thread = None
 
 
-async def _fetch(base_url: str, expression: str) -> str:
+async def _fetch(base_url: str, expression: str, timeout: float = 1200.0) -> str:
     """Call /ensemble with a url4 expression and return plain text."""
-    async with httpx.AsyncClient(timeout=300, verify=False) as client:
+    async with httpx.AsyncClient(timeout=timeout, verify=False) as client:
         resp = await client.get(f"{base_url}/ensemble", params={"q": expression})
         resp.raise_for_status()
         return resp.text
