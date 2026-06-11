@@ -175,10 +175,11 @@ window.ScorePortal = (function () {
   }
 
   /* ---- badges & deep links -------------------------------------------- */
-  // Returns a green "Verified" pill only when verified_by_openmined === true;
-  // otherwise an empty text node (no badge — absence means unverified).
+  // Returns a square gain-colored "verified" mark only when
+  // verified_by_openmined === true; otherwise an em dash (no badge —
+  // absence means unverified).
   function createVerifiedBadge(isVerified) {
-    if (isVerified === true) return el("span", "badge-verified", "✓ Verified");
+    if (isVerified === true) return el("span", "badge-verified", "✓ verified");
     return document.createTextNode(EM_DASH);
   }
   // sf://run?spec=...&expression=... with each value URL-encoded separately.
@@ -189,11 +190,30 @@ window.ScorePortal = (function () {
       "&expression=" + encodeURIComponent(expression)
     );
   }
-  function createRunLink(specId, expression, opts) {
+  // Copy-to-clipboard button for the sf://run link. A button (not an sf://
+  // anchor) so it works in any browser regardless of whether the protocol
+  // handler is registered; the copied URI still opens screamingface locally.
+  function createCopyButton(specId, expression, opts) {
     opts = opts || {};
-    var a = link((opts.compact ? "run-link compact" : "run-link"), buildRunHref(specId, expression), opts.label || "Run Locally");
-    a.setAttribute("aria-label", "Run " + specId + " locally in ScreamingFace");
-    return a;
+    var label = opts.label || "Copy";
+    var btn = el("button", opts.compact ? "btn ghost" : "btn", label);
+    btn.type = "button";
+    btn.setAttribute("aria-label", "Copy the local run link for " + specId);
+    btn.addEventListener("click", function () {
+      function done(ok) {
+        btn.textContent = ok ? "✓ copied" : "copy failed";
+        setTimeout(function () { btn.textContent = label; }, 1600);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(buildRunHref(specId, expression)).then(
+          function () { done(true); },
+          function () { done(false); }
+        );
+      } else {
+        done(false);
+      }
+    });
+    return btn;
   }
 
   /* ---- ready ----------------------------------------------------------- */
@@ -206,57 +226,71 @@ window.ScorePortal = (function () {
   }
 
   /* ---- index page ------------------------------------------------------ */
-  function benchmarkCard(b) {
-    var card = el("article", "card");
-    card.appendChild(el("h2", "card-title", b.display_name || b.id));
-    card.appendChild(el("p", "card-id mono", b.id));
+  function benchmarkRow(b) {
+    var tr = document.createElement("tr");
+    tr.appendChild(el("td", null, b.display_name || b.id));
+    tr.appendChild(el("td", "mono", b.id));
+    tr.appendChild(el("td", "wrap", b.description ? b.description : EM_DASH));
 
-    if (b.description) {
-      card.appendChild(el("p", "card-meta", b.description));
-    } else {
-      card.appendChild(el("p", "card-meta empty", "No description."));
-    }
-
-    var links = el("div", "card-links");
-    links.appendChild(link("", "benchmark.html?id=" + encodeURIComponent(b.id), "View leaderboard →"));
     // dataset_url is API-provided/untrusted: only render it when it is a real
     // http(s) URL, so a javascript:/data: scheme can never reach the href.
+    var datasetTd = el("td");
     var datasetHref = httpUrlOrNull(b.dataset_url);
     if (datasetHref) {
       var dataset = link("", datasetHref, "Dataset");
       dataset.setAttribute("rel", "noopener noreferrer nofollow");
-      links.appendChild(dataset);
+      datasetTd.appendChild(dataset);
+    } else {
+      datasetTd.textContent = EM_DASH;
     }
-    card.appendChild(links);
-    return card;
+    tr.appendChild(datasetTd);
+
+    var lbTd = el("td");
+    lbTd.appendChild(link("", "benchmark.html?id=" + encodeURIComponent(b.id), "Leaderboard →"));
+    tr.appendChild(lbTd);
+    return tr;
   }
 
-  function updateBenchmarkCount(count) {
-    var countNode = document.getElementById("benchmark-count");
-    var labelNode = document.getElementById("benchmark-count-label");
-    if (!countNode || !labelNode) return;
-    countNode.textContent = String(count);
-    labelNode.textContent = count === 1 ? "benchmark indexed" : "benchmarks indexed";
+  function formatDateOnly(value) {
+    if (!value) return EM_DASH;
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return EM_DASH;
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function updateIndexStats(benchmarks) {
+    var counts = {
+      "stat-benchmarks": String(benchmarks.length),
+      "stat-datasets": String(benchmarks.filter(function (b) { return httpUrlOrNull(b.dataset_url) !== null; }).length),
+      "stat-newest": formatDateOnly(
+        benchmarks.map(function (b) { return b.created_at; }).filter(Boolean).sort().pop()
+      ),
+    };
+    Object.keys(counts).forEach(function (id) {
+      var node = document.getElementById(id);
+      if (node) node.textContent = counts[id];
+    });
   }
 
   function initIndex() {
     var statusNode = document.getElementById("benchmark-status");
     var listNode = document.getElementById("benchmark-list");
+    var wrapNode = document.getElementById("benchmark-table-wrap");
     showLoading(statusNode, "Loading benchmarks…");
-    listNode.hidden = true;
+    wrapNode.hidden = true;
 
     fetchJson("/v1/benchmarks").then(
       function (data) {
         var benchmarks = (data && data.benchmarks) || [];
-        updateBenchmarkCount(benchmarks.length);
+        updateIndexStats(benchmarks);
         if (benchmarks.length === 0) {
           showEmpty(statusNode, "No public benchmarks yet. The API is live; rows will appear here as soon as benchmark specs are registered.");
           return;
         }
         clear(listNode);
-        benchmarks.forEach(function (b) { listNode.appendChild(benchmarkCard(b)); });
+        benchmarks.forEach(function (b) { listNode.appendChild(benchmarkRow(b)); });
         setStatus(statusNode, null);
-        listNode.hidden = false;
+        wrapNode.hidden = false;
       },
       function (err) {
         showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
@@ -287,7 +321,7 @@ window.ScorePortal = (function () {
     formatCount: formatCount,
     createVerifiedBadge: createVerifiedBadge,
     buildRunHref: buildRunHref,
-    createRunLink: createRunLink,
+    createCopyButton: createCopyButton,
     ready: ready,
     EM_DASH: EM_DASH,
   };

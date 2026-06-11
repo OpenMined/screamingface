@@ -79,18 +79,29 @@
     headNode.appendChild(tr);
   }
 
+  // The brand's one story color: entries tied at the best accuracy are SOTA.
+  function bestAccuracy(entries) {
+    if (!entries.length) return null;
+    return Math.max.apply(null, entries.map(function (e) { return e.accuracy; }));
+  }
+
   function renderBody(bodyNode) {
     P.clear(bodyNode);
+    var best = bestAccuracy(state.entries);
     sortedEntries().forEach(function (entry) {
       var tr = document.createElement("tr");
+      var isSota = best !== null && entry.accuracy === best;
+      if (isSota) tr.className = "sota";
 
       tr.appendChild(P.el("td", "num", entry.rank));
 
       var specTd = P.el("td", "wrap");
       specTd.appendChild(P.link("mono", "spec.html?benchmark=" + encodeURIComponent(state.benchmarkId) + "&spec=" + encodeURIComponent(entry.spec_id), entry.spec_id));
+      // Color must not be the only carrier of the sota meaning.
+      if (isSota) specTd.appendChild(P.el("span", "sr-only", " (state of the art)"));
       tr.appendChild(specTd);
 
-      tr.appendChild(P.el("td", "wrap", P.formatProviders(entry.ran_with_providers)));
+      tr.appendChild(P.el("td", null, P.formatProviders(entry.ran_with_providers)));
       tr.appendChild(P.el("td", "num", P.formatPercent(entry.accuracy)));
       tr.appendChild(P.el("td", "num", P.formatQuestions(entry.total_questions)));
       tr.appendChild(P.el("td", null, P.formatDate(entry.submitted_at)));
@@ -101,7 +112,13 @@
 
       var runTd = document.createElement("td");
       runTd.className = "col-run";
-      runTd.appendChild(P.createRunLink(entry.spec_id, entry.url4_expression, { compact: true }));
+      // Guard like spec.js: a missing expression renders as absence, never as
+      // a malformed sf://…&expression=undefined link.
+      if (entry.url4_expression) {
+        runTd.appendChild(P.createCopyButton(entry.spec_id, entry.url4_expression, { compact: true }));
+      } else {
+        runTd.textContent = P.EM_DASH;
+      }
       tr.appendChild(runTd);
 
       bodyNode.appendChild(tr);
@@ -116,12 +133,44 @@
       return;
     }
 
-    var best = Math.max.apply(null, entries.map(function (entry) { return entry.accuracy; }));
+    var best = bestAccuracy(entries);
     var verified = entries.filter(function (entry) { return entry.verified_by_openmined === true; }).length;
+    // Bare numbers: the .stats cell labels ("Specs shown", "Verified rows")
+    // already carry the words.
     document.getElementById("summary-best").textContent = P.formatPercent(best);
-    document.getElementById("summary-specs").textContent = P.formatCount(entries.length, "spec", "specs");
-    document.getElementById("summary-verified").textContent = P.formatCount(verified, "row", "rows");
+    document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
+    document.getElementById("summary-verified").textContent = verified.toLocaleString();
     summaryNode.hidden = false;
+  }
+
+  // Climb accuracy bars (brand viz-a direction): one row per spec, best
+  // accuracy carries the sota (gain) fill — same story color as tr.sota.
+  // Purely visual: aria-hidden, the table is the accessible representation.
+  function renderClimb(entries) {
+    var section = document.getElementById("leaderboard-climb-section");
+    var node = document.getElementById("leaderboard-climb");
+    if (!section || !node) return;
+    if (!entries.length) {
+      section.hidden = true;
+      return;
+    }
+    var best = bestAccuracy(entries);
+    P.clear(node);
+    entries
+      .slice()
+      .sort(function (a, b) { return b.accuracy - a.accuracy; })
+      .forEach(function (entry) {
+        var row = P.el("div", "row");
+        row.appendChild(P.el("span", "lbl", entry.spec_id));
+        var track = P.el("span", "track");
+        var fill = P.el("span", "fill " + (entry.accuracy === best ? "sota" : "base"));
+        fill.style.width = ((entry.accuracy * 100).toFixed(1) + "%").replace(".0%", "%");
+        track.appendChild(fill);
+        row.appendChild(track);
+        row.appendChild(P.el("span", "val", P.formatPercent(entry.accuracy)));
+        node.appendChild(row);
+      });
+    section.hidden = false;
   }
 
   function init() {
@@ -148,7 +197,7 @@
         if (b) {
           nameNode.textContent = b.display_name || b.id;
           descNode.textContent = b.description || "";
-          document.title = (b.display_name || b.id) + " — ScreamingFace";
+          document.title = (b.display_name || b.id) + " — screamingface";
         }
         state.entries = (data && data.entries) || [];
         if (state.entries.length === 0) {
@@ -156,6 +205,7 @@
           return;
         }
         renderSummary(state.entries);
+        renderClimb(state.entries);
         renderHead(document.getElementById("leaderboard-head"));
         renderBody(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);
