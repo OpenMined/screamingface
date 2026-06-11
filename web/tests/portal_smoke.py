@@ -218,6 +218,7 @@ def main() -> int:
     with sync_playwright() as p:
         browser = p.chromium.launch()
         ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+        ctx.grant_permissions(["clipboard-read", "clipboard-write"])
         ctx.add_init_script(f"window.SCOREBOARD_API_BASE = {json.dumps(api)};")
         page = ctx.new_page()
         # Uncaught JS exceptions only — console "error" entries include the
@@ -349,10 +350,23 @@ def main() -> int:
             ).locator("td.col-run")
             check(
                 "T17",
-                "benchmark: missing url4_expression renders em dash, no link",
+                "benchmark: missing url4_expression renders em dash, no control",
                 no_expr_cells.count() == 1
-                and no_expr_cells.first.locator("a").count() == 0
+                and no_expr_cells.first.locator("a, button").count() == 0
                 and "—" in (no_expr_cells.first.text_content() or ""),
+            )
+            check(
+                "T19",
+                "benchmark: rows with expressions get compact Copy buttons",
+                page.locator("#leaderboard-body td.col-run button.btn.ghost").count()
+                == 3
+                and (
+                    page.locator(
+                        "#leaderboard-body td.col-run button.btn.ghost"
+                    ).first.text_content()
+                    or ""
+                ).strip()
+                == "Copy",
             )
 
             # ---- climb accuracy chart (viz-a direction, SF-266 phase 2a) ----
@@ -445,19 +459,31 @@ def main() -> int:
                 "spec: history row rendered",
                 page.locator("#history-body tr").count() == 1,
             )
-            page.wait_for_selector("#run-region a.btn", timeout=8000)
-            href = page.locator("#run-region a.btn").get_attribute("href") or ""
+            page.wait_for_selector("#run-region button.btn", timeout=8000)
+            btn = page.locator("#run-region button.btn")
             check(
                 "T9",
-                "spec: run link is sf://run with encoded expression",
-                href.startswith("sf://run?spec=")
-                and "expression=" in href
-                and "%23model%3D" in href,
-                href,
+                "spec: Copy button rendered with accessible name",
+                btn.count() == 1
+                and (btn.text_content() or "").strip() == "Copy"
+                and "direct-google" in (btn.get_attribute("aria-label") or ""),
             )
-            btn_radius = page.locator("#run-region a.btn").evaluate(
-                "el => getComputedStyle(el).borderRadius"
+            btn.click()
+            clipboard = page.evaluate("() => navigator.clipboard.readText()")
+            check(
+                "T9",
+                "spec: click copies sf://run link with encoded expression",
+                clipboard.startswith("sf://run?spec=")
+                and "expression=" in clipboard
+                and "%23model%3D" in clipboard,
+                clipboard,
             )
+            check(
+                "T9",
+                "spec: button gives copied feedback",
+                "copied" in (btn.text_content() or "").lower(),
+            )
+            btn_radius = btn.evaluate("el => getComputedStyle(el).borderRadius")
             check("T6", "spec: .btn square corners", btn_radius == "0px", btn_radius)
 
         section("T9", "spec: history block", t_spec)

@@ -190,11 +190,30 @@ window.ScorePortal = (function () {
       "&expression=" + encodeURIComponent(expression)
     );
   }
-  function createRunLink(specId, expression, opts) {
+  // Copy-to-clipboard button for the sf://run link. A button (not an sf://
+  // anchor) so it works in any browser regardless of whether the protocol
+  // handler is registered; the copied URI still opens screamingface locally.
+  function createCopyButton(specId, expression, opts) {
     opts = opts || {};
-    var a = link((opts.compact ? "btn ghost" : "btn"), buildRunHref(specId, expression), opts.label || "Run Locally");
-    a.setAttribute("aria-label", "Run " + specId + " locally in screamingface");
-    return a;
+    var label = opts.label || "Copy";
+    var btn = el("button", opts.compact ? "btn ghost" : "btn", label);
+    btn.type = "button";
+    btn.setAttribute("aria-label", "Copy the local run link for " + specId);
+    btn.addEventListener("click", function () {
+      function done(ok) {
+        btn.textContent = ok ? "✓ copied" : "copy failed";
+        setTimeout(function () { btn.textContent = label; }, 1600);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(buildRunHref(specId, expression)).then(
+          function () { done(true); },
+          function () { done(false); }
+        );
+      } else {
+        done(false);
+      }
+    });
+    return btn;
   }
 
   /* ---- ready ----------------------------------------------------------- */
@@ -302,7 +321,7 @@ window.ScorePortal = (function () {
     formatCount: formatCount,
     createVerifiedBadge: createVerifiedBadge,
     buildRunHref: buildRunHref,
-    createRunLink: createRunLink,
+    createCopyButton: createCopyButton,
     ready: ready,
     EM_DASH: EM_DASH,
   };

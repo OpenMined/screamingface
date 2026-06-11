@@ -115,7 +115,7 @@
       // Guard like spec.js: a missing expression renders as absence, never as
       // a malformed sf://…&expression=undefined link.
       if (entry.url4_expression) {
-        runTd.appendChild(P.createRunLink(entry.spec_id, entry.url4_expression, { compact: true }));
+        runTd.appendChild(P.createCopyButton(entry.spec_id, entry.url4_expression, { compact: true }));
       } else {
         runTd.textContent = P.EM_DASH;
       }

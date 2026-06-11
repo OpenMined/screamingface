@@ -41,7 +41,7 @@
       function (score) {
         if (score && score.url4_expression) {
           P.clear(regionNode);
-          regionNode.appendChild(P.createRunLink(specId, score.url4_expression, { label: "Run Locally" }));
+          regionNode.appendChild(P.createCopyButton(specId, score.url4_expression));
           regionNode.hidden = false;
         } else {
           regionNode.hidden = true;
