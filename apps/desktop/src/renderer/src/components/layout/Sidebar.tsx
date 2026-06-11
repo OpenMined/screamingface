@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { BrandMark } from '@/components/layout/BrandMark';
 import type { BackendPollingError, PluginManifest } from '../../../../preload/types';
 import { GatewayStatusPanel } from '@/components/server/GatewayStatusPanel';
 import { isBackendStatusV2, useBackendStatus } from '@/hooks/use-backend-status';
@@ -56,10 +57,7 @@ export function Sidebar({ currentView, onNavigate, plugins, onAigwLoginRequest }
         className="flex items-center gap-2 px-4 pb-3 pt-8"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        <span className="text-lg">&#x1F631;</span>
-        <span className="font-heading text-sm font-semibold text-sidebar-foreground">
-          screamingface
-        </span>
+        <BrandMark />
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 px-2 py-2">
