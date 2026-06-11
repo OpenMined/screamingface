@@ -155,9 +155,30 @@ class StubApi(BaseHTTPRequestHandler):
         return self._json(404, {"detail": "not found"})
 
 
+FIXTURE_JSONL = "\n".join(
+    [
+        '{"qa_id": "q1", "dataset": "d", "question": "What?"}',
+        '{"qa_id": "q2", "question": "Who?", "meta": {"k": 1}}',
+        '{"qa_id": "q3", "dataset": "d", "question": ""}',
+    ]
+)
+
+
 class QuietStatic(SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
+
+    def do_GET(self):
+        # Site-root data file, as published by the deploy workflow.
+        if self.path.split("?")[0] == "/fixture.dataset.jsonl":
+            body = FIXTURE_JSONL.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
 
 
 results: list[tuple[str, str, str]] = []
@@ -543,6 +564,74 @@ def main() -> int:
             check("T6", "spec: .btn square corners", btn_radius == "0px", btn_radius)
 
         section("T9", "spec: history block", t_spec)
+
+        # ---- data viewer (jsonl rendered in-page, SF-266) ----
+        def t_viewer():
+            page.goto(f"{base}/data.html?file=fixture.dataset.jsonl")
+            page.wait_for_selector("#data-body tr", timeout=8000)
+            rows = page.locator("#data-body tr")
+            check("T23", "viewer: one table row per jsonl line", rows.count() == 3)
+            head = page.locator("#data-head").text_content() or ""
+            check(
+                "T23",
+                "viewer: columns are the union of row keys",
+                all(k in head for k in ("qa_id", "dataset", "question", "meta")),
+                head,
+            )
+            q2 = page.locator("#data-body tr", has_text="q2")
+            check(
+                "T23",
+                "viewer: missing field renders em dash",
+                "—" in (q2.text_content() or ""),
+            )
+            check(
+                "T23",
+                "viewer: nested object rendered as JSON",
+                '{"k":1}' in (q2.text_content() or "").replace(" ", ""),
+            )
+            check(
+                "T23",
+                "viewer: meta line shows row count",
+                "3 rows" in (page.locator("#data-meta").text_content() or ""),
+            )
+            raw_href = page.locator("#data-raw").get_attribute("href") or ""
+            check(
+                "T23",
+                "viewer: raw download link",
+                raw_href == "/fixture.dataset.jsonl",
+                raw_href,
+            )
+
+            page.goto(f"{base}/data.html?file=missing.jsonl")
+            page.wait_for_selector(".state-error", timeout=8000)
+            check("T23", "viewer: missing file shows error state", True)
+            page.goto(f"{base}/data.html?file=../../etc/passwd")
+            page.wait_for_selector(".state-error", timeout=8000)
+            check("T23", "viewer: invalid file param rejected", True)
+
+            page.goto(pages["index"])
+            page.wait_for_selector("#benchmark-table tbody tr", timeout=8000)
+            lt = page.locator("#benchmark-table tbody tr", has_text="News Livetruth")
+            ds = lt.locator("a", has_text="Dataset").first
+            check(
+                "T23",
+                "index: same-origin dataset link routes through viewer",
+                (ds.get_attribute("href") or "")
+                == "data.html?file=livetruth-masking.dataset.jsonl",
+                ds.get_attribute("href") or "",
+            )
+            hle = page.locator(
+                "#benchmark-table tbody tr", has_text="News Hallucinations"
+            )
+            ext = hle.locator("a", has_text="Dataset").first
+            check(
+                "T23",
+                "index: external dataset link stays direct + rel-hardened",
+                (ext.get_attribute("href") or "").startswith("https://github.com/")
+                and "noopener" in (ext.get_attribute("rel") or ""),
+            )
+
+        section("T23", "data viewer block", t_viewer)
 
         # ---- theme toggle persistence ----
         def t_theme():
