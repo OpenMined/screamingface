@@ -14,13 +14,13 @@ import { useToast } from '@/hooks/use-toast';
 import { isBackendStatusV2, useBackendStatus } from '@/hooks/use-backend-status';
 
 const profileStateConfig: Record<string, { dot: string; label: string }> = {
-  authenticated: { dot: 'bg-chart-3', label: 'Authenticated' },
+  authenticated: { dot: 'bg-gain', label: 'Authenticated' },
   pending: { dot: 'bg-chart-1', label: 'Pending' },
   error: { dot: 'bg-destructive', label: 'Error' },
 };
 
 const connectionStateConfig: Record<string, { dot: string; label: string }> = {
-  active: { dot: 'bg-chart-3', label: 'Connected' },
+  active: { dot: 'bg-gain', label: 'Connected' },
   pending: { dot: 'bg-chart-1', label: 'Pending' },
   expired: { dot: 'bg-chart-1', label: 'Expired' },
   revoked: { dot: 'bg-muted', label: 'Revoked' },
@@ -31,13 +31,13 @@ const PROFILE_NAME_RE = /^[a-z0-9-]+$/;
 const CONNECTION_PENDING_POLL_MS = 2000;
 
 const actionConfig: Record<string, { dot: string; label: string }> = {
-  healthy: { dot: 'bg-chart-3', label: 'Ready' },
+  healthy: { dot: 'bg-gain', label: 'Ready' },
   reauth: { dot: 'bg-chart-1', label: 'Needs Auth' },
   rate_limited: { dot: 'bg-destructive', label: 'Rate Limited' },
   degraded: { dot: 'bg-chart-1', label: 'Degraded' },
 };
 
-const connectedActionConfig = { dot: 'bg-chart-3', label: 'Connected' };
+const connectedActionConfig = { dot: 'bg-gain', label: 'Connected' };
 
 interface ConnectionAuthSummary {
   activeCount: number;
@@ -786,7 +786,7 @@ function ConnectionsSubPanel({
       {submitting && !pendingConnectionId && (
         <p className="text-xs text-muted-foreground mt-1">Waiting for browser sign-in...</p>
       )}
-      {notice && <p className="text-xs text-chart-3 mt-1">{notice}</p>}
+      {notice && <p className="text-xs text-gain mt-1">{notice}</p>}
       {addError && <p className="text-xs text-destructive mt-1">{addError}</p>}
       {pendingConnectionId && (
         <div className="mt-2 border-t border-border pt-2">

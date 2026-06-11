@@ -51,7 +51,7 @@ type PluginStatus = 'active' | 'configured' | 'missing';
 
 function StatusDot({ status }: { status: PluginStatus }) {
   const color = {
-    active: 'bg-green-500',
+    active: 'bg-gain',
     configured: 'bg-muted-foreground/40',
     missing: 'bg-red-500',
   }[status];
@@ -322,7 +322,7 @@ export function SettingsView() {
       <section className="rounded-lg border border-border bg-card p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-foreground">Server</h2>
-          {serverStatus === 'ready' && <span className="text-[10px] text-chart-3">Running</span>}
+          {serverStatus === 'ready' && <span className="text-[10px] text-gain">Running</span>}
         </div>
         <div className="mt-4 grid grid-cols-2 gap-4">
           <label className="space-y-1">
@@ -480,7 +480,7 @@ export function SettingsView() {
                                     'gemini-frontend',
                                     'ollama-frontend',
                                   ].includes(name) && (
-                                    <p className="text-[10px] leading-tight text-chart-3/80">
+                                    <p className="text-[10px] leading-tight text-gain/80">
                                       Settings here are defaults for new sessions — override per
                                       session in the Sessions tab
                                     </p>
@@ -572,14 +572,14 @@ export function SettingsView() {
                                                 key={d}
                                                 className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] ${
                                                   config.plugins.includes(d)
-                                                    ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-500/20'
+                                                    ? 'bg-gain/10 text-gain ring-1 ring-gain/20'
                                                     : 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20'
                                                 }`}
                                               >
                                                 <span
                                                   className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${
                                                     config.plugins.includes(d)
-                                                      ? 'bg-emerald-400'
+                                                      ? 'bg-gain'
                                                       : 'bg-amber-400'
                                                   }`}
                                                 />

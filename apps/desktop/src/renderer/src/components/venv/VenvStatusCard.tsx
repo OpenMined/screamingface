@@ -6,7 +6,7 @@ const statusConfig: Record<VenvStatus, { color: string; label: string }> = {
   checking: { color: 'bg-chart-1 animate-pulse', label: 'Checking...' },
   missing: { color: 'bg-chart-2', label: 'Not found' },
   creating: { color: 'bg-chart-1 animate-pulse', label: 'Creating...' },
-  ready: { color: 'bg-chart-3', label: 'Ready' },
+  ready: { color: 'bg-gain', label: 'Ready' },
   error: { color: 'bg-destructive', label: 'Error' },
 };
 

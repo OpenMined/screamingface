@@ -17,7 +17,7 @@ export function ServerControls({ status, onStart, onStop, onRestart }: ServerCon
       {!running && !busy && (
         <button
           onClick={onStart}
-          className="flex items-center gap-1.5 rounded-md bg-chart-3/15 px-3 py-1.5 text-xs font-medium text-chart-3 transition-colors hover:bg-chart-3/25"
+          className="flex items-center gap-1.5 rounded-md bg-gain/15 px-3 py-1.5 text-xs font-medium text-gain transition-colors hover:bg-gain/25"
         >
           <Play className="h-3.5 w-3.5" />
           Start

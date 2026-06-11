@@ -59,7 +59,7 @@ const ALL_SESSION_TYPES: SessionTypeInfo[] = [
 function statusColor(status: SessionStatus): string {
   switch (status) {
     case 'running':
-      return 'text-green-400';
+      return 'text-gain';
     case 'starting':
       return 'text-yellow-400';
     case 'stopping':
@@ -458,7 +458,7 @@ function SessionCard({
             variant="ghost"
             size="icon"
             onClick={onRestart}
-            className="h-8 w-8 text-green-400 hover:text-green-300"
+            className="h-8 w-8 text-gain hover:text-gain"
             title="Restart session"
           >
             <Play className="h-3.5 w-3.5" />

@@ -122,7 +122,7 @@ export function SpecSelector({ value, onChange, fallbackNames }: SpecSelectorPro
               key={spec.name}
               className={`group flex items-center gap-2 rounded-md border px-3 py-2 transition-colors cursor-pointer ${
                 isActive
-                  ? 'border-chart-3/50 bg-chart-3/10'
+                  ? 'border-gain/50 bg-gain/10'
                   : 'border-border bg-background hover:border-foreground/20'
               }`}
               onClick={() => onChange(isActive ? null : spec.name)}
@@ -130,7 +130,7 @@ export function SpecSelector({ value, onChange, fallbackNames }: SpecSelectorPro
               {/* Selection indicator */}
               <div
                 className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                  isActive ? 'border-chart-3 bg-chart-3 text-white' : 'border-muted-foreground/30'
+                  isActive ? 'border-gain bg-gain text-white' : 'border-muted-foreground/30'
                 }`}
               >
                 {isActive && <Check className="h-2.5 w-2.5" />}
