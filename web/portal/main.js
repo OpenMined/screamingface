@@ -226,6 +226,20 @@ window.ScorePortal = (function () {
   }
 
   /* ---- index page ------------------------------------------------------ */
+  // Site-root data files (published by the deploy workflow) open in the
+  // in-portal viewer instead of forcing a download — GitHub Pages serves
+  // .jsonl as application/octet-stream with no MIME override available.
+  function publishedDataFileName(href) {
+    try {
+      var u = new URL(href);
+      if (u.hostname !== "screamingface.ai") return null;
+      var m = u.pathname.match(/^\/([A-Za-z0-9][A-Za-z0-9._-]*\.jsonl)$/);
+      return m ? m[1] : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function benchmarkRow(b) {
     var tr = document.createElement("tr");
     tr.appendChild(el("td", null, b.display_name || b.id));
@@ -237,9 +251,14 @@ window.ScorePortal = (function () {
     var datasetTd = el("td");
     var datasetHref = httpUrlOrNull(b.dataset_url);
     if (datasetHref) {
-      var dataset = link("", datasetHref, "Dataset");
-      dataset.setAttribute("rel", "noopener noreferrer nofollow");
-      datasetTd.appendChild(dataset);
+      var viewerName = publishedDataFileName(datasetHref);
+      if (viewerName) {
+        datasetTd.appendChild(link("", "data.html?file=" + encodeURIComponent(viewerName), "Dataset"));
+      } else {
+        var dataset = link("", datasetHref, "Dataset");
+        dataset.setAttribute("rel", "noopener noreferrer nofollow");
+        datasetTd.appendChild(dataset);
+      }
     } else {
       datasetTd.textContent = EM_DASH;
     }
