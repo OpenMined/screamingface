@@ -79,12 +79,15 @@
     headNode.appendChild(tr);
   }
 
+  // The brand's one story color: entries tied at the best accuracy are SOTA.
+  function bestAccuracy(entries) {
+    if (!entries.length) return null;
+    return Math.max.apply(null, entries.map(function (e) { return e.accuracy; }));
+  }
+
   function renderBody(bodyNode) {
     P.clear(bodyNode);
-    // The brand's one story color: rows tied at the best accuracy are SOTA.
-    var best = state.entries.length
-      ? Math.max.apply(null, state.entries.map(function (e) { return e.accuracy; }))
-      : null;
+    var best = bestAccuracy(state.entries);
     sortedEntries().forEach(function (entry) {
       var tr = document.createElement("tr");
       var isSota = best !== null && entry.accuracy === best;
@@ -130,7 +133,7 @@
       return;
     }
 
-    var best = Math.max.apply(null, entries.map(function (entry) { return entry.accuracy; }));
+    var best = bestAccuracy(entries);
     var verified = entries.filter(function (entry) { return entry.verified_by_openmined === true; }).length;
     // Bare numbers: the .stats cell labels ("Specs shown", "Verified rows")
     // already carry the words.
@@ -138,6 +141,36 @@
     document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
     document.getElementById("summary-verified").textContent = verified.toLocaleString();
     summaryNode.hidden = false;
+  }
+
+  // Climb accuracy bars (brand viz-a direction): one row per spec, best
+  // accuracy carries the sota (gain) fill — same story color as tr.sota.
+  // Purely visual: aria-hidden, the table is the accessible representation.
+  function renderClimb(entries) {
+    var section = document.getElementById("leaderboard-climb-section");
+    var node = document.getElementById("leaderboard-climb");
+    if (!section || !node) return;
+    if (!entries.length) {
+      section.hidden = true;
+      return;
+    }
+    var best = bestAccuracy(entries);
+    P.clear(node);
+    entries
+      .slice()
+      .sort(function (a, b) { return b.accuracy - a.accuracy; })
+      .forEach(function (entry) {
+        var row = P.el("div", "row");
+        row.appendChild(P.el("span", "lbl", entry.spec_id));
+        var track = P.el("span", "track");
+        var fill = P.el("span", "fill " + (entry.accuracy === best ? "sota" : "base"));
+        fill.style.width = ((entry.accuracy * 100).toFixed(1) + "%").replace(".0%", "%");
+        track.appendChild(fill);
+        row.appendChild(track);
+        row.appendChild(P.el("span", "val", P.formatPercent(entry.accuracy)));
+        node.appendChild(row);
+      });
+    section.hidden = false;
   }
 
   function init() {
@@ -172,6 +205,7 @@
           return;
         }
         renderSummary(state.entries);
+        renderClimb(state.entries);
         renderHead(document.getElementById("leaderboard-head"));
         renderBody(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);

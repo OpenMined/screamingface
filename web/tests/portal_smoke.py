@@ -354,6 +354,54 @@ def main() -> int:
                 and no_expr_cells.first.locator("a").count() == 0
                 and "—" in (no_expr_cells.first.text_content() or ""),
             )
+
+            # ---- climb accuracy chart (viz-a direction, SF-266 phase 2a) ----
+            climb = page.locator("#leaderboard-climb")
+            check(
+                "T18",
+                "benchmark: climb chart present and visible",
+                climb.count() == 1 and climb.is_visible(),
+            )
+            check(
+                "T18",
+                "benchmark: climb has one row per entry",
+                climb.locator(".row").count() == 4,
+                f"got {climb.locator('.row').count()}",
+            )
+            check(
+                "T18",
+                "benchmark: tied-best entries get sota fills",
+                climb.locator(".fill.sota").count() == 2
+                and climb.locator(".fill.base").count() == 2,
+            )
+            best_width = climb.locator(".fill.sota").first.evaluate(
+                "el => el.style.width"
+            )
+            check(
+                "T18",
+                "benchmark: fill width is the accuracy percentage",
+                best_width == "45.5%",
+                best_width,
+            )
+            zero_row = climb.locator(
+                ".row", has_text="direct-anthropic-claude-sonnet-4-6"
+            )
+            check(
+                "T18",
+                "benchmark: 0% entry renders a 0-width base fill",
+                zero_row.locator(".fill.base").first.evaluate("el => el.style.width")
+                == "0%",
+            )
+            check(
+                "T18",
+                "benchmark: climb rows show formatted values",
+                "45.5%" in (climb.locator(".val").first.text_content() or ""),
+            )
+            check(
+                "T18",
+                "benchmark: climb is aria-hidden (table is the accessible source)",
+                climb.get_attribute("aria-hidden") == "true",
+            )
             check(
                 "T8",
                 "benchmark: best accuracy stat in gain style",

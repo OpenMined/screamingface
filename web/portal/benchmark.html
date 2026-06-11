@@ -45,6 +45,13 @@
 
     <div id="leaderboard-status" class="state" role="status" aria-live="polite">Loading…</div>
 
+    <div id="leaderboard-climb-section" hidden>
+      <h2>Accuracy</h2>
+      <!-- Visual duplicate of the table's accuracy column (viz-a climb
+           direction); the table below remains the accessible data source. -->
+      <div id="leaderboard-climb" class="climb" aria-hidden="true"></div>
+    </div>
+
     <div id="leaderboard-wrap" class="table-wrap" hidden>
       <table aria-label="Leaderboard">
         <thead id="leaderboard-head"></thead>
