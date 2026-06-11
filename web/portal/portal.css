@@ -1,0 +1,88 @@
+/* Portal-specific components on top of the vendored brand system (SF-266).
+   Extends — never overrides — tokens.css + style.css. Token vars only;
+   no raw colors, sizes, or fonts (brand SYSTEM.md rule). */
+
+/* ---- status regions (loading / error / empty) ---------------------- */
+.state {
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+  padding: var(--space-6) 0;
+  line-height: var(--leading-snug);
+}
+.state-error { color: var(--blind); }
+.state-empty, .state-loading { color: var(--ink-3); }
+.state[hidden] { display: none; }
+[hidden] { display: none !important; }
+
+/* ---- sortable table headers ---------------------------------------- */
+/* The button inherits the thead label treatment from style.css; only the
+   chrome reset and the sort arrow live here. */
+.sort-button {
+  background: none;
+  border: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.sort-button:hover { color: var(--ink); }
+.sort-button .arrow { opacity: 0; }
+th[aria-sort="ascending"] .sort-button .arrow,
+th[aria-sort="descending"] .sort-button .arrow { opacity: 1; }
+
+/* ---- verified badge -------------------------------------------------- */
+/* Square, mono, gain-colored: color carries the one story meaning. */
+.badge-verified {
+  display: inline-block;
+  font-family: var(--f-mono);
+  font-size: var(--text-label);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--gain);
+  background: var(--gain-bg);
+  border: var(--border-hairline) solid var(--gain);
+  border-radius: var(--radius-none);
+  padding: 0 var(--space-2);
+  white-space: nowrap;
+}
+
+/* ---- tables: portal extras ------------------------------------------ */
+.table-wrap { overflow-x: auto; margin: 0 0 var(--space-5); }
+.table-wrap table { margin: 0; }
+/* min-width keeps narrow viewports from crushing the column to a sliver —
+   the .table-wrap x-scroll takes over instead. Derived from the space scale
+   (2 × the largest step) so it stays tied to the token system. */
+td.wrap { white-space: normal; overflow-wrap: break-word; min-width: calc(2 * var(--space-12)); }
+table .btn { white-space: nowrap; }
+
+/* ---- spec page run region ------------------------------------------- */
+.run-region { margin: 0 0 var(--space-5); }
+.quiet { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-3); }
+
+/* ---- screen-reader-only text ----------------------------------------- */
+/* Non-visual a11y utility (standard clip pattern); carries meaning that
+   color alone must not — e.g. the sota row highlight. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- responsive ------------------------------------------------------ */
+@media (max-width: 639px) {
+  /* sf:// deep-links are not useful on narrow screens; collapse the column. */
+  .col-run { display: none; }
+}

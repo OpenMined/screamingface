@@ -74,7 +74,7 @@
 
     specIdNode.textContent = specId;
     backLink.setAttribute("href", "benchmark.html?id=" + encodeURIComponent(benchmarkId));
-    document.title = specId + " — ScreamingFace";
+    document.title = specId + " — screamingface";
 
     P.showLoading(statusNode, "Loading spec history…");
     contentNode.hidden = true;
@@ -93,8 +93,8 @@
 
         var best = Math.max.apply(null, submissions.map(function (s) { return s.accuracy; }));
         document.getElementById("best-accuracy").textContent = P.formatPercent(best);
-        document.getElementById("submission-count").textContent =
-          submissions.length + (submissions.length === 1 ? " submission" : " submissions");
+        // Bare number: the .stats cell label ("Submissions") carries the word.
+        document.getElementById("submission-count").textContent = submissions.length.toLocaleString();
 
         var body = document.getElementById("history-body");
         P.clear(body);

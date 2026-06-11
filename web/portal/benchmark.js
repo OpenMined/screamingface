@@ -81,16 +81,24 @@
 
   function renderBody(bodyNode) {
     P.clear(bodyNode);
+    // The brand's one story color: rows tied at the best accuracy are SOTA.
+    var best = state.entries.length
+      ? Math.max.apply(null, state.entries.map(function (e) { return e.accuracy; }))
+      : null;
     sortedEntries().forEach(function (entry) {
       var tr = document.createElement("tr");
+      var isSota = best !== null && entry.accuracy === best;
+      if (isSota) tr.className = "sota";
 
       tr.appendChild(P.el("td", "num", entry.rank));
 
       var specTd = P.el("td", "wrap");
       specTd.appendChild(P.link("mono", "spec.html?benchmark=" + encodeURIComponent(state.benchmarkId) + "&spec=" + encodeURIComponent(entry.spec_id), entry.spec_id));
+      // Color must not be the only carrier of the sota meaning.
+      if (isSota) specTd.appendChild(P.el("span", "sr-only", " (state of the art)"));
       tr.appendChild(specTd);
 
-      tr.appendChild(P.el("td", "wrap", P.formatProviders(entry.ran_with_providers)));
+      tr.appendChild(P.el("td", null, P.formatProviders(entry.ran_with_providers)));
       tr.appendChild(P.el("td", "num", P.formatPercent(entry.accuracy)));
       tr.appendChild(P.el("td", "num", P.formatQuestions(entry.total_questions)));
       tr.appendChild(P.el("td", null, P.formatDate(entry.submitted_at)));
@@ -101,7 +109,13 @@
 
       var runTd = document.createElement("td");
       runTd.className = "col-run";
-      runTd.appendChild(P.createRunLink(entry.spec_id, entry.url4_expression, { compact: true }));
+      // Guard like spec.js: a missing expression renders as absence, never as
+      // a malformed sf://…&expression=undefined link.
+      if (entry.url4_expression) {
+        runTd.appendChild(P.createRunLink(entry.spec_id, entry.url4_expression, { compact: true }));
+      } else {
+        runTd.textContent = P.EM_DASH;
+      }
       tr.appendChild(runTd);
 
       bodyNode.appendChild(tr);
@@ -118,9 +132,11 @@
 
     var best = Math.max.apply(null, entries.map(function (entry) { return entry.accuracy; }));
     var verified = entries.filter(function (entry) { return entry.verified_by_openmined === true; }).length;
+    // Bare numbers: the .stats cell labels ("Specs shown", "Verified rows")
+    // already carry the words.
     document.getElementById("summary-best").textContent = P.formatPercent(best);
-    document.getElementById("summary-specs").textContent = P.formatCount(entries.length, "spec", "specs");
-    document.getElementById("summary-verified").textContent = P.formatCount(verified, "row", "rows");
+    document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
+    document.getElementById("summary-verified").textContent = verified.toLocaleString();
     summaryNode.hidden = false;
   }
 
@@ -148,7 +164,7 @@
         if (b) {
           nameNode.textContent = b.display_name || b.id;
           descNode.textContent = b.description || "";
-          document.title = (b.display_name || b.id) + " — ScreamingFace";
+          document.title = (b.display_name || b.id) + " — screamingface";
         }
         state.entries = (data && data.entries) || [];
         if (state.entries.length === 0) {

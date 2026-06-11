@@ -1,55 +1,76 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ScreamingFace Benchmark Receipts</title>
-  <meta name="description" content="Public ScreamingFace benchmark results with accuracy, providers, verification status, and local rerun links.">
+  <title>screamingface — benchmark receipts</title>
+  <meta name="description" content="Public screamingface benchmark results with accuracy, providers, verification status, and local rerun links.">
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=EB+Garamond:wght@500;600&family=Rubik:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="portal.css">
+  <script>(function(){try{var t=localStorage.getItem('sf_theme')||'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 </head>
 <body>
-  <div class="page">
-    <main class="main">
-      <section class="hero">
-        <div class="emoji">😱</div>
-        <h1>ScreamingFace benchmark receipts.</h1>
-        <p>Public results for specs you can inspect and rerun locally. Accuracy, providers, verification status, and the exact run link stay attached to every row.</p>
-        <p><a href="/">Install screamingface - one command</a></p>
-        <div class="proof-grid" aria-label="Leaderboard proof points">
-          <div class="proof-card">
-            <span class="proof-kicker">Live data</span>
-            <strong id="benchmark-count">-</strong>
-            <span id="benchmark-count-label">benchmarks indexed</span>
-          </div>
-          <div class="proof-card">
-            <span class="proof-kicker">Verification</span>
-            <strong>Badge, not belief</strong>
-            <span>Only independently reproduced runs get marked Verified.</span>
-          </div>
-          <div class="proof-card">
-            <span class="proof-kicker">Reproducibility</span>
-            <strong>Run Locally</strong>
-            <span>Leaderboard rows keep their URL4 expression for reruns.</span>
-          </div>
-        </div>
-      </section>
+  <div class="rail">
+    <span class="brand"><span class="m">😱</span> screamingface</span><span class="sep">/</span>
+    <nav class="crumbs"><a href="index.html" class="here">portal</a></nav>
+    <span class="spacer"></span><button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
+  </div>
 
-      <section class="section">
-        <div class="section-inner">
-          <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
-          <section id="benchmark-list" class="card-grid" aria-label="Benchmarks" hidden></section>
-        </div>
-      </section>
-    </main>
+  <div class="wrap">
+    <header class="masthead">
+      <div class="eyebrow">Benchmark receipts</div>
+      <h1>Results you can rerun, not just read.</h1>
+    </header>
 
-    <footer class="footer">
-      <span>😱 screamingface, built by <a href="https://openmined.org">OpenMined</a></span>
-      <a href="https://github.com/OpenMined/screamingface">GitHub</a>
-    </footer>
+    <p class="lead">Public benchmark results for specs you can inspect and rerun locally. Accuracy, providers, verification status, and the exact run link stay attached to every row.</p>
+
+    <p><a href="/">Install screamingface — one command</a></p>
+
+    <div class="note">
+      <span class="kicker">Verification</span>
+      “Verified” means OpenMined independently reproduced the run. Unbadged rows are
+      community submissions that still need reproduction. Every leaderboard row keeps
+      its URL4 expression, so you can rerun the claim before trusting it.
+    </div>
+
+    <div class="stats" aria-label="Live portal counts">
+      <div class="s"><span class="k">Benchmarks</span><div class="v" id="stat-benchmarks">—</div></div>
+      <div class="s"><span class="k">Datasets published</span><div class="v" id="stat-datasets">—</div></div>
+      <div class="s"><span class="k">Newest benchmark</span><div class="v" id="stat-newest">—</div></div>
+    </div>
+
+    <h2>Benchmarks</h2>
+
+    <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
+
+    <div id="benchmark-table-wrap" class="table-wrap" hidden>
+      <table id="benchmark-table" aria-label="Benchmarks">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>id</th>
+            <th>Description</th>
+            <th>Dataset</th>
+            <th>Leaderboard</th>
+          </tr>
+        </thead>
+        <tbody id="benchmark-list"></tbody>
+      </table>
+    </div>
+
+    <div class="foot">
+      <span>😱 screamingface, built by <a href="https://openmined.org" rel="noopener noreferrer nofollow">OpenMined</a></span>
+      <span><a href="https://github.com/OpenMined/screamingface" rel="noopener noreferrer nofollow">GitHub</a></span>
+    </div>
   </div>
 
   <script src="main.js" defer></script>
+  <script src="theme.js" defer></script>
 </body>
 </html>

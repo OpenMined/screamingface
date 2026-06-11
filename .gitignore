@@ -36,3 +36,4 @@ release/
 
 # Playwright MCP session logs (transient)
 .playwright-mcp/
+.sdlc/
