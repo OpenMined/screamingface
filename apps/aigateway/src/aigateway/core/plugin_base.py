@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -255,7 +255,9 @@ def credential_strategy_from(
     """Resolve a plugin's credential strategy, tolerating duck-typed plugins
     that only implement the legacy ``oauth_strategy_for`` hook (mirrors
     ``credential_service_provider_for``)."""
-    resolver = getattr(plugin, "credential_strategy_for", None)
+    resolver: Callable[..., CredentialStrategy | None] | None = getattr(
+        plugin, "credential_strategy_for", None
+    )
     if callable(resolver):
         return resolver(
             profile_name,
@@ -264,11 +266,15 @@ def credential_strategy_from(
             http_client_factory=http_client_factory,
         )
     if auth_type == "api_key":
-        api_resolver = getattr(plugin, "api_key_strategy_for", None)
+        api_resolver: Callable[..., CredentialStrategy | None] | None = getattr(
+            plugin, "api_key_strategy_for", None
+        )
         if callable(api_resolver):
             return api_resolver(profile_name, credential_store=credential_store)
         return None
-    legacy = getattr(plugin, "oauth_strategy_for", None)
+    legacy: Callable[..., CredentialStrategy | None] | None = getattr(
+        plugin, "oauth_strategy_for", None
+    )
     if callable(legacy):
         return legacy(
             profile_name,

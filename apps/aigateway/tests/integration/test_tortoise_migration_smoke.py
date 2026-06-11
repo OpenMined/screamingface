@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import asyncpg  # type: ignore[import-untyped]
@@ -91,7 +92,7 @@ def test_tortoise_migrate_creates_accounts_table() -> None:
             "tortoise_migrations",
         } <= asyncio.run(_tables())
 
-        async def _auth_type_column() -> tuple[list, object]:
+        async def _auth_type_column() -> tuple[list, Any]:
             conn = await asyncpg.connect(database_url)
             try:
                 values = await conn.fetch("select auth_type from oauth_connections")
