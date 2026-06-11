@@ -207,8 +207,10 @@ def main() -> int:
     # workflow must package them or the live URLs 404 (regression of
     # 2026-06-11: a main deploy dropped the probe-branch-published copies).
     workflow_text = (ROOT / ".github" / "workflows" / "deploy-website.yml").read_text()
-    # (livetruth-masking.dataset.jsonl is deliberately unpublished for now.)
-    for artifact in ("output_artifacts/eval_results/livetruth-latest.eval.jsonl",):
+    for artifact in (
+        "output_artifacts/eval_results/livetruth-latest.eval.jsonl",
+        "output_artifacts/eval_results/livetruth-masking.dataset.jsonl",
+    ):
         check(
             "T21",
             f"deploy workflow publishes {Path(artifact).name}",
@@ -216,6 +218,19 @@ def main() -> int:
         )
         check(
             "T21", f"{Path(artifact).name} tracked in repo", (ROOT / artifact).is_file()
+        )
+
+    # GitHub Pages serves .jsonl as application/octet-stream (forced
+    # download) and custom MIME types are not configurable — .txt twins
+    # render inline in the browser.
+    for twin in (
+        "livetruth-latest.eval.jsonl.txt",
+        "livetruth-masking.dataset.jsonl.txt",
+    ):
+        check(
+            "T22",
+            f"deploy workflow publishes browser-viewable twin {twin}",
+            twin in workflow_text,
         )
 
     api_srv = ThreadingHTTPServer(("127.0.0.1", 0), StubApi)
