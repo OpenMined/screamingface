@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>screamingface — benchmark receipts</title>
-  <meta name="description" content="Public screamingface benchmark results with accuracy, providers, verification status, and local rerun links.">
+  <title>screamingface — live leaderboard</title>
+  <meta name="description" content="LiveTruth leaderboard, live from the public screamingface scoreboard.">
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -22,47 +22,31 @@
     <span class="spacer"></span><button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
   </div>
 
-  <div class="wrap">
+  <div class="wrap wide">
     <header class="masthead">
-      <div class="eyebrow">Benchmark receipts</div>
-      <h1>Results you can rerun, not just read.</h1>
+      <div class="eyebrow">honest-agi-live · live from the public scoreboard</div>
+      <h1>The leaderboard, live.</h1>
     </header>
 
-    <p class="lead">Public benchmark results for specs you can inspect and rerun locally. Accuracy, providers, verification status, and the exact run link stay attached to every row.</p>
+    <p class="lead">Same benchmark, real numbers — pulled straight from the scoreboard as runs are published.</p>
+    <p>Every row below is a real run on the LiveTruth benchmark, fetched live from <code>scoreboard.screamingface.ai</code>. Right now that's the frontier-model baselines. The private-data ensemble runs that beat them — the story the designed demo tells — will appear here automatically as the team publishes them.</p>
 
-    <p><a href="/">Install screamingface — one command</a></p>
+    <div id="live-status" class="note" role="status" aria-live="polite">Loading…</div>
+
+    <h2>Accuracy</h2>
+    <div id="live-chart" class="climb" aria-hidden="true"></div>
+
+    <h2>Leaderboard</h2>
+    <div id="live-table" class="table-wrap"></div>
 
     <div class="note">
-      <span class="kicker">Verification</span>
-      “Verified” means OpenMined independently reproduced the run. Unbadged rows are
-      community submissions that still need reproduction. Every leaderboard row keeps
-      its URL4 expression, so you can rerun the claim before trusting it.
+      <span class="kicker">Why this looks sparse</span>
+      This is the honest current state: only the baseline evaluations have been published so far. As the ensemble + private-data runs land on the scoreboard, they show up here with no change to this page. Until then, the demo shows the intended end state.
     </div>
 
-    <div class="stats" aria-label="Live portal counts">
-      <div class="s"><span class="k">Benchmarks</span><div class="v" id="stat-benchmarks">—</div></div>
-      <div class="s"><span class="k">Datasets published</span><div class="v" id="stat-datasets">—</div></div>
-      <div class="s"><span class="k">Newest benchmark</span><div class="v" id="stat-newest">—</div></div>
-    </div>
-
-    <h2>Benchmarks</h2>
-
-    <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
-
-    <div id="benchmark-table-wrap" class="table-wrap" hidden>
-      <table id="benchmark-table" aria-label="Benchmarks">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>id</th>
-            <th>Description</th>
-            <th>Dataset</th>
-            <th>Leaderboard</th>
-          </tr>
-        </thead>
-        <tbody id="benchmark-list"></tbody>
-      </table>
-    </div>
+    <h2>Run it yourself</h2>
+    <p>Every row with a run link is reproducible. Open it in Eval Studio and run the same evaluation on your own model subscriptions; nothing private leaves your machine.</p>
+    <p><a class="btn ghost" href="https://github.com/OpenMined/screamingface" rel="noopener noreferrer nofollow">view the source</a></p>
 
     <div class="foot">
       <span>😱 screamingface, built by <a href="https://openmined.org" rel="noopener noreferrer nofollow">OpenMined</a></span>

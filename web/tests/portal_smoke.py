@@ -20,9 +20,12 @@ import json
 import re
 import sys
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from functools import partial
-from http.server import SimpleHTTPRequestHandler
+from http.server import (
+    BaseHTTPRequestHandler,
+    SimpleHTTPRequestHandler,
+    ThreadingHTTPServer,
+)
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -281,7 +284,9 @@ def main() -> int:
         pages = {
             "index": f"{base}/index.html",
             "benchmark": f"{base}/benchmark.html?id=livetruth",
-            "spec": f"{base}/spec.html?benchmark=livetruth&spec=direct-google-gemini-3-1-pro-preview",
+            "spec": (
+                f"{base}/spec.html?benchmark=livetruth&spec=direct-google-gemini-3-1-pro-preview"
+            ),
         }
 
         # ---- brand shell assertions on every page ----
@@ -351,31 +356,63 @@ def main() -> int:
                 bool(page.get_attribute("#theme-toggle", "aria-label")),
             )
 
-        # ---- index: benchmarks render as a table ----
+        # ---- index: live leaderboard reference page ----
         def t_index():
             page.goto(pages["index"])
-            page.wait_for_selector("#benchmark-table tbody tr", timeout=8000)
-            rows = page.locator("#benchmark-table tbody tr")
+            page.wait_for_selector("#live-table tbody tr", timeout=8000)
+            rows = page.locator("#live-table tbody tr")
             check(
                 "T7",
-                "index: 2 benchmark rows from API",
-                rows.count() == 2,
+                "index: headline matches live brand reference",
+                page.locator("h1").first.text_content() == "The leaderboard, live.",
+            )
+            check(
+                "T7",
+                "index: live scoreboard status note rendered",
+                page.locator("#live-status.note.gain").count() == 1
+                and "scoreboard.screamingface.ai"
+                in (page.locator("#live-status").text_content() or ""),
+            )
+            check(
+                "T7",
+                "index: one live leaderboard row per API entry",
+                rows.count() == 4,
                 f"got {rows.count()}",
             )
             check(
                 "T7",
-                "index: leaderboard link href",
-                "benchmark.html?id=livetruth"
-                in (rows.first.locator("a").last.get_attribute("href") or ""),
+                "index: live table uses configuration label",
+                "direct-google-gemini-3-1-pro-preview"
+                in (rows.first.text_content() or ""),
             )
             check(
                 "T7",
-                "index: stats row shows live count",
-                page.locator(".stats").count() == 1
-                and "2" in (page.locator("#stat-benchmarks").text_content() or ""),
+                "index: live chart has one row per API entry",
+                page.locator("#live-chart .row").count() == 4,
+                f"got {page.locator('#live-chart .row').count()}",
+            )
+            check(
+                "T7",
+                "index: only top-ranked live chart fill is green",
+                page.locator("#live-chart .fill.sota").count() == 1
+                and page.locator("#live-chart .fill.ens").count() == 3,
+            )
+            check(
+                "T7",
+                "index: first live table row is highlighted as SOTA",
+                page.locator("#live-table tbody tr.sota").count() == 1,
+            )
+            check(
+                "T7",
+                "index: run links use branded run affordance",
+                rows.first.locator("a.btn.ghost").count() == 1
+                and "▸ run" in (rows.first.locator("a.btn.ghost").text_content() or "")
+                and (
+                    rows.first.locator("a.btn.ghost").get_attribute("href") or ""
+                ).startswith("sf://run?spec="),
             )
 
-        section("T7", "index: benchmarks table block", t_index)
+        section("T7", "index: live leaderboard block", t_index)
 
         # ---- benchmark: table, sota, badge, sorting, radius ----
         def t_benchmark():
@@ -608,28 +645,6 @@ def main() -> int:
             page.goto(f"{base}/data.html?file=../../etc/passwd")
             page.wait_for_selector(".state-error", timeout=8000)
             check("T23", "viewer: invalid file param rejected", True)
-
-            page.goto(pages["index"])
-            page.wait_for_selector("#benchmark-table tbody tr", timeout=8000)
-            lt = page.locator("#benchmark-table tbody tr", has_text="News Livetruth")
-            ds = lt.locator("a", has_text="Dataset").first
-            check(
-                "T23",
-                "index: same-origin dataset link routes through viewer",
-                (ds.get_attribute("href") or "")
-                == "data.html?file=livetruth-masking.dataset.jsonl",
-                ds.get_attribute("href") or "",
-            )
-            hle = page.locator(
-                "#benchmark-table tbody tr", has_text="News Hallucinations"
-            )
-            ext = hle.locator("a", has_text="Dataset").first
-            check(
-                "T23",
-                "index: external dataset link stays direct + rel-hardened",
-                (ext.get_attribute("href") or "").startswith("https://github.com/")
-                and "noopener" in (ext.get_attribute("rel") or ""),
-            )
 
         section("T23", "data viewer block", t_viewer)
 
