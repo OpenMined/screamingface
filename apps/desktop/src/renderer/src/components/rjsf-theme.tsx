@@ -99,7 +99,7 @@ function BaseInputTemplate(props: BaseInputTemplateProps) {
   const hasError = rawErrors && rawErrors.length > 0;
   const examples = (schema as { examples?: string[] }).examples;
   const listId = examples ? `${id}-suggestions` : undefined;
-  const inputClass = `w-full rounded-md border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 ${
+  const inputClass = `w-full rounded-none border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 ${
     hasError
       ? 'border-destructive bg-destructive/5 focus:ring-destructive'
       : 'border-input bg-background focus:ring-ring'
@@ -178,12 +178,12 @@ function CopyLinkField({ url }: { url: string }) {
       <input
         readOnly
         value={url}
-        className="flex-1 rounded-md border border-input bg-muted/50 px-2.5 py-1 font-mono text-[11px] text-muted-foreground truncate"
+        className="flex-1 rounded-none border border-input bg-muted/50 px-2.5 py-1 font-mono text-[11px] text-muted-foreground truncate"
       />
       <button
         type="button"
         onClick={handleCopy}
-        className="shrink-0 rounded-md border border-input p-1.5 text-muted-foreground hover:text-foreground"
+        className="shrink-0 rounded-none border border-input p-1.5 text-muted-foreground hover:text-foreground"
       >
         {copied ? <Check size={12} /> : <Copy size={12} />}
       </button>
@@ -249,7 +249,7 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
         {properties.map((p) => {
           const isExpanded = expandedKey === p.name;
           return (
-            <div key={p.name} className="overflow-hidden rounded-md border border-border/60">
+            <div key={p.name} className="overflow-hidden rounded-none border border-border/60">
               <button
                 type="button"
                 className="flex w-full items-center gap-2 px-3 py-2 text-left select-none transition-colors hover:bg-muted/50"
@@ -277,7 +277,7 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
                           value={formData[p.name][copyLink.field]}
                           serverUrl={registry.formContext.serverUrl}
                           readOnly
-                          className="mt-3 rounded-md bg-background"
+                          className="mt-3 rounded-none bg-background"
                         />
                         <CopyLinkField
                           url={`${registry.formContext.serverUrl}${copyLink.path}?${copyLink.param}=${encodeURIComponent(formData[p.name][copyLink.field])}`}
@@ -298,7 +298,7 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
               onChange={(e) => setNewEntryName(e.target.value)}
               placeholder="Entry name"
               autoFocus
-              className={`flex-1 rounded-md border bg-background px-2.5 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 ${isDuplicate ? 'border-destructive focus:ring-destructive' : 'border-input focus:ring-ring'}`}
+              className={`flex-1 rounded-none border bg-background px-2.5 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 ${isDuplicate ? 'border-destructive focus:ring-destructive' : 'border-input focus:ring-ring'}`}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -313,7 +313,7 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
               type="button"
               onClick={handleAdd}
               disabled={!trimmedName || isDuplicate}
-              className="rounded-md border border-input px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none"
+              className="rounded-none border border-input px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none"
             >
               Add
             </button>
@@ -323,7 +323,7 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
                 setShowAddForm(false);
                 setNewEntryName('');
               }}
-              className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded-none px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               Cancel
             </button>
@@ -379,7 +379,7 @@ function ArrayFieldItemButtonsTemplate(props: ArrayFieldItemButtonsTemplateProps
         }
       }}
       title="Remove item"
-      className="flex h-5 w-5 items-center justify-center rounded-full border border-muted-foreground/30 text-muted-foreground transition-colors hover:border-destructive hover:text-destructive disabled:opacity-40"
+      className="flex h-5 w-5 items-center justify-center rounded-none border border-muted-foreground/30 text-muted-foreground transition-colors hover:border-destructive hover:text-destructive disabled:opacity-40"
     >
       <svg
         width="10"
@@ -399,7 +399,7 @@ function ArrayFieldItemButtonsTemplate(props: ArrayFieldItemButtonsTemplateProps
 function ArrayFieldItemTemplate(props: ArrayFieldItemTemplateProps) {
   const { children, buttonsProps } = props;
   return (
-    <div className="rounded-md border border-muted-foreground/30 p-3 space-y-3">
+    <div className="rounded-none border border-muted-foreground/30 p-3 space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex-1 space-y-3">{children}</div>
         <div className="ml-3 shrink-0 self-start">
@@ -451,7 +451,7 @@ function WrapIfAdditionalTemplate(props: WrapIfAdditionalTemplateProps) {
           defaultValue={label}
           disabled={disabled || readonly}
           onBlur={onKeyRenameBlur}
-          className="flex-1 rounded-md border border-input bg-background px-2 py-1 font-mono text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="flex-1 rounded-none border border-input bg-background px-2 py-1 font-mono text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <button
           type="button"
@@ -498,7 +498,7 @@ function SelectWidget(props: WidgetProps) {
       value={value ?? ''}
       disabled={disabled || readonly}
       onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value)}
-      className={`w-full appearance-none rounded-md border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 ${
+      className={`w-full appearance-none rounded-none border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 ${
         hasError
           ? 'border-destructive bg-destructive/5 focus:ring-destructive'
           : 'border-input bg-background focus:ring-ring'
@@ -558,7 +558,7 @@ function TextareaWidget(props: WidgetProps) {
       onChange={(e) => onChange(e.target.value)}
       onBlur={(e) => onBlur(id, e.target.value)}
       onFocus={(e) => onFocus(id, e.target.value)}
-      className={`w-full rounded-md border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 resize-y ${
+      className={`w-full rounded-none border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 resize-y ${
         hasError
           ? 'border-destructive bg-destructive/5 focus:ring-destructive'
           : 'border-input bg-background focus:ring-ring'
