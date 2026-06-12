@@ -372,6 +372,11 @@ def main() -> int:
                 "index: no inline live leaderboard block",
                 page.locator("#live-table, #live-chart, #live-status").count() == 0,
             )
+            check(
+                "T7",
+                "index: uses wide branded content column",
+                page.locator(".wrap.wide").count() == 1,
+            )
             newest_text = page.locator("#stat-newest").text_content() or ""
             check(
                 "T7",
