@@ -19,6 +19,9 @@ vi.mock('@/hooks/use-backend-status', () => ({
   isBackendStatusV2: () => false,
 }));
 vi.mock('@/components/eval/EvalRunDetail', () => ({ EvalRunDetail: () => null }));
+vi.mock('@/hooks/use-publish-logs', () => ({
+  usePublishLogs: () => ({ logs: [], clearLogs: vi.fn() }),
+}));
 
 afterEach(cleanup);
 

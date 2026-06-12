@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ImperativePanelHandle } from 'react-resizable-panels';
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus } from 'lucide-react';
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Plus,
+  ScrollText,
+} from 'lucide-react';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { Button } from '@/components/ui/button';
 import { EvalRunsList } from '@/components/eval/EvalRunsList';
 import { EvalRunDetail } from '@/components/eval/EvalRunDetail';
 import { AddEvalRunDialog } from '@/components/eval/AddEvalRunDialog';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ServerLogs } from '@/components/server/ServerLogs';
 import { useStartEvalRun } from '@/hooks/use-start-eval-run';
 import { useBackendStatus, isBackendStatusV2 } from '@/hooks/use-backend-status';
+import { usePublishLogs } from '@/hooks/use-publish-logs';
 import { referencedBackends } from '@/lib/referenced-backends';
 import type { RunPayload } from '@/components/run/types';
 
@@ -85,6 +94,8 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const { logs: publishLogs, clearLogs: clearPublishLogs } = usePublishLogs();
 
   const toggleLeft = () => {
     const panel = leftPanelRef.current;
@@ -112,6 +123,16 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
         <div className="flex items-center gap-1">
           <Button variant="outline" size="sm" className="mr-1" onClick={() => setAdding(true)}>
             <Plus className="h-3.5 w-3.5" /> New run
+          </Button>
+          <Button
+            variant={showLogs ? 'secondary' : 'ghost'}
+            size="icon-sm"
+            aria-label={showLogs ? 'Hide publish logs' : 'Show publish logs'}
+            aria-pressed={showLogs}
+            title="Publish logs"
+            onClick={() => setShowLogs((v) => !v)}
+          >
+            <ScrollText />
           </Button>
           <Button
             variant="ghost"
@@ -185,6 +206,12 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
           )}
         </ResizablePanel>
       </ResizablePanelGroup>
+
+      {showLogs && (
+        <div className="shrink-0 px-3 pb-3">
+          <ServerLogs logs={publishLogs} onClear={clearPublishLogs} title="Publish logs" />
+        </div>
+      )}
 
       {adding && <AddEvalRunDialog onClose={() => setAdding(false)} onCreate={runAndSelect} />}
 
