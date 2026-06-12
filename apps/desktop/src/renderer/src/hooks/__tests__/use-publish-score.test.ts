@@ -5,7 +5,7 @@ import { usePublishScore, type PublishInputs } from '../use-publish-score';
 import type { EvalRunDetail } from '@/components/eval/types';
 
 const CTX = {
-  scoreboardUrl: 'http://localhost:9106',
+  scoreboardUrl: 'https://scoreboard.screamingface.ai',
   portalUrl: 'http://localhost:8080',
   client: { name: 'screamingface-desktop', version: '0.4.2', platform: 'darwin' },
 };
@@ -75,7 +75,7 @@ describe('usePublishScore', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://localhost:9106/v1/scores');
+    expect(url).toBe('https://scoreboard.screamingface.ai/v1/scores');
     expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('eval-run-abc123');
     const body = JSON.parse(init.body as string);
     // Nested client, not flat — and recomputed accuracy = correct/total.
