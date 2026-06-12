@@ -79,7 +79,7 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-16">
-      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-[10px] border border-border bg-card shadow-2xl">
+      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-none border border-border bg-card">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <h2 className="text-base font-semibold text-foreground">
@@ -167,7 +167,7 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                     Benchmark ID <span className="text-destructive">*</span>
                   </span>
                   <input
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                    className="w-full rounded-none border border-border bg-background px-3 py-2 text-sm"
                     value={benchmarkId}
                     placeholder="e.g. hle"
                     onChange={(e) => setBenchmarkId(e.target.value)}
@@ -178,7 +178,7 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                     Spec ID <span className="text-destructive">*</span>
                   </span>
                   <input
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                    className="w-full rounded-none border border-border bg-background px-3 py-2 text-sm"
                     value={specId}
                     onChange={(e) => setSpecId(e.target.value)}
                   />
@@ -191,7 +191,7 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                   Providers (comma-separated)
                 </span>
                 <input
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  className="w-full rounded-none border border-border bg-background px-3 py-2 text-sm"
                   value={providersText}
                   placeholder="claude, codex, gemini"
                   onChange={(e) => setProvidersText(e.target.value)}
@@ -204,7 +204,7 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                   Submitter name
                 </span>
                 <input
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  className="w-full rounded-none border border-border bg-background px-3 py-2 text-sm"
                   value={submittedBy}
                   placeholder="leave blank for anonymous"
                   onChange={(e) => setSubmittedBy(e.target.value)}

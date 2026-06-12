@@ -73,7 +73,7 @@ export function Sidebar({ currentView, onNavigate, plugins, onAigwLoginRequest }
               key={item.id}
               onClick={() => onNavigate(item.id)}
               className={cn(
-                'flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors',
+                'flex items-center gap-2.5 rounded-none px-3 py-1.5 text-sm transition-colors',
                 active
                   ? 'bg-sidebar-accent text-sidebar-primary'
                   : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
@@ -98,7 +98,7 @@ export function Sidebar({ currentView, onNavigate, plugins, onAigwLoginRequest }
                   key={plugin.id}
                   onClick={() => onNavigate(viewId)}
                   className={cn(
-                    'flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors',
+                    'flex items-center gap-2.5 rounded-none px-3 py-1.5 text-sm transition-colors',
                     active
                       ? 'bg-sidebar-accent text-sidebar-primary'
                       : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
@@ -116,7 +116,7 @@ export function Sidebar({ currentView, onNavigate, plugins, onAigwLoginRequest }
         <div
           role="status"
           aria-label="Backend polling error"
-          className="mx-2 mb-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
+          className="mx-2 mb-2 rounded-none border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
         >
           <div className="font-medium">SF status unavailable</div>
           <div className="mt-0.5 text-destructive/80">{formatPollingError(pollingError)}</div>
@@ -140,7 +140,7 @@ export function Sidebar({ currentView, onNavigate, plugins, onAigwLoginRequest }
         <button
           onClick={() => onNavigate(settingsItem.id)}
           className={cn(
-            'flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors',
+            'flex w-full items-center gap-2.5 rounded-none px-3 py-1.5 text-sm transition-colors',
             currentView === settingsItem.id
               ? 'bg-sidebar-accent text-sidebar-primary'
               : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',

@@ -19,10 +19,10 @@ export function ServerStatusCard({ status, port, scheme }: ServerStatusCardProps
   const { color, label } = statusConfig[status];
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
+    <div className="rounded-none border border-border bg-card p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className={cn('h-3 w-3 rounded-full', color)} />
+          <span className={cn('h-3 w-3 rounded-none', color)} />
           <div>
             <h3 className="text-sm font-medium text-foreground">Server</h3>
             <p className="text-xs text-muted-foreground">{label}</p>

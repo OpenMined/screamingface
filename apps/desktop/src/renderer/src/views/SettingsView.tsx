@@ -53,7 +53,7 @@ function StatusDot({ status }: { status: PluginStatus }) {
   const color = {
     active: 'bg-gain',
     configured: 'bg-muted-foreground/40',
-    missing: 'bg-red-500',
+    missing: 'bg-destructive',
   }[status];
 
   const title = {
@@ -62,7 +62,7 @@ function StatusDot({ status }: { status: PluginStatus }) {
     missing: 'Not found on server',
   }[status];
 
-  return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${color}`} title={title} />;
+  return <span className={`inline-block h-2 w-2 shrink-0 rounded-none ${color}`} title={title} />;
 }
 
 function buildServerUrl(config: AppConfig): string {
@@ -319,7 +319,7 @@ export function SettingsView() {
       <h1 className="font-heading text-lg font-semibold text-foreground">Settings</h1>
 
       {/* Server settings */}
-      <section className="rounded-lg border border-border bg-card p-4">
+      <section className="rounded-none border border-border bg-card p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-foreground">Server</h2>
           {serverStatus === 'ready' && <span className="text-[10px] text-gain">Running</span>}
@@ -332,7 +332,7 @@ export function SettingsView() {
               value={serverInfo?.host ?? config.server.host}
               onChange={(e) => update({ host: e.target.value })}
               disabled={serverStatus === 'ready'}
-              className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full rounded-none border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </label>
           <label className="space-y-1">
@@ -342,7 +342,7 @@ export function SettingsView() {
               value={serverInfo?.port ?? config.server.port}
               onChange={(e) => update({ port: parseInt(e.target.value) || 8000 })}
               disabled={serverStatus === 'ready'}
-              className="w-full rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full rounded-none border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 disabled:cursor-not-allowed"
             />
           </label>
         </div>
@@ -371,7 +371,7 @@ export function SettingsView() {
       </section>
 
       {/* Plugins list */}
-      <section className="rounded-lg border border-border bg-card p-4">
+      <section className="rounded-none border border-border bg-card p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-foreground">Enabled Plugins</h2>
           {serverStatus !== 'ready' && config.plugins.length > 0 && (
@@ -407,30 +407,14 @@ export function SettingsView() {
               // the dark slate/zinc background, never close to grey or black.
               // Hue is stepped 15° around the wheel; saturation 92%, lightness
               // 62% keeps every swatch unambiguously colored.
-              const RAINBOW_COLORS = Array.from(
-                { length: 24 },
-                (_, i) => `hsl(${i * 15}, 92%, 62%)`,
-              );
-              const colorIndex = (group: string): number => {
-                let h = 0;
-                for (let i = 0; i < group.length; i++) {
-                  h = (h * 31 + group.charCodeAt(i)) >>> 0;
-                }
-                return h % RAINBOW_COLORS.length;
-              };
-              const groupColor = (group: string): string => RAINBOW_COLORS[colorIndex(group)];
-
-              // Sort groups in rainbow order (by hue index) so the UI walks
-              // red → orange → … → violet top-to-bottom.
-              const groupOrder = Object.keys(groups).sort((a, b) => colorIndex(a) - colorIndex(b));
+              // Brand: group labels are monochrome (no decorative rainbow —
+              // color is reserved for gain/blind/mark). Sort alphabetically.
+              const groupOrder = Object.keys(groups).sort();
 
               return groupOrder.map((group) => (
                 <div key={group} className="mb-4">
                   <div className="flex items-center gap-2 mb-2 px-1">
-                    <span
-                      className="text-[10px] font-bold uppercase tracking-widest"
-                      style={{ color: groupColor(group) }}
-                    >
+                    <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       {group}
                     </span>
                     <span className="text-[9px] text-muted-foreground/30">
@@ -447,7 +431,7 @@ export function SettingsView() {
                       const schema = pluginSchemas[name];
                       return (
                         <div key={name}>
-                          <div className="rounded-md bg-secondary">
+                          <div className="rounded-none bg-secondary">
                             <div
                               className={`flex items-center justify-between px-3 py-2 select-none ${hasSettings ? 'cursor-pointer' : ''}`}
                               onClick={
@@ -486,7 +470,7 @@ export function SettingsView() {
                                     </p>
                                   )}
                                   {meta?.requires_root && (
-                                    <p className="text-[10px] leading-tight text-amber-500">
+                                    <p className="text-[10px] leading-tight text-primary">
                                       Requires root privileges — the app will prompt for your
                                       password when starting the server
                                     </p>
@@ -499,7 +483,7 @@ export function SettingsView() {
                                           !config.plugins.includes(dep) && !serverPlugins?.[dep],
                                       );
                                       return unmet.length > 0 ? (
-                                        <p className="text-[10px] leading-tight text-amber-500">
+                                        <p className="text-[10px] leading-tight text-primary">
                                           Depends on: {unmet.join(', ')} (will be auto-added at
                                           startup)
                                         </p>
@@ -557,7 +541,7 @@ export function SettingsView() {
                                   )
                                     return null;
                                   return (
-                                    <div className="mb-4 rounded-lg bg-background/80 ring-1 ring-border/40 p-3">
+                                    <div className="mb-4 rounded-none border border-border bg-background/80 p-3">
                                       <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
                                         Dependencies
                                       </p>
@@ -570,17 +554,17 @@ export function SettingsView() {
                                             {deps.map((d) => (
                                               <span
                                                 key={d}
-                                                className={`inline-flex items-center rounded-full px-2 py-0.5 font-mono text-[10px] ${
+                                                className={`inline-flex items-center rounded-none px-2 py-0.5 font-mono text-[10px] ${
                                                   config.plugins.includes(d)
-                                                    ? 'bg-gain/10 text-gain ring-1 ring-gain/20'
-                                                    : 'bg-amber-500/10 text-amber-400 ring-1 ring-amber-500/20'
+                                                    ? 'bg-gain/10 text-gain border border-gain/30'
+                                                    : 'bg-primary/10 text-primary border border-primary/30'
                                                 }`}
                                               >
                                                 <span
-                                                  className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${
+                                                  className={`mr-1 inline-block h-1.5 w-1.5 rounded-none ${
                                                     config.plugins.includes(d)
                                                       ? 'bg-gain'
-                                                      : 'bg-amber-400'
+                                                      : 'bg-primary'
                                                   }`}
                                                 />
                                                 {d}
@@ -596,9 +580,9 @@ export function SettingsView() {
                                             {dependents.map((d) => (
                                               <span
                                                 key={d}
-                                                className="inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 font-mono text-[10px] text-blue-400 ring-1 ring-blue-500/20"
+                                                className="inline-flex items-center rounded-none border border-border bg-muted px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
                                               >
-                                                <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-blue-400" />
+                                                <span className="mr-1 inline-block h-1.5 w-1.5 rounded-none bg-muted-foreground" />
                                                 {d}
                                               </span>
                                             ))}
@@ -612,9 +596,9 @@ export function SettingsView() {
                                             {conflicts.map((c) => (
                                               <span
                                                 key={c}
-                                                className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 font-mono text-[10px] text-red-400 ring-1 ring-red-500/20"
+                                                className="inline-flex items-center rounded-none border border-destructive/30 bg-destructive/10 px-2 py-0.5 font-mono text-[10px] text-destructive"
                                               >
-                                                <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-red-400" />
+                                                <span className="mr-1 inline-block h-1.5 w-1.5 rounded-none bg-destructive" />
                                                 {c}
                                               </span>
                                             ))}
@@ -717,7 +701,7 @@ export function SettingsView() {
               onChange={(e) => {
                 if (e.target.value) addPlugin(e.target.value);
               }}
-              className="flex-1 min-w-0 appearance-none rounded-md border border-input bg-background bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[position:right_8px_center] bg-no-repeat pl-3 pr-8 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="flex-1 min-w-0 appearance-none rounded-none border border-input bg-background bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m6%209%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')] bg-[length:16px_16px] bg-[position:right_8px_center] bg-no-repeat pl-3 pr-8 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             >
               <option value="" disabled>
                 Add a plugin...
@@ -739,12 +723,12 @@ export function SettingsView() {
                 onChange={(e) => setNewPluginName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && addPlugin(newPluginName)}
                 placeholder="Plugin name"
-                className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                className="flex-1 rounded-none border border-input bg-background px-3 py-1.5 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
               />
               <button
                 onClick={() => addPlugin(newPluginName)}
                 disabled={!newPluginName.trim() || config.plugins.includes(newPluginName.trim())}
-                className="rounded-md border border-input px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none"
+                className="rounded-none border border-input px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none"
               >
                 Add
               </button>
@@ -754,7 +738,7 @@ export function SettingsView() {
       </section>
 
       {/* Raw JSON preview */}
-      <section className="rounded-lg border border-border bg-card p-4">
+      <section className="rounded-none border border-border bg-card p-4">
         <h2 className="text-sm font-medium text-muted-foreground">sf.json</h2>
         <pre className="mt-2 max-h-48 overflow-auto rounded bg-background p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
           {JSON.stringify(config, null, 2)}

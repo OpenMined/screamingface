@@ -70,7 +70,7 @@ export function DashboardView({ server, onAigwLoginRequest }: DashboardViewProps
             {status === 'ready' && tracingEnabled && (
               <button
                 onClick={openPhoenix}
-                className="flex items-center gap-1.5 rounded-md bg-chart-4/15 px-3 py-1.5 text-xs font-medium text-chart-4 transition-colors hover:bg-chart-4/25"
+                className="flex items-center gap-1.5 rounded-none bg-chart-4/15 px-3 py-1.5 text-xs font-medium text-chart-4 transition-colors hover:bg-chart-4/25"
               >
                 <Activity className="h-3.5 w-3.5" />
                 Phoenix Traces
