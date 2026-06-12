@@ -26,7 +26,7 @@ export function StatusBar({ serverStatus, serverPort }: StatusBarProps) {
   return (
     <div className="flex items-center justify-between border-t border-border bg-card px-4 py-1.5 text-xs text-muted-foreground">
       <div className="flex items-center gap-2">
-        <span className={cn('h-2 w-2 rounded-full', statusColors[serverStatus])} />
+        <span className={cn('h-2 w-2 rounded-none', statusColors[serverStatus])} />
         <span>Server: {statusLabels[serverStatus]}</span>
         {serverStatus === 'ready' && serverPort && (
           <span className="text-foreground/60">:{serverPort}</span>
