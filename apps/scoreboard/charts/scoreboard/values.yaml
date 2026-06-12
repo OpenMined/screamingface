@@ -97,7 +97,10 @@ seedBenchmarks:
       display_name: News Hallucinations
       description: OpenMined HLE benchmark
       dataset_url: https://github.com/openmined/HLE.jsonl
-
+    - id: livetruth
+      display_name: News Livetruth
+      description: OpenMined Livetruth benchmark
+      dataset_url: https://screamingface.ai/livetruth-masking.dataset.jsonl
 networkPolicy:
   enabled: false
   ingressCIDRs: []
