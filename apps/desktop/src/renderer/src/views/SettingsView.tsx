@@ -407,30 +407,14 @@ export function SettingsView() {
               // the dark slate/zinc background, never close to grey or black.
               // Hue is stepped 15° around the wheel; saturation 92%, lightness
               // 62% keeps every swatch unambiguously colored.
-              const RAINBOW_COLORS = Array.from(
-                { length: 24 },
-                (_, i) => `hsl(${i * 15}, 92%, 62%)`,
-              );
-              const colorIndex = (group: string): number => {
-                let h = 0;
-                for (let i = 0; i < group.length; i++) {
-                  h = (h * 31 + group.charCodeAt(i)) >>> 0;
-                }
-                return h % RAINBOW_COLORS.length;
-              };
-              const groupColor = (group: string): string => RAINBOW_COLORS[colorIndex(group)];
-
-              // Sort groups in rainbow order (by hue index) so the UI walks
-              // red → orange → … → violet top-to-bottom.
-              const groupOrder = Object.keys(groups).sort((a, b) => colorIndex(a) - colorIndex(b));
+              // Brand: group labels are monochrome (no decorative rainbow —
+              // color is reserved for gain/blind/mark). Sort alphabetically.
+              const groupOrder = Object.keys(groups).sort();
 
               return groupOrder.map((group) => (
                 <div key={group} className="mb-4">
                   <div className="flex items-center gap-2 mb-2 px-1">
-                    <span
-                      className="text-[10px] font-bold uppercase tracking-widest"
-                      style={{ color: groupColor(group) }}
-                    >
+                    <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       {group}
                     </span>
                     <span className="text-[9px] text-muted-foreground/30">
