@@ -149,12 +149,12 @@ function ProfileRow({
             {isPending && (
               <span
                 className={cn(
-                  'absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping',
+                  'absolute inline-flex h-full w-full rounded-none opacity-75 animate-ping',
                   cfg.dot,
                 )}
               />
             )}
-            <span className={cn('relative inline-flex h-2 w-2 rounded-full', cfg.dot)} />
+            <span className={cn('relative inline-flex h-2 w-2 rounded-none', cfg.dot)} />
           </span>
           <span className="text-xs font-medium text-foreground truncate">{profile.name}</span>
           {profile.account_label && (
@@ -495,12 +495,12 @@ function ConnectionRow({
             {isPending && (
               <span
                 className={cn(
-                  'absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping',
+                  'absolute inline-flex h-full w-full rounded-none opacity-75 animate-ping',
                   cfg.dot,
                 )}
               />
             )}
-            <span className={cn('relative inline-flex h-2 w-2 rounded-full', cfg.dot)} />
+            <span className={cn('relative inline-flex h-2 w-2 rounded-none', cfg.dot)} />
           </span>
           <span className="text-xs font-medium text-foreground truncate">{connection.label}</span>
           {accountLabel && (
@@ -855,7 +855,7 @@ function BackendRow({
     <div className="py-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
-          <span className={cn('h-2.5 w-2.5 rounded-full shrink-0', config.dot)} />
+          <span className={cn('h-2.5 w-2.5 rounded-none shrink-0', config.dot)} />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-foreground">{label}</span>
@@ -969,7 +969,7 @@ export function BackendStatusPanel({
   };
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
+    <div className="rounded-none border border-border bg-card p-4">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-medium text-foreground">Backends</h3>
         <button
@@ -986,7 +986,7 @@ export function BackendStatusPanel({
         <div className="space-y-2 py-1" aria-label="Loading backends" role="status">
           {[0, 1, 2].map((i) => (
             <div key={i} className="flex items-center gap-3 py-2 animate-pulse">
-              <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-muted" />
+              <span className="h-2.5 w-2.5 rounded-none shrink-0 bg-muted" />
               <div className="h-3 w-24 rounded bg-muted" />
               <div className="h-3 w-32 rounded bg-muted/50" />
             </div>
@@ -994,7 +994,7 @@ export function BackendStatusPanel({
         </div>
       )}
       {suppressProviderUi && (
-        <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm">
+        <div className="rounded-none border border-border bg-muted/20 px-3 py-3 text-sm">
           <p className="font-medium text-foreground">Sign in to AIGateway</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Provider connections require gateway authentication before Desktop can load or manage

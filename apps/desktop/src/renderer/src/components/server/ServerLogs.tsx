@@ -16,21 +16,23 @@ function parseLevel(line: string): LogLevel {
   return 'system';
 }
 
+// Brand semantics: only warning=mark(amber), error/critical=blind(red), and
+// system=gain(green) carry color. debug/info are greyscale (ink-3/ink-2).
 const LEVEL_STYLES: Record<LogLevel, string> = {
-  debug: 'text-[#6b6580]',
-  info: 'text-[#8a8699]',
-  warning: 'text-[#f8c073]',
-  error: 'text-[#cc677b]',
-  critical: 'text-[#cc677b] font-bold',
+  debug: 'text-muted-foreground/70',
+  info: 'text-muted-foreground',
+  warning: 'text-primary',
+  error: 'text-destructive',
+  critical: 'text-destructive font-bold',
   system: 'text-gain',
 };
 
 const LEVEL_BADGE: Record<LogLevel, { text: string; className: string } | null> = {
-  debug: { text: 'DBG', className: 'bg-[#2a2633] text-[#6b6580]' },
-  info: { text: 'INF', className: 'bg-[#1a2530] text-[#52a8c5]' },
-  warning: { text: 'WRN', className: 'bg-[#2a2215] text-[#f8c073]' },
-  error: { text: 'ERR', className: 'bg-[#2a1a20] text-[#cc677b]' },
-  critical: { text: 'CRT', className: 'bg-[#2a1a20] text-[#cc677b] font-bold' },
+  debug: { text: 'DBG', className: 'bg-muted text-muted-foreground/70' },
+  info: { text: 'INF', className: 'bg-muted text-muted-foreground' },
+  warning: { text: 'WRN', className: 'bg-primary/10 text-primary' },
+  error: { text: 'ERR', className: 'bg-destructive/10 text-destructive' },
+  critical: { text: 'CRT', className: 'bg-destructive/10 text-destructive font-bold' },
   system: null,
 };
 
@@ -140,7 +142,7 @@ export function ServerLogs({ logs, onClear }: ServerLogsProps) {
 
   const wrapperClass = fullscreen
     ? 'fixed inset-0 z-50 flex flex-col bg-card'
-    : 'rounded-lg border border-border bg-card';
+    : 'rounded-none border border-border bg-card';
 
   const scrollClass = fullscreen
     ? 'flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed'
