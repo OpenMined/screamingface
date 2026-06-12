@@ -89,13 +89,21 @@ class EvalRunsPlugin(Plugin):
             total = await EvalQuestion.filter(run_id=run_uuid).count()
             correct = await EvalQuestion.filter(run_id=run_uuid, correct=True).count()
             accuracy = (correct / total) if total else 0.0
-            await EvalRun.filter(id=run_uuid).update(
-                status="done",
-                finished_at=payload["finished_at"],
-                accuracy=accuracy,
-                total_questions=total,
-                correct_questions=correct,
-            )
+            collected_errors = int(payload.get("collected_errors", 0) or 0)
+            update: dict = {
+                "status": "done",
+                "finished_at": payload["finished_at"],
+                "accuracy": accuracy,
+                "total_questions": total,
+                "correct_questions": correct,
+            }
+            if collected_errors > 0:
+                update["status"] = "degraded"
+                update["error"] = (
+                    f"{collected_errors} row(s) errored (e.g. a model backend was "
+                    f"unavailable); {total} graded."
+                )
+            await EvalRun.filter(id=run_uuid).update(**update)
             self._question_idx_by_run.pop(run_id, None)
 
         async def _on_run_failed(**payload) -> None:

@@ -147,11 +147,13 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
                 )
             raise HTTPException(status_code=502, detail=f"url4 evaluation failed: {exc}")
 
+        collected_errors = getattr(interpreter, "_collected_errors", 0)
         if run_id:
             await request.app.state.hooks.emit_async(
                 HOOK_RUN_FINISHED,
                 run_id=run_id,
                 finished_at=datetime.now(UTC),
+                collected_errors=collected_errors,
             )
 
         # Record result on the FastAPI auto-instrumented span
@@ -183,7 +185,6 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
 
         # SF-236: surface ;foreach.on_error=collect failures so they are not
         # silently dropped downstream. HTTP stays 200 (collect mode is robust).
-        collected_errors = getattr(interpreter, "_collected_errors", 0)
         if collected_errors:
             response.headers["X-SF-Collected-Errors"] = str(collected_errors)
         return response

@@ -28,6 +28,7 @@ class RunStartedPayload(TypedDict):
 class RunFinishedPayload(TypedDict):
     run_id: str
     finished_at: datetime
+    collected_errors: int
 
 
 class RunFailedPayload(TypedDict):
