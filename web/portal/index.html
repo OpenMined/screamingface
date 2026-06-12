@@ -48,6 +48,26 @@
     <p>Every row with a run link is reproducible. Open it in Eval Studio and run the same evaluation on your own model subscriptions; nothing private leaves your machine.</p>
     <p><a class="btn ghost" href="https://github.com/OpenMined/screamingface" rel="noopener noreferrer nofollow">view the source</a></p>
 
+    <h2>All benchmarks</h2>
+    <p>Choose another public leaderboard, or open the dataset receipt attached to a benchmark.</p>
+
+    <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
+
+    <div id="benchmark-table-wrap" class="table-wrap" hidden>
+      <table id="benchmark-table" aria-label="Benchmarks">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>id</th>
+            <th>Description</th>
+            <th>Dataset</th>
+            <th>Leaderboard</th>
+          </tr>
+        </thead>
+        <tbody id="benchmark-list"></tbody>
+      </table>
+    </div>
+
     <div class="foot">
       <span>😱 screamingface, built by <a href="https://openmined.org" rel="noopener noreferrer nofollow">OpenMined</a></span>
       <span><a href="https://github.com/OpenMined/screamingface" rel="noopener noreferrer nofollow">GitHub</a></span>

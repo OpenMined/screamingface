@@ -13,6 +13,7 @@ window.ScorePortal = (function () {
   "use strict";
 
   var EM_DASH = "—";
+  var PORTAL_LOCALE = "en-US";
 
   /* ---- API base resolution -------------------------------------------- */
   // 1. Build-time injection (deployed asset sets window.SCOREBOARD_API_BASE
@@ -148,13 +149,13 @@ window.ScorePortal = (function () {
   }
   function formatQuestions(total) {
     if (typeof total !== "number" || isNaN(total)) return EM_DASH;
-    return total.toLocaleString();
+    return total.toLocaleString(PORTAL_LOCALE);
   }
   function formatDate(value) {
     if (!value) return EM_DASH;
     var d = new Date(value);
     if (isNaN(d.getTime())) return EM_DASH;
-    return d.toLocaleString(undefined, {
+    return d.toLocaleString(PORTAL_LOCALE, {
       year: "numeric", month: "short", day: "numeric",
       hour: "2-digit", minute: "2-digit",
     });
@@ -171,7 +172,7 @@ window.ScorePortal = (function () {
   }
   function formatCount(value, singular, plural) {
     var count = typeof value === "number" && !isNaN(value) ? value : 0;
-    return count.toLocaleString() + " " + (count === 1 ? singular : plural);
+    return count.toLocaleString(PORTAL_LOCALE) + " " + (count === 1 ? singular : plural);
   }
 
   /* ---- badges & deep links -------------------------------------------- */
@@ -301,6 +302,76 @@ window.ScorePortal = (function () {
     host.appendChild(table);
   }
 
+  // Site-root data files (published by the deploy workflow) open in the
+  // in-portal viewer instead of forcing a download — GitHub Pages serves
+  // .jsonl as application/octet-stream with no MIME override available.
+  function publishedDataFileName(href) {
+    try {
+      var u = new URL(href);
+      if (u.hostname !== "screamingface.ai") return null;
+      var m = u.pathname.match(/^\/([A-Za-z0-9][A-Za-z0-9._-]*\.jsonl)$/);
+      return m ? m[1] : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function benchmarkRow(b) {
+    var tr = document.createElement("tr");
+    tr.appendChild(el("td", null, b.display_name || b.id));
+    tr.appendChild(el("td", "mono", b.id));
+    tr.appendChild(el("td", "cell-wrap", b.description ? b.description : EM_DASH));
+
+    // dataset_url is API-provided/untrusted: only render it when it is a real
+    // http(s) URL, so a javascript:/data: scheme can never reach the href.
+    var datasetTd = el("td");
+    var datasetHref = httpUrlOrNull(b.dataset_url);
+    if (datasetHref) {
+      var viewerName = publishedDataFileName(datasetHref);
+      if (viewerName) {
+        datasetTd.appendChild(link("", "data.html?file=" + encodeURIComponent(viewerName), "Dataset"));
+      } else {
+        var dataset = link("", datasetHref, "Dataset");
+        dataset.setAttribute("rel", "noopener noreferrer nofollow");
+        datasetTd.appendChild(dataset);
+      }
+    } else {
+      datasetTd.textContent = EM_DASH;
+    }
+    tr.appendChild(datasetTd);
+
+    var lbTd = el("td");
+    lbTd.appendChild(link("", "benchmark.html?id=" + encodeURIComponent(b.id), "Leaderboard →"));
+    tr.appendChild(lbTd);
+    return tr;
+  }
+
+  function initBenchmarkDirectory() {
+    var statusNode = document.getElementById("benchmark-status");
+    var listNode = document.getElementById("benchmark-list");
+    var wrapNode = document.getElementById("benchmark-table-wrap");
+    if (!statusNode || !listNode || !wrapNode) return;
+    showLoading(statusNode, "Loading benchmarks…");
+    wrapNode.hidden = true;
+
+    fetchJson("/v1/benchmarks").then(
+      function (data) {
+        var benchmarks = (data && data.benchmarks) || [];
+        if (benchmarks.length === 0) {
+          showEmpty(statusNode, "No public benchmarks yet.");
+          return;
+        }
+        clear(listNode);
+        benchmarks.forEach(function (b) { listNode.appendChild(benchmarkRow(b)); });
+        setStatus(statusNode, null);
+        wrapNode.hidden = false;
+      },
+      function (err) {
+        showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
+      }
+    );
+  }
+
   function initLiveIndex() {
     setLiveStatus("Fetching the latest runs…");
     fetchJson("/v1/leaderboard/" + encodeURIComponent(LIVE_BENCHMARK_ID) + "?top=50").then(
@@ -311,7 +382,7 @@ window.ScorePortal = (function () {
           return;
         }
         var best = Math.max.apply(null, entries.map(function (entry) { return entry.accuracy || 0; }));
-        var now = new Date().toLocaleString(undefined, {
+        var now = new Date().toLocaleString(PORTAL_LOCALE, {
           month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
         });
         setLiveStatus(
@@ -365,6 +436,7 @@ window.ScorePortal = (function () {
   // Self-bootstrap the live index page when its container is present.
   ready(function () {
     if (document.getElementById("live-table")) initLiveIndex();
+    if (document.getElementById("benchmark-list")) initBenchmarkDirectory();
   });
 
   return api;
