@@ -5,6 +5,7 @@ const STATUS_STYLES: Record<EvalRunStatus, string> = {
   running: 'bg-primary/15 text-primary border-primary/30',
   done: 'bg-gain/15 text-gain border-gain/30',
   failed: 'bg-destructive/15 text-destructive border-destructive/30',
+  degraded: 'bg-primary/15 text-primary border-primary/30',
 };
 
 export function EvalStatusBadge({
