@@ -21,15 +21,57 @@ interface ScoreResponse {
   spec_id: string;
 }
 
-/** Map a non-2xx status to actionable copy. */
+interface ValidationItem {
+  loc?: unknown[];
+  msg?: string;
+}
+
+/**
+ * Pull a human-readable reason out of a scoreboard error body. Handles the two
+ * shapes the scoreboard returns: FastAPI 422 (`detail: [{loc, msg}]`) and the
+ * app's FieldErrorResponse / flat detail (`detail: {field, message}` | string).
+ * Returns null when the body isn't a recognizable JSON error.
+ */
+function detailFromBody(body: string): string | null {
+  let detail: unknown;
+  try {
+    detail = (JSON.parse(body) as { detail?: unknown }).detail;
+  } catch {
+    return null;
+  }
+  if (typeof detail === 'string') return detail || null;
+  if (Array.isArray(detail)) {
+    const parts = (detail as ValidationItem[])
+      .map((item) => {
+        const loc = Array.isArray(item.loc) ? item.loc : [];
+        const field = loc.length > 0 ? String(loc[loc.length - 1]) : '';
+        const msg = String(item.msg ?? '').replace(/^Value error,\s*/, '');
+        if (!msg) return '';
+        return field && !msg.includes(field) ? `${field}: ${msg}` : msg;
+      })
+      .filter(Boolean);
+    return parts.length > 0 ? parts.join('; ') : null;
+  }
+  if (detail && typeof detail === 'object') {
+    const { field, message } = detail as { field?: string; message?: string };
+    if (message) return field && !message.includes(field) ? `${field}: ${message}` : message;
+  }
+  return null;
+}
+
+/** Map a non-2xx status to actionable copy, surfacing the scoreboard's own reason. */
 function errorForStatus(status: number, body: string): string {
+  const detail = detailFromBody(body);
   switch (status) {
     case 404:
-      return 'That benchmark is not registered on the scoreboard yet. Coordinate with the scoreboard owner before publishing.';
+      return detail
+        ? `The scoreboard rejected the submission — ${detail}. Coordinate with the scoreboard owner before publishing.`
+        : 'That benchmark is not registered on the scoreboard yet. Coordinate with the scoreboard owner before publishing.';
     case 400:
-      return 'The scoreboard rejected the aggregate (accuracy must equal correct/total). This run may have inconsistent totals.';
     case 422:
-      return 'The submission did not match the scoreboard contract. This is a bug — please report it.';
+      return detail
+        ? `The scoreboard rejected the submission — ${detail}.`
+        : 'The submission did not match the scoreboard contract. This is a bug — please report it.';
     default:
       return `Scoreboard returned HTTP ${status}: ${body.slice(0, 200)}`;
   }
