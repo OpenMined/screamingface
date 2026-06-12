@@ -98,6 +98,19 @@ describe('PublishToLeaderboardDialog', () => {
     expect(screen.getByRole('button', { name: /publish/i })).toBeEnabled();
   });
 
+  it('blocks a zero-question run with an explanation (preflight guard)', () => {
+    const run = makeRun({ total_questions: 0, correct_questions: 0 });
+    render(<PublishToLeaderboardDialog run={run} serverUrl="" onClose={vi.fn()} />);
+    expect(screen.getByText(/no graded questions/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /publish/i })).toBeDisabled();
+  });
+
+  it('does not block a normal completed run', () => {
+    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
+    expect(screen.queryByText(/no graded questions/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /publish/i })).toBeEnabled();
+  });
+
   it('shows the success state and opens the leaderboard deep link', () => {
     hookState.status = 'success';
     hookState.result = {

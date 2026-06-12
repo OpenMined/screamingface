@@ -11,6 +11,7 @@ import {
   hasLocalDataRefs,
   sanitizeDataRefs,
 } from '@/lib/url4-redaction';
+import { publishBlockReason } from '@/lib/publish-guard';
 import type { EvalRunDetail } from './types';
 
 interface Props {
@@ -51,10 +52,17 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
     .filter((p) => p.length > 0);
 
   const submitting = status === 'submitting';
-  // Block publish until: benchmark known, and any /data refs are either sanitized
-  // or explicitly acknowledged as exposing local data.
+  // Preflight: deterministic scoreboard-contract violations we can catch before
+  // the round-trip (e.g. a zero-question degraded run) — block + explain up front.
+  const blockReason = useMemo(
+    () => publishBlockReason({ run, url4Expression: expressionToPublish }),
+    [run, expressionToPublish],
+  );
+  // Block publish until: run is publishable, benchmark known, and any /data refs
+  // are either sanitized or explicitly acknowledged as exposing local data.
   const redactionResolved = !hasDataRefs || sanitize || ackExpose;
-  const canPublish = benchmarkId.trim().length > 0 && specId.trim().length > 0 && redactionResolved;
+  const canPublish =
+    !blockReason && benchmarkId.trim().length > 0 && specId.trim().length > 0 && redactionResolved;
 
   const handlePublish = async (): Promise<void> => {
     const out = await publish({
@@ -102,6 +110,14 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
             </div>
           ) : (
             <>
+              {/* Preflight block — this run can't satisfy the scoreboard contract */}
+              {blockReason && (
+                <div className="flex items-start gap-1.5 rounded-none border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-foreground">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                  <span>{blockReason}</span>
+                </div>
+              )}
+
               {/* Aggregate (read-only) */}
               <dl className="grid grid-cols-3 gap-3 text-xs">
                 <div>
