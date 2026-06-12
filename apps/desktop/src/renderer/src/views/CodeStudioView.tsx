@@ -50,7 +50,7 @@ export function CodeStudioView() {
     <div className="flex h-full flex-col">
       <div className="flex items-start justify-between border-b border-border px-6 py-4">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Code Studio</h1>
+          <h1 className="text-[1.6875rem] font-semibold text-foreground">Code Studio</h1>
           <p className="text-xs text-muted-foreground">
             Python scripts referenced by URL4 expressions (/data/code/&lt;name&gt;.py)
           </p>

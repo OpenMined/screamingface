@@ -316,7 +316,7 @@ export function SettingsView() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <h1 className="font-heading text-lg font-semibold text-foreground">Settings</h1>
+      <h1 className="font-heading text-[1.6875rem] font-semibold text-foreground">Settings</h1>
 
       {/* Server settings */}
       <section className="rounded-none border border-border bg-card p-4">

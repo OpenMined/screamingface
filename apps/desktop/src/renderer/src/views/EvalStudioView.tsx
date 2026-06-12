@@ -69,7 +69,7 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
     <div className="flex h-full flex-col">
       <div className="flex items-start justify-between border-b border-border px-6 py-4">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Eval Studio</h1>
+          <h1 className="text-[1.6875rem] font-semibold text-foreground">Eval Studio</h1>
           <p className="text-xs text-muted-foreground">
             History of evaluation runs across leaderboard entries
           </p>

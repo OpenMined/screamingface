@@ -44,7 +44,7 @@ export function DashboardView({ server, onAigwLoginRequest }: DashboardViewProps
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <h1 className="font-heading text-lg font-semibold text-foreground">Dashboard</h1>
+      <h1 className="font-heading text-[1.6875rem] font-semibold text-foreground">Dashboard</h1>
 
       {/* Venv status */}
       <VenvStatusCard status={venv.status} uvFound={venv.uvFound} />
