@@ -262,7 +262,7 @@ export function SessionsView() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Sessions</h1>
+          <h1 className="text-[1.6875rem] font-semibold text-foreground">Sessions</h1>
           <p className="text-xs text-muted-foreground">
             Each session runs a CLI tool in its own terminal with a dedicated proxy
           </p>

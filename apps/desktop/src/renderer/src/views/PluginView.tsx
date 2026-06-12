@@ -15,10 +15,9 @@ export function PluginView() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <h1 className="font-heading text-lg font-semibold text-foreground">Plugins</h1>
+      <h1 className="font-heading text-[1.6875rem] font-semibold text-foreground">Plugins</h1>
       <p className="text-sm text-muted-foreground">
-        Load remote UI plugins from CDN URLs. Each plugin renders inside the app as a sidebar
-        entry.
+        Load remote UI plugins from CDN URLs. Each plugin renders inside the app as a sidebar entry.
       </p>
 
       <PluginBrowser onInstall={handleInstall} />

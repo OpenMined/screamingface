@@ -18,7 +18,7 @@ export function PrivateDataView() {
     <div className="relative flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <div>
-          <h1 className="text-xl">Private Data</h1>
+          <h1 className="text-[1.6875rem]">Private Data</h1>
           <p className="text-sm text-muted-foreground">
             Editable markdown entities. Reference any entry in url4 as{' '}
             <code>/private/&lt;uuid7&gt;</code>.

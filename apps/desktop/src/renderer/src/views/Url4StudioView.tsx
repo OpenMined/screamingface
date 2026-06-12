@@ -50,7 +50,7 @@ export function Url4StudioView() {
     <div className="flex h-full flex-col">
       <div className="flex items-start justify-between border-b border-border px-6 py-4">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">URL4 Studio</h1>
+          <h1 className="text-[1.6875rem] font-semibold text-foreground">URL4 Studio</h1>
           <p className="text-xs text-muted-foreground">
             Named URL4 expressions you can run in Eval Studio and share
           </p>

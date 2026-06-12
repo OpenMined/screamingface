@@ -27,21 +27,21 @@ export function BrandMark({ animate = false }: BrandMarkProps) {
 
   return (
     <span className="flex items-center gap-2">
-      <span className="grid size-5 place-items-center" aria-hidden="true">
+      <span className="grid size-[1.875rem] place-items-center" aria-hidden="true">
         {animate ? (
           <img
             key={nonce}
             src={`${screamShaking}?n=${nonce}`}
             alt=""
             draggable={false}
-            className="size-5 select-none"
+            className="size-[1.875rem] select-none"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           />
         ) : (
-          <span className="text-lg leading-none">&#x1F631;</span>
+          <span className="text-[1.6875rem] leading-none">&#x1F631;</span>
         )}
       </span>
-      <span className="font-heading text-sm font-semibold text-sidebar-foreground">
+      <span className="font-heading text-[1.3125rem] font-semibold text-sidebar-foreground">
         screamingface
       </span>
     </span>
