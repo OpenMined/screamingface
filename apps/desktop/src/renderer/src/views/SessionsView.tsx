@@ -61,11 +61,11 @@ function statusColor(status: SessionStatus): string {
     case 'running':
       return 'text-gain';
     case 'starting':
-      return 'text-yellow-400';
+      return 'text-primary';
     case 'stopping':
-      return 'text-orange-400';
+      return 'text-primary';
     case 'error':
-      return 'text-red-400';
+      return 'text-destructive';
     default:
       return 'text-muted-foreground';
   }
@@ -182,20 +182,20 @@ export function SessionsView() {
       {/* Install prompt overlay */}
       {installPrompt && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80"
           onClick={() => setInstallPrompt(null)}
         >
           <div
-            className="relative w-[420px] overflow-hidden rounded-[10px] border border-border bg-card shadow-2xl"
+            className="relative w-[420px] overflow-hidden rounded-none border border-border bg-card"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Gradient accent bar */}
-            <div className="h-1 bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500" />
+            {/* Flat accent bar — the single amber mark spark */}
+            <div className="h-0.5 bg-primary" />
 
             <div className="p-6">
               {/* Icon + title */}
               <div className="mb-4 flex items-start gap-4">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-muted">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-none bg-muted">
                   <Download className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div>
@@ -209,7 +209,7 @@ export function SessionsView() {
               </div>
 
               {/* Install command */}
-              <div className="mb-4 rounded-lg bg-muted/50 p-3">
+              <div className="mb-4 rounded-none bg-muted/50 p-3">
                 <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                   Install via terminal
                 </p>
@@ -401,7 +401,7 @@ function SessionCard({
 
   return (
     <div className="space-y-0">
-      <div className="flex items-center gap-4 rounded-lg border border-border bg-card px-4 py-3">
+      <div className="flex items-center gap-4 rounded-none border border-border bg-card px-4 py-3">
         {/* Status dot */}
         <Circle className={`h-2.5 w-2.5 shrink-0 fill-current ${statusColor(session.status)}`} />
 
