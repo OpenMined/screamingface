@@ -356,75 +356,58 @@ def main() -> int:
                 bool(page.get_attribute("#theme-toggle", "aria-label")),
             )
 
-        # ---- index: live leaderboard reference page ----
+        # ---- index: benchmark directory + drilldown ----
         def t_index():
             page.goto(pages["index"])
-            page.wait_for_selector("#live-table tbody tr", timeout=8000)
-            rows = page.locator("#live-table tbody tr")
+            page.wait_for_selector("#benchmark-table tbody tr", timeout=8000)
+            rows = page.locator("#benchmark-table tbody tr")
             check(
                 "T7",
-                "index: headline matches live brand reference",
-                page.locator("h1").first.text_content() == "The leaderboard, live.",
+                "index: headline matches benchmark directory reference",
+                page.locator("h1").first.text_content()
+                == "Results you can rerun, not just read.",
             )
             check(
                 "T7",
-                "index: live scoreboard status note rendered",
-                page.locator("#live-status.note.gain").count() == 1
-                and "scoreboard.screamingface.ai"
-                in (page.locator("#live-status").text_content() or ""),
+                "index: no inline live leaderboard block",
+                page.locator("#live-table, #live-chart, #live-status").count() == 0,
             )
-            status_text = page.locator("#live-status").text_content() or ""
+            newest_text = page.locator("#stat-newest").text_content() or ""
             check(
                 "T7",
-                "index: live status uses English date text",
-                re.search(
+                "index: benchmark stats rendered",
+                (page.locator("#stat-benchmarks").text_content() or "") == "2"
+                and (page.locator("#stat-datasets").text_content() or "") == "2"
+                and re.search(
                     r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b",
-                    status_text,
+                    newest_text,
                 )
                 is not None
-                and re.search(r"[А-Яа-яЁё]", status_text) is None,
-                status_text,
+                and re.search(r"[А-Яа-яЁё]", newest_text) is None,
+                newest_text,
             )
             check(
                 "T7",
-                "index: one live leaderboard row per API entry",
-                rows.count() == 4,
+                "index: one directory row per benchmark",
+                rows.count() == 2,
                 f"got {rows.count()}",
             )
+            rows.filter(has_text="News Livetruth").locator(
+                "a", has_text="Leaderboard"
+            ).first.click()
+            page.wait_for_url("**/benchmark.html?id=livetruth", timeout=8000)
+            page.wait_for_selector("#leaderboard-body tr", timeout=8000)
             check(
                 "T7",
-                "index: live table uses configuration label",
-                "direct-google-gemini-3-1-pro-preview"
-                in (rows.first.text_content() or ""),
-            )
-            check(
-                "T7",
-                "index: live chart has one row per API entry",
-                page.locator("#live-chart .row").count() == 4,
-                f"got {page.locator('#live-chart .row').count()}",
-            )
-            check(
-                "T7",
-                "index: only top-ranked live chart fill is green",
-                page.locator("#live-chart .fill.sota").count() == 1
-                and page.locator("#live-chart .fill.ens").count() == 3,
-            )
-            check(
-                "T7",
-                "index: first live table row is highlighted as SOTA",
-                page.locator("#live-table tbody tr.sota").count() == 1,
-            )
-            check(
-                "T7",
-                "index: run links use branded run affordance",
-                rows.first.locator("a.btn.ghost").count() == 1
-                and "▸ run" in (rows.first.locator("a.btn.ghost").text_content() or "")
-                and (
-                    rows.first.locator("a.btn.ghost").get_attribute("href") or ""
-                ).startswith("sf://run?spec="),
+                "index: leaderboard link opens detailed page with Copy buttons",
+                page.locator("#benchmark-name").text_content() == "News Livetruth"
+                and page.locator(
+                    "#leaderboard-body td.col-run button.btn.ghost"
+                ).count()
+                == 3,
             )
 
-        section("T7", "index: live leaderboard block", t_index)
+        section("T7", "index: benchmark directory drilldown", t_index)
 
         # ---- index: all benchmarks + dataset affordances restored ----
         def t_index_directory():
