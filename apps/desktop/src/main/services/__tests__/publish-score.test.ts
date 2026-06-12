@@ -32,11 +32,11 @@ function okResponse(): Response {
   } as unknown as Response;
 }
 
-function errResponse(status: number): Response {
+function errResponse(status: number, body = 'rejected'): Response {
   return {
     ok: false,
     status,
-    text: async () => 'rejected',
+    text: async () => body,
     json: async () => ({}),
   } as unknown as Response;
 }
@@ -105,6 +105,51 @@ describe('submitScore (main process)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.error).toMatch(/not registered/i);
+  });
+
+  it('surfaces the FastAPI 422 validator detail instead of a generic "report it" message', async () => {
+    // Real scoreboard shape: detail is an array of {loc, msg}.
+    const body = JSON.stringify({
+      detail: [
+        {
+          type: 'value_error',
+          loc: ['body', 'total_questions'],
+          msg: 'Value error, total_questions must be positive',
+        },
+      ],
+    });
+    global.fetch = vi.fn(async () => errResponse(422, body)) as unknown as typeof fetch;
+
+    const outcome = await submitScore({ ...REQUEST, totalQuestions: 0, correctQuestions: 0 });
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) {
+      expect(outcome.error).toContain('total_questions must be positive');
+      expect(outcome.error).not.toMatch(/please report it/i);
+    }
+  });
+
+  it('surfaces the 400 FieldErrorResponse message (accuracy mismatch)', async () => {
+    const body = JSON.stringify({
+      detail: { field: 'accuracy', message: 'accuracy 0.9 does not match correct/total=0.81' },
+    });
+    global.fetch = vi.fn(async () => errResponse(400, body)) as unknown as typeof fetch;
+
+    const outcome = await submitScore(REQUEST);
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.error).toContain('does not match');
+  });
+
+  it('falls back to generic copy when the error body is not JSON', async () => {
+    global.fetch = vi.fn(async () =>
+      errResponse(422, '<html>502 bad gateway</html>'),
+    ) as unknown as typeof fetch;
+
+    const outcome = await submitScore(REQUEST);
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.error).toMatch(/did not match the scoreboard contract/i);
   });
 
   it('retries a transient network failure with backoff, then succeeds', async () => {
