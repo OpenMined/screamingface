@@ -6,6 +6,7 @@ import {
   Terminal,
   Workflow,
   FileCode2,
+  FileText,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ export type View =
   | 'eval-studio'
   | 'url4-studio'
   | 'code-studio'
+  | 'private-data'
   | 'settings'
   | `plugin:${string}`;
 
@@ -35,6 +37,7 @@ const coreItems: NavItem[] = [
   { id: 'eval-studio', label: 'Eval Studio', icon: FlaskConical },
   { id: 'url4-studio', label: 'URL4 Studio', icon: Workflow },
   { id: 'code-studio', label: 'Code Studio', icon: FileCode2 },
+  { id: 'private-data', label: 'Private Data', icon: FileText },
 ];
 
 // Settings is pinned to the bottom of the sidebar, separate from the main nav.
