@@ -38,7 +38,7 @@ export function AddEvalRunDialog({ onClose, onCreate }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-16">
-      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-[10px] border border-border bg-card shadow-2xl">
+      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-none border border-border bg-card shadow-2xl">
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <h2 className="text-base font-semibold text-foreground">New eval run</h2>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
@@ -53,7 +53,7 @@ export function AddEvalRunDialog({ onClose, onCreate }: Props) {
             </span>
             <input
               autoFocus
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className="w-full rounded-none border border-input bg-background px-3 py-2 text-sm"
               placeholder="e.g. my-ensemble"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -73,7 +73,7 @@ export function AddEvalRunDialog({ onClose, onCreate }: Props) {
                 <ListChecks className="h-3.5 w-3.5" /> Choose from saved specs
               </button>
             </div>
-            <div className="rounded-md border border-border">
+            <div className="rounded-none border border-border">
               <Url4Field value={expression} onChange={setExpression} serverUrl={serverUrl} />
             </div>
           </div>
