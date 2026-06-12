@@ -284,6 +284,10 @@ export interface ElectronAPI {
   publish: {
     getContext: () => Promise<PublishContext>;
     submitScore: (request: PublishScoreRequest) => Promise<PublishOutcome>;
+    /** Backlog of recent publish/scoreboard diagnostic lines. */
+    getLogs: () => Promise<string[]>;
+    /** Subscribe to live publish/scoreboard log lines; returns an unsubscribe fn. */
+    onLog: (callback: (line: string) => void) => () => void;
     openExternal: (url: string) => Promise<void>;
   };
   backends: {

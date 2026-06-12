@@ -10,7 +10,7 @@
 // (`extra="forbid"`) — send these keys only.
 
 import { resolvePublishContext } from './publish-context';
-import { log } from '../debug-log';
+import { publishLog } from './publish-log';
 import type { PublishOutcome, PublishResult, PublishScoreRequest } from '../../preload/types';
 
 const TIMEOUT_MS = 10_000;
@@ -140,7 +140,7 @@ export async function submitScore(request: PublishScoreRequest): Promise<Publish
   const target = `${ctx.scoreboardUrl.replace(/\/$/, '')}/v1/scores`;
   // Diagnostics (debug.log): we have no server-side log access, so record the
   // request shape and every attempt's raw status/body. No submitter name logged.
-  log(
+  publishLog(
     `publish: POST ${target} run=${request.runId} benchmark=${request.benchmarkId} ` +
       `spec=${request.specId} total=${request.totalQuestions} correct=${request.correctQuestions} ` +
       `providers=${request.providers.join('+') || '-'}`,
@@ -156,12 +156,12 @@ export async function submitScore(request: PublishScoreRequest): Promise<Publish
       res = await postOnce(ctx.scoreboardUrl, body, idempotencyKey);
     } catch (e) {
       lastErr = 'Could not reach the scoreboard. Check your connection and try again.';
-      log(`publish: ${label} network/abort error: ${(e as Error).message}`);
+      publishLog(`publish: ${label} network/abort error: ${(e as Error).message}`);
       continue; // network/abort — retry
     }
     if (res.ok) {
       const data = (await res.json()) as ScoreResponse;
-      log(`publish: ${label} -> HTTP ${res.status} ok, score=${data.id}`);
+      publishLog(`publish: ${label} -> HTTP ${res.status} ok, score=${data.id}`);
       const portalLink = `${ctx.portalUrl.replace(/\/$/, '')}/spec.html?benchmark=${encodeURIComponent(data.benchmark_id)}&spec=${encodeURIComponent(data.spec_id)}`;
       const value: PublishResult = {
         id: data.id,
@@ -173,7 +173,7 @@ export async function submitScore(request: PublishScoreRequest): Promise<Publish
     }
     // Read the body once, for both logging and the user-facing message.
     const text = await res.text();
-    log(`publish: ${label} -> HTTP ${res.status}: ${text.slice(0, 500)}`);
+    publishLog(`publish: ${label} -> HTTP ${res.status}: ${text.slice(0, 500)}`);
     if (res.status >= 500) {
       lastErr = errorForStatus(res.status, text);
       continue; // server error — retry
@@ -181,6 +181,6 @@ export async function submitScore(request: PublishScoreRequest): Promise<Publish
     // 4xx (other than 5xx) is deterministic — do not retry.
     return { ok: false, error: errorForStatus(res.status, text) };
   }
-  log(`publish: giving up after ${BACKOFF_MS.length + 1} attempts: ${lastErr ?? 'unknown'}`);
+  publishLog(`publish: giving up after ${BACKOFF_MS.length + 1} attempts: ${lastErr ?? 'unknown'}`);
   return { ok: false, error: lastErr ?? 'Publishing failed after several attempts.' };
 }

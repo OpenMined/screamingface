@@ -4,6 +4,8 @@ import { Trash2, Copy, Check, ChevronRight, ChevronDown, Maximize2, Minimize2 } 
 interface ServerLogsProps {
   logs: string[];
   onClear: () => void;
+  /** Panel heading; defaults to "Logs". */
+  title?: string;
 }
 
 type LogLevel = 'debug' | 'info' | 'warning' | 'error' | 'critical' | 'system';
@@ -103,7 +105,7 @@ function LogLine({ line }: { line: string }) {
   );
 }
 
-export function ServerLogs({ logs, onClear }: ServerLogsProps) {
+export function ServerLogs({ logs, onClear, title = 'Logs' }: ServerLogsProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
@@ -152,7 +154,8 @@ export function ServerLogs({ logs, onClear }: ServerLogsProps) {
     <div className={wrapperClass}>
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <h3 className="text-xs font-medium text-muted-foreground">
-          Logs{fullscreen && <span className="ml-2 text-[10px] opacity-50">ESC to exit</span>}
+          {title}
+          {fullscreen && <span className="ml-2 text-[10px] opacity-50">ESC to exit</span>}
         </h3>
         <div className="flex items-center gap-2">
           <button

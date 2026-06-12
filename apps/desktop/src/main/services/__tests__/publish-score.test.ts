@@ -9,8 +9,8 @@ const CTX = {
   client: { name: 'screamingface-desktop', version: '0.4.2', platform: 'darwin' },
 };
 vi.mock('../publish-context', () => ({ resolvePublishContext: () => CTX }));
-// debug-log imports electron's app at module load — stub it for the node test env.
-vi.mock('../../debug-log', () => ({ log: () => {} }));
+// publish-log transitively imports electron (debug-log) at module load — stub it.
+vi.mock('../publish-log', () => ({ publishLog: () => {} }));
 
 import { submitScore } from '../publish-score';
 
