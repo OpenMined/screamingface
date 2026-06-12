@@ -3,12 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { usePublishScore, type PublishInputs } from '../use-publish-score';
 import type { EvalRunDetail } from '@/components/eval/types';
-
-const CTX = {
-  scoreboardUrl: 'https://scoreboard.screamingface.ai',
-  portalUrl: 'https://screamingface.ai/portal/',
-  client: { name: 'screamingface-desktop', version: '0.4.2', platform: 'darwin' },
-};
+import type { PublishOutcome } from '../../../../preload/types';
 
 const RUN: EvalRunDetail = {
   id: 'eval-run-abc123',
@@ -34,114 +29,87 @@ const INPUTS: PublishInputs = {
   submittedBy: null,
 };
 
-function okResponse(): Response {
-  return {
-    ok: true,
-    status: 201,
-    json: async () => ({ id: 'score-1', benchmark_id: 'hle', spec_id: 'hle-ensemble-three' }),
-  } as unknown as Response;
-}
+const SUCCESS: PublishOutcome = {
+  ok: true,
+  value: {
+    id: 'score-1',
+    benchmarkId: 'hle',
+    specId: 'hle-ensemble-three',
+    portalLink: 'https://screamingface.ai/portal/spec.html?benchmark=hle&spec=hle-ensemble-three',
+  },
+};
 
-function errResponse(status: number): Response {
-  return {
-    ok: false,
-    status,
-    text: async () => 'rejected',
-    json: async () => ({}),
-  } as unknown as Response;
-}
+let submitScore: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  submitScore = vi.fn(async () => SUCCESS);
   (window as unknown as { electronAPI: unknown }).electronAPI = {
-    publish: { getContext: vi.fn(async () => CTX), openExternal: vi.fn(async () => {}) },
+    publish: { submitScore, openExternal: vi.fn(async () => {}) },
   };
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
-  vi.useRealTimers();
 });
 
 describe('usePublishScore', () => {
-  it('POSTs the nested-client wire shape with the eval_run id as Idempotency-Key', async () => {
-    const fetchMock = vi.fn(async () => okResponse());
-    global.fetch = fetchMock as unknown as typeof fetch;
-
+  it('flattens the run into the IPC request (idempotency id, totals, ran_at) and returns the value on success', async () => {
     const { result } = renderHook(() => usePublishScore());
     let out: Awaited<ReturnType<typeof result.current.publish>> = null;
     await act(async () => {
       out = await result.current.publish(INPUTS);
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://scoreboard.screamingface.ai/v1/scores');
-    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('eval-run-abc123');
-    const body = JSON.parse(init.body as string);
-    // Nested client, not flat — and recomputed accuracy = correct/total.
-    expect(body.client).toEqual({
-      name: 'screamingface-desktop',
-      version: '0.4.2',
-      platform: 'darwin',
+    expect(submitScore).toHaveBeenCalledTimes(1);
+    expect(submitScore).toHaveBeenCalledWith({
+      benchmarkId: 'hle',
+      specId: 'hle-ensemble-three',
+      url4Expression: 'url4://ensemble(claude,codex,gemini)/hle',
+      providers: ['claude', 'codex', 'gemini'],
+      submittedBy: null,
+      runId: 'eval-run-abc123',
+      totalQuestions: 1000,
+      correctQuestions: 810,
+      ranAtLocal: '2026-05-04T11:55:00Z',
     });
-    expect(body).not.toHaveProperty('client_name');
-    expect(body.accuracy).toBeCloseTo(0.81, 5);
-    expect(body.ran_with_providers).toEqual(['claude', 'codex', 'gemini']);
-    expect(body.submitted_by).toBeNull();
-    expect(body.ran_at_local).toBe('2026-05-04T11:55:00Z');
-
     expect(result.current.status).toBe('success');
-    expect(out).toMatchObject({
-      id: 'score-1',
-      portalLink: 'https://screamingface.ai/portal/spec.html?benchmark=hle&spec=hle-ensemble-three',
-    });
+    expect(out).toEqual(SUCCESS.value);
+    expect(result.current.result).toEqual(SUCCESS.value);
   });
 
-  it('recomputes accuracy from totals (ignores a stale stored value)', async () => {
-    const fetchMock = vi.fn(async () => okResponse());
-    global.fetch = fetchMock as unknown as typeof fetch;
-    const drifted: PublishInputs = {
-      ...INPUTS,
-      run: { ...RUN, accuracy: 0.9, correct_questions: 810, total_questions: 1000 },
-    };
+  it('falls back to started_at when the run has no finished_at', async () => {
     const { result } = renderHook(() => usePublishScore());
     await act(async () => {
-      await result.current.publish(drifted);
+      await result.current.publish({ ...INPUTS, run: { ...RUN, finished_at: null } });
     });
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.accuracy).toBeCloseTo(0.81, 5); // 810/1000, not the stored 0.9
+    const sent = submitScore.mock.calls[0][0] as { ranAtLocal: string };
+    expect(sent.ranAtLocal).toBe('2026-05-04T11:00:00Z');
   });
 
-  it('does not retry a 4xx and surfaces actionable copy', async () => {
-    const fetchMock = vi.fn(async () => errResponse(404));
-    global.fetch = fetchMock as unknown as typeof fetch;
+  it('surfaces the error string from a failed outcome without throwing', async () => {
+    submitScore.mockResolvedValueOnce({
+      ok: false,
+      error: 'That benchmark is not registered on the scoreboard yet.',
+    } satisfies PublishOutcome);
 
     const { result } = renderHook(() => usePublishScore());
+    let out: Awaited<ReturnType<typeof result.current.publish>> = 'sentinel' as never;
     await act(async () => {
-      await result.current.publish(INPUTS);
+      out = await result.current.publish(INPUTS);
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(out).toBeNull();
     expect(result.current.status).toBe('error');
     expect(result.current.error).toMatch(/not registered/i);
   });
 
-  it('retries a transient network failure with backoff, then succeeds', async () => {
-    vi.useFakeTimers();
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('network down'))
-      .mockResolvedValueOnce(okResponse());
-    global.fetch = fetchMock as unknown as typeof fetch;
-
+  it('maps a thrown IPC error to error state', async () => {
+    submitScore.mockRejectedValueOnce(new Error('ipc exploded'));
     const { result } = renderHook(() => usePublishScore());
     await act(async () => {
-      const promise = result.current.publish(INPUTS);
-      await vi.advanceTimersByTimeAsync(1100); // first backoff = 1s
-      await promise;
+      await result.current.publish(INPUTS);
     });
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(result.current.status).toBe('success');
+    expect(result.current.status).toBe('error');
+    expect(result.current.error).toBe('ipc exploded');
   });
 });
