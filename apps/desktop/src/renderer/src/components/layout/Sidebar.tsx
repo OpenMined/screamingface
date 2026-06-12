@@ -9,6 +9,7 @@ import {
   FileText,
   type LucideIcon,
 } from 'lucide-react';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { BrandMark } from '@/components/layout/BrandMark';
 import type { BackendPollingError, PluginManifest } from '../../../../preload/types';
@@ -54,15 +55,23 @@ export function Sidebar({ currentView, onNavigate, plugins, onAigwLoginRequest }
   const { statuses, pollingError, refresh } = useBackendStatus();
   const gatewayStatus = isBackendStatusV2(statuses) ? statuses : null;
   const showPollingError = pollingError !== null && pollingError.consecutiveFailures >= 2;
+  const [logoHover, setLogoHover] = useState(false);
 
   return (
     <aside className="flex w-52 flex-col border-r border-sidebar-border bg-sidebar">
-      {/* App title — draggable region for macOS title bar */}
-      <div
-        className="flex items-center gap-2 px-4 pb-3 pt-8"
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      >
-        <BrandMark />
+      {/* App title — outer strip stays draggable for the macOS title bar... */}
+      <div className="px-4 pb-3 pt-8" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+        {/* ...but the header row itself is interactive (no-drag) so hover events
+            fire inside the drag region. Hovering anywhere on the row plays the
+            animated mark. */}
+        <div
+          className="flex w-full items-center"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          onMouseEnter={() => setLogoHover(true)}
+          onMouseLeave={() => setLogoHover(false)}
+        >
+          <BrandMark animate={logoHover} />
+        </div>
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 px-2 py-2">
