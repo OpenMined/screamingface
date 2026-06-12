@@ -226,82 +226,7 @@ window.ScorePortal = (function () {
     }
   }
 
-  /* ---- live index page -------------------------------------------------- */
-  var LIVE_BENCHMARK_ID = "livetruth";
-
-  function setLiveStatus(message, kind) {
-    var node = document.getElementById("live-status");
-    if (!node) return;
-    node.className = "note" + (kind === "gain" ? " gain" : "");
-    node.textContent = "";
-    node.appendChild(el("span", "kicker", kind === "error" ? "scoreboard" : "live · scoreboard"));
-    node.appendChild(document.createTextNode(message));
-  }
-
-  function liveFillWidth(accuracy) {
-    if (typeof accuracy !== "number" || isNaN(accuracy)) return "0%";
-    var pct = Math.max(0, Math.min(100, accuracy * 100));
-    return (pct.toFixed(1) + "%").replace(".0%", "%");
-  }
-
-  function renderLiveChart(entries) {
-    var node = document.getElementById("live-chart");
-    if (!node) return;
-    clear(node);
-    entries.forEach(function (entry, index) {
-      var row = el("div", "row");
-      row.appendChild(el("span", "lbl", entry.spec_id));
-      var track = el("span", "track");
-      var fill = el("span", "fill " + (index === 0 ? "sota" : "ens"));
-      fill.style.width = liveFillWidth(entry.accuracy);
-      track.appendChild(fill);
-      row.appendChild(track);
-      row.appendChild(el("span", "val", formatPercent(entry.accuracy)));
-      node.appendChild(row);
-    });
-  }
-
-  function liveRunLink(entry) {
-    if (!entry.url4_expression) return document.createTextNode(EM_DASH);
-    return link("btn ghost", buildRunHref(entry.spec_id, entry.url4_expression), "▸ run");
-  }
-
-  function renderLiveTable(entries) {
-    var host = document.getElementById("live-table");
-    if (!host) return;
-    clear(host);
-
-    var table = document.createElement("table");
-    table.setAttribute("aria-label", "LiveTruth leaderboard");
-    var thead = document.createElement("thead");
-    var headRow = document.createElement("tr");
-    ["#", "configuration", "accuracy", "questions", "verified", ""].forEach(function (label, index) {
-      headRow.appendChild(el("th", (index === 2 || index === 3) ? "num" : null, label));
-    });
-    thead.appendChild(headRow);
-    table.appendChild(thead);
-
-    var tbody = document.createElement("tbody");
-    entries.forEach(function (entry, index) {
-      var rank = typeof entry.rank === "number" ? entry.rank : index + 1;
-      var tr = document.createElement("tr");
-      if (rank === 1) tr.className = "sota";
-      tr.appendChild(el("td", null, rank));
-      var specTd = el("td", "cell-wrap", entry.spec_id);
-      if (rank === 1) specTd.appendChild(el("span", "sr-only", " (state of the art)"));
-      tr.appendChild(specTd);
-      tr.appendChild(el("td", "num", formatPercent(entry.accuracy)));
-      tr.appendChild(el("td", "num", formatQuestions(entry.total_questions)));
-      tr.appendChild(el("td", null, entry.verified_by_openmined ? "✓ OpenMined" : EM_DASH));
-      var runTd = document.createElement("td");
-      runTd.appendChild(liveRunLink(entry));
-      tr.appendChild(runTd);
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    host.appendChild(table);
-  }
-
+  /* ---- index page ------------------------------------------------------ */
   // Site-root data files (published by the deploy workflow) open in the
   // in-portal viewer instead of forcing a download — GitHub Pages serves
   // .jsonl as application/octet-stream with no MIME override available.
@@ -346,19 +271,40 @@ window.ScorePortal = (function () {
     return tr;
   }
 
-  function initBenchmarkDirectory() {
+  function formatDateOnly(value) {
+    if (!value) return EM_DASH;
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return EM_DASH;
+    return d.toLocaleDateString(PORTAL_LOCALE, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function updateIndexStats(benchmarks) {
+    var counts = {
+      "stat-benchmarks": String(benchmarks.length),
+      "stat-datasets": String(benchmarks.filter(function (b) { return httpUrlOrNull(b.dataset_url) !== null; }).length),
+      "stat-newest": formatDateOnly(
+        benchmarks.map(function (b) { return b.created_at; }).filter(Boolean).sort().pop()
+      ),
+    };
+    Object.keys(counts).forEach(function (id) {
+      var node = document.getElementById(id);
+      if (node) node.textContent = counts[id];
+    });
+  }
+
+  function initIndex() {
     var statusNode = document.getElementById("benchmark-status");
     var listNode = document.getElementById("benchmark-list");
     var wrapNode = document.getElementById("benchmark-table-wrap");
-    if (!statusNode || !listNode || !wrapNode) return;
     showLoading(statusNode, "Loading benchmarks…");
     wrapNode.hidden = true;
 
     fetchJson("/v1/benchmarks").then(
       function (data) {
         var benchmarks = (data && data.benchmarks) || [];
+        updateIndexStats(benchmarks);
         if (benchmarks.length === 0) {
-          showEmpty(statusNode, "No public benchmarks yet.");
+          showEmpty(statusNode, "No public benchmarks yet. The API is live; rows will appear here as soon as benchmark specs are registered.");
           return;
         }
         clear(listNode);
@@ -368,39 +314,6 @@ window.ScorePortal = (function () {
       },
       function (err) {
         showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
-      }
-    );
-  }
-
-  function initLiveIndex() {
-    setLiveStatus("Fetching the latest runs…");
-    fetchJson("/v1/leaderboard/" + encodeURIComponent(LIVE_BENCHMARK_ID) + "?top=50").then(
-      function (data) {
-        var entries = (data && data.entries) || [];
-        if (entries.length === 0) {
-          setLiveStatus("The scoreboard is live, but no runs are published for this benchmark yet.");
-          return;
-        }
-        var best = Math.max.apply(null, entries.map(function (entry) { return entry.accuracy || 0; }));
-        var now = new Date().toLocaleString(PORTAL_LOCALE, {
-          month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-        });
-        setLiveStatus(
-          entries.length + " run" + (entries.length === 1 ? "" : "s") +
-          " on LiveTruth · best " + formatPercent(best) +
-          " · fetched " + now + " from scoreboard.screamingface.ai",
-          "gain"
-        );
-        renderLiveChart(entries);
-        renderLiveTable(entries);
-      },
-      function (err) {
-        setLiveStatus(
-          "Could not reach the scoreboard (" +
-          (err && err.message ? err.message : "network") +
-          "). It may be waking up — try a refresh.",
-          "error"
-        );
       }
     );
   }
@@ -433,10 +346,10 @@ window.ScorePortal = (function () {
     EM_DASH: EM_DASH,
   };
 
-  // Self-bootstrap the live index page when its container is present.
+  // Self-bootstrap the index page when its container is present. benchmark.html
+  // and spec.html have no #benchmark-list, so this is a no-op there.
   ready(function () {
-    if (document.getElementById("live-table")) initLiveIndex();
-    if (document.getElementById("benchmark-list")) initBenchmarkDirectory();
+    if (document.getElementById("benchmark-list")) initIndex();
   });
 
   return api;
