@@ -6,7 +6,7 @@ import type { EvalRunDetail } from '@/components/eval/types';
 
 const CTX = {
   scoreboardUrl: 'https://scoreboard.screamingface.ai',
-  portalUrl: 'http://localhost:8080',
+  portalUrl: 'https://screamingface.ai/portal/',
   client: { name: 'screamingface-desktop', version: '0.4.2', platform: 'darwin' },
 };
 
@@ -93,7 +93,7 @@ describe('usePublishScore', () => {
     expect(result.current.status).toBe('success');
     expect(out).toMatchObject({
       id: 'score-1',
-      portalLink: 'http://localhost:8080/spec.html?benchmark=hle&spec=hle-ensemble-three',
+      portalLink: 'https://screamingface.ai/portal/spec.html?benchmark=hle&spec=hle-ensemble-three',
     });
   });
 

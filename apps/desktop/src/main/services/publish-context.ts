@@ -9,12 +9,12 @@ import { app } from 'electron';
 import { configService } from './config-service';
 
 /**
- * Production scoreboard is the default so packaged builds publish without any
- * override; local dev points elsewhere via SF_SCOREBOARD_URL or sf.json.
- * Portal URL is still the dev placeholder pending its production value.
+ * Production scoreboard + portal are the defaults so packaged builds publish
+ * (and link out) without any override; local dev points elsewhere via
+ * SF_SCOREBOARD_URL / SF_PORTAL_URL or sf.json.
  */
 const DEFAULT_SCOREBOARD_URL = 'https://scoreboard.screamingface.ai';
-const DEFAULT_PORTAL_URL = 'http://localhost:8080';
+const DEFAULT_PORTAL_URL = 'https://screamingface.ai/portal/';
 
 export interface PublishClientInfo {
   name: string;
