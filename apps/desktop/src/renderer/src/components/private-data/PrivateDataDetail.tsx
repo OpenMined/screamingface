@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { Check, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CopyButton } from '@/components/CopyButton';
@@ -26,6 +27,20 @@ export function PrivateDataDetail({
   const [content, setContent] = useState('');
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  // The url4 reference for this entry — what you paste into an expression.
+  const link = `/private/${item.uuid}`;
+
+  const copyLink = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — no-op */
+    }
+  };
 
   useEffect(() => {
     setLabel(item.label ?? '');
@@ -43,6 +58,14 @@ export function PrivateDataDetail({
           className="max-w-xs"
         />
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => void copyLink()}>
+            {linkCopied ? (
+              <Check className="h-3.5 w-3.5 text-gain" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+            {linkCopied ? 'Copied' : 'Copy link'}
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
             Edit content
           </Button>
