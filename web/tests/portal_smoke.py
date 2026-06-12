@@ -373,6 +373,18 @@ def main() -> int:
                 and "scoreboard.screamingface.ai"
                 in (page.locator("#live-status").text_content() or ""),
             )
+            status_text = page.locator("#live-status").text_content() or ""
+            check(
+                "T7",
+                "index: live status uses English date text",
+                re.search(
+                    r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b",
+                    status_text,
+                )
+                is not None
+                and re.search(r"[А-Яа-яЁё]", status_text) is None,
+                status_text,
+            )
             check(
                 "T7",
                 "index: one live leaderboard row per API entry",
@@ -413,6 +425,48 @@ def main() -> int:
             )
 
         section("T7", "index: live leaderboard block", t_index)
+
+        # ---- index: all benchmarks + dataset affordances restored ----
+        def t_index_directory():
+            page.goto(pages["index"])
+            page.wait_for_selector("#benchmark-table tbody tr", timeout=8000)
+            rows = page.locator("#benchmark-table tbody tr")
+            check(
+                "T24",
+                "index: all benchmark rows remain available",
+                rows.count() == 2,
+                f"got {rows.count()}",
+            )
+            check(
+                "T24",
+                "index: leaderboard link for another benchmark",
+                "benchmark.html?id=hle"
+                in (
+                    rows.filter(has_text="News Hallucinations")
+                    .locator("a", has_text="Leaderboard")
+                    .first.get_attribute("href")
+                    or ""
+                ),
+            )
+            lt = rows.filter(has_text="News Livetruth")
+            ds = lt.locator("a", has_text="Dataset").first
+            check(
+                "T24",
+                "index: same-origin dataset routes through viewer",
+                (ds.get_attribute("href") or "")
+                == "data.html?file=livetruth-masking.dataset.jsonl",
+                ds.get_attribute("href") or "",
+            )
+            hle = rows.filter(has_text="News Hallucinations")
+            ext = hle.locator("a", has_text="Dataset").first
+            check(
+                "T24",
+                "index: external dataset link stays direct + rel-hardened",
+                (ext.get_attribute("href") or "").startswith("https://github.com/")
+                and "noopener" in (ext.get_attribute("rel") or ""),
+            )
+
+        section("T24", "index: benchmark directory block", t_index_directory)
 
         # ---- benchmark: table, sota, badge, sorting, radius ----
         def t_benchmark():
