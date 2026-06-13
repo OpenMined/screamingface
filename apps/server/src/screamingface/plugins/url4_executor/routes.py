@@ -157,7 +157,7 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
             )
 
         # Record result on the FastAPI auto-instrumented span
-        from screamingface.plugins.url4_executor._tracing import set_span_attrs
+        from screamingface.plugins.url4_executor._tracing import set_openinference, set_span_attrs
 
         preview = result[:4000]
         if len(result) > 4000:
@@ -169,6 +169,9 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
                 "url4.response_body": preview,
             }
         )
+        # OpenInference: the /ensemble request is the root CHAIN — full query in,
+        # final result out (the backend/LLM child spans carry the rest).
+        set_openinference("CHAIN", input_value=q[:16000], output_value=result[:16000])
 
         response: JSONResponse | PlainTextResponse
         if ast:

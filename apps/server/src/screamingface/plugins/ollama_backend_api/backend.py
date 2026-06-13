@@ -135,6 +135,7 @@ class OllamaBackend(Backend):
 
     async def _do_post(self, body: dict, headers: dict[str, str]) -> httpx.Response:
         from screamingface.plugins.llm_base._tracing import (
+            record_llm_call,
             set_provider_attrs,
             traced_provider_post,
         )
@@ -148,12 +149,9 @@ class OllamaBackend(Backend):
             except httpx.RequestError as exc:
                 raise BackendError(f"Request failed: {exc}", status=None) from exc
             set_provider_attrs(
-                {
-                    "http.status_code": resp.status_code,
-                    "http.response.size": len(resp.content),
-                    "gen_ai.request.model": body.get("model"),
-                }
+                {"http.status_code": resp.status_code, "http.response.size": len(resp.content)}
             )
+            record_llm_call("ollama", body, resp)
             return resp
 
     # ------------------------------------------------------------------

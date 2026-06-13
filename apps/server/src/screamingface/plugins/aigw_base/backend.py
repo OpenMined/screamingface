@@ -270,6 +270,7 @@ class AigwBackend(Backend):
         timeout_seconds: float,
     ) -> httpx.Response:
         from screamingface.plugins.llm_base._tracing import (
+            record_llm_call,
             set_provider_attrs,
             traced_provider_post,
         )
@@ -309,6 +310,9 @@ class AigwBackend(Backend):
                     "aigw.provider": self._gateway_provider,
                 }
             )
+            # Only the chat-completions call is an LLM call; auth/status GETs are not.
+            if path == "/v1/chat/completions":
+                record_llm_call(self._gateway_provider, json, resp)
             return resp
 
 

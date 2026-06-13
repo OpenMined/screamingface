@@ -119,7 +119,11 @@ async def post_with_default_retry(
     """
     import httpx
 
-    from screamingface.plugins.llm_base._tracing import set_provider_attrs, traced_provider_post
+    from screamingface.plugins.llm_base._tracing import (
+        record_llm_call,
+        set_provider_attrs,
+        traced_provider_post,
+    )
 
     async def _do_post(headers: dict[str, str]) -> httpx.Response:
         with traced_provider_post(provider_name, url):
@@ -137,12 +141,9 @@ async def post_with_default_retry(
                     status=None,
                 ) from exc
             set_provider_attrs(
-                {
-                    "http.status_code": resp.status_code,
-                    "http.response.size": len(resp.content),
-                    "gen_ai.request.model": body.get("model"),
-                }
+                {"http.status_code": resp.status_code, "http.response.size": len(resp.content)}
             )
+            record_llm_call(provider_name, body, resp)
             return resp
 
     headers = await auth.get_authorization_header()

@@ -66,3 +66,99 @@ def set_provider_attrs(attrs: dict[str, Any], span: Any = None) -> None:
                     span.set_attribute(k, v)
     except ImportError:
         pass
+
+
+_IO_CAP = 16000
+
+
+def _cap(text: str) -> str:
+    return text if len(text) <= _IO_CAP else text[:_IO_CAP] + f"… ({len(text) - _IO_CAP} more)"
+
+
+def _extract_tokens(data: object) -> tuple[int | None, int | None]:
+    """Best-effort prompt/completion token counts across provider response shapes."""
+    if not isinstance(data, dict):
+        return None, None
+    usage = data.get("usage")
+    if isinstance(usage, dict):
+        # OpenAI/gateway: prompt_tokens/completion_tokens; Anthropic: input/output_tokens.
+        prompt = usage.get("prompt_tokens", usage.get("input_tokens"))
+        completion = usage.get("completion_tokens", usage.get("output_tokens"))
+        if prompt is not None or completion is not None:
+            return prompt, completion
+    meta = data.get("usageMetadata")  # Gemini
+    if isinstance(meta, dict):
+        return meta.get("promptTokenCount"), meta.get("candidatesTokenCount")
+    return None, None
+
+
+def record_llm_call(
+    provider: str,
+    request_body: dict | None,
+    response: object,
+    *,
+    span: Any = None,
+) -> None:
+    """Set LLM input/output/model/tokens from a request body + httpx.Response.
+
+    Provider-agnostic: serializes the request body as the input, the raw
+    response text as the output, and extracts token usage from common response
+    shapes. Best-effort and exception-safe; no-op without OTel.
+    """
+    import json
+
+    output_value: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    try:
+        output_value = _cap(response.text)  # type: ignore[attr-defined]
+        prompt_tokens, completion_tokens = _extract_tokens(response.json())  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 — tracing must never break the request path
+        pass
+    try:
+        input_value = _cap(json.dumps(request_body, default=str)) if request_body else None
+    except (TypeError, ValueError):
+        input_value = None
+    set_llm_io(
+        provider=provider,
+        input_value=input_value,
+        output_value=output_value,
+        model=(request_body or {}).get("model"),
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        span=span,
+    )
+
+
+def set_llm_io(
+    *,
+    provider: str | None = None,
+    input_value: str | None = None,
+    output_value: str | None = None,
+    model: str | None = None,
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
+    span: Any = None,
+) -> None:
+    """Mark the current span as an OpenInference LLM call with input/output/model.
+
+    Classifies the span ``openinference.span.kind = "LLM"`` (so Phoenix renders
+    it as a model call) and records the request body / response / model / token
+    counts. Call this only for actual model calls — generic transport spans
+    (e.g. gateway auth-status GETs) must not be tagged LLM. ``None`` fields are
+    skipped; no-op without OTel.
+    """
+    set_provider_attrs(
+        {
+            "openinference.span.kind": "LLM",
+            "llm.provider": provider,
+            "input.value": input_value,
+            "input.mime_type": "application/json" if input_value else None,
+            "output.value": output_value,
+            "output.mime_type": "application/json" if output_value else None,
+            "llm.model_name": model,
+            "llm.token_count.prompt": prompt_tokens,
+            "llm.token_count.completion": completion_tokens,
+        },
+        span=span,
+    )

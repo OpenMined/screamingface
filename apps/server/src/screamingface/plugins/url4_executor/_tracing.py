@@ -47,3 +47,43 @@ def set_span_attrs(attrs: dict[str, Any], span: Any = None) -> None:
                 span.set_attribute(k, v)
     except ImportError:
         pass
+
+
+# OpenInference attribute names (stable spec strings; literals avoid a hard dep
+# on openinference-semantic-conventions so this stays no-op without OTel).
+# Phoenix reads these to populate its kind / input / output columns.
+_OI_KIND = "openinference.span.kind"
+_OI_INPUT = "input.value"
+_OI_INPUT_MIME = "input.mime_type"
+_OI_OUTPUT = "output.value"
+_OI_OUTPUT_MIME = "output.mime_type"
+
+
+def set_openinference(
+    kind: str,
+    *,
+    input_value: str | None = None,
+    output_value: str | None = None,
+    mime_type: str = "text/plain",
+    span: Any = None,
+) -> None:
+    """Tag the current span with OpenInference semantics (no-op without OTel).
+
+    ``kind`` is an OpenInference span kind ("LLM", "CHAIN", "RETRIEVER", …).
+    ``input_value`` / ``output_value`` populate Phoenix's input / output columns.
+    """
+    try:
+        from opentelemetry import trace
+
+        span = span or trace.get_current_span()
+        if not (span and span.is_recording()):
+            return
+        span.set_attribute(_OI_KIND, kind)
+        if input_value is not None:
+            span.set_attribute(_OI_INPUT, input_value)
+            span.set_attribute(_OI_INPUT_MIME, mime_type)
+        if output_value is not None:
+            span.set_attribute(_OI_OUTPUT, output_value)
+            span.set_attribute(_OI_OUTPUT_MIME, mime_type)
+    except ImportError:
+        pass

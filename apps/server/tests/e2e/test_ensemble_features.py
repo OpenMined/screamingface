@@ -448,6 +448,9 @@ class TestBackendDispatchTracing:
         assert s.name == "url4.backend_call /claude"
         assert s.attributes.get("url4.path") == "/claude"
         assert "url4.intent_length" in s.attributes
+        # OpenInference: a backend call is a CHAIN with the prompt+context as input.
+        assert s.attributes.get("openinference.span.kind") == "CHAIN"
+        assert "ping" in str(s.attributes.get("input.value", ""))
 
 
 @pytest.mark.e2e_live
@@ -471,3 +474,7 @@ class TestProviderHttpTracing:
         s = provider[0]
         assert s.attributes.get("sf.plugin") == "Anthropic"
         assert s.attributes.get("http.status_code") == 200
+        # OpenInference LLM classification + captured model call.
+        assert s.attributes.get("openinference.span.kind") == "LLM"
+        assert s.attributes.get("input.value")  # request body captured
+        assert s.attributes.get("output.value")  # response captured
