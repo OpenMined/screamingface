@@ -408,10 +408,24 @@ class GeminiBackend(Backend):
         return None
 
     async def _do_post(self, body: dict, headers: dict[str, str], url: str) -> httpx.Response:
-        try:
-            async with self._http_factory() as client:
-                return await client.post(url, json=body, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise BackendError(f"Gemini request timed out: {exc}", status=None) from exc
-        except httpx.RequestError as exc:
-            raise BackendError(f"Gemini request failed: {exc}", status=None) from exc
+        from screamingface.plugins.llm_base._tracing import (
+            set_provider_attrs,
+            traced_provider_post,
+        )
+
+        with traced_provider_post("gemini", url):
+            try:
+                async with self._http_factory() as client:
+                    resp = await client.post(url, json=body, headers=headers)
+            except httpx.TimeoutException as exc:
+                raise BackendError(f"Gemini request timed out: {exc}", status=None) from exc
+            except httpx.RequestError as exc:
+                raise BackendError(f"Gemini request failed: {exc}", status=None) from exc
+            set_provider_attrs(
+                {
+                    "http.status_code": resp.status_code,
+                    "http.response.size": len(resp.content),
+                    "gen_ai.request.model": body.get("model"),
+                }
+            )
+            return resp

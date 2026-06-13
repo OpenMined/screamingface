@@ -169,3 +169,60 @@ async def test_unreachable_raises_backend_error() -> None:
             [CoreMessage(role="user", content="hi")],
             model="anthropic/claude-haiku-4-5",
         )
+
+
+# ----------------------------------------------------------------------------
+# SF-278: gateway client span + W3C traceparent propagation
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_request_injects_traceparent_and_emits_span() -> None:
+    """`_request` opens an `llm.POST aigw` span and injects W3C traceparent.
+
+    A locally-instrumented gateway can then link into this trace; remote
+    gateways simply ignore the header.
+    """
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    provider = trace.get_tracer_provider()
+    if not isinstance(provider, TracerProvider):
+        provider = TracerProvider()
+        trace.set_tracer_provider(provider)
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    exporter.clear()
+
+    captured: dict[str, Any] = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        captured["headers"] = dict(req.headers)
+        return _ok_response("pong")
+
+    backend = _backend(
+        gateway_url="http://127.0.0.1:9105",
+        profile_name="default",
+        http_client_factory=_factory(httpx.MockTransport(handler)),
+    )
+
+    # An active recording span is required for inject() to produce traceparent.
+    tracer = trace.get_tracer("test")
+    with tracer.start_as_current_span("root"):
+        await backend.run(
+            [CoreMessage(role="user", content=[TextPart(text="hi")])],
+            model="anthropic/claude-haiku-4-5",
+        )
+
+    assert "traceparent" in captured["headers"], (
+        f"traceparent not propagated to gateway. Headers: {sorted(captured['headers'])}"
+    )
+
+    aigw_spans = [s for s in exporter.get_finished_spans() if s.name == "llm.POST aigw"]
+    assert len(aigw_spans) == 1
+    attrs = dict(aigw_spans[0].attributes or {})
+    assert attrs["http.status_code"] == 200
+    assert attrs["aigw.provider"] == "test-provider"
+    assert attrs["aigw.profile"] == "default"

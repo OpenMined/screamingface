@@ -269,20 +269,47 @@ class AigwBackend(Backend):
         headers: dict[str, str] | None = None,
         timeout_seconds: float,
     ) -> httpx.Response:
-        if self._app is not None:
-            return await AigwGatewayClient(
-                self._app,
-                http_client_factory=self._http_factory,
-            ).request(
-                method,
-                path,
-                json=json,
-                headers=headers,
-                timeout_seconds=timeout_seconds,
-            )
+        from screamingface.plugins.llm_base._tracing import (
+            set_provider_attrs,
+            traced_provider_post,
+        )
+
         url = f"{self._gateway_url}{path}"
-        async with self._http_factory(timeout_seconds) as client:
-            return await client.request(method, url, json=json, headers=headers)
+        # Open the span first, then inject W3C trace context into the outbound
+        # headers so a locally-instrumented gateway can link into this trace.
+        # (Remote gateways simply ignore the header — see plan follow-up.)
+        with traced_provider_post("aigw", url, method=method):
+            headers = dict(headers or {})
+            try:
+                from opentelemetry.propagate import inject
+
+                inject(headers)
+            except ImportError:
+                pass
+
+            if self._app is not None:
+                resp = await AigwGatewayClient(
+                    self._app,
+                    http_client_factory=self._http_factory,
+                ).request(
+                    method,
+                    path,
+                    json=json,
+                    headers=headers,
+                    timeout_seconds=timeout_seconds,
+                )
+            else:
+                async with self._http_factory(timeout_seconds) as client:
+                    resp = await client.request(method, url, json=json, headers=headers)
+
+            set_provider_attrs(
+                {
+                    "http.status_code": resp.status_code,
+                    "aigw.profile": self._profile_name,
+                    "aigw.provider": self._gateway_provider,
+                }
+            )
+            return resp
 
 
 def _core_message_to_openai(msg: CoreMessage) -> dict:

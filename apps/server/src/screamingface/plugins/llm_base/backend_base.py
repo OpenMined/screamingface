@@ -119,20 +119,31 @@ async def post_with_default_retry(
     """
     import httpx
 
+    from screamingface.plugins.llm_base._tracing import set_provider_attrs, traced_provider_post
+
     async def _do_post(headers: dict[str, str]) -> httpx.Response:
-        try:
-            async with http_factory() as client:
-                return await client.post(url, json=body, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise BackendError(
-                f"{provider_name} request timed out: {exc}",
-                status=None,
-            ) from exc
-        except httpx.RequestError as exc:
-            raise BackendError(
-                f"{provider_name} request failed: {exc}",
-                status=None,
-            ) from exc
+        with traced_provider_post(provider_name, url):
+            try:
+                async with http_factory() as client:
+                    resp = await client.post(url, json=body, headers=headers)
+            except httpx.TimeoutException as exc:
+                raise BackendError(
+                    f"{provider_name} request timed out: {exc}",
+                    status=None,
+                ) from exc
+            except httpx.RequestError as exc:
+                raise BackendError(
+                    f"{provider_name} request failed: {exc}",
+                    status=None,
+                ) from exc
+            set_provider_attrs(
+                {
+                    "http.status_code": resp.status_code,
+                    "http.response.size": len(resp.content),
+                    "gen_ai.request.model": body.get("model"),
+                }
+            )
+            return resp
 
     headers = await auth.get_authorization_header()
     headers.setdefault("content-type", "application/json")

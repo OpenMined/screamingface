@@ -138,36 +138,51 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
     intent into a plain string, then awaits the plugin's
     ``handle_backend_call(intent, app=app)`` method.
     """
-    if app is None:
-        raise RuntimeError(
-            f"Cannot dispatch backend call {node.path}() without an app "
-            "context. Backend-call resolution needs access to the active "
-            "plugin registry via app.state.plugins."
-        )
+    from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
 
-    intent_text = "" if node.intent is None else await resolve(node.intent, app, env)
-    intent_text = substitute_env_vars(intent_text, env)
-    sources_text = node.packed_context or ""
-
-    from screamingface.core.helpers import get_plugins_registry
-
-    plugins_registry = get_plugins_registry(app)
-
-    known_paths: list[str] = []
-    for plugin in plugins_registry.active_plugins.values():
-        paths = getattr(plugin, "backend_call_paths", [])
-        known_paths.extend(paths)
-        if node.path in paths:
-            return await plugin.handle_backend_call(
-                intent_text, sources=sources_text, app=app, env=env
+    with traced(f"url4.backend_call {node.path}", kind="client"):
+        if app is None:
+            raise RuntimeError(
+                f"Cannot dispatch backend call {node.path}() without an app "
+                "context. Backend-call resolution needs access to the active "
+                "plugin registry via app.state.plugins."
             )
 
-    raise RuntimeError(
-        f"No active plugin handles the backend call {node.path}(). "
-        f"Known backend_call_paths across active plugins: {known_paths!r}. "
-        "Activate a plugin that declares this path in its "
-        "backend_call_paths attribute."
-    )
+        # Resolve the intent inside the span so any child fetch spans nest here.
+        intent_text = "" if node.intent is None else await resolve(node.intent, app, env)
+        intent_text = substitute_env_vars(intent_text, env)
+        sources_text = node.packed_context or ""
+        set_span_attrs(
+            {
+                "url4.path": node.path,
+                "url4.intent_length": len(intent_text),
+                "url4.intent_preview": intent_text[:500],
+            }
+        )
+
+        from screamingface.core.helpers import get_plugins_registry
+
+        plugins_registry = get_plugins_registry(app)
+
+        known_paths: list[str] = []
+        for plugin in plugins_registry.active_plugins.values():
+            paths = getattr(plugin, "backend_call_paths", [])
+            known_paths.extend(paths)
+            if node.path in paths:
+                result = await plugin.handle_backend_call(
+                    intent_text, sources=sources_text, app=app, env=env
+                )
+                set_span_attrs(
+                    {"sf.backend_plugin": plugin.name, "url4.result_length": len(result)}
+                )
+                return result
+
+        raise RuntimeError(
+            f"No active plugin handles the backend call {node.path}(). "
+            f"Known backend_call_paths across active plugins: {known_paths!r}. "
+            "Activate a plugin that declares this path in its "
+            "backend_call_paths attribute."
+        )
 
 
 async def _dispatch_backend_call_with_intent(

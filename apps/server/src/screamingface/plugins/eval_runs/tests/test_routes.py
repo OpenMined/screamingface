@@ -75,6 +75,28 @@ async def test_get_detail_returns_questions_sorted_by_idx(
     assert [q["idx"] for q in body["questions"]] == [0, 1, 2]
 
 
+async def test_list_and_detail_serialize_degraded_run(async_client: httpx.AsyncClient) -> None:
+    """SF-270 introduced a 'degraded' status; the read DTO must accept it.
+
+    Regression for the /eval_runs 500: because ``RunStatus`` omitted
+    'degraded', a single degraded run failed ``EvalRunSummaryOut`` validation
+    and 500'd the whole list (and its detail view).
+    """
+    from screamingface.plugins.eval_runs.models import EvalRun
+
+    store = EvalRunStore()
+    run = await store.create(spec_name="x", url4_expression="x", started_at=datetime.now(UTC))
+    await EvalRun.filter(id=run.id).update(status="degraded", error="2 row(s) errored")
+
+    r = await async_client.get("/eval_runs")
+    assert r.status_code == 200
+    assert r.json()[0]["status"] == "degraded"
+
+    detail = await async_client.get(f"/eval_runs/{run.id}")
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "degraded"
+
+
 async def test_get_detail_missing_returns_404(async_client: httpx.AsyncClient) -> None:
     r = await async_client.get(f"/eval_runs/{uuid4()}")
     assert r.status_code == 404
