@@ -113,7 +113,7 @@
       var runTd = document.createElement("td");
       runTd.className = "col-run";
       // Guard like spec.js: a missing expression renders as absence, never as
-      // a malformed sf://…&expression=undefined link.
+      // a Copy button that would put "undefined" on the clipboard.
       if (entry.url4_expression) {
         runTd.appendChild(P.createCopyButton(entry.spec_id, entry.url4_expression, { compact: true }));
       } else {

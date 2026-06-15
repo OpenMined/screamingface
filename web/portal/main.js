@@ -101,9 +101,9 @@ window.ScorePortal = (function () {
   // Returns a normalized http(s) URL string, or null for anything else.
   // Untrusted, API-provided absolute URLs (e.g. a benchmark's dataset_url) must
   // pass through this before becoming an anchor href, so a javascript:, data:,
-  // or vbscript: URL can never be made clickable. Our own links are either
-  // relative (…html?…, "/") or the hardcoded sf://run scheme, and do not use
-  // this — only externally-sourced absolute URLs do.
+  // or vbscript: URL can never be made clickable. Our own links are relative
+  // (…html?…, "/") and do not use this — only externally-sourced absolute
+  // URLs do.
   function httpUrlOrNull(value) {
     if (!value) return null;
     try {
@@ -183,30 +183,23 @@ window.ScorePortal = (function () {
     if (isVerified === true) return el("span", "badge-verified", "✓ verified");
     return document.createTextNode(EM_DASH);
   }
-  // sf://run?spec=...&expression=... with each value URL-encoded separately.
-  // Never concatenate a raw url4_expression — it can contain / ( ) ! $.
-  function buildRunHref(specId, expression) {
-    return (
-      "sf://run?spec=" + encodeURIComponent(specId) +
-      "&expression=" + encodeURIComponent(expression)
-    );
-  }
-  // Copy-to-clipboard button for the sf://run link. A button (not an sf://
-  // anchor) so it works in any browser regardless of whether the protocol
-  // handler is registered; the copied URI still opens screamingface locally.
+  // Copy-to-clipboard button that places the RAW url4_expression on the
+  // clipboard — the exact string pasted into the desktop app's Eval Studio
+  // "URL4 expression" field. We copy it verbatim (no encoding, no sf://run
+  // wrapper): a url4 spec can contain / ( ) ! $ # : and must survive intact.
   function createCopyButton(specId, expression, opts) {
     opts = opts || {};
     var label = opts.label || "Copy";
     var btn = el("button", opts.compact ? "btn ghost" : "btn", label);
     btn.type = "button";
-    btn.setAttribute("aria-label", "Copy the local run link for " + specId);
+    btn.setAttribute("aria-label", "Copy the URL4 expression for " + specId);
     btn.addEventListener("click", function () {
       function done(ok) {
         btn.textContent = ok ? "✓ copied" : "copy failed";
         setTimeout(function () { btn.textContent = label; }, 1600);
       }
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(buildRunHref(specId, expression)).then(
+        navigator.clipboard.writeText(expression).then(
           function () { done(true); },
           function () { done(false); }
         );
@@ -340,7 +333,6 @@ window.ScorePortal = (function () {
     formatSubmitter: formatSubmitter,
     formatCount: formatCount,
     createVerifiedBadge: createVerifiedBadge,
-    buildRunHref: buildRunHref,
     createCopyButton: createCopyButton,
     ready: ready,
     EM_DASH: EM_DASH,
