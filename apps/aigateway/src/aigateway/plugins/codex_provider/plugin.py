@@ -36,6 +36,12 @@ if TYPE_CHECKING:
 
 
 class CodexProviderPlugin(ProviderPluginBase):
+    # api_key_strategy_for intentionally stays the base None default: codex
+    # subscription models ride the ChatGPT backend Responses endpoint, which
+    # only accepts OAuth tokens — chat_handler.py rejects sk-/sk-proj- keys
+    # outright. The set-api-key endpoint therefore returns
+    # api_key_not_supported for codex. Routing API-key profiles to the OpenAI
+    # platform API instead is a possible follow-up.
     custom_llm_provider = "codex"
 
     def register_models(self) -> list[ModelEntry]:

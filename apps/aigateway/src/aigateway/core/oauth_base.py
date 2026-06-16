@@ -12,13 +12,13 @@ import asyncio
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from .plugin_base import OAuthStrategy
+from .plugin_base import CredentialStrategy
 
 if TYPE_CHECKING:
     from .credential_blob.store import CredentialBlobStore
 
 
-class BaseOAuthStrategy(OAuthStrategy):
+class BaseOAuthStrategy(CredentialStrategy):
     """Cached, locked, proactively-refreshed OAuth strategy.
 
     `refresh_window_seconds` controls how long before actual expiry a

@@ -109,11 +109,14 @@ export interface BackendAlert {
 
 export type BackendProfileState = 'pending' | 'authenticated' | 'error';
 
+export type BackendProfileAuthType = 'oauth' | 'api_key';
+
 export interface BackendProfile {
   id: string;
   provider: string;
   name: string;
   state: BackendProfileState;
+  auth_type?: BackendProfileAuthType;
   account_label?: string | null;
   last_refreshed_at?: string | null;
 }
@@ -126,6 +129,12 @@ export interface ListProfilesResult {
 export interface DeleteProfileResult {
   ok: boolean;
   status?: number;
+}
+
+export interface SetProfileApiKeyResult {
+  ok: boolean;
+  status?: number;
+  message?: string;
 }
 
 export type OAuthConnectionStatus = 'pending' | 'active' | 'expired' | 'revoked' | 'error';
@@ -301,6 +310,11 @@ export interface ElectronAPI {
     authenticateOAuthConnection: (backend: string, label?: string) => Promise<OAuthLauncherResult>;
     listProfiles: (backend: string) => Promise<ListProfilesResult>;
     deleteProfile: (backend: string, profileName: string) => Promise<DeleteProfileResult>;
+    setProfileApiKey: (
+      backend: string,
+      profileName: string,
+      apiKey: string,
+    ) => Promise<SetProfileApiKeyResult>;
     listConnections: (backend: string) => Promise<ListConnectionsResult>;
     deleteConnection: (backend: string, connectionId: string) => Promise<DeleteConnectionResult>;
     refreshConnection: (backend: string, connectionId: string) => Promise<RefreshConnectionResult>;

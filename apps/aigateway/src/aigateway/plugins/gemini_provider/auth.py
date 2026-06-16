@@ -22,6 +22,20 @@ from .oauth_config import GEMINI_CLIENT_ID, GEMINI_CLIENT_SECRET, GEMINI_TOKEN_U
 _ACCOUNT = "default"
 GEMINI_PROFILE_HEADER = "X-AIGW-Gemini-Profile"
 GEMINI_USER_AGENT = "GeminiCLI/0.42.0/gemini-2.5-flash (aigateway)"
+
+# Single source of truth for headers the gateway owns: stripped from caller
+# bodies in prepare_chat_body AND filtered from upstream forwards in the chat
+# handler. The gateway-owned x-goog-api-key invariant depends on this set
+# being shared, not duplicated (SF-244 audit F23).
+CLIENT_AUTH_HEADER_NAMES = frozenset(
+    {
+        "authorization",
+        "content-type",
+        "x-aigw-gemini-profile",
+        "x-goog-api-key",
+        "x-goog-user-project",
+    }
+)
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 
 

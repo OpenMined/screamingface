@@ -106,7 +106,40 @@ function ProfileRow({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replacingKey, setReplacingKey] = useState(false);
+  const [keyInput, setKeyInput] = useState('');
   const cfg = profileStateConfig[profile.state] ?? { dot: 'bg-muted', label: profile.state };
+  const isApiKey = profile.auth_type === 'api_key';
+
+  const onReplaceKey = async (e?: React.FormEvent): Promise<void> => {
+    e?.preventDefault();
+    if (busy) return;
+    const key = keyInput.trim();
+    if (key.length < 8) {
+      setError('API key looks too short');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.electronAPI.backends.setProfileApiKey(
+        backendName,
+        profile.name,
+        key,
+      );
+      if (result.ok) {
+        setReplacingKey(false);
+        setKeyInput('');
+      } else {
+        setError(`Saving key failed — ${result.message ?? result.status ?? 'unknown error'}`);
+      }
+    } catch (e2) {
+      setError(`Saving key failed — ${e2 instanceof Error ? e2.message : String(e2)}`);
+    } finally {
+      setBusy(false);
+      onChanged();
+    }
+  };
 
   const onReauth = async (): Promise<void> => {
     setBusy(true);
@@ -157,6 +190,11 @@ function ProfileRow({
             <span className={cn('relative inline-flex h-2 w-2 rounded-none', cfg.dot)} />
           </span>
           <span className="text-xs font-medium text-foreground truncate">{profile.name}</span>
+          {isApiKey && (
+            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              API key
+            </span>
+          )}
           {profile.account_label && (
             <span className="text-xs text-muted-foreground truncate">{profile.account_label}</span>
           )}
@@ -168,13 +206,27 @@ function ProfileRow({
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            disabled={busy}
-            onClick={onReauth}
-            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
-          >
-            {busy ? 'Working…' : 'Re-authenticate'}
-          </button>
+          {isApiKey ? (
+            <button
+              disabled={busy}
+              onClick={() => {
+                setReplacingKey((v) => !v);
+                setKeyInput('');
+                setError(null);
+              }}
+              className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+            >
+              {busy ? 'Working…' : replacingKey ? 'Cancel' : 'Replace key'}
+            </button>
+          ) : (
+            <button
+              disabled={busy}
+              onClick={onReauth}
+              className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+            >
+              {busy ? 'Working…' : 'Re-authenticate'}
+            </button>
+          )}
           <button
             disabled={busy}
             onClick={onDelete}
@@ -185,6 +237,43 @@ function ProfileRow({
           </button>
         </div>
       </div>
+      {replacingKey && (
+        <form
+          onSubmit={onReplaceKey}
+          className="flex items-center gap-2 mt-1 pl-4"
+          aria-label={`Replace API key for ${profile.name}`}
+        >
+          <input
+            autoFocus
+            type="password"
+            value={keyInput}
+            autoComplete="off"
+            disabled={busy}
+            onChange={(e) => {
+              setKeyInput(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setReplacingKey(false);
+                setKeyInput('');
+                setError(null);
+              }
+            }}
+            placeholder="paste new API key"
+            aria-label="New API key"
+            className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono"
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 disabled:opacity-60"
+          >
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </form>
+      )}
       {error && <p className="mt-1 pl-4 text-xs text-destructive">{error}</p>}
     </div>
   );
@@ -192,9 +281,12 @@ function ProfileRow({
 
 function ProfilesSubPanel({ name }: { name: string }) {
   const [profiles, setProfiles] = useState<BackendProfile[]>([]);
+  const [listError, setListError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newAuthType, setNewAuthType] = useState<'oauth' | 'api_key'>('oauth');
+  const [newApiKey, setNewApiKey] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [pendingProfileName, setPendingProfileName] = useState<string | null>(null);
@@ -205,6 +297,10 @@ function ProfilesSubPanel({ name }: { name: string }) {
   const refresh = useCallback(async () => {
     const result = await window.electronAPI.backends.listProfiles(name);
     setProfiles(result.profiles ?? []);
+    // Keep the error discriminator: rendering "No profiles yet." for a
+    // transient fetch failure right after a key save reads as data loss
+    // (SF-244 audit F20).
+    setListError(result.error ?? null);
     setLoaded(true);
   }, [name]);
 
@@ -283,6 +379,41 @@ function ProfilesSubPanel({ name }: { name: string }) {
       setAddError(err);
       return;
     }
+    if (newAuthType === 'api_key') {
+      // API-key profiles need no browser round-trip: store the key and the
+      // gateway marks the profile authenticated immediately. Keep the form
+      // open on failure so the user can correct the key.
+      const key = newApiKey.trim();
+      if (key.length < 8) {
+        setAddError('Paste a valid API key');
+        return;
+      }
+      setSubmitting(true);
+      setAddError(null);
+      void (async () => {
+        try {
+          const result = await window.electronAPI.backends.setProfileApiKey(name, candidate, key);
+          if (result.ok) {
+            setAdding(false);
+            setNewName('');
+            setNewApiKey('');
+            setNewAuthType('oauth');
+          } else {
+            setAddError(
+              `Saving key failed for "${candidate}" — ${result.message ?? result.status ?? 'unknown error'}`,
+            );
+          }
+        } catch (err2) {
+          setAddError(
+            `Saving key failed for "${candidate}" — ${err2 instanceof Error ? err2.message : String(err2)}`,
+          );
+        } finally {
+          setSubmitting(false);
+          void refresh();
+        }
+      })();
+      return;
+    }
     setSubmitting(true);
     setAddError(null);
     // Close the form immediately — the browser will open right away,
@@ -320,12 +451,19 @@ function ProfilesSubPanel({ name }: { name: string }) {
   const onCancel = (): void => {
     setAdding(false);
     setNewName('');
+    setNewApiKey('');
+    setNewAuthType('oauth');
     setAddError(null);
   };
 
   return (
     <div className="ml-6 mt-1 mb-2 border-t border-border pt-2">
-      {loaded && profiles.length === 0 && (
+      {loaded && listError && (
+        <p className="text-xs text-destructive py-1">
+          Couldn&apos;t load profiles — gateway unreachable.
+        </p>
+      )}
+      {loaded && !listError && profiles.length === 0 && (
         <p className="text-xs text-muted-foreground py-1">No profiles yet.</p>
       )}
       {profiles.map((p) => (
@@ -340,11 +478,25 @@ function ProfilesSubPanel({ name }: { name: string }) {
         />
       ))}
       {adding ? (
-        <form onSubmit={onAdd} className="flex items-center gap-2 py-1.5">
+        <form onSubmit={onAdd} className="flex items-center gap-2 py-1.5 flex-wrap">
+          <select
+            value={newAuthType}
+            disabled={submitting}
+            onChange={(e) => {
+              setNewAuthType(e.target.value as 'oauth' | 'api_key');
+              setAddError(null);
+            }}
+            aria-label="Authentication type"
+            className="rounded border border-border bg-background px-1.5 py-0.5 text-xs disabled:opacity-60"
+          >
+            <option value="oauth">OAuth</option>
+            <option value="api_key">API key</option>
+          </select>
           <input
             autoFocus
             type="text"
             value={newName}
+            disabled={submitting}
             onChange={(e) => {
               setNewName(e.target.value);
               setAddError(null);
@@ -356,18 +508,41 @@ function ProfilesSubPanel({ name }: { name: string }) {
               }
             }}
             placeholder="profile name (e.g. work)"
-            className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs"
+            className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs disabled:opacity-60"
           />
+          {newAuthType === 'api_key' && (
+            <input
+              type="password"
+              value={newApiKey}
+              autoComplete="off"
+              disabled={submitting}
+              onChange={(e) => {
+                setNewApiKey(e.target.value);
+                setAddError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  onCancel();
+                }
+              }}
+              placeholder="paste API key"
+              aria-label="API key"
+              className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono disabled:opacity-60"
+            />
+          )}
           <button
             type="submit"
-            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30"
+            disabled={submitting}
+            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 disabled:opacity-60"
           >
-            Confirm
+            {submitting && newAuthType === 'api_key' ? 'Saving…' : 'Confirm'}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="text-xs text-muted-foreground hover:text-foreground"
+            disabled={submitting}
+            className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
           >
             Cancel
           </button>

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from .credential_blob.store import CredentialBlobStore
     from .oauth.identity import AccountIdentity
     from .profile_index import ProfileIndexStore
+    from .profile_models import AuthType
 
 
 class PluginSettings(BaseSettings):
@@ -30,12 +31,14 @@ class ModelEntry:
     litellm_params: dict[str, Any]
 
 
-class OAuthStrategy(ABC):
-    """Per-provider credential producer.
+class CredentialStrategy(ABC):
+    """Per-provider credential producer (the auth "port").
 
     Implementations own credential reads, refresh-on-401 with locking, and
-    any provider-specific header construction. The OAuth bridge calls
+    any provider-specific header construction. The auth bridge calls
     `get_authorization_header()` right before LiteLLM dispatches a request.
+    Implementations may be OAuth-backed (token refresh) or API-key-backed
+    (no refresh; `refresh_credentials` is a no-op).
     """
 
     @abstractmethod
@@ -59,6 +62,11 @@ class OAuthStrategy(ABC):
     @abstractmethod
     async def refresh_credentials(self) -> None:
         """Refresh persisted provider credentials for this profile."""
+
+
+# Back-compat alias: existing plugins/tests import the port under its original
+# OAuth-specific name. New code should use CredentialStrategy.
+OAuthStrategy = CredentialStrategy
 
 
 @dataclass(frozen=True)
@@ -114,9 +122,36 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         *,
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
-    ) -> OAuthStrategy | None:
-        """Return a per-profile OAuthStrategy. Default: no auth."""
+    ) -> CredentialStrategy | None:
+        """Return a per-profile OAuth strategy. Default: no auth."""
         return None
+
+    def api_key_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        credential_store: CredentialBlobStore | None = None,
+    ) -> CredentialStrategy | None:
+        """Return a per-profile API-key strategy, or None when the provider
+        does not support API-key auth (e.g. codex subscription endpoints)."""
+        return None
+
+    def credential_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        auth_type: AuthType = "oauth",
+        credential_store: CredentialBlobStore | None = None,
+        http_client_factory: Any | None = None,
+    ) -> CredentialStrategy | None:
+        """Resolve the credential strategy for ``profile_name`` by auth type."""
+        if auth_type == "api_key":
+            return self.api_key_strategy_for(profile_name, credential_store=credential_store)
+        return self.oauth_strategy_for(
+            profile_name,
+            credential_store=credential_store,
+            http_client_factory=http_client_factory,
+        )
 
     async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict[str, Any]:
         """Exchange an OAuth authorization code for provider credentials."""
@@ -207,3 +242,43 @@ def credential_service_provider_for(plugin: Any, provider: str) -> str:
         if isinstance(value, str) and value:
             return value
     return provider
+
+
+def credential_strategy_from(
+    plugin: Any,
+    profile_name: str,
+    *,
+    auth_type: AuthType = "oauth",
+    credential_store: CredentialBlobStore | None = None,
+    http_client_factory: Any | None = None,
+) -> CredentialStrategy | None:
+    """Resolve a plugin's credential strategy, tolerating duck-typed plugins
+    that only implement the legacy ``oauth_strategy_for`` hook (mirrors
+    ``credential_service_provider_for``)."""
+    resolver: Callable[..., CredentialStrategy | None] | None = getattr(
+        plugin, "credential_strategy_for", None
+    )
+    if callable(resolver):
+        return resolver(
+            profile_name,
+            auth_type=auth_type,
+            credential_store=credential_store,
+            http_client_factory=http_client_factory,
+        )
+    if auth_type == "api_key":
+        api_resolver: Callable[..., CredentialStrategy | None] | None = getattr(
+            plugin, "api_key_strategy_for", None
+        )
+        if callable(api_resolver):
+            return api_resolver(profile_name, credential_store=credential_store)
+        return None
+    legacy: Callable[..., CredentialStrategy | None] | None = getattr(
+        plugin, "oauth_strategy_for", None
+    )
+    if callable(legacy):
+        return legacy(
+            profile_name,
+            credential_store=credential_store,
+            http_client_factory=http_client_factory,
+        )
+    return None

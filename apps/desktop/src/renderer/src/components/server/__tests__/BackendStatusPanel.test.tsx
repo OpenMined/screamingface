@@ -15,6 +15,9 @@ const loginGateway = vi.fn(async () => ({ ok: true }));
 const logoutGateway = vi.fn(async () => undefined);
 const listProfiles = vi.fn(async () => ({ profiles: [] }));
 const deleteProfile = vi.fn(async () => ({ ok: true }));
+const setProfileApiKey = vi.fn(
+  async () => ({ ok: true }) as { ok: boolean; status?: number; message?: string },
+);
 const getPendingAuthState = vi.fn(async (): Promise<string | null> => null);
 const exchangeOAuthCode = vi.fn(async () => ({ ok: true }) as { ok: boolean; message?: string });
 const listConnections = vi.fn(async () => ({ connections: [] }));
@@ -40,6 +43,7 @@ const exchangeOAuthConnectionCode = vi.fn(
     logoutGateway,
     listProfiles,
     deleteProfile,
+    setProfileApiKey,
     getPendingAuthState,
     exchangeOAuthCode,
     listConnections,
@@ -81,6 +85,8 @@ beforeEach(() => {
   listProfiles.mockResolvedValue({ profiles: [] });
   deleteProfile.mockClear();
   deleteProfile.mockResolvedValue({ ok: true });
+  setProfileApiKey.mockClear();
+  setProfileApiKey.mockResolvedValue({ ok: true });
   getPendingAuthState.mockClear();
   getPendingAuthState.mockResolvedValue(null);
   exchangeOAuthCode.mockClear();
@@ -186,6 +192,101 @@ describe('BackendStatusPanel auth_kind=browser sub-panel', () => {
     fireEvent.change(input, { target: { value: 'work' } });
     fireEvent.click(screen.getByRole('button', { name: /Confirm/i }));
     await waitFor(() => expect(authenticateOAuth).toHaveBeenCalledWith('claude', 'work'));
+  });
+});
+
+describe('BackendStatusPanel API-key profiles (SF-244)', () => {
+  it('Add Profile with API key auth calls setProfileApiKey and closes the form', async () => {
+    render(<BackendStatusPanel />);
+    await waitFor(() => expect(listProfiles).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /\+ Add Profile/i }));
+    fireEvent.change(screen.getByLabelText(/Authentication type/i), {
+      target: { value: 'api_key' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/profile name/i), { target: { value: 'keyed' } });
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-ant-api03-test-1234' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Confirm/i }));
+
+    await waitFor(() =>
+      expect(setProfileApiKey).toHaveBeenCalledWith('claude', 'keyed', 'sk-ant-api03-test-1234'),
+    );
+    expect(authenticateOAuth).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByPlaceholderText(/profile name/i)).toBeNull());
+  });
+
+  it('rejects a too-short API key without calling the IPC', async () => {
+    render(<BackendStatusPanel />);
+    await waitFor(() => expect(listProfiles).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /\+ Add Profile/i }));
+    fireEvent.change(screen.getByLabelText(/Authentication type/i), {
+      target: { value: 'api_key' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/profile name/i), { target: { value: 'keyed' } });
+    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'abc' } });
+    fireEvent.click(screen.getByRole('button', { name: /Confirm/i }));
+
+    expect(await screen.findByText(/Paste a valid API key/i)).toBeTruthy();
+    expect(setProfileApiKey).not.toHaveBeenCalled();
+  });
+
+  it('keeps the form open and surfaces the gateway message when the save fails', async () => {
+    setProfileApiKey.mockResolvedValue({
+      ok: false,
+      status: 400,
+      message: 'api_key_not_supported',
+    });
+    render(<BackendStatusPanel />);
+    await waitFor(() => expect(listProfiles).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: /\+ Add Profile/i }));
+    fireEvent.change(screen.getByLabelText(/Authentication type/i), {
+      target: { value: 'api_key' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/profile name/i), { target: { value: 'keyed' } });
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-proj-test-key-1234' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Confirm/i }));
+
+    expect(await screen.findByText(/api_key_not_supported/i)).toBeTruthy();
+    expect(screen.getByPlaceholderText(/profile name/i)).toBeTruthy();
+  });
+
+  it('renders the API key badge and Replace key flow instead of Re-authenticate', async () => {
+    listProfiles.mockResolvedValue({
+      profiles: [
+        {
+          id: 'anthropic:keyed',
+          provider: 'anthropic',
+          name: 'keyed',
+          state: 'authenticated',
+          auth_type: 'api_key',
+          account_label: 'API key ····1234',
+        },
+      ],
+    });
+    render(<BackendStatusPanel />);
+    await screen.findByText('keyed');
+    expect(screen.getByText('API key')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Re-authenticate/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Replace key/i }));
+    fireEvent.change(screen.getByLabelText(/New API key/i), {
+      target: { value: 'sk-ant-api03-rotated-9999' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+
+    await waitFor(() =>
+      expect(setProfileApiKey).toHaveBeenCalledWith('claude', 'keyed', 'sk-ant-api03-rotated-9999'),
+    );
+  });
+
+  it('shows a load error instead of "No profiles yet." when listProfiles fails', async () => {
+    listProfiles.mockResolvedValue({ profiles: [], error: 'gateway_unreachable' });
+    render(<BackendStatusPanel />);
+    expect(await screen.findByText(/Couldn't load profiles/i)).toBeTruthy();
+    expect(screen.queryByText(/No profiles yet\./i)).toBeNull();
   });
 });
 
