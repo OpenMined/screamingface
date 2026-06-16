@@ -14,7 +14,7 @@
   function historyRow(s) {
     var tr = document.createElement("tr");
     tr.appendChild(P.el("td", null, P.formatDate(s.submitted_at)));
-    tr.appendChild(P.el("td", "wrap", P.formatSubmitter(s.submitted_by)));
+    tr.appendChild(P.el("td", "cell-wrap", P.formatSubmitter(s.submitted_by)));
     tr.appendChild(P.el("td", "num", P.formatPercent(s.accuracy)));
     tr.appendChild(P.el("td", "num", P.formatQuestions(s.total_questions)));
     var verTd = document.createElement("td");
@@ -41,7 +41,7 @@
       function (score) {
         if (score && score.url4_expression) {
           P.clear(regionNode);
-          regionNode.appendChild(P.createRunLink(specId, score.url4_expression, { label: "Run Locally" }));
+          regionNode.appendChild(P.createCopyButton(specId, score.url4_expression));
           regionNode.hidden = false;
         } else {
           regionNode.hidden = true;
@@ -74,7 +74,7 @@
 
     specIdNode.textContent = specId;
     backLink.setAttribute("href", "benchmark.html?id=" + encodeURIComponent(benchmarkId));
-    document.title = specId + " — ScreamingFace";
+    document.title = specId + " — screamingface";
 
     P.showLoading(statusNode, "Loading spec history…");
     contentNode.hidden = true;
@@ -93,8 +93,8 @@
 
         var best = Math.max.apply(null, submissions.map(function (s) { return s.accuracy; }));
         document.getElementById("best-accuracy").textContent = P.formatPercent(best);
-        document.getElementById("submission-count").textContent =
-          submissions.length + (submissions.length === 1 ? " submission" : " submissions");
+        // Bare number: the .stats cell label ("Submissions") carries the word.
+        document.getElementById("submission-count").textContent = submissions.length.toLocaleString();
 
         var body = document.getElementById("history-body");
         P.clear(body);

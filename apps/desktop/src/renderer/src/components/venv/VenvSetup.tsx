@@ -18,11 +18,11 @@ export function VenvSetup({ status, uvFound, progress, onCreate, onSync }: VenvS
 
   if (!uvFound) {
     return (
-      <div className="rounded-lg border border-border bg-card p-6">
+      <div className="rounded-none border border-border bg-card p-6">
         <h2 className="font-heading text-base font-semibold text-foreground">Setup Required</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          <code className="rounded bg-secondary px-1.5 py-0.5 text-xs">uv</code> is required but
-          was not found on your system.
+          <code className="rounded bg-secondary px-1.5 py-0.5 text-xs">uv</code> is required but was
+          not found on your system.
         </p>
         <p className="mt-3 text-sm text-muted-foreground">Install it:</p>
         <code className="mt-2 block rounded bg-background px-3 py-2 font-mono text-xs text-chart-1">
@@ -35,7 +35,7 @@ export function VenvSetup({ status, uvFound, progress, onCreate, onSync }: VenvS
 
   if (status === 'missing') {
     return (
-      <div className="rounded-lg border border-border bg-card p-6">
+      <div className="rounded-none border border-border bg-card p-6">
         <h2 className="font-heading text-base font-semibold text-foreground">
           Create Python Environment
         </h2>
@@ -45,7 +45,7 @@ export function VenvSetup({ status, uvFound, progress, onCreate, onSync }: VenvS
         <div className="mt-4 flex gap-2">
           <button
             onClick={onCreate}
-            className="rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="rounded-none bg-primary px-4 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             Create .venv
           </button>
@@ -56,7 +56,7 @@ export function VenvSetup({ status, uvFound, progress, onCreate, onSync }: VenvS
 
   if (status === 'creating') {
     return (
-      <div className="rounded-lg border border-border bg-card p-6">
+      <div className="rounded-none border border-border bg-card p-6">
         <h2 className="font-heading text-base font-semibold text-foreground">Setting up...</h2>
         <div className="mt-3 h-32 overflow-y-auto rounded bg-background p-3 font-mono text-[11px] leading-relaxed text-muted-foreground">
           {progress.map((line, i) => (
@@ -75,7 +75,7 @@ export function VenvSetup({ status, uvFound, progress, onCreate, onSync }: VenvS
       <div className="flex gap-2">
         <button
           onClick={onSync}
-          className="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
+          className="rounded-none bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground transition-colors hover:bg-secondary/80"
         >
           Sync Dependencies
         </button>

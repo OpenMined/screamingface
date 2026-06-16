@@ -8,7 +8,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-RunStatus = Literal["running", "done", "failed"]
+# Mirrors the statuses written by the run lifecycle in plugin.py:
+# running (start) → done | degraded (finish; degraded = some rows errored) | failed.
+RunStatus = Literal["running", "done", "degraded", "failed"]
 
 
 class EvalQuestionOut(BaseModel):
@@ -39,9 +41,17 @@ class EvalRunSummaryOut(BaseModel):
     total_questions: int | None = None
     correct_questions: int | None = None
     error: str | None = None
+    favorite: bool = False
 
 
 class EvalRunOut(EvalRunSummaryOut):
     """Detail view — includes questions."""
 
     questions: list[EvalQuestionOut] = []
+
+
+class EvalRunPatchIn(BaseModel):
+    """Mutable fields on an eval run. Only the fields provided are updated."""
+
+    favorite: bool | None = None
+    url4_expression: str | None = None

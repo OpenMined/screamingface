@@ -75,6 +75,28 @@ async def test_get_detail_returns_questions_sorted_by_idx(
     assert [q["idx"] for q in body["questions"]] == [0, 1, 2]
 
 
+async def test_list_and_detail_serialize_degraded_run(async_client: httpx.AsyncClient) -> None:
+    """SF-270 introduced a 'degraded' status; the read DTO must accept it.
+
+    Regression for the /eval_runs 500: because ``RunStatus`` omitted
+    'degraded', a single degraded run failed ``EvalRunSummaryOut`` validation
+    and 500'd the whole list (and its detail view).
+    """
+    from screamingface.plugins.eval_runs.models import EvalRun
+
+    store = EvalRunStore()
+    run = await store.create(spec_name="x", url4_expression="x", started_at=datetime.now(UTC))
+    await EvalRun.filter(id=run.id).update(status="degraded", error="2 row(s) errored")
+
+    r = await async_client.get("/eval_runs")
+    assert r.status_code == 200
+    assert r.json()[0]["status"] == "degraded"
+
+    detail = await async_client.get(f"/eval_runs/{run.id}")
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "degraded"
+
+
 async def test_get_detail_missing_returns_404(async_client: httpx.AsyncClient) -> None:
     r = await async_client.get(f"/eval_runs/{uuid4()}")
     assert r.status_code == 404
@@ -95,3 +117,74 @@ async def test_list_supports_limit_offset(async_client: httpx.AsyncClient) -> No
     assert r.status_code == 200
     body = r.json()
     assert len(body) == 2
+
+
+async def test_patch_sets_favorite(async_client: httpx.AsyncClient) -> None:
+    store = EvalRunStore()
+    run = await store.create(spec_name="x", url4_expression="x", started_at=datetime.now(UTC))
+    assert (await async_client.get(f"/eval_runs/{run.id}")).json()["favorite"] is False
+
+    r = await async_client.patch(f"/eval_runs/{run.id}", json={"favorite": True})
+    assert r.status_code == 200
+    assert r.json()["favorite"] is True
+    assert (await async_client.get(f"/eval_runs/{run.id}")).json()["favorite"] is True
+
+    r = await async_client.patch(f"/eval_runs/{run.id}", json={"favorite": False})
+    assert r.json()["favorite"] is False
+
+
+async def test_patch_missing_returns_404(async_client: httpx.AsyncClient) -> None:
+    r = await async_client.patch(f"/eval_runs/{uuid4()}", json={"favorite": True})
+    assert r.status_code == 404
+    assert r.json() == {"detail": "run not found"}
+
+
+async def test_patch_updates_url4_expression(async_client: httpx.AsyncClient) -> None:
+    store = EvalRunStore()
+    run = await store.create(
+        spec_name="x", url4_expression="/claude()!old", started_at=datetime.now(UTC), favorite=True
+    )
+
+    r = await async_client.patch(f"/eval_runs/{run.id}", json={"url4_expression": "/claude()!new"})
+    assert r.status_code == 200
+    assert r.json()["url4_expression"] == "/claude()!new"
+    # favorite is untouched when not included in the patch.
+    assert r.json()["favorite"] is True
+    assert (await async_client.get(f"/eval_runs/{run.id}")).json()[
+        "url4_expression"
+    ] == "/claude()!new"
+
+
+async def test_list_sorts_favorites_first(async_client: httpx.AsyncClient) -> None:
+    store = EvalRunStore()
+    base = datetime(2026, 5, 13, 10, 0, 0, tzinfo=UTC)
+    runs = [
+        await store.create(
+            spec_name=f"spec-{i}",
+            url4_expression="x",
+            started_at=base.replace(hour=10 + i),
+        )
+        for i in range(3)
+    ]
+    # Favorite the oldest run; it should jump above the more-recent non-favorites.
+    await async_client.patch(f"/eval_runs/{runs[0].id}", json={"favorite": True})
+
+    body = (await async_client.get("/eval_runs")).json()
+    assert [row["spec_name"] for row in body] == ["spec-0", "spec-2", "spec-1"]
+
+
+async def test_delete_removes_run_and_questions(async_client: httpx.AsyncClient) -> None:
+    store = EvalRunStore()
+    run = await store.create(spec_name="x", url4_expression="x", started_at=datetime.now(UTC))
+    await EvalQuestion.create(run=run, idx=0, question="q", expected="e")
+
+    r = await async_client.delete(f"/eval_runs/{run.id}")
+    assert r.status_code == 204
+    assert (await async_client.get(f"/eval_runs/{run.id}")).status_code == 404
+    assert await EvalQuestion.all().count() == 0
+
+
+async def test_delete_missing_returns_404(async_client: httpx.AsyncClient) -> None:
+    r = await async_client.delete(f"/eval_runs/{uuid4()}")
+    assert r.status_code == 404
+    assert r.json() == {"detail": "run not found"}

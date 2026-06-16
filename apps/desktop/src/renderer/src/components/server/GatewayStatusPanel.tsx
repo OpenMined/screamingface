@@ -21,8 +21,8 @@ export function GatewayStatusPanel({
     <div
       className={
         compact
-          ? 'w-full overflow-hidden rounded-md border border-sidebar-border bg-sidebar-accent/30 p-2'
-          : 'rounded-md border border-border bg-muted/20 p-3'
+          ? 'w-full overflow-hidden rounded-none border border-sidebar-border bg-sidebar-accent/30 p-2'
+          : 'rounded-none border border-border bg-muted/20 p-3'
       }
     >
       <div className="flex items-center justify-between gap-3">

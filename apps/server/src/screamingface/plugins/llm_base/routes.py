@@ -74,6 +74,12 @@ async def _collect_backend_status(app: Any = None) -> dict[str, Any]:
     for plugin in plugins.values():
         if not plugin.backend_call_paths:
             continue
+        # Skip no-auth dispatch backends (e.g. python-runner): they declare a
+        # url4 backend_call path but require no credentials and expose no
+        # /health route, so probing them misreports "Credential is missing or
+        # expired." (SF-246).
+        if not getattr(plugin, "requires_auth", True):
+            continue
         path = plugin.backend_call_paths[0]
         name = path.lstrip("/")
 

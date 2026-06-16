@@ -17,7 +17,7 @@ export function ServerControls({ status, onStart, onStop, onRestart }: ServerCon
       {!running && !busy && (
         <button
           onClick={onStart}
-          className="flex items-center gap-1.5 rounded-md bg-chart-3/15 px-3 py-1.5 text-xs font-medium text-chart-3 transition-colors hover:bg-chart-3/25"
+          className="flex items-center gap-1.5 rounded-none bg-gain/15 px-3 py-1.5 text-xs font-medium text-gain transition-colors hover:bg-gain/25"
         >
           <Play className="h-3.5 w-3.5" />
           Start
@@ -27,14 +27,14 @@ export function ServerControls({ status, onStart, onStop, onRestart }: ServerCon
         <>
           <button
             onClick={onStop}
-            className="flex items-center gap-1.5 rounded-md bg-destructive/15 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/25"
+            className="flex items-center gap-1.5 rounded-none bg-destructive/15 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/25"
           >
             <Square className="h-3.5 w-3.5" />
             Stop
           </button>
           <button
             onClick={onRestart}
-            className="flex items-center gap-1.5 rounded-md bg-chart-1/15 px-3 py-1.5 text-xs font-medium text-chart-1 transition-colors hover:bg-chart-1/25"
+            className="flex items-center gap-1.5 rounded-none bg-chart-1/15 px-3 py-1.5 text-xs font-medium text-chart-1 transition-colors hover:bg-chart-1/25"
           >
             <RotateCw className="h-3.5 w-3.5" />
             Restart

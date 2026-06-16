@@ -14,13 +14,13 @@ import { useToast } from '@/hooks/use-toast';
 import { isBackendStatusV2, useBackendStatus } from '@/hooks/use-backend-status';
 
 const profileStateConfig: Record<string, { dot: string; label: string }> = {
-  authenticated: { dot: 'bg-chart-3', label: 'Authenticated' },
+  authenticated: { dot: 'bg-gain', label: 'Authenticated' },
   pending: { dot: 'bg-chart-1', label: 'Pending' },
   error: { dot: 'bg-destructive', label: 'Error' },
 };
 
 const connectionStateConfig: Record<string, { dot: string; label: string }> = {
-  active: { dot: 'bg-chart-3', label: 'Connected' },
+  active: { dot: 'bg-gain', label: 'Connected' },
   pending: { dot: 'bg-chart-1', label: 'Pending' },
   expired: { dot: 'bg-chart-1', label: 'Expired' },
   revoked: { dot: 'bg-muted', label: 'Revoked' },
@@ -31,13 +31,13 @@ const PROFILE_NAME_RE = /^[a-z0-9-]+$/;
 const CONNECTION_PENDING_POLL_MS = 2000;
 
 const actionConfig: Record<string, { dot: string; label: string }> = {
-  healthy: { dot: 'bg-chart-3', label: 'Ready' },
+  healthy: { dot: 'bg-gain', label: 'Ready' },
   reauth: { dot: 'bg-chart-1', label: 'Needs Auth' },
   rate_limited: { dot: 'bg-destructive', label: 'Rate Limited' },
   degraded: { dot: 'bg-chart-1', label: 'Degraded' },
 };
 
-const connectedActionConfig = { dot: 'bg-chart-3', label: 'Connected' };
+const connectedActionConfig = { dot: 'bg-gain', label: 'Connected' };
 
 interface ConnectionAuthSummary {
   activeCount: number;
@@ -182,12 +182,12 @@ function ProfileRow({
             {isPending && (
               <span
                 className={cn(
-                  'absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping',
+                  'absolute inline-flex h-full w-full rounded-none opacity-75 animate-ping',
                   cfg.dot,
                 )}
               />
             )}
-            <span className={cn('relative inline-flex h-2 w-2 rounded-full', cfg.dot)} />
+            <span className={cn('relative inline-flex h-2 w-2 rounded-none', cfg.dot)} />
           </span>
           <span className="text-xs font-medium text-foreground truncate">{profile.name}</span>
           {isApiKey && (
@@ -670,12 +670,12 @@ function ConnectionRow({
             {isPending && (
               <span
                 className={cn(
-                  'absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping',
+                  'absolute inline-flex h-full w-full rounded-none opacity-75 animate-ping',
                   cfg.dot,
                 )}
               />
             )}
-            <span className={cn('relative inline-flex h-2 w-2 rounded-full', cfg.dot)} />
+            <span className={cn('relative inline-flex h-2 w-2 rounded-none', cfg.dot)} />
           </span>
           <span className="text-xs font-medium text-foreground truncate">{connection.label}</span>
           {accountLabel && (
@@ -961,7 +961,7 @@ function ConnectionsSubPanel({
       {submitting && !pendingConnectionId && (
         <p className="text-xs text-muted-foreground mt-1">Waiting for browser sign-in...</p>
       )}
-      {notice && <p className="text-xs text-chart-3 mt-1">{notice}</p>}
+      {notice && <p className="text-xs text-gain mt-1">{notice}</p>}
       {addError && <p className="text-xs text-destructive mt-1">{addError}</p>}
       {pendingConnectionId && (
         <div className="mt-2 border-t border-border pt-2">
@@ -1030,7 +1030,7 @@ function BackendRow({
     <div className="py-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
-          <span className={cn('h-2.5 w-2.5 rounded-full shrink-0', config.dot)} />
+          <span className={cn('h-2.5 w-2.5 rounded-none shrink-0', config.dot)} />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-foreground">{label}</span>
@@ -1144,7 +1144,7 @@ export function BackendStatusPanel({
   };
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
+    <div className="rounded-none border border-border bg-card p-4">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-medium text-foreground">Backends</h3>
         <button
@@ -1161,7 +1161,7 @@ export function BackendStatusPanel({
         <div className="space-y-2 py-1" aria-label="Loading backends" role="status">
           {[0, 1, 2].map((i) => (
             <div key={i} className="flex items-center gap-3 py-2 animate-pulse">
-              <span className="h-2.5 w-2.5 rounded-full shrink-0 bg-muted" />
+              <span className="h-2.5 w-2.5 rounded-none shrink-0 bg-muted" />
               <div className="h-3 w-24 rounded bg-muted" />
               <div className="h-3 w-32 rounded bg-muted/50" />
             </div>
@@ -1169,7 +1169,7 @@ export function BackendStatusPanel({
         </div>
       )}
       {suppressProviderUi && (
-        <div className="rounded-md border border-border bg-muted/20 px-3 py-3 text-sm">
+        <div className="rounded-none border border-border bg-muted/20 px-3 py-3 text-sm">
           <p className="font-medium text-foreground">Sign in to AIGateway</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Provider connections require gateway authentication before Desktop can load or manage

@@ -38,10 +38,11 @@ export function useBackendStatus() {
     };
   }, []);
 
-  const refresh = async (): Promise<void> => {
+  const refresh = async (): Promise<BackendStatusResponse> => {
     const next = await window.electronAPI.backends.refresh();
     setStatuses(next);
     setLoaded(true);
+    return next;
   };
 
   return { statuses, pollingError, loaded, refresh };

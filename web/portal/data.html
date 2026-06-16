@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>screamingface — data file</title>
+  <meta name="description" content="Reads a published screamingface data file (JSONL) and renders it as a table.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=EB+Garamond:wght@500;600&family=Rubik:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="portal.css">
+  <script>(function(){try{var t=localStorage.getItem('sf_theme')||'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+</head>
+<body>
+  <div class="rail">
+    <span class="brand"><span class="m">😱</span> screamingface</span><span class="sep">/</span>
+    <nav class="crumbs"><a href="index.html">portal</a><a href="#" class="here">data</a></nav>
+    <span class="spacer"></span><button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
+  </div>
+
+  <div class="wrap wide">
+    <header class="masthead">
+      <div class="eyebrow">Data file</div>
+      <h1>Receipt, in the open</h1>
+    </header>
+
+    <p class="meta mono" id="data-file"></p>
+    <p class="meta mono">
+      <span id="data-meta"></span>
+      · <a id="data-raw" href="#">raw .jsonl</a>
+      · <a id="data-txt" href="#">plain text</a>
+    </p>
+
+    <div id="data-status" class="state" role="status" aria-live="polite">Loading…</div>
+
+    <div id="data-wrap" class="table-wrap" hidden>
+      <table aria-label="Data file contents">
+        <thead id="data-head"></thead>
+        <tbody id="data-body"></tbody>
+      </table>
+    </div>
+
+    <div class="foot">
+      <span>😱 screamingface, built by <a href="https://openmined.org" rel="noopener noreferrer nofollow">OpenMined</a></span>
+      <span><a href="https://github.com/OpenMined/screamingface" rel="noopener noreferrer nofollow">GitHub</a></span>
+    </div>
+  </div>
+
+  <script src="main.js" defer></script>
+  <script src="data.js" defer></script>
+  <script src="theme.js" defer></script>
+</body>
+</html>

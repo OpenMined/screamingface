@@ -12,6 +12,7 @@ from screamingface.plugins.eval_runs._hook_payloads import (
     HOOK_RUN_FINISHED,
     HOOK_RUN_STARTED,
 )
+from screamingface.plugins.eval_runs._migrations import ensure_favorite_column
 from screamingface.plugins.eval_runs.models import EvalQuestion, EvalRun
 from screamingface.plugins.eval_runs.routes import create_router
 from screamingface.plugins.eval_runs.store import EvalRunStore
@@ -88,13 +89,21 @@ class EvalRunsPlugin(Plugin):
             total = await EvalQuestion.filter(run_id=run_uuid).count()
             correct = await EvalQuestion.filter(run_id=run_uuid, correct=True).count()
             accuracy = (correct / total) if total else 0.0
-            await EvalRun.filter(id=run_uuid).update(
-                status="done",
-                finished_at=payload["finished_at"],
-                accuracy=accuracy,
-                total_questions=total,
-                correct_questions=correct,
-            )
+            collected_errors = int(payload.get("collected_errors", 0) or 0)
+            update: dict = {
+                "status": "done",
+                "finished_at": payload["finished_at"],
+                "accuracy": accuracy,
+                "total_questions": total,
+                "correct_questions": correct,
+            }
+            if collected_errors > 0:
+                update["status"] = "degraded"
+                update["error"] = (
+                    f"{collected_errors} row(s) errored (e.g. a model backend was "
+                    f"unavailable); {total} graded."
+                )
+            await EvalRun.filter(id=run_uuid).update(**update)
             self._question_idx_by_run.pop(run_id, None)
 
         async def _on_run_failed(**payload) -> None:
@@ -106,6 +115,14 @@ class EvalRunsPlugin(Plugin):
             )
             self._question_idx_by_run.pop(run_id, None)
 
+        async def _ensure_schema() -> None:
+            # Runs after the state plugin's generate_schemas (priority 10) so the
+            # eval_run table exists; back-fills the additive `favorite` column on
+            # local DBs created before it was introduced.
+            if getattr(app.state, "state_ready", False):
+                await ensure_favorite_column()
+
+        hooks.register("app.startup", _ensure_schema, plugin_name=self.name, priority=20)
         hooks.register(HOOK_RUN_STARTED, _on_run_started, plugin_name=self.name)
         hooks.register(HOOK_QUESTION_CHECKED, _on_question_checked, plugin_name=self.name)
         hooks.register(HOOK_RUN_FINISHED, _on_run_finished, plugin_name=self.name)

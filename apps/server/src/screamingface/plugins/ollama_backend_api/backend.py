@@ -134,13 +134,25 @@ class OllamaBackend(Backend):
         )
 
     async def _do_post(self, body: dict, headers: dict[str, str]) -> httpx.Response:
-        try:
-            async with self._http_factory() as client:
-                return await client.post(self._chat_url, json=body, headers=headers)
-        except httpx.TimeoutException as exc:
-            raise BackendError(f"Request timed out: {exc}", status=None) from exc
-        except httpx.RequestError as exc:
-            raise BackendError(f"Request failed: {exc}", status=None) from exc
+        from screamingface.plugins.llm_base._tracing import (
+            record_llm_call,
+            set_provider_attrs,
+            traced_provider_post,
+        )
+
+        with traced_provider_post("ollama", self._chat_url):
+            try:
+                async with self._http_factory() as client:
+                    resp = await client.post(self._chat_url, json=body, headers=headers)
+            except httpx.TimeoutException as exc:
+                raise BackendError(f"Request timed out: {exc}", status=None) from exc
+            except httpx.RequestError as exc:
+                raise BackendError(f"Request failed: {exc}", status=None) from exc
+            set_provider_attrs(
+                {"http.status_code": resp.status_code, "http.response.size": len(resp.content)}
+            )
+            record_llm_call("ollama", body, resp)
+            return resp
 
     # ------------------------------------------------------------------
     # health()

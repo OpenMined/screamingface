@@ -11,9 +11,9 @@ function truncate(s: string): string {
 function CorrectIcon({ correct }: { correct: boolean | null }) {
   if (correct === null) return <span className="text-muted-foreground">—</span>;
   return correct ? (
-    <Check className="h-4 w-4 text-green-400" />
+    <Check className="h-4 w-4 text-gain" />
   ) : (
-    <X className="h-4 w-4 text-red-400" />
+    <X className="h-4 w-4 text-destructive" />
   );
 }
 

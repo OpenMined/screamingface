@@ -114,7 +114,11 @@ class EnsembleInterpreter(Url4Interpreter):
         + tracing. Order matters: collection iteration must come before
         fan-out detection because ``source*(…)`` is a distinct shape.
         """
-        from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
+        from screamingface.plugins.url4_executor._tracing import (
+            set_openinference,
+            set_span_attrs,
+            traced,
+        )
         from screamingface.plugins.url4_executor.decoder import split_intent
         from screamingface.plugins.url4_executor.url4 import parse
 
@@ -126,6 +130,7 @@ class EnsembleInterpreter(Url4Interpreter):
             except KeyError:
                 env = env.child(__processor__=self._processor)
             set_span_attrs({"url4.expression": expr[:500]})
+            set_openinference("CHAIN", input_value=expr[:16000])
             source_expr, raw_intent, broadcast = split_intent(expr.strip())
             set_span_attrs(
                 {

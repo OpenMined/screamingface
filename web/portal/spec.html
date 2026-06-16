@@ -1,67 +1,78 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Spec History — ScreamingFace</title>
-  <meta name="description" content="Submission history for a single ScreamingFace benchmark spec, including accuracy, verification status, and local rerun support.">
+  <title>screamingface — spec history</title>
+  <meta name="description" content="Submission history for a screamingface benchmark spec, with accuracy, verification status, and a local rerun link.">
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=EB+Garamond:wght@500;600&family=Rubik:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="portal.css">
+  <script>(function(){try{var t=localStorage.getItem('sf_theme')||'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 </head>
 <body>
-  <div class="page">
-    <main class="main">
-      <section class="hero">
-        <h1 id="spec-id" class="mono hero-id">Spec</h1>
-        <p id="spec-benchmark"></p>
-        <p><a id="back-link" href="index.html">← Back to leaderboard</a></p>
-      </section>
+  <div class="rail">
+    <span class="brand"><span class="m">😱</span> screamingface</span><span class="sep">/</span>
+    <nav class="crumbs"><a href="index.html">portal</a><a id="back-link" href="index.html">leaderboard</a><a href="#" class="here">spec</a></nav>
+    <span class="spacer"></span><button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
+  </div>
 
-      <section class="section">
-        <div class="section-inner">
-          <div class="notice" role="note">
-            History is newest-first. The Run Locally link uses the newest submission
-            for this spec, so you can reproduce the latest public claim before
-            trusting it.
-          </div>
+  <div class="wrap">
+    <header class="masthead">
+      <div class="eyebrow">Spec history</div>
+      <h1>Run history</h1>
+    </header>
 
-          <div id="spec-status" class="state" role="status" aria-live="polite">Loading…</div>
+    <p class="meta mono" id="spec-id"></p>
+    <p class="lead" id="spec-benchmark"></p>
 
-          <div id="spec-content" hidden>
-            <div class="history-meta">
-              <span class="stat">Best accuracy <strong id="best-accuracy">—</strong></span>
-              <span class="stat" id="submission-count"></span>
-            </div>
+    <div class="note">
+      <span class="kicker">Reproduce before trusting</span>
+      History is newest-first. The Copy button copies the newest submission's URL4
+      expression — paste it into the desktop app to reproduce the latest public claim
+      before trusting it.
+    </div>
 
-            <div id="run-region" class="run-region" hidden></div>
+    <div id="spec-status" class="state" role="status" aria-live="polite">Loading…</div>
 
-            <div class="table-wrap">
-              <table class="leaderboard-table">
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>By</th>
-                    <th class="num">Accuracy</th>
-                    <th class="num">Questions</th>
-                    <th>Verified</th>
-                  </tr>
-                </thead>
-                <tbody id="history-body"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
+    <div id="spec-content" hidden>
+      <div class="stats" aria-label="Spec summary">
+        <div class="s"><span class="k">Best accuracy</span><div class="v gain" id="best-accuracy">—</div></div>
+        <div class="s"><span class="k">Submissions</span><div class="v" id="submission-count">—</div></div>
+        <div class="s"><span class="k">Reproduce</span><div id="run-region" class="run-region" hidden></div></div>
+      </div>
 
-    <footer class="footer">
-      <span>😱 screamingface, built by <a href="https://openmined.org">OpenMined</a></span>
-      <a href="https://github.com/OpenMined/screamingface">GitHub</a>
-    </footer>
+      <h2>History</h2>
+
+      <div class="table-wrap">
+        <table aria-label="Submission history">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>By</th>
+              <th class="num">Accuracy</th>
+              <th class="num">Questions</th>
+              <th>Verified</th>
+            </tr>
+          </thead>
+          <tbody id="history-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="foot">
+      <span>😱 screamingface, built by <a href="https://openmined.org" rel="noopener noreferrer nofollow">OpenMined</a></span>
+      <span><a href="https://github.com/OpenMined/screamingface" rel="noopener noreferrer nofollow">GitHub</a></span>
+    </div>
   </div>
 
   <script src="main.js" defer></script>
   <script src="spec.js" defer></script>
+  <script src="theme.js" defer></script>
 </body>
 </html>

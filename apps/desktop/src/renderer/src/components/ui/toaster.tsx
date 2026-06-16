@@ -2,9 +2,9 @@ import { useToast, type ToastVariant } from '@/hooks/use-toast';
 
 const variantStyles: Record<ToastVariant, string> = {
   default: 'bg-card border-border text-foreground',
-  success: 'bg-chart-3/15 border-chart-3/30 text-chart-3',
+  success: 'bg-gain/15 border-gain/30 text-gain',
   error: 'bg-destructive/15 border-destructive/30 text-destructive',
-  warning: 'bg-chart-2/15 border-chart-2/30 text-chart-2',
+  warning: 'bg-primary/15 border-primary/30 text-primary',
 };
 
 export function Toaster() {
@@ -17,7 +17,7 @@ export function Toaster() {
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`pointer-events-auto animate-in slide-in-from-right-5 fade-in rounded-md border px-4 py-2 text-xs font-medium shadow-lg ${variantStyles[t.variant]}`}
+          className={`pointer-events-auto animate-in slide-in-from-right-5 fade-in rounded-none border px-4 py-2 font-mono text-xs font-medium ${variantStyles[t.variant]}`}
           onClick={() => dismiss(t.id)}
           role="status"
         >

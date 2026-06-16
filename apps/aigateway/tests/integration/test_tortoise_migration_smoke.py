@@ -88,6 +88,7 @@ def test_tortoise_migrate_creates_accounts_table() -> None:
             "accounts",
             "credential_blobs",
             "oauth_connections",
+            "request_cache_entries",
             "secret_master_keys",
             "tortoise_migrations",
         } <= asyncio.run(_tables())

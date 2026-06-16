@@ -420,3 +420,61 @@ class TestCollectionSourceFetchFailure:
         assert otlp_collector.find_spans(name="url4.collection_iterate"), (
             f"collection iteration should start for a reachable source; spans={span_names}"
         )
+
+
+# ============================================================================
+# SF-278: backend dispatch + provider HTTP spans in ensemble traces
+# ============================================================================
+
+
+class TestBackendDispatchTracing:
+    def test_dispatch_span_emitted_for_backend_call(
+        self, ensemble_url: str, otlp_collector: OTLPCollector
+    ) -> None:
+        """`_dispatch_backend_call` emits `url4.backend_call /claude`.
+
+        CI-safe: the span is opened *before* the backend's credential check,
+        so it is emitted (as an error span) even with no Keychain credential.
+        We assert only on the span, not the HTTP status.
+        """
+        otlp_collector.clear()
+        _get_ensemble(ensemble_url, q="/claude()!ping")
+        otlp_collector.wait_for_spans(1, timeout=15)
+
+        dispatch = otlp_collector.find_spans(name="url4.backend_call")
+        span_names = sorted({s.name for s in otlp_collector.spans})
+        assert dispatch, f"no url4.backend_call span emitted; spans={span_names}"
+        s = dispatch[0]
+        assert s.name == "url4.backend_call /claude"
+        assert s.attributes.get("url4.path") == "/claude"
+        assert "url4.intent_length" in s.attributes
+        # OpenInference: a backend call is a CHAIN with the prompt+context as input.
+        assert s.attributes.get("openinference.span.kind") == "CHAIN"
+        assert "ping" in str(s.attributes.get("input.value", ""))
+
+
+@pytest.mark.e2e_live
+class TestProviderHttpTracing:
+    def test_provider_post_span_emitted(
+        self, ensemble_url: str, otlp_collector: OTLPCollector
+    ) -> None:
+        """A real backend call emits the deep `llm.POST Anthropic` client span.
+
+        Live-only: the provider POST only fires once a real auth header is
+        obtained (Keychain credential present).
+        """
+        otlp_collector.clear()
+        resp = _get_ensemble(ensemble_url, q="/claude()!Say the word pong. One word.")
+        assert resp.status_code == 200
+
+        otlp_collector.wait_for_spans(2, timeout=20)
+        provider = otlp_collector.find_spans(name="llm.POST Anthropic")
+        span_names = sorted({s.name for s in otlp_collector.spans})
+        assert provider, f"no llm.POST Anthropic span emitted; spans={span_names}"
+        s = provider[0]
+        assert s.attributes.get("sf.plugin") == "Anthropic"
+        assert s.attributes.get("http.status_code") == 200
+        # OpenInference LLM classification + captured model call.
+        assert s.attributes.get("openinference.span.kind") == "LLM"
+        assert s.attributes.get("input.value")  # request body captured
+        assert s.attributes.get("output.value")  # response captured

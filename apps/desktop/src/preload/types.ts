@@ -211,6 +211,40 @@ export type OAuthLauncherResult =
       message?: string;
     };
 
+export interface PublishContext {
+  scoreboardUrl: string;
+  portalUrl: string;
+  client: { name: string; version: string; platform: string };
+}
+
+/** Plain, serializable inputs the renderer sends over IPC to publish a score. */
+export interface PublishScoreRequest {
+  benchmarkId: string;
+  specId: string;
+  /** url4 expression to publish — already sanitized if the user chose to. */
+  url4Expression: string;
+  providers: string[];
+  /** null/empty → anonymous. */
+  submittedBy: string | null;
+  /** eval_run id — used as the Idempotency-Key so repeat clicks don't duplicate. */
+  runId: string;
+  totalQuestions: number;
+  correctQuestions: number;
+  /** ISO timestamp the run finished (falls back to started_at upstream). */
+  ranAtLocal: string;
+}
+
+export interface PublishResult {
+  id: string;
+  benchmarkId: string;
+  specId: string;
+  /** Deep link to the leaderboard entry. */
+  portalLink: string;
+}
+
+/** Discriminated outcome of a publish attempt — never throws across IPC. */
+export type PublishOutcome = { ok: true; value: PublishResult } | { ok: false; error: string };
+
 export interface ElectronAPI {
   popup: {
     open: (url: string, title?: string) => Promise<void>;
@@ -255,6 +289,15 @@ export interface ElectronAPI {
     read: () => Promise<Record<string, unknown>>;
     write: (config: Record<string, unknown>) => Promise<void>;
     onChanged: (callback: (config: Record<string, unknown>) => void) => () => void;
+  };
+  publish: {
+    getContext: () => Promise<PublishContext>;
+    submitScore: (request: PublishScoreRequest) => Promise<PublishOutcome>;
+    /** Backlog of recent publish/scoreboard diagnostic lines. */
+    getLogs: () => Promise<string[]>;
+    /** Subscribe to live publish/scoreboard log lines; returns an unsubscribe fn. */
+    onLog: (callback: (line: string) => void) => () => void;
+    openExternal: (url: string) => Promise<void>;
   };
   backends: {
     getStatus: () => Promise<BackendStatusResponse>;

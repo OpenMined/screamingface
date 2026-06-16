@@ -1,65 +1,72 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Benchmark Leaderboard — ScreamingFace</title>
-  <meta name="description" content="A ScreamingFace benchmark leaderboard with accuracy, question counts, providers, verification status, and local rerun links.">
+  <title>screamingface — leaderboard</title>
+  <meta name="description" content="A screamingface benchmark leaderboard with accuracy, question counts, providers, verification status, and local rerun links.">
   <meta name="robots" content="noindex, nofollow">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=EB+Garamond:wght@500;600&family=Rubik:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="portal.css">
+  <script>(function(){try{var t=localStorage.getItem('sf_theme')||'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 </head>
 <body>
-  <div class="page">
-    <main class="main">
-      <section class="hero">
-        <h1 id="benchmark-name">Leaderboard</h1>
-        <p id="benchmark-desc"></p>
-        <p><a href="index.html">← All benchmarks</a></p>
-      </section>
+  <div class="rail">
+    <span class="brand"><span class="m">😱</span> screamingface</span><span class="sep">/</span>
+    <nav class="crumbs"><a href="index.html">portal</a><a href="#" class="here">leaderboard</a></nav>
+    <span class="spacer"></span><button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
+  </div>
 
-      <section class="section">
-        <div class="section-inner">
-          <div class="notice" role="note">
-            Treat this as a public scoreboard, not a trust oracle. "Verified" means
-            OpenMined independently reproduced the run; unbadged rows are community
-            submissions that still need reproduction.
-          </div>
+  <div class="wrap wide">
+    <header class="masthead">
+      <div class="eyebrow">Leaderboard</div>
+      <h1 id="benchmark-name">Leaderboard</h1>
+    </header>
 
-          <div id="leaderboard-summary" class="summary-grid" aria-label="Leaderboard summary" hidden>
-            <div class="summary-card">
-              <span class="proof-kicker">Best accuracy</span>
-              <strong id="summary-best">-</strong>
-            </div>
-            <div class="summary-card">
-              <span class="proof-kicker">Specs shown</span>
-              <strong id="summary-specs">-</strong>
-            </div>
-            <div class="summary-card">
-              <span class="proof-kicker">Verified rows</span>
-              <strong id="summary-verified">-</strong>
-            </div>
-          </div>
+    <p class="lead" id="benchmark-desc"></p>
 
-          <div id="leaderboard-status" class="state" role="status" aria-live="polite">Loading…</div>
+    <div class="note">
+      <span class="kicker">Read this first</span>
+      Treat this as a public scoreboard, not a trust oracle. “Verified” means
+      OpenMined independently reproduced the run; unbadged rows are community
+      submissions that still need reproduction.
+    </div>
 
-          <div id="leaderboard-wrap" class="table-wrap" hidden>
-            <table class="leaderboard-table">
-              <thead id="leaderboard-head"></thead>
-              <tbody id="leaderboard-body"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-    </main>
+    <div id="leaderboard-summary" class="stats" aria-label="Leaderboard summary" hidden>
+      <div class="s"><span class="k">Best accuracy</span><div class="v gain" id="summary-best">—</div></div>
+      <div class="s"><span class="k">Specs shown</span><div class="v" id="summary-specs">—</div></div>
+      <div class="s"><span class="k">Verified rows</span><div class="v" id="summary-verified">—</div></div>
+    </div>
 
-    <footer class="footer">
-      <span>😱 screamingface, built by <a href="https://openmined.org">OpenMined</a></span>
-      <a href="https://github.com/OpenMined/screamingface">GitHub</a>
-    </footer>
+    <div id="leaderboard-status" class="state" role="status" aria-live="polite">Loading…</div>
+
+    <div id="leaderboard-climb-section" hidden>
+      <h2>Accuracy</h2>
+      <!-- Visual duplicate of the table's accuracy column (viz-a climb
+           direction); the table below remains the accessible data source. -->
+      <div id="leaderboard-climb" class="climb" aria-hidden="true"></div>
+    </div>
+
+    <div id="leaderboard-wrap" class="table-wrap" hidden>
+      <table aria-label="Leaderboard">
+        <thead id="leaderboard-head"></thead>
+        <tbody id="leaderboard-body"></tbody>
+      </table>
+    </div>
+
+    <div class="foot">
+      <span>😱 screamingface, built by <a href="https://openmined.org" rel="noopener noreferrer nofollow">OpenMined</a></span>
+      <span><a href="https://github.com/OpenMined/screamingface" rel="noopener noreferrer nofollow">GitHub</a></span>
+    </div>
   </div>
 
   <script src="main.js" defer></script>
   <script src="benchmark.js" defer></script>
+  <script src="theme.js" defer></script>
 </body>
 </html>

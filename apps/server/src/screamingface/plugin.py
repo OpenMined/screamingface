@@ -73,6 +73,14 @@ class Plugin:
     # ``/claude()!hello`` dispatches to it.
     backend_call_paths: list[str] = []
 
+    # Whether this plugin is a *credentialed* backend that belongs in the
+    # ``/backends/status`` credential/health walk. ``backend_call_paths`` only
+    # means "I'm a url4 dispatch target" — a no-auth runner (e.g. python-runner
+    # executes scripts and needs no credentials) declares a dispatch path but
+    # must NOT be probed for auth, or it gets misreported as
+    # "Credential is missing or expired." Such plugins set this to False.
+    requires_auth: bool = True
+
     def preflight(self) -> tuple[bool, str]:
         """Check if this plugin can activate. Return (ok, reason).
 

@@ -4,6 +4,8 @@ import { Trash2, Copy, Check, ChevronRight, ChevronDown, Maximize2, Minimize2 } 
 interface ServerLogsProps {
   logs: string[];
   onClear: () => void;
+  /** Panel heading; defaults to "Logs". */
+  title?: string;
 }
 
 type LogLevel = 'debug' | 'info' | 'warning' | 'error' | 'critical' | 'system';
@@ -16,21 +18,23 @@ function parseLevel(line: string): LogLevel {
   return 'system';
 }
 
+// Brand semantics: only warning=mark(amber), error/critical=blind(red), and
+// system=gain(green) carry color. debug/info are greyscale (ink-3/ink-2).
 const LEVEL_STYLES: Record<LogLevel, string> = {
-  debug: 'text-[#6b6580]',
-  info: 'text-[#8a8699]',
-  warning: 'text-[#f8c073]',
-  error: 'text-[#cc677b]',
-  critical: 'text-[#cc677b] font-bold',
-  system: 'text-[#53bea9]',
+  debug: 'text-muted-foreground/70',
+  info: 'text-muted-foreground',
+  warning: 'text-primary',
+  error: 'text-destructive',
+  critical: 'text-destructive font-bold',
+  system: 'text-gain',
 };
 
 const LEVEL_BADGE: Record<LogLevel, { text: string; className: string } | null> = {
-  debug: { text: 'DBG', className: 'bg-[#2a2633] text-[#6b6580]' },
-  info: { text: 'INF', className: 'bg-[#1a2530] text-[#52a8c5]' },
-  warning: { text: 'WRN', className: 'bg-[#2a2215] text-[#f8c073]' },
-  error: { text: 'ERR', className: 'bg-[#2a1a20] text-[#cc677b]' },
-  critical: { text: 'CRT', className: 'bg-[#2a1a20] text-[#cc677b] font-bold' },
+  debug: { text: 'DBG', className: 'bg-muted text-muted-foreground/70' },
+  info: { text: 'INF', className: 'bg-muted text-muted-foreground' },
+  warning: { text: 'WRN', className: 'bg-primary/10 text-primary' },
+  error: { text: 'ERR', className: 'bg-destructive/10 text-destructive' },
+  critical: { text: 'CRT', className: 'bg-destructive/10 text-destructive font-bold' },
   system: null,
 };
 
@@ -92,7 +96,7 @@ function LogLine({ line }: { line: string }) {
         title="Copy line"
       >
         {copied ? (
-          <Check className="h-3 w-3 text-chart-3" />
+          <Check className="h-3 w-3 text-gain" />
         ) : (
           <Copy className="h-3 w-3 text-muted-foreground hover:text-foreground" />
         )}
@@ -101,7 +105,7 @@ function LogLine({ line }: { line: string }) {
   );
 }
 
-export function ServerLogs({ logs, onClear }: ServerLogsProps) {
+export function ServerLogs({ logs, onClear, title = 'Logs' }: ServerLogsProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
@@ -140,7 +144,7 @@ export function ServerLogs({ logs, onClear }: ServerLogsProps) {
 
   const wrapperClass = fullscreen
     ? 'fixed inset-0 z-50 flex flex-col bg-card'
-    : 'rounded-lg border border-border bg-card';
+    : 'rounded-none border border-border bg-card';
 
   const scrollClass = fullscreen
     ? 'flex-1 overflow-y-auto p-3 font-mono text-[11px] leading-relaxed'
@@ -150,7 +154,8 @@ export function ServerLogs({ logs, onClear }: ServerLogsProps) {
     <div className={wrapperClass}>
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <h3 className="text-xs font-medium text-muted-foreground">
-          Logs{fullscreen && <span className="ml-2 text-[10px] opacity-50">ESC to exit</span>}
+          {title}
+          {fullscreen && <span className="ml-2 text-[10px] opacity-50">ESC to exit</span>}
         </h3>
         <div className="flex items-center gap-2">
           <button
@@ -160,7 +165,7 @@ export function ServerLogs({ logs, onClear }: ServerLogsProps) {
             title="Copy logs"
           >
             {copied ? (
-              <Check className="h-3.5 w-3.5 text-chart-3" />
+              <Check className="h-3.5 w-3.5 text-gain" />
             ) : (
               <Copy className="h-3.5 w-3.5" />
             )}

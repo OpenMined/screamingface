@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import BaseModel
 
 from screamingface.plugins.eval_runs._hook_payloads import (
     HOOK_RUN_FAILED,
@@ -16,6 +17,7 @@ from screamingface.plugins.eval_runs._hook_payloads import (
 )
 from screamingface.plugins.url4_executor.decoder import split_intent
 from screamingface.plugins.url4_executor.ensemble import EnsembleInterpreter
+from screamingface.plugins.url4_executor.formatter import format_url4_safe
 from screamingface.plugins.url4_executor.highlight import tokenize
 from screamingface.plugins.url4_executor.scope import Env
 from screamingface.plugins.url4_executor.url4 import (
@@ -63,8 +65,22 @@ def _ast_to_dict(node) -> dict | str:
     return {"type": "text", "value": node.value}
 
 
+class Url4FormatIn(BaseModel):
+    q: str
+
+
 def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
     router = APIRouter(tags=["url4-executor"])
+
+    @router.post(
+        "/ensemble/format",
+        response_model=None,
+        operation_id="url4_format",
+    )
+    async def url4_format(body: Url4FormatIn) -> JSONResponse:
+        # POST (not GET) so large expressions aren't capped by URL length.
+        formatted, error = format_url4_safe(body.q)
+        return JSONResponse(content={"formatted": formatted, "error": error})
 
     @router.get(
         "/ensemble/highlight",
@@ -131,15 +147,17 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
                 )
             raise HTTPException(status_code=502, detail=f"url4 evaluation failed: {exc}")
 
+        collected_errors = getattr(interpreter, "_collected_errors", 0)
         if run_id:
             await request.app.state.hooks.emit_async(
                 HOOK_RUN_FINISHED,
                 run_id=run_id,
                 finished_at=datetime.now(UTC),
+                collected_errors=collected_errors,
             )
 
         # Record result on the FastAPI auto-instrumented span
-        from screamingface.plugins.url4_executor._tracing import set_span_attrs
+        from screamingface.plugins.url4_executor._tracing import set_openinference, set_span_attrs
 
         preview = result[:4000]
         if len(result) > 4000:
@@ -151,6 +169,9 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
                 "url4.response_body": preview,
             }
         )
+        # OpenInference: the /ensemble request is the root CHAIN — full query in,
+        # final result out (the backend/LLM child spans carry the rest).
+        set_openinference("CHAIN", input_value=q[:16000], output_value=result[:16000])
 
         response: JSONResponse | PlainTextResponse
         if ast:
@@ -167,7 +188,6 @@ def create_router(app=None) -> APIRouter:  # type: ignore[no-untyped-def]
 
         # SF-236: surface ;foreach.on_error=collect failures so they are not
         # silently dropped downstream. HTTP stays 200 (collect mode is robust).
-        collected_errors = getattr(interpreter, "_collected_errors", 0)
         if collected_errors:
             response.headers["X-SF-Collected-Errors"] = str(collected_errors)
         return response

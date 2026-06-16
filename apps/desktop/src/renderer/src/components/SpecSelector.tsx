@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Search, X, Eye, Check } from 'lucide-react';
 import { useServerStatus } from '@/hooks/use-server-status';
-import { Url4Viewer } from './Url4Viewer';
+import { Url4Field } from './Url4Field';
 
 interface Spec {
   name: string;
@@ -34,9 +34,10 @@ export function SpecSelector({ value, onChange, fallbackNames }: SpecSelectorPro
     : '';
 
   // Use fetched specs if available, otherwise fall back to enum names from schema
-  const specs = fetchedSpecs.length > 0
-    ? fetchedSpecs
-    : (fallbackNames ?? []).map((name) => ({ name, expression: '' }));
+  const specs =
+    fetchedSpecs.length > 0
+      ? fetchedSpecs
+      : (fallbackNames ?? []).map((name) => ({ name, expression: '' }));
 
   const loadSpecs = useCallback(() => {
     if (!serverUrl) return;
@@ -101,7 +102,10 @@ export function SpecSelector({ value, onChange, fallbackNames }: SpecSelectorPro
         {fetchError && (
           <div className="py-3 text-center">
             <p className="text-xs text-destructive">{fetchError}</p>
-            <button onClick={loadSpecs} className="mt-1 text-[10px] text-muted-foreground hover:text-foreground underline">
+            <button
+              onClick={loadSpecs}
+              className="mt-1 text-[10px] text-muted-foreground hover:text-foreground underline"
+            >
               Retry
             </button>
           </div>
@@ -118,7 +122,7 @@ export function SpecSelector({ value, onChange, fallbackNames }: SpecSelectorPro
               key={spec.name}
               className={`group flex items-center gap-2 rounded-md border px-3 py-2 transition-colors cursor-pointer ${
                 isActive
-                  ? 'border-chart-3/50 bg-chart-3/10'
+                  ? 'border-gain/50 bg-gain/10'
                   : 'border-border bg-background hover:border-foreground/20'
               }`}
               onClick={() => onChange(isActive ? null : spec.name)}
@@ -126,9 +130,7 @@ export function SpecSelector({ value, onChange, fallbackNames }: SpecSelectorPro
               {/* Selection indicator */}
               <div
                 className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-                  isActive
-                    ? 'border-chart-3 bg-chart-3 text-white'
-                    : 'border-muted-foreground/30'
+                  isActive ? 'border-gain bg-gain text-white' : 'border-muted-foreground/30'
                 }`}
               >
                 {isActive && <Check className="h-2.5 w-2.5" />}
@@ -136,7 +138,9 @@ export function SpecSelector({ value, onChange, fallbackNames }: SpecSelectorPro
 
               {/* Spec info — row layout: name + expression side by side */}
               <div className="min-w-0 flex-1 flex items-center gap-2">
-                <span className="text-xs font-medium text-foreground whitespace-nowrap">{spec.name}</span>
+                <span className="text-xs font-medium text-foreground whitespace-nowrap">
+                  {spec.name}
+                </span>
                 {spec.expression && (
                   <span className="truncate text-[10px] text-muted-foreground font-mono">
                     {spec.expression}
@@ -164,9 +168,12 @@ export function SpecSelector({ value, onChange, fallbackNames }: SpecSelectorPro
 
       {/* Preview popup */}
       {previewSpec && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPreviewSpec(null)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setPreviewSpec(null)}
+        >
           <div
-            className="w-full max-w-lg rounded-xl border border-border bg-card p-5 shadow-2xl"
+            className="w-full max-w-lg rounded-[10px] border border-border bg-card p-5 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">
@@ -179,12 +186,7 @@ export function SpecSelector({ value, onChange, fallbackNames }: SpecSelectorPro
               </button>
             </div>
             <div className="rounded-lg border border-border bg-background p-4">
-              <Url4Viewer
-                expression={previewSpec.expression}
-                serverUrl={serverUrl}
-                fetchFn={fetchFromServer}
-                mode="expanded"
-              />
+              <Url4Field value={previewSpec.expression} serverUrl={serverUrl} readOnly />
             </div>
           </div>
         </div>

@@ -217,7 +217,18 @@ def create_router(
         # Stage 4: success. ``resolved_text`` is None only when there is no active
         # spec — synthesize an empty envelope (no upstream call) per Decision.
         result_text = resolved_text or ""
-        _tracer.set_attrs({"url4.result_length": len(result_text)})
+        # OpenInference: the /v1/messages request is the root CHAIN — the user's
+        # prompt in, the synthesized answer out (so Phoenix shows input/output).
+        _tracer.set_attrs(
+            {
+                "url4.result_length": len(result_text),
+                "openinference.span.kind": "CHAIN",
+                "input.value": prompt_blob[:16000],
+                "input.mime_type": "text/plain",
+                "output.value": result_text[:16000],
+                "output.mime_type": "text/plain",
+            }
+        )
 
         response_dict = build_anthropic_message(result_text, model, prompt_text=prompt_blob)
 

@@ -5,8 +5,10 @@ import type {
   ArrayFieldItemTemplateProps,
   ArrayFieldTemplateProps,
   BaseInputTemplateProps,
+  FieldProps,
   FieldTemplateProps,
   ObjectFieldTemplateProps,
+  RegistryFieldsType,
   RegistryWidgetsType,
   RJSFSchema,
   TemplatesType,
@@ -14,6 +16,7 @@ import type {
   WrapIfAdditionalTemplateProps,
 } from '@rjsf/utils';
 import { ADDITIONAL_PROPERTY_FLAG } from '@rjsf/utils';
+import { CodeDictField } from './rjsf-CodeDictField';
 import {
   Component,
   type ComponentType,
@@ -24,7 +27,7 @@ import {
   useState,
 } from 'react';
 import { Check, ChevronDown, Copy, Plus } from 'lucide-react';
-import { Url4Viewer } from './Url4Viewer';
+import { Url4Field } from './Url4Field';
 import { SpecSelector } from './SpecSelector';
 
 // ---------------------------------------------------------------------------
@@ -74,7 +77,6 @@ function humanizeTitle(title: string): string {
   return title.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
-
 // ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
@@ -97,7 +99,7 @@ function BaseInputTemplate(props: BaseInputTemplateProps) {
   const hasError = rawErrors && rawErrors.length > 0;
   const examples = (schema as { examples?: string[] }).examples;
   const listId = examples ? `${id}-suggestions` : undefined;
-  const inputClass = `w-full rounded-md border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 ${
+  const inputClass = `w-full rounded-none border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 ${
     hasError
       ? 'border-destructive bg-destructive/5 focus:ring-destructive'
       : 'border-input bg-background focus:ring-ring'
@@ -109,7 +111,7 @@ function BaseInputTemplate(props: BaseInputTemplateProps) {
         list={listId}
         type={type === 'number' || type === 'integer' ? 'number' : 'text'}
         value={value ?? ''}
-        placeholder={placeholder || (schema as any)['x-placeholder']}
+        placeholder={placeholder || (schema as { 'x-placeholder'?: string })['x-placeholder']}
         disabled={disabled || readonly}
         autoFocus={autofocus}
         onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value)}
@@ -176,12 +178,12 @@ function CopyLinkField({ url }: { url: string }) {
       <input
         readOnly
         value={url}
-        className="flex-1 rounded-md border border-input bg-muted/50 px-2.5 py-1 font-mono text-[11px] text-muted-foreground truncate"
+        className="flex-1 rounded-none border border-input bg-muted/50 px-2.5 py-1 font-mono text-[11px] text-muted-foreground truncate"
       />
       <button
         type="button"
         onClick={handleCopy}
-        className="shrink-0 rounded-md border border-input p-1.5 text-muted-foreground hover:text-foreground"
+        className="shrink-0 rounded-none border border-input p-1.5 text-muted-foreground hover:text-foreground"
       >
         {copied ? <Check size={12} /> : <Copy size={12} />}
       </button>
@@ -242,14 +244,12 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
           <p className="text-[10px] text-muted-foreground/60">{schema.description}</p>
         )}
         {properties.length === 0 && (
-          <p className="text-xs text-muted-foreground/50 py-3 text-center">
-            No entries yet
-          </p>
+          <p className="text-xs text-muted-foreground/50 py-3 text-center">No entries yet</p>
         )}
         {properties.map((p) => {
           const isExpanded = expandedKey === p.name;
           return (
-            <div key={p.name} className="overflow-hidden rounded-md border border-border/60">
+            <div key={p.name} className="overflow-hidden rounded-none border border-border/60">
               <button
                 type="button"
                 className="flex w-full items-center gap-2 px-3 py-2 text-left select-none transition-colors hover:bg-muted/50"
@@ -273,12 +273,11 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
                     registry.formContext?.serverUrl &&
                     formData?.[p.name]?.[copyLink.field] && (
                       <>
-                        <Url4Viewer
-                          expression={formData[p.name][copyLink.field]}
+                        <Url4Field
+                          value={formData[p.name][copyLink.field]}
                           serverUrl={registry.formContext.serverUrl}
-                          fetchFn={registry.formContext.serverFetch}
-                          mode="expanded"
-                          className="mt-3 rounded-md bg-background p-3"
+                          readOnly
+                          className="mt-3 rounded-none bg-background"
                         />
                         <CopyLinkField
                           url={`${registry.formContext.serverUrl}${copyLink.path}?${copyLink.param}=${encodeURIComponent(formData[p.name][copyLink.field])}`}
@@ -299,7 +298,7 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
               onChange={(e) => setNewEntryName(e.target.value)}
               placeholder="Entry name"
               autoFocus
-              className={`flex-1 rounded-md border bg-background px-2.5 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 ${isDuplicate ? 'border-destructive focus:ring-destructive' : 'border-input focus:ring-ring'}`}
+              className={`flex-1 rounded-none border bg-background px-2.5 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 ${isDuplicate ? 'border-destructive focus:ring-destructive' : 'border-input focus:ring-ring'}`}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -314,7 +313,7 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
               type="button"
               onClick={handleAdd}
               disabled={!trimmedName || isDuplicate}
-              className="rounded-md border border-input px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none"
+              className="rounded-none border border-input px-2.5 py-1 text-xs text-foreground transition-colors hover:bg-secondary disabled:opacity-40 disabled:pointer-events-none"
             >
               Add
             </button>
@@ -324,7 +323,7 @@ function ObjectFieldTemplate(props: ObjectFieldTemplateProps) {
                 setShowAddForm(false);
                 setNewEntryName('');
               }}
-              className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="rounded-none px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               Cancel
             </button>
@@ -380,7 +379,7 @@ function ArrayFieldItemButtonsTemplate(props: ArrayFieldItemButtonsTemplateProps
         }
       }}
       title="Remove item"
-      className="flex h-5 w-5 items-center justify-center rounded-full border border-muted-foreground/30 text-muted-foreground transition-colors hover:border-destructive hover:text-destructive disabled:opacity-40"
+      className="flex h-5 w-5 items-center justify-center rounded-none border border-muted-foreground/30 text-muted-foreground transition-colors hover:border-destructive hover:text-destructive disabled:opacity-40"
     >
       <svg
         width="10"
@@ -400,7 +399,7 @@ function ArrayFieldItemButtonsTemplate(props: ArrayFieldItemButtonsTemplateProps
 function ArrayFieldItemTemplate(props: ArrayFieldItemTemplateProps) {
   const { children, buttonsProps } = props;
   return (
-    <div className="rounded-md border border-muted-foreground/30 p-3 space-y-3">
+    <div className="rounded-none border border-muted-foreground/30 p-3 space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex-1 space-y-3">{children}</div>
         <div className="ml-3 shrink-0 self-start">
@@ -452,7 +451,7 @@ function WrapIfAdditionalTemplate(props: WrapIfAdditionalTemplateProps) {
           defaultValue={label}
           disabled={disabled || readonly}
           onBlur={onKeyRenameBlur}
-          className="flex-1 rounded-md border border-input bg-background px-2 py-1 font-mono text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="flex-1 rounded-none border border-input bg-background px-2 py-1 font-mono text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <button
           type="button"
@@ -499,7 +498,7 @@ function SelectWidget(props: WidgetProps) {
       value={value ?? ''}
       disabled={disabled || readonly}
       onChange={(e) => onChange(e.target.value === '' ? undefined : e.target.value)}
-      className={`w-full appearance-none rounded-md border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 ${
+      className={`w-full appearance-none rounded-none border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 ${
         hasError
           ? 'border-destructive bg-destructive/5 focus:ring-destructive'
           : 'border-input bg-background focus:ring-ring'
@@ -559,7 +558,7 @@ function TextareaWidget(props: WidgetProps) {
       onChange={(e) => onChange(e.target.value)}
       onBlur={(e) => onBlur(id, e.target.value)}
       onFocus={(e) => onFocus(id, e.target.value)}
-      className={`w-full rounded-md border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 resize-y ${
+      className={`w-full rounded-none border px-3 py-1.5 font-mono text-xs text-foreground focus:outline-none focus:ring-1 resize-y ${
         hasError
           ? 'border-destructive bg-destructive/5 focus:ring-destructive'
           : 'border-input bg-background focus:ring-ring'
@@ -575,14 +574,20 @@ const widgets: RegistryWidgetsType = {
   SpecSelectorWidget: SpecSelectorWidget as ComponentType<WidgetProps>,
 };
 
+const fields: RegistryFieldsType = {
+  CodeDictField: CodeDictField as ComponentType<FieldProps>,
+};
+
 // ---------------------------------------------------------------------------
 // Export: pre-themed Form component
 // ---------------------------------------------------------------------------
 
-export function ThemedForm<T = unknown>(props: Omit<FormProps<T>, 'templates' | 'widgets'>) {
+export function ThemedForm<T = unknown>(
+  props: Omit<FormProps<T>, 'templates' | 'widgets' | 'fields'>,
+) {
   return (
     <RJSFErrorBoundary name="ThemedForm">
-      <Form {...props} templates={templates} widgets={widgets} />
+      <Form {...props} templates={templates} widgets={widgets} fields={fields} />
     </RJSFErrorBoundary>
   );
 }

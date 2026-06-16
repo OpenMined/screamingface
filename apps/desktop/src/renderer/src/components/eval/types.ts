@@ -3,7 +3,7 @@
 // Mirrors apps/server/src/screamingface/plugins/eval_runs/schemas.py.
 // If the server schema changes, update both.
 
-export type EvalRunStatus = 'running' | 'done' | 'failed';
+export type EvalRunStatus = 'running' | 'done' | 'failed' | 'degraded';
 
 export interface EvalRunSummary {
   id: string;
@@ -16,6 +16,7 @@ export interface EvalRunSummary {
   total_questions: number | null;
   correct_questions: number | null;
   error: string | null;
+  favorite: boolean;
 }
 
 export interface EvalQuestion {

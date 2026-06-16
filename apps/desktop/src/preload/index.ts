@@ -46,6 +46,13 @@ const api: ElectronAPI = {
     write: (config) => ipcRenderer.invoke('config:write', config),
     onChanged: (cb) => onEvent('config:changed', cb),
   },
+  publish: {
+    getContext: () => ipcRenderer.invoke('publish:getContext'),
+    submitScore: (request) => ipcRenderer.invoke('publish:submitScore', request),
+    getLogs: () => ipcRenderer.invoke('publish:getLogs'),
+    onLog: (cb) => onEvent('publish:log', cb),
+    openExternal: (url) => ipcRenderer.invoke('publish:openExternal', url),
+  },
   backends: {
     getStatus: () => ipcRenderer.invoke('backends:getStatus'),
     getPollingError: () => ipcRenderer.invoke('backends:getPollingError'),

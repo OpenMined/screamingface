@@ -66,7 +66,11 @@ class Url4Interpreter:
 
     async def evaluate(self, expr: str, env: Env | None = None) -> str:
         """Full evaluation pipeline."""
-        from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
+        from screamingface.plugins.url4_executor._tracing import (
+            set_openinference,
+            set_span_attrs,
+            traced,
+        )
 
         with traced("url4.evaluate"):
             if env is None:
@@ -76,6 +80,7 @@ class Url4Interpreter:
                     "url4.expression": expr[:500],
                 }
             )
+            set_openinference("CHAIN", input_value=expr[:16000])
 
             source_expr, raw_intent, _broadcast = split_intent(expr.strip())
             set_span_attrs({"url4.has_intent": raw_intent is not None})
@@ -113,6 +118,7 @@ class Url4Interpreter:
                     "url4.response_body": result_preview,
                 }
             )
+            set_openinference("CHAIN", output_value=result[:16000])
             return result
 
     async def process(self, sources: str, intent: str | None, env: Env | None = None) -> str:

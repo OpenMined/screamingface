@@ -28,7 +28,7 @@ export function PluginCard({ plugin, onActivate, onDeactivate, onUninstall }: Pl
             className={cn(
               'rounded-md px-2.5 py-1 text-[10px] font-medium transition-colors',
               plugin.active
-                ? 'bg-chart-3/15 text-chart-3 hover:bg-chart-3/25'
+                ? 'bg-gain/15 text-gain hover:bg-gain/25'
                 : 'bg-secondary text-muted-foreground hover:bg-secondary/80',
             )}
           >

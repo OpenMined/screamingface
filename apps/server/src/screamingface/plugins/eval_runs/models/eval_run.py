@@ -26,6 +26,7 @@ class BaseEvalRun(BaseModel):
     total_questions = fields.IntField(null=True)
     correct_questions = fields.IntField(null=True)
     error = fields.TextField(null=True)
+    favorite = fields.BooleanField(default=False)
 
     def __str__(self) -> str:
         return f"{self.spec_name} ({self.status})"
