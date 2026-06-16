@@ -617,21 +617,31 @@ def main() -> int:
             )
             page.wait_for_selector("#run-region button.btn", timeout=8000)
             btn = page.locator("#run-region button.btn")
+            aria = btn.get_attribute("aria-label") or ""
             check(
                 "T9",
                 "spec: Copy button rendered with accessible name",
                 btn.count() == 1
                 and (btn.text_content() or "").strip() == "Copy"
-                and "direct-google" in (btn.get_attribute("aria-label") or ""),
+                and "URL4 expression" in aria
+                and "direct-google" in aria,
+                aria,
             )
             btn.click()
             clipboard = page.evaluate("() => navigator.clipboard.readText()")
+            # Behavioral contract change (D-SCORE-010): the Copy button now puts the
+            # raw url4_expression on the clipboard — the exact string pasted into the
+            # desktop Eval Studio URL4 field — not an sf://run?spec=...&expression=...
+            # deep link (which had no consumer). The '#' must stay raw (#model=),
+            # not URL-encoded (%23model%3D) as the old buildRunHref produced.
             check(
                 "T9",
-                "spec: click copies sf://run link with encoded expression",
-                clipboard.startswith("sf://run?spec=")
-                and "expression=" in clipboard
-                and "%23model%3D" in clipboard,
+                "spec: click copies the raw url4_expression verbatim (no sf:// wrapper)",
+                clipboard == SCORE["url4_expression"]
+                and "#model=" in clipboard
+                and "%23model%3D" not in clipboard
+                and not clipboard.startswith("sf://")
+                and "expression=" not in clipboard,
                 clipboard,
             )
             check(
