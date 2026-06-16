@@ -37,11 +37,16 @@ def test_anthropic_settings_defaults_preserve_current_values(monkeypatch) -> Non
     assert settings.keychain_account == "default"
     assert settings.bootstrap_user == "alice"
     assert [model.model_name for model in settings.models] == [
-        "claude-sonnet-4-5",
+        "claude-opus-4-8",
         "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-5",
         "claude-haiku-4-5",
     ]
-    assert settings.models[0].litellm_params == {"model": "anthropic/claude-sonnet-4-5"}
+    # Every entry's litellm model string must be the "anthropic/"-prefixed alias
+    # so the gateway routes it to the Anthropic provider.
+    for model in settings.models:
+        assert model.litellm_params == {"model": f"anthropic/{model.model_name}"}
 
 
 def test_anthropic_settings_env_overrides(monkeypatch) -> None:

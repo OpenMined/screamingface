@@ -157,6 +157,17 @@ def test_real_aigw_plugin_schema_lists_gateway_profiles() -> None:
                 200,
                 json={"connections": [{"label": "work-anthropic", "status": "active"}]},
             )
+        if req.url.path.endswith("/v1/models"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "claude-opus-4-8", "object": "model", "owned_by": "anthropic"},
+                        # A foreign-provider entry must be filtered out.
+                        {"id": "gpt-5.4-mini", "object": "model", "owned_by": "codex"},
+                    ]
+                },
+            )
         raise AssertionError(f"unexpected gateway request: {req.url}")
 
     plugin = AigwClaudeBackendPlugin()
@@ -174,13 +185,15 @@ def test_real_aigw_plugin_schema_lists_gateway_profiles() -> None:
     resp = client.get(f"/plugins/{plugin.name}/schema")
 
     assert resp.status_code == 200
-    assert resp.json()["properties"]["auth_profile"]["enum"] == [
-        "default",
-        "work-anthropic",
-    ]
+    props = resp.json()["properties"]
+    assert props["auth_profile"]["enum"] == ["default", "work-anthropic"]
+    # SF-284: model dropdown derived from /v1/models, filtered to this provider
+    # and prefixed to the SF `<provider>/<model>` form.
+    assert props["default_model"]["examples"] == ["anthropic/claude-opus-4-8"]
     assert gateway_requests == [
         "http://gateway/v1/auth/anthropic/profiles",
         "http://gateway/v1/oauth/connections?provider=anthropic&status=active",
+        "http://gateway/v1/models",
     ]
 
 
