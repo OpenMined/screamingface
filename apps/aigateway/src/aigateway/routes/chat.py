@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import math
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from litellm.exceptions import (
     APIConnectionError,
@@ -28,6 +29,15 @@ from ..core.oauth.store import OAuthConnectionStore, credential_key_for
 from ..core.profile_index import ProfileIndexStore
 from ..core.profile_models import Profile, ProfileDefaults, ProfileState, credential_name_for
 from ..core.registry import ProviderRegistry
+from ..core.request_cache.keys import (
+    KEY_VERSION,
+    CacheBypass,
+    CacheControls,
+    CacheKeyResult,
+    build_cache_key,
+    parse_cache_controls,
+)
+from ..core.request_cache.store import RequestCacheStore, RequestCacheWrite
 from ..core.retry import RetryPolicy, parse_retry_after_seconds, with_overload_retry
 
 logger = logging.getLogger(__name__)
@@ -227,6 +237,88 @@ async def _dispatch_with_backpressure(
         )
 
 
+def _resolve_cache_plan(
+    request: Request,
+    *,
+    account_id: str,
+    profile_name: str,
+    provider: str,
+    body: dict[str, Any],
+    controls: CacheControls,
+) -> tuple[CacheKeyResult | None, str, str]:
+    """Decide cache participation for this request.
+
+    Returns ``(key, status, reason)`` where ``key`` is None whenever the
+    request bypasses the cache. Status/reason feed the X-AIGW-Cache headers.
+    """
+    settings = request.app.state.settings
+    if not settings.request_cache_enabled:
+        return None, "bypass", "disabled"
+    if not controls.use_cache:
+        return None, "bypass", "not_requested"
+    built = build_cache_key(
+        account_id=account_id,
+        profile_name=profile_name,
+        provider=provider,
+        normalized_body=body,
+    )
+    if isinstance(built, CacheBypass):
+        return None, "bypass", built.reason
+    return built, "miss", ""
+
+
+def _set_cache_headers(
+    response: Response, status: str, reason: str, key: CacheKeyResult | None
+) -> None:
+    response.headers["X-AIGW-Cache"] = status
+    if reason:
+        response.headers["X-AIGW-Cache-Reason"] = reason
+    # Hash-derived prefix only — never prompt or response content.
+    if key is not None and status in {"hit", "miss"}:
+        response.headers["X-AIGW-Cache-Key"] = key.key_hash[:12]
+
+
+async def _store_cached_response(
+    request: Request,
+    *,
+    key: CacheKeyResult,
+    account_id: str,
+    result: Any,
+    controls: CacheControls,
+) -> str:
+    """Persist a fresh response when allowed; returns the cache reason."""
+    if controls.no_store:
+        return "no_store"
+    if not isinstance(result, dict):
+        return "unsupported_fields"
+    settings = request.app.state.settings
+    payload_size = len(
+        json.dumps(result, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    )
+    if payload_size > settings.request_cache_max_response_bytes:
+        return "too_large"
+    ttl = min(
+        controls.ttl or settings.request_cache_default_ttl_seconds,
+        settings.request_cache_max_ttl_seconds,
+    )
+    store: RequestCacheStore = request.app.state.request_cache_store
+    await store.set(
+        RequestCacheWrite(
+            key_hash=key.key_hash,
+            key_version=KEY_VERSION,
+            account_id=account_id,
+            profile_name=key.profile_name,
+            prompt_hash=key.prompt_hash,
+            provider=key.provider,
+            model=key.model,
+            response=result,
+            response_size_bytes=payload_size,
+            expires_at=datetime.now(UTC) + timedelta(seconds=ttl),
+        )
+    )
+    return "stored"
+
+
 def _litellm_http_exception(exc: Exception) -> HTTPException:
     status = int(getattr(exc, "status_code", 502) or 502)
     code = "provider_error"
@@ -245,48 +337,26 @@ def _litellm_http_exception(exc: Exception) -> HTTPException:
     )
 
 
-@router.post("/v1/chat/completions")
-async def chat_completions(request: Request, current: CurrentAccount) -> Any:
-    body = await request.json()
-    if not isinstance(body, dict) or "model" not in body or "messages" not in body:
-        raise HTTPException(status_code=400, detail="model and messages are required")
-
-    profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
-    model = body.get("model", "")
-    provider = model.split("/", 1)[0] if "/" in model else None
-    if not provider:
-        raise HTTPException(status_code=400, detail="model must be provider-prefixed")
-
-    registry: ProviderRegistry = request.app.state.providers
-    plugin = registry.get(provider)
-    if plugin is None:
-        raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
-
-    account_id = str(current.id)
-    profile, connection, defaults = await _credential_target_for_chat(
-        request,
-        account_id=account_id,
-        provider=provider,
-        profile_name=profile_name,
-        plugin=plugin,
-    )
-
-    body = plugin.prepare_chat_body(_apply_defaults(body, defaults, plugin))
-
-    if body.get("stream") and not plugin.supports_chat_streaming():
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "streaming_not_supported",
-                "provider": provider,
-                "message": f"{provider} does not support streaming through this gateway yet",
-            },
-        )
-
+async def _inject_credentials(
+    request: Request,
+    *,
+    plugin: Any,
+    provider: str,
+    account_id: str,
+    profile_name: str,
+    profile: Profile | None,
+    connection: OAuthConnection | None,
+    account_key: Any,
+    body: dict[str, Any],
+) -> str | None:
+    """Resolve the profile/connection credential strategy and inject auth
+    into ``body``; returns the resolved credential name (used to invalidate
+    provider session caches on later dispatch failures). Raises 401 (marking
+    profile/connection errored) when stored credentials are unusable."""
     strategy = None
     credential_name: str | None = None
     if connection is not None:
-        credential_name = credential_key_for(current.id, connection.id)
+        credential_name = credential_key_for(account_key, connection.id)
         strategy = plugin.oauth_strategy_for(
             credential_name,
             credential_store=request.app.state.credential_store,
@@ -337,13 +407,99 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
         if connection is not None:
             await _oauth_connection_store(request).touch_last_used(connection)
 
+    return credential_name
+
+
+@router.post("/v1/chat/completions")
+async def chat_completions(request: Request, response: Response, current: CurrentAccount) -> Any:
+    body = await request.json()
+    if not isinstance(body, dict) or "model" not in body or "messages" not in body:
+        raise HTTPException(status_code=400, detail="model and messages are required")
+
+    # Popped immediately so the control object can never reach providers.
+    cache_controls = parse_cache_controls(body)
+
+    profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
+    model = body.get("model", "")
+    provider = model.split("/", 1)[0] if "/" in model else None
+    if not provider:
+        raise HTTPException(status_code=400, detail="model must be provider-prefixed")
+
+    registry: ProviderRegistry = request.app.state.providers
+    plugin = registry.get(provider)
+    if plugin is None:
+        raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
+
+    account_id = str(current.id)
+    profile, connection, defaults = await _credential_target_for_chat(
+        request,
+        account_id=account_id,
+        provider=provider,
+        profile_name=profile_name,
+        plugin=plugin,
+    )
+
+    body = plugin.prepare_chat_body(_apply_defaults(body, defaults, plugin))
+
+    # Cache key is computed from the normalized body, before credential
+    # injection, so no secret-bearing field can ever participate in the key.
+    cache_key, cache_status, cache_reason = _resolve_cache_plan(
+        request,
+        account_id=account_id,
+        profile_name=profile_name,
+        provider=provider,
+        body=body,
+        controls=cache_controls,
+    )
+
+    if body.get("stream") and not plugin.supports_chat_streaming():
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "streaming_not_supported",
+                "provider": provider,
+                "message": f"{provider} does not support streaming through this gateway yet",
+            },
+        )
+
+    credential_name = await _inject_credentials(
+        request,
+        plugin=plugin,
+        provider=provider,
+        account_id=account_id,
+        profile_name=profile_name,
+        profile=profile,
+        connection=connection,
+        account_key=current.id,
+        body=body,
+    )
+
     # NOTE: overload retry covers the non-streaming path only; streaming responses
     # commit a 200 status before dispatch, so a mid-stream 429/503 cannot be retried.
     if body.get("stream"):
-        return StreamingResponse(_stream(plugin, body), media_type="text/event-stream")
+        return StreamingResponse(
+            _stream(plugin, body),
+            media_type="text/event-stream",
+            headers={"X-AIGW-Cache": "bypass", "X-AIGW-Cache-Reason": cache_reason or "stream"},
+        )
+
+    if cache_key is not None and not cache_controls.no_cache:
+        cache_store: RequestCacheStore = request.app.state.request_cache_store
+        cached = await cache_store.get(cache_key.key_hash, max_age_seconds=cache_controls.s_maxage)
+        if cached is not None:
+            _set_cache_headers(response, "hit", "", cache_key)
+            logger.info(
+                "request cache hit provider=%s model=%s account=%s profile=%s key=%s…",
+                provider,
+                cache_key.model,
+                account_id,
+                profile_name,
+                cache_key.key_hash[:12],
+            )
+            return cached
 
     try:
-        response = await _dispatch_with_backpressure(request, plugin, provider, body)
+        provider_response = await _dispatch_with_backpressure(request, plugin, provider, body)
     except HTTPException as exc:
         if connection is not None and _should_mark_profile_error_on_dispatch_status(
             plugin, exc.status_code
@@ -384,8 +540,29 @@ async def chat_completions(request: Request, current: CurrentAccount) -> Any:
         Timeout,
     ) as exc:
         raise _litellm_http_exception(exc) from exc
-    dumpable = cast(Any, response)
-    return dumpable.model_dump() if hasattr(dumpable, "model_dump") else response
+    dumpable = cast(Any, provider_response)
+    result = dumpable.model_dump() if hasattr(dumpable, "model_dump") else provider_response
+
+    if cache_key is not None:
+        cache_reason = await _store_cached_response(
+            request,
+            key=cache_key,
+            account_id=account_id,
+            result=result,
+            controls=cache_controls,
+        )
+    _set_cache_headers(response, cache_status, cache_reason, cache_key)
+    if cache_status != "bypass":
+        logger.info(
+            "request cache %s reason=%s provider=%s account=%s profile=%s key=%s…",
+            cache_status,
+            cache_reason,
+            provider,
+            account_id,
+            profile_name,
+            cache_key.key_hash[:12] if cache_key is not None else "",
+        )
+    return result
 
 
 async def _stream(plugin: Any, body: dict[str, Any]):

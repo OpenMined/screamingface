@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -69,6 +69,27 @@ class Settings(BaseSettings):
         default_factory=dict,
         validation_alias="AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES",
     )
+
+    # Opt-in persistent response cache for deterministic chat completions
+    # (SF-265). Disabled by default; behavior with the flag off is unchanged.
+    request_cache_enabled: bool = Field(
+        default=False, validation_alias="AIGW_REQUEST_CACHE_ENABLED"
+    )
+    request_cache_default_ttl_seconds: int = Field(
+        default=600, gt=0, validation_alias="AIGW_REQUEST_CACHE_TTL_SECONDS"
+    )
+    request_cache_max_ttl_seconds: int = Field(
+        default=3600, gt=0, validation_alias="AIGW_REQUEST_CACHE_MAX_TTL_SECONDS"
+    )
+    request_cache_max_response_bytes: int = Field(
+        default=1_000_000, gt=0, validation_alias="AIGW_REQUEST_CACHE_MAX_RESPONSE_BYTES"
+    )
+
+    @model_validator(mode="after")
+    def _validate_request_cache_ttls(self) -> Settings:
+        if self.request_cache_default_ttl_seconds > self.request_cache_max_ttl_seconds:
+            raise ValueError("request cache default TTL must not exceed the max TTL")
+        return self
 
     @field_validator("jwt_secret", "provisioning_token")
     @classmethod
