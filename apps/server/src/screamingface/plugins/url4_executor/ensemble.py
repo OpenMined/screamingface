@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import traceback
 from typing import TYPE_CHECKING, Any, TypeGuard
 
 if TYPE_CHECKING:
@@ -63,6 +64,31 @@ logger = logging.getLogger(__name__)
 
 # Default reducer backend path when ?processor= is not specified.
 DEFAULT_PROCESSOR = "/claude"
+
+# Cap on the traceback tail embedded per collected error, so a fan-out of
+# failures can't bloat the response. The tail (not head) is kept because the
+# innermost frames — where the error was actually raised — are most useful.
+_COLLECTED_ERROR_TRACEBACK_CAP = 2000
+
+
+def _collected_error_payload(exc: BaseException) -> dict[str, Any]:
+    """Build the ``{"error": ...}`` element for a collected per-row exception.
+
+    ``;foreach.on_error=collect`` turns per-row failures into JSON elements
+    instead of aborting. The payload must be *diagnosable*: some exceptions
+    carry no message (e.g. a bare ``NotImplementedError`` from TatSu's parse
+    engine), which previously surfaced as ``{"kind": "...", "message": ""}`` —
+    opaque. So ``message`` falls back to ``repr(exc)`` and we attach a capped
+    traceback tail naming the raising frame (SF-286).
+    """
+    tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    return {
+        "error": {
+            "kind": type(exc).__name__,
+            "message": str(exc) or repr(exc),
+            "traceback": tb[-_COLLECTED_ERROR_TRACEBACK_CAP:],
+        }
+    }
 
 
 def _strip_one_paren_layer(expr: str) -> str | None:
@@ -244,12 +270,16 @@ class EnsembleInterpreter(Url4Interpreter):
             if directives.on_error == "collect":
                 raw = await asyncio.gather(*[_guarded(i) for i in items], return_exceptions=True)
                 error_count = sum(isinstance(r, BaseException) for r in raw)
-                results = [
-                    r
-                    if not isinstance(r, BaseException)
-                    else json.dumps({"error": {"kind": type(r).__name__, "message": str(r)}})
-                    for r in raw
-                ]
+                results = []
+                for r in raw:
+                    if not isinstance(r, BaseException):
+                        results.append(r)
+                        continue
+                    # Full traceback to server logs (the result payload only
+                    # carries a capped tail) so opaque per-row failures are
+                    # always diagnosable from stderr (SF-286).
+                    logger.warning("url4 foreach collected error: %r", r, exc_info=r)
+                    results.append(json.dumps(_collected_error_payload(r)))
                 # Accumulate so nested/multiple collections in one request sum.
                 self._collected_errors += error_count
                 set_span_attrs({"url4.collection.errors_collected": error_count})

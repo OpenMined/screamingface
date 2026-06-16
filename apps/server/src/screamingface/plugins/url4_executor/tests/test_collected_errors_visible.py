@@ -108,6 +108,67 @@ async def test_no_header_when_no_errors(app_url4) -> None:
     assert "X-SF-Collected-Errors" not in resp.headers
 
 
+def test_collected_error_payload_nonempty_message_and_traceback() -> None:
+    """SF-286: a collected error must be diagnosable even when the exception
+    carries no message (e.g. a bare ``NotImplementedError`` from TatSu's parse
+    engine). Before this, the payload was ``{"kind": "...", "message": ""}`` —
+    opaque. Now: a repr fallback for the message + a captured traceback tail.
+    """
+    from screamingface.plugins.url4_executor.ensemble import _collected_error_payload
+
+    def _raises_bare() -> None:
+        raise NotImplementedError  # bare: str(exc) == ""
+
+    try:
+        _raises_bare()
+    except NotImplementedError as exc:
+        payload = _collected_error_payload(exc)
+
+    err = payload["error"]
+    assert err["kind"] == "NotImplementedError"
+    # message is non-empty: repr fallback when str(exc) is blank.
+    assert err["message"]
+    assert "NotImplementedError" in err["message"]
+    # traceback names the raising frame so the origin is locatable.
+    assert "_raises_bare" in err["traceback"]
+    assert "NotImplementedError" in err["traceback"]
+
+
+class _RaiseBarePlugin:
+    """Per-row evaluator that raises a bare (message-less) NotImplementedError
+    for item ``2`` — mirrors the TatSu parse-engine failure mode."""
+
+    name = "x"
+    backend_call_paths = ["/x"]
+
+    async def handle_backend_call(self, intent, *, sources="", app, env=None):
+        del intent, app, env
+        if sources == "2":
+            raise NotImplementedError
+        return f"ok-{sources}"
+
+
+@pytest.mark.asyncio
+async def test_collected_empty_message_error_is_diagnosable_in_body(app_url4) -> None:
+    """End-to-end: a message-less per-row exception surfaces in the response
+    body with a kind, a non-empty message, and a traceback — not an empty
+    ``NotImplementedError``."""
+    import json
+
+    _inject(app_url4, _DataPlugin(), _RaiseBarePlugin())
+    q = "/data([1, 2, 3])*(/x($item)) ;foreach.on_error=collect"
+
+    resp = await _get(app_url4, q)
+
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["X-SF-Collected-Errors"] == "1"
+    # The errored row's JSON object is embedded in the response body.
+    assert '"kind": "NotImplementedError"' in resp.text
+    assert '"message": ""' not in resp.text  # no opaque empty-message errors
+    payload = json.loads(resp.text) if resp.text.startswith("[") else None
+    del payload  # body shape is route-defined; substring checks above suffice
+
+
 @pytest.mark.asyncio
 async def test_interpreter_accumulates_collected_errors_count() -> None:
     """Focused unit check: the interpreter counts collected errors and the
