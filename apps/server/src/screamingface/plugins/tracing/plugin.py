@@ -81,9 +81,6 @@ class TracingPlugin(Plugin):
 
                 phoenix_port = settings.phoenix_port
 
-                # Disable Phoenix's gRPC server — we only need HTTP OTLP
-                os.environ.setdefault("PHOENIX_GRPC_PORT", "0")
-
                 # Kill any stale Phoenix process on the target port
                 # (can happen after uvicorn reloader kills the child process)
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
