@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import logging
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# High-frequency, low-signal GET endpoints the desktop app polls on a timer.
+# Marked internal and dropped by default; override via SF_TRACING__MUTED_PATH_PATTERNS
+# (JSON list) or disable muting entirely with SF_TRACING__MUTE_NOISY_TRACES=false.
+# fnmatch patterns; only GET/HEAD requests are muted so mutations stay visible.
+DEFAULT_MUTED_PATH_PATTERNS: list[str] = [
+    "*/health",  # admin /health + per-backend probes (/claude/health, …)
+    "*/auth/connections",  # OAuth connection-status polling
+    "*/auth/connections/*",  # per-connection status polling
+    "/eval_runs/*",  # Eval Studio run-detail polling (the /eval_runs list stays visible)
+]
+
 
 class TracingSettings(PluginSettings):
     model_config = SettingsConfigDict(
@@ -29,6 +41,8 @@ class TracingSettings(PluginSettings):
     otlp_endpoint: str = "http://localhost:6006/v1/traces"
     phoenix_port: int = 6006
     phoenix_launch: bool = True  # auto-launch Phoenix as background thread
+    mute_noisy_traces: bool = True  # SF_TRACING__MUTE_NOISY_TRACES — drop muted-path spans
+    muted_path_patterns: list[str] = DEFAULT_MUTED_PATH_PATTERNS  # SF_TRACING__MUTED_PATH_PATTERNS
 
 
 class TracingPlugin(Plugin):
@@ -139,13 +153,23 @@ class TracingPlugin(Plugin):
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
             span_exporter = OTLPSpanExporter(endpoint=settings.otlp_endpoint)
-            provider.add_span_processor(_FilteringSpanProcessor(BatchSpanProcessor(span_exporter)))  # type: ignore[reportArgumentType]
+            provider.add_span_processor(
+                _FilteringSpanProcessor(
+                    BatchSpanProcessor(span_exporter),  # type: ignore[reportArgumentType]
+                    mute_internal=settings.mute_noisy_traces,
+                )
+            )
             logger.info("OTEL exporting to %s", settings.otlp_endpoint)
         elif settings.exporter == "console":
             from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
 
             span_exporter = ConsoleSpanExporter()
-            provider.add_span_processor(_FilteringSpanProcessor(SimpleSpanProcessor(span_exporter)))  # type: ignore[reportArgumentType]
+            provider.add_span_processor(
+                _FilteringSpanProcessor(
+                    SimpleSpanProcessor(span_exporter),  # type: ignore[reportArgumentType]
+                    mute_internal=settings.mute_noisy_traces,
+                )
+            )
             logger.info("OTEL exporting to console")
 
         trace.set_tracer_provider(provider)
@@ -159,7 +183,7 @@ class TracingPlugin(Plugin):
 
         FastAPIInstrumentor.instrument_app(
             app,
-            server_request_hook=_server_request_hook,
+            server_request_hook=_make_server_request_hook(settings.muted_path_patterns),
         )
 
         # Ensure httpx auto-instrumentation is disabled — we create manual spans
@@ -198,10 +222,16 @@ class TracingPlugin(Plugin):
 
 
 class _FilteringSpanProcessor:
-    """Wraps a SpanProcessor and drops spans whose names contain 'http send' or 'http receive'."""
+    """Wraps a SpanProcessor and drops noisy spans.
 
-    def __init__(self, inner) -> None:  # type: ignore[no-untyped-def]
+    Always drops the per-message ASGI ``http send`` / ``http receive`` child
+    spans. When ``mute_health`` is set, also drops spans flagged
+    ``_sf.internal`` (healthcheck probes — see :func:`_server_request_hook`).
+    """
+
+    def __init__(self, inner, *, mute_internal: bool = True) -> None:  # type: ignore[no-untyped-def]
         self._inner = inner
+        self._mute_internal = mute_internal
 
     def on_start(self, span, parent_context=None) -> None:  # type: ignore[no-untyped-def]
         self._inner.on_start(span, parent_context)
@@ -214,8 +244,8 @@ class _FilteringSpanProcessor:
         name = span.name
         if "http send" in name or "http receive" in name:
             return  # drop — noisy ASGI per-message spans
-        # Drop health check spans
-        if span.attributes and span.attributes.get("_sf.internal"):
+        # Drop muted-path spans (healthchecks, status polling) when muting is enabled.
+        if self._mute_internal and span.attributes and span.attributes.get("_sf.internal"):
             return
         self._inner.on_end(span)
 
@@ -232,15 +262,34 @@ def _truncate(text: str, limit: int = 4000) -> str:
     return text[:limit] + f"... ({len(text) - limit} more chars)"
 
 
-def _server_request_hook(span, scope) -> None:  # type: ignore[no-untyped-def]
-    """Add useful attributes to the server span from the ASGI scope."""
-    if not span or not span.is_recording():
-        return
-    path = scope.get("path", "")
-    if path == "/health":
-        # Mark as internal so the filtering processor can drop it
-        span.set_attribute("_sf.internal", True)
-        return
-    qs = scope.get("query_string", b"")
-    if qs:
-        span.set_attribute("http.query_string", qs.decode(errors="replace"))
+def _is_muted_path(path: str, method: str, patterns: list[str]) -> bool:
+    """True if a GET/HEAD ``path`` matches any fnmatch ``patterns``.
+
+    Method-restricted so mutations (POST create-connection, DELETE run, …) stay
+    visible even when their read-polling counterparts are muted.
+    """
+    if method not in ("GET", "HEAD"):
+        return False
+    return any(fnmatch.fnmatch(path, p) for p in patterns)
+
+
+def _make_server_request_hook(patterns: list[str]):  # type: ignore[no-untyped-def]
+    """Build a FastAPI server_request_hook bound to ``patterns``.
+
+    Marks muted-path spans ``_sf.internal`` (the filtering processor drops them
+    when muting is enabled) and records the query string on everything else.
+    """
+
+    def _hook(span, scope) -> None:  # type: ignore[no-untyped-def]
+        if not span or not span.is_recording():
+            return
+        path = scope.get("path", "")
+        method = scope.get("method", "GET")
+        if _is_muted_path(path, method, patterns):
+            span.set_attribute("_sf.internal", True)
+            return
+        qs = scope.get("query_string", b"")
+        if qs:
+            span.set_attribute("http.query_string", qs.decode(errors="replace"))
+
+    return _hook

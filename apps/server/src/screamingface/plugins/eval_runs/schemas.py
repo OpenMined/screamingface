@@ -8,7 +8,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-RunStatus = Literal["running", "done", "failed"]
+# Mirrors the statuses written by the run lifecycle in plugin.py:
+# running (start) → done | degraded (finish; degraded = some rows errored) | failed.
+RunStatus = Literal["running", "done", "degraded", "failed"]
 
 
 class EvalQuestionOut(BaseModel):

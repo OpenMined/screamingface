@@ -31,6 +31,14 @@ from screamingface.plugins.url4_executor.url4_grammar import parse
 
 logger = logging.getLogger(__name__)
 
+_OI_IO_CAP = 16000
+
+
+def _format_prompt_context(sources: str, intent: str) -> str:
+    """Render context + prompt as one OpenInference ``input.value`` string."""
+    text = f"[context]\n{sources}\n\n[prompt]\n{intent}" if sources else intent
+    return text[:_OI_IO_CAP]
+
 
 async def resolve(node: Url4Node, app: Any = None, env: Env | None = None) -> str:
     """Recursively resolve an AST node to a string.
@@ -138,36 +146,60 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
     intent into a plain string, then awaits the plugin's
     ``handle_backend_call(intent, app=app)`` method.
     """
-    if app is None:
-        raise RuntimeError(
-            f"Cannot dispatch backend call {node.path}() without an app "
-            "context. Backend-call resolution needs access to the active "
-            "plugin registry via app.state.plugins."
-        )
+    from screamingface.plugins.url4_executor._tracing import (
+        set_openinference,
+        set_span_attrs,
+        traced,
+    )
 
-    intent_text = "" if node.intent is None else await resolve(node.intent, app, env)
-    intent_text = substitute_env_vars(intent_text, env)
-    sources_text = node.packed_context or ""
-
-    from screamingface.core.helpers import get_plugins_registry
-
-    plugins_registry = get_plugins_registry(app)
-
-    known_paths: list[str] = []
-    for plugin in plugins_registry.active_plugins.values():
-        paths = getattr(plugin, "backend_call_paths", [])
-        known_paths.extend(paths)
-        if node.path in paths:
-            return await plugin.handle_backend_call(
-                intent_text, sources=sources_text, app=app, env=env
+    with traced(f"url4.backend_call {node.path}", kind="client"):
+        if app is None:
+            raise RuntimeError(
+                f"Cannot dispatch backend call {node.path}() without an app "
+                "context. Backend-call resolution needs access to the active "
+                "plugin registry via app.state.plugins."
             )
 
-    raise RuntimeError(
-        f"No active plugin handles the backend call {node.path}(). "
-        f"Known backend_call_paths across active plugins: {known_paths!r}. "
-        "Activate a plugin that declares this path in its "
-        "backend_call_paths attribute."
-    )
+        # Resolve the intent inside the span so any child fetch spans nest here.
+        intent_text = "" if node.intent is None else await resolve(node.intent, app, env)
+        intent_text = substitute_env_vars(intent_text, env)
+        sources_text = node.packed_context or ""
+        set_span_attrs(
+            {
+                "url4.path": node.path,
+                "url4.intent_length": len(intent_text),
+                "url4.intent_preview": intent_text[:500],
+            }
+        )
+        # OpenInference: a backend call is a CHAIN step — expose the full prompt +
+        # context as input so Phoenix renders it (the LLM child span carries the
+        # provider request/response).
+        set_openinference("CHAIN", input_value=_format_prompt_context(sources_text, intent_text))
+
+        from screamingface.core.helpers import get_plugins_registry
+
+        plugins_registry = get_plugins_registry(app)
+
+        known_paths: list[str] = []
+        for plugin in plugins_registry.active_plugins.values():
+            paths = getattr(plugin, "backend_call_paths", [])
+            known_paths.extend(paths)
+            if node.path in paths:
+                result = await plugin.handle_backend_call(
+                    intent_text, sources=sources_text, app=app, env=env
+                )
+                set_span_attrs(
+                    {"sf.backend_plugin": plugin.name, "url4.result_length": len(result)}
+                )
+                set_openinference("CHAIN", output_value=result[:16000])
+                return result
+
+        raise RuntimeError(
+            f"No active plugin handles the backend call {node.path}(). "
+            f"Known backend_call_paths across active plugins: {known_paths!r}. "
+            "Activate a plugin that declares this path in its "
+            "backend_call_paths attribute."
+        )
 
 
 async def _dispatch_backend_call_with_intent(
@@ -218,7 +250,11 @@ def _sanitize_url(url: str) -> str:
 
 async def _fetch_relative(app: Any, path: str) -> str:
     """Fetch a relative path via in-process ASGI transport (no network hop)."""
-    from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
+    from screamingface.plugins.url4_executor._tracing import (
+        set_openinference,
+        set_span_attrs,
+        traced,
+    )
 
     if not app:
         raise ValueError(f"Cannot resolve relative URL {path!r} without app context")
@@ -239,12 +275,17 @@ async def _fetch_relative(app: Any, path: str) -> str:
                     "url4.response_body": preview,
                 }
             )
+            set_openinference("RETRIEVER", input_value=path, output_value=preview)
             return body
 
 
 async def _fetch_url(url: str) -> str:
     """Fetch a URL via HTTP GET and return the response body as text."""
-    from screamingface.plugins.url4_executor._tracing import set_span_attrs, traced
+    from screamingface.plugins.url4_executor._tracing import (
+        set_openinference,
+        set_span_attrs,
+        traced,
+    )
 
     safe_url = _sanitize_url(url)
     logger.info("url4: fetching %s", safe_url[:200])
@@ -265,6 +306,7 @@ async def _fetch_url(url: str) -> str:
                     "url4.response_body": preview,
                 }
             )
+            set_openinference("RETRIEVER", input_value=safe_url[:500], output_value=preview)
             return body
 
 
