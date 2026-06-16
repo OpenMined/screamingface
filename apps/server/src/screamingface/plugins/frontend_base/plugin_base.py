@@ -368,6 +368,15 @@ class FrontendPluginBase(Plugin):
                 host=settings.listen_host,
                 port=settings.listen_port,
                 log_level="info",
+                # Pin the standard asyncio loop. The default loop="auto" detects
+                # uvloop (installed) and calls asyncio.set_event_loop_policy(
+                # uvloop.EventLoopPolicy()) PROCESS-WIDE. That uvloop policy's
+                # get_child_watcher() raises NotImplementedError, which breaks
+                # asyncio.create_subprocess_exec on the main server's standard
+                # loop=asyncio loop (e.g. python_runner). loop="asyncio" is a
+                # no-op on the policy (uvicorn only touches it on win32), so the
+                # per-session frontend no longer contaminates the process (SF-287).
+                loop="asyncio",
             )
             self._server = uvicorn.Server(config)
             self._thread = threading.Thread(

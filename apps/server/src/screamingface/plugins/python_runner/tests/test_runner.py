@@ -144,3 +144,37 @@ async def test_timeout_raises_and_kills_subprocess(
     with pytest.raises(PythonRunnerError) as ei:
         await run_script_source(script, {}, timeout=0.5)
     assert ei.value.kind == "timeout"
+
+
+def test_spawn_works_under_uvloop_policy_on_standard_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SF-287 regression: spawning must work when a uvloop event-loop policy is
+    installed process-wide (as the per-session frontend uvicorn does via
+    loop="auto") while python_runner runs on a *standard* asyncio loop (the main
+    server's loop="asyncio").
+
+    Before the fix, ``create_subprocess_exec`` reached
+    ``events.get_child_watcher()`` → the uvloop policy → a bare
+    ``NotImplementedError``. The fix spawns via ``subprocess.run`` in a worker
+    thread, which never touches the child watcher.
+
+    A plain (non-async) test: we drive a standard ``SelectorEventLoop`` directly
+    so the loop/policy mismatch is reproduced exactly, and save/restore the
+    global policy so the rest of the suite is unaffected.
+    """
+    import asyncio
+
+    uvloop = pytest.importorskip("uvloop")
+    monkeypatch.setenv("SF_PYTHON_RUNNER__CACHE_ROOT", str(tmp_path))
+
+    saved_policy = asyncio.get_event_loop_policy()
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    loop = asyncio.SelectorEventLoop()  # standard loop, like the main server
+    try:
+        result = loop.run_until_complete(run_script_source(_ECHO_SCRIPT, {"a": 1}))
+    finally:
+        loop.close()
+        asyncio.set_event_loop_policy(saved_policy)
+
+    assert result == {"ok": True, "got": {"a": 1}}
