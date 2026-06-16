@@ -26,8 +26,10 @@ tracing = [
     "opentelemetry-instrumentation-fastapi>=0.41b0",
     "opentelemetry-instrumentation-httpx>=0.41b0",
     "opentelemetry-exporter-otlp-proto-http>=1.20",
-    "arize-phoenix>=8.0",
+    "arize-phoenix==13.0.3",
+    "arize-phoenix-evals<3",
     "arize-phoenix-otel>=0.6",
+    "starlette<1",
 ]
 
 [build-system]
@@ -74,8 +76,10 @@ dev = [
     "opentelemetry-instrumentation-fastapi>=0.41b0",
     "opentelemetry-instrumentation-httpx>=0.41b0",
     "opentelemetry-exporter-otlp-proto-http>=1.20",
-    "arize-phoenix>=8.0",
+    "arize-phoenix==13.0.3",
+    "arize-phoenix-evals<3",
     "arize-phoenix-otel>=0.6",
+    "starlette<1",
     "pytest-cov>=7.1.0",
     "pytest-timeout>=2.3",
     "pyyaml>=6.0",
