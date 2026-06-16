@@ -15,6 +15,7 @@ import hashlib
 import json
 import logging
 import os
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -96,42 +97,58 @@ _MAIN_HARNESS = (
 )
 
 
+def _run_blocking(
+    argv: list[str],
+    stdin_bytes: bytes,
+    timeout: float,
+) -> tuple[int, bytes, bytes]:
+    """Run the subprocess synchronously; return (returncode, stdout, stderr).
+
+    Uses ``subprocess.run`` rather than ``asyncio.create_subprocess_exec`` on
+    purpose (SF-287): the asyncio Unix subprocess path calls
+    ``events.get_child_watcher()``, which raises a bare ``NotImplementedError``
+    whenever a uvloop event-loop policy is installed process-wide (the
+    per-session frontend uvicorn does this via ``loop="auto"``) while we run on
+    the main server's standard ``loop="asyncio"`` loop. ``subprocess.run`` never
+    touches the child watcher, so it is immune to that policy/loop mismatch —
+    and forward-compatible with Python 3.14, which removes child watchers
+    entirely. Meant to be called via :func:`asyncio.to_thread`.
+
+    Raises PythonRunnerError(kind="timeout") on timeout (the child is killed by
+    ``subprocess.run``) and PythonRunnerError(kind="io_error") on OSError.
+    """
+    try:
+        completed = subprocess.run(  # noqa: S603 — argv is built by the sandbox
+            argv,
+            input=stdin_bytes,
+            capture_output=True,
+            timeout=timeout,
+            env={"PATH": "/usr/bin", "HOME": "/tmp"},
+            check=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise PythonRunnerError(
+            kind="timeout",
+            message=f"Script exceeded {timeout}s timeout",
+        ) from e
+    except OSError as e:
+        raise PythonRunnerError(kind="io_error", message=str(e)) from e
+
+    return completed.returncode, completed.stdout, completed.stderr
+
+
 async def _spawn_collect(
     argv: list[str],
     stdin_bytes: bytes,
     timeout: float,
 ) -> tuple[int, bytes, bytes]:
-    """Spawn a subprocess, feed stdin, collect (returncode, stdout, stderr).
+    """Spawn a subprocess off the event loop, returning (returncode, stdout, stderr).
 
-    Raises PythonRunnerError(kind="io_error") on OSError and
-    PythonRunnerError(kind="timeout") when *timeout* is exceeded.
+    Delegates to :func:`_run_blocking` in a worker thread so the event loop
+    stays responsive while the script runs, without depending on the asyncio
+    child watcher (SF-287).
     """
-    _spawn = asyncio.create_subprocess_exec
-    try:
-        proc = await _spawn(
-            *argv,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={"PATH": "/usr/bin", "HOME": "/tmp"},
-        )
-    except OSError as e:
-        raise PythonRunnerError(kind="io_error", message=str(e)) from e
-
-    try:
-        stdout_b, stderr_b = await asyncio.wait_for(
-            proc.communicate(input=stdin_bytes),
-            timeout=timeout,
-        )
-    except TimeoutError as e:
-        proc.kill()
-        await proc.wait()
-        raise PythonRunnerError(
-            kind="timeout",
-            message=f"Script exceeded {timeout}s timeout",
-        ) from e
-
-    return proc.returncode or 0, stdout_b, stderr_b
+    return await asyncio.to_thread(_run_blocking, argv, stdin_bytes, timeout)
 
 
 def _parse_output(

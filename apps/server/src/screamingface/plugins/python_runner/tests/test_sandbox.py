@@ -6,6 +6,7 @@ Integration tests are darwin-only and rely on /usr/bin/sandbox-exec.
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -239,20 +240,14 @@ def test_runner_uses_sandbox_helper_and_scrubs_env(
     monkeypatch.delenv("SF_PYTHON_RUNNER__SANDBOX", raising=False)
 
     captured: dict = {}
-    real_create = asyncio.create_subprocess_exec
 
-    async def fake_create(*argv, **kwargs):
+    def fake_run(argv, **kwargs):
         captured["argv"] = list(argv)
         captured["env"] = kwargs.get("env")
-        passthrough_kwargs = {k: v for k, v in kwargs.items() if k != "env"}
-        return await real_create(
-            sys.executable,
-            "-c",
-            "import json, sys; json.dump({}, sys.stdout)",
-            **passthrough_kwargs,
-        )
+        return subprocess.CompletedProcess(args=argv, returncode=0, stdout=b"{}", stderr=b"")
 
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create)
+    # python_runner spawns via subprocess.run (SF-287), not create_subprocess_exec.
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     asyncio.run(run_script_source("print(1)\n", {}))
 
