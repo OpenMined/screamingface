@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from tortoise.exceptions import IntegrityError
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.store import (
     OAuthConnectionStore,
@@ -103,10 +104,14 @@ def _credential_strategy_for_credential_name(
     )
 
 
-def _invalidate_profile_session(plugin, account_id: str, name: str) -> None:
+def _invalidate_profile_session(app, plugin, account_id: str, name: str) -> None:
+    credential_name = credential_name_for(account_id, name)
     invalidator = getattr(plugin, "invalidate_profile_session", None)
     if callable(invalidator):
-        invalidator(credential_name_for(account_id, name))
+        invalidator(credential_name)
+    # Drop the shared cached strategy so re-auth / api-key change / delete / refresh
+    # never serve a stale in-memory token from a prior credential (SF-282).
+    credential_strategy_cache(app).evict(credential_name)
 
 
 @asynccontextmanager
@@ -124,7 +129,7 @@ async def _profile_refresh_lifecycle(
     except (CredentialNotFoundError, AuthError) as exc:
         profile.state = ProfileState.ERROR
         await _index_store(request).upsert(profile)
-        _invalidate_profile_session(plugin, account_id, name)
+        _invalidate_profile_session(request.app, plugin, account_id, name)
         raise HTTPException(
             status_code=401,
             detail={
@@ -137,7 +142,7 @@ async def _profile_refresh_lifecycle(
         profile.state = ProfileState.AUTHENTICATED
         profile.last_refreshed_at = datetime.now(UTC)
         await _index_store(request).upsert(profile)
-        _invalidate_profile_session(plugin, account_id, name)
+        _invalidate_profile_session(request.app, plugin, account_id, name)
 
 
 def _pending(request: Request):
@@ -672,7 +677,7 @@ async def _complete_oauth_for_app(
         raise
     if pending.connection_id is None:
         await strategy.persist_credentials(creds)
-        _invalidate_profile_session(plugin, pending.account_id, pending.profile_name)
+        _invalidate_profile_session(app, plugin, pending.account_id, pending.profile_name)
 
     await _mark_profile_authenticated(app, pending, plugin, creds)
     await _record_oauth_connection_completion(app, pending, plugin, creds)
@@ -760,6 +765,9 @@ async def _mark_connection_error(app, pending: PendingAuthEntry, message: str) -
     connection = await store.get(pending.account_id, pending.connection_id)
     if connection is not None:
         await store.mark_error(connection, message)
+    credential_strategy_cache(app).evict(
+        credential_key_for(pending.account_id, pending.connection_id)
+    )
 
 
 async def _persist_connection_credentials(
@@ -778,6 +786,7 @@ async def _persist_connection_credentials(
     )
     if strategy is not None:
         await strategy.persist_credentials(creds)
+    credential_strategy_cache(app).evict(credential_key_for(account_id, connection_id))
 
 
 async def _record_oauth_connection_completion(
@@ -1072,7 +1081,7 @@ async def set_profile_api_key(
 
     await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
     await idx.upsert(profile)
-    _invalidate_profile_session(plugin, account_id, name)
+    _invalidate_profile_session(request.app, plugin, account_id, name)
     return profile.model_dump(mode="json")
 
 
@@ -1090,7 +1099,7 @@ async def delete_profile(provider: str, name: str, request: Request, current: Cu
     )
     if strategy is not None:
         await strategy.delete_credentials()
-    _invalidate_profile_session(plugin, account_id, name)
+    _invalidate_profile_session(request.app, plugin, account_id, name)
     await _index_store(request).remove(p.id)
 
 

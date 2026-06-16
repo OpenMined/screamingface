@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from tortoise.exceptions import IntegrityError
 
 from aigateway.core.auth.middleware import CurrentAccount
+from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.errors import AuthError, CredentialNotFoundError
 from aigateway.core.oauth.schemas import (
     CreateOAuthConnectionRequest,
@@ -174,6 +175,9 @@ async def delete_connection(connection_id: UUID, request: Request, current: Curr
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
     await _delete_credentials(request, connection.credential_locator)
     await store.mark_revoked(connection)
+    # Evict the shared cached strategy so a deleted connection's still-valid token
+    # can't keep being served from memory (SF-282).
+    credential_strategy_cache(request.app).evict(credential_key_for(str(current.id), connection_id))
 
 
 @router.get(
@@ -240,9 +244,15 @@ async def refresh_connection(
         await strategy.refresh_credentials()
     except (CredentialNotFoundError, AuthError) as exc:
         await store.mark_error(connection, str(exc))
+        credential_strategy_cache(request.app).evict(
+            credential_key_for(str(current.id), connection.id)
+        )
         raise HTTPException(
             status_code=401, detail={"code": "auth_required", "message": str(exc)}
         ) from exc
+    # Manual refresh wrote new tokens to the store; drop the cached instance so the
+    # chat path rebuilds and reads them (SF-282).
+    credential_strategy_cache(request.app).evict(credential_key_for(str(current.id), connection.id))
     connection = await store.complete(
         connection,
         label=connection.label,
