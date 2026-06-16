@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -67,6 +67,7 @@ def _emit_schema(plugin: AigwClaudeBackendPlugin) -> dict[str, Any]:
 def _gateway_profiles_handler(
     profiles: list[dict[str, Any]],
     connections: list[dict[str, Any]] | None = None,
+    models: list[dict[str, Any]] | None = None,
 ):
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.path.endswith("/v1/auth/anthropic/profiles"):
@@ -75,6 +76,8 @@ def _gateway_profiles_handler(
             assert req.url.params["provider"] == "anthropic"
             assert req.url.params["status"] == "active"
             return httpx.Response(200, json={"connections": connections or []})
+        if req.url.path.endswith("/v1/models"):
+            return httpx.Response(200, json={"data": models or []})
         raise AssertionError(f"unexpected gateway request: {req.url}")
 
     return handler
@@ -145,6 +148,8 @@ def test_schema_fetch_uses_gateway_session_token_in_external_mode() -> None:
             return httpx.Response(200, json={"profiles": [{"name": "work"}]})
         if req.url.path.endswith("/v1/oauth/connections"):
             return httpx.Response(200, json={"connections": []})
+        if req.url.path.endswith("/v1/models"):
+            return httpx.Response(200, json={"data": []})
         raise AssertionError(f"unexpected gateway request: {req.url}")
 
     plugin = _make_plugin(mode="external", transport=httpx.MockTransport(handler))
@@ -196,6 +201,99 @@ def test_schema_enum_is_empty_when_gateway_has_no_profiles() -> None:
     plugin = _make_plugin(transport=httpx.MockTransport(handler))
     schema = _emit_schema(plugin)
     assert schema["properties"]["auth_profile"]["enum"] == []
+
+
+# --------------------------------------------------------------------------- #
+# SF-284: default_model / fallback_model `examples` are derived from the
+# gateway's live /v1/models registry instead of a hard-coded SF-side copy.
+# --------------------------------------------------------------------------- #
+
+
+def _anthropic_models(*ids: str) -> list[dict[str, Any]]:
+    return [{"id": i, "object": "model", "owned_by": "anthropic"} for i in ids]
+
+
+def test_model_fields_have_no_static_examples_before_customization() -> None:
+    """The plugin must NOT bake a hard-coded model list into the field schema.
+
+    Guards the DRY contract: suggestions come from the gateway at schema time,
+    not a constant duplicating the gateway registry.
+    """
+    base_props = AigwClaudeBackendSettings.model_json_schema()["properties"]
+    assert not base_props["default_model"].get("examples")
+    assert not base_props["fallback_model"].get("examples")
+
+
+def test_model_examples_derived_from_gateway_models() -> None:
+    handler = _gateway_profiles_handler(
+        [{"name": "default"}],
+        models=_anthropic_models("claude-opus-4-8", "claude-sonnet-4-5", "claude-haiku-4-5"),
+    )
+    plugin = _make_plugin(transport=httpx.MockTransport(handler))
+    schema = _emit_schema(plugin)
+
+    # Bare gateway ids are prefixed with the provider key to match the SF
+    # `<provider>/<model>` form the backend sends.
+    expected = [
+        "anthropic/claude-opus-4-8",
+        "anthropic/claude-sonnet-4-5",
+        "anthropic/claude-haiku-4-5",
+    ]
+    assert schema["properties"]["default_model"]["examples"] == expected
+    assert schema["properties"]["fallback_model"]["examples"] == expected
+
+
+def test_model_examples_exclude_other_providers() -> None:
+    """/v1/models aggregates every provider; only this backend's are suggested."""
+    models = _anthropic_models("claude-opus-4-8") + [
+        {"id": "gpt-5.4-mini", "object": "model", "owned_by": "codex"},
+        {"id": "gemini-2.5-flash", "object": "model", "owned_by": "gemini-cli"},
+    ]
+    handler = _gateway_profiles_handler([{"name": "default"}], models=models)
+    plugin = _make_plugin(transport=httpx.MockTransport(handler))
+    schema = _emit_schema(plugin)
+
+    assert schema["properties"]["default_model"]["examples"] == ["anthropic/claude-opus-4-8"]
+
+
+def test_model_examples_do_not_double_prefix_already_prefixed_ids() -> None:
+    """Gateway registries are inconsistent: codex/gemini model ids already carry
+    the `<provider>/` prefix while anthropic's are bare. Prefixing must be
+    idempotent so a `codex/...` id never becomes `codex/codex/...`."""
+    models = [{"id": "anthropic/claude-opus-4-8", "object": "model", "owned_by": "anthropic"}]
+    handler = _gateway_profiles_handler([{"name": "default"}], models=models)
+    plugin = _make_plugin(transport=httpx.MockTransport(handler))
+    schema = _emit_schema(plugin)
+
+    assert schema["properties"]["default_model"]["examples"] == ["anthropic/claude-opus-4-8"]
+
+
+def test_model_examples_remain_free_text_no_enum() -> None:
+    """Suggestions use `examples` (datalist), never `enum` — a brand-new
+    snapshot the gateway already supports must still be typeable."""
+    handler = _gateway_profiles_handler(
+        [{"name": "default"}], models=_anthropic_models("claude-opus-4-8")
+    )
+    plugin = _make_plugin(transport=httpx.MockTransport(handler))
+    schema = _emit_schema(plugin)
+
+    assert "enum" not in schema["properties"]["default_model"]
+    assert "enum" not in schema["properties"]["fallback_model"]
+
+
+def test_model_examples_fall_back_to_configured_value_when_gateway_down() -> None:
+    """Offline: the dropdown shows each field's currently-configured value so
+    the user isn't staring at an empty list. Free-text still works."""
+
+    def boom(req: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("gateway down")
+
+    plugin = _make_plugin(transport=httpx.MockTransport(boom))
+    schema = _emit_schema(plugin)
+
+    settings = cast(AigwClaudeBackendSettings, plugin.settings)
+    assert schema["properties"]["default_model"]["examples"] == [settings.default_model]
+    assert schema["properties"]["fallback_model"]["examples"] == [settings.fallback_model]
 
 
 if __name__ == "__main__":

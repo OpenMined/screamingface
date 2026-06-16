@@ -11,13 +11,6 @@ from screamingface.plugins.aigw_base import (
 )
 from screamingface.plugins.aigw_gemini_backend.routes import create_router
 
-_GEMINI_MODEL_SUGGESTIONS = [
-    "gemini-cli/gemini-2.5-pro",
-    "gemini-cli/gemini-2.5-flash",
-    "gemini-cli/gemini-2.5-flash-lite",
-    "gemini-cli/gemini-2.0-flash",
-]
-
 
 class AigwGeminiBackendSettings(AigwBackendApiSettingsBase):
     model_config = SettingsConfigDict(
@@ -25,6 +18,9 @@ class AigwGeminiBackendSettings(AigwBackendApiSettingsBase):
         env_nested_delimiter="__",
     )
 
+    # `default_model` suggestions are derived live from the gateway's /v1/models
+    # registry by AigwBackendApiPluginBase.customize_schema (SF-284) — not copied
+    # here. Source of truth: apps/aigateway/.../gemini_provider/models.py.
     default_model: str | None = Field(
         default="gemini-cli/gemini-2.5-flash",
         description=(
@@ -32,7 +28,6 @@ class AigwGeminiBackendSettings(AigwBackendApiSettingsBase):
             "must start with 'gemini-cli/'. Pick from the dropdown or type a "
             "custom slug if the gateway already supports it."
         ),
-        examples=_GEMINI_MODEL_SUGGESTIONS,
     )
 
 

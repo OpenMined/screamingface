@@ -19,19 +19,25 @@ def _default_scopes() -> list[str]:
 
 
 def _default_models() -> list[ModelEntry]:
+    """Claude models the gateway routes by default.
+
+    Single source of truth for the SF Settings model dropdown: the
+    aigw-claude-backend plugin derives its suggestions from this list via
+    ``GET /v1/models`` (SF-284), so it must NOT be copied SF-side.
+
+    Ordered newest-first within each tier (opus, sonnet, haiku). Older
+    snapshots are kept alongside the latest so existing configs pinned to
+    them (e.g. the ``claude-sonnet-4-5`` default) keep routing.
+    """
+    names = [
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+    ]
     return [
-        ModelEntry(
-            model_name="claude-sonnet-4-5",
-            litellm_params={"model": "anthropic/claude-sonnet-4-5"},
-        ),
-        ModelEntry(
-            model_name="claude-opus-4-7",
-            litellm_params={"model": "anthropic/claude-opus-4-7"},
-        ),
-        ModelEntry(
-            model_name="claude-haiku-4-5",
-            litellm_params={"model": "anthropic/claude-haiku-4-5"},
-        ),
+        ModelEntry(model_name=name, litellm_params={"model": f"anthropic/{name}"}) for name in names
     ]
 
 

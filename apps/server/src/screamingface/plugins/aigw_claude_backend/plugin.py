@@ -23,24 +23,17 @@ if TYPE_CHECKING:
     pass
 
 
-# Suggestions for the default_model dropdown. Mirrors the gateway's
-# anthropic_provider/models.py registry. RJSF's BaseInputTemplate renders
-# a `<datalist>` from `examples`, giving the UI a typeahead dropdown that
-# still accepts free-text — useful when a new Anthropic snapshot ships
-# before this list is updated.
-_CLAUDE_MODEL_SUGGESTIONS = [
-    "anthropic/claude-sonnet-4-5",
-    "anthropic/claude-opus-4-7",
-    "anthropic/claude-haiku-4-5",
-]
-
-
 class AigwClaudeBackendSettings(AigwBackendApiSettingsBase):
     model_config = SettingsConfigDict(
         env_prefix="SF_AIGW_CLAUDE_BACKEND__",
         env_nested_delimiter="__",
     )
 
+    # The `default_model`/`fallback_model` dropdown suggestions are NOT baked in
+    # here — `AigwBackendApiPluginBase.customize_schema` derives them live from
+    # the gateway's /v1/models registry (SF-284), so the single source of truth
+    # stays in apps/aigateway/.../anthropic_provider/settings.py. RJSF renders a
+    # free-text `<datalist>` from the injected `examples`.
     default_model: str | None = Field(
         default="anthropic/claude-sonnet-4-5",
         description=(
@@ -48,7 +41,6 @@ class AigwClaudeBackendSettings(AigwBackendApiSettingsBase):
             "must start with 'anthropic/'. Pick from the dropdown or "
             "type a custom snapshot if the gateway already supports it."
         ),
-        examples=_CLAUDE_MODEL_SUGGESTIONS,
     )
     fallback_model: str | None = Field(
         default="anthropic/claude-haiku-4-5",
@@ -56,7 +48,6 @@ class AigwClaudeBackendSettings(AigwBackendApiSettingsBase):
             "Model retried once when the primary Claude model returns a 429. "
             "Set to null to disable automatic fallback."
         ),
-        examples=_CLAUDE_MODEL_SUGGESTIONS,
     )
 
 

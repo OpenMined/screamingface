@@ -11,14 +11,6 @@ from screamingface.plugins.aigw_base import (
 )
 from screamingface.plugins.aigw_codex_backend.routes import create_router
 
-_CODEX_MODEL_SUGGESTIONS = [
-    "codex/gpt-5.5",
-    "codex/gpt-5.4",
-    "codex/gpt-5.4-mini",
-    "codex/gpt-5.3-codex",
-    "codex/gpt-5.2",
-]
-
 
 class AigwCodexBackendSettings(AigwBackendApiSettingsBase):
     model_config = SettingsConfigDict(
@@ -26,6 +18,9 @@ class AigwCodexBackendSettings(AigwBackendApiSettingsBase):
         env_nested_delimiter="__",
     )
 
+    # `default_model` suggestions are derived live from the gateway's /v1/models
+    # registry by AigwBackendApiPluginBase.customize_schema (SF-284) — not copied
+    # here. Source of truth: apps/aigateway/.../codex_provider/models.py.
     default_model: str | None = Field(
         default="codex/gpt-5.4-mini",
         description=(
@@ -33,7 +28,6 @@ class AigwCodexBackendSettings(AigwBackendApiSettingsBase):
             "must start with 'codex/'. Pick from the dropdown or type a "
             "custom slug if the gateway already supports it."
         ),
-        examples=_CODEX_MODEL_SUGGESTIONS,
     )
 
 
