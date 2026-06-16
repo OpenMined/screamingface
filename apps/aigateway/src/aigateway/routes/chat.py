@@ -23,6 +23,7 @@ from litellm.exceptions import (
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.concurrency import effective_provider_limit, provider_slot
+from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.models import OAuthConnection
 from ..core.oauth.store import OAuthConnectionStore, credential_key_for
@@ -214,12 +215,20 @@ def _strategy_for_credential_target(
         auth_type = profile.auth_type
     else:
         return None, None, "oauth"
-    strategy = credential_strategy_from(
-        plugin,
-        credential_name,
+    # Share ONE strategy instance per credential across concurrent requests so its
+    # asyncio.Lock single-flights the OAuth refresh (SF-282). Building is only a
+    # constructor call; the cache is evicted on every credential mutation.
+    strategy = credential_strategy_cache(request.app).get_or_create(
+        provider=provider,
         auth_type=auth_type,
-        credential_store=request.app.state.credential_store,
-        http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
+        credential_name=credential_name,
+        build=lambda: credential_strategy_from(
+            plugin,
+            credential_name,
+            auth_type=auth_type,
+            credential_store=request.app.state.credential_store,
+            http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
+        ),
     )
     return strategy, credential_name, auth_type
 
@@ -268,6 +277,10 @@ async def _dispatch_failure_response(
     """
     if not _should_mark_profile_error_on_dispatch_status(plugin, exc.status_code):
         return exc
+    # Drop the cached strategy so its (now bad) token isn't reused by the next
+    # request — important under fan-out where many requests share the instance.
+    if credential_name is not None:
+        credential_strategy_cache(request.app).evict(credential_name)
     detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
     if connection is not None:
         await _oauth_connection_store(request).mark_error(
@@ -482,6 +495,8 @@ async def _inject_credentials(
         try:
             headers = await strategy.get_authorization_header()
         except CredentialNotFoundError as exc:
+            if credential_name is not None:
+                credential_strategy_cache(request.app).evict(credential_name)
             if connection is not None:
                 await _oauth_connection_store(request).mark_error(connection, str(exc))
             raise HTTPException(
@@ -493,6 +508,8 @@ async def _inject_credentials(
                 },
             )
         except AuthError as exc:
+            if credential_name is not None:
+                credential_strategy_cache(request.app).evict(credential_name)
             if connection is not None:
                 await _oauth_connection_store(request).mark_error(connection, str(exc))
                 if credential_name is not None:
