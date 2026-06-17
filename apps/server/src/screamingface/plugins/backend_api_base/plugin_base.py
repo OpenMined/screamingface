@@ -146,6 +146,11 @@ class BackendApiPluginBase(Plugin):
 
     schema_link_base: ClassVar[str] = "/"
     create_router: ClassVar[Callable[..., Any]]
+    # SF-290: LLM backends pack context into a prompt, so the url4 dispatcher
+    # pre-fetches any ``/...`` / ``http(s)://`` ref in a backend call's context
+    # before handing it over. Backends that consume a raw locator instead
+    # (e.g. python_runner, which fetches its own script) leave this False.
+    resolves_context_sources: ClassVar[bool] = True
 
     def customize_schema(self, schema: dict) -> dict:
         settings: BackendApiSettingsBase = self.settings  # type: ignore[assignment]
