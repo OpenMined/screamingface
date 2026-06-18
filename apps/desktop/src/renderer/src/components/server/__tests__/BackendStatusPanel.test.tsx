@@ -512,6 +512,31 @@ describe('BackendStatusPanel v2 gateway status', () => {
     expect(await screen.findByText('Connected')).toBeTruthy();
   });
 
+  it('does not show the OAuth browser-sign-in UI during an api-key save', async () => {
+    getStatus.mockResolvedValue(v2WithApiKey(true));
+    let resolveSave: (v: { ok: boolean }) => void = () => {};
+    createConnectionApiKey.mockImplementation(
+      () => new Promise((r) => (resolveSave = r as (v: { ok: boolean }) => void)),
+    );
+    render(<BackendStatusPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add Connection' }));
+    fireEvent.change(screen.getByLabelText('Authentication type'), {
+      target: { value: 'api_key' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/connection label/i), {
+      target: { value: 'work' },
+    });
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-ant-api03-secret-key' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    // While the save is in flight the form stays visible ("Saving…") and the
+    // OAuth "Waiting for browser sign-in" message must NOT appear (F5).
+    expect(await screen.findByRole('button', { name: 'Saving…' })).toBeTruthy();
+    expect(screen.queryByText(/Waiting for browser sign-in/i)).toBeNull();
+    resolveSave({ ok: true });
+  });
+
   it('keeps v2 provider rows needing auth when connections are not active', async () => {
     getStatus.mockResolvedValue({
       version: 2,

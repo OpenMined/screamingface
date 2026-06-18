@@ -818,6 +818,9 @@ function ConnectionsSubPanel({
   const [addError, setAddError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // API-key saving is tracked separately from `submitting` (OAuth) so it never
+  // feeds oauthInFlight / the "Waiting for browser sign-in" UI (SF-291 F5).
+  const [savingKey, setSavingKey] = useState(false);
   const [pendingConnectionId, setPendingConnectionId] = useState<string | null>(null);
   const [pasteCode, setPasteCode] = useState('');
   const [pasteBusy, setPasteBusy] = useState(false);
@@ -945,7 +948,7 @@ function ConnectionsSubPanel({
         setAddError('Paste a valid API key');
         return;
       }
-      setSubmitting(true);
+      setSavingKey(true);
       setAddError(null);
       setNotice(null);
       void (async () => {
@@ -969,7 +972,7 @@ function ConnectionsSubPanel({
         } catch (err) {
           setAddError(`Saving key failed — ${err instanceof Error ? err.message : String(err)}`);
         } finally {
-          setSubmitting(false);
+          setSavingKey(false);
           void refresh();
         }
       })();
@@ -1043,7 +1046,7 @@ function ConnectionsSubPanel({
           {supportsApiKey && (
             <select
               value={authType}
-              disabled={submitting}
+              disabled={submitting || savingKey}
               onChange={(e) => {
                 setAuthType(e.target.value as 'oauth' | 'api_key');
                 setAddError(null);
@@ -1060,7 +1063,7 @@ function ConnectionsSubPanel({
               autoFocus
               type="text"
               value={label}
-              disabled={submitting}
+              disabled={submitting || savingKey}
               onChange={(e) => {
                 setLabel(e.target.value);
                 setAddError(null);
@@ -1084,7 +1087,7 @@ function ConnectionsSubPanel({
               type="password"
               value={apiKey}
               autoComplete="off"
-              disabled={submitting}
+              disabled={submitting || savingKey}
               onChange={(e) => {
                 setApiKey(e.target.value);
                 setAddError(null);
@@ -1102,15 +1105,15 @@ function ConnectionsSubPanel({
           )}
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || savingKey}
             className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 disabled:opacity-60"
           >
-            {authType === 'api_key' ? (submitting ? 'Saving…' : 'Confirm') : 'Start'}
+            {authType === 'api_key' ? (savingKey ? 'Saving…' : 'Confirm') : 'Start'}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            disabled={submitting}
+            disabled={submitting || savingKey}
             className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
           >
             Cancel
