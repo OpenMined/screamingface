@@ -79,6 +79,10 @@ const api: ElectronAPI = {
     setProfileApiKey: (backend, profileName, apiKey) =>
       ipcRenderer.invoke('backends:setProfileApiKey', backend, profileName, apiKey),
     listConnections: (backend) => ipcRenderer.invoke('backends:listConnections', backend),
+    createConnectionApiKey: (backend, label, apiKey) =>
+      ipcRenderer.invoke('backends:createConnectionApiKey', backend, label, apiKey),
+    setConnectionApiKey: (backend, connectionId, apiKey) =>
+      ipcRenderer.invoke('backends:setConnectionApiKey', backend, connectionId, apiKey),
     deleteConnection: (backend, connectionId) =>
       ipcRenderer.invoke('backends:deleteConnection', backend, connectionId),
     refreshConnection: (backend, connectionId) =>

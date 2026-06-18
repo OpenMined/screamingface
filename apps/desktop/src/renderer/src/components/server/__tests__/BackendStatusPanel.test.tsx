@@ -21,6 +21,12 @@ const setProfileApiKey = vi.fn(
 const getPendingAuthState = vi.fn(async (): Promise<string | null> => null);
 const exchangeOAuthCode = vi.fn(async () => ({ ok: true }) as { ok: boolean; message?: string });
 const listConnections = vi.fn(async () => ({ connections: [] }));
+const createConnectionApiKey = vi.fn(
+  async () => ({ ok: true }) as { ok: boolean; status?: number; message?: string },
+);
+const setConnectionApiKey = vi.fn(
+  async () => ({ ok: true }) as { ok: boolean; status?: number; message?: string },
+);
 const deleteConnection = vi.fn(async () => ({ ok: true }));
 const refreshConnection = vi.fn(async () => ({ ok: true }));
 const getPendingConnectionAuthState = vi.fn(async (): Promise<string | null> => null);
@@ -47,6 +53,8 @@ const exchangeOAuthConnectionCode = vi.fn(
     getPendingAuthState,
     exchangeOAuthCode,
     listConnections,
+    createConnectionApiKey,
+    setConnectionApiKey,
     deleteConnection,
     refreshConnection,
     getPendingConnectionAuthState,
@@ -93,6 +101,10 @@ beforeEach(() => {
   exchangeOAuthCode.mockResolvedValue({ ok: true });
   listConnections.mockClear();
   listConnections.mockResolvedValue({ connections: [] });
+  createConnectionApiKey.mockClear();
+  createConnectionApiKey.mockResolvedValue({ ok: true });
+  setConnectionApiKey.mockClear();
+  setConnectionApiKey.mockResolvedValue({ ok: true });
   deleteConnection.mockClear();
   deleteConnection.mockResolvedValue({ ok: true });
   refreshConnection.mockClear();
@@ -407,6 +419,97 @@ describe('BackendStatusPanel v2 gateway status', () => {
     expect(screen.queryByText('Needs Auth')).toBeNull();
     expect(screen.queryByText(/OAuth profile is missing or expired/i)).toBeNull();
     expect(listProfiles).not.toHaveBeenCalled();
+  });
+
+  const v2WithApiKey = (supports: boolean) => ({
+    version: 2,
+    gateway: {
+      mode: 'external',
+      managed_by_runner: false,
+      reachable: true,
+      authenticated: true,
+      auth_required: true,
+      url: 'https://gateway.example.com',
+    },
+    action: 'healthy',
+    backends: {
+      claude: {
+        authenticated: false,
+        action: 'reauth',
+        auth_kind: 'browser',
+        model: 'anthropic/claude-sonnet-4-5',
+      },
+    },
+    provider_auth: {
+      providers: {
+        claude: {
+          provider: 'anthropic',
+          profile: 'default',
+          state: 'missing_profile',
+          supports_api_key: supports,
+        },
+      },
+    },
+  });
+
+  it('offers the API-key option when the provider supports it', async () => {
+    getStatus.mockResolvedValue(v2WithApiKey(true));
+    render(<BackendStatusPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add Connection' }));
+    expect(screen.getByLabelText('Authentication type')).toBeTruthy();
+  });
+
+  it('hides the API-key option when the provider does not support it', async () => {
+    getStatus.mockResolvedValue(v2WithApiKey(false));
+    render(<BackendStatusPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add Connection' }));
+    expect(screen.queryByLabelText('Authentication type')).toBeNull();
+  });
+
+  it('adding via API key calls createConnectionApiKey and not OAuth', async () => {
+    getStatus.mockResolvedValue(v2WithApiKey(true));
+    render(<BackendStatusPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add Connection' }));
+    fireEvent.change(screen.getByLabelText('Authentication type'), {
+      target: { value: 'api_key' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/connection label/i), {
+      target: { value: 'work' },
+    });
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'sk-ant-api03-secret-key' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    await waitFor(() =>
+      expect(createConnectionApiKey).toHaveBeenCalledWith(
+        'claude',
+        'work',
+        'sk-ant-api03-secret-key',
+      ),
+    );
+    expect(authenticateOAuthConnection).not.toHaveBeenCalled();
+  });
+
+  it('renders an api-key connection with a badge and Replace key, no Refresh', async () => {
+    getStatus.mockResolvedValue(v2WithApiKey(true));
+    listConnections.mockResolvedValue({
+      connections: [
+        {
+          id: '00000000-0000-0000-0000-000000000009',
+          provider: 'anthropic',
+          label: 'work-key',
+          status: 'active',
+          auth_type: 'api_key',
+        },
+      ],
+    });
+    render(<BackendStatusPanel />);
+    expect(await screen.findByText('work-key')).toBeTruthy();
+    expect(screen.getByText('API key')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Replace key' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
+    // An active api-key connection counts toward the connected indicator.
+    expect(await screen.findByText('Connected')).toBeTruthy();
   });
 
   it('keeps v2 provider rows needing auth when connections are not active', async () => {
