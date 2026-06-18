@@ -64,3 +64,33 @@ class TestFallback:
     def test_empty_body(self):
         assert parse_collection("") == []
         assert parse_collection("   ") == []
+
+
+class TestHtmlRejection:
+    """An HTML page is the signature of a soft-404 / SPA fallback served where a
+    data file was expected. It must fail loudly, not silently degrade to
+    line-items (which yields a "successful" 0-accuracy eval). See SF-292."""
+
+    def test_doctype_html_raises(self):
+        import pytest
+
+        body = '<!DOCTYPE html>\n<html lang="en">\n<head><title>x</title></head>\n</html>'
+        with pytest.raises(ValueError, match="HTML"):
+            parse_collection(body)
+
+    def test_html_tag_without_doctype_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="HTML"):
+            parse_collection('<html data-theme="light">\n<body>nope</body>\n</html>')
+
+    def test_leading_whitespace_before_doctype_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="HTML"):
+            parse_collection("\n  \n<!doctype HTML>\n<html></html>")
+
+    def test_plain_text_with_angle_brackets_still_parses(self):
+        # A genuine text collection containing '<' must NOT be mistaken for HTML.
+        body = "a < b\nc > d"
+        assert parse_collection(body) == ["a < b", "c > d"]
