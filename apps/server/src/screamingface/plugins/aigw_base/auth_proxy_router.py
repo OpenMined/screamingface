@@ -56,6 +56,15 @@ class _StartConnectionBody(BaseModel):
     label: str | None = None
 
 
+class _CreateConnectionApiKeyBody(BaseModel):
+    label: str | None = None
+    api_key: str
+
+
+class _SetConnectionApiKeyBody(BaseModel):
+    api_key: str
+
+
 class _AigwCallbackBridge(Protocol):
     async def prepare_redirect_uri(self, *, gateway_provider: str) -> str | None: ...
 
@@ -328,6 +337,53 @@ def build_aigw_auth_proxy_router(
             "POST",
             base,
             f"/v1/oauth/connections/{connection_id}/refresh",
+        )
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+    @router.post(f"{path_prefix}/auth/connections/api-key", status_code=201)
+    async def create_connection_api_key(body: _CreateConnectionApiKeyBody) -> JSONResponse:
+        """Create an api-key connection on the gateway (no OAuth cycle).
+
+        The provider is injected server-side; the key passes through to the
+        gateway, which owns all credential state — it is never logged or
+        persisted on the SF server.
+        """
+        payload: dict[str, Any] = {"provider": gateway_provider, "api_key": body.api_key}
+        if body.label:
+            payload["label"] = body.label
+        resp = await _gateway_response(
+            app,
+            factory,
+            timeout_seconds,
+            "POST",
+            base,
+            "/v1/oauth/connections/api-key",
+            json=payload,
+        )
+        return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+    @router.put(f"{path_prefix}/auth/connections/{{connection_id}}/api-key")
+    async def set_connection_api_key(
+        connection_id: str, body: _SetConnectionApiKeyBody
+    ) -> JSONResponse:
+        """Replace the key on an api-key connection. Never logged."""
+        # Assert the connection belongs to this backend's provider before the PUT.
+        await _gateway_connection_json(
+            app,
+            factory,
+            timeout_seconds,
+            base,
+            connection_id,
+            gateway_provider,
+        )
+        resp = await _gateway_response(
+            app,
+            factory,
+            timeout_seconds,
+            "PUT",
+            base,
+            f"/v1/oauth/connections/{connection_id}/api-key",
+            json={"api_key": body.api_key},
         )
         return JSONResponse(content=resp.json(), status_code=resp.status_code)
 

@@ -72,3 +72,38 @@ async def test_external_auth_disabled_gateway_fails_closed(monkeypatch) -> None:
     assert payload["gateway"]["authenticated"] is False
     assert "provider_auth" not in payload
     assert "backends" not in payload
+
+
+def test_provider_auth_status_exposes_supports_api_key() -> None:
+    """The desktop reads supports_api_key per provider to gate the API-key UI."""
+
+    def _plugin(provider, path, *, supports=None):
+        ns = SimpleNamespace(
+            gateway_provider=provider,
+            backend_call_paths=[path],
+            settings=SimpleNamespace(auth_profile="default"),
+        )
+        if supports is not None:
+            ns.supports_api_key = supports
+        return ns
+
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            plugins=SimpleNamespace(
+                active_plugins={
+                    "claude": _plugin("anthropic", "/claude", supports=True),
+                    "gemini": _plugin("gemini-cli", "/gemini", supports=True),
+                    "codex": _plugin("codex", "/codex", supports=False),
+                    # A plugin that never declares the attr defaults to False.
+                    "ollama": _plugin("ollama", "/ollama"),
+                }
+            )
+        )
+    )
+
+    providers = status_routes._provider_auth_status(app, {})
+
+    assert providers["claude"]["supports_api_key"] is True
+    assert providers["gemini"]["supports_api_key"] is True
+    assert providers["codex"]["supports_api_key"] is False
+    assert providers["ollama"]["supports_api_key"] is False

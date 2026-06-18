@@ -209,6 +209,10 @@ def _provider_auth_status(app: Any, backends: dict[str, Any]) -> dict[str, Any]:
             "provider": provider,
             "profile": profile,
             "state": _provider_state(backends.get(name, {})),
+            # Capability flag so the desktop only offers API-key auth where the
+            # backend's gateway provider supports it (anthropic/gemini today;
+            # codex is OAuth-only). Declared per backend plugin.
+            "supports_api_key": bool(getattr(plugin, "supports_api_key", False)),
         }
     return providers
 

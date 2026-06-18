@@ -896,3 +896,92 @@ def test_set_api_key_gateway_unreachable_becomes_502() -> None:
     resp = client.put("/claude/auth/profiles/work/api-key", json={"api_key": "sk-ant-12345678"})
     assert resp.status_code == 502
     assert resp.json()["detail"]["code"] == "gateway_unreachable"
+
+
+_CONN = {
+    "id": "11111111-1111-1111-1111-111111111111",
+    "account_id": "22222222-2222-2222-2222-222222222222",
+    "provider": "anthropic",
+    "label": "work",
+    "status": "active",
+    "auth_type": "api_key",
+    "credential_locator": {},
+    "created_at": "2026-06-18T00:00:00Z",
+}
+
+
+def test_create_connection_api_key_injects_provider_and_forwards_key() -> None:
+    seen: dict = {}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen["method"] = req.method
+        seen["path"] = req.url.path
+        seen["body"] = json.loads(req.content)
+        return httpx.Response(201, json=_CONN)
+
+    client = _make_client(handler)
+    resp = client.post(
+        "/claude/auth/connections/api-key",
+        json={"label": "work", "api_key": "sk-ant-secret-key"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/v1/oauth/connections/api-key"
+    # Provider is injected server-side; label + key forwarded verbatim.
+    assert seen["body"] == {
+        "provider": "anthropic",
+        "label": "work",
+        "api_key": "sk-ant-secret-key",
+    }
+    assert resp.json()["auth_type"] == "api_key"
+
+
+def test_create_connection_api_key_gateway_4xx_single_wrapped() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        # Gateway is FastAPI: error body is {"detail": {...}} (SF-244 F05).
+        return httpx.Response(
+            400, json={"detail": {"code": "api_key_not_supported", "provider": "codex"}}
+        )
+
+    client = _make_client(handler)
+    resp = client.post(
+        "/claude/auth/connections/api-key",
+        json={"label": "x", "api_key": "sk-ant-secret-key"},
+    )
+    assert resp.status_code == 400
+    # Single-wrapped so the desktop's body.detail.code parsing works.
+    assert resp.json()["detail"]["code"] == "api_key_not_supported"
+
+
+def test_set_connection_api_key_guards_provider_then_puts() -> None:
+    calls: list[tuple[str, str]] = []
+    cid = _CONN["id"]
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append((req.method, req.url.path))
+        return httpx.Response(200, json=_CONN)
+
+    client = _make_client(handler)
+    resp = client.put(
+        f"/claude/auth/connections/{cid}/api-key",
+        json={"api_key": "sk-ant-rotated-key"},
+    )
+    assert resp.status_code == 200, resp.text
+    # Ownership GET precedes the PUT.
+    assert ("GET", f"/v1/oauth/connections/{cid}") in calls
+    assert ("PUT", f"/v1/oauth/connections/{cid}/api-key") in calls
+
+
+def test_set_connection_api_key_wrong_provider_is_404() -> None:
+    cid = _CONN["id"]
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        # Ownership GET returns a connection owned by a different provider.
+        return httpx.Response(200, json={**_CONN, "provider": "gemini-cli"})
+
+    client = _make_client(handler)
+    resp = client.put(
+        f"/claude/auth/connections/{cid}/api-key",
+        json={"api_key": "sk-ant-rotated-key"},
+    )
+    assert resp.status_code == 404
