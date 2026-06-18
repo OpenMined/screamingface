@@ -199,6 +199,11 @@ async def create_api_key_connection(
             status_code=409,
             detail={"code": "label_conflict", "provider": body.provider, "label": label},
         )
+    # Persist the key BEFORE activating the row so a credential-write failure
+    # never leaves an active connection with no credential (SF-291 review F4).
+    # The blob slot is keyed by the already-generated connection_id — exactly
+    # the slot the chat path reads.
+    await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
     try:
         connection = await store.create_api_key(
             account_id=account_id,
@@ -207,12 +212,16 @@ async def create_api_key_connection(
             connection_id=connection_id,
             credential_provider=credential_service_provider_for(plugin, body.provider),
         )
-    except IntegrityError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "label_conflict", "provider": body.provider, "label": label},
-        ) from exc
-    await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
+    except Exception as exc:
+        # The row could not be created — drop the orphan blob so no credential
+        # is left without a connection pointing at it.
+        await strategy.delete_credentials()
+        if isinstance(exc, IntegrityError):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "label_conflict", "provider": body.provider, "label": label},
+            ) from exc
+        raise
     credential_strategy_cache(request.app).evict(credential_key_for(account_id, connection_id))
     return response_from_connection(connection)
 
@@ -349,6 +358,11 @@ async def refresh_connection(
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
     if connection.status != "active":
         raise HTTPException(status_code=409, detail={"code": "connection_not_active"})
+    if connection.auth_type == "api_key":
+        # /refresh is OAuth-only. An api-key connection has nothing to refresh,
+        # and running oauth_strategy_for against its blob would raise and flip
+        # the row to error (SF-291 review F2). Reject without mutating the row.
+        raise HTTPException(status_code=400, detail={"code": "connection_not_oauth"})
     plugin = request.app.state.providers.get(connection.provider)
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})

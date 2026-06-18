@@ -7,7 +7,10 @@ import os
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from .config import Settings
 from .core.auth.bootstrap_admin import ensure_admin_account
@@ -176,11 +179,24 @@ async def _lifespan(app):
         await close_db()
 
 
+async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONResponse:
+    """Return 422s without the echoed request body.
+
+    FastAPI's default validation handler includes ``input`` (the raw submitted
+    body) in each error. For api-key endpoints that body carries the raw key, so
+    echoing it back leaks the secret into error responses and logs (SF-291
+    review F1). Strip ``input`` from every error while preserving type/loc/msg."""
+    errors = exc.errors() if isinstance(exc, RequestValidationError) else []
+    cleaned = [{k: v for k, v in err.items() if k != "input"} for err in errors]
+    return JSONResponse(status_code=422, content=jsonable_encoder({"detail": cleaned}))
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = Settings()
     _attach_log_filter()
     app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
+    app.add_exception_handler(RequestValidationError, _redact_validation_errors)
     app.state.settings = settings
     if not settings.auth_enabled:
         app.add_middleware(AuthDisabledLocalOnlyMiddleware)

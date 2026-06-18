@@ -233,7 +233,18 @@ def _strategy_for_credential_target(
     return strategy, credential_name, auth_type
 
 
-def _reauth_url_for(provider: str, profile_name: str, auth_type: AuthType) -> str:
+def _reauth_url_for(
+    provider: str,
+    profile_name: str,
+    auth_type: AuthType,
+    *,
+    connection_id: str | None = None,
+) -> str:
+    if connection_id is not None and auth_type == "api_key":
+        # An api-key CONNECTION re-keys via its own replace route; never send the
+        # user back to the legacy profile api-key endpoint, which would shadow
+        # connections on chat (SF-291 review F3).
+        return f"/v1/oauth/connections/{connection_id}/api-key"
     base = f"/v1/auth/{provider}/profiles/{profile_name}"
     return f"{base}/api-key" if auth_type == "api_key" else base
 
@@ -504,7 +515,12 @@ async def _inject_credentials(
                 detail={
                     "code": "auth_required",
                     "message": str(exc),
-                    "reauth_url": _reauth_url_for(provider, profile_name, auth_type),
+                    "reauth_url": _reauth_url_for(
+                        provider,
+                        profile_name,
+                        auth_type,
+                        connection_id=str(connection.id) if connection is not None else None,
+                    ),
                 },
             )
         except AuthError as exc:
@@ -528,7 +544,12 @@ async def _inject_credentials(
                 detail={
                     "code": "auth_required",
                     "message": str(exc),
-                    "reauth_url": _reauth_url_for(provider, profile_name, auth_type),
+                    "reauth_url": _reauth_url_for(
+                        provider,
+                        profile_name,
+                        auth_type,
+                        connection_id=str(connection.id) if connection is not None else None,
+                    ),
                 },
             )
         auth_value = headers.pop("Authorization", None)

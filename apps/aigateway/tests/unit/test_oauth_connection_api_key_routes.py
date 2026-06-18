@@ -117,3 +117,44 @@ def test_api_key_connection_token_endpoint_rejected(authenticated_client) -> Non
     resp = authenticated_client.get(f"/v1/oauth/connections/{created['id']}/token")
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "connection_not_oauth"
+
+
+def test_refresh_on_api_key_connection_rejected_without_corrupting(authenticated_client) -> None:
+    """/refresh is OAuth-only: an api-key connection must be rejected (400
+    connection_not_oauth) and must NOT be flipped to error (review F2)."""
+    created = _create(authenticated_client, label="norefresh").json()
+    resp = authenticated_client.post(f"/v1/oauth/connections/{created['id']}/refresh")
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "connection_not_oauth"
+    after = authenticated_client.get(f"/v1/oauth/connections/{created['id']}").json()
+    assert after["status"] == "active"
+    assert after["auth_type"] == "api_key"
+
+
+def test_create_missing_provider_does_not_echo_key(authenticated_client) -> None:
+    """A malformed body (missing provider) must 422 WITHOUT echoing the raw key
+    in the validation error input (review F1)."""
+    resp = authenticated_client.post(
+        "/v1/oauth/connections/api-key", json={"label": "w", "api_key": _KEY}
+    )
+    assert resp.status_code == 422
+    assert _KEY not in resp.text
+    for err in resp.json()["detail"]:
+        assert "input" not in err
+
+
+def test_create_api_key_atomic_on_persist_failure(authenticated_client, monkeypatch) -> None:
+    """If the credential write fails, no active orphan connection row is left
+    behind (review F4 — persist before activating the row)."""
+    store = authenticated_client.app.state.credential_store
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError("credential store unavailable")
+
+    monkeypatch.setattr(store, "write", _boom)
+    try:
+        _create(authenticated_client, label="atomic")
+    except RuntimeError:
+        pass  # TestClient re-raises server exceptions; the invariant is what matters
+    listing = authenticated_client.get("/v1/oauth/connections").json()["connections"]
+    assert all(c["label"] != "atomic" for c in listing)
