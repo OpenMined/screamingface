@@ -78,6 +78,38 @@ class OAuthConnectionStore:
             ),
         )
 
+    async def create_api_key(
+        self,
+        *,
+        account_id: str | UUID,
+        provider: str,
+        label: str,
+        connection_id: UUID,
+        credential_provider: str | None = None,
+    ) -> OAuthConnection:
+        """Create an api-key connection in the active state directly.
+
+        Unlike create_pending (OAuth: pending -> active on callback), an
+        api-key connection has no browser round-trip, so it is authenticated
+        the moment its key is stored. status has no DB default, so it is set
+        explicitly here; auth_type is set to "api_key" (the column defaults to
+        "oauth"). The credential_locator points at the same blob slot the chat
+        path reads via credential_key_for(account_id, connection_id)."""
+        await _ensure_anonymous_account(account_id)
+        return await OAuthConnection.create(
+            id=connection_id,
+            account_id=account_id,
+            provider=provider,
+            label=label,
+            status="active",
+            auth_type="api_key",
+            credential_locator=credential_locator_for(
+                credential_provider or provider,
+                account_id,
+                connection_id,
+            ),
+        )
+
     async def find_by_identity(
         self,
         account_id: str | UUID,
@@ -182,6 +214,7 @@ def response_from_connection(
         provider=connection.provider,
         label=connection.label,
         status=connection.status,
+        auth_type=connection.auth_type,
         account=account,
         credential_locator=connection.credential_locator,
         created_at=connection.created_at,

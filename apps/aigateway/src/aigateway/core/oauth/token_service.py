@@ -84,6 +84,11 @@ class OAuthConnectionTokenService:
             raise OAuthConnectionTokenError(404, {"code": "connection_not_found"})
         if connection.status != "active":
             raise OAuthConnectionTokenError(409, {"code": "connection_not_active"})
+        if getattr(connection, "auth_type", "oauth") == "api_key":
+            # An api-key connection has no OAuth access token to mint; the
+            # OAuth strategy cannot parse its blob. Reject explicitly instead
+            # of surfacing the misleading "provider_does_not_use_oauth".
+            raise OAuthConnectionTokenError(400, {"code": "connection_not_oauth"})
 
         plugin = providers.get(connection.provider)
         if plugin is None:

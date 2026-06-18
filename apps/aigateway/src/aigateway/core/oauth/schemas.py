@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from ..profile_models import AuthType
 from .identity import AccountIdentity
 
 OAuthConnectionStatus = Literal["pending", "active", "expired", "revoked", "error"]
@@ -21,6 +22,7 @@ class OAuthConnectionResponse(BaseModel):
     provider: str
     label: str
     status: OAuthConnectionStatus
+    auth_type: AuthType = "oauth"
     account: AccountIdentity | None = None
     credential_locator: dict[str, Any]
     created_at: datetime
@@ -42,6 +44,20 @@ class CreateOAuthConnectionRequest(BaseModel):
 
 class PatchOAuthConnectionRequest(BaseModel):
     label: OAuthConnectionLabel | None = None
+
+
+class CreateApiKeyConnectionRequest(BaseModel):
+    """Create an api-key-authenticated connection (no OAuth round-trip)."""
+
+    provider: str
+    label: OAuthConnectionLabel | None = None
+    api_key: str
+
+
+class SetConnectionApiKeyRequest(BaseModel):
+    """Replace the stored API key on an existing api-key connection."""
+
+    api_key: str
 
 
 class OAuthConnectionTokenResponse(BaseModel):

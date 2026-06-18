@@ -126,7 +126,7 @@ async def _active_oauth_connection_for_profile(
                 "code": "connection_ambiguous",
                 "provider": provider,
                 "message": (
-                    "Multiple active OAuth connections exist. Select one by setting "
+                    "Multiple active connections exist. Select one by setting "
                     "X-Profile to the connection label."
                 ),
             },
