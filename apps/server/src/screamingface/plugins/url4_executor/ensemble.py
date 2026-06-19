@@ -250,7 +250,15 @@ class EnsembleInterpreter(Url4Interpreter):
             set_span_attrs({"url4.collection.item_count": len(items)})
 
             if not items:
-                return []
+                # A collection that resolves to zero items is never meaningful to
+                # iterate — and is the signature of a missing/unavailable remote
+                # dataset (blank body, or content that parsed to nothing). Fail
+                # loudly so the run is marked FAILED in Eval Studio rather than
+                # silently completing as a 0-question "done" run (SF-292).
+                raise ValueError(
+                    f"collection source {collection_source!r} resolved to zero items — "
+                    "the dataset is empty or the source is unavailable"
+                )
 
             directives = directives or ForeachDirectives()
 

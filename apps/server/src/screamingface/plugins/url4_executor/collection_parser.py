@@ -44,6 +44,18 @@ def parse_collection(body: str) -> list[str]:
     if not body:
         return []
 
+    # Reject HTML loudly. An HTML page served where a data file was expected is
+    # the signature of a soft-404 / SPA fallback (e.g. a missing dataset URL
+    # resolving to the marketing site's index). Without this guard the plain-text
+    # fallback below would turn each HTML line into an "item", silently producing
+    # a 0-accuracy "degraded" run instead of a clear failure (SF-292).
+    if body[:512].lstrip().lower().startswith(("<!doctype html", "<html")):
+        raise ValueError(
+            "collection source returned an HTML page, not a data file "
+            "(JSON array, JSONL, or CSV expected) — the dataset URL is likely "
+            "missing or misrouted to an HTML fallback"
+        )
+
     # Try JSON array first
     if body.startswith("["):
         try:

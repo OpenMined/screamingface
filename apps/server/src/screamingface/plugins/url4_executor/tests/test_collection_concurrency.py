@@ -124,3 +124,67 @@ async def test_default_abort_propagates_error(monkeypatch):
     interp = EnsembleInterpreter(app=_make_app(_FailOnTwoPlugin()))  # pyright: ignore[reportArgumentType]
     with pytest.raises(RuntimeError):
         await interp.evaluate("DATA*(/x($item))")  # default abort → first error propagates
+
+
+class _NoopPlugin:
+    name = "x"
+    backend_call_paths = ["/x"]
+
+    async def handle_backend_call(self, intent, *, sources="", app, env=None):
+        return f"ok-{sources}"
+
+
+@pytest.mark.asyncio
+async def test_empty_collection_raises(monkeypatch):
+    """A collection source that resolves to zero items must fail loudly, not
+    yield an empty (silently "done") run. This is how a missing/unavailable
+    remote dataset (blank body) surfaces as an error in Eval Studio (SF-292)."""
+    monkeypatch.setattr(
+        "screamingface.plugins.url4_executor.url4.resolve_str",
+        _fake_resolve_returning(""),
+    )
+    interp = EnsembleInterpreter(app=_make_app(_NoopPlugin()))  # pyright: ignore[reportArgumentType]
+    with pytest.raises(ValueError, match="zero items|empty"):
+        await interp.evaluate("DATA*(/x($item))")
+
+
+@pytest.mark.asyncio
+async def test_empty_json_array_collection_raises(monkeypatch):
+    """An explicit empty array is still nothing to iterate — same failure."""
+    monkeypatch.setattr(
+        "screamingface.plugins.url4_executor.url4.resolve_str",
+        _fake_resolve_returning("[]"),
+    )
+    interp = EnsembleInterpreter(app=_make_app(_NoopPlugin()))  # pyright: ignore[reportArgumentType]
+    with pytest.raises(ValueError, match="zero items|empty"):
+        await interp.evaluate("DATA*(/x($item))")
+
+
+@pytest.mark.asyncio
+async def test_html_collection_source_aborts_before_any_row_even_with_collect(monkeypatch):
+    """The real ScoredLiveTruth scenario: a reducer-shaped collection with
+    ``;foreach.on_error=collect`` whose dataset URL returns an HTML page
+    (the screamingface.ai soft-404) must FAIL FAST — the collection-source
+    failure is raised before per-row fan-out, so ``on_error=collect`` does NOT
+    swallow it and no model/python backend is ever invoked (SF-292)."""
+    html = '<!DOCTYPE html>\n<html lang="en" data-theme="light">\n<body>x</body>\n</html>'
+    calls = {"n": 0}
+
+    class _NeverCalled:
+        name = "m"
+        backend_call_paths = ["/x", "/python"]
+
+        async def handle_backend_call(self, intent, *, sources="", app, env=None):
+            calls["n"] += 1
+            return "should-not-run"
+
+    monkeypatch.setattr(
+        "screamingface.plugins.url4_executor.url4.resolve_str",
+        _fake_resolve_returning(html, collection_source="DATA"),
+    )
+    interp = EnsembleInterpreter(app=_make_app(_NeverCalled()))  # pyright: ignore[reportArgumentType]
+    with pytest.raises(ValueError, match="HTML"):
+        await interp.evaluate(
+            "(DATA*(/x($item.q)) ;foreach.on_error=collect)!/python(/data/code/reduce.py)"
+        )
+    assert calls["n"] == 0  # aborted before any per-row backend work
