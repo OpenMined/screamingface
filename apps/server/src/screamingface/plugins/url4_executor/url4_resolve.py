@@ -185,8 +185,15 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
             paths = getattr(plugin, "backend_call_paths", [])
             known_paths.extend(paths)
             if node.path in paths:
+                # SF-290: for backends that pack context into a prompt (LLM
+                # backends), fetch any ``/...`` or ``http(s)://`` ref in the
+                # context first. ``/python`` opts out — it receives the raw
+                # locator and fetches the script itself.
+                call_sources = sources_text
+                if getattr(plugin, "resolves_context_sources", False):
+                    call_sources = await _resolve_context_sources(sources_text, app, env)
                 result = await plugin.handle_backend_call(
-                    intent_text, sources=sources_text, app=app, env=env
+                    intent_text, sources=call_sources, app=app, env=env
                 )
                 set_span_attrs(
                     {"sf.backend_plugin": plugin.name, "url4.result_length": len(result)}
@@ -200,6 +207,35 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
             "Activate a plugin that declares this path in its "
             "backend_call_paths attribute."
         )
+
+
+async def _resolve_context_sources(sources: str | None, app: Any, env: Env | None) -> str:
+    """Fetch fetchable refs inside a backend call's packed context (SF-290).
+
+    Splits the raw context on top-level commas; a segment whose *stripped* form
+    is a relative path (``/...``) or an ``http(s)://`` URL is fetched and
+    replaced with its content. Plain-text segments — and JSON/bracketed blobs,
+    whose comma pieces never start with ``/`` — pass through unchanged, so a
+    comma-containing question is preserved verbatim. Mid-token slashes
+    (``a/b/c``) are untouched (a segment must *start* with ``/``).
+
+    Only LLM backends that pack context into a prompt opt into this (via
+    ``resolves_context_sources``); ``/python`` fetches its own locator and must
+    keep receiving the raw path. ``env`` is unused today (context carries no
+    ``$name`` refs) but kept for signature parity with the resolver.
+    """
+    if not sources or "/" not in sources:
+        return sources or ""
+    resolved: list[str] = []
+    for segment in sources.split(","):
+        ref = segment.strip()
+        if ref.startswith(("http://", "https://")):
+            resolved.append(await _fetch_url(ref))
+        elif ref.startswith("/"):
+            resolved.append(await _fetch_relative(app, ref))
+        else:
+            resolved.append(segment)
+    return ",".join(resolved)
 
 
 async def _dispatch_backend_call_with_intent(
