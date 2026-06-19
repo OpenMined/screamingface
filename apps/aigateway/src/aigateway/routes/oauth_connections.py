@@ -203,7 +203,7 @@ async def create_api_key_connection(
     # never leaves an active connection with no credential (SF-291 review F4).
     # The blob slot is keyed by the already-generated connection_id — exactly
     # the slot the chat path reads.
-    await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
+    await _persist_api_key_credentials(strategy, api_key)
     try:
         connection = await store.create_api_key(
             account_id=account_id,
@@ -247,7 +247,13 @@ async def set_connection_api_key(
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
     if connection.auth_type != "api_key" or connection.status not in ("active", "error"):
-        raise HTTPException(status_code=409, detail={"code": "connection_not_api_key"})
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "connection_not_api_key",
+                "message": "Connection does not use API-key authentication",
+            },
+        )
     api_key = body.api_key.strip()
     if len(api_key) < 8:
         raise HTTPException(
@@ -256,7 +262,10 @@ async def set_connection_api_key(
         )
     plugin = request.app.state.providers.get(connection.provider)
     if plugin is None:
-        raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "unknown_provider", "provider": connection.provider},
+        )
     strategy = credential_strategy_from(
         plugin,
         credential_key_for(account_id, connection.id),
@@ -268,7 +277,7 @@ async def set_connection_api_key(
             status_code=400,
             detail={"code": "api_key_not_supported", "provider": connection.provider},
         )
-    await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
+    await _persist_api_key_credentials(strategy, api_key)
     credential_strategy_cache(request.app).evict(credential_key_for(account_id, connection.id))
     # Replacing the key clears any prior error and returns the connection to
     # active (recovery path).
@@ -431,6 +440,19 @@ async def _delete_credentials(request: Request, locator: dict) -> None:
     account = locator.get("account")
     if isinstance(service, str) and isinstance(account, str):
         await request.app.state.credential_store.delete(service, account)
+
+
+async def _persist_api_key_credentials(strategy, api_key: str) -> None:
+    try:
+        await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "credential_store_unavailable",
+                "message": "Could not store API-key credentials. Try again.",
+            },
+        ) from exc
 
 
 def _duplicate_id(message: str | None) -> UUID | None:

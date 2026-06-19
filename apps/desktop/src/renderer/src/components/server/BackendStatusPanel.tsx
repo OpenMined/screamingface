@@ -656,6 +656,7 @@ function ConnectionRow({
 
   const onReplaceKey = async (e?: React.FormEvent): Promise<void> => {
     e?.preventDefault();
+    if (busy) return;
     const key = keyInput.trim();
     if (key.length < 8) {
       setError('Paste a valid API key');

@@ -11,6 +11,8 @@ and never echoed back.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from aigateway.core.oauth.store import credential_key_for
 from aigateway.plugins.anthropic_provider.auth import (
@@ -18,6 +20,17 @@ from aigateway.plugins.anthropic_provider.auth import (
 )
 
 _KEY = "sk-ant-api03-test-connection-key"
+
+
+@contextmanager
+def _server_errors_as_responses(client) -> Iterator[None]:
+    transport = getattr(client, "_transport")
+    previous = transport.raise_server_exceptions
+    transport.raise_server_exceptions = False
+    try:
+        yield
+    finally:
+        transport.raise_server_exceptions = previous
 
 
 def _create(client, *, provider="anthropic", label: str | None = "work", api_key=_KEY):
@@ -103,12 +116,96 @@ def test_replace_key_updates_blob(authenticated_client, credential_blobs) -> Non
     assert json.loads(credential_blobs.read(service, "default"))["api_key"] == new_key
 
 
+def test_replace_key_persist_failure_is_sanitized_and_keeps_old_blob(
+    authenticated_client, credential_blobs, monkeypatch
+) -> None:
+    created = _create(authenticated_client, label="rotate-fail").json()
+    service = anthropic_service_for(credential_key_for(created["account_id"], created["id"]))
+    before = credential_blobs.read(service, "default")
+    assert before is not None
+    new_key = "sk-ant-api03-new-key-that-must-not-leak"
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError(f"credential store failed for {new_key}")
+
+    monkeypatch.setattr(authenticated_client.app.state.credential_store, "write", _boom)
+
+    with _server_errors_as_responses(authenticated_client):
+        resp = authenticated_client.put(
+            f"/v1/oauth/connections/{created['id']}/api-key",
+            json={"api_key": new_key},
+        )
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "credential_store_unavailable"
+    assert new_key not in resp.text
+    assert credential_blobs.read(service, "default") == before
+
+
+def test_delete_api_key_connection_removes_blob(authenticated_client, credential_blobs) -> None:
+    """API-key connections use the shared connection delete path; deleting the
+    connection must remove the same credential blob the chat path reads."""
+    created = _create(authenticated_client, label="delete-key").json()
+    service = anthropic_service_for(credential_key_for(created["account_id"], created["id"]))
+    assert credential_blobs.read(service, "default") is not None
+
+    resp = authenticated_client.delete(f"/v1/oauth/connections/{created['id']}")
+
+    assert resp.status_code == 204
+    assert credential_blobs.read(service, "default") is None
+
+
 def test_replace_key_on_missing_connection_404(authenticated_client) -> None:
     resp = authenticated_client.put(
         "/v1/oauth/connections/00000000-0000-0000-0000-000000000000/api-key",
         json={"api_key": _KEY},
     )
     assert resp.status_code == 404
+
+
+def test_replace_key_on_oauth_connection_has_actionable_message(authenticated_client) -> None:
+    from uuid import uuid4
+
+    from aigateway.core.oauth.store import OAuthConnectionStore
+
+    seed = _create(authenticated_client, label="seed-for-oauth-replace-test").json()
+
+    async def _create_oauth_connection() -> str:
+        store = OAuthConnectionStore()
+        conn = await store.create_pending(
+            account_id=seed["account_id"],
+            provider="anthropic",
+            label="oauth-only",
+            connection_id=uuid4(),
+        )
+        return str(conn.id)
+
+    connection_id = authenticated_client.portal.call(_create_oauth_connection)
+    resp = authenticated_client.put(
+        f"/v1/oauth/connections/{connection_id}/api-key",
+        json={"api_key": _KEY},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == {
+        "code": "connection_not_api_key",
+        "message": "Connection does not use API-key authentication",
+    }
+
+
+def test_replace_key_unknown_provider_error_includes_provider(
+    authenticated_client, monkeypatch
+) -> None:
+    created = _create(authenticated_client, label="missing-provider").json()
+    monkeypatch.setattr(authenticated_client.app.state.providers, "get", lambda _provider: None)
+
+    resp = authenticated_client.put(
+        f"/v1/oauth/connections/{created['id']}/api-key",
+        json={"api_key": _KEY},
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == {"code": "unknown_provider", "provider": "anthropic"}
 
 
 def test_api_key_connection_token_endpoint_rejected(authenticated_client) -> None:
@@ -192,6 +289,27 @@ def test_create_api_key_atomic_on_persist_failure(authenticated_client, monkeypa
         pass  # TestClient re-raises server exceptions; the invariant is what matters
     listing = authenticated_client.get("/v1/oauth/connections").json()["connections"]
     assert all(c["label"] != "atomic" for c in listing)
+
+
+def test_create_api_key_persist_failure_returns_sanitized_5xx(
+    authenticated_client, monkeypatch
+) -> None:
+    """Credential-store failures should be structured and must not echo the key."""
+    leak_marker = "sk-ant-api03-create-key-that-must-not-leak"
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError(f"credential store failed for {leak_marker}")
+
+    monkeypatch.setattr(authenticated_client.app.state.credential_store, "write", _boom)
+
+    with _server_errors_as_responses(authenticated_client):
+        resp = _create(authenticated_client, label="atomic-http", api_key=leak_marker)
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "credential_store_unavailable"
+    assert leak_marker not in resp.text
+    listing = authenticated_client.get("/v1/oauth/connections").json()["connections"]
+    assert all(c["label"] != "atomic-http" for c in listing)
 
 
 def test_create_api_key_deletes_blob_when_row_create_fails(

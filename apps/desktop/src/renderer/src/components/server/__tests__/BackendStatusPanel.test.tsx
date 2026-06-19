@@ -512,6 +512,34 @@ describe('BackendStatusPanel v2 gateway status', () => {
     expect(await screen.findByText('Connected')).toBeTruthy();
   });
 
+  it('counts active OAuth and API-key connections together as ambiguous', async () => {
+    getStatus.mockResolvedValue(v2WithApiKey(true));
+    listConnections.mockResolvedValue({
+      connections: [
+        {
+          id: '00000000-0000-0000-0000-000000000012',
+          provider: 'anthropic',
+          label: 'work-oauth',
+          status: 'active',
+        },
+        {
+          id: '00000000-0000-0000-0000-000000000013',
+          provider: 'anthropic',
+          label: 'work-key',
+          status: 'active',
+          auth_type: 'api_key',
+        },
+      ],
+    });
+
+    render(<BackendStatusPanel />);
+
+    expect(await screen.findByText('work-oauth')).toBeTruthy();
+    expect(await screen.findByText('work-key')).toBeTruthy();
+    expect(await screen.findByText('Needs Auth')).toBeTruthy();
+    expect(screen.queryByText('Connected')).toBeNull();
+  });
+
   it('does not show the OAuth browser-sign-in UI during an api-key save', async () => {
     getStatus.mockResolvedValue(v2WithApiKey(true));
     let resolveSave: (v: { ok: boolean }) => void = () => {};
@@ -584,6 +612,44 @@ describe('BackendStatusPanel v2 gateway status', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText(/Replace failed/i)).toBeTruthy();
+  });
+
+  it('ignores duplicate Replace-key submits while a save is busy', async () => {
+    getStatus.mockResolvedValue(v2WithApiKey(true));
+    listConnections.mockResolvedValue({
+      connections: [
+        {
+          id: '00000000-0000-0000-0000-000000000014',
+          provider: 'anthropic',
+          label: 'work-key',
+          status: 'active',
+          auth_type: 'api_key',
+        },
+      ],
+    });
+    let resolveSave: (v: { ok: boolean }) => void = () => {};
+    setConnectionApiKey.mockImplementation(
+      () =>
+        new Promise<{ ok: boolean }>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+
+    render(<BackendStatusPanel />);
+    await screen.findByText('work-key');
+    fireEvent.click(screen.getByRole('button', { name: 'Replace key' }));
+    fireEvent.change(screen.getByLabelText('New API key'), {
+      target: { value: 'sk-ant-api03-new-key-value' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('button', { name: 'Saving…' })).toBeTruthy();
+
+    fireEvent.submit(screen.getByRole('form', { name: /Replace API key/i }));
+
+    expect(setConnectionApiKey).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveSave({ ok: true });
+    });
   });
 
   it('keeps v2 provider rows needing auth when connections are not active', async () => {
