@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, cleanup, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const authenticate = vi.fn();
@@ -534,7 +534,32 @@ describe('BackendStatusPanel v2 gateway status', () => {
     // OAuth "Waiting for browser sign-in" message must NOT appear (F5).
     expect(await screen.findByRole('button', { name: 'Saving…' })).toBeTruthy();
     expect(screen.queryByText(/Waiting for browser sign-in/i)).toBeNull();
-    resolveSave({ ok: true });
+    // Resolve inside act and wait for the post-save state to flush so the test
+    // leaves no un-acted update behind (RF2-2).
+    await act(async () => {
+      resolveSave({ ok: true });
+    });
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Saving…' })).toBeNull());
+  });
+
+  it('shows Replace key for an errored api-key connection (recovery)', async () => {
+    getStatus.mockResolvedValue(v2WithApiKey(true));
+    listConnections.mockResolvedValue({
+      connections: [
+        {
+          id: '00000000-0000-0000-0000-000000000010',
+          provider: 'anthropic',
+          label: 'work-key',
+          status: 'error',
+          auth_type: 'api_key',
+          error_message: 'bad key',
+        },
+      ],
+    });
+    render(<BackendStatusPanel />);
+    expect(await screen.findByText('work-key')).toBeTruthy();
+    // Even errored, an api-key connection can be re-keyed in place (RF2-1).
+    expect(screen.getByRole('button', { name: 'Replace key' })).toBeTruthy();
   });
 
   it('keeps v2 provider rows needing auth when connections are not active', async () => {

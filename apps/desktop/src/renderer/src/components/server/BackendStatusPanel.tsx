@@ -724,28 +724,31 @@ function ConnectionRow({
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {connection.status === 'active' &&
-            (isApiKey ? (
-              <button
-                disabled={busy}
-                onClick={() => {
-                  setReplacingKey((v) => !v);
-                  setKeyInput('');
-                  setError(null);
-                }}
-                className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
-              >
-                {busy ? 'Working…' : replacingKey ? 'Cancel' : 'Replace key'}
-              </button>
-            ) : (
-              <button
-                disabled={busy}
-                onClick={onRefreshConnection}
-                className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
-              >
-                {busy ? 'Working…' : 'Refresh'}
-              </button>
-            ))}
+          {isApiKey
+            ? // An api-key connection is re-keyed in place, so Replace key is
+              // available while active AND after it errored (recovery, RF2-1).
+              (connection.status === 'active' || connection.status === 'error') && (
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setReplacingKey((v) => !v);
+                    setKeyInput('');
+                    setError(null);
+                  }}
+                  className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+                >
+                  {busy ? 'Working…' : replacingKey ? 'Cancel' : 'Replace key'}
+                </button>
+              )
+            : connection.status === 'active' && (
+                <button
+                  disabled={busy}
+                  onClick={onRefreshConnection}
+                  className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+                >
+                  {busy ? 'Working…' : 'Refresh'}
+                </button>
+              )}
           <button
             disabled={busy}
             onClick={onDelete}
