@@ -985,3 +985,40 @@ def test_set_connection_api_key_wrong_provider_is_404() -> None:
         json={"api_key": "sk-ant-rotated-key"},
     )
     assert resp.status_code == 404
+
+
+def test_create_connection_api_key_strips_input_from_external_gateway_422() -> None:
+    """An EXTERNAL/older gateway may return a 422 whose validation errors still
+    carry the raw request body in `input` (incl. the api_key). The SF proxy must
+    not echo that key — _safe_json strips `input` from array-shaped detail
+    (SF-291 review R3-1)."""
+
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={
+                "detail": [
+                    {
+                        "type": "missing",
+                        "loc": ["body", "provider"],
+                        "msg": "Field required",
+                        "input": {"api_key": "sk-ant-leak-12345678", "label": "x"},
+                    }
+                ]
+            },
+        )
+
+    client = _make_client(handler)
+    resp = client.post(
+        "/claude/auth/connections/api-key",
+        json={"label": "x", "api_key": "sk-ant-leak-12345678"},
+    )
+    assert resp.status_code == 422
+    # The raw key must NOT appear anywhere in the proxied error body.
+    assert "sk-ant-leak-12345678" not in resp.text
+    detail = resp.json()["detail"]
+    assert isinstance(detail, list)
+    for err in detail:
+        assert "input" not in err
+    # The actionable bits survive.
+    assert detail[0]["msg"] == "Field required"

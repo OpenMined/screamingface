@@ -390,6 +390,18 @@ def build_aigw_auth_proxy_router(
     return router
 
 
+def _strip_validation_input(detail: Any) -> Any:
+    """Drop the echoed request body (`input`) from FastAPI validation errors so
+    a raw API key in a malformed request never transits the proxy (SF-291 R3-1).
+    Non-validation detail (dict/str) passes through unchanged."""
+    if isinstance(detail, list):
+        return [
+            {k: v for k, v in err.items() if k != "input"} if isinstance(err, dict) else err
+            for err in detail
+        ]
+    return detail
+
+
 def _safe_json(resp: httpx.Response) -> Any:
     try:
         body = resp.json()
@@ -400,7 +412,13 @@ def _safe_json(resp: httpx.Response) -> Any:
         # {"detail": {...}}. Re-raising that verbatim would double-wrap
         # ({"detail": {"detail": ...}}) and hide the code/message from the
         # desktop's body.detail parsing (SF-244 audit F05).
-        return body["detail"]
+        #
+        # A FastAPI validation error's detail is a LIST of error dicts, each
+        # carrying the raw submitted body in `input`. The bundled gateway
+        # redacts that, but an EXTERNAL/older gateway may not — so strip `input`
+        # here too, or a malformed api-key request leaks the raw key through the
+        # proxy (SF-291 review R3-1).
+        return _strip_validation_input(body["detail"])
     return body
 
 
