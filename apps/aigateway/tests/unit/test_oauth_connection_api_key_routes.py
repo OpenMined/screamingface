@@ -165,6 +165,7 @@ def test_errored_api_key_connection_recovers_via_replace_key(authenticated_clien
     errored = authenticated_client.get(f"/v1/oauth/connections/{cid}").json()
     assert errored["status"] == "error"
     assert errored["label"] == "recover"  # label preserved, NOT "error:<id>"
+    assert errored["error_message"] == "bad key"
 
     resp = authenticated_client.put(
         f"/v1/oauth/connections/{cid}/api-key",
@@ -173,6 +174,7 @@ def test_errored_api_key_connection_recovers_via_replace_key(authenticated_clien
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "active"
     assert resp.json()["label"] == "recover"
+    assert resp.json()["error_message"] is None  # reactivate clears the error
 
 
 def test_create_api_key_atomic_on_persist_failure(authenticated_client, monkeypatch) -> None:
@@ -190,3 +192,31 @@ def test_create_api_key_atomic_on_persist_failure(authenticated_client, monkeypa
         pass  # TestClient re-raises server exceptions; the invariant is what matters
     listing = authenticated_client.get("/v1/oauth/connections").json()["connections"]
     assert all(c["label"] != "atomic" for c in listing)
+
+
+def test_create_api_key_deletes_blob_when_row_create_fails(
+    authenticated_client, credential_blobs, monkeypatch
+) -> None:
+    """If the key persists but the row create fails (e.g. label race -> Integrity
+    Error), the compensating cleanup deletes the orphan blob so no credential is
+    left without a connection (review F4 cleanup path)."""
+    from tortoise.exceptions import IntegrityError
+
+    from aigateway.core.oauth.store import OAuthConnectionStore
+
+    captured: dict = {}
+
+    async def _boom(self, **kwargs):  # noqa: ANN001
+        captured["account_id"] = kwargs["account_id"]
+        captured["connection_id"] = kwargs["connection_id"]
+        raise IntegrityError("label race")
+
+    monkeypatch.setattr(OAuthConnectionStore, "create_api_key", _boom)
+    resp = _create(authenticated_client, label="cleanup")
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "label_conflict"
+    # The key was persisted before create; the except-branch must have removed it.
+    service = anthropic_service_for(
+        credential_key_for(captured["account_id"], captured["connection_id"])
+    )
+    assert credential_blobs.read(service, "default") is None
