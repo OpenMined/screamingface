@@ -75,8 +75,8 @@ class ApiKeyStrategy(CredentialStrategy):
         raw = await self._store.read(self._service, self._account)
         if raw is None:
             raise CredentialNotFoundError(
-                f"No API key stored for profile {self.profile_name!r}. "
-                "Set one via the profile api-key endpoint."
+                f"No API key stored for {self.profile_name!r}. "
+                "Set or replace the key for this profile or connection."
             )
         try:
             creds = json.loads(raw)

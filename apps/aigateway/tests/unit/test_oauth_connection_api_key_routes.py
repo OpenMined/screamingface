@@ -143,6 +143,38 @@ def test_create_missing_provider_does_not_echo_key(authenticated_client) -> None
         assert "input" not in err
 
 
+def test_errored_api_key_connection_recovers_via_replace_key(authenticated_client) -> None:
+    """An api-key connection that errored (e.g. a bad key) keeps its label and
+    is recoverable via Replace key, which re-activates it (review RF2-1)."""
+    from uuid import UUID
+
+    from aigateway.core.oauth.store import OAuthConnectionStore
+
+    created = _create(authenticated_client, label="recover").json()
+    cid = created["id"]
+    account_id = created["account_id"]
+
+    async def _force_error() -> None:
+        store = OAuthConnectionStore()
+        conn = await store.get(account_id, UUID(cid))
+        assert conn is not None
+        await store.mark_error(conn, "bad key")
+
+    authenticated_client.portal.call(_force_error)
+
+    errored = authenticated_client.get(f"/v1/oauth/connections/{cid}").json()
+    assert errored["status"] == "error"
+    assert errored["label"] == "recover"  # label preserved, NOT "error:<id>"
+
+    resp = authenticated_client.put(
+        f"/v1/oauth/connections/{cid}/api-key",
+        json={"api_key": "sk-ant-api03-fresh-good-key"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "active"
+    assert resp.json()["label"] == "recover"
+
+
 def test_create_api_key_atomic_on_persist_failure(authenticated_client, monkeypatch) -> None:
     """If the credential write fails, no active orphan connection row is left
     behind (review F4 — persist before activating the row)."""

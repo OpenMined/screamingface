@@ -236,13 +236,17 @@ async def set_connection_api_key(
     request: Request,
     current: CurrentAccount,
 ) -> OAuthConnectionResponse:
-    """Replace the stored API key on an existing active api-key connection."""
+    """Replace the stored API key on an api-key connection.
+
+    Accepts an active OR errored connection: replacing the key is exactly how a
+    user recovers a connection that errored on a bad/missing key, so a
+    successful replace re-activates it (SF-291 review RF2-1)."""
     account_id = str(current.id)
     store = _store(request)
     connection = await store.get(account_id, connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-    if connection.auth_type != "api_key" or connection.status != "active":
+    if connection.auth_type != "api_key" or connection.status not in ("active", "error"):
         raise HTTPException(status_code=409, detail={"code": "connection_not_api_key"})
     api_key = body.api_key.strip()
     if len(api_key) < 8:
@@ -266,7 +270,9 @@ async def set_connection_api_key(
         )
     await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
     credential_strategy_cache(request.app).evict(credential_key_for(account_id, connection.id))
-    connection = await store.touch_last_refreshed(connection)
+    # Replacing the key clears any prior error and returns the connection to
+    # active (recovery path).
+    connection = await store.reactivate(connection)
     return response_from_connection(connection)
 
 

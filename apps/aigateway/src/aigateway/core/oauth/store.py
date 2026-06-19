@@ -158,11 +158,27 @@ class OAuthConnectionStore:
         return connection
 
     async def mark_error(self, connection: OAuthConnection, message: str) -> OAuthConnection:
-        connection.label = f"error:{connection.id}"
-        connection.identity_sub = None
         connection.status = "error"
         connection.error_message = message
-        await connection.save(update_fields=["label", "identity_sub", "status", "error_message"])
+        fields = ["status", "error_message"]
+        # OAuth connections are superseded by a fresh re-auth, so the old row's
+        # label/identity are cleared. An api-key connection is re-keyed IN PLACE
+        # (Replace key), so its label and identity must survive the error state
+        # to stay recoverable (SF-291 review RF2-1).
+        if connection.auth_type != "api_key":
+            connection.label = f"error:{connection.id}"
+            connection.identity_sub = None
+            fields += ["label", "identity_sub"]
+        await connection.save(update_fields=fields)
+        return connection
+
+    async def reactivate(self, connection: OAuthConnection) -> OAuthConnection:
+        """Return an errored connection to active after its credential is
+        replaced (SF-291 review RF2-1)."""
+        connection.status = "active"
+        connection.error_message = None
+        connection.last_refreshed_at = datetime.now(UTC)
+        await connection.save(update_fields=["status", "error_message", "last_refreshed_at"])
         return connection
 
     async def mark_revoked(
