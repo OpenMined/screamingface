@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
@@ -33,6 +34,8 @@ from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import credential_service_provider_for, credential_strategy_from
 
 from .auth import _redirect_uri_for
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -165,12 +168,7 @@ async def create_api_key_connection(
         raise HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": body.provider}
         )
-    api_key = body.api_key.strip()
-    if len(api_key) < 8:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "invalid_api_key", "message": "api_key is missing or too short"},
-        )
+    api_key = _validate_api_key(body.api_key)
     account_id = str(current.id)
     connection_id = uuid4()
     # Build the strategy BEFORE creating any row: a provider that does not
@@ -254,12 +252,7 @@ async def set_connection_api_key(
                 "message": "Connection does not use API-key authentication",
             },
         )
-    api_key = body.api_key.strip()
-    if len(api_key) < 8:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "invalid_api_key", "message": "api_key is missing or too short"},
-        )
+    api_key = _validate_api_key(body.api_key)
     plugin = request.app.state.providers.get(connection.provider)
     if plugin is None:
         raise HTTPException(
@@ -442,10 +435,33 @@ async def _delete_credentials(request: Request, locator: dict) -> None:
         await request.app.state.credential_store.delete(service, account)
 
 
+def _validate_api_key(raw_key: str) -> str:
+    """Normalize and length-check a raw API key (the one rule shared verbatim by
+    the create and replace endpoints). Raises 400 ``invalid_api_key`` if too
+    short. Kept tiny on purpose: each endpoint's provider/strategy resolution
+    stays inline because the two flows order those checks differently."""
+    api_key = raw_key.strip()
+    if len(api_key) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "invalid_api_key", "message": "api_key is missing or too short"},
+        )
+    return api_key
+
+
 async def _persist_api_key_credentials(strategy, api_key: str) -> None:
     try:
         await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
     except Exception as exc:
+        # A caught store failure is otherwise a silent 503 — log which service
+        # failed and the exception TYPE so ops can diagnose. Deliberately NOT
+        # str(exc)/the traceback: a store implementation could echo its write
+        # argument (the key) in the message, and this path must never log a key.
+        logger.error(
+            "Failed to persist API-key credentials for service %s: %s",
+            strategy.credential_service(),
+            type(exc).__name__,
+        )
         raise HTTPException(
             status_code=503,
             detail={

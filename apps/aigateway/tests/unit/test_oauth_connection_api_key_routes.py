@@ -11,6 +11,7 @@ and never echoed back.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -86,6 +87,18 @@ def test_create_codex_is_api_key_not_supported(authenticated_client) -> None:
 
 def test_create_short_key_rejected(authenticated_client) -> None:
     resp = _create(authenticated_client, api_key="short")
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "invalid_api_key"
+
+
+def test_replace_short_key_rejected(authenticated_client) -> None:
+    """The replace (PUT) path enforces the same minimum-length rule as create
+    (pins the shared _validate_api_key contract on both endpoints)."""
+    created = _create(authenticated_client, label="shortput").json()
+    resp = authenticated_client.put(
+        f"/v1/oauth/connections/{created['id']}/api-key",
+        json={"api_key": "short"},
+    )
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "invalid_api_key"
 
@@ -310,6 +323,36 @@ def test_create_api_key_persist_failure_returns_sanitized_5xx(
     assert leak_marker not in resp.text
     listing = authenticated_client.get("/v1/oauth/connections").json()["connections"]
     assert all(c["label"] != "atomic-http" for c in listing)
+
+
+def test_persist_failure_is_logged_for_ops_without_leaking_key(
+    authenticated_client, monkeypatch, caplog
+) -> None:
+    """A credential-store failure must be observable to ops (which service
+    failed + the exception type) so a silent 503 isn't undiagnosable — but the
+    raw key and the underlying exception message (which a store could echo)
+    must NEVER reach the log."""
+    leak_marker = "sk-ant-api03-key-that-must-not-reach-logs"
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError(f"store blew up with {leak_marker}")
+
+    monkeypatch.setattr(authenticated_client.app.state.credential_store, "write", _boom)
+
+    with (
+        caplog.at_level(logging.ERROR),
+        _server_errors_as_responses(authenticated_client),
+    ):
+        resp = _create(authenticated_client, label="logtest", api_key=leak_marker)
+
+    assert resp.status_code == 503
+    # Observable: ops can see a persist failure occurred and its type.
+    assert any(
+        "Failed to persist API-key credentials" in record.message for record in caplog.records
+    )
+    assert "RuntimeError" in caplog.text
+    # Safe: neither the raw key nor the store's exception message is logged.
+    assert leak_marker not in caplog.text
 
 
 def test_create_api_key_deletes_blob_when_row_create_fails(
