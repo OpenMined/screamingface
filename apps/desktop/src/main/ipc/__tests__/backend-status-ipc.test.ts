@@ -312,6 +312,29 @@ describe('backend status IPC', () => {
       expect(result).toEqual({ ok: false, status: 400, message: 'api_key_not_supported' });
     });
 
+    it('surfaces the first error from an array-shaped 422 detail', async () => {
+      // FastAPI validation errors (incl. the redacted ones) return detail as an
+      // array; the message must be actionable, not a bare status (SF-291 R3-4).
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({
+          detail: [
+            {
+              type: 'string_pattern_mismatch',
+              loc: ['body', 'label'],
+              msg: 'String should match pattern',
+            },
+          ],
+        }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', 'bad#label', 'sk-ant-api03-xyz-1234');
+
+      expect(result).toEqual({ ok: false, status: 422, message: 'String should match pattern' });
+    });
+
     it('rejects too-short keys without touching the network', async () => {
       const fetchMock = vi.fn();
       vi.stubGlobal('fetch', fetchMock);

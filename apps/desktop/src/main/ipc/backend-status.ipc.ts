@@ -503,8 +503,19 @@ function currentGatewayRedirectPorts(): string[] {
 
 async function responseMessage(resp: Response): Promise<string | undefined> {
   try {
-    const body = (await resp.json()) as { detail?: { code?: string; message?: string } };
-    return body.detail?.message ?? body.detail?.code;
+    const body = (await resp.json()) as {
+      detail?:
+        | { code?: string; message?: string }
+        | Array<{ msg?: string; code?: string; message?: string }>;
+    };
+    const detail = body.detail;
+    // FastAPI validation errors (incl. the redacted ones) return detail as an
+    // ARRAY of error objects; surface the first error's message so an invalid
+    // label/body shows an actionable reason, not a bare status (SF-291 R3-4).
+    if (Array.isArray(detail)) {
+      return detail[0]?.msg ?? detail[0]?.message ?? detail[0]?.code;
+    }
+    return detail?.message ?? detail?.code;
   } catch {
     return undefined;
   }

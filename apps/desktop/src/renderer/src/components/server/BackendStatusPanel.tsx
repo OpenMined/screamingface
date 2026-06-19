@@ -675,6 +675,10 @@ function ConnectionRow({
       } else {
         setError(result.message ?? `Replace failed${result.status ? ` (${result.status})` : ''}`);
       }
+    } catch (err) {
+      // Defensive: the IPC handler normally returns {ok:false} rather than
+      // rejecting, but never leave a rejection unsurfaced (SF-291 R3-3).
+      setError(`Replace failed — ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
       onChanged();

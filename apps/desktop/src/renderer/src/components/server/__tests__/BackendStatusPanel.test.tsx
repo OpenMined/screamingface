@@ -562,6 +562,30 @@ describe('BackendStatusPanel v2 gateway status', () => {
     expect(screen.getByRole('button', { name: 'Replace key' })).toBeTruthy();
   });
 
+  it('shows an inline error if a Replace-key IPC call rejects (defensive, R3-3)', async () => {
+    getStatus.mockResolvedValue(v2WithApiKey(true));
+    listConnections.mockResolvedValue({
+      connections: [
+        {
+          id: '00000000-0000-0000-0000-000000000011',
+          provider: 'anthropic',
+          label: 'work-key',
+          status: 'active',
+          auth_type: 'api_key',
+        },
+      ],
+    });
+    setConnectionApiKey.mockRejectedValueOnce(new Error('ipc exploded'));
+    render(<BackendStatusPanel />);
+    await screen.findByText('work-key');
+    fireEvent.click(screen.getByRole('button', { name: 'Replace key' }));
+    fireEvent.change(screen.getByLabelText('New API key'), {
+      target: { value: 'sk-ant-api03-new-key-value' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(/Replace failed/i)).toBeTruthy();
+  });
+
   it('keeps v2 provider rows needing auth when connections are not active', async () => {
     getStatus.mockResolvedValue({
       version: 2,
