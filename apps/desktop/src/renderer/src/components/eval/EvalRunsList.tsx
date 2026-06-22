@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useEvalRunsList } from '@/hooks/use-eval-runs';
 import { useEvalRunActions } from '@/hooks/use-eval-run-actions';
 import { EvalStatusBadge } from './EvalStatusBadge';
+import { LeaderboardLink } from './LeaderboardLink';
 import { formatAccuracy, isUngradedDone } from './format';
 import type { EvalRunSummary } from './types';
 import type { RunPayload } from '@/components/run/types';
@@ -52,6 +53,7 @@ function RunsBody({
       <div className="flex flex-col items-center justify-center p-8 text-center text-sm text-muted-foreground">
         <p className="mb-2 font-medium">No evaluation runs yet.</p>
         <p className="text-xs">Use "New run" above, or the play button on a leaderboard entry.</p>
+        <LeaderboardLink className="mt-4" />
       </div>
     );
   }
