@@ -231,6 +231,13 @@ export interface PublishContext {
 export interface PublishScoreRequest {
   benchmarkId: string;
   specId: string;
+  /**
+   * SHA-256 content signature of the eval content the run executed against,
+   * derived client-side alongside benchmarkId (SF-300). Pins the benchmark id
+   * to the exact dataset content so an id can't drift onto different content.
+   * Empty when the run had no graded content to sign.
+   */
+  benchmarkSignature: string;
   /** url4 expression to publish — already sanitized if the user chose to. */
   url4Expression: string;
   providers: string[];

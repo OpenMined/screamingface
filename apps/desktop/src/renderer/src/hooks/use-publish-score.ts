@@ -15,6 +15,8 @@ export type PublishStatus = 'idle' | 'submitting' | 'success' | 'error';
 export interface PublishInputs {
   run: EvalRunDetail;
   benchmarkId: string;
+  /** SHA-256 content signature derived from the run's eval content (SF-300). */
+  benchmarkSignature: string;
   specId: string;
   /** url4 expression to publish — already sanitized if the user chose to. */
   url4Expression: string;
@@ -30,6 +32,7 @@ function toRequest(inputs: PublishInputs): PublishScoreRequest {
   const { run } = inputs;
   return {
     benchmarkId: inputs.benchmarkId,
+    benchmarkSignature: inputs.benchmarkSignature,
     specId: inputs.specId,
     url4Expression: inputs.url4Expression,
     providers: inputs.providers,

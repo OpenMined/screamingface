@@ -23,6 +23,7 @@ const RUN: EvalRunDetail = {
 const INPUTS: PublishInputs = {
   run: RUN,
   benchmarkId: 'hle',
+  benchmarkSignature: 'a'.repeat(64),
   specId: 'hle-ensemble-three',
   url4Expression: RUN.url4_expression,
   providers: ['claude', 'codex', 'gemini'],
@@ -63,6 +64,7 @@ describe('usePublishScore', () => {
     expect(submitScore).toHaveBeenCalledTimes(1);
     expect(submitScore).toHaveBeenCalledWith({
       benchmarkId: 'hle',
+      benchmarkSignature: 'a'.repeat(64),
       specId: 'hle-ensemble-three',
       url4Expression: 'url4://ensemble(claude,codex,gemini)/hle',
       providers: ['claude', 'codex', 'gemini'],

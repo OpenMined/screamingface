@@ -1,5 +1,5 @@
 // apps/desktop/src/renderer/src/components/eval/PublishToLeaderboardDialog.tsx
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Upload, ExternalLink, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Url4Field } from '@/components/Url4Field';
@@ -12,6 +12,11 @@ import {
   sanitizeDataRefs,
 } from '@/lib/url4-redaction';
 import { publishBlockReason } from '@/lib/publish-guard';
+import {
+  deriveBenchmarkIdentity,
+  verifyIdentityConsistency,
+  type BenchmarkIdentity,
+} from '@/lib/benchmark-identity';
 import type { EvalRunDetail } from './types';
 
 interface Props {
@@ -53,7 +58,20 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
   const parsed = useMemo(() => parseSpecName(run.spec_name), [run.spec_name]);
   const hasDataRefs = useMemo(() => hasLocalDataRefs(run.url4_expression), [run.url4_expression]);
 
-  const [benchmarkId, setBenchmarkId] = useState(parsed.benchmark_id ?? '');
+  // SF-300: the benchmark identity (id + label + dataset filename + content
+  // signature) is AUTO-DERIVED from the run — never typed. We derive it async
+  // because the signature is a Web Crypto SHA-256 digest over the run's content.
+  const [identity, setIdentity] = useState<BenchmarkIdentity | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void deriveBenchmarkIdentity(run).then((next) => {
+      if (!cancelled) setIdentity(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [run]);
+
   const [specId, setSpecId] = useState(parsed.spec_id);
   const [providersText, setProvidersText] = useState(
     deriveProviders(run.url4_expression).join(', '),
@@ -79,19 +97,28 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
     () => publishBlockReason({ run, url4Expression: expressionToPublish }),
     [run, expressionToPublish],
   );
-  // Block publish until: run is publishable, benchmark known, and any /data refs
-  // are either sanitized or explicitly acknowledged as exposing local data.
+  // Verify the derived benchmark id <-> content signature are internally
+  // consistent (id derivable + content available to sign) before allowing a
+  // publish. Disagreement (e.g. a run with no graded content) blocks here.
+  const identityCheck = useMemo(
+    () => (identity ? verifyIdentityConsistency(identity) : { ok: false, reason: null }),
+    [identity],
+  );
+  // Block publish until: run is publishable, identity derived + consistent, and
+  // any /data refs are either sanitized or explicitly acknowledged.
   const redactionResolved = !hasDataRefs || sanitize || ackExpose;
   const canPublish =
-    !blockReason && benchmarkId.trim().length > 0 && specId.trim().length > 0 && redactionResolved;
+    !blockReason && !!identity && identityCheck.ok && specId.trim().length > 0 && redactionResolved;
 
   const handlePublish = async (): Promise<void> => {
+    if (!identity) return;
     // Remember the entered name for subsequent publishes this session, whether
     // or not the round-trip ultimately succeeds.
     saveSubmitter(submittedBy.trim());
     const out = await publish({
       run,
-      benchmarkId: benchmarkId.trim(),
+      benchmarkId: identity.id,
+      benchmarkSignature: identity.signature,
       specId: specId.trim(),
       url4Expression: expressionToPublish,
       providers,
@@ -200,19 +227,47 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                 )}
               </div>
 
-              {/* benchmark / spec ids */}
+              {/* benchmark identity (auto-derived, read-only) + spec id */}
               <div className="grid grid-cols-2 gap-3">
-                <label className="block">
+                <div className="block">
                   <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Benchmark ID <span className="text-destructive">*</span>
+                    Benchmark
                   </span>
-                  <input
-                    className="w-full rounded-none border border-border bg-background px-3 py-2 text-sm"
-                    value={benchmarkId}
-                    placeholder="e.g. hle"
-                    onChange={(e) => setBenchmarkId(e.target.value)}
-                  />
-                </label>
+                  {/* Derived from the dataset filename in the URL4 expression and
+                      pinned by a content signature — not editable (SF-300). */}
+                  <div
+                    data-testid="benchmark-identity"
+                    className="w-full rounded-none border border-border bg-muted/30 px-3 py-2 text-sm text-foreground"
+                    title={identity?.datasetFilename ?? undefined}
+                  >
+                    {identity ? (
+                      <>
+                        <span className="font-medium">{identity.label || identity.id || '—'}</span>
+                        {identity.id && (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            ({identity.id})
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Deriving…</span>
+                    )}
+                  </div>
+                  {identity && (
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      {identity.datasetFilename
+                        ? `From ${identity.datasetFilename}`
+                        : 'Derived from the run’s spec (no dataset file in the expression).'}
+                      {identity.signature && (
+                        <>
+                          {' '}
+                          · signature{' '}
+                          <code className="font-mono">{identity.signature.slice(0, 12)}…</code>
+                        </>
+                      )}
+                    </p>
+                  )}
+                </div>
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-muted-foreground">
                     Spec ID <span className="text-destructive">*</span>
@@ -224,6 +279,14 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                   />
                 </label>
               </div>
+
+              {/* Identity consistency: id<->signature must agree before publish. */}
+              {identity && !identityCheck.ok && identityCheck.reason && (
+                <div className="flex items-start gap-1.5 rounded-none border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{identityCheck.reason}</span>
+                </div>
+              )}
 
               {/* providers (editable) */}
               <label className="block">
