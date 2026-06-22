@@ -25,6 +25,27 @@ function formatPercent(accuracy: number | null): string {
   return `${(accuracy * 100).toFixed(1)}%`;
 }
 
+// Submitter name is remembered across publishes within a session so it doesn't
+// have to be re-typed each time. Matches the sessionStorage usage elsewhere in
+// the renderer (see federation/registry.ts for the localStorage analogue).
+const SUBMITTER_KEY = 'sf-leaderboard-submitter';
+
+function loadSubmitter(): string {
+  try {
+    return window.sessionStorage.getItem(SUBMITTER_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function saveSubmitter(name: string): void {
+  try {
+    window.sessionStorage.setItem(SUBMITTER_KEY, name);
+  } catch {
+    // sessionStorage unavailable — non-fatal, just skip persistence.
+  }
+}
+
 export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
   const { toast } = useToast();
   const { publish, status, error, result } = usePublishScore();
@@ -37,7 +58,7 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
   const [providersText, setProvidersText] = useState(
     deriveProviders(run.url4_expression).join(', '),
   );
-  const [submittedBy, setSubmittedBy] = useState('');
+  const [submittedBy, setSubmittedBy] = useState(loadSubmitter);
   // Redaction choices: only relevant when the expression references /data blobs.
   const [sanitize, setSanitize] = useState(hasDataRefs);
   const [ackExpose, setAckExpose] = useState(false);
@@ -65,6 +86,9 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
     !blockReason && benchmarkId.trim().length > 0 && specId.trim().length > 0 && redactionResolved;
 
   const handlePublish = async (): Promise<void> => {
+    // Remember the entered name for subsequent publishes this session, whether
+    // or not the round-trip ultimately succeeds.
+    saveSubmitter(submittedBy.trim());
     const out = await publish({
       run,
       benchmarkId: benchmarkId.trim(),

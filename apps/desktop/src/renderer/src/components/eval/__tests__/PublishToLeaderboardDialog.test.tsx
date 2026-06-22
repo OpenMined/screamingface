@@ -50,6 +50,7 @@ beforeEach(() => {
   hookState.status = 'idle';
   hookState.error = null;
   hookState.result = null;
+  window.sessionStorage.clear();
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     publish: { openExternal: vi.fn(async () => {}), getContext: vi.fn() },
   };
@@ -109,6 +110,21 @@ describe('PublishToLeaderboardDialog', () => {
     render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
     expect(screen.queryByText(/no graded questions/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /publish/i })).toBeEnabled();
+  });
+
+  it('persists the submitter name to sessionStorage on publish', () => {
+    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText('leave blank for anonymous'), {
+      target: { value: 'Ada Lovelace' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /publish/i }));
+    expect(window.sessionStorage.getItem('sf-leaderboard-submitter')).toBe('Ada Lovelace');
+  });
+
+  it('prefills the submitter name from sessionStorage on open', () => {
+    window.sessionStorage.setItem('sf-leaderboard-submitter', 'Grace Hopper');
+    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
+    expect(screen.getByPlaceholderText('leave blank for anonymous')).toHaveValue('Grace Hopper');
   });
 
   it('shows the success state and opens the leaderboard deep link', () => {
