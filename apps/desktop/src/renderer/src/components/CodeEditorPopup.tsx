@@ -15,7 +15,8 @@ interface Props {
   title: string;
   language: string;
   value: string;
-  onSave: (value: string) => void;
+  /** Primary action. Omit to hide the primary button entirely (e.g. a run-only popup). */
+  onSave?: (value: string) => void;
   onClose: () => void;
   /** Inset from every app border (CSS length). Defaults to 5%. */
   inset?: string;
@@ -118,14 +119,16 @@ export default function CodeEditorPopup({
                 {secondaryIcon} {secondaryLabel}
               </Button>
             )}
-            <Button
-              onClick={() => {
-                onSave(draft);
-                onClose();
-              }}
-            >
-              {confirmIcon} {confirmLabel}
-            </Button>
+            {onSave && (
+              <Button
+                onClick={() => {
+                  onSave(draft);
+                  onClose();
+                }}
+              >
+                {confirmIcon} {confirmLabel}
+              </Button>
+            )}
           </div>
         </div>
       </div>
