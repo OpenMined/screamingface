@@ -115,11 +115,17 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
       ),
     [benchmarkId, knownBenchmarks, benchmarksLoading],
   );
-  // Block publish until: run is publishable, identity derived + consistent, and
-  // any /data refs are either sanitized or explicitly acknowledged.
+  // Block publish until: run is publishable, a benchmark is chosen, the content
+  // signature has been computed (so it always ships as metadata — never an empty
+  // hash; also blocks a run with no content to sign), and any /data refs are
+  // either sanitized or explicitly acknowledged.
   const redactionResolved = !hasDataRefs || sanitize || ackExpose;
   const canPublish =
-    !blockReason && benchmarkId.trim().length > 0 && specId.trim().length > 0 && redactionResolved;
+    !blockReason &&
+    benchmarkId.trim().length > 0 &&
+    signature.length > 0 &&
+    specId.trim().length > 0 &&
+    redactionResolved;
 
   const handlePublish = async (): Promise<void> => {
     // Remember the entered name for subsequent publishes this session, whether
