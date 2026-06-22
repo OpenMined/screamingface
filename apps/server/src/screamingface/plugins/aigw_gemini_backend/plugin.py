@@ -42,6 +42,7 @@ class AigwGeminiBackendPlugin(AigwBackendApiPluginBase):
     backend_call_paths: list[str] = ["/gemini"]
     conflicts: list[str] = ["gemini-backend-api"]
     gateway_provider = "gemini-cli"
+    supports_api_key = True
     settings_class = AigwGeminiBackendSettings
     schema_link_base = "/gemini/"
     create_router = staticmethod(create_router)

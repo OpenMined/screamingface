@@ -209,6 +209,17 @@ def _provider_auth_status(app: Any, backends: dict[str, Any]) -> dict[str, Any]:
             "provider": provider,
             "profile": profile,
             "state": _provider_state(backends.get(name, {})),
+            # Capability flag so the desktop only offers API-key auth where the
+            # backend's gateway provider supports it (anthropic/gemini today;
+            # codex is OAuth-only). Declared per backend plugin.
+            #
+            # KNOWN DEBT (SF-291 review R3-2): this is the SF backend's local
+            # declaration, not the gateway provider's actual supports_api_key()
+            # capability. They agree today, but an external/older/custom gateway
+            # could desync and show a dead-end api-key UI. The single-source fix
+            # is to source this from the gateway (e.g. a provider-capabilities
+            # endpoint) — deferred as a separate task; accepted tradeoff for now.
+            "supports_api_key": bool(getattr(plugin, "supports_api_key", False)),
         }
     return providers
 

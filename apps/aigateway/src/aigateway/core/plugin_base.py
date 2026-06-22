@@ -182,6 +182,15 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         """Whether `/v1/chat/completions` may create a streaming response."""
         return True
 
+    def supports_api_key(self) -> bool:
+        """Whether this provider accepts a raw API key (vs OAuth-only).
+
+        Capability flag surfaced to clients so the UI only offers API-key auth
+        where it works. The default is False; providers that implement
+        ``api_key_strategy_for`` override this to True. Codex stays False (its
+        subscription endpoint is OAuth-only and rejects raw keys)."""
+        return False
+
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         """Apply provider-specific request normalization before dispatch."""
         return body

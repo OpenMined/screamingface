@@ -88,6 +88,9 @@ export interface ProviderAuthStatus {
   provider: string;
   profile: string;
   state: 'authenticated' | 'pending' | 'missing_profile' | 'error';
+  // Whether this provider accepts a raw API key (vs OAuth-only). The UI only
+  // offers the API-key option where true. Absent => false (backward compat).
+  supports_api_key?: boolean;
 }
 
 export interface BackendStatusV2 {
@@ -151,6 +154,7 @@ export interface OAuthConnection {
   provider: string;
   label: string;
   status: OAuthConnectionStatus;
+  auth_type?: BackendProfileAuthType;
   account?: OAuthConnectionAccount | null;
   created_at?: string;
   last_used_at?: string | null;
@@ -167,6 +171,12 @@ export interface ListConnectionsResult {
 export interface DeleteConnectionResult {
   ok: boolean;
   status?: number;
+}
+
+export interface SetConnectionApiKeyResult {
+  ok: boolean;
+  status?: number;
+  message?: string;
 }
 
 export interface RefreshConnectionResult {
@@ -316,6 +326,16 @@ export interface ElectronAPI {
       apiKey: string,
     ) => Promise<SetProfileApiKeyResult>;
     listConnections: (backend: string) => Promise<ListConnectionsResult>;
+    createConnectionApiKey: (
+      backend: string,
+      label: string | undefined,
+      apiKey: string,
+    ) => Promise<SetConnectionApiKeyResult>;
+    setConnectionApiKey: (
+      backend: string,
+      connectionId: string,
+      apiKey: string,
+    ) => Promise<SetConnectionApiKeyResult>;
     deleteConnection: (backend: string, connectionId: string) => Promise<DeleteConnectionResult>;
     refreshConnection: (backend: string, connectionId: string) => Promise<RefreshConnectionResult>;
     getPendingAuthState: (backend: string, profileName?: string) => Promise<string | null>;

@@ -252,4 +252,144 @@ describe('backend status IPC', () => {
       expect(result).toEqual({ ok: false, status: 500, message: undefined });
     });
   });
+
+  describe('createConnectionApiKey', () => {
+    const event = { senderFrame: { url: 'file:///Applications/ScreamingFace.app/index.html' } };
+
+    const getHandler = () => {
+      registerBackendStatusHandlers();
+      const handler = mocks.ipcHandlers.get('backends:createConnectionApiKey');
+      if (!handler) throw new Error('createConnectionApiKey handler was not registered');
+      return handler;
+    };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('POSTs label + key to the connections api-key proxy', async () => {
+      const fetchMock = vi.fn(async () => ({ ok: true, status: 201 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', 'work', 'sk-ant-api03-xyz-1234');
+
+      expect(result).toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:8001/claude/auth/connections/api-key',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'X-SF-Desktop-Secret': 'desktop-secret',
+            'Content-Type': 'application/json',
+          }),
+          body: JSON.stringify({ api_key: 'sk-ant-api03-xyz-1234', label: 'work' }),
+        }),
+      );
+    });
+
+    it('omits the label when none is provided', async () => {
+      const fetchMock = vi.fn(async () => ({ ok: true, status: 201 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      await getHandler()(event, 'gemini', undefined, 'sk-gemini-xyz-1234');
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:8001/gemini/auth/connections/api-key',
+        expect.objectContaining({ body: JSON.stringify({ api_key: 'sk-gemini-xyz-1234' }) }),
+      );
+    });
+
+    it('surfaces the gateway error code on failure', async () => {
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({ detail: { code: 'api_key_not_supported' } }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'codex', 'cdx', 'sk-proj-xyz-1234');
+
+      expect(result).toEqual({ ok: false, status: 400, message: 'api_key_not_supported' });
+    });
+
+    it('surfaces the first error from an array-shaped 422 detail', async () => {
+      // FastAPI validation errors (incl. the redacted ones) return detail as an
+      // array; the message must be actionable, not a bare status (SF-291 R3-4).
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({
+          detail: [
+            {
+              type: 'string_pattern_mismatch',
+              loc: ['body', 'label'],
+              msg: 'String should match pattern',
+            },
+          ],
+        }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', 'bad#label', 'sk-ant-api03-xyz-1234');
+
+      expect(result).toEqual({ ok: false, status: 422, message: 'String should match pattern' });
+    });
+
+    it('rejects too-short keys without touching the network', async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', 'work', 'abc');
+
+      expect(result).toEqual({
+        ok: false,
+        status: 400,
+        message: 'API key is missing or too short',
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('setConnectionApiKey', () => {
+    const event = { senderFrame: { url: 'file:///Applications/ScreamingFace.app/index.html' } };
+    const cid = '11111111-1111-1111-1111-111111111111';
+
+    const getHandler = () => {
+      registerBackendStatusHandlers();
+      const handler = mocks.ipcHandlers.get('backends:setConnectionApiKey');
+      if (!handler) throw new Error('setConnectionApiKey handler was not registered');
+      return handler;
+    };
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('PUTs the new key to the connection api-key proxy', async () => {
+      const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', cid, 'sk-ant-api03-rotated-key');
+
+      expect(result).toEqual({ ok: true });
+      expect(fetchMock).toHaveBeenCalledWith(
+        `http://127.0.0.1:8001/claude/auth/connections/${cid}/api-key`,
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({ api_key: 'sk-ant-api03-rotated-key' }),
+        }),
+      );
+    });
+
+    it('rejects an unsafe connection id without touching the network', async () => {
+      mocks.isSafeOAuthConnectionId.mockReturnValue(false);
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await getHandler()(event, 'claude', 'bad id', 'sk-ant-api03-rotated-key');
+
+      expect(result).toEqual({ ok: false, status: 400, message: 'invalid connection id' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
 });

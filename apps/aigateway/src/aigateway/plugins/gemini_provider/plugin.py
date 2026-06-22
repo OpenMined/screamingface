@@ -100,6 +100,9 @@ class GeminiProviderPlugin(ProviderPluginBase):
             http_client_factory=http_client_factory,
         )
 
+    def supports_api_key(self) -> bool:
+        return True
+
     def api_key_strategy_for(
         self,
         profile_name: str,

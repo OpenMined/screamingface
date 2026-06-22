@@ -627,11 +627,14 @@ function ConnectionRow({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replacingKey, setReplacingKey] = useState(false);
+  const [keyInput, setKeyInput] = useState('');
   const cfg = connectionStateConfig[connection.status] ?? {
     dot: 'bg-muted',
     label: connection.status,
   };
   const isPending = connection.status === 'pending';
+  const isApiKey = connection.auth_type === 'api_key';
   const accountLabel = connectionAccountLabel(connection);
 
   const onRefreshConnection = async (): Promise<void> => {
@@ -645,6 +648,38 @@ function ConnectionRow({
       if (!result.ok) {
         setError(result.message ?? `Refresh failed${result.status ? ` (${result.status})` : ''}`);
       }
+    } finally {
+      setBusy(false);
+      onChanged();
+    }
+  };
+
+  const onReplaceKey = async (e?: React.FormEvent): Promise<void> => {
+    e?.preventDefault();
+    if (busy) return;
+    const key = keyInput.trim();
+    if (key.length < 8) {
+      setError('Paste a valid API key');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.electronAPI.backends.setConnectionApiKey(
+        backendName,
+        connection.id,
+        key,
+      );
+      if (result.ok) {
+        setReplacingKey(false);
+        setKeyInput('');
+      } else {
+        setError(result.message ?? `Replace failed${result.status ? ` (${result.status})` : ''}`);
+      }
+    } catch (err) {
+      // Defensive: the IPC handler normally returns {ok:false} rather than
+      // rejecting, but never leave a rejection unsurfaced (SF-291 R3-3).
+      setError(`Replace failed — ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);
       onChanged();
@@ -678,6 +713,11 @@ function ConnectionRow({
             <span className={cn('relative inline-flex h-2 w-2 rounded-none', cfg.dot)} />
           </span>
           <span className="text-xs font-medium text-foreground truncate">{connection.label}</span>
+          {isApiKey && (
+            <span className="shrink-0 rounded bg-chart-1/15 px-1.5 py-0.5 text-[10px] font-medium text-chart-1">
+              API key
+            </span>
+          )}
           {accountLabel && (
             <span className="text-xs text-muted-foreground truncate">{accountLabel}</span>
           )}
@@ -689,15 +729,31 @@ function ConnectionRow({
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {connection.status === 'active' && (
-            <button
-              disabled={busy}
-              onClick={onRefreshConnection}
-              className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
-            >
-              {busy ? 'Working…' : 'Refresh'}
-            </button>
-          )}
+          {isApiKey
+            ? // An api-key connection is re-keyed in place, so Replace key is
+              // available while active AND after it errored (recovery, RF2-1).
+              (connection.status === 'active' || connection.status === 'error') && (
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setReplacingKey((v) => !v);
+                    setKeyInput('');
+                    setError(null);
+                  }}
+                  className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+                >
+                  {busy ? 'Working…' : replacingKey ? 'Cancel' : 'Replace key'}
+                </button>
+              )
+            : connection.status === 'active' && (
+                <button
+                  disabled={busy}
+                  onClick={onRefreshConnection}
+                  className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 transition-colors disabled:opacity-60"
+                >
+                  {busy ? 'Working…' : 'Refresh'}
+                </button>
+              )}
           <button
             disabled={busy}
             onClick={onDelete}
@@ -708,6 +764,43 @@ function ConnectionRow({
           </button>
         </div>
       </div>
+      {replacingKey && (
+        <form
+          onSubmit={onReplaceKey}
+          className="flex items-center gap-2 mt-1 pl-4"
+          aria-label={`Replace API key for ${connection.label}`}
+        >
+          <input
+            autoFocus
+            type="password"
+            value={keyInput}
+            autoComplete="off"
+            disabled={busy}
+            onChange={(e) => {
+              setKeyInput(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setReplacingKey(false);
+                setKeyInput('');
+                setError(null);
+              }
+            }}
+            placeholder="paste new API key"
+            aria-label="New API key"
+            className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono"
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 disabled:opacity-60"
+          >
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </form>
+      )}
       {error && <p className="mt-1 pl-4 text-xs text-destructive">{error}</p>}
     </div>
   );
@@ -716,19 +809,26 @@ function ConnectionRow({
 function ConnectionsSubPanel({
   name,
   requiresLabel,
+  supportsApiKey,
   onSummaryChange,
 }: {
   name: string;
   requiresLabel: boolean;
+  supportsApiKey: boolean;
   onSummaryChange?: (summary: ConnectionAuthSummary) => void;
 }) {
   const [connections, setConnections] = useState<OAuthConnection[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState('');
+  const [authType, setAuthType] = useState<'oauth' | 'api_key'>('oauth');
+  const [apiKey, setApiKey] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // API-key saving is tracked separately from `submitting` (OAuth) so it never
+  // feeds oauthInFlight / the "Waiting for browser sign-in" UI (SF-291 F5).
+  const [savingKey, setSavingKey] = useState(false);
   const [pendingConnectionId, setPendingConnectionId] = useState<string | null>(null);
   const [pasteCode, setPasteCode] = useState('');
   const [pasteBusy, setPasteBusy] = useState(false);
@@ -847,6 +947,45 @@ function ConnectionsSubPanel({
       setAddError('Connection already exists');
       return;
     }
+    if (authType === 'api_key') {
+      // API-key connections need no browser round-trip: store the key and the
+      // gateway marks the connection active immediately. Keep the form open on
+      // failure so the user can correct the key.
+      const key = apiKey.trim();
+      if (key.length < 8) {
+        setAddError('Paste a valid API key');
+        return;
+      }
+      setSavingKey(true);
+      setAddError(null);
+      setNotice(null);
+      void (async () => {
+        try {
+          const result = await window.electronAPI.backends.createConnectionApiKey(
+            name,
+            trimmed || undefined,
+            key,
+          );
+          if (result.ok) {
+            setAdding(false);
+            setLabel('');
+            setApiKey('');
+            setAuthType('oauth');
+            setNotice('API key saved.');
+          } else {
+            setAddError(
+              `Saving key failed — ${result.message ?? result.status ?? 'unknown error'}`,
+            );
+          }
+        } catch (err) {
+          setAddError(`Saving key failed — ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          setSavingKey(false);
+          void refresh();
+        }
+      })();
+      return;
+    }
     setSubmitting(true);
     setAdding(false);
     setLabel('');
@@ -889,13 +1028,15 @@ function ConnectionsSubPanel({
   const onCancel = (): void => {
     setAdding(false);
     setLabel('');
+    setApiKey('');
+    setAuthType('oauth');
     setAddError(null);
   };
 
   return (
     <div className="ml-6 mt-1 mb-2 border-t border-border pt-2">
       {loaded && connections.length === 0 && !oauthInFlight && (
-        <p className="text-xs text-muted-foreground py-1">No OAuth connections yet.</p>
+        <p className="text-xs text-muted-foreground py-1">No connections yet.</p>
       )}
       {connections.map((connection) => (
         <ConnectionRow
@@ -909,12 +1050,28 @@ function ConnectionsSubPanel({
         />
       ))}
       {adding && !oauthInFlight ? (
-        <form onSubmit={onAdd} className="flex items-center gap-2 py-1.5">
-          {requiresLabel ? (
+        <form onSubmit={onAdd} className="flex flex-wrap items-center gap-2 py-1.5">
+          {supportsApiKey && (
+            <select
+              value={authType}
+              disabled={submitting || savingKey}
+              onChange={(e) => {
+                setAuthType(e.target.value as 'oauth' | 'api_key');
+                setAddError(null);
+              }}
+              aria-label="Authentication type"
+              className="rounded border border-border bg-background px-1.5 py-0.5 text-xs disabled:opacity-60"
+            >
+              <option value="oauth">OAuth</option>
+              <option value="api_key">API key</option>
+            </select>
+          )}
+          {requiresLabel || authType === 'api_key' ? (
             <input
               autoFocus
               type="text"
               value={label}
+              disabled={submitting || savingKey}
               onChange={(e) => {
                 setLabel(e.target.value);
                 setAddError(null);
@@ -926,23 +1083,46 @@ function ConnectionsSubPanel({
                 }
               }}
               placeholder="connection label (e.g. work-anthropic)"
-              className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs"
+              className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs disabled:opacity-60"
             />
           ) : (
             <span className="flex-1 text-xs text-muted-foreground">
               The label will be filled from the signed-in account identity.
             </span>
           )}
+          {authType === 'api_key' && (
+            <input
+              type="password"
+              value={apiKey}
+              autoComplete="off"
+              disabled={submitting || savingKey}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                setAddError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  onCancel();
+                }
+              }}
+              placeholder="paste API key"
+              aria-label="API key"
+              className="flex-1 rounded border border-border bg-background px-2 py-0.5 text-xs font-mono disabled:opacity-60"
+            />
+          )}
           <button
             type="submit"
-            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30"
+            disabled={submitting || savingKey}
+            className="rounded bg-chart-1/20 px-2 py-0.5 text-xs font-medium text-chart-1 hover:bg-chart-1/30 disabled:opacity-60"
           >
-            Start
+            {authType === 'api_key' ? (savingKey ? 'Saving…' : 'Confirm') : 'Start'}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="text-xs text-muted-foreground hover:text-foreground"
+            disabled={submitting || savingKey}
+            className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-60"
           >
             Cancel
           </button>
@@ -1074,6 +1254,7 @@ function BackendRow({
           <ConnectionsSubPanel
             name={name}
             requiresLabel={connectionRequiresLabel}
+            supportsApiKey={providerAuth?.supports_api_key ?? false}
             onSummaryChange={setConnectionSummary}
           />
         ) : (

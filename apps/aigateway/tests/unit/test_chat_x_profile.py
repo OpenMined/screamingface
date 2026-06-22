@@ -1211,3 +1211,59 @@ def test_chat_api_key_connection_resolves_api_key_strategy(
 
     assert resp.status_code == 200
     assert captured["api_key"] == "sk-ant-api03-conn-key"
+
+
+def test_chat_api_key_connection_missing_blob_reauth_url_is_connection_native(
+    credential_blobs, authenticated_client
+) -> None:
+    """When an api-key CONNECTION has no/blank credential, the 401 reauth_url
+    must point at the connection's replace-key route, not the legacy profile
+    api-key endpoint (review F3 — avoid reintroducing profile shadowing)."""
+    account_id = _account_id(authenticated_client)
+    connection = authenticated_client.portal.call(_create_active_connection, account_id)
+
+    async def _flag_api_key() -> None:
+        connection.auth_type = "api_key"
+        await connection.save(update_fields=["auth_type"])
+
+    authenticated_client.portal.call(_flag_api_key)
+    # Intentionally write NO credential blob -> CredentialNotFoundError on dispatch.
+    resp = authenticated_client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "anthropic/claude-haiku-4-5",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+    assert resp.status_code == 401
+    detail = resp.json()["detail"]
+    assert detail["code"] == "auth_required"
+    assert detail["reauth_url"] == f"/v1/oauth/connections/{connection.id}/api-key"
+    assert "/profiles/" not in detail["reauth_url"]
+
+
+def test_chat_multiple_active_api_key_connections_is_ambiguous(authenticated_client) -> None:
+    """Two active api-key connections + X-Profile=default -> 409 connection_ambiguous.
+    The ambiguity guard is auth-type-agnostic (mirrors the OAuth case)."""
+    account_id = _account_id(authenticated_client)
+
+    async def _two_api_key_connections() -> None:
+        store = OAuthConnectionStore()
+        await store.create_api_key(
+            account_id=account_id, provider="anthropic", label="work-key", connection_id=uuid4()
+        )
+        await store.create_api_key(
+            account_id=account_id, provider="anthropic", label="home-key", connection_id=uuid4()
+        )
+
+    authenticated_client.portal.call(_two_api_key_connections)
+    resp = authenticated_client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "anthropic/claude-haiku-4-5",
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "connection_ambiguous"

@@ -338,6 +338,75 @@ export function registerBackendStatusHandlers(): void {
   );
 
   ipcMain.handle(
+    'backends:createConnectionApiKey',
+    async (event, backend: string, label: string | undefined, apiKey: string) => {
+      requireTrustedIpcSender(event);
+      if (!isSafeBackendName(backend)) {
+        return { ok: false, status: 400, message: 'invalid backend name' };
+      }
+      if (typeof apiKey !== 'string' || apiKey.trim().length < 8) {
+        return { ok: false, status: 400, message: 'API key is missing or too short' };
+      }
+
+      const sfBaseUrl = backendStatusService.getServerUrl();
+      if (!sfBaseUrl) {
+        return { ok: false, status: 0, message: 'SF server is not running' };
+      }
+      try {
+        // The key transits to the SF server, which proxies it to the gateway's
+        // credential store. Never log it.
+        const body: { label?: string; api_key: string } = { api_key: apiKey.trim() };
+        const trimmedLabel = label?.trim();
+        if (trimmedLabel) body.label = trimmedLabel;
+        const resp = await fetch(`${sfBaseUrl}/${backend}/auth/connections/api-key`, {
+          method: 'POST',
+          headers: { ...desktopSecretHeader(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (resp.ok) return { ok: true };
+        return { ok: false, status: resp.status, message: await responseMessage(resp) };
+      } catch {
+        return { ok: false, status: 0, message: 'gateway unreachable' };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    'backends:setConnectionApiKey',
+    async (event, backend: string, connectionId: string, apiKey: string) => {
+      requireTrustedIpcSender(event);
+      if (!isSafeBackendName(backend)) {
+        return { ok: false, status: 400, message: 'invalid backend name' };
+      }
+      if (!isSafeOAuthConnectionId(connectionId)) {
+        return { ok: false, status: 400, message: 'invalid connection id' };
+      }
+      if (typeof apiKey !== 'string' || apiKey.trim().length < 8) {
+        return { ok: false, status: 400, message: 'API key is missing or too short' };
+      }
+
+      const sfBaseUrl = backendStatusService.getServerUrl();
+      if (!sfBaseUrl) {
+        return { ok: false, status: 0, message: 'SF server is not running' };
+      }
+      try {
+        const resp = await fetch(
+          `${sfBaseUrl}/${backend}/auth/connections/${encodeURIComponent(connectionId)}/api-key`,
+          {
+            method: 'PUT',
+            headers: { ...desktopSecretHeader(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: apiKey.trim() }),
+          },
+        );
+        if (resp.ok) return { ok: true };
+        return { ok: false, status: resp.status, message: await responseMessage(resp) };
+      } catch {
+        return { ok: false, status: 0, message: 'gateway unreachable' };
+      }
+    },
+  );
+
+  ipcMain.handle(
     'backends:deleteConnection',
     async (event, backend: string, connectionId: string) => {
       requireTrustedIpcSender(event);
@@ -434,8 +503,19 @@ function currentGatewayRedirectPorts(): string[] {
 
 async function responseMessage(resp: Response): Promise<string | undefined> {
   try {
-    const body = (await resp.json()) as { detail?: { code?: string; message?: string } };
-    return body.detail?.message ?? body.detail?.code;
+    const body = (await resp.json()) as {
+      detail?:
+        | { code?: string; message?: string }
+        | Array<{ msg?: string; code?: string; message?: string }>;
+    };
+    const detail = body.detail;
+    // FastAPI validation errors (incl. the redacted ones) return detail as an
+    // ARRAY of error objects; surface the first error's message so an invalid
+    // label/body shows an actionable reason, not a bare status (SF-291 R3-4).
+    if (Array.isArray(detail)) {
+      return detail[0]?.msg ?? detail[0]?.message ?? detail[0]?.code;
+    }
+    return detail?.message ?? detail?.code;
   } catch {
     return undefined;
   }

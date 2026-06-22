@@ -10,6 +10,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from screamingface.core.admin_router import register_admin_routes
 from screamingface.core.classes import ClassRegistry
@@ -100,6 +103,18 @@ def _activate_plugins(
             logger.debug("cleanup_stale for %s failed (non-fatal)", name, exc_info=True)
 
 
+async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONResponse:
+    """Strip the echoed request body (``input``) from 422 errors.
+
+    FastAPI's default validation handler returns the raw submitted body in each
+    error; for the api-key proxy routes that body carries the raw key, so
+    echoing it leaks the secret into error responses and logs (SF-291 review
+    F1). Preserve type/loc/msg, drop ``input``."""
+    errors = exc.errors() if isinstance(exc, RequestValidationError) else []
+    cleaned = [{k: v for k, v in err.items() if k != "input"} for err in errors]
+    return JSONResponse(status_code=422, content=jsonable_encoder({"detail": cleaned}))
+
+
 def create_app(config: AppConfig | None = None) -> FastAPI:
     """Create and configure the FastAPI application with all registries."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(name)s - %(message)s")
@@ -117,6 +132,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         version=config.version,
         lifespan=_build_lifespan(hooks, config),
     )
+    app.add_exception_handler(RequestValidationError, _redact_validation_errors)
 
     routes = RouteRegistry(app)
     frontends = FrontendRegistry()
