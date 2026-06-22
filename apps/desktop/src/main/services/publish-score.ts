@@ -103,7 +103,16 @@ function buildBody(
     ran_with_providers: request.providers,
     ran_at_local: request.ranAtLocal,
     client: { name: client.name, version: client.version, platform: client.platform },
-    metadata: null,
+    // Carry the client-derived benchmark content signature (SF-300) so the
+    // scoreboard can pin benchmark_id to the exact eval content this run used.
+    // SERVER FOLLOW-UP: verify this signature against the source dataset bytes
+    // server-side (the client cannot — it holds only reconstructed rows, not the
+    // original jsonl). Until then it is recorded as metadata for auditing.
+    // `metadata` is a free-form object in the scoreboard contract; null when no
+    // signature is available so we never send an empty-string hash.
+    metadata: request.benchmarkSignature
+      ? { benchmark_signature: request.benchmarkSignature, signature_alg: 'sha256' }
+      : null,
   };
 }
 
