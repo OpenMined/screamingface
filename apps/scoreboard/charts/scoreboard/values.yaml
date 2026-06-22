@@ -33,13 +33,7 @@ config:
   logLevel: info
   portalDir: /app/web/portal
   portalArtifactsDir: /app/web/artifacts
-  portalAuthEnabled: true
-  portalAuthUsername: demo
   forwardedAllowIps: "*"
-
-portalAuth:
-  existingSecret: scoreboard-portal-auth
-  passwordKey: password
 
 cors:
   origins:
@@ -102,6 +96,10 @@ seedBenchmarks:
   ttlSecondsAfterFinished: 600
   annotations: {}
   benchmarks:
+    - id: livetruth-latest
+      display_name: News Livetruth Latest
+      description: OpenMined Livetruth latest demo dataset
+      dataset_url: https://scoreboard.screamingface.ai/livetruth-latest.jsonl
     - id: hle
       display_name: News Hallucinations
       description: OpenMined HLE benchmark

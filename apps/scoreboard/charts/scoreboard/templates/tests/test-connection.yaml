@@ -11,23 +11,12 @@ spec:
   containers:
     - name: curl
       image: curlimages/curl:8.11.1
-      env:
-        - name: SCOREBOARD_PORTAL_AUTH_USERNAME
-          valueFrom:
-            configMapKeyRef:
-              name: {{ include "scoreboard.fullname" . }}
-              key: SCOREBOARD_PORTAL_AUTH_USERNAME
-        - name: SCOREBOARD_PORTAL_AUTH_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: {{ required "portalAuth.existingSecret is required" .Values.portalAuth.existingSecret }}
-              key: {{ .Values.portalAuth.passwordKey }}
       command:
         - sh
         - -c
         - |
           curl -fsS "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/healthz"
           curl -fsS "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/v1/benchmarks"
-          curl -fsS -u "$SCOREBOARD_PORTAL_AUTH_USERNAME:$SCOREBOARD_PORTAL_AUTH_PASSWORD" "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/"
+          curl -fsS "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/"
           curl -fsS "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/livetruth-latest.jsonl"
           curl -fsS "http://{{ include "scoreboard.fullname" . }}:{{ .Values.service.port }}/livetruth-masking.dataset.jsonl"

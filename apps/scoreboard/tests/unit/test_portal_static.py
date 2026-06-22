@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 from pathlib import Path
 from typing import Any
 
@@ -11,50 +10,35 @@ from scoreboard.config import Settings
 from scoreboard.main import create_app
 
 
-def _auth(username: str = "demo", password: str = "demo") -> dict[str, str]:
-    token = base64.b64encode(f"{username}:{password}".encode()).decode()
-    return {"Authorization": f"Basic {token}"}
-
-
 def _settings(tmp_path: Path, **overrides: object) -> Settings:
     values: dict[str, Any] = {
         "database_url": f"sqlite://{tmp_path / 'scoreboard.sqlite3'}",
         "cors_origins": [],
-        "portal_auth_enabled": True,
-        "portal_auth_username": "demo",
-        "portal_auth_password": "demo",
     }
     values.update(overrides)
     return Settings(**values)
 
 
-def test_portal_auth_is_enabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("SCOREBOARD_PORTAL_AUTH_ENABLED", raising=False)
-
+def test_portal_has_no_auth_settings() -> None:
     settings = Settings()
 
-    assert settings.portal_auth_enabled is True
+    assert not hasattr(settings, "portal_auth_enabled")
+    assert not hasattr(settings, "portal_auth_username")
+    assert not hasattr(settings, "portal_auth_password")
 
 
-def test_root_portal_requires_basic_auth(tmp_path: Path) -> None:
+def test_root_portal_is_public(tmp_path: Path) -> None:
     with TestClient(create_app(_settings(tmp_path))) as client:
-        unauthenticated = client.get("/")
-        assert unauthenticated.status_code == 401
-        assert unauthenticated.headers["www-authenticate"] == 'Basic realm="scoreboard portal"'
+        response = client.get("/")
 
-        wrong_password = client.get("/", headers=_auth(password="wrong"))
-        assert wrong_password.status_code == 401
-
-        authenticated = client.get("/", headers=_auth())
-        assert authenticated.status_code == 200
-        assert "Results you can rerun" in authenticated.text
+        assert response.status_code == 200
+        assert "Results you can rerun" in response.text
 
 
-def test_portal_assets_and_pages_require_basic_auth(tmp_path: Path) -> None:
+def test_portal_assets_and_pages_are_public(tmp_path: Path) -> None:
     with TestClient(create_app(_settings(tmp_path))) as client:
         for path in ("/index.html", "/benchmark.html", "/spec.html", "/data.html", "/main.js"):
-            assert client.get(path).status_code == 401
-            response = client.get(path, headers=_auth())
+            response = client.get(path)
             assert response.status_code == 200, path
 
 
@@ -97,11 +81,4 @@ def test_missing_artifact_fails_app_creation(tmp_path: Path) -> None:
     settings = _settings(tmp_path, portal_artifacts_dir=artifacts)
 
     with pytest.raises(RuntimeError, match="livetruth-masking.dataset.jsonl"):
-        create_app(settings)
-
-
-def test_missing_basic_auth_password_fails_when_auth_enabled(tmp_path: Path) -> None:
-    settings = _settings(tmp_path, portal_auth_password=None)
-
-    with pytest.raises(ValueError, match="SCOREBOARD_PORTAL_AUTH_PASSWORD"):
         create_app(settings)

@@ -61,13 +61,6 @@ The chart creates `Secret/scoreboard-db` with `username`, `password`, `database`
 
 For production, replace this chart with managed Postgres or a Postgres operator. Create a Secret with a `database-url` key and point `database.existingSecret` at it.
 
-Create a demo portal password Secret before installing the app chart:
-
-```bash
-kubectl -n scoreboard create secret generic scoreboard-portal-auth \
-  --from-literal=password='<demo-password>'
-```
-
 ## App Install
 
 Use a real HTTPS hostname in production. For a temporary k3s smoke test, `nip.io` can map a hostname to an IP without creating DNS records. For example, `scoreboard.40.76.107.241.nip.io` resolves to `40.76.107.241` and works with Traefik host-based Ingress.
@@ -94,9 +87,6 @@ For production, use managed Postgres and a Secret with a `database-url` key:
 kubectl -n scoreboard create secret generic scoreboard-db \
   --from-literal=database-url='postgres://scoreboard:<password>@<host>:5432/scoreboard'
 
-kubectl -n scoreboard create secret generic scoreboard-portal-auth \
-  --from-literal=password='<demo-password>'
-
 helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/scoreboard \
   --version 0.1.0 \
   --namespace scoreboard \
@@ -112,16 +102,24 @@ helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/s
 
 The app chart runs `python -m scoreboard.seed` after install and upgrade. Seed data comes from `.Values.seedBenchmarks.benchmarks` and is passed through `SCOREBOARD_SEED_BENCHMARKS_JSON`.
 
-The default seed registers the HLE benchmark:
+The default seed registers HLE plus the Livetruth public datasets:
 
 ```yaml
 seedBenchmarks:
   enabled: true
   benchmarks:
+    - id: livetruth-latest
+      display_name: News Livetruth Latest
+      description: OpenMined Livetruth latest demo dataset
+      dataset_url: https://scoreboard.screamingface.ai/livetruth-latest.jsonl
     - id: hle
       display_name: News Hallucinations
       description: OpenMined HLE benchmark
       dataset_url: https://github.com/openmined/HLE.jsonl
+    - id: livetruth
+      display_name: News Livetruth
+      description: OpenMined Livetruth benchmark
+      dataset_url: https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl
 ```
 
 Re-running the Job is safe because benchmark registration is an upsert. Disable seeding with `--set seedBenchmarks.enabled=false`.
@@ -151,7 +149,7 @@ The SCORE-007 initial task mentions POSTing from SF desktop, but current D-SCORE
 
 ## Portal And Public Artifacts
 
-The scoreboard service owns the portal at `https://scoreboard.screamingface.ai/`. The portal UI is protected by Basic Auth using `SCOREBOARD_PORTAL_AUTH_USERNAME` from the chart config and `SCOREBOARD_PORTAL_AUTH_PASSWORD` from the `scoreboard-portal-auth` Secret. The portal calls `/v1/*` same-origin, so CORS is not needed for the portal itself.
+The scoreboard service owns the public portal at `https://scoreboard.screamingface.ai/`. The portal calls `/v1/*` same-origin, so CORS is not needed for the portal itself.
 
 The service also exposes exact public JSONL routes as inline text:
 
@@ -162,7 +160,7 @@ curl -fsS https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl
 
 `livetruth-latest.jsonl` intentionally contains answers/context for the current demo. Do not expose `livetruth-latest.eval.jsonl`, `livetruth-latest.answer-key.jsonl`, or broad generated-artifact globs.
 
-After deploy, open `https://scoreboard.screamingface.ai/`, authenticate with the demo credentials, and verify the browser console has no failed `http://localhost:9106` requests and no CORS failures.
+After deploy, open `https://scoreboard.screamingface.ai/` and verify the browser console has no failed `http://localhost:9106` requests and no CORS failures.
 
 ## Migrations
 

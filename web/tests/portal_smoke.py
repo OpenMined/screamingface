@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Portal smoke + brand-compliance tests (SF-266).
 
-Self-contained: serves web/portal at site root behind Basic Auth, stubs the
-scoreboard API on the same origin with fixtures that mirror the live response
+Self-contained: serves web/portal at site root, stubs the scoreboard API on
+the same origin with fixtures that mirror the live response
 shapes (captured 2026-06-11), and asserts both preserved behavior (security
 posture, status regions, deploy marker) and the screamingface brand system
 (tokens, fonts, square corners, rail/theming, no anti-rule layout).
@@ -16,7 +16,6 @@ workflow, image-packaging, and runtime-hosting assumptions around the portal.
 
 from __future__ import annotations
 
-import base64
 import json
 import re
 import sys
@@ -27,20 +26,24 @@ from http.server import (
     ThreadingHTTPServer,
 )
 from pathlib import Path
-from urllib.error import HTTPError
 from urllib.request import urlopen
 
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
 PORTAL = ROOT / "web" / "portal"
-PORTAL_USER = "demo"
-PORTAL_PASSWORD = "demo"
 
 # ---- fixtures (shapes mirror live scoreboard.screamingface.ai responses) ----
 
 BENCHMARKS = {
     "benchmarks": [
+        {
+            "id": "livetruth-latest",
+            "display_name": "News Livetruth Latest",
+            "description": "OpenMined Livetruth latest demo dataset",
+            "dataset_url": "https://scoreboard.screamingface.ai/livetruth-latest.jsonl",
+            "created_at": "2026-06-04T17:29:17.819465Z",
+        },
         {
             "id": "livetruth",
             "display_name": "News Livetruth",
@@ -59,7 +62,7 @@ BENCHMARKS = {
 }
 
 LEADERBOARD = {
-    "benchmark": BENCHMARKS["benchmarks"][0],
+    "benchmark": BENCHMARKS["benchmarks"][1],
     "entries": [
         {
             "rank": 1,
@@ -160,22 +163,6 @@ class QuietStatic(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _authorized(self):
-        expected = (
-            "Basic "
-            + base64.b64encode(f"{PORTAL_USER}:{PORTAL_PASSWORD}".encode()).decode()
-        )
-        return self.headers.get("Authorization") == expected
-
-    def _auth_required(self):
-        body = b"Authentication required"
-        self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="scoreboard portal"')
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/v1/benchmarks":
@@ -197,8 +184,6 @@ class QuietStatic(SimpleHTTPRequestHandler):
             "/livetruth-masking.dataset.jsonl",
         }:
             return self._text(200, FIXTURE_JSONL)
-        if not self._authorized():
-            return self._auth_required()
         super().do_GET()
 
 
@@ -226,11 +211,16 @@ def section(test_id: str, desc: str, fn):
 
 
 def status_code(url: str) -> int:
-    try:
-        with urlopen(url, timeout=5) as response:
-            return response.status
-    except HTTPError as exc:
-        return exc.code
+    with urlopen(url, timeout=5) as response:
+        return response.status
+
+
+def row_by_id(page, benchmark_id: str):
+    return page.locator(
+        "xpath=//tbody[@id='benchmark-list']/tr["
+        "td[contains(concat(' ', normalize-space(@class), ' '), ' mono ') "
+        "and normalize-space()='" + benchmark_id + "']]"
+    )
 
 
 def main() -> int:
@@ -286,7 +276,7 @@ def main() -> int:
 
     base = f"http://127.0.0.1:{static_port}"
 
-    check("T25", "root portal requires Basic Auth", status_code(base + "/") == 401)
+    check("T25", "root portal is public", status_code(base + "/") == 200)
     check(
         "T25",
         "same-origin API remains public",
@@ -295,10 +285,7 @@ def main() -> int:
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        ctx = browser.new_context(
-            viewport={"width": 1280, "height": 900},
-            http_credentials={"username": PORTAL_USER, "password": PORTAL_PASSWORD},
-        )
+        ctx = browser.new_context(viewport={"width": 1280, "height": 900})
         ctx.grant_permissions(["clipboard-read", "clipboard-write"])
         page = ctx.new_page()
         # Uncaught JS exceptions only — console "error" entries include the
@@ -416,8 +403,8 @@ def main() -> int:
             check(
                 "T7",
                 "index: benchmark stats rendered",
-                (page.locator("#stat-benchmarks").text_content() or "") == "2"
-                and (page.locator("#stat-datasets").text_content() or "") == "2"
+                (page.locator("#stat-benchmarks").text_content() or "") == "3"
+                and (page.locator("#stat-datasets").text_content() or "") == "3"
                 and re.search(
                     r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b",
                     newest_text,
@@ -429,10 +416,10 @@ def main() -> int:
             check(
                 "T7",
                 "index: one directory row per benchmark",
-                rows.count() == 2,
+                rows.count() == 3,
                 f"got {rows.count()}",
             )
-            rows.filter(has_text="News Livetruth").locator(
+            row_by_id(page, "livetruth").locator(
                 "a", has_text="Leaderboard"
             ).first.click()
             page.wait_for_url("**/benchmark.html?id=livetruth", timeout=8000)
@@ -457,7 +444,7 @@ def main() -> int:
             check(
                 "T24",
                 "index: all benchmark rows remain available",
-                rows.count() == 2,
+                rows.count() == 3,
                 f"got {rows.count()}",
             )
             check(
@@ -471,7 +458,7 @@ def main() -> int:
                     or ""
                 ),
             )
-            lt = rows.filter(has_text="News Livetruth")
+            lt = row_by_id(page, "livetruth")
             ds = lt.locator("a", has_text="Dataset").first
             check(
                 "T24",
@@ -479,6 +466,15 @@ def main() -> int:
                 (ds.get_attribute("href") or "")
                 == "data.html?file=livetruth-masking.dataset.jsonl",
                 ds.get_attribute("href") or "",
+            )
+            latest = row_by_id(page, "livetruth-latest")
+            latest_ds = latest.locator("a", has_text="Dataset").first
+            check(
+                "T24",
+                "index: latest dataset routes through viewer",
+                (latest_ds.get_attribute("href") or "")
+                == "data.html?file=livetruth-latest.jsonl",
+                latest_ds.get_attribute("href") or "",
             )
             hle = rows.filter(has_text="News Hallucinations")
             ext = hle.locator("a", has_text="Dataset").first
@@ -724,6 +720,11 @@ def main() -> int:
                 "viewer: raw download link",
                 raw_href == "/fixture.dataset.jsonl",
                 raw_href,
+            )
+            check(
+                "T23",
+                "viewer: raw jsonl label has no stray suffix spacing",
+                (page.locator("#data-raw").text_content() or "").strip() == "raw jsonl",
             )
 
             page.goto(f"{base}/data.html?file=missing.jsonl")

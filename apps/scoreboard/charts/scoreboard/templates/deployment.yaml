@@ -50,11 +50,6 @@ spec:
                 secretKeyRef:
                   name: {{ required "database.existingSecret is required" .Values.database.existingSecret }}
                   key: {{ .Values.database.existingSecretKey }}
-            - name: SCOREBOARD_PORTAL_AUTH_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ required "portalAuth.existingSecret is required" .Values.portalAuth.existingSecret }}
-                  key: {{ .Values.portalAuth.passwordKey }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
