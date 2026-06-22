@@ -40,6 +40,29 @@ beforeEach(() => {
   logoutAigwSession.mockClear();
 });
 
+describe('Sidebar nav order', () => {
+  it('renders core nav items in the expected order', () => {
+    const { container } = render(
+      <Sidebar currentView="dashboard" onNavigate={vi.fn()} plugins={[]} />,
+    );
+    const nav = container.querySelector('nav');
+    if (!nav) throw new Error('nav not rendered');
+
+    const labels = within(nav)
+      .getAllByRole('button')
+      .map((button) => button.textContent?.trim());
+
+    expect(labels).toEqual([
+      'Dashboard',
+      'URL4 Studio',
+      'Sessions',
+      'Eval Studio',
+      'Code Studio',
+      'Private Data',
+    ]);
+  });
+});
+
 describe('Sidebar gateway status', () => {
   it('shows external gateway login in the sidebar bottom area', async () => {
     getStatus.mockResolvedValue({
