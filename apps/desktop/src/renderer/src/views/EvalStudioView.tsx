@@ -170,13 +170,16 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
           defaultSize={50}
           onCollapse={() => setLeftCollapsed(true)}
           onExpand={() => setLeftCollapsed(false)}
-          className="overflow-auto"
+          className="overflow-hidden"
         >
-          <EvalRunsList
-            selectedId={selectedRunId}
-            onSelect={setSelectedRunId}
-            onRunLocally={runAndSelect}
-          />
+          {/* Panel forces inline overflow:hidden, so scroll must live on an inner h-full container. */}
+          <div className="h-full overflow-y-auto">
+            <EvalRunsList
+              selectedId={selectedRunId}
+              onSelect={setSelectedRunId}
+              onRunLocally={runAndSelect}
+            />
+          </div>
         </ResizablePanel>
 
         <ResizableHandle withHandle />
