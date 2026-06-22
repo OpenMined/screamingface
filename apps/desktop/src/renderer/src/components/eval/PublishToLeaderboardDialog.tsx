@@ -13,12 +13,8 @@ import {
   sanitizeDataRefs,
 } from '@/lib/url4-redaction';
 import { publishBlockReason } from '@/lib/publish-guard';
-import {
-  deriveBenchmarkIdentity,
-  verifyIdentityConsistency,
-  checkBenchmarkRegistration,
-  type BenchmarkIdentity,
-} from '@/lib/benchmark-identity';
+import { computeContentSignature, checkBenchmarkRegistration } from '@/lib/benchmark-identity';
+import { Combobox } from '@/components/ui/combobox';
 import type { EvalRunDetail } from './types';
 
 interface Props {
@@ -60,14 +56,15 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
   const parsed = useMemo(() => parseSpecName(run.spec_name), [run.spec_name]);
   const hasDataRefs = useMemo(() => hasLocalDataRefs(run.url4_expression), [run.url4_expression]);
 
-  // SF-300: the benchmark identity (id + label + dataset filename + content
-  // signature) is AUTO-DERIVED from the run — never typed. We derive it async
-  // because the signature is a Web Crypto SHA-256 digest over the run's content.
-  const [identity, setIdentity] = useState<BenchmarkIdentity | null>(null);
+  // Manual benchmark selection (SF-309): blank default, registered list + free text.
+  const [benchmarkId, setBenchmarkId] = useState('');
+  // The content signature still travels with the publish as metadata so the
+  // scoreboard can later verify what actually ran — computed, never displayed.
+  const [signature, setSignature] = useState('');
   useEffect(() => {
     let cancelled = false;
-    void deriveBenchmarkIdentity(run).then((next) => {
-      if (!cancelled) setIdentity(next);
+    void computeContentSignature(run).then((sig) => {
+      if (!cancelled) setSignature(sig);
     });
     return () => {
       cancelled = true;
@@ -99,42 +96,39 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
     () => publishBlockReason({ run, url4Expression: expressionToPublish }),
     [run, expressionToPublish],
   );
-  // Verify the derived benchmark id <-> content signature are internally
-  // consistent (id derivable + content available to sign) before allowing a
-  // publish. Disagreement (e.g. a run with no graded content) blocks here.
-  const identityCheck = useMemo(
-    () => (identity ? verifyIdentityConsistency(identity) : { ok: false, reason: null }),
-    [identity],
-  );
   // Pre-flight: is the derived benchmark id actually registered on the
   // scoreboard? Publish hard-404s unknown ids, so warn early. While the registry
   // is loading or unreachable we pass null → 'unavailable' → no warning (never a
   // false negative). This is advisory only — it does NOT gate canPublish, since a
   // brand-new benchmark is legitimately unknown until the scoreboard owner adds it.
   const { benchmarks: knownBenchmarks, loading: benchmarksLoading } = useKnownBenchmarks();
+  const benchmarkOptions = useMemo(
+    () => (knownBenchmarks ?? []).map((b) => ({ value: b.id, label: b.displayName })),
+    [knownBenchmarks],
+  );
+  // Advisory registry check on the CURRENT field value (not a derived id).
   const registryCheck = useMemo(
     () =>
       checkBenchmarkRegistration(
-        identity?.id ?? '',
+        benchmarkId.trim(),
         benchmarksLoading ? null : (knownBenchmarks?.map((b) => b.id) ?? null),
       ),
-    [identity, knownBenchmarks, benchmarksLoading],
+    [benchmarkId, knownBenchmarks, benchmarksLoading],
   );
   // Block publish until: run is publishable, identity derived + consistent, and
   // any /data refs are either sanitized or explicitly acknowledged.
   const redactionResolved = !hasDataRefs || sanitize || ackExpose;
   const canPublish =
-    !blockReason && !!identity && identityCheck.ok && specId.trim().length > 0 && redactionResolved;
+    !blockReason && benchmarkId.trim().length > 0 && specId.trim().length > 0 && redactionResolved;
 
   const handlePublish = async (): Promise<void> => {
-    if (!identity) return;
     // Remember the entered name for subsequent publishes this session, whether
     // or not the round-trip ultimately succeeds.
     saveSubmitter(submittedBy.trim());
     const out = await publish({
       run,
-      benchmarkId: identity.id,
-      benchmarkSignature: identity.signature,
+      benchmarkId: benchmarkId.trim(),
+      benchmarkSignature: signature,
       specId: specId.trim(),
       url4Expression: expressionToPublish,
       providers,
@@ -243,68 +237,37 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                 )}
               </div>
 
-              {/* benchmark identity (auto-derived, read-only) + spec id */}
+              {/* benchmark (manual selection) + spec id */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="block">
                   <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Benchmark
+                    Benchmark <span className="text-destructive">*</span>
                   </span>
-                  {/* Derived from the dataset filename in the URL4 expression and
-                      pinned by a content signature — not editable (SF-300). */}
-                  <div
-                    data-testid="benchmark-identity"
-                    className="w-full rounded-none border border-border bg-muted/30 px-3 py-2 text-sm text-foreground"
-                    title={identity?.datasetFilename ?? undefined}
-                  >
-                    {identity ? (
-                      <>
-                        <span className="font-medium">{identity.label || identity.id || '—'}</span>
-                        {identity.id && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            ({identity.id})
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <span className="text-muted-foreground">Deriving…</span>
-                    )}
-                  </div>
-                  {identity && (
-                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                      {identity.datasetFilename
-                        ? `From ${identity.datasetFilename}`
-                        : 'Derived from the run’s spec (no dataset file in the expression).'}
-                      {identity.signature && (
-                        <>
-                          {' '}
-                          · signature{' '}
-                          <code className="font-mono">{identity.signature.slice(0, 12)}…</code>
-                        </>
-                      )}
-                    </p>
-                  )}
-                  {/* Registry pre-flight (SF-300 follow-up): advisory only — a
-                      registered ✓, or a non-blocking "not registered" warning
-                      with a closest-match suggestion. Silent while loading /
-                      unavailable so we never warn on a fetch failure. */}
-                  {identity && registryCheck.status === 'registered' && (
+                  <Combobox
+                    value={benchmarkId}
+                    onChange={setBenchmarkId}
+                    options={benchmarkOptions}
+                    placeholder="Select a benchmark"
+                    aria-label="Benchmark"
+                  />
+                  {registryCheck.status === 'registered' && (
                     <p className="mt-1 flex items-center gap-1 text-[11px] text-gain">
                       <CheckCircle2 className="h-3 w-3 shrink-0" />
                       Registered benchmark
                     </p>
                   )}
-                  {identity && registryCheck.status === 'unknown' && (
+                  {registryCheck.status === 'unknown' && (
                     <p className="mt-1 flex items-start gap-1 text-[11px] leading-relaxed text-destructive">
                       <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                       <span>
                         Not a registered scoreboard benchmark — publishing will fail until the
-                        scoreboard owner registers <code className="font-mono">{identity.id}</code>.
+                        scoreboard owner registers{' '}
+                        <code className="font-mono">{benchmarkId.trim()}</code>.
                         {registryCheck.suggestion && (
                           <>
                             {' '}
                             Did you mean{' '}
-                            <code className="font-mono">{registryCheck.suggestion}</code>? Rename
-                            the dataset file to match.
+                            <code className="font-mono">{registryCheck.suggestion}</code>?
                           </>
                         )}
                       </span>
@@ -322,14 +285,6 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                   />
                 </label>
               </div>
-
-              {/* Identity consistency: id<->signature must agree before publish. */}
-              {identity && !identityCheck.ok && identityCheck.reason && (
-                <div className="flex items-start gap-1.5 rounded-none border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>{identityCheck.reason}</span>
-                </div>
-              )}
 
               {/* providers (editable) */}
               <label className="block">

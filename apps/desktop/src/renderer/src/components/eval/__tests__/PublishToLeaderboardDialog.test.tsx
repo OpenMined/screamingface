@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PublishToLeaderboardDialog } from '../PublishToLeaderboardDialog';
 import type { EvalRunDetail } from '../types';
 
@@ -59,6 +59,12 @@ function makeRun(overrides: Partial<EvalRunDetail> = {}): EvalRunDetail {
   };
 }
 
+function benchmarkInput(): HTMLInputElement {
+  return screen.getByRole('combobox', { name: 'Benchmark' }) as HTMLInputElement;
+}
+
+afterEach(cleanup);
+
 beforeEach(() => {
   publishMock.mockReset();
   toastMock.mockReset();
@@ -66,11 +72,10 @@ beforeEach(() => {
   hookState.error = null;
   hookState.result = null;
   window.sessionStorage.clear();
-  // Default: the derived benchmark (honest-agi-live-week-3) IS registered, so
-  // the registry note is "registered" and existing tests are unaffected.
-  listBenchmarksMock
-    .mockReset()
-    .mockResolvedValue([{ id: 'honest-agi-live-week-3', displayName: 'Honest AGI Live week 3' }]);
+  listBenchmarksMock.mockReset().mockResolvedValue([
+    { id: 'hle', displayName: 'News Hallucinations' },
+    { id: 'livetruth', displayName: 'News Livetruth' },
+  ]);
   (window as unknown as { electronAPI: unknown }).electronAPI = {
     publish: {
       openExternal: vi.fn(async () => {}),
@@ -80,68 +85,72 @@ beforeEach(() => {
   };
 });
 
-describe('PublishToLeaderboardDialog', () => {
-  it('auto-derives a read-only benchmark identity from the dataset filename and prefills spec', async () => {
+describe('PublishToLeaderboardDialog — benchmark combobox', () => {
+  it('opens with a blank benchmark and Publish disabled until one is chosen', async () => {
     render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
-    // Spec id still prefilled from the colon-delimited spec_name.
-    expect(screen.getByDisplayValue('hle-ensemble-three')).toBeInTheDocument();
-    // Benchmark is derived + read-only — no free-text input, label shown instead.
-    expect(screen.queryByPlaceholderText('e.g. hle')).not.toBeInTheDocument();
-    const identity = await screen.findByTestId('benchmark-identity');
-    // Derivation is async (Web Crypto SHA-256 signature) — wait for the resolved
-    // label, not just the element, which first renders a "Deriving…" placeholder.
-    await waitFor(() => expect(identity).toHaveTextContent('Honest AGI Live week 3'));
-    expect(identity).toHaveTextContent('honest-agi-live-week-3');
-    expect(screen.getByText(/From honest-agi-live-week-3\.eval\.jsonl/i)).toBeInTheDocument();
-  });
-
-  it('marks the derived benchmark as registered when it is in the scoreboard registry', async () => {
-    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
-    expect(await screen.findByText(/registered benchmark/i)).toBeInTheDocument();
-    expect(screen.queryByText(/not a registered scoreboard benchmark/i)).not.toBeInTheDocument();
-  });
-
-  it('warns (non-blocking) with a closest-match suggestion when the id is not registered', async () => {
-    listBenchmarksMock.mockResolvedValue([
-      { id: 'honest-agi-live-week-4', displayName: 'Honest AGI Live week 4' },
-    ]);
-    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
-    expect(await screen.findByText(/not a registered scoreboard benchmark/i)).toBeInTheDocument();
-    expect(screen.getByText('honest-agi-live-week-4')).toBeInTheDocument();
-    // Advisory only — publish stays enabled (the server is the hard gate).
+    expect(benchmarkInput().value).toBe('');
+    expect(screen.getByRole('button', { name: /publish/i })).toBeDisabled();
+    fireEvent.focus(benchmarkInput());
+    fireEvent.mouseDown(await screen.findByRole('option', { name: /livetruth/i }));
     await waitFor(() => expect(screen.getByRole('button', { name: /publish/i })).toBeEnabled());
   });
 
-  it('stays silent about registration when the registry is unreachable', async () => {
+  it('filters registered benchmarks and allows free text', async () => {
+    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
+    fireEvent.change(benchmarkInput(), { target: { value: 'live' } });
+    // Options load async via useKnownBenchmarks — wait for the filtered option.
+    expect(await screen.findByRole('option', { name: /livetruth/i })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /^hle/i })).not.toBeInTheDocument();
+    fireEvent.change(benchmarkInput(), { target: { value: 'brand-new-2026' } });
+    expect(benchmarkInput().value).toBe('brand-new-2026');
+  });
+
+  it('shows ✓ registered for a registered value and ⚠ + suggestion for an unknown one', async () => {
+    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
+    fireEvent.change(benchmarkInput(), { target: { value: 'hle' } });
+    expect(await screen.findByText(/registered benchmark/i)).toBeInTheDocument();
+    fireEvent.change(benchmarkInput(), { target: { value: 'livetruh' } });
+    expect(await screen.findByText(/not a registered scoreboard benchmark/i)).toBeInTheDocument();
+    expect(screen.getByText('livetruth')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /publish/i })).toBeEnabled();
+  });
+
+  it('stays silent about registration while the registry is unreachable', async () => {
     listBenchmarksMock.mockResolvedValue(null);
     render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
-    const identity = await screen.findByTestId('benchmark-identity');
-    await waitFor(() => expect(identity).toHaveTextContent('Honest AGI Live week 3'));
+    fireEvent.change(benchmarkInput(), { target: { value: 'whatever' } });
+    await Promise.resolve();
     expect(screen.queryByText(/registered benchmark/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/not a registered scoreboard benchmark/i)).not.toBeInTheDocument();
   });
 
-  it('publishes the derived benchmark id + content signature (no manual entry)', async () => {
+  it('publishes the chosen benchmark id plus the content signature', async () => {
     render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
-    await screen.findByTestId('benchmark-identity');
+    fireEvent.change(benchmarkInput(), { target: { value: 'livetruth' } });
     await waitFor(() => expect(screen.getByRole('button', { name: /publish/i })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: /publish/i }));
     await waitFor(() => expect(publishMock).toHaveBeenCalledTimes(1));
     const sent = publishMock.mock.calls[0][0];
-    expect(sent.benchmarkId).toBe('honest-agi-live-week-3');
+    expect(sent.benchmarkId).toBe('livetruth');
     expect(sent.benchmarkSignature).toMatch(/^[0-9a-f]{64}$/);
   });
+});
 
-  it('blocks publish when the run has no graded content to sign the identity', async () => {
+describe('PublishToLeaderboardDialog — guards & misc', () => {
+  it('prefills spec id from the colon-delimited spec_name', () => {
+    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
+    expect(screen.getByDisplayValue('hle-ensemble-three')).toBeInTheDocument();
+  });
+
+  it('blocks a zero-question run with an explanation (preflight guard)', () => {
     render(
       <PublishToLeaderboardDialog
-        run={makeRun({ questions: [] })}
+        run={makeRun({ total_questions: 0, correct_questions: 0 })}
         serverUrl=""
         onClose={vi.fn()}
       />,
     );
-    await screen.findByTestId('benchmark-identity');
-    expect(await screen.findByText(/no graded content/i)).toBeInTheDocument();
+    expect(screen.getByText(/no graded questions/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /publish/i })).toBeDisabled();
   });
 
@@ -149,9 +158,8 @@ describe('PublishToLeaderboardDialog', () => {
     const run = makeRun({ url4_expression: '(/data/abc123)!$prompt' });
     render(<PublishToLeaderboardDialog run={run} serverUrl="" onClose={vi.fn()} />);
     expect(screen.getByText(/references local/i)).toBeInTheDocument();
-    // sanitize defaults on → the displayed/published expression is redacted.
     expect(screen.getByTestId('url4')).toHaveTextContent('/data/<redacted>');
-    await screen.findByTestId('benchmark-identity');
+    fireEvent.change(benchmarkInput(), { target: { value: 'livetruth' } });
     await waitFor(() => expect(screen.getByRole('button', { name: /publish/i })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: /publish/i }));
     expect(publishMock).toHaveBeenCalledTimes(1);
@@ -161,31 +169,16 @@ describe('PublishToLeaderboardDialog', () => {
   it('blocks publish if /data refs are neither sanitized nor acknowledged', async () => {
     const run = makeRun({ url4_expression: '(/data/abc123)!$prompt' });
     render(<PublishToLeaderboardDialog run={run} serverUrl="" onClose={vi.fn()} />);
-    await screen.findByTestId('benchmark-identity');
-    const sanitize = screen.getByRole('checkbox', { name: /sanitize/i });
-    fireEvent.click(sanitize); // uncheck
+    fireEvent.change(benchmarkInput(), { target: { value: 'livetruth' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /sanitize/i })); // uncheck
     expect(screen.getByRole('button', { name: /publish/i })).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', { name: /exposes my local data/i }));
     await waitFor(() => expect(screen.getByRole('button', { name: /publish/i })).toBeEnabled());
   });
 
-  it('blocks a zero-question run with an explanation (preflight guard)', () => {
-    const run = makeRun({ total_questions: 0, correct_questions: 0 });
-    render(<PublishToLeaderboardDialog run={run} serverUrl="" onClose={vi.fn()} />);
-    expect(screen.getByText(/no graded questions/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /publish/i })).toBeDisabled();
-  });
-
-  it('does not block a normal completed run', async () => {
-    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
-    expect(screen.queryByText(/no graded questions/i)).not.toBeInTheDocument();
-    await screen.findByTestId('benchmark-identity');
-    await waitFor(() => expect(screen.getByRole('button', { name: /publish/i })).toBeEnabled());
-  });
-
   it('persists the submitter name to sessionStorage on publish', async () => {
     render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
-    await screen.findByTestId('benchmark-identity');
+    fireEvent.change(benchmarkInput(), { target: { value: 'livetruth' } });
     fireEvent.change(screen.getByPlaceholderText('leave blank for anonymous'), {
       target: { value: 'Ada Lovelace' },
     });
