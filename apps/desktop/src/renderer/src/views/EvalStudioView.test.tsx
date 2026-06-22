@@ -40,6 +40,15 @@ it('renders header, empty state, and both pane toggles', () => {
   expect(screen.getByRole('button', { name: /hide run details/i })).toBeTruthy();
 });
 
+// SF-298: a static "Check the latest leaderboard" link is shown at the top and,
+// with no runs, also in the empty state (so two affordances appear).
+it('shows the leaderboard link at the top and in the empty runs state', () => {
+  render(<EvalStudioView />);
+  expect(
+    screen.getAllByRole('button', { name: /check the latest leaderboard/i }).length,
+  ).toBeGreaterThanOrEqual(2);
+});
+
 // SF-289: the resizable Panel hard-codes inline overflow:hidden, so the runs
 // list must live inside its own bounded, scrollable container or it gets clipped.
 it('wraps the runs list in a bounded scroll container', () => {

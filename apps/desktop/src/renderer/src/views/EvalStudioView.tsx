@@ -11,6 +11,7 @@ import {
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { Button } from '@/components/ui/button';
 import { EvalRunsList } from '@/components/eval/EvalRunsList';
+import { LeaderboardLink } from '@/components/eval/LeaderboardLink';
 import { EvalRunDetail } from '@/components/eval/EvalRunDetail';
 import { AddEvalRunDialog } from '@/components/eval/AddEvalRunDialog';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -124,6 +125,7 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
           <p className="text-xs text-muted-foreground">
             History of evaluation runs across leaderboard entries
           </p>
+          <LeaderboardLink className="mt-1.5" />
         </div>
         <div className="flex items-center gap-1">
           <Button variant="outline" size="sm" className="mr-1" onClick={() => setAdding(true)}>
