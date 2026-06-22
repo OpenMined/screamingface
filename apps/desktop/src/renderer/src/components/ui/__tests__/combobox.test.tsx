@@ -85,4 +85,33 @@ describe('Combobox', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onChange).toHaveBeenLastCalledWith('hle');
   });
+
+  it('hides the clear button when empty and shows it when a value is set', () => {
+    setup('');
+    expect(screen.queryByRole('button', { name: /clear/i })).not.toBeInTheDocument();
+    cleanup();
+    setup('livetruth');
+    expect(screen.getByRole('button', { name: /clear/i })).toBeInTheDocument();
+  });
+
+  it('clears the value via the clear button and reopens showing all options', () => {
+    const { onChange } = setup('livetruth');
+    fireEvent.mouseDown(screen.getByRole('button', { name: /clear/i }));
+    expect(onChange).toHaveBeenLastCalledWith('');
+    // After clearing, the list is open and shows every option.
+    expect(screen.getByRole('option', { name: /hle/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /livetruth/i })).toBeInTheDocument();
+  });
+
+  it('chevron opens the full list even when a value is set (browse, not filter)', () => {
+    setup('livetruth');
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole('button', { name: /toggle options/i }));
+    // All options shown — not just the one matching the current value.
+    expect(screen.getByRole('option', { name: /hle/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /livetruth/i })).toBeInTheDocument();
+    // Clicking the chevron again closes it.
+    fireEvent.mouseDown(screen.getByRole('button', { name: /toggle options/i }));
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
 });
