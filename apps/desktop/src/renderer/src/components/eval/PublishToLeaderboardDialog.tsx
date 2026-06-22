@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Url4Field } from '@/components/Url4Field';
 import { useToast } from '@/hooks/use-toast';
 import { usePublishScore } from '@/hooks/use-publish-score';
+import { useKnownBenchmarks } from '@/hooks/use-known-benchmarks';
 import {
   parseSpecName,
   deriveProviders,
@@ -15,6 +16,7 @@ import { publishBlockReason } from '@/lib/publish-guard';
 import {
   deriveBenchmarkIdentity,
   verifyIdentityConsistency,
+  checkBenchmarkRegistration,
   type BenchmarkIdentity,
 } from '@/lib/benchmark-identity';
 import type { EvalRunDetail } from './types';
@@ -103,6 +105,20 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
   const identityCheck = useMemo(
     () => (identity ? verifyIdentityConsistency(identity) : { ok: false, reason: null }),
     [identity],
+  );
+  // Pre-flight: is the derived benchmark id actually registered on the
+  // scoreboard? Publish hard-404s unknown ids, so warn early. While the registry
+  // is loading or unreachable we pass null → 'unavailable' → no warning (never a
+  // false negative). This is advisory only — it does NOT gate canPublish, since a
+  // brand-new benchmark is legitimately unknown until the scoreboard owner adds it.
+  const { benchmarks: knownBenchmarks, loading: benchmarksLoading } = useKnownBenchmarks();
+  const registryCheck = useMemo(
+    () =>
+      checkBenchmarkRegistration(
+        identity?.id ?? '',
+        benchmarksLoading ? null : (knownBenchmarks?.map((b) => b.id) ?? null),
+      ),
+    [identity, knownBenchmarks, benchmarksLoading],
   );
   // Block publish until: run is publishable, identity derived + consistent, and
   // any /data refs are either sanitized or explicitly acknowledged.
@@ -265,6 +281,33 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                           <code className="font-mono">{identity.signature.slice(0, 12)}…</code>
                         </>
                       )}
+                    </p>
+                  )}
+                  {/* Registry pre-flight (SF-300 follow-up): advisory only — a
+                      registered ✓, or a non-blocking "not registered" warning
+                      with a closest-match suggestion. Silent while loading /
+                      unavailable so we never warn on a fetch failure. */}
+                  {identity && registryCheck.status === 'registered' && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] text-gain">
+                      <CheckCircle2 className="h-3 w-3 shrink-0" />
+                      Registered benchmark
+                    </p>
+                  )}
+                  {identity && registryCheck.status === 'unknown' && (
+                    <p className="mt-1 flex items-start gap-1 text-[11px] leading-relaxed text-destructive">
+                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                      <span>
+                        Not a registered scoreboard benchmark — publishing will fail until the
+                        scoreboard owner registers <code className="font-mono">{identity.id}</code>.
+                        {registryCheck.suggestion && (
+                          <>
+                            {' '}
+                            Did you mean{' '}
+                            <code className="font-mono">{registryCheck.suggestion}</code>? Rename
+                            the dataset file to match.
+                          </>
+                        )}
+                      </span>
                     </p>
                   )}
                 </div>

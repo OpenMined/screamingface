@@ -8,6 +8,8 @@ import {
   computeContentSignature,
   deriveBenchmarkIdentity,
   verifyIdentityConsistency,
+  editDistance,
+  checkBenchmarkRegistration,
 } from '../benchmark-identity';
 import type { EvalRunDetail, EvalQuestion } from '@/components/eval/types';
 
@@ -185,5 +187,43 @@ describe('verifyIdentityConsistency', () => {
     });
     expect(out.ok).toBe(false);
     expect(out.reason).toMatch(/no graded content/i);
+  });
+});
+
+describe('editDistance', () => {
+  it('is 0 for equal strings and the length for empty comparisons', () => {
+    expect(editDistance('hle', 'hle')).toBe(0);
+    expect(editDistance('', 'abc')).toBe(3);
+    expect(editDistance('abc', '')).toBe(3);
+  });
+
+  it('counts single edits (substitution / format drift)', () => {
+    expect(editDistance('livetruth_latest', 'livetruth-latest')).toBe(1);
+    expect(editDistance('hle', 'hles')).toBe(1);
+  });
+});
+
+describe('checkBenchmarkRegistration', () => {
+  it("returns 'registered' when the derived id is in the registry", () => {
+    const out = checkBenchmarkRegistration('hle', ['hle', 'gpqa']);
+    expect(out.status).toBe('registered');
+    expect(out.suggestion).toBeNull();
+  });
+
+  it("returns 'unknown' with the closest match when the id drifts in format", () => {
+    const out = checkBenchmarkRegistration('livetruth_latest', ['livetruth-latest', 'hle']);
+    expect(out.status).toBe('unknown');
+    expect(out.suggestion).toBe('livetruth-latest');
+  });
+
+  it("returns 'unknown' with no suggestion when nothing is close", () => {
+    const out = checkBenchmarkRegistration('honest-agi-live-week-3', ['hle', 'gpqa']);
+    expect(out.status).toBe('unknown');
+    expect(out.suggestion).toBeNull();
+  });
+
+  it("returns 'unavailable' when the registry couldn't be fetched (null) or id is empty", () => {
+    expect(checkBenchmarkRegistration('hle', null).status).toBe('unavailable');
+    expect(checkBenchmarkRegistration('', ['hle']).status).toBe('unavailable');
   });
 });

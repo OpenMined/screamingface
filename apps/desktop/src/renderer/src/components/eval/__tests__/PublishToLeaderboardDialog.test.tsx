@@ -7,6 +7,7 @@ import type { EvalRunDetail } from '../types';
 
 const publishMock = vi.fn();
 const toastMock = vi.fn();
+const listBenchmarksMock = vi.fn();
 const hookState: {
   status: 'idle' | 'submitting' | 'success' | 'error';
   error: string | null;
@@ -65,8 +66,17 @@ beforeEach(() => {
   hookState.error = null;
   hookState.result = null;
   window.sessionStorage.clear();
+  // Default: the derived benchmark (honest-agi-live-week-3) IS registered, so
+  // the registry note is "registered" and existing tests are unaffected.
+  listBenchmarksMock
+    .mockReset()
+    .mockResolvedValue([{ id: 'honest-agi-live-week-3', displayName: 'Honest AGI Live week 3' }]);
   (window as unknown as { electronAPI: unknown }).electronAPI = {
-    publish: { openExternal: vi.fn(async () => {}), getContext: vi.fn() },
+    publish: {
+      openExternal: vi.fn(async () => {}),
+      getContext: vi.fn(),
+      listBenchmarks: listBenchmarksMock,
+    },
   };
 });
 
@@ -83,6 +93,32 @@ describe('PublishToLeaderboardDialog', () => {
     await waitFor(() => expect(identity).toHaveTextContent('Honest AGI Live week 3'));
     expect(identity).toHaveTextContent('honest-agi-live-week-3');
     expect(screen.getByText(/From honest-agi-live-week-3\.eval\.jsonl/i)).toBeInTheDocument();
+  });
+
+  it('marks the derived benchmark as registered when it is in the scoreboard registry', async () => {
+    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
+    expect(await screen.findByText(/registered benchmark/i)).toBeInTheDocument();
+    expect(screen.queryByText(/not a registered scoreboard benchmark/i)).not.toBeInTheDocument();
+  });
+
+  it('warns (non-blocking) with a closest-match suggestion when the id is not registered', async () => {
+    listBenchmarksMock.mockResolvedValue([
+      { id: 'honest-agi-live-week-4', displayName: 'Honest AGI Live week 4' },
+    ]);
+    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
+    expect(await screen.findByText(/not a registered scoreboard benchmark/i)).toBeInTheDocument();
+    expect(screen.getByText('honest-agi-live-week-4')).toBeInTheDocument();
+    // Advisory only — publish stays enabled (the server is the hard gate).
+    await waitFor(() => expect(screen.getByRole('button', { name: /publish/i })).toBeEnabled());
+  });
+
+  it('stays silent about registration when the registry is unreachable', async () => {
+    listBenchmarksMock.mockResolvedValue(null);
+    render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
+    const identity = await screen.findByTestId('benchmark-identity');
+    await waitFor(() => expect(identity).toHaveTextContent('Honest AGI Live week 3'));
+    expect(screen.queryByText(/registered benchmark/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not a registered scoreboard benchmark/i)).not.toBeInTheDocument();
   });
 
   it('publishes the derived benchmark id + content signature (no manual entry)', async () => {

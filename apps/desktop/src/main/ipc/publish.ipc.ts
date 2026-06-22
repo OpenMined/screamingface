@@ -8,8 +8,9 @@
 import { BrowserWindow, ipcMain, shell } from 'electron';
 import { resolvePublishContext, type PublishContext } from '../services/publish-context';
 import { submitScore } from '../services/publish-score';
+import { listBenchmarks } from '../services/list-benchmarks';
 import { getPublishLog, onPublishLog } from '../services/publish-log';
-import type { PublishOutcome, PublishScoreRequest } from '../../preload/types';
+import type { KnownBenchmark, PublishOutcome, PublishScoreRequest } from '../../preload/types';
 import { requireTrustedIpcSender } from './sender-validation';
 
 function isHttpUrl(value: string): boolean {
@@ -38,6 +39,11 @@ export function registerPublishHandlers(): void {
   ipcMain.handle('publish:getLogs', (event): string[] => {
     requireTrustedIpcSender(event);
     return getPublishLog();
+  });
+
+  ipcMain.handle('publish:listBenchmarks', (event): Promise<KnownBenchmark[] | null> => {
+    requireTrustedIpcSender(event);
+    return listBenchmarks();
   });
 
   // Stream new publish/scoreboard diagnostic lines to every renderer window.

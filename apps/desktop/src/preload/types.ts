@@ -262,6 +262,12 @@ export interface PublishResult {
 /** Discriminated outcome of a publish attempt — never throws across IPC. */
 export type PublishOutcome = { ok: true; value: PublishResult } | { ok: false; error: string };
 
+/** A benchmark registered on the public scoreboard (from GET /v1/benchmarks). */
+export interface KnownBenchmark {
+  id: string;
+  displayName: string;
+}
+
 export interface ElectronAPI {
   popup: {
     open: (url: string, title?: string) => Promise<void>;
@@ -315,6 +321,12 @@ export interface ElectronAPI {
     /** Subscribe to live publish/scoreboard log lines; returns an unsubscribe fn. */
     onLog: (callback: (line: string) => void) => () => void;
     openExternal: (url: string) => Promise<void>;
+    /**
+     * Canonical benchmarks registered on the scoreboard (GET /v1/benchmarks),
+     * for pre-flight validation of the derived benchmark id. Resolves to null
+     * when the registry is unreachable, so callers never show a false "unknown".
+     */
+    listBenchmarks: () => Promise<KnownBenchmark[] | null>;
   };
   backends: {
     getStatus: () => Promise<BackendStatusResponse>;

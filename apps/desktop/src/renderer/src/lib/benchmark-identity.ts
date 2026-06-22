@@ -172,3 +172,62 @@ export function verifyIdentityConsistency(identity: BenchmarkIdentity): Identity
   }
   return { ok: true, reason: null };
 }
+
+/** Levenshtein edit distance between two short strings (benchmark ids). */
+export function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  // Single-row DP; row[j] = distance between a[0..i] and b[0..j].
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    const curr = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    prev = curr;
+  }
+  return prev[b.length];
+}
+
+export type BenchmarkRegistryStatus = 'registered' | 'unknown' | 'unavailable';
+
+export interface BenchmarkRegistryCheck {
+  status: BenchmarkRegistryStatus;
+  /** Closest registered id when the derived id is unknown but a near-match exists. */
+  suggestion: string | null;
+}
+
+/**
+ * Validate a derived benchmark id against the scoreboard's registered set —
+ * pre-flight, since publish hard-404s an unknown benchmark_id. `knownIds` is
+ * null when the registry couldn't be fetched: we return 'unavailable' (never a
+ * false 'unknown') so the dialog stays silent rather than warning wrongly.
+ * On 'unknown' we suggest the closest registered id within a small edit distance
+ * (catches format drift like `livetruth_latest` vs `livetruth-latest`).
+ */
+export function checkBenchmarkRegistration(
+  id: string,
+  knownIds: string[] | null,
+): BenchmarkRegistryCheck {
+  if (knownIds === null || !id) return { status: 'unavailable', suggestion: null };
+  if (knownIds.includes(id)) return { status: 'registered', suggestion: null };
+
+  let best: string | null = null;
+  let bestDistance = Infinity;
+  for (const known of knownIds) {
+    const distance = editDistance(id, known);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = known;
+    }
+  }
+  // Only suggest when it's plausibly the same benchmark mistyped/reformatted —
+  // scale the threshold with id length so long ids tolerate a bit more drift.
+  const threshold = Math.max(2, Math.floor(id.length / 4));
+  return {
+    status: 'unknown',
+    suggestion: best !== null && bestDistance <= threshold ? best : null,
+  };
+}
