@@ -78,7 +78,9 @@ describe('PublishToLeaderboardDialog', () => {
     // Benchmark is derived + read-only — no free-text input, label shown instead.
     expect(screen.queryByPlaceholderText('e.g. hle')).not.toBeInTheDocument();
     const identity = await screen.findByTestId('benchmark-identity');
-    expect(identity).toHaveTextContent('Honest AGI Live week 3');
+    // Derivation is async (Web Crypto SHA-256 signature) — wait for the resolved
+    // label, not just the element, which first renders a "Deriving…" placeholder.
+    await waitFor(() => expect(identity).toHaveTextContent('Honest AGI Live week 3'));
     expect(identity).toHaveTextContent('honest-agi-live-week-3');
     expect(screen.getByText(/From honest-agi-live-week-3\.eval\.jsonl/i)).toBeInTheDocument();
   });
