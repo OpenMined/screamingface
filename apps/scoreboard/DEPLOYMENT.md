@@ -96,22 +96,30 @@ helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/s
   --wait
 ```
 
-`values-prod.yaml` sets three app replicas, Traefik ingress, TLS annotations, production CORS for `https://screamingface.ai`, and NetworkPolicy enabled. Adjust `ingress.className` if the production cluster uses a different ingress controller.
+`values-prod.yaml` sets three app replicas, Traefik ingress, TLS annotations, production CORS for `https://screamingface.ai`, and NetworkPolicy enabled. The chart also sets `FORWARDED_ALLOW_IPS="*"` so uvicorn honors Traefik's forwarded HTTPS scheme for redirects. Adjust `ingress.className` if the production cluster uses a different ingress controller.
 
 ## Benchmark Seeding
 
 The app chart runs `python -m scoreboard.seed` after install and upgrade. Seed data comes from `.Values.seedBenchmarks.benchmarks` and is passed through `SCOREBOARD_SEED_BENCHMARKS_JSON`.
 
-The default seed registers the HLE benchmark:
+The default seed registers HLE plus the Livetruth public datasets:
 
 ```yaml
 seedBenchmarks:
   enabled: true
   benchmarks:
+    - id: livetruth-latest
+      display_name: News Livetruth Latest
+      description: OpenMined Livetruth latest demo dataset
+      dataset_url: https://scoreboard.screamingface.ai/livetruth-latest.jsonl
     - id: hle
       display_name: News Hallucinations
       description: OpenMined HLE benchmark
       dataset_url: https://github.com/openmined/HLE.jsonl
+    - id: livetruth
+      display_name: News Livetruth
+      description: OpenMined Livetruth benchmark
+      dataset_url: https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl
 ```
 
 Re-running the Job is safe because benchmark registration is an upsert. Disable seeding with `--set seedBenchmarks.enabled=false`.
@@ -139,19 +147,20 @@ curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/leaderboard/hle
 
 The SCORE-007 initial task mentions POSTing from SF desktop, but current D-SCORE-006 in this repo is AIGateway desktop login, not scoreboard score publishing. Use the public API smoke above until a desktop submission task exists.
 
-## Portal And CORS
+## Portal And Public Artifacts
 
-The static portal under `web/portal` reads `window.SCOREBOARD_API_BASE` before falling back to `http://localhost:9106`. The Pages deploy workflow injects that value into the published artifact.
+The scoreboard service owns the public portal at `https://scoreboard.screamingface.ai/`. The portal calls `/v1/*` same-origin, so CORS is not needed for the portal itself.
 
-Production CORS must include the portal origin, not the path:
+The service also exposes exact public JSONL routes as inline text:
 
-```yaml
-cors:
-  origins:
-    - https://screamingface.ai
+```bash
+curl -fsS https://scoreboard.screamingface.ai/livetruth-latest.jsonl
+curl -fsS https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl
 ```
 
-After a Pages deploy, open `https://screamingface.ai/portal/` and verify the browser console has no CORS failures while fetching `/v1/benchmarks`.
+`livetruth-latest.jsonl` intentionally contains answers/context for the current demo. Do not expose `livetruth-latest.eval.jsonl`, `livetruth-latest.answer-key.jsonl`, or broad generated-artifact globs.
+
+After deploy, open `https://scoreboard.screamingface.ai/` and verify the browser console has no failed `http://localhost:9106` requests and no CORS failures.
 
 ## Migrations
 

@@ -59,8 +59,21 @@ Settings are read from environment variables with the `SCOREBOARD_` prefix.
 | `SCOREBOARD_LOG_LEVEL` | `info` | Uvicorn log level. |
 | `SCOREBOARD_DATABASE_URL` | `sqlite://./scoreboard.sqlite3` | Tortoise database URL. |
 | `SCOREBOARD_CORS_ORIGINS` | `["*"]` | JSON list of allowed CORS origins. |
+| `SCOREBOARD_PORTAL_DIR` | source `web/portal` | Static portal directory. |
+| `SCOREBOARD_PORTAL_ARTIFACTS_DIR` | source `output_artifacts/eval_results` | Public JSONL artifact directory. |
 
 `SCOREBOARD_CORS_ORIGINS` defaults to `["*"]` because the scaffold has no authenticated routes and never sets cookies. D-SCORE-007 will tighten this once the leaderboard write path lands.
+
+## Portal And Public Artifacts
+
+The scoreboard service serves the demo portal at `/`. The portal UI, API routes, and public JSONL artifacts are unauthenticated.
+
+Public artifact routes are exact-file allowlisted and served as inline `text/plain`:
+
+- `/livetruth-latest.jsonl`
+- `/livetruth-masking.dataset.jsonl`
+
+Do not publish `livetruth-latest.eval.jsonl`, `livetruth-latest.answer-key.jsonl`, or generated-artifact globs. `livetruth-latest.jsonl` intentionally contains answers/context for the current demo.
 
 ## Development
 

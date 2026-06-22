@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,6 +33,8 @@ class Settings(BaseSettings):
     log_level: str = "info"
     database_url: str = DEFAULT_DATABASE_URL
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
+    portal_dir: Path | None = None
+    portal_artifacts_dir: Path | None = None
 
     @field_validator("database_url")
     @classmethod

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Portal smoke + brand-compliance tests (SF-266).
 
-Self-contained: serves web/portal statically, stubs the scoreboard API with
-fixtures that mirror the live response shapes (captured 2026-06-11), and
-asserts both preserved behavior (security posture, status regions, deploy
-marker) and the screamingface brand system (tokens, fonts, square corners,
-rail/theming, no anti-rule layout).
+Self-contained: serves web/portal at site root, stubs the scoreboard API on
+the same origin with fixtures that mirror the live response
+shapes (captured 2026-06-11), and asserts both preserved behavior (security
+posture, status regions, deploy marker) and the screamingface brand system
+(tokens, fonts, square corners, rail/theming, no anti-rule layout).
 
 Run:  <playwright-venv-python> web/tests/portal_smoke.py
 Exit code 0 = all tests pass.
 
-These tests intentionally live OUTSIDE web/portal/ — the Pages deploy
-workflow copies web/portal/. wholesale into the published artifact.
+These tests intentionally live OUTSIDE web/portal/ so they can exercise deploy
+workflow, image-packaging, and runtime-hosting assumptions around the portal.
 """
 
 from __future__ import annotations
@@ -22,11 +22,11 @@ import sys
 import threading
 from functools import partial
 from http.server import (
-    BaseHTTPRequestHandler,
     SimpleHTTPRequestHandler,
     ThreadingHTTPServer,
 )
 from pathlib import Path
+from urllib.request import urlopen
 
 from playwright.sync_api import sync_playwright
 
@@ -38,10 +38,17 @@ PORTAL = ROOT / "web" / "portal"
 BENCHMARKS = {
     "benchmarks": [
         {
+            "id": "livetruth-latest",
+            "display_name": "News Livetruth Latest",
+            "description": "OpenMined Livetruth latest demo dataset",
+            "dataset_url": "https://scoreboard.screamingface.ai/livetruth-latest.jsonl",
+            "created_at": "2026-06-04T17:29:17.819465Z",
+        },
+        {
             "id": "livetruth",
             "display_name": "News Livetruth",
             "description": "OpenMined Livetruth benchmark",
-            "dataset_url": "https://screamingface.ai/livetruth-masking.dataset.jsonl",
+            "dataset_url": "https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl",
             "created_at": "2026-06-03T17:29:17.819465Z",
         },
         {
@@ -55,7 +62,7 @@ BENCHMARKS = {
 }
 
 LEADERBOARD = {
-    "benchmark": BENCHMARKS["benchmarks"][0],
+    "benchmark": BENCHMARKS["benchmarks"][1],
     "entries": [
         {
             "rank": 1,
@@ -127,18 +134,34 @@ SCORE = {
 }
 
 
-class StubApi(BaseHTTPRequestHandler):
-    def log_message(self, *args):  # quiet
+FIXTURE_JSONL = "\n".join(
+    [
+        '{"qa_id": "q1", "dataset": "d", "question": "What?"}',
+        '{"qa_id": "q2", "question": "Who?", "meta": {"k": 1}}',
+        '{"qa_id": "q3", "dataset": "d", "question": ""}',
+    ]
+)
+
+
+class QuietStatic(SimpleHTTPRequestHandler):
+    def log_message(self, *args):
         pass
 
     def _json(self, status, payload):
         body = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _text(self, status, body, content_type="text/plain; charset=utf-8"):
+        data = body.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_GET(self):
         path = self.path.split("?")[0]
@@ -155,32 +178,12 @@ class StubApi(BaseHTTPRequestHandler):
             return self._json(200, HISTORY)
         if path.startswith("/v1/scores/"):
             return self._json(200, SCORE)
-        return self._json(404, {"detail": "not found"})
-
-
-FIXTURE_JSONL = "\n".join(
-    [
-        '{"qa_id": "q1", "dataset": "d", "question": "What?"}',
-        '{"qa_id": "q2", "question": "Who?", "meta": {"k": 1}}',
-        '{"qa_id": "q3", "dataset": "d", "question": ""}',
-    ]
-)
-
-
-class QuietStatic(SimpleHTTPRequestHandler):
-    def log_message(self, *args):
-        pass
-
-    def do_GET(self):
-        # Site-root data file, as published by the deploy workflow.
-        if self.path.split("?")[0] == "/fixture.dataset.jsonl":
-            body = FIXTURE_JSONL.encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
+        if path in {
+            "/fixture.dataset.jsonl",
+            "/livetruth-latest.jsonl",
+            "/livetruth-masking.dataset.jsonl",
+        }:
+            return self._text(200, FIXTURE_JSONL)
         super().do_GET()
 
 
@@ -207,6 +210,19 @@ def section(test_id: str, desc: str, fn):
         )
 
 
+def status_code(url: str) -> int:
+    with urlopen(url, timeout=5) as response:
+        return response.status
+
+
+def row_by_id(page, benchmark_id: str):
+    return page.locator(
+        "xpath=//tbody[@id='benchmark-list']/tr["
+        "td[contains(concat(' ', normalize-space(@class), ' '), ' mono ') "
+        "and normalize-space()='" + benchmark_id + "']]"
+    )
+
+
 def main() -> int:
     # ---- static (non-browser) gates ----
     marker = '<script src="main.js" defer></script>'
@@ -226,40 +242,31 @@ def main() -> int:
             "T2", f"no {sink} usage in portal JS", re.search(sink, js_sources) is None
         )
 
-    # Published data receipts: sf.json URL4 specs and the scoreboard's
-    # livetruth dataset_url reference these at the site root — the deploy
-    # workflow must package them or the live URLs 404 (regression of
-    # 2026-06-11: a main deploy dropped the probe-branch-published copies).
     workflow_text = (ROOT / ".github" / "workflows" / "deploy-website.yml").read_text()
-    for artifact in (
-        "output_artifacts/eval_results/livetruth-latest.eval.jsonl",
-        "output_artifacts/eval_results/livetruth-masking.dataset.jsonl",
-    ):
-        check(
-            "T21",
-            f"deploy workflow publishes {Path(artifact).name}",
-            artifact in workflow_text,
-        )
-        check(
-            "T21", f"{Path(artifact).name} tracked in repo", (ROOT / artifact).is_file()
-        )
+    check(
+        "T21",
+        "Pages deploy no longer publishes portal",
+        "web/portal" not in workflow_text,
+    )
+    check(
+        "T21",
+        "Pages deploy no longer publishes JSONL artifacts",
+        "eval_results" not in workflow_text,
+    )
 
-    # GitHub Pages serves .jsonl as application/octet-stream (forced
-    # download) and custom MIME types are not configurable — .txt twins
-    # render inline in the browser.
-    for twin in (
-        "livetruth-latest.eval.jsonl.txt",
-        "livetruth-masking.dataset.jsonl.txt",
-    ):
-        check(
-            "T22",
-            f"deploy workflow publishes browser-viewable twin {twin}",
-            twin in workflow_text,
-        )
-
-    api_srv = ThreadingHTTPServer(("127.0.0.1", 0), StubApi)
-    api_port = api_srv.server_address[1]
-    threading.Thread(target=api_srv.serve_forever, daemon=True).start()
+    dockerfile_text = (ROOT / "apps" / "scoreboard" / "Dockerfile").read_text()
+    check(
+        "T22",
+        "scoreboard image packages public latest JSONL exactly",
+        "livetruth-latest.jsonl" in dockerfile_text
+        and "*.jsonl" not in dockerfile_text,
+    )
+    check(
+        "T22",
+        "scoreboard image packages public masking JSONL exactly",
+        "livetruth-masking.dataset.jsonl" in dockerfile_text
+        and "livetruth-latest.eval.jsonl" not in dockerfile_text,
+    )
 
     static_srv = ThreadingHTTPServer(
         ("127.0.0.1", 0), partial(QuietStatic, directory=str(PORTAL))
@@ -268,21 +275,31 @@ def main() -> int:
     threading.Thread(target=static_srv.serve_forever, daemon=True).start()
 
     base = f"http://127.0.0.1:{static_port}"
-    api = f"http://127.0.0.1:{api_port}"
+
+    check("T25", "root portal is public", status_code(base + "/") == 200)
+    check(
+        "T25",
+        "same-origin API remains public",
+        status_code(base + "/v1/benchmarks") == 200,
+    )
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
         ctx = browser.new_context(viewport={"width": 1280, "height": 900})
         ctx.grant_permissions(["clipboard-read", "clipboard-write"])
-        ctx.add_init_script(f"window.SCOREBOARD_API_BASE = {json.dumps(api)};")
         page = ctx.new_page()
         # Uncaught JS exceptions only — console "error" entries include the
         # deliberate 404 fetch exercised by the error-path test.
         page_errors: list[str] = []
         page.on("pageerror", lambda e: page_errors.append(str(e)))
+        check(
+            "T26",
+            "production smoke does not inject SCOREBOARD_API_BASE",
+            page.evaluate("() => window.SCOREBOARD_API_BASE === undefined"),
+        )
 
         pages = {
-            "index": f"{base}/index.html",
+            "index": f"{base}/",
             "benchmark": f"{base}/benchmark.html?id=livetruth",
             "spec": (
                 f"{base}/spec.html?benchmark=livetruth&spec=direct-google-gemini-3-1-pro-preview"
@@ -377,12 +394,17 @@ def main() -> int:
                 "index: uses wide branded content column",
                 page.locator(".wrap.wide").count() == 1,
             )
+            check(
+                "T7",
+                "index: install link points to marketing apex",
+                page.locator('a[href="https://screamingface.ai/"]').count() == 1,
+            )
             newest_text = page.locator("#stat-newest").text_content() or ""
             check(
                 "T7",
                 "index: benchmark stats rendered",
-                (page.locator("#stat-benchmarks").text_content() or "") == "2"
-                and (page.locator("#stat-datasets").text_content() or "") == "2"
+                (page.locator("#stat-benchmarks").text_content() or "") == "3"
+                and (page.locator("#stat-datasets").text_content() or "") == "3"
                 and re.search(
                     r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b",
                     newest_text,
@@ -394,10 +416,10 @@ def main() -> int:
             check(
                 "T7",
                 "index: one directory row per benchmark",
-                rows.count() == 2,
+                rows.count() == 3,
                 f"got {rows.count()}",
             )
-            rows.filter(has_text="News Livetruth").locator(
+            row_by_id(page, "livetruth").locator(
                 "a", has_text="Leaderboard"
             ).first.click()
             page.wait_for_url("**/benchmark.html?id=livetruth", timeout=8000)
@@ -422,7 +444,7 @@ def main() -> int:
             check(
                 "T24",
                 "index: all benchmark rows remain available",
-                rows.count() == 2,
+                rows.count() == 3,
                 f"got {rows.count()}",
             )
             check(
@@ -436,7 +458,7 @@ def main() -> int:
                     or ""
                 ),
             )
-            lt = rows.filter(has_text="News Livetruth")
+            lt = row_by_id(page, "livetruth")
             ds = lt.locator("a", has_text="Dataset").first
             check(
                 "T24",
@@ -444,6 +466,15 @@ def main() -> int:
                 (ds.get_attribute("href") or "")
                 == "data.html?file=livetruth-masking.dataset.jsonl",
                 ds.get_attribute("href") or "",
+            )
+            latest = row_by_id(page, "livetruth-latest")
+            latest_ds = latest.locator("a", has_text="Dataset").first
+            check(
+                "T24",
+                "index: latest dataset routes through viewer",
+                (latest_ds.get_attribute("href") or "")
+                == "data.html?file=livetruth-latest.jsonl",
+                latest_ds.get_attribute("href") or "",
             )
             hle = rows.filter(has_text="News Hallucinations")
             ext = hle.locator("a", has_text="Dataset").first
@@ -690,6 +721,11 @@ def main() -> int:
                 raw_href == "/fixture.dataset.jsonl",
                 raw_href,
             )
+            check(
+                "T23",
+                "viewer: raw jsonl label has no stray suffix spacing",
+                (page.locator("#data-raw").text_content() or "").strip() == "raw jsonl",
+            )
 
             page.goto(f"{base}/data.html?file=missing.jsonl")
             page.wait_for_selector(".state-error", timeout=8000)
@@ -750,7 +786,6 @@ def main() -> int:
 
         browser.close()
 
-    api_srv.shutdown()
     static_srv.shutdown()
 
     width = max(len(d) for _, d, _ in results)
