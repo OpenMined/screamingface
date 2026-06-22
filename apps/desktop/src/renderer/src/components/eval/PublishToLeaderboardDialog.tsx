@@ -1,10 +1,11 @@
 // apps/desktop/src/renderer/src/components/eval/PublishToLeaderboardDialog.tsx
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Upload, ExternalLink, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Url4Field } from '@/components/Url4Field';
 import { useToast } from '@/hooks/use-toast';
 import { usePublishScore } from '@/hooks/use-publish-score';
+import { useKnownBenchmarks } from '@/hooks/use-known-benchmarks';
 import {
   parseSpecName,
   deriveProviders,
@@ -12,6 +13,8 @@ import {
   sanitizeDataRefs,
 } from '@/lib/url4-redaction';
 import { publishBlockReason } from '@/lib/publish-guard';
+import { computeContentSignature, checkBenchmarkRegistration } from '@/lib/benchmark-identity';
+import { Combobox } from '@/components/ui/combobox';
 import type { EvalRunDetail } from './types';
 
 interface Props {
@@ -25,6 +28,27 @@ function formatPercent(accuracy: number | null): string {
   return `${(accuracy * 100).toFixed(1)}%`;
 }
 
+// Submitter name is remembered across publishes within a session so it doesn't
+// have to be re-typed each time. Matches the sessionStorage usage elsewhere in
+// the renderer (see federation/registry.ts for the localStorage analogue).
+const SUBMITTER_KEY = 'sf-leaderboard-submitter';
+
+function loadSubmitter(): string {
+  try {
+    return window.sessionStorage.getItem(SUBMITTER_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function saveSubmitter(name: string): void {
+  try {
+    window.sessionStorage.setItem(SUBMITTER_KEY, name);
+  } catch {
+    // sessionStorage unavailable — non-fatal, just skip persistence.
+  }
+}
+
 export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
   const { toast } = useToast();
   const { publish, status, error, result } = usePublishScore();
@@ -32,12 +56,26 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
   const parsed = useMemo(() => parseSpecName(run.spec_name), [run.spec_name]);
   const hasDataRefs = useMemo(() => hasLocalDataRefs(run.url4_expression), [run.url4_expression]);
 
-  const [benchmarkId, setBenchmarkId] = useState(parsed.benchmark_id ?? '');
+  // Manual benchmark selection (SF-309): blank default, registered list + free text.
+  const [benchmarkId, setBenchmarkId] = useState('');
+  // The content signature still travels with the publish as metadata so the
+  // scoreboard can later verify what actually ran — computed, never displayed.
+  const [signature, setSignature] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    void computeContentSignature(run).then((sig) => {
+      if (!cancelled) setSignature(sig);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [run]);
+
   const [specId, setSpecId] = useState(parsed.spec_id);
   const [providersText, setProvidersText] = useState(
     deriveProviders(run.url4_expression).join(', '),
   );
-  const [submittedBy, setSubmittedBy] = useState('');
+  const [submittedBy, setSubmittedBy] = useState(loadSubmitter);
   // Redaction choices: only relevant when the expression references /data blobs.
   const [sanitize, setSanitize] = useState(hasDataRefs);
   const [ackExpose, setAckExpose] = useState(false);
@@ -58,16 +96,45 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
     () => publishBlockReason({ run, url4Expression: expressionToPublish }),
     [run, expressionToPublish],
   );
-  // Block publish until: run is publishable, benchmark known, and any /data refs
-  // are either sanitized or explicitly acknowledged as exposing local data.
+  // Pre-flight: is the derived benchmark id actually registered on the
+  // scoreboard? Publish hard-404s unknown ids, so warn early. While the registry
+  // is loading or unreachable we pass null → 'unavailable' → no warning (never a
+  // false negative). This is advisory only — it does NOT gate canPublish, since a
+  // brand-new benchmark is legitimately unknown until the scoreboard owner adds it.
+  const { benchmarks: knownBenchmarks, loading: benchmarksLoading } = useKnownBenchmarks();
+  const benchmarkOptions = useMemo(
+    () => (knownBenchmarks ?? []).map((b) => ({ value: b.id, label: b.displayName })),
+    [knownBenchmarks],
+  );
+  // Advisory registry check on the CURRENT field value (not a derived id).
+  const registryCheck = useMemo(
+    () =>
+      checkBenchmarkRegistration(
+        benchmarkId.trim(),
+        benchmarksLoading ? null : (knownBenchmarks?.map((b) => b.id) ?? null),
+      ),
+    [benchmarkId, knownBenchmarks, benchmarksLoading],
+  );
+  // Block publish until: run is publishable, a benchmark is chosen, the content
+  // signature has been computed (so it always ships as metadata — never an empty
+  // hash; also blocks a run with no content to sign), and any /data refs are
+  // either sanitized or explicitly acknowledged.
   const redactionResolved = !hasDataRefs || sanitize || ackExpose;
   const canPublish =
-    !blockReason && benchmarkId.trim().length > 0 && specId.trim().length > 0 && redactionResolved;
+    !blockReason &&
+    benchmarkId.trim().length > 0 &&
+    signature.length > 0 &&
+    specId.trim().length > 0 &&
+    redactionResolved;
 
   const handlePublish = async (): Promise<void> => {
+    // Remember the entered name for subsequent publishes this session, whether
+    // or not the round-trip ultimately succeeds.
+    saveSubmitter(submittedBy.trim());
     const out = await publish({
       run,
       benchmarkId: benchmarkId.trim(),
+      benchmarkSignature: signature,
       specId: specId.trim(),
       url4Expression: expressionToPublish,
       providers,
@@ -142,7 +209,12 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                   URL4 expression {sanitize && hasDataRefs ? '(sanitized)' : ''}
                 </span>
                 <div className="rounded bg-muted/30 px-3 py-2">
-                  <Url4Field value={expressionToPublish} serverUrl={serverUrl} readOnly />
+                  <Url4Field
+                    value={expressionToPublish}
+                    serverUrl={serverUrl}
+                    readOnly
+                    maxContentHeight={null}
+                  />
                 </div>
                 {hasDataRefs && (
                   <div className="mt-2 rounded border border-chart-5/40 bg-chart-5/10 px-3 py-2 text-xs">
@@ -176,19 +248,43 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                 )}
               </div>
 
-              {/* benchmark / spec ids */}
+              {/* benchmark (manual selection) + spec id */}
               <div className="grid grid-cols-2 gap-3">
-                <label className="block">
+                <div className="block">
                   <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Benchmark ID <span className="text-destructive">*</span>
+                    Benchmark <span className="text-destructive">*</span>
                   </span>
-                  <input
-                    className="w-full rounded-none border border-border bg-background px-3 py-2 text-sm"
+                  <Combobox
                     value={benchmarkId}
-                    placeholder="e.g. hle"
-                    onChange={(e) => setBenchmarkId(e.target.value)}
+                    onChange={setBenchmarkId}
+                    options={benchmarkOptions}
+                    placeholder="Select a benchmark"
+                    aria-label="Benchmark"
                   />
-                </label>
+                  {registryCheck.status === 'registered' && (
+                    <p className="mt-1 flex items-center gap-1 text-[11px] text-gain">
+                      <CheckCircle2 className="h-3 w-3 shrink-0" />
+                      Registered benchmark
+                    </p>
+                  )}
+                  {registryCheck.status === 'unknown' && (
+                    <p className="mt-1 flex items-start gap-1 text-[11px] leading-relaxed text-destructive">
+                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                      <span>
+                        Not a registered scoreboard benchmark — publishing will fail until the
+                        scoreboard owner registers{' '}
+                        <code className="font-mono">{benchmarkId.trim()}</code>.
+                        {registryCheck.suggestion && (
+                          <>
+                            {' '}
+                            Did you mean{' '}
+                            <code className="font-mono">{registryCheck.suggestion}</code>?
+                          </>
+                        )}
+                      </span>
+                    </p>
+                  )}
+                </div>
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-muted-foreground">
                     Spec ID <span className="text-destructive">*</span>

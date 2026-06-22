@@ -16,6 +16,7 @@ import { submitScore } from '../publish-score';
 
 const REQUEST: PublishScoreRequest = {
   benchmarkId: 'hle',
+  benchmarkSignature: 'a'.repeat(64),
   specId: 'hle-ensemble-three',
   url4Expression: 'url4://ensemble(claude,codex,gemini)/hle',
   providers: ['claude', 'codex', 'gemini'],
@@ -75,6 +76,8 @@ describe('submitScore (main process)', () => {
     expect(body.ran_with_providers).toEqual(['claude', 'codex', 'gemini']);
     expect(body.submitted_by).toBeNull();
     expect(body.ran_at_local).toBe('2026-05-04T11:55:00Z');
+    // SF-300: content signature carried as free-form metadata for server-side verification.
+    expect(body.metadata).toEqual({ benchmark_signature: 'a'.repeat(64), signature_alg: 'sha256' });
 
     expect(outcome).toEqual({
       ok: true,
@@ -86,6 +89,16 @@ describe('submitScore (main process)', () => {
           'https://screamingface.ai/portal/spec.html?benchmark=hle&spec=hle-ensemble-three',
       },
     });
+  });
+
+  it('sends metadata=null when there is no benchmark signature', async () => {
+    const fetchMock = vi.fn(async () => okResponse());
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await submitScore({ ...REQUEST, benchmarkSignature: '' });
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.metadata).toBeNull();
   });
 
   it('recomputes accuracy from totals (ignores any drift)', async () => {

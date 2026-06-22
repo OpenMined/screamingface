@@ -10,6 +10,7 @@ import Editor, { type OnMount } from '@monaco-editor/react';
 // Side-effect: bundle Monaco (no CDN) before it mounts.
 import '@/lib/monaco-setup';
 import { registerUrl4Language, setUrl4SpecNames } from '@/lib/url4-language';
+import { clampEditorHeight } from '@/lib/editor-height';
 
 interface Props {
   value: string;
@@ -17,6 +18,7 @@ interface Props {
   readOnly?: boolean;
   serverUrl: string;
   className?: string;
+  maxContentHeight?: number | null;
 }
 
 export default function Url4MonacoEditor({
@@ -25,6 +27,7 @@ export default function Url4MonacoEditor({
   readOnly,
   serverUrl,
   className,
+  maxContentHeight = 360,
 }: Props) {
   const ro = readOnly ?? onChange === undefined;
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -36,7 +39,7 @@ export default function Url4MonacoEditor({
 
     // Auto-grow to fit content (capped) so it reads like a highlighted block.
     const applyHeight = (): void => {
-      const h = Math.min(Math.max(editor.getContentHeight(), 28), 360);
+      const h = clampEditorHeight(editor.getContentHeight(), maxContentHeight);
       if (wrapRef.current) wrapRef.current.style.height = `${h}px`;
       editor.layout();
     };
@@ -90,7 +93,11 @@ export default function Url4MonacoEditor({
           renderLineHighlight: 'none',
           overviewRulerLanes: 0,
           hideCursorInOverviewRuler: true,
-          scrollbar: { horizontalScrollbarSize: 0, verticalScrollbarSize: 8 },
+          scrollbar: {
+            horizontalScrollbarSize: 0,
+            verticalScrollbarSize: 8,
+            alwaysConsumeMouseWheel: false,
+          },
           automaticLayout: true,
           contextmenu: !ro,
           fixedOverflowWidgets: true,

@@ -34,9 +34,9 @@ interface NavItem {
 
 const coreItems: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'url4-studio', label: 'URL4 Studio', icon: Workflow },
   { id: 'sessions', label: 'Sessions', icon: Terminal },
   { id: 'eval-studio', label: 'Eval Studio', icon: FlaskConical },
-  { id: 'url4-studio', label: 'URL4 Studio', icon: Workflow },
   { id: 'code-studio', label: 'Code Studio', icon: FileCode2 },
   { id: 'private-data', label: 'Private Data', icon: FileText },
 ];
