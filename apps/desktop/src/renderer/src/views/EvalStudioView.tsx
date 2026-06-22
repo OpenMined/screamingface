@@ -79,6 +79,11 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
     setSelectedRunId((current) => (current === id ? null : current));
   }, []);
 
+  // Clear the right panel if a bulk delete removed the selected run.
+  const handleBulkDeleted = useCallback((deletedIds: string[]): void => {
+    setSelectedRunId((current) => (current && deletedIds.includes(current) ? null : current));
+  }, []);
+
   // Consume a deep-linked pending run exactly once.
   const handledPendingRef = useRef<RunPayload | null>(null);
   useEffect(() => {
@@ -178,6 +183,7 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
               selectedId={selectedRunId}
               onSelect={setSelectedRunId}
               onRunLocally={runAndSelect}
+              onBulkDeleted={handleBulkDeleted}
             />
           </div>
         </ResizablePanel>
