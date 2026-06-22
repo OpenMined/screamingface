@@ -15,6 +15,8 @@ interface Url4FieldProps {
   readOnly?: boolean;
   serverUrl: string;
   className?: string;
+  /** Upper bound for the editor's auto-grow height; null = grow to full content (no inner scrollbar). Defaults to 360. */
+  maxContentHeight?: number | null;
 }
 
 export function Url4Field(props: Url4FieldProps) {

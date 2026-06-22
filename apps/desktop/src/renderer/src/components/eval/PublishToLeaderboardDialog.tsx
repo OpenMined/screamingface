@@ -203,7 +203,12 @@ export function PublishToLeaderboardDialog({ run, serverUrl, onClose }: Props) {
                   URL4 expression {sanitize && hasDataRefs ? '(sanitized)' : ''}
                 </span>
                 <div className="rounded bg-muted/30 px-3 py-2">
-                  <Url4Field value={expressionToPublish} serverUrl={serverUrl} readOnly />
+                  <Url4Field
+                    value={expressionToPublish}
+                    serverUrl={serverUrl}
+                    readOnly
+                    maxContentHeight={null}
+                  />
                 </div>
                 {hasDataRefs && (
                   <div className="mt-2 rounded border border-chart-5/40 bg-chart-5/10 px-3 py-2 text-xs">
