@@ -34,21 +34,23 @@ const rows: EvalRunSummary[] = [
   },
 ];
 
-const { refresh, toggleFavorite } = vi.hoisted(() => ({
+const { refresh, toggleFavorite, deleteRun } = vi.hoisted(() => ({
   refresh: vi.fn(),
   toggleFavorite: vi.fn().mockResolvedValue(true),
+  deleteRun: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('@/hooks/use-eval-runs', () => ({
   useEvalRunsList: () => ({ data: rows, loading: false, error: null, refresh }),
 }));
 vi.mock('@/hooks/use-eval-run-actions', () => ({
-  useEvalRunActions: () => ({ toggleFavorite }),
+  useEvalRunActions: () => ({ toggleFavorite, deleteRun }),
 }));
 
 beforeEach(() => {
   refresh.mockClear();
   toggleFavorite.mockClear();
+  deleteRun.mockClear();
 });
 afterEach(cleanup);
 
@@ -97,7 +99,47 @@ it('toggles favorite on the un-favorited row', async () => {
   expect(refresh).toHaveBeenCalled();
 });
 
-it('has no delete control in the list (delete lives in the detail panel)', () => {
+it('has no per-row delete control in the list (single delete lives in the detail panel)', () => {
   render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={vi.fn()} />);
   expect(screen.queryByRole('button', { name: /delete run/i })).toBeNull();
+});
+
+it('clears all runs after confirmation, deleting every run then refreshing', async () => {
+  const onBulkDeleted = vi.fn();
+  render(
+    <EvalRunsList
+      selectedId={null}
+      onSelect={vi.fn()}
+      onRunLocally={vi.fn()}
+      onBulkDeleted={onBulkDeleted}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /clear all/i }));
+  // Guard dialog appears; nothing deleted until confirmed.
+  expect(screen.getByRole('alertdialog')).toBeTruthy();
+  expect(deleteRun).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+  await waitFor(() => expect(deleteRun).toHaveBeenCalledTimes(2));
+  expect(deleteRun).toHaveBeenCalledWith('r1');
+  expect(deleteRun).toHaveBeenCalledWith('r2');
+  expect(onBulkDeleted).toHaveBeenCalledWith(['r1', 'r2']);
+  expect(refresh).toHaveBeenCalled();
+});
+
+it('clears only non-starred runs, keeping favorites', async () => {
+  render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: /clear non-starred/i }));
+  fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
+  await waitFor(() => expect(deleteRun).toHaveBeenCalledTimes(1));
+  // r1 is non-starred, r2 is favorite — only r1 is removed.
+  expect(deleteRun).toHaveBeenCalledWith('r1');
+  expect(deleteRun).not.toHaveBeenCalledWith('r2');
+});
+
+it('cancelling the confirm dialog deletes nothing', () => {
+  render(<EvalRunsList selectedId={null} onSelect={vi.fn()} onRunLocally={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: /clear all/i }));
+  fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+  expect(deleteRun).not.toHaveBeenCalled();
+  expect(screen.queryByRole('alertdialog')).toBeNull();
 });
