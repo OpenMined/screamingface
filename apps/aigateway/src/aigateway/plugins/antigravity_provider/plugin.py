@@ -1,3 +1,11 @@
+"""Antigravity provider plugin.
+
+Wires provider discovery, model seed, loopback OAuth config, the OAuth
+strategy / authorization-code exchange (Unit 3), and LiteLLM registration under
+provider="antigravity". The chat transport (Unit 4) is added next; its hook is
+declared here so the contract is stable.
+"""
+
 from __future__ import annotations
 
 import math
@@ -7,7 +15,6 @@ from fastapi import HTTPException
 from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
-from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.google_code_assist import (
     account_label_from_credentials,
     extract_account_identity,
@@ -21,37 +28,21 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 
-from .auth import (
+from .auth import AntigravityOAuth, exchange_authorization_code
+from .chat_handler import (
     CLIENT_AUTH_HEADER_NAMES,
-    GeminiOAuth,
-    credential_service_for,
-    exchange_authorization_code,
+    AntigravityCustomLLM,
+    ensure_litellm_antigravity_provider_registered,
+    get_litellm_antigravity_handler,
 )
-from .chat_handler import ensure_litellm_gemini_provider_registered, get_litellm_gemini_handler
 from .models import MODELS
-from .oauth_config import (
-    GEMINI_AUTHORIZE_EXTRA_PARAMS,
-    GEMINI_AUTHORIZE_URL,
-    GEMINI_CLIENT_ID,
-    GEMINI_REDIRECT_PATH,
-    GEMINI_SCOPES,
-    GEMINI_TOKEN_URL,
-)
+from .settings import AntigravityPluginSettings
 
 if TYPE_CHECKING:
     from aigateway.core.credential_blob.store import CredentialBlobStore
 
 
-_CLIENT_AUTH_HEADER_NAMES = CLIENT_AUTH_HEADER_NAMES
-
-
 def _retry_after_header(exc: CustomLLMError) -> dict[str, str]:
-    """Surface the provider's reset window as a Retry-After header.
-
-    ``_error_from_response`` stashes the parsed delay on ``exc.retry_after``;
-    promoting it to a header lets the gateway's retry loop honor the *real*
-    window instead of guessing via exponential backoff.
-    """
     seconds = getattr(exc, "retry_after", None)
     if seconds is None:
         return {}
@@ -70,24 +61,33 @@ def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
     return {"code": code, "message": exc.message}
 
 
-class GeminiProviderPlugin(ProviderPluginBase):
-    custom_llm_provider = "gemini-cli"
+class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
+    custom_llm_provider = "antigravity"
+    settings_cls = AntigravityPluginSettings
 
     def credential_service_provider(self) -> str:
-        return "gemini"
+        return "antigravity"
 
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(
-            authorize_url=GEMINI_AUTHORIZE_URL,
-            token_url=GEMINI_TOKEN_URL,
-            client_id=GEMINI_CLIENT_ID,
-            scopes=GEMINI_SCOPES,
-            redirect_path=GEMINI_REDIRECT_PATH,
-            extra_authorize_params=GEMINI_AUTHORIZE_EXTRA_PARAMS,
+            authorize_url=self.settings.authorize_url,
+            token_url=self.settings.token_url,
+            client_id=self.settings.client_id,
+            scopes=list(self.settings.scopes),
+            redirect_path=self.settings.redirect_path,
+            extra_authorize_params=dict(self.settings.authorize_extra_params),
         )
+
+    def _client_secret(self) -> str | None:
+        # GATE-2 Option B: the public installed-app secret is env-sourced
+        # (AIGW_ANTIGRAVITY_CLIENT_SECRET). Read the raw value only here, at the
+        # point it is passed into the token POST; auth.py raises an actionable
+        # error if it is absent.
+        secret = self.settings.client_secret
+        return secret.get_secret_value() if secret is not None else None
 
     def oauth_strategy_for(
         self,
@@ -96,31 +96,11 @@ class GeminiProviderPlugin(ProviderPluginBase):
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy:
-        return GeminiOAuth(
+        return AntigravityOAuth(
             profile_name=profile_name,
+            client_secret=self._client_secret(),
             credential_store=credential_store,
             http_client_factory=http_client_factory,
-        )
-
-    def supports_api_key(self) -> bool:
-        return True
-
-    def api_key_strategy_for(
-        self,
-        profile_name: str,
-        *,
-        credential_store: CredentialBlobStore | None = None,
-    ) -> CredentialStrategy:
-        # The injected x-goog-api-key rides extra_headers into the custom
-        # handler (caller-supplied copies are stripped in prepare_chat_body
-        # BEFORE the gateway merges strategy headers, so only the gateway-owned
-        # key survives) and selects the generativelanguage API-key path there.
-        return ApiKeyStrategy(
-            profile_name,
-            service=credential_service_for(profile_name),
-            account="default",
-            header_builder=lambda api_key: {"x-goog-api-key": api_key},
-            credential_store=credential_store,
         )
 
     async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict[str, Any]:
@@ -128,6 +108,7 @@ class GeminiProviderPlugin(ProviderPluginBase):
             request.code,
             request.code_verifier,
             redirect_uri=request.redirect_uri,
+            client_secret=self._client_secret(),
             http_client_factory=request.http_client_factory,
         )
 
@@ -153,32 +134,38 @@ class GeminiProviderPlugin(ProviderPluginBase):
             raw=identity.as_dict(),
         )
 
+    def supports_api_key(self) -> bool:
+        # No Antigravity API-key path; OAuth-only for v1.
+        return False
+
     def allows_chatless_profile(self) -> bool:
-        return True
+        return False
 
     def supports_chat_streaming(self) -> bool:
+        # Upstream SSE is aggregated into a non-streaming response in v1.
         return False
 
     def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
         return status_code in (401, 403)
 
     def invalidate_profile_session(self, profile_name: str) -> None:
-        get_litellm_gemini_handler().invalidate_session(profile_name)
+        get_litellm_antigravity_handler().invalidate_session(profile_name)
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        # Layer 1 of the two-layer caller-auth strip (findings U4): drop
+        # gateway-owned headers a caller tried to supply, BEFORE the gateway
+        # merges the OAuth strategy's headers. The chat handler re-filters the
+        # same superset on the upstream forward (layer 2).
         out = dict(body)
-        # API-key fallback is gateway-owned via environment, not caller-supplied per request.
-        out.pop("api_key", None)
         extra_headers = out.get("extra_headers")
         if isinstance(extra_headers, dict):
             out["extra_headers"] = {
                 key: value
                 for key, value in extra_headers.items()
-                if isinstance(key, str) and key.lower() not in _CLIENT_AUTH_HEADER_NAMES
+                if isinstance(key, str) and key.lower() not in CLIENT_AUTH_HEADER_NAMES
             }
         elif "extra_headers" in out:
-            # A non-dict value would crash the handler downstream on the
-            # chatless path (SF-244 audit F06); drop it like ollama does.
+            # A non-dict value would crash the handler downstream; drop it.
             out.pop("extra_headers", None)
         return out
 
@@ -189,7 +176,7 @@ class GeminiProviderPlugin(ProviderPluginBase):
             if key not in {"model", "messages", "api_key", "extra_headers", "timeout"}
         }
         try:
-            return await get_litellm_gemini_handler().acompletion(
+            return await get_litellm_antigravity_handler().acompletion(
                 model=body["model"],
                 messages=body["messages"],
                 api_base=None,
@@ -211,6 +198,10 @@ class GeminiProviderPlugin(ProviderPluginBase):
             ) from exc
 
 
-ensure_litellm_gemini_provider_registered()
+# Register a handler bound to this plugin's settings so the Code Assist hosts,
+# user agent, and api version come from configuration rather than defaults.
+ensure_litellm_antigravity_provider_registered(
+    AntigravityCustomLLM(settings=AntigravityPluginSettings())
+)
 
-PLUGIN = GeminiProviderPlugin()
+PLUGIN = AntigravityProviderPlugin()

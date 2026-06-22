@@ -1,3 +1,20 @@
+"""Antigravity OAuth strategy + authorization-code exchange.
+
+Mirrors GeminiOAuth (same Google Code Assist token contract) but with the
+Antigravity installed-app client/secret/token-url and the "antigravity"
+credential namespace (U11 — the same namespace string the connection locator
+uses via credential_service_provider()). Token normalization and identity
+extraction reuse the core Google Code Assist helpers (findings U5), so there is
+no plugin-to-plugin import.
+
+Secret policy (GATE-2 Option B): the public installed-app client secret is
+required at exchange/refresh time and passed in by the plugin from the
+env-sourced ``AIGW_ANTIGRAVITY_CLIENT_SECRET`` (never committed). A missing
+secret raises a specific, actionable error. Exchange AND refresh errors are
+status-only (U7): we never echo the upstream token-endpoint response body,
+which could carry other grant material.
+"""
+
 from __future__ import annotations
 
 import json
@@ -13,53 +30,48 @@ from aigateway.core.errors import (
     ReauthRequiredError,
     is_reauth_refresh_failure,
 )
-
-# Same-contract Google Code Assist token/identity helpers were extracted to
-# aigateway.core.google_code_assist (findings U5) so a second Google provider
-# (antigravity) can reuse them without a plugin-to-plugin import. Imported here
-# only for this module's own use; gemini's other callers import them from core
-# directly (no plugin-level re-export).
 from aigateway.core.google_code_assist import (
     extract_account_identity,
     normalize_token_response,
 )
 from aigateway.core.oauth_base import BaseOAuthStrategy
 
-from .oauth_config import GEMINI_CLIENT_ID, GEMINI_CLIENT_SECRET, GEMINI_TOKEN_URL
+from .settings import ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_TOKEN_URL
 
 _ACCOUNT = "default"
-GEMINI_PROFILE_HEADER = "X-AIGW-Gemini-Profile"
-GEMINI_USER_AGENT = "GeminiCLI/0.42.0/gemini-2.5-flash (aigateway)"
+ANTIGRAVITY_PROFILE_HEADER = "X-AIGW-Antigravity-Profile"
+ANTIGRAVITY_USER_AGENT = "Antigravity/1.0.10 (aigateway)"
 
-# Single source of truth for headers the gateway owns: stripped from caller
-# bodies in prepare_chat_body AND filtered from upstream forwards in the chat
-# handler. The gateway-owned x-goog-api-key invariant depends on this set
-# being shared, not duplicated (SF-244 audit F23).
-CLIENT_AUTH_HEADER_NAMES = frozenset(
-    {
-        "authorization",
-        "content-type",
-        "x-aigw-gemini-profile",
-        "x-goog-api-key",
-        "x-goog-user-project",
-    }
+# Actionable message when the env-sourced installed-app secret is absent. Names
+# the env var so onboarding knows exactly what to set; never echoes a value.
+_MISSING_SECRET_MESSAGE = (
+    "Antigravity OAuth requires the installed-app client secret. "
+    "Set AIGW_ANTIGRAVITY_CLIENT_SECRET in the AIGateway environment."
 )
 
 
 def credential_service_for(profile_name: str) -> str:
-    return f"aigateway:gemini:{profile_name}"
+    return f"aigateway:antigravity:{profile_name}"
 
 
-class GeminiOAuth(BaseOAuthStrategy):
+def _require_secret(client_secret: str | None) -> str:
+    if not client_secret:
+        raise AuthError(_MISSING_SECRET_MESSAGE)
+    return client_secret
+
+
+class AntigravityOAuth(BaseOAuthStrategy):
     def __init__(
         self,
         profile_name: str,
         *,
+        client_secret: str | None,
         credential_store: CredentialBlobStore | None = None,
         account: str | None = None,
         http_client_factory=None,
     ) -> None:
         super().__init__(profile_name=profile_name)
+        self._client_secret = client_secret
         self._store = credential_store or ORMStore()
         self._account = account if account is not None else _ACCOUNT
         self._http_factory = http_client_factory or (
@@ -76,7 +88,8 @@ class GeminiOAuth(BaseOAuthStrategy):
         raw = await self._store.read(self.credential_service(), self.credential_account())
         if raw is None:
             raise CredentialNotFoundError(
-                f"No tokens for gemini profile {self.profile_name!r}. Re-authenticate via Electron."
+                f"No tokens for antigravity profile {self.profile_name!r}. "
+                "Re-authenticate via Electron."
             )
         try:
             loaded = json.loads(raw)
@@ -97,21 +110,21 @@ class GeminiOAuth(BaseOAuthStrategy):
     def _build_headers(self, creds: dict[str, Any]) -> dict[str, str]:
         return {
             "Authorization": f"Bearer {creds['access_token']}",
-            "User-Agent": GEMINI_USER_AGENT,
-            GEMINI_PROFILE_HEADER: self.profile_name,
+            "User-Agent": ANTIGRAVITY_USER_AGENT,
+            ANTIGRAVITY_PROFILE_HEADER: self.profile_name,
         }
 
     async def _refresh_credential(self, creds: dict[str, Any]) -> dict[str, Any]:
         body = {
             "grant_type": "refresh_token",
             "refresh_token": creds["refresh_token"],
-            "client_id": GEMINI_CLIENT_ID,
-            "client_secret": GEMINI_CLIENT_SECRET,
+            "client_id": ANTIGRAVITY_CLIENT_ID,
+            "client_secret": _require_secret(self._client_secret),
         }
         try:
             async with self._http_factory() as client:
                 resp = await client.post(
-                    GEMINI_TOKEN_URL,
+                    ANTIGRAVITY_TOKEN_URL,
                     data=body,
                     headers={"content-type": "application/x-www-form-urlencoded"},
                 )
@@ -124,15 +137,14 @@ class GeminiOAuth(BaseOAuthStrategy):
                     f"Refresh token rejected for profile {self.profile_name!r} "
                     f"(HTTP {resp.status_code}). Re-auth required."
                 )
-            raise AuthError(
-                f"Google OAuth refresh failed status {resp.status_code}: {resp.text[:500]}"
-            )
+            # Status-only (U7): never echo the upstream body.
+            raise AuthError(f"Antigravity OAuth refresh failed (HTTP {resp.status_code})")
         try:
             data = resp.json()
         except json.JSONDecodeError as exc:
-            raise AuthError(f"Google OAuth refresh response not JSON: {exc}") from exc
+            raise AuthError(f"Antigravity OAuth refresh response not JSON: {exc}") from exc
         if not isinstance(data, dict):
-            raise AuthError("Google OAuth refresh response is not a JSON object")
+            raise AuthError("Antigravity OAuth refresh response is not a JSON object")
 
         refreshed = normalize_token_response(data, creds)
         await self._write_to_store(refreshed)
@@ -149,35 +161,38 @@ async def exchange_authorization_code(
     code_verifier: str,
     *,
     redirect_uri: str,
+    client_secret: str | None,
     http_client_factory=None,
 ) -> dict[str, Any]:
+    secret = _require_secret(client_secret)
     factory = http_client_factory or (lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0)))
     body = {
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": redirect_uri,
-        "client_id": GEMINI_CLIENT_ID,
-        "client_secret": GEMINI_CLIENT_SECRET,
+        "client_id": ANTIGRAVITY_CLIENT_ID,
+        "client_secret": secret,
         "code_verifier": code_verifier,
     }
     try:
         async with factory() as client:
             resp = await client.post(
-                GEMINI_TOKEN_URL,
+                ANTIGRAVITY_TOKEN_URL,
                 data=body,
                 headers={"content-type": "application/x-www-form-urlencoded"},
             )
     except httpx.RequestError as exc:
-        raise AuthError(f"Google authorization code exchange unreachable: {exc}") from exc
+        raise AuthError(f"Antigravity authorization code exchange unreachable: {exc}") from exc
 
     if resp.status_code != 200:
-        raise AuthError(f"Google authorization code exchange failed (HTTP {resp.status_code})")
+        # Status-only (U7).
+        raise AuthError(f"Antigravity authorization code exchange failed (HTTP {resp.status_code})")
     try:
         data = resp.json()
     except json.JSONDecodeError as exc:
-        raise AuthError(f"Google authorization code response not JSON: {exc}") from exc
+        raise AuthError(f"Antigravity authorization code response not JSON: {exc}") from exc
     if not isinstance(data, dict):
-        raise AuthError("Google authorization code response is not a JSON object")
+        raise AuthError("Antigravity authorization code response is not a JSON object")
 
     creds = normalize_token_response(data)
     identity = await extract_account_identity(creds, http_client_factory=http_client_factory)

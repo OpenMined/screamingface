@@ -21,6 +21,7 @@
     "python-runner",
     "aigw-codex-backend",
     "aigw-gemini-backend",
+    "aigw-antigravity-backend",
     "ollama-backend-api",
     "gemini-frontend",
     "ollama-frontend",
@@ -113,6 +114,39 @@
         }
       },
       "default_profile": "default"
+    },
+    "aigw-antigravity-backend": {
+      "default_model": "antigravity/gemini-3.5-flash",
+      "default_effort": "medium",
+      "interpreter_system_prompt": "You are a helpful assistant. Answer the user's question based only on the provided context. Be concise and factual.",
+      "timeout_seconds": 600,
+      "auth_profile": "default",
+      "max_budget_usd": null,
+      "permission_mode": null,
+      "dangerously_skip_permissions": false,
+      "profiles": {
+        "default": {
+          "context": null,
+          "system_prompt": null,
+          "append_system_prompt": null,
+          "model": null,
+          "output_format": null,
+          "max_budget_usd": null,
+          "effort": null,
+          "tools": null,
+          "allowed_tools": null,
+          "disallowed_tools": null,
+          "mcp_config": null,
+          "permission_mode": null,
+          "add_dirs": null,
+          "fallback_model": null,
+          "dangerously_skip_permissions": false,
+          "no_session_persistence": true,
+          "timeout_seconds": null
+        }
+      },
+      "default_profile": "default",
+      "gateway_url": "http://127.0.0.1:9105"
     },
     "aigw-claude-backend": {
       "gateway_url": "http://127.0.0.1:9105",

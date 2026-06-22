@@ -1,9 +1,20 @@
 const BACKEND_NAME_RE = /^[a-z0-9-]+$/;
 const OAUTH_CONNECTION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Pinned Google OAuth installed-app client_ids (public identifiers, not
+// secrets). The gateway constructs the authorize URL from its configured
+// client_id, so the only legitimate values on the Google loopback policy are
+// these two — pinning them to exact-equality closes the pre-existing
+// presence-only hole (findings U17). Gemini: 681255809395-…; Antigravity:
+// 1071006060591-….
+const GOOGLE_CLIENT_IDS = new Set<string>([
+  '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com',
+  '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com',
+]);
+
 const OAUTH_AUTHORIZE_POLICIES = new Map<
   string,
-  { authorizePath: string; redirectPath: string; ports: Set<string> }
+  { authorizePath: string; redirectPath: string; ports: Set<string>; clientIds?: Set<string> }
 >([
   [
     'auth.openai.com',
@@ -35,6 +46,7 @@ const OAUTH_AUTHORIZE_POLICIES = new Map<
       authorizePath: '/o/oauth2/v2/auth',
       redirectPath: '/oauth2callback',
       ports: new Set(['9105']),
+      clientIds: GOOGLE_CLIENT_IDS,
     },
   ],
 ]);
@@ -57,6 +69,17 @@ export function isSafeOAuthConnectionId(connectionId: string): boolean {
   return OAUTH_CONNECTION_ID_RE.test(connectionId);
 }
 
+// Policies that pin client_ids (Google) require exact-equality; policies
+// without a pinned set keep presence-only (their client_id is not
+// security-load-bearing on the loopback shape). Findings U17.
+function isPinnedClientIdSatisfied(
+  clientIds: Set<string> | undefined,
+  clientId: string | null,
+): boolean {
+  if (!clientIds) return true;
+  return clientId !== null && clientIds.has(clientId);
+}
+
 export function isAllowedOAuthAuthorizeUrl(
   urlString: string,
   options?: OAuthAuthorizeOptions,
@@ -70,6 +93,7 @@ export function isAllowedOAuthAuthorizeUrl(
   const params = url.searchParams;
   if (!hasSingleParam(params, 'response_type', 'code')) return false;
   if (!hasSingleParam(params, 'client_id')) return false;
+  if (!isPinnedClientIdSatisfied(policy.clientIds, params.get('client_id'))) return false;
   if (!hasSingleParam(params, 'redirect_uri')) return false;
   if (!hasSingleParam(params, 'scope')) return false;
   if (!hasSingleParam(params, 'state')) return false;

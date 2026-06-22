@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import inspect
 import json
 import time
@@ -15,10 +14,8 @@ from aigateway.plugins.gemini_provider import auth as gemini_auth_module
 from aigateway.plugins.gemini_provider.auth import (
     GEMINI_PROFILE_HEADER,
     GeminiOAuth,
-    account_label_from_credentials,
     credential_service_for,
     exchange_authorization_code,
-    extract_account_identity,
 )
 from aigateway.plugins.gemini_provider.oauth_config import (
     GEMINI_CLIENT_ID,
@@ -41,14 +38,6 @@ class _FakeStore:
 
     async def delete(self, service: str, account: str) -> None:
         self.payload = None
-
-
-def _jwt(payload: dict[str, Any]) -> str:
-    def encode(value: dict[str, Any] | bytes) -> str:
-        raw = value if isinstance(value, bytes) else json.dumps(value).encode()
-        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
-
-    return f"{encode({'alg': 'none', 'typ': 'JWT'})}.{encode(payload)}.{encode(b'sig')}"
 
 
 def _creds(**extra: Any) -> dict[str, Any]:
@@ -195,74 +184,7 @@ async def test_exchange_authorization_code_uses_google_form_body() -> None:
     assert creds["refresh_token"] == "refresh-2"
 
 
-@pytest.mark.asyncio
-async def test_identity_prefers_id_token_claims() -> None:
-    identity = await extract_account_identity(
-        {
-            "access_token": "unused",
-            "id_token": _jwt({"email": "gemini@example.com", "name": "Gemini User"}),
-        }
-    )
-
-    assert identity is not None
-    assert identity.email == "gemini@example.com"
-    assert identity.name == "Gemini User"
-
-
-@pytest.mark.asyncio
-async def test_identity_uses_userinfo_when_id_token_has_no_email() -> None:
-    captured: dict[str, Any] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["authorization"] = request.headers["authorization"]
-        return httpx.Response(200, json={"sub": "sub-1", "name": "Google User"})
-
-    identity = await extract_account_identity(
-        {"access_token": "ya29.userinfo", "id_token": _jwt({"aud": "client"})},
-        http_client_factory=_http_factory(httpx.MockTransport(handler)),
-    )
-
-    assert captured["authorization"] == "Bearer ya29.userinfo"
-    assert identity is not None
-    assert identity.email is None
-    assert identity.name == "Google User"
-    assert identity.subject == "sub-1"
-
-
-@pytest.mark.asyncio
-async def test_identity_returns_none_on_userinfo_401() -> None:
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, json={"error": "invalid_token"})
-
-    identity = await extract_account_identity(
-        {"access_token": "bad-token"},
-        http_client_factory=_http_factory(httpx.MockTransport(handler)),
-    )
-
-    assert identity is None
-
-
-@pytest.mark.asyncio
-async def test_identity_returns_none_on_malformed_jwt() -> None:
-    identity = await extract_account_identity({"id_token": "not-a-jwt"})
-
-    assert identity is None
-
-
-def test_account_label_prefers_persisted_identity_then_id_token() -> None:
-    assert (
-        account_label_from_credentials({"account_label": "label@example.com"})
-        == "label@example.com"
-    )
-    assert (
-        account_label_from_credentials(
-            {"account_identity": {"name": "Named Google User", "subject": "sub-1"}}
-        )
-        == "Named Google User"
-    )
-    assert (
-        account_label_from_credentials(
-            {"id_token": _jwt({"email": "token@example.com", "sub": "sub-2"})}
-        )
-        == "token@example.com"
-    )
+# Identity extraction and account-label behavior are owned by core now and
+# tested in tests/unit/test_google_code_assist.py (the single source of truth
+# after the findings-U5 extraction). gemini imports those helpers directly from
+# core, so there is no gemini-level re-export left to wiring-test here.

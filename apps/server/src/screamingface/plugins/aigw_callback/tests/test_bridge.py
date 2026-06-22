@@ -135,6 +135,28 @@ async def test_prepare_redirect_uri_codex_tries_fallback_port(monkeypatch) -> No
 
 
 @pytest.mark.asyncio
+async def test_prepare_redirect_uri_antigravity_reuses_gemini_route(monkeypatch) -> None:
+    # Antigravity reuses Gemini's loopback callback path AND port (the probe
+    # confirmed Google validates only the loopback host for the antigravity
+    # client), so no new path/port/setting is introduced.
+    server = _FakeServer()
+    calls: list[tuple[str, int]] = []
+
+    async def start_server(_handler, *, host: str, port: int):
+        calls.append((host, port))
+        return server
+
+    monkeypatch.setattr(asyncio, "start_server", start_server)
+    bridge = AigwCallbackBridge(app=SimpleNamespace(), settings=AigwCallbackSettings())
+
+    redirect_uri = await bridge.prepare_redirect_uri(gateway_provider="antigravity")
+
+    assert redirect_uri == "http://localhost:9105/oauth2callback"
+    assert calls == [("localhost", 9105)]
+    await bridge.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_prepare_redirect_uri_raises_when_port_busy(monkeypatch) -> None:
     async def start_server(_handler, *, host: str, port: int):  # noqa: ARG001
         raise OSError("busy")
