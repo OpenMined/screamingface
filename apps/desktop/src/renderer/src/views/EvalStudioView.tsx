@@ -125,8 +125,8 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
           <p className="text-xs text-muted-foreground">
             History of evaluation runs across leaderboard entries
           </p>
-          <LeaderboardLink className="mt-1.5" />
         </div>
+        <LeaderboardLink variant="banner" className="mx-4 self-center" />
         <div className="flex items-center gap-1">
           <Button variant="outline" size="sm" className="mr-1" onClick={() => setAdding(true)}>
             <Plus className="h-3.5 w-3.5" /> New run

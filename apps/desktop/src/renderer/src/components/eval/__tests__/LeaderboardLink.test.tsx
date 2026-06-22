@@ -40,6 +40,14 @@ it('opens the resolved scoreboard URL through the external IPC, not window.open'
   expect(openExternal).toHaveBeenCalledWith('https://scoreboard.screamingface.ai');
 });
 
+it('banner variant keeps the same label and opens via the external IPC', async () => {
+  render(<LeaderboardLink variant="banner" />);
+  const button = screen.getByRole('button', { name: /check the latest leaderboard/i });
+  await waitFor(() => expect(button).not.toBeDisabled());
+  fireEvent.click(button);
+  expect(openExternal).toHaveBeenCalledWith('https://scoreboard.screamingface.ai');
+});
+
 it('stays disabled (no-op) until the URL resolves', async () => {
   let resolve!: (value: unknown) => void;
   getContext.mockReturnValue(new Promise((r) => (resolve = r)));

@@ -154,3 +154,15 @@
     font-family: var(--font-mono), monospace;
   }
 }
+
+/* SF-298: light sweep for the Eval Studio "latest leaderboard" banner.
+   Used via animate-[leaderboard-shimmer_...]; respects prefers-reduced-motion. */
+@keyframes leaderboard-shimmer {
+  0% {
+    transform: translateX(-130%);
+  }
+  60%,
+  100% {
+    transform: translateX(130%);
+  }
+}
