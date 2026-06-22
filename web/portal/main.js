@@ -16,12 +16,15 @@ window.ScorePortal = (function () {
   var PORTAL_LOCALE = "en-US";
 
   /* ---- API base resolution -------------------------------------------- */
-  // 1. Build-time injection (deployed asset sets window.SCOREBOARD_API_BASE
-  //    via an inline script before main.js loads — handled by D-SCORE-007).
-  // 2. Local dev fallback.
+  // 1. Explicit override for local smoke tests or alternate deployments.
+  // 2. Same-origin when served by the scoreboard app.
+  // 3. Local dev fallback for file:// usage.
   function getApiBase() {
     if (window.SCOREBOARD_API_BASE) {
       return String(window.SCOREBOARD_API_BASE).replace(/\/$/, "");
+    }
+    if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+      return window.location.origin;
     }
     return "http://localhost:9106";
   }
@@ -226,9 +229,10 @@ window.ScorePortal = (function () {
   function publishedDataFileName(href) {
     try {
       var u = new URL(href);
-      if (u.hostname !== "screamingface.ai") return null;
+      if (u.hostname !== "scoreboard.screamingface.ai") return null;
       var m = u.pathname.match(/^\/([A-Za-z0-9][A-Za-z0-9._-]*\.jsonl)$/);
-      return m ? m[1] : null;
+      if (!m) return null;
+      return ["livetruth-latest.jsonl", "livetruth-masking.dataset.jsonl"].indexOf(m[1]) === -1 ? null : m[1];
     } catch (e) {
       return null;
     }

@@ -9,7 +9,7 @@ cd apps/scoreboard
 uv sync
 
 uv run tortoise migrate
-uv run uvicorn scoreboard.main:app --port 9106 --reload
+SCOREBOARD_PORTAL_AUTH_ENABLED=false uv run uvicorn scoreboard.main:app --port 9106 --reload
 
 # Sanity check
 curl -sf http://localhost:9106/healthz
@@ -33,7 +33,7 @@ docker run --rm -d --name sf-scoreboard-postgres \
 
 export SCOREBOARD_DATABASE_URL='postgres://scoreboard:scoreboard@localhost:5434/scoreboard'
 uv run tortoise migrate
-uv run uvicorn scoreboard.main:app --port 9106 --reload
+SCOREBOARD_PORTAL_AUTH_ENABLED=false uv run uvicorn scoreboard.main:app --port 9106 --reload
 ```
 
 Tortoise's built-in migration CLI is configured through `[tool.tortoise]` in `pyproject.toml`. Apply migrations with `uv run tortoise migrate`; running it a second time should be a no-op.
@@ -59,8 +59,24 @@ Settings are read from environment variables with the `SCOREBOARD_` prefix.
 | `SCOREBOARD_LOG_LEVEL` | `info` | Uvicorn log level. |
 | `SCOREBOARD_DATABASE_URL` | `sqlite://./scoreboard.sqlite3` | Tortoise database URL. |
 | `SCOREBOARD_CORS_ORIGINS` | `["*"]` | JSON list of allowed CORS origins. |
+| `SCOREBOARD_PORTAL_DIR` | source `web/portal` | Static portal directory. |
+| `SCOREBOARD_PORTAL_ARTIFACTS_DIR` | source `output_artifacts/eval_results` | Public JSONL artifact directory. |
+| `SCOREBOARD_PORTAL_AUTH_ENABLED` | `true` | Enable Basic Auth on the root portal UI. |
+| `SCOREBOARD_PORTAL_AUTH_USERNAME` | `demo` | Basic Auth username for the portal UI. |
+| `SCOREBOARD_PORTAL_AUTH_PASSWORD` | unset | Basic Auth password; required when auth is enabled. |
 
 `SCOREBOARD_CORS_ORIGINS` defaults to `["*"]` because the scaffold has no authenticated routes and never sets cookies. D-SCORE-007 will tighten this once the leaderboard write path lands.
+
+## Portal And Public Artifacts
+
+The scoreboard service serves the demo portal at `/`. In production the Helm chart enables Basic Auth for the portal UI; API routes and public JSONL artifacts remain unauthenticated.
+
+Public artifact routes are exact-file allowlisted and served as inline `text/plain`:
+
+- `/livetruth-latest.jsonl`
+- `/livetruth-masking.dataset.jsonl`
+
+Do not publish `livetruth-latest.eval.jsonl`, `livetruth-latest.answer-key.jsonl`, or generated-artifact globs. `livetruth-latest.jsonl` intentionally contains answers/context for the current demo.
 
 ## Development
 

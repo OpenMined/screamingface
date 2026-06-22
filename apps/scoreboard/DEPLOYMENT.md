@@ -61,6 +61,13 @@ The chart creates `Secret/scoreboard-db` with `username`, `password`, `database`
 
 For production, replace this chart with managed Postgres or a Postgres operator. Create a Secret with a `database-url` key and point `database.existingSecret` at it.
 
+Create a demo portal password Secret before installing the app chart:
+
+```bash
+kubectl -n scoreboard create secret generic scoreboard-portal-auth \
+  --from-literal=password='<demo-password>'
+```
+
 ## App Install
 
 Use a real HTTPS hostname in production. For a temporary k3s smoke test, `nip.io` can map a hostname to an IP without creating DNS records. For example, `scoreboard.40.76.107.241.nip.io` resolves to `40.76.107.241` and works with Traefik host-based Ingress.
@@ -87,6 +94,9 @@ For production, use managed Postgres and a Secret with a `database-url` key:
 kubectl -n scoreboard create secret generic scoreboard-db \
   --from-literal=database-url='postgres://scoreboard:<password>@<host>:5432/scoreboard'
 
+kubectl -n scoreboard create secret generic scoreboard-portal-auth \
+  --from-literal=password='<demo-password>'
+
 helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/scoreboard \
   --version 0.1.0 \
   --namespace scoreboard \
@@ -96,7 +106,7 @@ helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/s
   --wait
 ```
 
-`values-prod.yaml` sets three app replicas, Traefik ingress, TLS annotations, production CORS for `https://screamingface.ai`, and NetworkPolicy enabled. Adjust `ingress.className` if the production cluster uses a different ingress controller.
+`values-prod.yaml` sets three app replicas, Traefik ingress, TLS annotations, production CORS for `https://screamingface.ai`, and NetworkPolicy enabled. The chart also sets `FORWARDED_ALLOW_IPS="*"` so uvicorn honors Traefik's forwarded HTTPS scheme for redirects. Adjust `ingress.className` if the production cluster uses a different ingress controller.
 
 ## Benchmark Seeding
 
@@ -139,19 +149,20 @@ curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/leaderboard/hle
 
 The SCORE-007 initial task mentions POSTing from SF desktop, but current D-SCORE-006 in this repo is AIGateway desktop login, not scoreboard score publishing. Use the public API smoke above until a desktop submission task exists.
 
-## Portal And CORS
+## Portal And Public Artifacts
 
-The static portal under `web/portal` reads `window.SCOREBOARD_API_BASE` before falling back to `http://localhost:9106`. The Pages deploy workflow injects that value into the published artifact.
+The scoreboard service owns the portal at `https://scoreboard.screamingface.ai/`. The portal UI is protected by Basic Auth using `SCOREBOARD_PORTAL_AUTH_USERNAME` from the chart config and `SCOREBOARD_PORTAL_AUTH_PASSWORD` from the `scoreboard-portal-auth` Secret. The portal calls `/v1/*` same-origin, so CORS is not needed for the portal itself.
 
-Production CORS must include the portal origin, not the path:
+The service also exposes exact public JSONL routes as inline text:
 
-```yaml
-cors:
-  origins:
-    - https://screamingface.ai
+```bash
+curl -fsS https://scoreboard.screamingface.ai/livetruth-latest.jsonl
+curl -fsS https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl
 ```
 
-After a Pages deploy, open `https://screamingface.ai/portal/` and verify the browser console has no CORS failures while fetching `/v1/benchmarks`.
+`livetruth-latest.jsonl` intentionally contains answers/context for the current demo. Do not expose `livetruth-latest.eval.jsonl`, `livetruth-latest.answer-key.jsonl`, or broad generated-artifact globs.
+
+After deploy, open `https://scoreboard.screamingface.ai/`, authenticate with the demo credentials, and verify the browser console has no failed `http://localhost:9106` requests and no CORS failures.
 
 ## Migrations
 

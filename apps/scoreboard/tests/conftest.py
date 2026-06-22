@@ -14,6 +14,9 @@ from fastapi.testclient import TestClient
 from tortoise.contrib.test import tortoise_test_context
 
 from scoreboard.config import Settings
+
+os.environ.setdefault("SCOREBOARD_PORTAL_AUTH_PASSWORD", "test-portal-password")
+
 from scoreboard.main import create_app
 
 

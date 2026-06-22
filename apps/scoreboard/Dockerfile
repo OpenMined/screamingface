@@ -24,6 +24,8 @@ LABEL org.opencontainers.image.source="https://github.com/openmined/screamingfac
 
 ENV SCOREBOARD_HOST=0.0.0.0 \
     SCOREBOARD_PORT=9106 \
+    SCOREBOARD_PORTAL_DIR=/app/web/portal \
+    SCOREBOARD_PORTAL_ARTIFACTS_DIR=/app/web/artifacts \
     PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -33,6 +35,9 @@ WORKDIR /app
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin scoreboard
 
 COPY --from=builder --chown=scoreboard:scoreboard /app /app
+COPY --chown=scoreboard:scoreboard web/portal /app/web/portal
+COPY --chown=scoreboard:scoreboard output_artifacts/eval_results/livetruth-latest.jsonl /app/web/artifacts/livetruth-latest.jsonl
+COPY --chown=scoreboard:scoreboard output_artifacts/eval_results/livetruth-masking.dataset.jsonl /app/web/artifacts/livetruth-masking.dataset.jsonl
 
 USER scoreboard
 

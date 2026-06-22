@@ -68,7 +68,7 @@
     document.getElementById("data-file").textContent = file;
     document.title = file + " — screamingface";
     document.getElementById("data-raw").setAttribute("href", "/" + file);
-    document.getElementById("data-txt").setAttribute("href", "/" + file + ".txt");
+    document.getElementById("data-txt").setAttribute("href", "/" + file);
 
     P.showLoading(statusNode, "Loading " + file + "…");
     wrap.hidden = true;
