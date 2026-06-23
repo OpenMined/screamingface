@@ -171,7 +171,9 @@ export async function submitScore(request: PublishScoreRequest): Promise<Publish
     if (res.ok) {
       const data = (await res.json()) as ScoreResponse;
       publishLog(`publish: ${label} -> HTTP ${res.status} ok, score=${data.id}`);
-      const portalLink = `${ctx.portalUrl.replace(/\/$/, '')}/spec.html?benchmark=${encodeURIComponent(data.benchmark_id)}&spec=${encodeURIComponent(data.spec_id)}`;
+      // Deep link to the benchmark's page on the public scoreboard portal
+      // (SF-312): https://scoreboard.screamingface.ai/benchmark.html?id=<benchmark>.
+      const portalLink = `${ctx.scoreboardUrl.replace(/\/$/, '')}/benchmark.html?id=${encodeURIComponent(data.benchmark_id)}`;
       const value: PublishResult = {
         id: data.id,
         benchmarkId: data.benchmark_id,
