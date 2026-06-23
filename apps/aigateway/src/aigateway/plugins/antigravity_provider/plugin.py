@@ -82,10 +82,9 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
         )
 
     def _client_secret(self) -> str | None:
-        # GATE-2 Option B: the public installed-app secret is env-sourced
-        # (AIGW_ANTIGRAVITY_CLIENT_SECRET). Read the raw value only here, at the
-        # point it is passed into the token POST; auth.py raises an actionable
-        # error if it is absent.
+        # GATE-2 Option A: the public installed-app secret has a SecretStr
+        # default with optional AIGW_ANTIGRAVITY_CLIENT_SECRET override. Read the
+        # raw value only here, at the point it is passed into the token POST.
         secret = self.settings.client_secret
         return secret.get_secret_value() if secret is not None else None
 
@@ -99,6 +98,8 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
         return AntigravityOAuth(
             profile_name=profile_name,
             client_secret=self._client_secret(),
+            client_id=self.settings.client_id,
+            token_url=self.settings.token_url,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
         )
@@ -109,6 +110,8 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
             request.code_verifier,
             redirect_uri=request.redirect_uri,
             client_secret=self._client_secret(),
+            client_id=self.settings.client_id,
+            token_url=self.settings.token_url,
             http_client_factory=request.http_client_factory,
         )
 

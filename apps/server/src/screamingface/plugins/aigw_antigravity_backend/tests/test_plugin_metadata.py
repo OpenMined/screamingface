@@ -24,6 +24,27 @@ def test_plugin_dependency_chain() -> None:
     assert "backend-api-base" in AigwAntigravityBackendPlugin.depends
 
 
+def test_depends_on_aigw_callback_for_scoped_bridge() -> None:
+    # The OAuth callback bridge must activate ONLY when antigravity is enabled
+    # (review #6). Declaring the dependency auto-activates aigw-callback when
+    # this backend is active (registry.activate_all auto-adds discoverable
+    # deps), instead of enabling it globally in sf.json — which would flip
+    # gemini/codex/anthropic onto the loopback bridge in hosted mode.
+    assert "aigw-callback" in AigwAntigravityBackendPlugin.depends
+
+
+def test_callback_dependency_is_discoverable_so_auto_add_fires() -> None:
+    # The depends-based auto-activation only works if aigw-callback is a
+    # discoverable plugin (registry.activate_all auto-adds a missing dep ONLY
+    # when it is in _discovered). This guard proves the precondition holds, so
+    # enabling antigravity actually pulls in the callback bridge (review #6).
+    from screamingface.core.registry import PluginRegistry
+
+    discovered = PluginRegistry().discover()
+    assert "aigw-callback" in discovered
+    assert "aigw-antigravity-backend" in discovered
+
+
 def test_does_not_conflict_with_gemini_backend() -> None:
     # Antigravity is a separate experimental provider; users compare/migrate.
     assert "aigw-gemini-backend" not in AigwAntigravityBackendPlugin.conflicts

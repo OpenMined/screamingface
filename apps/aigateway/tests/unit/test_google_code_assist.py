@@ -87,6 +87,38 @@ def test_expires_at_ms_none_without_signal() -> None:
     assert expires_at_ms({}, {}) is None
 
 
+def test_expires_at_ms_prefers_fresh_expires_in_over_stale_previous() -> None:
+    """A Google refresh that carries only `expires_in` must yield a FRESH
+    expiry, not the stale absolute expiry from the previous creds — otherwise
+    the new token reads as already-expired and the strategy refresh-loops
+    (review round 2, finding A)."""
+    stale = int((time.time() - 3600) * 1000)  # an hour in the past
+    now_ms = int(time.time() * 1000)
+    value = expires_at_ms({"expires_in": 3600}, {"expires_at_ms": stale})
+    assert value is not None
+    assert value > now_ms  # fresh, in the future
+    assert value != stale
+
+
+def test_expires_at_ms_falls_back_to_previous_only_when_data_has_none() -> None:
+    # If the new response carries NO expiry signal at all, carry the previous
+    # absolute expiry forward (so we don't lose a known expiry).
+    prev = int((time.time() + 1800) * 1000)
+    assert expires_at_ms({}, {"expires_at_ms": prev}) == prev
+
+
+def test_normalize_refresh_with_only_expires_in_is_fresh() -> None:
+    """End-to-end: normalize_token_response over an expired previous, with a
+    refresh body carrying only expires_in, must produce a future expiry."""
+    expired = int((time.time() - 60) * 1000)
+    now_ms = int(time.time() * 1000)
+    creds = normalize_token_response(
+        {"access_token": "ya29.new", "expires_in": 3600},
+        {"refresh_token": "r-1", "expires_at_ms": expired},
+    )
+    assert creds["expires_at_ms"] > now_ms
+
+
 # --- identity --------------------------------------------------------------
 
 

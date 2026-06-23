@@ -2,8 +2,8 @@
 
 Covers loader discovery, provider id, model seed, OAuth config (loopback
 `/oauth2callback` + offline/consent + Antigravity scopes, NO openid), settings
-(pinned client_id, `client_secret` as an env-sourced optional SecretStr per
-GATE-2 Option B — never committed), and LiteLLM registration under
+(pinned client_id, public installed-app `client_secret` as a SecretStr default
+with optional env override per GATE-2 Option A), and LiteLLM registration under
 provider="antigravity" (must not collide with gemini-cli).
 """
 
@@ -17,7 +17,10 @@ import pytest
 from aigateway.core.loader import load_plugins
 from aigateway.core.registry import ProviderRegistry
 from aigateway.plugins.antigravity_provider import settings as antigravity_settings_module
-from aigateway.plugins.antigravity_provider.settings import AntigravityPluginSettings
+from aigateway.plugins.antigravity_provider.settings import (
+    ANTIGRAVITY_CLIENT_SECRET,
+    AntigravityPluginSettings,
+)
 
 # Pinned Antigravity (agy v1.0.10) installed-app client id; see findings §2/U17.
 ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
@@ -77,15 +80,16 @@ def test_oauth_config_loopback_and_scopes() -> None:
 def test_settings_defaults_and_endpoint_fallback() -> None:
     s = AntigravityPluginSettings()
     assert s.client_id == ANTIGRAVITY_CLIENT_ID
-    # GATE-2 Option B: secret is env-sourced and absent by default (never committed).
-    assert s.client_secret is None
+    # GATE-2 Option A: public installed-app secret is present by default, like Gemini.
+    assert s.client_secret is not None
+    assert s.client_secret.get_secret_value() == ANTIGRAVITY_CLIENT_SECRET
     # Code Assist host: daily- primary + prod fallback (findings U12).
     assert s.code_assist_endpoint == "https://daily-cloudcode-pa.googleapis.com"
     assert s.code_assist_fallback_endpoint == "https://cloudcode-pa.googleapis.com"
     assert s.user_agent  # configurable, non-empty
 
 
-def test_settings_secret_sourced_from_env_and_redacted(monkeypatch) -> None:
+def test_settings_secret_env_override_and_redacted(monkeypatch) -> None:
     monkeypatch.setenv("AIGW_ANTIGRAVITY_CLIENT_SECRET", "GOCSPX-sentinel-not-real")
     s = AntigravityPluginSettings()
     assert s.client_secret is not None
@@ -96,10 +100,14 @@ def test_settings_secret_sourced_from_env_and_redacted(monkeypatch) -> None:
     assert s.client_secret.get_secret_value() == "GOCSPX-sentinel-not-real"
 
 
-def test_no_committed_secret_literal_in_source() -> None:
-    """GATE-2 Option B: no Antigravity client secret literal lives in source."""
-    source = inspect.getsource(antigravity_settings_module)
-    assert "GOCSPX" not in source
+def test_default_secret_not_serialized_from_settings() -> None:
+    """GATE-2 Option A still keeps the public secret out of repr/model dumps."""
+    s = AntigravityPluginSettings()
+    assert s.client_secret is not None
+    assert ANTIGRAVITY_CLIENT_SECRET in inspect.getsource(antigravity_settings_module)
+    assert ANTIGRAVITY_CLIENT_SECRET not in repr(s.client_secret)
+    assert ANTIGRAVITY_CLIENT_SECRET not in str(s.client_secret)
+    assert ANTIGRAVITY_CLIENT_SECRET not in str(s.model_dump())
 
 
 def test_litellm_registers_under_antigravity_provider() -> None:
@@ -136,6 +144,14 @@ def test_oauth_strategy_for_returns_antigravity_strategy() -> None:
     assert isinstance(strategy, AntigravityOAuth)
     # U11: strategy namespace matches credential_service_provider().
     assert strategy.credential_service() == "aigateway:antigravity:acct:default"
+
+
+def test_oauth_strategy_passes_default_secret() -> None:
+    from aigateway.plugins.antigravity_provider.auth import AntigravityOAuth
+
+    strategy = _plugin().oauth_strategy_for("default")
+    assert isinstance(strategy, AntigravityOAuth)
+    assert strategy._client_secret == ANTIGRAVITY_CLIENT_SECRET  # noqa: SLF001
 
 
 def test_oauth_strategy_passes_env_secret(monkeypatch) -> None:
@@ -184,6 +200,42 @@ async def test_exchange_oauth_code_delegates_with_env_secret(monkeypatch) -> Non
     form = captured["form"]
     assert isinstance(form, dict)
     assert form["client_secret"] == ["GOCSPX-env-secret"]
+
+
+@pytest.mark.asyncio
+async def test_exchange_oauth_code_delegates_with_default_secret() -> None:
+    import httpx
+
+    from aigateway.core.plugin_base import OAuthCodeExchangeRequest
+
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(401, json={"error": "no_userinfo"})
+        from urllib.parse import parse_qs
+
+        captured["form"] = parse_qs(request.content.decode())
+        return httpx.Response(
+            200, json={"access_token": "ya29.x", "refresh_token": "r-2", "expires_in": 3600}
+        )
+
+    def factory():
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=httpx.Timeout(5.0))
+
+    creds = await _plugin().exchange_oauth_code(
+        OAuthCodeExchangeRequest(
+            code="auth-code",
+            code_verifier="verifier",
+            redirect_uri="http://localhost:9105/oauth2callback",
+            state="state-1",
+            http_client_factory=factory,
+        )
+    )
+    assert creds["access_token"] == "ya29.x"
+    form = captured["form"]
+    assert isinstance(form, dict)
+    assert form["client_secret"] == [ANTIGRAVITY_CLIENT_SECRET]
 
 
 @pytest.mark.asyncio

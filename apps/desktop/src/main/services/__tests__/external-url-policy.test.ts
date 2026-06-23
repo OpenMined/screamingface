@@ -242,6 +242,40 @@ describe('external URL policy', () => {
     ).toBe(false);
   });
 
+  it('accepts all loopback hosts in the OAuth redirect_uri', () => {
+    const GEMINI_CLIENT_ID =
+      '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com';
+    const base = {
+      response_type: 'code',
+      client_id: GEMINI_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/cloud-platform',
+      code_challenge: 'challenge',
+      code_challenge_method: 'S256',
+      state: 'state',
+    };
+    // The SF callback bridge supports localhost / 127.0.0.1 / [::1]; the Desktop
+    // policy must accept the same loopback hosts (review #7).
+    for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+      expect(
+        isAllowedOAuthAuthorizeUrl(
+          authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
+            ...base,
+            redirect_uri: `http://${host}:9105/oauth2callback`,
+          }),
+        ),
+      ).toBe(true);
+    }
+    // Non-loopback host is still rejected.
+    expect(
+      isAllowedOAuthAuthorizeUrl(
+        authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
+          ...base,
+          redirect_uri: 'http://evil.example.com:9105/oauth2callback',
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it('allows only safe backend path slugs', () => {
     expect(isSafeBackendName('browser-backend')).toBe(true);
     expect(isSafeBackendName('backend123')).toBe(true);

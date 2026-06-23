@@ -5,13 +5,12 @@ Google Code Assist OAuth + Code Assist generation surface but with a distinct
 installed-app OAuth client, an extended scope set, and the Antigravity Code
 Assist hosts.
 
-GATE-2 (Option B): ``client_secret`` is an OPTIONAL ``SecretStr`` sourced only
-from the ``AIGW_ANTIGRAVITY_CLIENT_SECRET`` environment variable. No secret
-literal is committed here. The token exchange/refresh requires the public
-installed-app secret param (RFC 8252 — not confidential), but per the task
-Non-Goal we never commit, print, or document the value; PKCE is the real
-protection. Without the env var, the secret is ``None`` and the OAuth
-exchange/refresh raises a specific actionable error (handled in auth.py).
+GATE-2 (Option A): ``client_secret`` is a ``SecretStr`` defaulting to the
+public Antigravity installed-app secret, with optional
+``AIGW_ANTIGRAVITY_CLIENT_SECRET`` override. This matches the existing Gemini
+provider precedent: installed-app secrets are public identifiers, while PKCE is
+the real protection. We still keep the value out of repr/model dumps and never
+log or return it from APIs; only the token POST body reads the raw value.
 """
 
 from __future__ import annotations
@@ -27,6 +26,7 @@ ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.goo
 
 ANTIGRAVITY_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 ANTIGRAVITY_TOKEN_URL = "https://oauth2.googleapis.com/token"
+ANTIGRAVITY_CLIENT_SECRET = "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"
 
 # Reuse Gemini's loopback callback path. A 2026-06-19 probe confirmed Google
 # validates only the loopback *host* for this installed-app client (RFC 8252
@@ -90,10 +90,10 @@ class AntigravityPluginSettings(PluginSettings):
     authorize_url: str = ANTIGRAVITY_AUTHORIZE_URL
     token_url: str = ANTIGRAVITY_TOKEN_URL
     client_id: str = ANTIGRAVITY_CLIENT_ID
-    # GATE-2 Option B: env-sourced (AIGW_ANTIGRAVITY_CLIENT_SECRET), never
-    # committed. SecretStr redacts in repr/str/model_dump; only the token POST
-    # body reads .get_secret_value().
-    client_secret: SecretStr | None = None
+    # GATE-2 Option A: public installed-app secret with optional env override
+    # (AIGW_ANTIGRAVITY_CLIENT_SECRET). SecretStr redacts in repr/str/model_dump;
+    # only the token POST body reads .get_secret_value().
+    client_secret: SecretStr = SecretStr(ANTIGRAVITY_CLIENT_SECRET)
     scopes: list[str] = Field(default_factory=_default_scopes)
     redirect_path: str = ANTIGRAVITY_REDIRECT_PATH
     authorize_extra_params: dict[str, str] = Field(default_factory=_default_authorize_extra_params)
@@ -103,7 +103,9 @@ class AntigravityPluginSettings(PluginSettings):
     code_assist_fallback_endpoint: str = "https://cloudcode-pa.googleapis.com"
     code_assist_api_version: str = "v1internal"
 
-    # Antigravity-specific user agent (configurable; not the Gemini CLI UA).
-    user_agent: str = "Antigravity/1.0.10 (aigateway)"
+    # Default to the proven-working community-spec value "antigravity" (the
+    # value real Antigravity clients send and the live service recognizes).
+    # Overridable per-deployment for tracing/debugging (review #3 / architect).
+    user_agent: str = "antigravity"
 
     models: list[ModelEntry] = Field(default_factory=_default_models)

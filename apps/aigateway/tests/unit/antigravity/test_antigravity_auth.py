@@ -3,10 +3,11 @@
 `AntigravityOAuth(BaseOAuthStrategy)` mirrors GeminiOAuth but with the
 Antigravity client/secret/token-url and the "antigravity" credential namespace
 (U11). Token normalization + identity extraction reuse the core Google Code
-Assist helpers (Unit 1). GATE-2 Option B: the client secret is required at
-exchange/refresh time and a missing one raises a specific actionable error
-without leaking. Exchange AND refresh errors are status-only (U7) — no upstream
-body echo. Identity-extraction failure must not block credential storage.
+Assist helpers (Unit 1). GATE-2 Option A: the public installed-app client
+secret has a settings default and may be overridden by env; exchange/refresh
+still defensively reject an empty secret without leaking. Exchange AND refresh
+errors are status-only (U7) — no upstream body echo. Identity-extraction
+failure must not block credential storage.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from aigateway.plugins.antigravity_provider.auth import (
     exchange_authorization_code,
 )
 from aigateway.plugins.antigravity_provider.settings import (
+    ANTIGRAVITY_CLIENT_SECRET,
     ANTIGRAVITY_TOKEN_URL,
     AntigravityPluginSettings,
 )
@@ -87,6 +89,62 @@ def _oauth(store: _FakeStore, transport: httpx.MockTransport | None = None) -> A
         credential_store=store,
         http_client_factory=_http_factory(transport) if transport is not None else None,
     )
+
+
+# --- settings override threading (review #5) -------------------------------
+
+
+@pytest.mark.asyncio
+async def test_refresh_uses_overridden_client_id_and_token_url() -> None:
+    """client_id + token_url must come from the SAME source authorize uses, so
+    an override can't mint a code for one client and exchange with another."""
+    expired = _creds(expires_at_ms=int((time.time() - 60) * 1000))
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["form"] = parse_qs(request.content.decode())
+        return httpx.Response(
+            200, json={"access_token": "ya29.new", "expires_in": 3600, "token_type": "Bearer"}
+        )
+
+    strategy = AntigravityOAuth(
+        profile_name="default",
+        client_secret=_TEST_SECRET,
+        client_id="override-client-id",
+        token_url="https://override.example/token",
+        credential_store=_FakeStore(payload=json.dumps(expired)),
+        http_client_factory=_http_factory(httpx.MockTransport(handler)),
+    )
+    await strategy.get_authorization_header()
+    assert captured["url"] == "https://override.example/token"
+    assert captured["form"]["client_id"] == ["override-client-id"]
+
+
+@pytest.mark.asyncio
+async def test_exchange_uses_overridden_client_id_and_token_url() -> None:
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(401, json={"error": "no_userinfo"})
+        captured["url"] = str(request.url)
+        captured["form"] = parse_qs(request.content.decode())
+        return httpx.Response(
+            200, json={"access_token": "ya29.x", "refresh_token": "r-2", "expires_in": 3600}
+        )
+
+    await exchange_authorization_code(
+        "code",
+        "verifier",
+        redirect_uri="http://localhost:9105/oauth2callback",
+        client_secret=_TEST_SECRET,
+        client_id="override-client-id",
+        token_url="https://override.example/token",
+        http_client_factory=_http_factory(httpx.MockTransport(handler)),
+    )
+    assert captured["url"] == "https://override.example/token"
+    assert captured["form"]["client_id"] == ["override-client-id"]
 
 
 # --- namespace (U11) -------------------------------------------------------
@@ -186,14 +244,14 @@ async def test_refresh_401_raises_reauth() -> None:
 
 @pytest.mark.asyncio
 async def test_refresh_without_secret_raises_actionable_error() -> None:
-    """GATE-2 Option B: missing client secret → specific actionable error."""
+    """Defensive guard: empty client secret still fails before token POST."""
     expired = _creds(expires_at_ms=int((time.time() - 60) * 1000))
     strategy = AntigravityOAuth(
         profile_name="default",
-        client_secret=None,
+        client_secret="",
         credential_store=_FakeStore(payload=json.dumps(expired)),
     )
-    with pytest.raises(AuthError, match="AIGW_ANTIGRAVITY_CLIENT_SECRET"):
+    with pytest.raises(AuthError, match="client secret"):
         await strategy.get_authorization_header()
 
 
@@ -288,12 +346,12 @@ async def test_exchange_error_is_status_only() -> None:
 
 @pytest.mark.asyncio
 async def test_exchange_without_secret_raises_actionable_error() -> None:
-    with pytest.raises(AuthError, match="AIGW_ANTIGRAVITY_CLIENT_SECRET"):
+    with pytest.raises(AuthError, match="client secret"):
         await exchange_authorization_code(
             "code",
             "verifier",
             redirect_uri="http://localhost:9105/oauth2callback",
-            client_secret=None,
+            client_secret="",
         )
 
 
@@ -345,7 +403,7 @@ async def test_exchange_identity_failure_does_not_block_storage() -> None:
     assert "account_label" not in creds
 
 
-# --- redaction (GATE-2 Option B) -------------------------------------------
+# --- redaction (GATE-2 Option A) -------------------------------------------
 
 
 def test_no_hardcoded_secret_literal_in_auth_source() -> None:
@@ -357,4 +415,4 @@ def test_settings_secret_never_serialized() -> None:
     """The settings client_secret stays a SecretStr — never plain in model_dump."""
     s = AntigravityPluginSettings()
     dumped = str(s.model_dump())
-    assert "GOCSPX" not in dumped
+    assert ANTIGRAVITY_CLIENT_SECRET not in dumped

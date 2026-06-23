@@ -135,21 +135,43 @@ def account_label_from_credentials(creds: dict[str, Any]) -> str | None:
     return token_identity.label() if token_identity is not None else None
 
 
-def expires_at_ms(data: dict[str, Any], previous: dict[str, Any]) -> int | None:
+def _expiry_from(source: dict[str, Any]) -> int | None:
+    """Resolve an absolute expiry (ms) from a single creds/response dict.
+
+    Order within the dict: absolute ms keys, then absolute seconds, then the
+    relative ``expires_in`` (computed against now). Returns None if the dict
+    carries no expiry signal at all.
+    """
     for key in ("expires_at_ms", "expiry_date"):
-        value = data.get(key, previous.get(key))
+        value = source.get(key)
         if isinstance(value, int | float):
             return int(value)
-    value = data.get("expires_at", previous.get("expires_at"))
+    value = source.get("expires_at")
     if isinstance(value, int | float):
         return int(float(value) * 1000)
-    expires_in = data.get("expires_in")
+    expires_in = source.get("expires_in")
     if isinstance(expires_in, int | float | str):
         try:
             return int((time.time() + int(expires_in)) * 1000)
         except (TypeError, ValueError):
             return None
     return None
+
+
+def expires_at_ms(data: dict[str, Any], previous: dict[str, Any]) -> int | None:
+    """Prefer the NEW response's own expiry; fall back to ``previous`` only when
+    ``data`` carries no expiry signal at all.
+
+    A Google token refresh typically returns only ``expires_in`` (no absolute
+    expiry). Mixing keys across ``data`` and ``previous`` per-key (the old
+    behavior) returned the STALE ``previous`` absolute expiry before ever
+    reaching ``data``'s ``expires_in`` — making the freshly-refreshed token read
+    as already-expired and triggering a refresh-loop (review round 2, finding A).
+    """
+    resolved = _expiry_from(data)
+    if resolved is not None:
+        return resolved
+    return _expiry_from(previous)
 
 
 def normalize_token_response(

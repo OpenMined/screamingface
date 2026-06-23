@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
@@ -42,6 +44,18 @@ class AigwAntigravityBackendPlugin(AigwBackendApiPluginBase):
     )
     tags: list[str] = ["product:antigravity"]
     backend_call_paths: list[str] = ["/antigravity"]
+    # Depend on aigw-callback so the loopback OAuth bridge auto-activates ONLY
+    # when antigravity is enabled (registry.activate_all auto-adds discoverable
+    # deps). Enabling aigw-callback globally in sf.json would flip
+    # gemini/codex/anthropic onto the loopback bridge in hosted mode — a
+    # cross-backend regression (review #6). Base deps: llm-base, backend-api-base,
+    # aigw-base.
+    depends: ClassVar[list[str]] = [
+        "llm-base",
+        "backend-api-base",
+        "aigw-base",
+        "aigw-callback",
+    ]
     # No conflict with aigw-gemini-backend: distinct provider + path.
     conflicts: list[str] = []
     gateway_provider = "antigravity"

@@ -130,6 +130,37 @@ async def test_expired_credential_refreshes_and_preserves_refresh_token() -> Non
 
 
 @pytest.mark.asyncio
+async def test_gemini_refresh_normalizes_fresh_expiry_from_expires_in_over_stale_previous() -> None:
+    """Regression lock (shared core, review round 2 finding A): a refresh body
+    carrying only `expires_in` over an EXPIRED previous must persist a FRESH
+    future expiry, not the stale absolute one — otherwise the new token reads
+    as already-expired and the strategy refresh-loops. Locks gemini alongside
+    antigravity on the shared `expires_at_ms` helper."""
+    stale = int((time.time() - 3600) * 1000)
+    now_ms = int(time.time() * 1000)
+    expired = _creds(expires_at_ms=stale)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"access_token": "ya29.new", "expires_in": 3600, "token_type": "Bearer"},
+        )
+
+    store = _FakeStore(payload=json.dumps(expired))
+    strategy = GeminiOAuth(
+        profile_name="default",
+        credential_store=store,
+        http_client_factory=_http_factory(httpx.MockTransport(handler)),
+    )
+
+    await strategy.get_authorization_header()
+
+    written = json.loads(store.writes[0][2])
+    assert written["expires_at_ms"] > now_ms
+    assert written["expires_at_ms"] > stale + 60_000
+
+
+@pytest.mark.asyncio
 async def test_refresh_401_raises_auth_error() -> None:
     expired = _creds(expires_at_ms=int((time.time() - 60) * 1000))
 

@@ -7,12 +7,11 @@ uses via credential_service_provider()). Token normalization and identity
 extraction reuse the core Google Code Assist helpers (findings U5), so there is
 no plugin-to-plugin import.
 
-Secret policy (GATE-2 Option B): the public installed-app client secret is
-required at exchange/refresh time and passed in by the plugin from the
-env-sourced ``AIGW_ANTIGRAVITY_CLIENT_SECRET`` (never committed). A missing
-secret raises a specific, actionable error. Exchange AND refresh errors are
-status-only (U7): we never echo the upstream token-endpoint response body,
-which could carry other grant material.
+Secret policy (GATE-2 Option A): the public installed-app client secret has a
+settings default and may be overridden via ``AIGW_ANTIGRAVITY_CLIENT_SECRET``.
+Exchange/refresh defensively reject an empty configured secret. Exchange AND
+refresh errors are status-only (U7): we never echo the upstream token-endpoint
+response body, which could carry other grant material.
 """
 
 from __future__ import annotations
@@ -40,13 +39,15 @@ from .settings import ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_TOKEN_URL
 
 _ACCOUNT = "default"
 ANTIGRAVITY_PROFILE_HEADER = "X-AIGW-Antigravity-Profile"
-ANTIGRAVITY_USER_AGENT = "Antigravity/1.0.10 (aigateway)"
+# Matches settings.user_agent default — the proven-working community-spec value
+# the live service recognizes (review #3 / architect).
+ANTIGRAVITY_USER_AGENT = "antigravity"
 
-# Actionable message when the env-sourced installed-app secret is absent. Names
-# the env var so onboarding knows exactly what to set; never echoes a value.
+# Actionable message when an env override blanks the installed-app secret. Names
+# the env var so operators know what to unset/fix; never echoes a value.
 _MISSING_SECRET_MESSAGE = (
-    "Antigravity OAuth requires the installed-app client secret. "
-    "Set AIGW_ANTIGRAVITY_CLIENT_SECRET in the AIGateway environment."
+    "Antigravity OAuth requires a non-empty installed-app client secret. "
+    "Unset or fix AIGW_ANTIGRAVITY_CLIENT_SECRET in the AIGateway environment."
 )
 
 
@@ -66,12 +67,19 @@ class AntigravityOAuth(BaseOAuthStrategy):
         profile_name: str,
         *,
         client_secret: str | None,
+        client_id: str = ANTIGRAVITY_CLIENT_ID,
+        token_url: str = ANTIGRAVITY_TOKEN_URL,
         credential_store: CredentialBlobStore | None = None,
         account: str | None = None,
         http_client_factory=None,
     ) -> None:
         super().__init__(profile_name=profile_name)
         self._client_secret = client_secret
+        # client_id + token_url come from the SAME source authorize uses (the
+        # plugin threads settings here), so a settings override can't mint a
+        # code for one client and refresh against another (review #5).
+        self._client_id = client_id
+        self._token_url = token_url
         self._store = credential_store or ORMStore()
         self._account = account if account is not None else _ACCOUNT
         self._http_factory = http_client_factory or (
@@ -118,13 +126,13 @@ class AntigravityOAuth(BaseOAuthStrategy):
         body = {
             "grant_type": "refresh_token",
             "refresh_token": creds["refresh_token"],
-            "client_id": ANTIGRAVITY_CLIENT_ID,
+            "client_id": self._client_id,
             "client_secret": _require_secret(self._client_secret),
         }
         try:
             async with self._http_factory() as client:
                 resp = await client.post(
-                    ANTIGRAVITY_TOKEN_URL,
+                    self._token_url,
                     data=body,
                     headers={"content-type": "application/x-www-form-urlencoded"},
                 )
@@ -162,22 +170,26 @@ async def exchange_authorization_code(
     *,
     redirect_uri: str,
     client_secret: str | None,
+    client_id: str = ANTIGRAVITY_CLIENT_ID,
+    token_url: str = ANTIGRAVITY_TOKEN_URL,
     http_client_factory=None,
 ) -> dict[str, Any]:
+    # client_id + token_url default to the pinned constants but are threaded
+    # from settings by the plugin, matching the authorize-URL source (review #5).
     secret = _require_secret(client_secret)
     factory = http_client_factory or (lambda: httpx.AsyncClient(timeout=httpx.Timeout(30.0)))
     body = {
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": redirect_uri,
-        "client_id": ANTIGRAVITY_CLIENT_ID,
+        "client_id": client_id,
         "client_secret": secret,
         "code_verifier": code_verifier,
     }
     try:
         async with factory() as client:
             resp = await client.post(
-                ANTIGRAVITY_TOKEN_URL,
+                token_url,
                 data=body,
                 headers={"content-type": "application/x-www-form-urlencoded"},
             )

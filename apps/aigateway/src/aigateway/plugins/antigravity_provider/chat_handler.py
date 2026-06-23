@@ -1,8 +1,9 @@
 """Antigravity LiteLLM custom handler + Code Assist transport.
 
 OAuth-only (no API-key path). Generation tries non-streaming
-``:generateContent`` FIRST (mirrors the Gemini gateway path; the SSE-aggregation
-fallback is the documented contingency — findings U6). The Code Assist host is
+``:generateContent`` first, then falls back to aggregated
+``:streamGenerateContent?alt=sse`` when the non-streaming method is unavailable.
+The Code Assist host is
 ``daily-cloudcode-pa`` with a ``cloudcode-pa`` prod fallback on 404/5xx (U12).
 
 Registration is keyed on provider="antigravity" (verified against litellm
@@ -53,6 +54,7 @@ CLIENT_AUTH_HEADER_NAMES = frozenset(
     {
         "authorization",
         "content-type",
+        "user-agent",
         "x-aigw-antigravity-profile",
         "x-goog-api-key",
         "x-goog-user-project",
@@ -70,6 +72,17 @@ class _CodeAssistSession:
     project_id: str | None = None
     endpoint: str | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+@dataclass
+class _StreamMergeState:
+    parts: list[dict[str, Any]] = field(default_factory=list)
+    finish_reason: str | None = None
+    block_reason: str | None = None
+    stream_error: str | None = None
+    usage: dict[str, Any] | None = None
+    response_id: str | None = None
+    model_version: str | None = None
 
 
 def _safe_extra_headers(headers: dict[str, Any]) -> dict[str, str]:
@@ -105,6 +118,144 @@ def _error_from_response(response: httpx.Response) -> CustomLLMError:
         status_code=502,
         message=f"Antigravity Code Assist request failed with status {status}",
     )
+
+
+def _should_try_stream_generate_content(response: httpx.Response) -> bool:
+    # Only retry on the streaming verb when generateContent itself is
+    # unsupported (404 not-found / 405 method-not-allowed). A 400 is our own
+    # bad request; a 5xx is provider-unavailable; 401/403 are auth_required;
+    # 429 is rate-limited — all flow to _error_from_response (5xx → 502), NOT a
+    # verb-retry (review round 2 finding C; team-lead ruling: 404/405-only).
+    # The EXACT verb-unsupported signal is to be PINNED by the Phase-0 live
+    # spike — this 404/405 set is the best interim policy while generateContent
+    # is unproven.
+    return response.status_code in {404, 405}
+
+
+def _payload_response(data: dict[str, Any]) -> dict[str, Any]:
+    response = data.get("response")
+    return response if isinstance(response, dict) else data
+
+
+def _sse_error_message(error: Any) -> str:
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str) and message:
+            return f"Antigravity Code Assist SSE error: {message}"
+        status = error.get("status")
+        if isinstance(status, str) and status:
+            return f"Antigravity Code Assist SSE error: {status}"
+        code = error.get("code")
+        if isinstance(code, int | float | str):
+            return f"Antigravity Code Assist SSE error code {code}"
+    if isinstance(error, str) and error:
+        return f"Antigravity Code Assist SSE error: {error}"
+    return "Antigravity Code Assist SSE error"
+
+
+def _consume_stream_generate_content_event(raw: str, state: _StreamMergeState) -> None:
+    if not raw or raw == "[DONE]":
+        return
+    try:
+        event = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise CustomLLMError(
+            status_code=502,
+            message=f"Antigravity Code Assist SSE event not JSON: {exc}",
+        ) from exc
+    if not isinstance(event, dict):
+        return
+    payload = _payload_response(event)
+    event_error = event.get("error") or payload.get("error")
+    if event_error is not None:
+        state.stream_error = _sse_error_message(event_error)
+        return
+    prompt_feedback = payload.get("promptFeedback")
+    if isinstance(prompt_feedback, dict) and isinstance(prompt_feedback.get("blockReason"), str):
+        state.block_reason = prompt_feedback["blockReason"]
+    candidates = payload.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        candidate = candidates[0]
+        if isinstance(candidate, dict):
+            content = candidate.get("content")
+            chunk_parts = content.get("parts") if isinstance(content, dict) else None
+            if isinstance(chunk_parts, list):
+                state.parts.extend(part for part in chunk_parts if isinstance(part, dict))
+            if isinstance(candidate.get("finishReason"), str):
+                state.finish_reason = candidate["finishReason"]
+    if isinstance(payload.get("usageMetadata"), dict):
+        state.usage = payload["usageMetadata"]
+    if isinstance(payload.get("responseId"), str):
+        state.response_id = payload["responseId"]
+    elif isinstance(event.get("responseId"), str):
+        state.response_id = event["responseId"]
+    if isinstance(payload.get("modelVersion"), str):
+        state.model_version = payload["modelVersion"]
+
+
+def _merge_stream_generate_content_sse(text: str) -> dict[str, Any]:
+    state = _StreamMergeState()
+    event_lines: list[str] = []
+
+    def flush_event() -> None:
+        if not event_lines:
+            return
+        raw = "\n".join(event_lines).strip()
+        event_lines.clear()
+        _consume_stream_generate_content_event(raw, state)
+
+    for line in text.splitlines():
+        if not line.strip():
+            flush_event()
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("data:"):
+            event_lines.append(line.removeprefix("data:").lstrip())
+    flush_event()
+
+    if state.stream_error is not None:
+        raise CustomLLMError(status_code=502, message=state.stream_error)
+
+    # A blocked response must never surface as a successful completion, even if
+    # partial content streamed before the block (findings review round 2, B).
+    if state.block_reason is not None:
+        raise CustomLLMError(
+            status_code=502,
+            message=f"Antigravity Code Assist response blocked: {state.block_reason}",
+        )
+
+    if not state.parts:
+        raise CustomLLMError(
+            status_code=502,
+            message="Antigravity Code Assist SSE response missing content parts",
+        )
+
+    # Do NOT default a missing finishReason to STOP. A stream that delivers
+    # parts but never a terminal finishReason was truncated (dropped
+    # connection / mid-stream abort) — returning finish="stop" would be a false
+    # success. Raise instead so the caller sees a 502, not a silent truncation.
+    if state.finish_reason is None:
+        raise CustomLLMError(
+            status_code=502,
+            message="Antigravity Code Assist SSE stream ended without a finishReason (truncated)",
+        )
+
+    response: dict[str, Any] = {
+        "candidates": [
+            {
+                "content": {"role": "model", "parts": state.parts},
+                "finishReason": state.finish_reason,
+            }
+        ]
+    }
+    if state.usage is not None:
+        response["usageMetadata"] = state.usage
+    if state.response_id is not None:
+        response["responseId"] = state.response_id
+    if state.model_version is not None:
+        response["modelVersion"] = state.model_version
+    return {"response": response}
 
 
 class AntigravityCustomLLM(CustomLLM):
@@ -267,12 +418,17 @@ class AntigravityCustomLLM(CustomLLM):
     ) -> ModelResponse:
         raw_headers = dict(headers)
         session_key = _profile_header_value(raw_headers)
+        # _safe_extra_headers strips the CLIENT_AUTH_HEADER_NAMES superset
+        # (which includes user-agent, case-insensitively), so no caller value
+        # for any gateway-owned header reaches `extra_headers`.
         extra_headers = _safe_extra_headers(raw_headers)
         # Gateway-owned headers set LAST so a caller value cannot override the
-        # bearer token / content-type / user agent (findings U4).
+        # bearer token / content-type / user agent (findings U4). User-Agent is
+        # always the gateway value — a caller's user-agent (any case) was
+        # already dropped by _safe_extra_headers.
         request_headers = {
-            "User-Agent": extra_headers.pop("User-Agent", self._settings.user_agent),
             **extra_headers,
+            "User-Agent": self._settings.user_agent,
             "Authorization": f"Bearer {access_token}",
             "content-type": "application/json",
         }
@@ -292,15 +448,27 @@ class AntigravityCustomLLM(CustomLLM):
             timeout,
             preferred_endpoint=session.endpoint,
         )
-        if response.status_code != 200:
+        if response.status_code == 200:
+            try:
+                data = response.json()
+            except json.JSONDecodeError as exc:
+                raise CustomLLMError(
+                    status_code=502,
+                    message=f"Antigravity Code Assist response not JSON: {exc}",
+                ) from exc
+        elif _should_try_stream_generate_content(response):
+            response, _endpoint = await self._post_with_fallback(
+                "streamGenerateContent?alt=sse",
+                request_headers,
+                wrapped_body,
+                timeout,
+                preferred_endpoint=session.endpoint,
+            )
+            if response.status_code != 200:
+                raise _error_from_response(response)
+            data = _merge_stream_generate_content_sse(response.text)
+        else:
             raise _error_from_response(response)
-        try:
-            data = response.json()
-        except json.JSONDecodeError as exc:
-            raise CustomLLMError(
-                status_code=502,
-                message=f"Antigravity Code Assist response not JSON: {exc}",
-            ) from exc
         if not isinstance(data, dict):
             raise CustomLLMError(
                 status_code=502, message="Antigravity Code Assist response is not JSON"

@@ -184,7 +184,7 @@ function isLoopbackRedirectUri(
     const ports = allowedRedirectPorts(policy, options);
     return (
       url.protocol === 'http:' &&
-      url.hostname === 'localhost' &&
+      isLoopbackHostname(url.hostname) &&
       ports.has(url.port) &&
       url.pathname === policy.redirectPath &&
       url.search === '' &&

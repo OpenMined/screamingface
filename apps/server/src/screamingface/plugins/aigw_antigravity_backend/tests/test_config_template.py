@@ -25,6 +25,15 @@ def test_sf_json_enables_antigravity_backend() -> None:
     assert "aigw-antigravity-backend" in config["plugins"]
 
 
+def test_sf_json_does_not_globally_enable_callback_bridge() -> None:
+    # aigw-callback must NOT be in the global plugins list — enabling it
+    # globally flips gemini/codex/anthropic onto the loopback bridge in hosted
+    # mode (cross-backend regression, review #6). It is instead auto-activated
+    # via aigw-antigravity-backend's `depends` only when antigravity is enabled.
+    config = _load()
+    assert "aigw-callback" not in config["plugins"]
+
+
 def test_sf_json_has_antigravity_default_config_block() -> None:
     config = _load()
     block = config["plugin_config"]["aigw-antigravity-backend"]
