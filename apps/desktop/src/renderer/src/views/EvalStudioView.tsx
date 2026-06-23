@@ -119,13 +119,16 @@ export function EvalStudioView({ pendingRun, onPendingConsumed }: EvalStudioView
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-start justify-between border-b border-border px-6 py-4">
+      <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
         <div>
           <h1 className="text-[1.6875rem] font-semibold text-foreground">Eval Studio</h1>
           <p className="text-xs text-muted-foreground">
             History of evaluation runs across leaderboard entries
           </p>
-          <LeaderboardLink className="mt-1.5" />
+        </div>
+        {/* Centered between the title and the New Run button */}
+        <div className="flex flex-1 justify-center">
+          <LeaderboardLink />
         </div>
         <div className="flex items-center gap-1">
           <Button variant="outline" size="sm" className="mr-1" onClick={() => setAdding(true)}>
