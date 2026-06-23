@@ -101,12 +101,13 @@ SCORED_EXPR: str = _SF_JSON["plugin_config"]["url4-specs"]["specs"]["ScoredLiveT
 # the dataset fetch for exactly this URL.
 LIVETRUTH_URL = "https://screamingface.ai/livetruth-latest.eval.jsonl"
 
-# Inline dataset — 3 rows, fields `question` + `expected_answer` (what the
-# expression's $item.question / $item.expected_answer reference). JSONL.
+# Inline dataset — 3 rows, fields `question` + `answer` (what the expression's
+# $item.question / $item.answer reference, matching the real livetruth dataset
+# whose ground-truth field is `answer`). JSONL.
 DATASET_ROWS = [
-    {"question": "What is the capital of France?", "expected_answer": "Paris"},
-    {"question": "What is the capital of the United Kingdom?", "expected_answer": "London"},
-    {"question": "What is the capital of Japan?", "expected_answer": "Tokyo"},
+    {"question": "What is the capital of France?", "answer": "Paris"},
+    {"question": "What is the capital of the United Kingdom?", "answer": "London"},
+    {"question": "What is the capital of Japan?", "answer": "Tokyo"},
 ]
 DATASET_JSONL = "\n".join(json.dumps(r) for r in DATASET_ROWS)
 
