@@ -154,3 +154,35 @@
     font-family: var(--font-mono), monospace;
   }
 }
+
+/* SF-314 — deliberate brand override, scoped to the "Check the latest leaderboard"
+   CTA only (LeaderboardLink). A glossy amber pill: a sheen that sweeps across and
+   a soft pulsing glow. Not used anywhere else; the rest of the app stays flat. */
+@keyframes sf-cta-sheen {
+  0% {
+    transform: translateX(-160%) skewX(-20deg);
+  }
+  60%,
+  100% {
+    transform: translateX(320%) skewX(-20deg);
+  }
+}
+@keyframes sf-cta-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(224, 162, 60, 0.5),
+      0 2px 10px rgba(224, 162, 60, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(224, 162, 60, 0.7),
+      0 4px 22px rgba(224, 162, 60, 0.6);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sf-cta-glow,
+  .sf-cta-sheen {
+    animation: none !important;
+  }
+}
