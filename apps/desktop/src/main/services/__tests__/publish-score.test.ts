@@ -85,8 +85,7 @@ describe('submitScore (main process)', () => {
         id: 'score-1',
         benchmarkId: 'hle',
         specId: 'hle-ensemble-three',
-        portalLink:
-          'https://screamingface.ai/portal/spec.html?benchmark=hle&spec=hle-ensemble-three',
+        portalLink: 'https://scoreboard.screamingface.ai/benchmark.html?id=hle',
       },
     });
   });

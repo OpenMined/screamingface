@@ -199,7 +199,7 @@ describe('PublishToLeaderboardDialog — guards & misc', () => {
       id: 'score-1',
       benchmarkId: 'hle',
       specId: 'hle-ensemble-three',
-      portalLink: 'http://localhost:8080/spec.html?benchmark=hle&spec=hle-ensemble-three',
+      portalLink: 'https://scoreboard.screamingface.ai/benchmark.html?id=hle',
     };
     render(<PublishToLeaderboardDialog run={makeRun()} serverUrl="" onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /view on leaderboard/i }));
@@ -209,6 +209,6 @@ describe('PublishToLeaderboardDialog — guards & misc', () => {
           electronAPI: { publish: { openExternal: ReturnType<typeof vi.fn> } };
         }
       ).electronAPI.publish.openExternal,
-    ).toHaveBeenCalledWith('http://localhost:8080/spec.html?benchmark=hle&spec=hle-ensemble-three');
+    ).toHaveBeenCalledWith('https://scoreboard.screamingface.ai/benchmark.html?id=hle');
   });
 });
