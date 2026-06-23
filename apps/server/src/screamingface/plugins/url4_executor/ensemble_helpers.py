@@ -215,34 +215,56 @@ def split_collection_iteration(source_expr: str) -> tuple[str | None, str | None
     return None, None
 
 
+class Url4ItemFieldError(ValueError):
+    """A url4 spec references ``$item.<field>`` that isn't present in a structured
+    dataset row — almost always a spec/dataset field-name mismatch. Surfacing it
+    (instead of leaving the literal token) prevents a silent mis-grade / 0% run.
+    """
+
+
 def substitute_item(template: str, item_json: str) -> str:
     """Replace ``$item`` / ``$item.field`` in ``template`` with values from ``item_json``.
 
     - ``$item`` alone → the full item string.
-    - ``$item.field`` → the field value from a parsed JSON object. If
-      the item isn't a JSON object or the field doesn't exist, the
-      ``$item.field`` token is left as-is.
+    - ``$item.field`` → the field value from a parsed JSON object.
+      - If the item IS a JSON object but lacks ``field``, raise
+        ``Url4ItemFieldError`` (SF-313): a structured row missing a referenced
+        field is a spec/dataset mismatch and must fail loudly, not silently
+        leave the literal ``$item.field`` and mis-grade.
+      - If the item isn't a JSON object, ``$item.field`` is left as-is.
     """
     field_pattern = re.compile(r"\$item\.([a-zA-Z_][a-zA-Z0-9_]*)")
-    parsed_item: dict | None = None
     blob_spans = _json_blob_spans(template)
+    # Parse lazily on the first ``$item.field`` hit. After ``parse_done``,
+    # ``parsed`` is the dict when the item is a JSON object, else ``None``
+    # (so ``$item.field`` on a non-object item is left as-is).
+    parsed: dict | None = None
+    parse_done = False
 
     def _field_replacer(match: re.Match) -> str:
-        nonlocal parsed_item
-        if parsed_item is None:
+        nonlocal parsed, parse_done
+        if not parse_done:
+            parse_done = True
             try:
-                parsed_item = json.loads(item_json)
+                obj = json.loads(item_json)
             except (json.JSONDecodeError, TypeError):
-                parsed_item = {}
+                obj = None
+            parsed = obj if isinstance(obj, dict) else None
         field = match.group(1)
-        if isinstance(parsed_item, dict) and field in parsed_item:
-            val = parsed_item[field]
-            if isinstance(val, str):
-                if _in_json_blob(match.start(), blob_spans):
-                    return _escape_for_json_string(val)
-                return val
-            return json.dumps(val)
-        return match.group(0)  # unknown field — leave as-is
+        if parsed is not None:
+            if field in parsed:
+                val = parsed[field]
+                if isinstance(val, str):
+                    if _in_json_blob(match.start(), blob_spans):
+                        return _escape_for_json_string(val)
+                    return val
+                return json.dumps(val)
+            available = ", ".join(sorted(parsed.keys())) or "(none)"
+            raise Url4ItemFieldError(
+                f"url4 spec references unknown item field '$item.{field}'. "
+                f"Available fields in the dataset row: {available}."
+            )
+        return match.group(0)  # item is not a JSON object — leave as-is
 
     result = field_pattern.sub(_field_replacer, template)
 
@@ -295,6 +317,7 @@ _substitute_item = substitute_item
 
 __all__ = [
     "FanoutResponse",
+    "Url4ItemFieldError",
     "_ResponseEntry",
     "_build_reducer_input",
     "_split_collection_iteration",

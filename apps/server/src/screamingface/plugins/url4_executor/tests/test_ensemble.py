@@ -16,6 +16,7 @@ from screamingface.plugins.url4_executor.ensemble import (
     _substitute_item,
     _substitute_response_vars,
 )
+from screamingface.plugins.url4_executor.ensemble_helpers import Url4ItemFieldError
 from screamingface.plugins.url4_executor.url4 import (
     Url4BackendCall,
     Url4List,
@@ -491,11 +492,18 @@ class TestSubstituteItem:
         result = _substitute_item("$item.question", '{"question":"What is 2+2?"}')
         assert result == "What is 2+2?"
 
-    def test_item_field_not_found(self):
-        result = _substitute_item("$item.missing", '{"question":"hi"}')
-        assert result == "$item.missing"
+    def test_item_field_not_found_raises(self):
+        # A structured row that lacks the referenced field is almost always a
+        # spec/dataset field-name mismatch — fail loudly (SF-313) instead of
+        # leaving the literal '$item.missing' and silently mis-grading.
+        with pytest.raises(Url4ItemFieldError) as exc:
+            _substitute_item("$item.missing", '{"question":"hi"}')
+        msg = str(exc.value)
+        assert "missing" in msg  # names the bad field
+        assert "question" in msg  # lists the available fields
 
     def test_non_json_item_field_left_as_is(self):
+        # Item isn't a JSON object → '$item.field' is left as-is (unchanged).
         result = _substitute_item("$item.field", "plain text")
         assert result == "$item.field"
 
