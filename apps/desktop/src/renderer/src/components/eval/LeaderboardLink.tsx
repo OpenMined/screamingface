@@ -1,13 +1,14 @@
 // apps/desktop/src/renderer/src/components/eval/LeaderboardLink.tsx
 //
-// Static "Check the latest leaderboard" affordance for Eval Studio (SF-298).
-// Points at the configured public scoreboard (reused via useScoreboardUrl) and
-// opens it in the system browser through the main-process shell.openExternal IPC
-// — never a raw window.open against the external CORS host. Minimal chrome: a
-// plain inline link, no card/banner background.
+// "Check the latest leaderboard" CTA for Eval Studio (SF-298 / SF-311). Points at
+// the configured public scoreboard (reused via useScoreboardUrl) and opens it in
+// the system browser through the main-process shell.openExternal IPC — never a
+// raw window.open against the external CORS host. Styled as the primary amber CTA
+// (square, hairline, no shadow): the leaderboard is the thing to look at, so it
+// earns the one --mark spark instead of a faint inline link.
 
 import { ExternalLink } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import { useScoreboardUrl } from '@/hooks/use-scoreboard-url';
 
 interface Props {
@@ -22,17 +23,16 @@ export function LeaderboardLink({ className }: Props) {
   };
 
   return (
-    <button
+    <Button
       type="button"
+      variant="default"
+      size="sm"
       onClick={open}
       disabled={!scoreboardUrl}
-      className={cn(
-        'inline-flex items-center gap-1.5 text-xs text-primary transition-colors hover:underline disabled:opacity-50',
-        className,
-      )}
+      className={className}
     >
+      <ExternalLink className="h-3.5 w-3.5" />
       Check the latest leaderboard
-      <ExternalLink className="h-3 w-3" />
-    </button>
+    </Button>
   );
 }
