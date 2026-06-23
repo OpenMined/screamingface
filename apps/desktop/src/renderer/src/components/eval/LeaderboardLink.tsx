@@ -32,7 +32,7 @@ export function LeaderboardLink({ className }: Props) {
       onClick={open}
       disabled={!scoreboardUrl}
       className={cn(
-        'sf-cta-glow group relative inline-flex items-center gap-1 overflow-hidden rounded-full',
+        'sf-cta-glow group relative inline-flex items-center gap-1 overflow-hidden whitespace-nowrap rounded-full',
         'bg-gradient-to-b from-[#f4c264] via-[#e0a23c] to-[#c9821f]',
         'px-3 py-1 text-xs font-semibold text-[#241803]',
         'transition-transform duration-200 ease-out [animation:sf-cta-glow_3s_ease-in-out_infinite]',
@@ -52,7 +52,7 @@ export function LeaderboardLink({ className }: Props) {
         className="sf-cta-sheen pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-white/45 blur-[2px] [animation:sf-cta-sheen_3s_ease-in-out_infinite] group-disabled:[animation:none]"
       />
       <ExternalLink className="relative h-3 w-3" />
-      <span className="relative">Check the latest leaderboard</span>
+      <span className="relative">Check Leaderboard</span>
     </button>
   );
 }
