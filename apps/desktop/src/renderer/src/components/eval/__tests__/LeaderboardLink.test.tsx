@@ -24,7 +24,7 @@ import { LeaderboardLink } from '../LeaderboardLink';
 
 it('renders the static leaderboard label', () => {
   render(<LeaderboardLink />);
-  expect(screen.getByText(/check the latest leaderboard/i)).toBeTruthy();
+  expect(screen.getByText(/check leaderboard/i)).toBeTruthy();
 });
 
 it('resolves the scoreboard URL via the publish context (reused, not hardcoded)', async () => {
@@ -34,7 +34,7 @@ it('resolves the scoreboard URL via the publish context (reused, not hardcoded)'
 
 it('opens the resolved scoreboard URL through the external IPC, not window.open', async () => {
   render(<LeaderboardLink />);
-  const button = screen.getByRole('button', { name: /check the latest leaderboard/i });
+  const button = screen.getByRole('button', { name: /check leaderboard/i });
   await waitFor(() => expect(button).not.toBeDisabled());
   fireEvent.click(button);
   expect(openExternal).toHaveBeenCalledWith('https://scoreboard.screamingface.ai');
@@ -44,7 +44,7 @@ it('stays disabled (no-op) until the URL resolves', async () => {
   let resolve!: (value: unknown) => void;
   getContext.mockReturnValue(new Promise((r) => (resolve = r)));
   render(<LeaderboardLink />);
-  const button = screen.getByRole('button', { name: /check the latest leaderboard/i });
+  const button = screen.getByRole('button', { name: /check leaderboard/i });
   expect(button).toBeDisabled();
   fireEvent.click(button);
   expect(openExternal).not.toHaveBeenCalled();

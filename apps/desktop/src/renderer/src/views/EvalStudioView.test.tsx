@@ -45,7 +45,7 @@ it('renders header, empty state, and both pane toggles', () => {
 it('shows the leaderboard link at the top and in the empty runs state', () => {
   render(<EvalStudioView />);
   expect(
-    screen.getAllByRole('button', { name: /check the latest leaderboard/i }).length,
+    screen.getAllByRole('button', { name: /check leaderboard/i }).length,
   ).toBeGreaterThanOrEqual(2);
 });
 
