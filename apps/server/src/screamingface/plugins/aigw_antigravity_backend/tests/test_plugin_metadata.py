@@ -57,7 +57,7 @@ def test_supports_api_key_is_false() -> None:
 
 def test_default_settings() -> None:
     settings = AigwAntigravityBackendSettings()
-    assert settings.default_model == "antigravity/gemini-3.5-flash"
+    assert settings.default_model == "antigravity/gemini-3-flash"
     assert settings.gateway_url == "http://127.0.0.1:9105"
 
 

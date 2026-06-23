@@ -9,9 +9,12 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
 
-PUBLIC_ARTIFACTS = ("livetruth-latest.jsonl", "livetruth-masking.dataset.jsonl")
-FORBIDDEN_ARTIFACTS = (
+PUBLIC_ARTIFACTS = (
+    "livetruth-latest.jsonl",
     "livetruth-latest.eval.jsonl",
+    "livetruth-masking.dataset.jsonl",
+)
+FORBIDDEN_ARTIFACTS = (
     "livetruth-latest.eval.jsonl.txt",
     "livetruth-latest.answer-key.jsonl",
 )

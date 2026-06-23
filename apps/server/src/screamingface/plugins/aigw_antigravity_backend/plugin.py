@@ -24,7 +24,7 @@ class AigwAntigravityBackendSettings(AigwBackendApiSettingsBase):
     # registry by AigwBackendApiPluginBase.customize_schema (SF-284) — not copied
     # here. Source of truth: apps/aigateway/.../antigravity_provider/settings.py.
     default_model: str | None = Field(
-        default="antigravity/gemini-3.5-flash",
+        default="antigravity/gemini-3-flash",
         description=(
             "Default Antigravity model. The gateway routes by the prefix; "
             "must start with 'antigravity/'. Pick from the dropdown or type a "

@@ -63,15 +63,15 @@ def _default_authorize_extra_params() -> dict[str, str]:
 
 
 def _default_models() -> list[ModelEntry]:
-    """Confirmed-served model seed (findings U1).
+    """Live-listed model seed (findings U1 updated by 2026-06-23 probe).
 
-    Start from the single model agy actually used (``gemini-3.5-flash``). Do
-    NOT copy gemini-2.5-* slugs — none were confirmed served by Antigravity,
-    and SF-284 mandates deriving model examples from the live ``/v1/models``
-    registry rather than hardcoding drift-prone lists. SF's model dropdown
-    surfaces these via the gateway registry, not a copied SF list.
+    Start from a slug verified via ``fetchAvailableModels`` and a live
+    ``generateContent`` smoke. Do NOT copy gemini-2.5-* slugs — SF-284 mandates
+    deriving model examples from the live ``/v1/models`` registry rather than
+    hardcoding drift-prone lists. SF's model dropdown surfaces these via the
+    gateway registry, not a copied SF list.
     """
-    names = ["gemini-3.5-flash"]
+    names = ["gemini-3-flash"]
     return [
         ModelEntry(
             model_name=f"antigravity/{name}", litellm_params={"model": f"antigravity/{name}"}

@@ -9,6 +9,9 @@ describe('referencedBackends', () => {
     const e = '(claude:/claude($q)!a, codex:/codex($q)!b, gemini:/gemini($q)!c)!reduce';
     expect(referencedBackends(e).sort()).toEqual(['claude', 'codex', 'gemini']);
   });
+  it('finds antigravity backend references', () => {
+    expect(referencedBackends('/antigravity($q)!answer')).toEqual(['antigravity']);
+  });
   it('excludes /python and /data (non-auth, not model backends)', () => {
     expect(referencedBackends('/python(/data/code/check_correct.py)!{}')).toEqual([]);
   });

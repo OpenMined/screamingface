@@ -41,6 +41,6 @@ def test_loader_discovers_antigravity_provider() -> None:
     assert plugin.custom_llm_provider == "antigravity"
     models = plugin.register_models()
     names = {m.model_name for m in models}
-    assert "antigravity/gemini-3.5-flash" in names
+    assert "antigravity/gemini-3-flash" in names
     for m in models:
         assert m.litellm_params["model"].startswith("antigravity/")

@@ -37,7 +37,7 @@ def test_sf_json_does_not_globally_enable_callback_bridge() -> None:
 def test_sf_json_has_antigravity_default_config_block() -> None:
     config = _load()
     block = config["plugin_config"]["aigw-antigravity-backend"]
-    assert block["default_model"] == "antigravity/gemini-3.5-flash"
+    assert block["default_model"] == "antigravity/gemini-3-flash"
     assert block["gateway_url"] == "http://127.0.0.1:9105"
 
 

@@ -97,4 +97,8 @@ describe('deriveProviders', () => {
   it('detects ollama', () => {
     expect(deriveProviders('(ollama)!$prompt')).toEqual(['ollama']);
   });
+
+  it('detects antigravity', () => {
+    expect(deriveProviders('/antigravity($prompt)!answer')).toEqual(['antigravity']);
+  });
 });

@@ -341,9 +341,12 @@ class AntigravityCustomLLM(CustomLLM):
                 return session
             body = {
                 "metadata": {
-                    "ideType": "IDE_UNSPECIFIED",
+                    # Live Code Assist rejects pluginType="ANTIGRAVITY" as an
+                    # invalid enum; real Antigravity still identifies to this
+                    # endpoint as the Gemini plugin surface.
+                    "ideType": "ANTIGRAVITY",
                     "platform": "PLATFORM_UNSPECIFIED",
-                    "pluginType": "ANTIGRAVITY",
+                    "pluginType": "GEMINI",
                 }
             }
             response, endpoint = await self._post_with_fallback(

@@ -60,7 +60,7 @@ def _antigravity_response(text: str) -> dict[str, Any]:
 
 async def _complete(custom: AntigravityCustomLLM, **kwargs: Any) -> ModelResponse:
     defaults: dict[str, Any] = {
-        "model": "antigravity/gemini-3.5-flash",
+        "model": "antigravity/gemini-3-flash",
         "messages": [{"role": "user", "content": "ping"}],
         "api_base": None,
         "custom_prompt_dict": {},
@@ -97,7 +97,7 @@ def test_build_body_uses_antigravity_shape() -> None:
 
 def test_model_response_unwraps_role_model() -> None:
     resp = model_response_from_antigravity(
-        {"response": _antigravity_response("hello")}, "antigravity/gemini-3.5-flash"
+        {"response": _antigravity_response("hello")}, "antigravity/gemini-3-flash"
     )
     assert resp.choices[0].message.content == "hello"
     assert resp.choices[0].finish_reason == "stop"
@@ -136,10 +136,17 @@ async def test_oauth_path_setup_and_generate_content_body() -> None:
 
     assert calls[0]["url"] == f"{_PRIMARY}/{_API_VERSION}:loadCodeAssist"
     assert calls[1]["url"] == f"{_PRIMARY}/{_API_VERSION}:generateContent"
+    assert calls[0]["payload"] == {
+        "metadata": {
+            "ideType": "ANTIGRAVITY",
+            "platform": "PLATFORM_UNSPECIFIED",
+            "pluginType": "GEMINI",
+        }
+    }
     body = calls[1]["payload"]
     # Antigravity outer body (U14): userAgent + requestId, NOT user_prompt_id/session_id.
     assert body["project"] == "project-123"
-    assert body["model"] == "gemini-3.5-flash"
+    assert body["model"] == "gemini-3-flash"
     # userAgent defaults to the proven-working community-spec value "antigravity"
     # (overridable via settings); review #3 / architect ruling.
     assert body["userAgent"] == "antigravity"
@@ -431,7 +438,7 @@ def test_sse_aggregates_clean_stop() -> None:
         },
     )
     data = _merge_stream_generate_content_sse(text)
-    resp = model_response_from_antigravity(data, "antigravity/gemini-3.5-flash")
+    resp = model_response_from_antigravity(data, "antigravity/gemini-3-flash")
     assert resp.choices[0].message.content == "hi there"
     assert resp.choices[0].finish_reason == "stop"
 
@@ -505,7 +512,7 @@ def test_sse_safety_finish_reason_does_not_become_stop() -> None:
         },
     )
     data = _merge_stream_generate_content_sse(text)
-    resp = model_response_from_antigravity(data, "antigravity/gemini-3.5-flash")
+    resp = model_response_from_antigravity(data, "antigravity/gemini-3-flash")
     assert resp.choices[0].finish_reason != "stop"
     assert resp.choices[0].finish_reason == "content_filter"
 
@@ -524,7 +531,7 @@ def test_sse_max_tokens_maps_to_length_not_stop() -> None:
         },
     )
     data = _merge_stream_generate_content_sse(text)
-    resp = model_response_from_antigravity(data, "antigravity/gemini-3.5-flash")
+    resp = model_response_from_antigravity(data, "antigravity/gemini-3-flash")
     assert resp.choices[0].finish_reason == "length"
 
 

@@ -155,10 +155,11 @@ The service also exposes exact public JSONL routes as inline text:
 
 ```bash
 curl -fsS https://scoreboard.screamingface.ai/livetruth-latest.jsonl
+curl -fsS https://scoreboard.screamingface.ai/livetruth-latest.eval.jsonl
 curl -fsS https://scoreboard.screamingface.ai/livetruth-masking.dataset.jsonl
 ```
 
-`livetruth-latest.jsonl` intentionally contains answers/context for the current demo. Do not expose `livetruth-latest.eval.jsonl`, `livetruth-latest.answer-key.jsonl`, or broad generated-artifact globs.
+`livetruth-latest.jsonl` intentionally contains answers/context for the current demo, and `livetruth-latest.eval.jsonl` intentionally exposes direct-eval rows including `expected_answer`. Do not expose `livetruth-latest.answer-key.jsonl` or broad generated-artifact globs.
 
 After deploy, open `https://scoreboard.screamingface.ai/` and verify the browser console has no failed `http://localhost:9106` requests and no CORS failures.
 

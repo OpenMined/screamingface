@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 _GATEWAY_PROVIDER = "antigravity"
 _PATH_PREFIX = "/antigravity"
-_DEFAULT_MODEL = "antigravity/gemini-3.5-flash"
+_DEFAULT_MODEL = "antigravity/gemini-3-flash"
 
 
 def create_router(

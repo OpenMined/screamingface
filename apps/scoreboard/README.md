@@ -71,9 +71,10 @@ The scoreboard service serves the demo portal at `/`. The portal UI, API routes,
 Public artifact routes are exact-file allowlisted and served as inline `text/plain`:
 
 - `/livetruth-latest.jsonl`
+- `/livetruth-latest.eval.jsonl`
 - `/livetruth-masking.dataset.jsonl`
 
-Do not publish `livetruth-latest.eval.jsonl`, `livetruth-latest.answer-key.jsonl`, or generated-artifact globs. `livetruth-latest.jsonl` intentionally contains answers/context for the current demo.
+Do not publish `livetruth-latest.answer-key.jsonl` or generated-artifact globs. `livetruth-latest.jsonl` intentionally contains answers/context for the current demo, and `livetruth-latest.eval.jsonl` intentionally exposes the direct-eval rows including `expected_answer`.
 
 ## Development
 

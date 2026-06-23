@@ -42,8 +42,8 @@ def test_registers_confirmed_model_seed() -> None:
     assert plugin is not None
     models = plugin.register_models()
     names = {m.model_name for m in models}
-    # Confirmed-served seed only (findings U1): the one model agy actually used.
-    assert "antigravity/gemini-3.5-flash" in names
+    # Live-listed seed: verified via fetchAvailableModels + generateContent.
+    assert "antigravity/gemini-3-flash" in names
     # Must NOT copy gemini-2.5-* slugs (SF-284 "derive, don't copy").
     assert not any("gemini-2.5" in name for name in names)
     for m in models:

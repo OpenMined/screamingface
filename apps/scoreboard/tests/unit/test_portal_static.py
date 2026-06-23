@@ -59,11 +59,15 @@ def test_public_jsonl_artifacts_are_inline_text_and_unauthenticated(tmp_path: Pa
         assert masking.headers["content-type"].startswith("text/plain")
         assert '"question"' in masking.text
 
+        eval_results = client.get("/livetruth-latest.eval.jsonl")
+        assert eval_results.status_code == 200
+        assert eval_results.headers["content-type"].startswith("text/plain")
+        assert '"expected_answer"' in eval_results.text
+
 
 @pytest.mark.parametrize(
     "path",
     [
-        "/livetruth-latest.eval.jsonl",
         "/livetruth-latest.eval.jsonl.txt",
         "/livetruth-latest.answer-key.jsonl",
     ],
@@ -77,6 +81,7 @@ def test_missing_artifact_fails_app_creation(tmp_path: Path) -> None:
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
     (artifacts / "livetruth-latest.jsonl").write_text("{}\n", encoding="utf-8")
+    (artifacts / "livetruth-latest.eval.jsonl").write_text("{}\n", encoding="utf-8")
 
     settings = _settings(tmp_path, portal_artifacts_dir=artifacts)
 

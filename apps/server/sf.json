@@ -116,7 +116,7 @@
       "default_profile": "default"
     },
     "aigw-antigravity-backend": {
-      "default_model": "antigravity/gemini-3.5-flash",
+      "default_model": "antigravity/gemini-3-flash",
       "default_effort": "medium",
       "interpreter_system_prompt": "You are a helpful assistant. Answer the user's question based only on the provided context. Be concise and factual.",
       "timeout_seconds": 600,
@@ -297,6 +297,9 @@
         },
         "TestSpec1": {
           "expression": "(claude:0.40:/claude($prompt)!'Answer this fill-in-the-blank question with the single most likely short answer. Return only the answer and no other text.',codex:0.30:/codex($prompt)!'Answer this fill-in-the-blank question with the single most likely short answer. Return only the answer and no other text.',gemini:0.30:/gemini($prompt)!'Answer this fill-in-the-blank question with the single most likely short answer. Return only the answer and no other text.')!'Combine these candidate answers using source weights claude=0.40 codex=0.30 gemini=0.30 into the single best short answer. Return only the answer and no other text.'"
+        },
+        "ScoredLiveTruthLocalContextLatest": {
+          "expression": "(\n  https://scoreboard.screamingface.ai/livetruth-latest.jsonl*(\n    consensus=(\n      claude:0.40:/claude(Context: $item.context Question: $item.question)\n      !'Using only the context above, fill in the blank in the question. Return only the missing text, no other text.',\n      codex:0.30:/codex(Context: $item.context Question: $item.question)\n      !'Using only the context above, fill in the blank in the question. Return only the missing text, no other text.',\n      gemini:0.30:/antigravity(Context: $item.context Question: $item.question)\n      !'Using only the context above, fill in the blank in the question. Return only the missing text, no other text.'\n    )\n    !'Combine these candidate answers, weighting claude=0.40 codex=0.30 gemini=0.30, into the single best short answer. Return only the missing text, no other text.',\n    /python(/data/code/check_correct.py)\n    !{\n      \"question\": \"$item.question\",\n      \"expected\": \"$item.answer\",\n      \"correct_answer\": \"$item.answer\",\n      \"consensus\": \"$consensus\"\n    }\n  )\n  ;foreach.concurrency=10\n  ;foreach.on_error=collect\n)\n!/python(/data/code/calculate_accuracy.py)"
         }
       }
     },
