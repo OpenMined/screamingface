@@ -4,6 +4,17 @@ All notable changes to the ScreamingFace Server are documented here.
 This project follows [Semantic Versioning](https://semver.org/) and uses
 release tags of the form `server-v<version>`.
 
+## [0.2.1](https://github.com/OpenMined/screamingface/compare/server-v0.2.0...server-v0.2.1) (2026-06-24)
+
+
+### Bug Fixes
+
+* **server:** enable Tortoise global fallback so DB reads work under uvicorn ([#223](https://github.com/OpenMined/screamingface/issues/223)) ([592d59a](https://github.com/OpenMined/screamingface/commit/592d59ab9f636081d6e6cb1462f0a9a51c5c56f4))
+* **server:** exclude no-auth runners from /backends/status credential walk (SF-246) ([#262](https://github.com/OpenMined/screamingface/issues/262)) ([ff4320b](https://github.com/OpenMined/screamingface/commit/ff4320b2b2fcc6edcaf7b7b9381a3108bad6fdfe))
+* **server:** resolve $prompt url4 in-process to avoid /ensemble 401 self-loop ([#224](https://github.com/OpenMined/screamingface/issues/224)) ([b58fb08](https://github.com/OpenMined/screamingface/commit/b58fb08c0fae4a25ab027a8bbf73513d44172ff1))
+* **url4:** JSON-escape $item/$var substitutions inside json_blob intents (SF-235) ([#242](https://github.com/OpenMined/screamingface/issues/242)) ([7b65d46](https://github.com/OpenMined/screamingface/commit/7b65d469f8deef9a6eca3744dcce80cae5d4ad43))
+* **url4:** surface on_error=collect failures via X-SF-Collected-Errors header + span attr ([#243](https://github.com/OpenMined/screamingface/issues/243)) ([5b7c9dc](https://github.com/OpenMined/screamingface/commit/5b7c9dc708837c826a1feb766c59c860cd602a59))
+
 ## [0.2.0](https://github.com/OpenMined/screamingface/compare/server-v0.1.0...server-v0.2.0) (2026-05-18)
 
 
