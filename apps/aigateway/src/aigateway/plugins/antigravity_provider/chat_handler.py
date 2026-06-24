@@ -88,7 +88,10 @@ class _StreamMergeState:
 def _safe_extra_headers(headers: dict[str, Any]) -> dict[str, str]:
     safe: dict[str, str] = {}
     for key, value in headers.items():
-        if not isinstance(key, str) or key.lower() in CLIENT_AUTH_HEADER_NAMES:
+        if not isinstance(key, str):
+            continue
+        header_name = key.lower()
+        if header_name in CLIENT_AUTH_HEADER_NAMES or header_name.startswith("x-goog-"):
             continue
         if value is None:
             continue
@@ -174,14 +177,15 @@ def _consume_stream_generate_content_event(raw: str, state: _StreamMergeState) -
     if isinstance(prompt_feedback, dict) and isinstance(prompt_feedback.get("blockReason"), str):
         state.block_reason = prompt_feedback["blockReason"]
     candidates = payload.get("candidates")
-    if isinstance(candidates, list) and candidates:
-        candidate = candidates[0]
-        if isinstance(candidate, dict):
+    if isinstance(candidates, list):
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
             content = candidate.get("content")
             chunk_parts = content.get("parts") if isinstance(content, dict) else None
             if isinstance(chunk_parts, list):
                 state.parts.extend(part for part in chunk_parts if isinstance(part, dict))
-            if isinstance(candidate.get("finishReason"), str):
+            if state.finish_reason is None and isinstance(candidate.get("finishReason"), str):
                 state.finish_reason = candidate["finishReason"]
     if isinstance(payload.get("usageMetadata"), dict):
         state.usage = payload["usageMetadata"]
@@ -191,6 +195,15 @@ def _consume_stream_generate_content_event(raw: str, state: _StreamMergeState) -
         state.response_id = event["responseId"]
     if isinstance(payload.get("modelVersion"), str):
         state.model_version = payload["modelVersion"]
+
+
+def _post_kwargs(
+    body: dict[str, Any], request_headers: dict[str, str], timeout: Any
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"json": body, "headers": request_headers}
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    return kwargs
 
 
 def _merge_stream_generate_content_sse(text: str) -> dict[str, Any]:
@@ -314,7 +327,7 @@ class AntigravityCustomLLM(CustomLLM):
             try:
                 async with self._http_client_factory() as client:
                     response = await client.post(
-                        url, json=body, headers=request_headers, timeout=timeout
+                        url, **_post_kwargs(body, request_headers, timeout)
                     )
             except httpx.RequestError as exc:
                 raise CustomLLMError(

@@ -222,6 +222,10 @@ async def test_caller_auth_headers_stripped_by_value() -> None:
         "x-goog-user-project": "attacker-project",
         "x-goog-authuser": "7",
         "x-goog-iam-authorization-token": "iam-token",
+        "x-goog-quota-user": "attacker-quota",
+        "x-goog-fieldmask": "attacker-fieldmask",
+        "x-goog-request-params": "attacker-request-params",
+        "x-goog-api-client": "attacker-api-client",
         "cookie": "session=evil",
     }
     await _complete(
@@ -300,6 +304,38 @@ def test_client_auth_header_names_is_superset() -> None:
         "cookie",
     ):
         assert name in CLIENT_AUTH_HEADER_NAMES
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("request_timeout", "expected_timeout"),
+    [(None, httpx.Timeout(5.0).as_dict()), (httpx.Timeout(1.5), httpx.Timeout(1.5).as_dict())],
+)
+async def test_request_timeout_preserves_client_default_when_absent(
+    request_timeout: httpx.Timeout | None, expected_timeout: dict[str, float | None]
+) -> None:
+    seen_timeouts: list[dict[str, float | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_timeouts.append(request.extensions["timeout"])
+        if str(request.url).endswith(f"{_API_VERSION}:loadCodeAssist"):
+            return httpx.Response(200, json={"cloudaicompanionProject": "p"})
+        return httpx.Response(200, json={"response": _antigravity_response("safe")})
+
+    transport = httpx.MockTransport(handler)
+    custom = AntigravityCustomLLM(
+        settings=_SETTINGS,
+        http_client_factory=lambda: httpx.AsyncClient(
+            transport=transport, timeout=httpx.Timeout(5.0)
+        ),
+    )
+    kwargs: dict[str, Any] = {"headers": {ANTIGRAVITY_PROFILE_HEADER: "p1"}}
+    if request_timeout is not None:
+        kwargs["timeout"] = request_timeout
+    await _complete(custom, **kwargs)
+
+    assert seen_timeouts
+    assert seen_timeouts == [expected_timeout for _ in seen_timeouts]
 
 
 # --- daily -> prod host fallback (U12) -------------------------------------
@@ -533,6 +569,25 @@ def test_sse_max_tokens_maps_to_length_not_stop() -> None:
     data = _merge_stream_generate_content_sse(text)
     resp = model_response_from_antigravity(data, "antigravity/gemini-3-flash")
     assert resp.choices[0].finish_reason == "length"
+
+
+def test_sse_reads_finish_reason_from_later_candidate() -> None:
+    text = _sse(
+        {
+            "response": {
+                "candidates": [
+                    {"content": {"role": "model", "parts": [{"text": "x"}]}},
+                    {"finishReason": "STOP"},
+                ]
+            }
+        },
+    )
+
+    data = _merge_stream_generate_content_sse(text)
+    resp = model_response_from_antigravity(data, "antigravity/gemini-3-flash")
+
+    assert resp.choices[0].message.content == "x"
+    assert resp.choices[0].finish_reason == "stop"
 
 
 # --- SSE fallback gating: only verb-unsupported 404/405 (finding C) --------
