@@ -80,7 +80,8 @@ describe('external URL policy', () => {
       isAllowedOAuthAuthorizeUrl(
         authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
           response_type: 'code',
-          client_id: 'public-client-id',
+          // Google policy pins exact client_ids; use the real Gemini id.
+          client_id: '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com',
           redirect_uri: 'http://localhost:9105/oauth2callback',
           scope: 'https://www.googleapis.com/auth/cloud-platform',
           code_challenge: 'challenge',
@@ -178,11 +179,101 @@ describe('external URL policy', () => {
       isAllowedOAuthAuthorizeUrl(
         authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
           ...base,
+          // Real Gemini client_id so this case isolates the redirect-path rejection.
+          client_id: '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com',
           redirect_uri: 'http://localhost:9105/callback',
         }),
       ),
     ).toBe(false);
     expect(isAllowedOAuthAuthorizeUrl(authorizeUrl('auth.openai.com', '/login', base))).toBe(false);
+  });
+
+  it('pins exact Google OAuth client_ids on the loopback policy', () => {
+    const googleBase = {
+      response_type: 'code',
+      redirect_uri: 'http://localhost:9105/oauth2callback',
+      scope: 'https://www.googleapis.com/auth/cloud-platform',
+      code_challenge: 'challenge',
+      code_challenge_method: 'S256',
+      state: 'state',
+      access_type: 'offline',
+      prompt: 'consent',
+    };
+    const GEMINI_CLIENT_ID =
+      '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com';
+    const ANTIGRAVITY_CLIENT_ID =
+      '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
+
+    // Both pinned Google client_ids are allowed.
+    expect(
+      isAllowedOAuthAuthorizeUrl(
+        authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
+          ...googleBase,
+          client_id: GEMINI_CLIENT_ID,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedOAuthAuthorizeUrl(
+        authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
+          ...googleBase,
+          client_id: ANTIGRAVITY_CLIENT_ID,
+        }),
+      ),
+    ).toBe(true);
+
+    // Any other client_id on the Google policy is now BLOCKED (was allowed
+    // when only presence was checked — U17 tightening).
+    expect(
+      isAllowedOAuthAuthorizeUrl(
+        authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
+          ...googleBase,
+          client_id: 'public-client-id',
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedOAuthAuthorizeUrl(
+        authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
+          ...googleBase,
+          client_id: 'attacker-client-id.apps.googleusercontent.com',
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('accepts all loopback hosts in the OAuth redirect_uri', () => {
+    const GEMINI_CLIENT_ID =
+      '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com';
+    const base = {
+      response_type: 'code',
+      client_id: GEMINI_CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/cloud-platform',
+      code_challenge: 'challenge',
+      code_challenge_method: 'S256',
+      state: 'state',
+    };
+    // The SF callback bridge supports localhost / 127.0.0.1 / [::1]; the Desktop
+    // policy must accept the same loopback hosts (review #7).
+    for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+      expect(
+        isAllowedOAuthAuthorizeUrl(
+          authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
+            ...base,
+            redirect_uri: `http://${host}:9105/oauth2callback`,
+          }),
+        ),
+      ).toBe(true);
+    }
+    // Non-loopback host is still rejected.
+    expect(
+      isAllowedOAuthAuthorizeUrl(
+        authorizeUrl('accounts.google.com', '/o/oauth2/v2/auth', {
+          ...base,
+          redirect_uri: 'http://evil.example.com:9105/oauth2callback',
+        }),
+      ),
+    ).toBe(false);
   });
 
   it('allows only safe backend path slugs', () => {

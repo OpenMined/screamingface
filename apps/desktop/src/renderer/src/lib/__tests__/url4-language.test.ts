@@ -43,6 +43,7 @@ describe('registerUrl4Language', () => {
     const labels = provider!
       .provideCompletionItems(model, position)
       .suggestions.map((s) => s.label);
+    expect(labels).toContain('/antigravity');
     expect(labels).toContain('/claude');
     expect(labels).toContain('/python');
     expect(labels).toContain('$prompt');

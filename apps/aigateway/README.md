@@ -93,6 +93,22 @@ Multi-worker deployments (`uvicorn --workers N` or a process manager equivalent)
 MUST set `AIGATEWAY_JWT_SECRET` explicitly. The generated database fallback is a
 local/single-worker convenience only.
 
+## Google Code Assist providers
+
+Gemini and Antigravity both use Google's Code Assist OAuth/token contract, with
+shared helper code in `core/google_code_assist.py` and provider-specific settings
+under `plugins/`.
+
+Antigravity intentionally sends `ideType="ANTIGRAVITY"` and
+`pluginType="GEMINI"` to `loadCodeAssist`. The live service rejects
+`pluginType="ANTIGRAVITY"` as an invalid enum even for real Antigravity clients;
+if setup starts failing with `INVALID_ARGUMENT`, re-check that upstream enum
+contract before changing provider registration or model routing.
+
+Google OAuth blobs that do not include `expires_at_ms` are treated as not locally
+expired. The gateway then relies on upstream 401/403 dispatch failures to mark
+the profile or connection for re-authentication instead of guessing an expiry.
+
 ## Operations
 
 ### Rotate `AIGATEWAY_JWT_SECRET`

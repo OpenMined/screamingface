@@ -311,6 +311,12 @@ class AigwCallbackBridge:
             return _CallbackRoute("/callback", (self._settings.anthropic_port,))
         if gateway_provider == "gemini-cli":
             return _CallbackRoute("/oauth2callback", (self._settings.gemini_port,))
+        if gateway_provider == "antigravity":
+            # Antigravity reuses Gemini's loopback callback path AND port. A
+            # 2026-06-19 probe confirmed Google validates only the loopback host
+            # (not the path) for the antigravity installed-app client, so no new
+            # path/port/setting is needed (zero redirect delta).
+            return _CallbackRoute("/oauth2callback", (self._settings.gemini_port,))
         if gateway_provider == "codex":
             return _CallbackRoute("/auth/callback", tuple(self._settings.codex_ports))
         return None

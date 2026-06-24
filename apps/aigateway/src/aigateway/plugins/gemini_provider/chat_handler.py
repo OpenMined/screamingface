@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -13,6 +12,8 @@ import litellm
 from litellm.llms.custom_llm import CustomLLM, CustomLLMError
 from litellm.types.utils import ModelResponse
 
+from aigateway.core.google_code_assist import parse_google_retry_after
+
 from .auth import CLIENT_AUTH_HEADER_NAMES, GEMINI_PROFILE_HEADER, GEMINI_USER_AGENT
 from .message_adapter import (
     PROVIDER,
@@ -20,6 +21,10 @@ from .message_adapter import (
     model_response_from_gemini,
     strip_provider_prefix,
 )
+
+# Retry-after parsing moved to core (findings U5) so antigravity can reuse it.
+# Re-exported under the original name for existing gemini callers/tests.
+parse_gemini_retry_after = parse_google_retry_after
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
@@ -71,54 +76,6 @@ def _profile_header_value(headers: dict[str, Any]) -> str:
         if isinstance(key, str) and key.lower() == GEMINI_PROFILE_HEADER.lower() and value:
             return str(value)
     return "default"
-
-
-# "reset after 8s" / "reset after 1m30s" / "reset after 22h11m3s" — a run of
-# number+unit components (the daily-quota form is compound, not plain seconds).
-_RESET_AFTER_RE = re.compile(r"reset after\s+((?:\d+(?:\.\d+)?\s*[hms])+)", re.IGNORECASE)
-_RETRY_DELAY_RE = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
-_DURATION_COMPONENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([hms])", re.IGNORECASE)
-_UNIT_SECONDS = {"h": 3600.0, "m": 60.0, "s": 1.0}
-
-
-def _compound_duration_to_seconds(token: str) -> float | None:
-    """Sum a Google-style duration like ``22h11m3s`` / ``1m30s`` / ``8s`` into
-    seconds. Returns ``None`` if no h/m/s component is present."""
-    total = 0.0
-    matched = False
-    for value, unit in _DURATION_COMPONENT_RE.findall(token):
-        matched = True
-        total += float(value) * _UNIT_SECONDS[unit.lower()]
-    return total if matched else None
-
-
-def parse_gemini_retry_after(response_text: str, headers: Any) -> float | None:
-    """Extract a retry-after delay (seconds) from a Gemini 429.
-
-    Google surfaces the reset window in the response *body* (a ``RetryInfo``
-    ``retryDelay`` in seconds, or the human "reset after <duration>" phrasing
-    which may be compound, e.g. ``22h11m3s`` on daily-quota exhaustion), not a
-    standard ``Retry-After`` header — so the generic header parser misses it.
-    Honors a real header first, then ``retryDelay``, then the prose form.
-    Returns ``None`` when nothing matches (caller falls back to exponential
-    backoff).
-    """
-    raw = headers.get("retry-after") if headers is not None else None
-    if raw is not None:
-        try:
-            return max(0.0, float(raw))
-        except (TypeError, ValueError):
-            pass
-    text = response_text or ""
-    delay_match = _RETRY_DELAY_RE.search(text)
-    if delay_match:
-        return max(0.0, float(delay_match.group(1)))
-    reset_match = _RESET_AFTER_RE.search(text)
-    if reset_match:
-        seconds = _compound_duration_to_seconds(reset_match.group(1))
-        if seconds is not None:
-            return max(0.0, seconds)
-    return None
 
 
 def _error_from_response(response: httpx.Response, provider_name: str) -> CustomLLMError:

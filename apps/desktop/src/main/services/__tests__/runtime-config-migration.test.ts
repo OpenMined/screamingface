@@ -103,6 +103,28 @@ describe('migrateDesktopRuntimeConfig', () => {
     });
   });
 
+  it('does not inject the experimental Antigravity backend into existing configs', () => {
+    // The always-run migration must not silently re-add aigw-antigravity-backend
+    // (it would reappear after a user removes the experimental provider). Fresh
+    // templates enable it via sf.json; existing configs are left alone (plan §5,
+    // review #8).
+    const migrated = migrateDesktopRuntimeConfig(
+      {
+        plugins: ['gemini-backend-api', 'codex-backend-api'],
+        plugin_config: {
+          'gemini-backend-api': { default_model: 'gemini-2.5-pro' },
+          'codex-backend-api': { default_model: 'o4-mini' },
+        },
+      },
+      USER_DATA,
+    );
+
+    expect(migrated.plugins).not.toContain('aigw-antigravity-backend');
+    expect(
+      (migrated.plugin_config as Record<string, unknown>)['aigw-antigravity-backend'],
+    ).toBeUndefined();
+  });
+
   it('sets deterministic gateway runner defaults without lowering explicit timeout', () => {
     const migrated = migrateDesktopRuntimeConfig(
       {
