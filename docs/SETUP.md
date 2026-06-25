@@ -55,12 +55,12 @@ The installer lives in the public **`OpenMined/sf-installer`** repo. It detects
 your OS/arch, downloads the latest release, and installs it:
 
 ```bash
-curl -fsSL <published-installer-url>/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/OpenMined/sf-installer/main/install.sh | sh
 ```
 
-> The exact URL is the `install.sh` published with each `sf-installer` release —
-> grab it from <https://github.com/OpenMined/sf-installer/releases>. Pin a
-> version with `SF_VERSION=v0.2.0`, or change the location with `SF_INSTALL_DIR`.
+> The installer lives at the root of the `sf-installer` repo. It installs the
+> newest release by default. Pin a version with the **full release tag**
+> (`SF_VERSION=desktop-v0.3.0`), or change the location with `SF_INSTALL_DIR`.
 
 What it does:
 

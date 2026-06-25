@@ -73,7 +73,12 @@ main() {
     info "Latest version: ${TAG}"
   fi
 
-  VERSION="${TAG#v}"
+  # Release tags are component-prefixed (e.g. "desktop-v0.3.0"); the artifact
+  # name uses the bare version ("0.3.0"). Strip the "<component>-v" prefix, and
+  # tolerate a bare "v0.3.0" tag too. The full TAG is still used for the
+  # download path below.
+  VERSION="${TAG#*-v}"
+  VERSION="${VERSION#v}"
 
   # Determine artifact name and install dir
   case "$OS" in
