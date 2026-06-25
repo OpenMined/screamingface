@@ -4,6 +4,18 @@ All notable changes to the ScreamingFace Desktop app are documented here.
 This project follows [Semantic Versioning](https://semver.org/) and uses
 release tags of the form `desktop-v<version>`.
 
+## [0.3.0](https://github.com/OpenMined/screamingface/compare/desktop-v0.2.0...desktop-v0.3.0) (2026-06-25)
+
+
+### Features
+
+* **desktop:** SF-181 Publish to Leaderboard flow (Eval Studio → scoreboard) ([#261](https://github.com/OpenMined/screamingface/issues/261)) ([572b9b1](https://github.com/OpenMined/screamingface/commit/572b9b12cb8808d145fdfa99938f455111be71bf))
+
+
+### Bug Fixes
+
+* **desktop:** error message no longer crammed onto the backend-status action row ([#238](https://github.com/OpenMined/screamingface/issues/238)) ([d75a3b9](https://github.com/OpenMined/screamingface/commit/d75a3b917d037ab6f0132b276eb61203970e3031))
+
 ## [0.2.0](https://github.com/OpenMined/screamingface/compare/desktop-v0.1.0...desktop-v0.2.0) (2026-05-18)
 
 
