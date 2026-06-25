@@ -2,6 +2,12 @@
 
 An AI ensemble system that routes coding CLI prompts through multiple models (Claude, Gemini, Codex, Ollama) to beat SOTA benchmarks. Built by OpenMined.
 
+> **📖 Setting up? Read [`docs/SETUP.md`](docs/SETUP.md).** It is the definitive,
+> end-to-end guide — system requirements, installing the packaged app, running
+> from source, **connecting the AI backends** (incl. the Antigravity activation
+> gotcha), and cutting a build. The quickstart below is a condensed dev path; if
+> the two disagree, `docs/SETUP.md` wins.
+
 ## Prerequisites
 
 | Tool | Version | Install |
@@ -9,7 +15,7 @@ An AI ensemble system that routes coding CLI prompts through multiple models (Cl
 | Python | >= 3.12 | [python.org](https://www.python.org/downloads/) |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 | Node.js | >= 18 | [nodejs.org](https://nodejs.org/) |
-| mkcert | latest | `brew install mkcert` (macOS) |
+| mkcert | optional | `brew install mkcert` (macOS) — only needed if you turn SSL on |
 
 Verify:
 ```bash
@@ -23,10 +29,11 @@ mkcert -version
 
 ```
 apps/
-  server/    Python FastAPI server with plugin architecture (uv)
-  desktop/   Electron control-plane app (electron-vite, React, Tailwind)
-  web/       Marketing website (Next.js)
-packages/    Shared packages
+  server/      Python FastAPI plugin server — URL4 engine, frontends, python runner (uv)
+  desktop/     Electron control-plane app (electron-vite, React, Tailwind)
+  aigateway/   LiteLLM-based AI Gateway — provider OAuth + encrypted credentials (uv)
+  scoreboard/  Public benchmark scoreboard service
+web/           Static marketing site
 ```
 
 ## Quick Start
@@ -35,13 +42,13 @@ packages/    Shared packages
 
 ```bash
 cd apps/server
-uv python install 3.13
-uv venv --python 3.13
-uv sync --extra tracing          # install dependencies
+uv sync                          # install dependencies (uv manages Python 3.12+)
 uv run sf run                    # start server (reads sf.json)
 ```
 
-The server auto-generates SSL certs via mkcert on first run. It binds to `https://0.0.0.0:8000` by default (auto-increments port if busy).
+> Add `--extra tracing` to `uv sync` if you want the OpenTelemetry tracing plugin.
+
+It binds to `http://127.0.0.1:8000` by default (SSL is **off** in the shipped `sf.json`; the port auto-increments if busy). To enable SSL, set `"ssl": true` in `sf.json` and install mkcert.
 
 Useful commands:
 ```bash
@@ -60,25 +67,28 @@ All config lives in `apps/server/sf.json`:
 
 ```json
 {
-  "version": "0.1.0",
   "server": {
-    "host": "0.0.0.0",
+    "host": "127.0.0.1",
     "port": 8000,
     "reload": true,
-    "ssl": true
+    "ssl": false
   },
-  "plugins": ["claude-frontend", "claude-env-intercept", "tracing", "url4-executor"],
+  "plugins": ["tracing", "url4-executor", "claude-frontend", "aigw-base", "aigw-runner", "..."],
   "plugin_config": {
-    "claude-frontend": {
-      "upstream_url": "https://api.anthropic.com"
-    }
+    "claude-frontend": { "upstream_url": "https://api.anthropic.com", "listen_port": 9101 },
+    "aigw-runner": { "port": 9105 }
   }
 }
 ```
 
-Anthropic auth flows through the Claude Code OAuth token stored in the macOS
-keychain (service `Claude Code-credentials`). Make sure you have signed in to
-Claude Code at least once on this machine — no environment variables required.
+The shipped `sf.json` activates ~21 plugins (the URL4 engine, the per-provider
+frontends, and the AI Gateway stack). Run `uv run sf plugin list` to see the
+live set.
+
+Provider credentials (Claude, Codex, Gemini, Antigravity) are connected through
+the **AI Gateway** via browser OAuth on the app's **Settings** screen — you
+don't paste API keys or set env vars. See
+[`docs/SETUP.md` §4](docs/SETUP.md#4-connect-the-ai-backends-the-one-step-everyone-does).
 
 ### 2. Desktop App
 
@@ -101,11 +111,8 @@ npm run package                  # create platform installer (DMG/AppImage/NSIS)
 
 ### 3. Web (Marketing Site)
 
-```bash
-cd apps/web
-npm install
-npm run dev                      # Next.js dev server
-```
+The marketing site is a **static** site under `web/` (no framework / build step).
+Serve the directory with any static file server to preview it.
 
 ## Environment Variables
 
@@ -120,32 +127,34 @@ npm run dev                      # Next.js dev server
 cd apps/server
 uv run pytest -v
 
-# Desktop (lint only, no test suite yet)
+# Desktop (Vitest)
 cd apps/desktop
-npm run lint
+npx vitest run                   # unit/component tests (jsdom)
+npm run lint                     # eslint
+
+# AI Gateway (Python)
+cd apps/aigateway
+uv run pytest -m "not live"
 ```
 
 ## Plugin System
 
 The server uses a plugin architecture inspired by Odoo. Plugins are discovered via entry points and activated in `sf.json`.
 
-Built-in plugins:
-- **claude-frontend** -- forwards Claude API requests to Anthropic (with optional url4 context enrichment)
-- **claude-env-intercept** -- writes proxy env vars to shell profile so Claude Code uses the local server
-- **claude-backend** -- runs Claude CLI commands from the server
-- **tracing** -- OpenTelemetry instrumentation (requires `uv sync --extra tracing`)
-- **claude-intercept** -- DNS/hosts interception to transparently redirect Claude API traffic
-- **url4-executor** -- url4 protocol engine — parsing, resolution, and HTTP endpoint
+Key active plugins (run `uv run sf plugin list` for the full, live set):
+- **url4-executor / url4-specs** -- the URL4 protocol engine and spec library
+- **claude-frontend / codex-frontend / gemini-frontend / ollama-frontend** -- per-provider request frontends
+- **aigw-base / aigw-runner / aigw-\*-backend** -- AI Gateway integration: provider OAuth and routing through the gateway on `:9105`
+- **python-runner** -- sandboxed Python execution used for eval scoring (`check_correct`, `calculate_accuracy`)
+- **data-store / private-storage / state / eval-runs** -- persistence and evaluation-run tracking
+- **tracing** -- OpenTelemetry instrumentation (`uv sync --extra tracing`)
 
-## Pointing Claude Code at the Proxy
+> The legacy `claude-env-intercept`, `claude-intercept`, and `mitmproxy-intercept`
+> plugins are **deprecated and unmaintained** — they are not part of the active
+> pipeline. Don't use them as a reference for how the gateway works.
 
-Once the server is running with `claude-frontend` and `claude-env-intercept` plugins:
+## Using ScreamingFace
 
-```bash
-# The claude-env-intercept plugin writes these to your shell profile automatically.
-# If you need to set them manually:
-export ANTHROPIC_BASE_URL="https://localhost:8000"
-export NODE_EXTRA_CA_CERTS="$(mkcert -CAROOT)/rootCA.pem"
-```
-
-Then start Claude Code normally -- all API requests route through the local proxy.
+Connect your model subscriptions on the app's **Settings** screen, then drive
+the ensemble from **Eval Studio** / **Sessions**, or via the `sf` CLI overlay.
+The full flow is in [`docs/SETUP.md`](docs/SETUP.md).
