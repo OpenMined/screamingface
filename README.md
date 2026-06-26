@@ -39,83 +39,29 @@ apps/
 web/           Static marketing site
 ```
 
-## Quick Start
+## Running it
 
-### 1. Server
+Full instructions live in the two canonical guides — this avoids a third copy
+drifting out of sync:
 
-```bash
-cd apps/server
-uv sync                          # install dependencies (uv manages Python 3.12+)
-uv run sf run                    # start server (reads sf.json)
-```
+- **Run from source / develop** → [`CONTRIBUTING.md`](CONTRIBUTING.md): clone,
+  run via the desktop app or the headless server, ports, `sf.json` config,
+  tests, and the git workflow.
+- **Install the packaged app + connect the AI backends** →
+  [`docs/SETUP.md`](docs/SETUP.md).
 
-> Add `--extra tracing` to `uv sync` if you want the OpenTelemetry tracing plugin.
-
-It binds to `http://127.0.0.1:8000` by default (SSL is **off** in the shipped `sf.json`; the port auto-increments if busy). To enable SSL, set `"ssl": true` in `sf.json` and install mkcert.
-
-Useful commands:
-```bash
-uv run sf --help                 # CLI reference
-uv run sf run --no-ssl           # skip SSL if mkcert not installed
-uv run sf run --port 9000        # custom port
-uv run sf run --enable claude-frontend  # run only specific plugins
-uv run sf plugin list --json     # list discovered plugins
-uv run pytest                    # run tests
-uv run ruff check src tests      # lint
-```
-
-#### Server Configuration
-
-All config lives in `apps/server/sf.json`:
-
-```json
-{
-  "server": {
-    "host": "127.0.0.1",
-    "port": 8000,
-    "reload": true,
-    "ssl": false
-  },
-  "plugins": ["tracing", "url4-executor", "claude-frontend", "aigw-base", "aigw-runner", "..."],
-  "plugin_config": {
-    "claude-frontend": { "upstream_url": "https://api.anthropic.com", "listen_port": 9101 },
-    "aigw-runner": { "port": 9105 }
-  }
-}
-```
-
-The shipped `sf.json` activates ~21 plugins (the URL4 engine, the per-provider
-frontends, and the AI Gateway stack). Run `uv run sf plugin list` to see the
-live set.
-
-Provider credentials (Claude, Codex, Gemini, Antigravity) are connected through
-the **AI Gateway** via browser OAuth on the app's **Settings** screen — you
-don't paste API keys or set env vars. See
-[`docs/SETUP.md` §4](docs/SETUP.md#4-connect-the-ai-backends-the-one-step-everyone-does).
-
-### 2. Desktop App
+Thirty-second from-source path:
 
 ```bash
-cd apps/desktop
-npm install                      # install dependencies
-npm run dev                      # launch Electron in dev mode
+git clone https://github.com/OpenMined/screamingface.git
+cd screamingface
+git config core.hooksPath .githooks      # pre-commit guards
+make sync                                # uv-sync server + aigateway
+cd apps/desktop && npm install && npm run dev   # desktop app auto-starts the server
 ```
 
-The desktop app manages the Python server lifecycle automatically (venv creation, dependency sync, start/stop). On first launch it will:
-1. Detect or create a Python venv in `apps/server/.venv`
-2. Sync dependencies via `uv sync`
-3. Start the server as a subprocess
-
-Build for distribution:
-```bash
-npm run build                    # compile main/preload/renderer
-npm run package                  # create platform installer (DMG/AppImage/NSIS)
-```
-
-### 3. Web (Marketing Site)
-
-The marketing site is a **static** site under `web/` (no framework / build step).
-Serve the directory with any static file server to preview it.
+The marketing site under `web/` is static (no build step) — serve the directory
+with any static file server to preview it.
 
 ## Environment Variables
 
