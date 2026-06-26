@@ -2,11 +2,14 @@
 
 An AI ensemble system that routes coding CLI prompts through multiple models (Claude, Gemini, Codex, Ollama) to beat SOTA benchmarks. Built by OpenMined.
 
-> **📖 Setting up? Read [`docs/SETUP.md`](docs/SETUP.md).** It is the definitive,
-> end-to-end guide — system requirements, installing the packaged app, running
-> from source, **connecting the AI backends** (incl. the Antigravity activation
-> gotcha), and cutting a build. The quickstart below is a condensed dev path; if
-> the two disagree, `docs/SETUP.md` wins.
+> **📖 Setting up?**
+> - **Installing / using the app** → [`docs/SETUP.md`](docs/SETUP.md): the
+>   definitive end-to-end guide (system requirements, packaged-app install,
+>   **connecting the AI backends** incl. the Antigravity gotcha, cutting a build).
+> - **Developing / running from source** → [`CONTRIBUTING.md`](CONTRIBUTING.md):
+>   the canonical dev guide (clone, run, ports, tests, git workflow).
+>
+> The quickstart below is a condensed dev path; if it disagrees with those, they win.
 
 ## Prerequisites
 

@@ -77,68 +77,24 @@ environment and starts the local server. Then go to
 
 ## 3. Option B — Run from source (developers)
 
+Running from source is the developer path. The full guide —
+clone + git hooks, running via the desktop app or the headless server,
+the ports table, tests/lint/typecheck, and the git workflow — lives in the
+root **[`CONTRIBUTING.md`](../CONTRIBUTING.md)**.
+
+The short version:
+
 ```bash
 git clone https://github.com/OpenMined/screamingface.git
 cd screamingface
 git config core.hooksPath .githooks   # enables the pre-commit guards
 make sync                             # uv-syncs apps/server + apps/aigateway
+
+# then either run the desktop app (auto-manages the server)…
+cd apps/desktop && npm install && npm run dev
+# …or run the server headless:
+make run-server                       # http://127.0.0.1:8000, SSL off
 ```
-
-You can then run **the whole thing through the desktop app** (recommended) or
-run **the server headless**.
-
-### 3a. Run via the desktop app (recommended)
-
-```bash
-cd apps/desktop
-npm install
-npm run dev      # launches Electron; auto-creates the venv, uv-syncs, starts the server
-```
-
-The desktop app owns the server lifecycle — you do **not** start the server or
-the gateway by hand. On first launch it creates a venv, runs `uv sync`, and
-spawns `sf run` as a subprocess. The AI Gateway is started automatically by the
-server's `aigw-runner` plugin.
-
-### 3b. Run the server headless (no desktop)
-
-```bash
-cd apps/server
-uv sync                 # first time
-uv run sf run           # starts the server; reads ./sf.json
-```
-
-The dev default (from `apps/server/sf.json`) binds **`http://127.0.0.1:8000`**
-with SSL **off**. Useful flags:
-
-```bash
-uv run sf --help                  # full CLI reference
-uv run sf run --port 9000         # change the port
-uv run sf run --no-ssl            # explicitly disable SSL (already off by default)
-uv run sf plugin list --json      # list discovered plugins + status
-uv run sf run --disable aigw-runner   # don't auto-start the gateway
-```
-
-The AI Gateway can also be run on its own (the server normally does this for
-you):
-
-```bash
-make run-aigateway                       # uvicorn aigateway.main:app --port 9105 --reload
-curl -sf http://localhost:9105/healthz   # liveness check
-```
-
-### Ports
-
-| Service | Port | Source |
-|---------|------|--------|
-| Local server | `8000` | `sf.json` → `server.port` |
-| AI Gateway (`aigw-runner`) | `9105` | `sf.json` → `aigw-runner.port` |
-| claude-frontend | `9101` | `sf.json` |
-| codex-frontend | `9102` | `sf.json` |
-| ollama-frontend | `9103` | `sf.json` |
-| Ollama (upstream) | `11434` | local Ollama install |
-
-If a port is busy the server increments to the next free one.
 
 ---
 
