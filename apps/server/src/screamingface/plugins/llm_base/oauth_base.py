@@ -25,6 +25,18 @@ to ~100.
 Hybrid strategies (e.g. Gemini supports API-key OR OAuth) override
 :meth:`_header_override` to short-circuit the OAuth path when an
 API-key env var is present.
+
+CONTRACT MIRROR (SF-335): this OAuth base mirrors the OAuth base in the
+AIGateway app (aigateway/core/oauth_base.py) *by contract, not by code* —
+there is NO shared module and NO cross-app import (forbidden by the
+dependency rules). Keep these invariants in sync across both apps:
+
+    * refresh_window_seconds == 60
+    * refresh fires when (expiry - now) <= refresh_window_seconds
+    * double-checked locking with an asyncio.Lock (single-flight refresh)
+    * drop the cached strategy on an upstream auth failure
+
+If you change refresh_window_seconds here, change it in the other app too.
 """
 
 from __future__ import annotations

@@ -108,6 +108,13 @@ class TortoiseRequestCacheStore:
         if row is None:
             try:
                 await RequestCacheEntry.create(key_hash=entry.key_hash, **values)
+                # SF-335: per-write opportunistic purge is INTENTIONAL, not a
+                # correctness mechanism. get() refuses expired rows on read
+                # (store.py:67-69), so a stale row is never served even if this
+                # never runs; it only reclaims space, and the delete is
+                # index-assisted (expires_at indexed). If this write path is ever
+                # measured as hot, switch to probabilistic GC (SF-335 follow-up);
+                # do not add a background task.
                 await self.delete_expired()
                 return
             except IntegrityError:
@@ -117,7 +124,10 @@ class TortoiseRequestCacheStore:
         for field, value in values.items():
             setattr(row, field, value)
         await row.save(update_fields=list(values.keys()))
-        await self.delete_expired()
+        await self.delete_expired()  # SF-335: intentional opportunistic purge (see note above)
 
     async def delete_expired(self) -> int:
+        # SF-335: index-assisted (expires_at index, request_cache_entry.py:27),
+        # NOT a full-table scan. Called opportunistically from set(); see the
+        # note there on why this per-write purge is intentional.
         return await RequestCacheEntry.filter(expires_at__lte=datetime.now(UTC)).delete()

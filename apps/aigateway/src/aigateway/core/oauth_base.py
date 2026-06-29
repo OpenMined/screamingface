@@ -1,9 +1,28 @@
 """Template-method base for OAuth-backed credential strategies.
 
-Owns the shared flow: in-memory cache, double-checked locking with an
-asyncio.Lock, proactive refresh inside the lock, 401-driven invalidation.
-Provider plugins implement four hooks: read, is_expired, refresh,
-build_headers (plus an optional header_override for hybrid api-key paths).
+Owns the shared *credential* flow only: in-memory cache, double-checked
+locking with an asyncio.Lock, and proactive refresh inside the lock. Provider
+plugins implement four hooks: read, is_expired, refresh, build_headers (plus
+an optional header_override for hybrid api-key paths).
+
+This base does NOT detect auth failures. Upstream HTTP auth failures are a
+transport concern handled in the chat route (`routes/chat.py`):
+`_dispatch_failure_response` consults the provider plugin's
+`should_mark_profile_error_on_dispatch_status` (`core/plugin_base.py`; anthropic
+401, gemini/antigravity 401+403, base default never) and evicts the SHARED
+strategy instance from the process-wide `CredentialStrategyCache`
+(`core/credential_strategy_cache.py`) via its `evict()`. Credential read/refresh
+errors raised before dispatch are also handled in the chat route's
+`_inject_credentials` path. Eviction lives there, not here, because the cache
+holds the one instance shared across a fan-out; `invalidate()` on this object
+clears only its own `_cached`, not the shared entry the next request would reuse.
+
+CONTRACT MIRROR (SF-335): this OAuth base mirrors the OAuth base in the SF
+server (plugins/llm_base/oauth_base.py) *by contract, not by code*: NO shared
+module, NO cross-app import. Keep in sync: refresh_window_seconds == 60;
+refresh fires when (expiry - now) <= refresh_window_seconds; double-checked
+asyncio.Lock single-flight; drop the cached strategy on an upstream auth
+failure. If you change refresh_window_seconds here, change it in the other app.
 """
 
 from __future__ import annotations
