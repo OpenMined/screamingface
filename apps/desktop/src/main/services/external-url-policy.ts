@@ -255,6 +255,13 @@ function isAllowedServerFetchPathAndMethod(url: URL, method: string): boolean {
   if (url.pathname === '/ensemble/format' && hasNoQuery(url)) {
     return normalizedMethod === 'POST';
   }
+  if (url.pathname === '/ensemble/highlight') {
+    return (
+      normalizedMethod === 'GET' &&
+      hasSingleParam(url.searchParams, 'q') &&
+      hasOnlySingleQueryParams(url, new Set(['q']))
+    );
+  }
   if (url.pathname === '/ensemble') {
     return (
       normalizedMethod === 'GET' &&

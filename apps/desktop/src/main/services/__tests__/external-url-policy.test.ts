@@ -355,6 +355,13 @@ describe('external URL policy', () => {
     ).toBe(true);
     expect(
       isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/ensemble/highlight?q=/private/abc',
+        serverInfo,
+        'GET',
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedServerFetchUrl(
         'https://127.0.0.1:8000/eval_runs?limit=50&offset=0',
         serverInfo,
         'GET',
@@ -400,6 +407,20 @@ describe('external URL policy', () => {
     ).toBe(false);
     expect(
       isAllowedServerFetchUrl('https://127.0.0.1:8000/ensemble?debug=1', serverInfo, 'GET'),
+    ).toBe(false);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/ensemble/highlight?q=/private/abc&ast=true',
+        serverInfo,
+        'GET',
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/ensemble/highlight?q=/private/abc',
+        serverInfo,
+        'POST',
+      ),
     ).toBe(false);
     expect(
       isAllowedServerFetchUrl(

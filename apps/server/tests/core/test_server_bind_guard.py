@@ -41,3 +41,17 @@ def test_create_app_requires_shared_lan_override_for_non_loopback(monkeypatch) -
 
     with pytest.raises(RuntimeError, match="SF_SERVER_ALLOW_LAN=1"):
         create_app(config)
+
+
+def test_create_app_reports_deprecated_lan_override_env_vars(monkeypatch) -> None:
+    monkeypatch.setenv("SF_BACKEND_API_ALLOW_LAN", "1")
+    monkeypatch.setenv("SF_AIGW_ALLOW_LAN", "1")
+    config = AppConfig(server=ServerConfig(host="0.0.0.0"))
+
+    with pytest.raises(RuntimeError) as exc_info:
+        create_app(config)
+
+    message = str(exc_info.value)
+    assert "SF_SERVER_ALLOW_LAN=1" in message
+    assert "SF_BACKEND_API_ALLOW_LAN" in message
+    assert "SF_AIGW_ALLOW_LAN" in message

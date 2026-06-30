@@ -6,6 +6,8 @@ import os
 from ipaddress import ip_address
 from typing import Any
 
+_DEPRECATED_LAN_OVERRIDE_ENV_VARS = ("SF_AIGW_ALLOW_LAN", "SF_BACKEND_API_ALLOW_LAN")
+
 
 def assert_loopback_bind_host(
     bind_host: str,
@@ -24,6 +26,9 @@ def assert_loopback_bind_host(
         f"{component_name} refuses to run on non-loopback SF host {bind_host!r}; "
         f"set {env_hint} to override"
     )
+    deprecated = [name for name in _DEPRECATED_LAN_OVERRIDE_ENV_VARS if os.environ.get(name) == "1"]
+    if deprecated:
+        msg += f" ({', '.join(deprecated)} no longer enable LAN binds)"
     raise RuntimeError(msg)
 
 
