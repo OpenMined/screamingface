@@ -84,6 +84,10 @@ class AigwTokenSource:
         self._cache = None
 
     @property
+    def cached_expires_at(self) -> datetime | None:
+        return self._cache.expires_at if self._cache is not None else None
+
+    @property
     def connection_id(self) -> str:
         return self._connection_id
 

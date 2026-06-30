@@ -293,6 +293,86 @@ describe('runOAuthLauncher', () => {
     expect(getPendingAuthState(BROWSER_BACKEND, 'personal')).toBe('state-personal');
   });
 
+  it('rejects duplicate profile OAuth launch without overwriting manual auth state', async () => {
+    await runOAuthLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: BROWSER_BACKEND,
+      profileName: 'work',
+      timeoutMs: 0,
+      fetchImpl: makeFetch([
+        () =>
+          new Response(JSON.stringify({ authorize_url: AUTHORIZE_URL, state: 'state-original' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ]) as unknown as typeof fetch,
+    });
+    const duplicateFetch = makeFetch([
+      () =>
+        new Response(JSON.stringify({ authorize_url: AUTHORIZE_URL, state: 'state-duplicate' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    ]);
+
+    const duplicate = await runOAuthLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: BROWSER_BACKEND,
+      profileName: 'work',
+      timeoutMs: 0,
+      fetchImpl: duplicateFetch as unknown as typeof fetch,
+    });
+
+    expect(duplicate.kind).toBe('failed');
+    if (duplicate.kind === 'failed') {
+      expect(duplicate.reason).toBe('gateway_error');
+      expect(duplicate.message).toContain('already pending');
+    }
+    expect(duplicateFetch).not.toHaveBeenCalled();
+    expect(getPendingAuthState(BROWSER_BACKEND, 'work')).toBe('state-original');
+  });
+
+  it('rejects duplicate profile OAuth launch while a start request is in flight', async () => {
+    let resolveStart: (response: Response) => void = () => undefined;
+    const startResponse = new Promise<Response>((resolve) => {
+      resolveStart = resolve;
+    });
+    const firstFetch = vi.fn(async () => startResponse);
+    const firstLaunch = runOAuthLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: BROWSER_BACKEND,
+      profileName: 'work',
+      timeoutMs: 0,
+      fetchImpl: firstFetch as unknown as typeof fetch,
+    });
+    await Promise.resolve();
+    const duplicateFetch = vi.fn();
+
+    const duplicate = await runOAuthLauncher({
+      sfBaseUrl: 'http://127.0.0.1:1234',
+      backendName: BROWSER_BACKEND,
+      profileName: 'work',
+      timeoutMs: 0,
+      fetchImpl: duplicateFetch as unknown as typeof fetch,
+    });
+
+    expect(duplicate.kind).toBe('failed');
+    if (duplicate.kind === 'failed') {
+      expect(duplicate.reason).toBe('gateway_error');
+      expect(duplicate.message).toContain('already pending');
+    }
+    expect(duplicateFetch).not.toHaveBeenCalled();
+
+    resolveStart(
+      new Response(JSON.stringify({ authorize_url: AUTHORIZE_URL, state: 'state-original' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+    await firstLaunch;
+    expect(getPendingAuthState(BROWSER_BACKEND, 'work')).toBe('state-original');
+  });
+
   it('returns gateway_error when /auth/start returns 502', async () => {
     const fetchMock = makeFetch([
       () =>

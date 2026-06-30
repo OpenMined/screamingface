@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import asyncio
 from abc import abstractmethod
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
 from screamingface.plugins.llm_base.auth_base import AuthStrategy
@@ -50,6 +50,7 @@ class OAuthStrategy(AuthStrategy):
 
     def __init__(self, *, aigw_source: AigwTokenSource | None = None) -> None:
         self._cached: dict | None = None
+        self._cached_aigw_expires_at: datetime | None = None
         self._lock = asyncio.Lock()
         self._aigw_source = aigw_source
 
@@ -63,7 +64,11 @@ class OAuthStrategy(AuthStrategy):
             return override
 
         if self._aigw_source is not None:
-            self._cached = await self._fetch_via_aigw()
+            if self._cached is not None and self._is_aigw_cache_fresh():
+                return self._build_headers(self._cached)
+            async with self._lock:
+                if self._cached is None or not self._is_aigw_cache_fresh():
+                    self._cached = await self._fetch_via_aigw()
             return self._build_headers(self._cached)
 
         # Fast path: cache hit, still fresh.
@@ -98,6 +103,7 @@ class OAuthStrategy(AuthStrategy):
     def invalidate_cache(self) -> None:
         """Drop in-memory state. The next header build re-reads the store."""
         self._cached = None
+        self._cached_aigw_expires_at = None
         if self._aigw_source is not None and hasattr(self._aigw_source, "invalidate_cache"):
             self._aigw_source.invalidate_cache()
 
@@ -118,8 +124,25 @@ class OAuthStrategy(AuthStrategy):
     async def _fetch_via_aigw(self) -> dict:
         assert self._aigw_source is not None
         token = await self._aigw_source.fetch_token()
-        placeholder_expiry = datetime.now(UTC).replace(microsecond=0)
-        return self._aigw_creds_shape(token, placeholder_expiry)
+        expires_at = self._aigw_source_expires_at()
+        self._cached_aigw_expires_at = expires_at
+        return self._aigw_creds_shape(token, expires_at or datetime.now(UTC).replace(microsecond=0))
+
+    def _aigw_source_expires_at(self) -> datetime | None:
+        assert self._aigw_source is not None
+        expires_at = getattr(self._aigw_source, "cached_expires_at", None)
+        if not isinstance(expires_at, datetime):
+            return None
+        if expires_at.tzinfo is None:
+            return expires_at.replace(tzinfo=UTC)
+        return expires_at
+
+    def _is_aigw_cache_fresh(self) -> bool:
+        if self._cached_aigw_expires_at is None:
+            return False
+        return self._cached_aigw_expires_at - datetime.now(UTC) > timedelta(
+            seconds=self.refresh_window_seconds
+        )
 
     def _aigw_creds_shape(self, access_token: str, expires_at: datetime) -> dict:
         """Translate aigw token response → provider-shaped creds dict.

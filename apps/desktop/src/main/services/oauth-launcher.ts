@@ -28,6 +28,7 @@ import {
  */
 const pendingStateByBackendProfile = new Map<string, string>();
 const pendingStateByBackendConnection = new Map<string, string>();
+const activeLaunchesByBackendProfile = new Set<string>();
 
 function pendingAuthKey(backendName: string, profileName?: string): string {
   return `${backendName}\0${profileName ?? ''}`;
@@ -35,6 +36,10 @@ function pendingAuthKey(backendName: string, profileName?: string): string {
 
 function pendingConnectionAuthKey(backendName: string, connectionId: string): string {
   return `${backendName}\0connection\0${connectionId}`;
+}
+
+function hasPendingProfileLaunch(authKey: string): boolean {
+  return activeLaunchesByBackendProfile.has(authKey) || pendingStateByBackendProfile.has(authKey);
 }
 
 export function getPendingAuthState(backendName: string, profileName?: string): string | null {
@@ -105,9 +110,21 @@ export interface ConnectionLauncherOptions {
   abortSignal?: AbortSignal;
 }
 
+interface ProfileStatusPollOptions {
+  backendName: string;
+  profileName?: string;
+  statusUrl: string;
+  fetchImpl: typeof fetch;
+  headers?: Record<string, string>;
+  pollIntervalMs: number;
+  timeoutMs: number;
+  abortSignal?: AbortSignal;
+}
+
 export function clearPendingOAuthStates(): void {
   pendingStateByBackendProfile.clear();
   pendingStateByBackendConnection.clear();
+  activeLaunchesByBackendProfile.clear();
 }
 
 export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherResult> {
@@ -126,64 +143,87 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
   const startUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/start${query}`;
   const statusUrl = `${opts.sfBaseUrl}/${opts.backendName}/auth/status${query}`;
   if (opts.abortSignal?.aborted) return cancelledResult();
+  const authKey = pendingAuthKey(opts.backendName, opts.profileName);
+  if (hasPendingProfileLaunch(authKey)) {
+    return {
+      kind: 'failed',
+      reason: 'gateway_error',
+      message: 'OAuth launch already pending for this backend/profile',
+    };
+  }
+  activeLaunchesByBackendProfile.add(authKey);
 
-  console.log(`[oauth-launcher] POST ${startUrl}`);
-  let startResp: Response;
   try {
-    startResp = await fetchImpl(startUrl, {
-      method: 'POST',
-      headers: opts.headers,
-      ...abortFetchInit(opts.abortSignal),
-    });
-  } catch (e) {
-    if (isAbortError(e, opts.abortSignal)) return cancelledResult();
-    console.log(`[oauth-launcher] start fetch threw:`, e);
-    return { kind: 'failed', reason: 'network_error', message: String(e) };
-  }
-  console.log(`[oauth-launcher] start status=${startResp.status}`);
-  if (!startResp.ok) {
-    let body = '';
+    console.log(`[oauth-launcher] POST ${startUrl}`);
+    let startResp: Response;
     try {
-      body = await startResp.text();
-    } catch {
-      /* ignore */
+      startResp = await fetchImpl(startUrl, {
+        method: 'POST',
+        headers: opts.headers,
+        ...abortFetchInit(opts.abortSignal),
+      });
+    } catch (e) {
+      if (isAbortError(e, opts.abortSignal)) return cancelledResult();
+      console.log(`[oauth-launcher] start fetch threw:`, e);
+      return { kind: 'failed', reason: 'network_error', message: String(e) };
     }
-    console.log(`[oauth-launcher] start body=${body.slice(0, 500)}`);
-    return {
-      kind: 'failed',
-      reason: 'gateway_error',
-      message: `start returned ${startResp.status}: ${body.slice(0, 200)}`,
-    };
-  }
-  const startBody = (await startResp.json()) as { authorize_url?: string; state?: string };
-  if (
-    !startBody.authorize_url ||
-    !isAllowedOAuthAuthorizeUrl(startBody.authorize_url, {
-      allowedRedirectPorts: opts.allowedOAuthRedirectPorts,
-    })
-  ) {
-    return {
-      kind: 'failed',
-      reason: 'gateway_error',
-      message: 'blocked unexpected OAuth authorize URL',
-    };
-  }
-  if (startBody.state) {
-    pendingStateByBackendProfile.set(
-      pendingAuthKey(opts.backendName, opts.profileName),
-      startBody.state,
-    );
-  }
-  if (opts.abortSignal?.aborted) return cancelledResult();
-  console.log(`[oauth-launcher] opening browser for ${opts.backendName}`);
-  await shell.openExternal(startBody.authorize_url);
+    console.log(`[oauth-launcher] start status=${startResp.status}`);
+    if (!startResp.ok) {
+      let body = '';
+      try {
+        body = await startResp.text();
+      } catch {
+        /* ignore */
+      }
+      console.log(`[oauth-launcher] start body=${body.slice(0, 500)}`);
+      return {
+        kind: 'failed',
+        reason: 'gateway_error',
+        message: `start returned ${startResp.status}: ${body.slice(0, 200)}`,
+      };
+    }
+    const startBody = (await startResp.json()) as { authorize_url?: string; state?: string };
+    if (
+      !startBody.authorize_url ||
+      !isAllowedOAuthAuthorizeUrl(startBody.authorize_url, {
+        allowedRedirectPorts: opts.allowedOAuthRedirectPorts,
+      })
+    ) {
+      return {
+        kind: 'failed',
+        reason: 'gateway_error',
+        message: 'blocked unexpected OAuth authorize URL',
+      };
+    }
+    if (startBody.state) {
+      pendingStateByBackendProfile.set(authKey, startBody.state);
+    }
+    if (opts.abortSignal?.aborted) return cancelledResult();
+    console.log(`[oauth-launcher] opening browser for ${opts.backendName}`);
+    await shell.openExternal(startBody.authorize_url);
 
-  const deadline = Date.now() + timeoutMs;
+    return await pollProfileOAuthStatus({
+      backendName: opts.backendName,
+      profileName: opts.profileName,
+      headers: opts.headers,
+      abortSignal: opts.abortSignal,
+      statusUrl,
+      fetchImpl,
+      pollIntervalMs,
+      timeoutMs,
+    });
+  } finally {
+    activeLaunchesByBackendProfile.delete(authKey);
+  }
+}
+
+async function pollProfileOAuthStatus(opts: ProfileStatusPollOptions): Promise<LauncherResult> {
+  const deadline = Date.now() + opts.timeoutMs;
   let networkBlips = 0;
   while (Date.now() < deadline) {
     let statusResp: Response;
     try {
-      statusResp = await fetchImpl(statusUrl, {
+      statusResp = await opts.fetchImpl(opts.statusUrl, {
         headers: opts.headers,
         ...abortFetchInit(opts.abortSignal),
       });
@@ -193,7 +233,9 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
       if (networkBlips >= 5) {
         return { kind: 'failed', reason: 'network_error' };
       }
-      if ((await sleep(pollIntervalMs, opts.abortSignal)) === 'aborted') return cancelledResult();
+      if ((await sleep(opts.pollIntervalMs, opts.abortSignal)) === 'aborted') {
+        return cancelledResult();
+      }
       continue;
     }
     networkBlips = 0;
@@ -215,7 +257,8 @@ export async function runOAuthLauncher(opts: LauncherOptions): Promise<LauncherR
     if (body.state === 'error') {
       return { kind: 'failed', reason: 'provider_error', message: body.error };
     }
-    if ((await sleep(pollIntervalMs, opts.abortSignal)) === 'aborted') return cancelledResult();
+    if ((await sleep(opts.pollIntervalMs, opts.abortSignal)) === 'aborted')
+      return cancelledResult();
   }
   return { kind: 'failed', reason: 'timeout' };
 }
