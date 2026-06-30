@@ -34,4 +34,4 @@ USER app
 EXPOSE 8000
 
 ENTRYPOINT ["sf"]
-CMD ["serve"]
+CMD ["run"]
