@@ -199,6 +199,30 @@ async def test_e2e_offline_llm_backend_fetches_private_context_path(app_url4) ->
 
 
 @pytest.mark.asyncio
+async def test_e2e_offline_llm_backend_normalizes_repeated_leading_slashes(
+    app_url4,
+) -> None:
+    async def private_doc(pid: str) -> PlainTextResponse:
+        return PlainTextResponse(f"PRIVATE-DOC[{pid}]")
+
+    async def wrong_doc() -> PlainTextResponse:
+        return PlainTextResponse("WRONG-DOC")
+
+    app_url4.add_api_route("/private/{pid}", private_doc, methods=["GET"])
+    app_url4.add_api_route("/abc123", wrong_doc, methods=["GET"])
+    llm = _EchoLlmPlugin()
+    _inject(app_url4, llm)
+
+    resp = await _ensemble(app_url4, "/claude(Who, what, //private/abc123)!answer")
+
+    assert resp.status_code == 200, resp.text
+    assert llm.last_sources is not None
+    assert "PRIVATE-DOC[abc123]" in llm.last_sources
+    assert "WRONG-DOC" not in llm.last_sources
+    assert "//private/abc123" not in llm.last_sources
+
+
+@pytest.mark.asyncio
 async def test_e2e_offline_python_backend_keeps_raw_locator(app_url4) -> None:
     """Offline e2e: a /python backend (no opt-in) still receives the raw
     locator path — the dispatcher must NOT pre-fetch it."""
