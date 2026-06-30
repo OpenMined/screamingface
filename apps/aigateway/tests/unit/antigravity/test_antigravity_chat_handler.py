@@ -386,6 +386,111 @@ async def test_pre_stream_error_mapping(status: int, expected: int) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ineligible_account_points_to_antigravity_activation() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).endswith(f"{_API_VERSION}:loadCodeAssist"):
+            return httpx.Response(
+                403,
+                json={
+                    "error": {
+                        "status": "PERMISSION_DENIED",
+                        "message": "Your current account is not eligible for Antigravity.",
+                    }
+                },
+            )
+        return httpx.Response(200, json={"response": _antigravity_response("x")})
+
+    custom = AntigravityCustomLLM(
+        settings=_SETTINGS, http_client_factory=_http_factory(httpx.MockTransport(handler))
+    )
+    with pytest.raises(CustomLLMError) as exc_info:
+        await _complete(custom, headers={ANTIGRAVITY_PROFILE_HEADER: "p1"})
+
+    assert exc_info.value.status_code == 403
+    assert "Activate Google Antigravity" in exc_info.value.message
+    assert "rejected credentials" not in exc_info.value.message
+
+
+@pytest.mark.asyncio
+async def test_structured_service_disabled_reason_points_to_activation() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).endswith(f"{_API_VERSION}:loadCodeAssist"):
+            return httpx.Response(
+                403,
+                json={
+                    "error": {
+                        "code": 403,
+                        "status": "PERMISSION_DENIED",
+                        "message": "The caller does not have permission.",
+                        "details": [
+                            {
+                                "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+                                "reason": "SERVICE_DISABLED",
+                                "domain": "cloudcode-pa.googleapis.com",
+                            }
+                        ],
+                    }
+                },
+            )
+        return httpx.Response(200, json={"response": _antigravity_response("x")})
+
+    custom = AntigravityCustomLLM(
+        settings=_SETTINGS, http_client_factory=_http_factory(httpx.MockTransport(handler))
+    )
+    with pytest.raises(CustomLLMError) as exc_info:
+        await _complete(custom, headers={ANTIGRAVITY_PROFILE_HEADER: "p1"})
+
+    assert exc_info.value.status_code == 403
+    assert "Activate Google Antigravity" in exc_info.value.message
+
+
+@pytest.mark.asyncio
+async def test_plain_permission_denied_stays_credentials_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).endswith(f"{_API_VERSION}:loadCodeAssist"):
+            return httpx.Response(
+                403,
+                json={
+                    "error": {
+                        "status": "PERMISSION_DENIED",
+                        "message": "The caller does not have permission.",
+                    }
+                },
+            )
+        return httpx.Response(200, json={"response": _antigravity_response("x")})
+
+    custom = AntigravityCustomLLM(
+        settings=_SETTINGS, http_client_factory=_http_factory(httpx.MockTransport(handler))
+    )
+    with pytest.raises(CustomLLMError) as exc_info:
+        await _complete(custom, headers={ANTIGRAVITY_PROFILE_HEADER: "p1"})
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.message == "Antigravity rejected credentials"
+
+
+@pytest.mark.asyncio
+async def test_non_utf8_permission_denied_stays_credentials_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).endswith(f"{_API_VERSION}:loadCodeAssist"):
+            return httpx.Response(
+                403,
+                content=b"\xa9",
+                headers={"content-type": "application/json"},
+            )
+        return httpx.Response(200, json={"response": _antigravity_response("x")})
+
+    custom = AntigravityCustomLLM(
+        settings=_SETTINGS, http_client_factory=_http_factory(httpx.MockTransport(handler))
+    )
+    with pytest.raises(CustomLLMError) as exc_info:
+        await _complete(custom, headers={ANTIGRAVITY_PROFILE_HEADER: "p1"})
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.message == "Antigravity rejected credentials"
+
+
+@pytest.mark.asyncio
 async def test_429_carries_retry_after() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if str(request.url).endswith(f"{_API_VERSION}:loadCodeAssist"):

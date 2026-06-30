@@ -13,6 +13,7 @@ import inspect
 
 import litellm
 import pytest
+from litellm.llms.custom_llm import CustomLLMError
 
 from aigateway.core.loader import load_plugins
 from aigateway.core.registry import ProviderRegistry
@@ -259,3 +260,23 @@ async def test_extract_identity_maps_to_core_account_identity() -> None:
 def test_account_label_from_credentials_delegates_to_core() -> None:
     label = _plugin().account_label_from_credentials({"account_label": "u@example.com"})
     assert label == "u@example.com"
+
+
+def test_activation_error_uses_specific_detail_code() -> None:
+    from aigateway.plugins.antigravity_provider.chat_handler import (
+        ANTIGRAVITY_ACTIVATION_REQUIRED_CODE,
+        ANTIGRAVITY_ACTIVATION_REQUIRED_MESSAGE,
+    )
+    from aigateway.plugins.antigravity_provider.plugin import _detail_for_error
+
+    error = CustomLLMError(
+        status_code=403,
+        message=ANTIGRAVITY_ACTIVATION_REQUIRED_MESSAGE,
+    )
+    error.detail_code = ANTIGRAVITY_ACTIVATION_REQUIRED_CODE  # type: ignore[attr-defined]
+    detail = _detail_for_error(error)
+
+    assert detail == {
+        "code": ANTIGRAVITY_ACTIVATION_REQUIRED_CODE,
+        "message": ANTIGRAVITY_ACTIVATION_REQUIRED_MESSAGE,
+    }

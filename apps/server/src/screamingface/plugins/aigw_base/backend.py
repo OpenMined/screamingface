@@ -29,6 +29,8 @@ from .config import resolve_aigw_runtime_config
 
 logger = logging.getLogger(__name__)
 
+AIGW_ACCOUNT_ACTIVATION_REQUIRED_CODE = "account_activation_required"
+
 
 class AigwGatewayError(BackendError):
     """Raised for unexpected gateway responses (gateway 500, malformed JSON)."""
@@ -204,6 +206,7 @@ class AigwBackend(Backend):
         # Map gateway error codes onto SF's error hierarchy.
         detail = _detail_or_text(resp)
         code = (detail or {}).get("code") if isinstance(detail, dict) else None
+        retry_after = _parse_retry_after(resp.headers.get("retry-after"))
 
         if resp.status_code == 404 and code == "profile_not_found":
             raise CredentialNotFoundError(
@@ -215,20 +218,38 @@ class AigwBackend(Backend):
                 f"Gateway profile {self._profile_name!r} is awaiting OAuth callback. "
                 f"Complete the flow in Electron."
             )
-        if resp.status_code == 401 and code == "auth_required":
-            msg = (
-                detail.get("message", "auth required")
-                if isinstance(detail, dict)
-                else "auth required"
-            )
+        if resp.status_code in (401, 403) and code in {
+            "auth_required",
+            AIGW_ACCOUNT_ACTIVATION_REQUIRED_CODE,
+        }:
+            msg = _detail_message(detail, "auth required")
             raise AuthError(f"Gateway: {msg}")
         if resp.status_code in (400, 422):
             raise BackendError(
                 f"Gateway rejected request ({resp.status_code}): {detail}",
                 status=resp.status_code,
             )
+        if code == "provider_unavailable":
+            raise BackendError(
+                f"Gateway provider unavailable: {_detail_message(detail, 'provider unavailable')}",
+                status=resp.status_code,
+                retry_after=retry_after,
+            )
+        if code == "provider_error":
+            # A bare gateway provider_error with HTTP 403 remains provider-level
+            # until gateway emitters explicitly classify generic 403s as auth.
+            raise BackendError(
+                f"Gateway provider error: {_detail_message(detail, 'provider error')}",
+                status=resp.status_code,
+                retry_after=retry_after,
+            )
+        if resp.status_code == 429 and code == "rate_limited":
+            raise BackendError(
+                f"Gateway rate limited: {_detail_message(detail, 'rate limited')}",
+                status=resp.status_code,
+                retry_after=retry_after,
+            )
         # Anything else → unexpected gateway error
-        retry_after = _parse_retry_after(resp.headers.get("retry-after"))
         raise AigwGatewayError(
             f"Gateway returned status {resp.status_code}: {resp.text[:500]}",
             status=resp.status_code,
@@ -355,6 +376,13 @@ def _detail_or_text(resp: httpx.Response):
     except (ValueError, httpx.DecodingError):
         return resp.text
     return body.get("detail", body) if isinstance(body, dict) else body
+
+
+def _detail_message(detail, fallback: str) -> str:
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        return message if isinstance(message, str) and message else fallback
+    return str(detail or fallback)
 
 
 def _parse_retry_after(value: str | None) -> float | None:

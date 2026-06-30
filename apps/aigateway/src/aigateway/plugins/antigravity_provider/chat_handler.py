@@ -63,6 +63,35 @@ CLIENT_AUTH_HEADER_NAMES = frozenset(
         "cookie",
     }
 )
+ANTIGRAVITY_ACTIVATION_REQUIRED_MESSAGE = (
+    "Activate Google Antigravity for this Google account, then retry. "
+    "If Antigravity is not available for this account, use a different activated account."
+)
+ANTIGRAVITY_ACTIVATION_REQUIRED_CODE = "account_activation_required"
+
+# Best-effort until we have a captured unactivated-account response: prefer
+# structured Google ErrorInfo reasons and keep prose markers narrowly scoped.
+_ACTIVATION_REQUIRED_REASONS = frozenset(
+    {
+        "SERVICE_DISABLED",
+        "ACCOUNT_NOT_ELIGIBLE",
+        "ANTIGRAVITY_ACCOUNT_NOT_ELIGIBLE",
+        "ANTIGRAVITY_NOT_ACTIVATED",
+        "ANTIGRAVITY_NOT_ENABLED",
+    }
+)
+_ACTIVATION_REQUIRED_PHRASES = frozenset(
+    {
+        "not eligible for antigravity",
+        "account is not eligible",
+        "ineligible to use antigravity",
+        "unexpected issue setting up your account",
+        "not activated",
+        "activation required",
+        "activate google antigravity",
+        "activated antigravity",
+    }
+)
 
 _HANDLER: AntigravityCustomLLM | None = None
 
@@ -106,8 +135,74 @@ def _profile_header_value(headers: dict[str, Any]) -> str:
     return "default"
 
 
+def _response_error_payload(response: httpx.Response) -> dict[str, Any] | None:
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    error = data.get("error")
+    return error if isinstance(error, dict) else None
+
+
+def _response_error_text(response: httpx.Response) -> str:
+    error = _response_error_payload(response)
+    if error is None:
+        return response.text
+
+    parts: list[str] = []
+    for key in ("status", "message"):
+        value = error.get(key)
+        if isinstance(value, str) and value:
+            parts.append(value)
+    for item in _iter_google_error_detail_items(error):
+        for key in ("reason", "message", "domain", "@type"):
+            value = item.get(key)
+            if isinstance(value, str) and value:
+                parts.append(value)
+    return " ".join(parts) if parts else response.text
+
+
+def _iter_google_error_detail_items(error: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for key in ("details", "errors"):
+        raw = error.get(key)
+        if isinstance(raw, list):
+            items.extend(item for item in raw if isinstance(item, dict))
+    return items
+
+
+def _google_error_reasons(error: dict[str, Any]) -> set[str]:
+    reasons: set[str] = set()
+    for item in _iter_google_error_detail_items(error):
+        reason = item.get("reason")
+        if isinstance(reason, str) and reason:
+            reasons.add(reason.upper())
+    return reasons
+
+
+def _activation_required_error(status_code: int) -> CustomLLMError:
+    error = CustomLLMError(
+        status_code=status_code,
+        message=ANTIGRAVITY_ACTIVATION_REQUIRED_MESSAGE,
+    )
+    error.detail_code = ANTIGRAVITY_ACTIVATION_REQUIRED_CODE  # type: ignore[attr-defined]
+    return error
+
+
+def _looks_like_activation_required(response: httpx.Response) -> bool:
+    error = _response_error_payload(response)
+    if error is not None and _google_error_reasons(error) & _ACTIVATION_REQUIRED_REASONS:
+        return True
+    text = _response_error_text(response).lower()
+    return any(marker in text for marker in _ACTIVATION_REQUIRED_PHRASES)
+
+
 def _error_from_response(response: httpx.Response) -> CustomLLMError:
     status = response.status_code
+    if status == 403 and _looks_like_activation_required(response):
+        return _activation_required_error(status)
     if status in (401, 403):
         return CustomLLMError(status_code=status, message="Antigravity rejected credentials")
     if status == 429:

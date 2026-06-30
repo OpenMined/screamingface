@@ -30,6 +30,7 @@ from aigateway.core.plugin_base import (
 
 from .auth import AntigravityOAuth, exchange_authorization_code
 from .chat_handler import (
+    ANTIGRAVITY_ACTIVATION_REQUIRED_CODE,
     CLIENT_AUTH_HEADER_NAMES,
     AntigravityCustomLLM,
     ensure_litellm_antigravity_provider_registered,
@@ -52,7 +53,9 @@ def _retry_after_header(exc: CustomLLMError) -> dict[str, str]:
 def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
     status_code = int(exc.status_code or 502)
     code = "provider_error"
-    if status_code in (401, 403):
+    if getattr(exc, "detail_code", None) == ANTIGRAVITY_ACTIVATION_REQUIRED_CODE:
+        code = ANTIGRAVITY_ACTIVATION_REQUIRED_CODE
+    elif status_code in (401, 403):
         code = "auth_required"
     elif status_code == 429:
         code = "rate_limited"
