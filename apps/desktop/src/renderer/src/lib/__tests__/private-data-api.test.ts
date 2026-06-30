@@ -46,12 +46,38 @@ describe('private-data-api', () => {
     expect(await getPrivateContent(base, 'u1')).toBe('# raw');
   });
 
+  it('encodes uuid path segments before fetching private content', async () => {
+    const f = mockFetch(200, '# raw');
+    await getPrivateContent(base, 'u/1?x=2#hash');
+    expect(f).toHaveBeenCalledWith(
+      `${base}/private/${encodeURIComponent('u/1?x=2#hash')}`,
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
   it('updates and deletes', async () => {
     const f = mockFetch(200, JSON.stringify({ uuid: 'u1', label: 'y' }));
     await updatePrivate(base, 'u1', { content: '# z' });
     await deletePrivate(base, 'u1');
     expect(f).toHaveBeenLastCalledWith(
       `${base}/private/u1`,
+      expect.objectContaining({ method: 'DELETE' }),
+    );
+  });
+
+  it('encodes uuid path segments before updating or deleting private content', async () => {
+    const f = mockFetch(200, JSON.stringify({ uuid: 'u1', label: 'y' }));
+    const uuid = 'u/1?x=2#hash';
+    await updatePrivate(base, uuid, { content: '# z' });
+    await deletePrivate(base, uuid);
+    expect(f).toHaveBeenNthCalledWith(
+      1,
+      `${base}/private/${encodeURIComponent(uuid)}`,
+      expect.objectContaining({ method: 'PUT' }),
+    );
+    expect(f).toHaveBeenNthCalledWith(
+      2,
+      `${base}/private/${encodeURIComponent(uuid)}`,
       expect.objectContaining({ method: 'DELETE' }),
     );
   });

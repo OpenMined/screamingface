@@ -46,7 +46,7 @@ export async function createPrivate(
 }
 
 export async function getPrivateContent(base: string, uuid: string): Promise<string> {
-  const res = await api().fetch(`${base}/private/${uuid}`, { method: 'GET' });
+  const res = await api().fetch(`${base}/private/${encodeURIComponent(uuid)}`, { method: 'GET' });
   await ok(res, 'get');
   return res.body;
 }
@@ -59,7 +59,7 @@ export async function updatePrivate(
   const body: Record<string, unknown> = {};
   if (payload.content !== undefined) body.content = payload.content;
   if (payload.label !== undefined) body.label = payload.label;
-  const res = await api().fetch(`${base}/private/${uuid}`, {
+  const res = await api().fetch(`${base}/private/${encodeURIComponent(uuid)}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -68,6 +68,8 @@ export async function updatePrivate(
 }
 
 export async function deletePrivate(base: string, uuid: string): Promise<void> {
-  const res = await api().fetch(`${base}/private/${uuid}`, { method: 'DELETE' });
+  const res = await api().fetch(`${base}/private/${encodeURIComponent(uuid)}`, {
+    method: 'DELETE',
+  });
   await ok(res, 'delete');
 }

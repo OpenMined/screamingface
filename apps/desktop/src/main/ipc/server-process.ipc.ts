@@ -88,7 +88,7 @@ export function registerServerHandlers(): void {
     if (!info) {
       return { ok: false, status: 503, body: 'server_restarting' };
     }
-    if (!isAllowedServerFetchUrl(url, info)) {
+    if (!isAllowedServerFetchUrl(url, info, init?.method ?? 'GET')) {
       return { ok: false, status: 0, body: '' };
     }
 

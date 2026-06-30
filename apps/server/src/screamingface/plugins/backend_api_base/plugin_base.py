@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
+from screamingface.core.local_only import assert_loopback_server_bind
 from screamingface.plugin import Plugin, PluginSettings
 from screamingface.plugins.backend_api_base.models import BackendProfile
 
@@ -169,8 +170,16 @@ class BackendApiPluginBase(Plugin):
         classes: ClassRegistry,  # noqa: ARG002 — required by Plugin contract
         routes: RouteRegistry,
     ) -> None:
+        self._assert_loopback_server_bind(app)
         router = type(self).create_router(self.settings, app)
         routes.add_router(self.name, router, prefix="")
+
+    def _assert_loopback_server_bind(self, app: FastAPI) -> None:
+        assert_loopback_server_bind(
+            app,
+            self.name,
+            allow_env_vars=("SF_SERVER_ALLOW_LAN",),
+        )
 
     async def handle_backend_call(
         self,

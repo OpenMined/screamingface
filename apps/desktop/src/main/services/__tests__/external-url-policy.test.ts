@@ -294,16 +294,120 @@ describe('external URL policy', () => {
     expect(isSafeOAuthConnectionId('00000000-0000-0000-0000-000000000001?x=1')).toBe(false);
   });
 
-  it('allows server fetches only to the live loopback SF endpoint', () => {
+  it('allows server fetches only to approved local-server routes on the live loopback SF endpoint', () => {
     const serverInfo = { scheme: 'https', host: '127.0.0.1', port: 8000 };
 
-    expect(isAllowedServerFetchUrl('https://127.0.0.1:8000/plugins', serverInfo)).toBe(true);
-    expect(isAllowedServerFetchUrl('https://localhost:8000/plugins', serverInfo)).toBe(true);
+    expect(isAllowedServerFetchUrl('https://127.0.0.1:8000/private', serverInfo, 'GET')).toBe(true);
+    expect(isAllowedServerFetchUrl('https://localhost:8000/private', serverInfo, 'POST')).toBe(
+      true,
+    );
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/private/00000000-0000-0000-0000-000000000001',
+        serverInfo,
+        'PUT',
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/private/00000000-0000-0000-0000-000000000001',
+        serverInfo,
+        'DELETE',
+      ),
+    ).toBe(true);
+    expect(isAllowedServerFetchUrl('https://127.0.0.1:8000/plugins', serverInfo, 'GET')).toBe(true);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/plugins/url4-specs/settings',
+        serverInfo,
+        'GET',
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/plugins/url4-specs/settings',
+        serverInfo,
+        'POST',
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/plugins/url4-specs/settings/validate',
+        serverInfo,
+        'POST',
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/plugins/claude-frontend/schema',
+        serverInfo,
+        'GET',
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/config/validate', serverInfo, 'POST'),
+    ).toBe(true);
+    expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/ensemble/format', serverInfo, 'POST'),
+    ).toBe(true);
+    expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/ensemble?q=/private/abc', serverInfo, 'GET'),
+    ).toBe(true);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/eval_runs?limit=50&offset=0',
+        serverInfo,
+        'GET',
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/eval_runs/00000000-0000-0000-0000-000000000001',
+        serverInfo,
+        'PATCH',
+      ),
+    ).toBe(true);
 
     expect(isAllowedServerFetchUrl('https://127.0.0.1:8001/plugins', serverInfo)).toBe(false);
     expect(isAllowedServerFetchUrl('http://127.0.0.1:8000/plugins', serverInfo)).toBe(false);
     expect(isAllowedServerFetchUrl('https://192.168.1.5:8000/plugins', serverInfo)).toBe(false);
     expect(isAllowedServerFetchUrl('file:///tmp/x', serverInfo)).toBe(false);
+    expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/system/processes', serverInfo, 'GET'),
+    ).toBe(false);
+    expect(isAllowedServerFetchUrl('https://127.0.0.1:8000/health', serverInfo, 'GET')).toBe(false);
+    expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/config/validate', serverInfo, 'GET'),
+    ).toBe(false);
+    expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/plugins/Bad/settings', serverInfo, 'GET'),
+    ).toBe(false);
+    expect(isAllowedServerFetchUrl('https://127.0.0.1:8000/private', serverInfo, 'PUT')).toBe(
+      false,
+    );
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/private/00000000-0000-0000-0000-000000000001',
+        serverInfo,
+        'POST',
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/private/u1?next=/plugins', serverInfo, 'GET'),
+    ).toBe(false);
+    expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/private/not-a-uuid', serverInfo, 'GET'),
+    ).toBe(false);
+    expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/ensemble?debug=1', serverInfo, 'GET'),
+    ).toBe(false);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/eval_runs?limit=50&admin=1',
+        serverInfo,
+        'GET',
+      ),
+    ).toBe(false);
   });
 
   it('allows popup windows only for local Phoenix tracing', () => {
