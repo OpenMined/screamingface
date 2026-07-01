@@ -294,6 +294,8 @@ async def _fetch_relative(app: Any, path: str) -> str:
 
     if not app:
         raise ValueError(f"Cannot resolve relative URL {path!r} without app context")
+    if path.startswith("//"):
+        path = "/" + path.lstrip("/")
     with traced("url4.fetch_relative", kind="client"):
         set_span_attrs({"http.method": "GET", "url4.path": path})
         transport = httpx.ASGITransport(app=app)
