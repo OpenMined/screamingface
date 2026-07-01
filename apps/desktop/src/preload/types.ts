@@ -91,6 +91,10 @@ export interface ProviderAuthStatus {
   // Whether this provider accepts a raw API key (vs OAuth-only). The UI only
   // offers the API-key option where true. Absent => false (backward compat).
   supports_api_key?: boolean;
+  // Whether this provider offers browser OAuth. Absent => true (backward compat;
+  // every gateway backend except Hugging Face is OAuth-capable). When false, the
+  // connection UI defaults to and only offers the API-key flow.
+  supports_oauth?: boolean;
 }
 
 export interface BackendStatusV2 {

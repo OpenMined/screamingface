@@ -951,3 +951,73 @@ describe('BackendStatusPanel auth_kind=cli (regression)', () => {
     expect(listProfiles).not.toHaveBeenCalled();
   });
 });
+
+describe('BackendStatusPanel huggingface (api-key-only, SF-345)', () => {
+  const v2Huggingface = () => ({
+    version: 2,
+    gateway: {
+      mode: 'external',
+      managed_by_runner: false,
+      reachable: true,
+      authenticated: true,
+      auth_required: true,
+      url: 'https://gateway.example.com',
+    },
+    action: 'healthy',
+    backends: {
+      huggingface: {
+        authenticated: false,
+        action: 'reauth',
+        auth_kind: 'browser',
+        model: 'huggingface/deepseek-ai/DeepSeek-R1:novita',
+      },
+    },
+    provider_auth: {
+      providers: {
+        huggingface: {
+          provider: 'huggingface',
+          profile: 'default',
+          state: 'missing_profile',
+          supports_api_key: true,
+          supports_oauth: false,
+        },
+      },
+    },
+  });
+
+  it('renders the friendly "Hugging Face" display label', async () => {
+    getStatus.mockResolvedValue(v2Huggingface());
+    render(<BackendStatusPanel />);
+    expect(await screen.findByText('Hugging Face')).toBeTruthy();
+  });
+
+  it('defaults to API key and hides the OAuth option (no dead-end OAuth start)', async () => {
+    getStatus.mockResolvedValue(v2Huggingface());
+    render(<BackendStatusPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add Connection' }));
+    // api-key-only: no auth-type dropdown; the API key field is shown directly.
+    expect(screen.queryByLabelText('Authentication type')).toBeNull();
+    expect(screen.getByLabelText('API key')).toBeTruthy();
+  });
+
+  it('creates an api-key connection and never starts OAuth', async () => {
+    getStatus.mockResolvedValue(v2Huggingface());
+    render(<BackendStatusPanel />);
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add Connection' }));
+    fireEvent.change(screen.getByPlaceholderText(/connection label/i), {
+      target: { value: 'work' },
+    });
+    fireEvent.change(screen.getByLabelText('API key'), {
+      target: { value: 'hf_secret_token_123456' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+    await waitFor(() =>
+      expect(createConnectionApiKey).toHaveBeenCalledWith(
+        'huggingface',
+        'work',
+        'hf_secret_token_123456',
+      ),
+    );
+    expect(authenticateOAuthConnection).not.toHaveBeenCalled();
+  });
+});

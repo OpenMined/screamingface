@@ -47,6 +47,7 @@ const backendLabels: Record<string, string> = {
   claude: 'Claude',
   codex: 'Codex',
   gemini: 'Gemini',
+  huggingface: 'Hugging Face',
 };
 
 function statusBackends(status: BackendStatusResponse): BackendStatusMap {
@@ -810,18 +811,31 @@ function ConnectionsSubPanel({
   name,
   requiresLabel,
   supportsApiKey,
+  supportsOauth,
   onSummaryChange,
 }: {
   name: string;
   requiresLabel: boolean;
   supportsApiKey: boolean;
+  supportsOauth: boolean;
   onSummaryChange?: (summary: ConnectionAuthSummary) => void;
 }) {
   const [connections, setConnections] = useState<OAuthConnection[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState('');
-  const [authType, setAuthType] = useState<'oauth' | 'api_key'>('oauth');
+  // HF-style api-key-only providers (supports_oauth=false) default to — and only
+  // offer — the API-key flow; OAuth-capable providers keep OAuth as the default.
+  const defaultAuthType: 'oauth' | 'api_key' = supportsOauth ? 'oauth' : 'api_key';
+  const [authType, setAuthType] = useState<'oauth' | 'api_key'>(defaultAuthType);
+  // Capabilities can resolve after mount (e.g. supports_oauth: false arrives on a
+  // later poll). Correct an auth type that is no longer offered so the hidden
+  // selector can't leave the submit path stuck on OAuth. Only fires when the
+  // current choice becomes invalid, so it never overrides a valid user selection.
+  useEffect(() => {
+    if (!supportsOauth && authType === 'oauth') setAuthType('api_key');
+    else if (!supportsApiKey && authType === 'api_key') setAuthType('oauth');
+  }, [supportsOauth, supportsApiKey, authType]);
   const [apiKey, setApiKey] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -970,7 +984,7 @@ function ConnectionsSubPanel({
             setAdding(false);
             setLabel('');
             setApiKey('');
-            setAuthType('oauth');
+            setAuthType(defaultAuthType);
             setNotice('API key saved.');
           } else {
             setAddError(
@@ -1029,7 +1043,7 @@ function ConnectionsSubPanel({
     setAdding(false);
     setLabel('');
     setApiKey('');
-    setAuthType('oauth');
+    setAuthType(defaultAuthType);
     setAddError(null);
   };
 
@@ -1051,7 +1065,7 @@ function ConnectionsSubPanel({
       ))}
       {adding && !oauthInFlight ? (
         <form onSubmit={onAdd} className="flex flex-wrap items-center gap-2 py-1.5">
-          {supportsApiKey && (
+          {supportsApiKey && supportsOauth && (
             <select
               value={authType}
               disabled={submitting || savingKey}
@@ -1255,6 +1269,7 @@ function BackendRow({
             name={name}
             requiresLabel={connectionRequiresLabel}
             supportsApiKey={providerAuth?.supports_api_key ?? false}
+            supportsOauth={providerAuth?.supports_oauth ?? true}
             onSummaryChange={setConnectionSummary}
           />
         ) : (
