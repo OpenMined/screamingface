@@ -7,7 +7,7 @@ from typing import ClassVar
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
-from screamingface.plugins.aigw_antigravity_backend.routes import create_router
+from screamingface.plugins.aigw_antigravity_backend.routes import create_route_bundle, create_router
 from screamingface.plugins.aigw_base import (
     AigwBackendApiPluginBase,
     AigwBackendApiSettingsBase,
@@ -64,4 +64,5 @@ class AigwAntigravityBackendPlugin(AigwBackendApiPluginBase):
     supports_api_key = False
     settings_class = AigwAntigravityBackendSettings
     schema_link_base = "/antigravity/"
+    create_route_bundle = staticmethod(create_route_bundle)
     create_router = staticmethod(create_router)

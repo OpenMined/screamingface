@@ -16,7 +16,7 @@ from screamingface.plugins.backend_api_base import (
     BackendApiPluginBase,
     BackendApiSettingsBase,
 )
-from screamingface.plugins.ollama_backend_api.routes import create_router
+from screamingface.plugins.ollama_backend_api.routes import create_route_bundle, create_router
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -60,6 +60,7 @@ class OllamaBackendApiPlugin(BackendApiPluginBase):
     settings_class = OllamaBackendApiSettings
 
     schema_link_base = "/ollama/"
+    create_route_bundle = staticmethod(create_route_bundle)
     create_router = staticmethod(create_router)
 
     def _make_interpreter(self, app: FastAPI):

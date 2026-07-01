@@ -17,7 +17,7 @@ from screamingface.plugins.aigw_base import (
     AigwBackendApiPluginBase,
     AigwBackendApiSettingsBase,
 )
-from screamingface.plugins.aigw_claude_backend.routes import create_router
+from screamingface.plugins.aigw_claude_backend.routes import create_route_bundle, create_router
 
 if TYPE_CHECKING:
     pass
@@ -74,4 +74,5 @@ class AigwClaudeBackendPlugin(AigwBackendApiPluginBase):
     supports_api_key = True
     settings_class = AigwClaudeBackendSettings
     schema_link_base = "/claude/"
+    create_route_bundle = staticmethod(create_route_bundle)
     create_router = staticmethod(create_router)

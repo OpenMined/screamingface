@@ -101,8 +101,8 @@ describe('registerUrl4Language', () => {
 
     // Server/config A has a profile → alias appears.
     const withProfile = async (url: string): Promise<{ ok: boolean; body: string }> =>
-      url.endsWith('/plugins/aigw-huggingface-backend/settings')
-        ? { ok: true, body: JSON.stringify({ profiles: { oss20b: {} } }) }
+      url.endsWith('/plugins/backend-aliases')
+        ? { ok: true, body: JSON.stringify({ aliases: ['/huggingface/oss20b'] }) }
         : { ok: false, body: '' };
     await mod.refreshBackendAliases(withProfile, 'http://x');
     expect(labels()).toContain('/huggingface/oss20b');
@@ -121,24 +121,26 @@ describe('registerUrl4Language', () => {
 });
 
 describe('loadBackendAliases (SF-346)', () => {
-  it('derives /path/alias from each profile-capable backend plugin settings', async () => {
-    const fetchFn = async (url: string): Promise<{ ok: boolean; body: string }> => {
-      if (url.endsWith('/plugins/aigw-huggingface-backend/settings')) {
-        return { ok: true, body: JSON.stringify({ profiles: { oss20b: {}, llama8b: {} } }) };
-      }
-      return { ok: false, body: '' };
-    };
+  it('loads aliases from the server-owned backend alias endpoint', async () => {
+    const fetchFn = vi.fn(async (url: string): Promise<{ ok: boolean; body: string }> => {
+      expect(url).toBe('http://localhost:8000/plugins/backend-aliases');
+      return {
+        ok: true,
+        body: JSON.stringify({ aliases: ['/huggingface/oss20b', '/huggingface/llama8b'] }),
+      };
+    });
 
     const aliases = await loadBackendAliases(fetchFn, 'http://localhost:8000');
 
+    expect(fetchFn).toHaveBeenCalledTimes(1);
     expect(aliases).toContain('/huggingface/oss20b');
     expect(aliases).toContain('/huggingface/llama8b');
   });
 
-  it('does not hardcode models — an empty profiles map yields no aliases', async () => {
+  it('does not hardcode models — an empty server alias list yields no aliases', async () => {
     const fetchFn = async (url: string): Promise<{ ok: boolean; body: string }> => {
-      if (url.endsWith('/plugins/aigw-huggingface-backend/settings')) {
-        return { ok: true, body: JSON.stringify({ profiles: {} }) };
+      if (url.endsWith('/plugins/backend-aliases')) {
+        return { ok: true, body: JSON.stringify({ aliases: [] }) };
       }
       return { ok: false, body: '' };
     };

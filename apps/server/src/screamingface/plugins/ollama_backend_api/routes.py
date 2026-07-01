@@ -8,7 +8,8 @@ from fastapi import APIRouter
 
 from screamingface.plugins.llm_base.routes_shared import (
     BackendApiConfig,
-    build_backend_api_router,
+    BackendApiRouteBundle,
+    build_backend_api_route_bundle,
 )
 from screamingface.plugins.ollama_backend_api.auth import OllamaAuth
 from screamingface.plugins.ollama_backend_api.backend import OllamaBackend
@@ -20,7 +21,9 @@ if TYPE_CHECKING:
 _DEFAULT_MODEL = "llama3.2"
 
 
-def create_router(settings: OllamaBackendApiSettings, app: Any = None) -> APIRouter:
+def create_route_bundle(
+    settings: OllamaBackendApiSettings, app: Any = None
+) -> BackendApiRouteBundle:
     backend = OllamaBackend(
         base_url=settings.base_url,
         auth=OllamaAuth(api_key=settings.api_key),
@@ -33,7 +36,7 @@ def create_router(settings: OllamaBackendApiSettings, app: Any = None) -> APIRou
 
         return OllamaBackendApiInterpreter(app=app, settings=settings, backend=backend)
 
-    return build_backend_api_router(
+    return build_backend_api_route_bundle(
         BackendApiConfig(
             name="ollama-backend-api",
             path_prefix="/ollama",
@@ -45,3 +48,7 @@ def create_router(settings: OllamaBackendApiSettings, app: Any = None) -> APIRou
             span_prefix="ollama",
         )
     )
+
+
+def create_router(settings: OllamaBackendApiSettings, app: Any = None) -> APIRouter:
+    return create_route_bundle(settings, app).router

@@ -139,14 +139,17 @@ class BackendApiPluginBase(Plugin):
       ``settings_class``).
     - ``schema_link_base``: URL prefix shown to RJSF as the "x-link-base"
       hint on the ``profiles`` field, e.g. ``"/claude/"``.
-    - ``create_router``: a callable returning the provider's APIRouter.
-      Signature ``(settings, app)`` matches the existing factories.
+    - ``create_route_bundle``: a callable returning the provider's generated
+      APIRouter plus the BackendApiConfig that powers shared profile helpers.
+    - ``create_router``: compatibility callable returning only the provider's
+      APIRouter. Signature ``(settings, app)`` matches the existing factories.
     - ``_make_interpreter(app)``: lazy interpreter construction. Each
       subclass imports its provider-specific Interpreter class inside
       this method to keep module-load free of circular imports.
     """
 
     schema_link_base: ClassVar[str] = "/"
+    create_route_bundle: ClassVar[Callable[..., Any]]
     create_router: ClassVar[Callable[..., Any]]
     # SF-290: LLM backends pack context into a prompt, so the url4 dispatcher
     # pre-fetches any ``/...`` / ``http(s)://`` ref in a backend call's context
@@ -159,8 +162,8 @@ class BackendApiPluginBase(Plugin):
     # MUST NOT import this class, so python-runner and other non-profile plugins
     # simply never opt in and ``/python/foo`` stays an unknown backend call.
     supports_profile_aliases: ClassVar[bool] = True
-    # Shared execution wiring captured from the router at setup() so alias
-    # dispatch runs profiles through the same helpers as the HTTP profile route.
+    # Shared execution wiring captured explicitly at setup() so alias dispatch
+    # runs profiles through the same helpers as the HTTP profile route.
     _api_config: BackendApiConfig | None = None
 
     def customize_schema(self, schema: dict) -> dict:
@@ -181,12 +184,12 @@ class BackendApiPluginBase(Plugin):
         routes: RouteRegistry,
     ) -> None:
         self._assert_loopback_server_bind(app)
-        router = type(self).create_router(self.settings, app)
-        routes.add_router(self.name, router, prefix="")
-        # SF-346: capture the shared BackendApiConfig the router factory stashed,
-        # so handle_backend_alias can execute profiles through the same helpers
-        # the HTTP profile route uses (no divergent second execution path).
-        self._api_config = getattr(router, "sf_api_config", None)
+        bundle = type(self).create_route_bundle(self.settings, app)
+        routes.add_router(self.name, bundle.router, prefix="")
+        # SF-346: capture the shared BackendApiConfig explicitly, so
+        # handle_backend_alias can execute profiles through the same helpers the
+        # HTTP profile route uses (no divergent second execution path).
+        self._api_config = bundle.config
 
     def _assert_loopback_server_bind(self, app: FastAPI) -> None:
         assert_loopback_server_bind(

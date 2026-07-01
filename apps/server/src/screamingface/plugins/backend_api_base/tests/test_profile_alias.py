@@ -22,7 +22,10 @@ from screamingface.plugins.backend_api_base.models import BackendProfile
 from screamingface.plugins.backend_api_base.plugin_base import BackendApiPluginBase
 from screamingface.plugins.llm_base.backend_base import Backend, HealthStatus
 from screamingface.plugins.llm_base.messages import CoreMessage, ToolDefinition, extract_text
-from screamingface.plugins.llm_base.routes_shared import BackendApiConfig, build_backend_api_router
+from screamingface.plugins.llm_base.routes_shared import (
+    BackendApiConfig,
+    build_backend_api_route_bundle,
+)
 
 # handle_backend_alias ignores its ``app`` argument (it delegates through the
 # captured config), so a bare app satisfies the type without any wiring.
@@ -120,15 +123,17 @@ async def test_handle_backend_alias_unknown_alias_names_the_backend() -> None:
     assert backend.calls == []
 
 
-def test_setup_captures_api_config_from_router() -> None:
+def test_setup_captures_api_config_from_explicit_route_bundle() -> None:
     backend = _RecordingBackend()
     profiles = {"oss20b": BackendProfile(model="m/x")}
     cfg = _cfg(backend, profiles)
+    bundle = build_backend_api_route_bundle(cfg)
 
     class _P(BackendApiPluginBase):
         name = "alias-test-backend-api"
         backend_call_paths = ["/aliastest"]
-        create_router = staticmethod(lambda settings, app=None: build_backend_api_router(cfg))
+        create_route_bundle = staticmethod(lambda settings, app=None: bundle)
+        create_router = staticmethod(lambda settings, app=None: bundle.router)
 
     plugin = _P()
     plugin.settings = cfg.settings  # type: ignore[assignment]
@@ -138,3 +143,4 @@ def test_setup_captures_api_config_from_router() -> None:
     plugin.setup(app=app, hooks=HookRegistry(), classes=ClassRegistry(), routes=RouteRegistry(app))
 
     assert plugin._api_config is cfg
+    assert not hasattr(bundle.router, "sf_api_config")

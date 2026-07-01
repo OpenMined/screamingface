@@ -9,7 +9,8 @@ from fastapi import APIRouter
 from screamingface.plugins.codex_backend_api.backend import OpenAIBackend
 from screamingface.plugins.llm_base.routes_shared import (
     BackendApiConfig,
-    build_backend_api_router,
+    BackendApiRouteBundle,
+    build_backend_api_route_bundle,
 )
 
 if TYPE_CHECKING:
@@ -19,7 +20,9 @@ if TYPE_CHECKING:
 _DEFAULT_MODEL = "o4-mini"
 
 
-def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRouter:
+def create_route_bundle(
+    settings: CodexBackendApiSettings, app: Any = None
+) -> BackendApiRouteBundle:
     from screamingface.plugins.codex_backend_api.plugin import _maybe_aigw_source
 
     backend = OpenAIBackend(aigw_source=_maybe_aigw_source(settings, app))
@@ -31,7 +34,7 @@ def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRout
 
         return CodexBackendApiInterpreter(app=app, settings=settings, backend=backend)
 
-    return build_backend_api_router(
+    return build_backend_api_route_bundle(
         BackendApiConfig(
             name="codex-backend-api",
             path_prefix="/codex",
@@ -43,3 +46,7 @@ def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRout
             span_prefix="codex",
         )
     )
+
+
+def create_router(settings: CodexBackendApiSettings, app: Any = None) -> APIRouter:
+    return create_route_bundle(settings, app).router

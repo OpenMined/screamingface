@@ -130,6 +130,33 @@ def _inject_examples(schema: dict, field_name: str, examples: list[str]) -> None
     _walk(schema)
 
 
+def _backend_alias_inventory(active_plugins: dict[str, Plugin]) -> dict:
+    aliases: list[str] = []
+    backends: list[dict[str, object]] = []
+
+    for plugin in active_plugins.values():
+        if not getattr(plugin, "supports_profile_aliases", False):
+            continue
+        paths = [
+            path.rstrip("/")
+            for path in getattr(plugin, "backend_call_paths", [])
+            if isinstance(path, str) and path.startswith("/") and path.rstrip("/")
+        ]
+        settings = getattr(plugin, "settings", None)
+        profiles = getattr(settings, "profiles", {}) or {}
+        if not paths or not isinstance(profiles, dict):
+            continue
+        profile_names = [name for name in profiles if isinstance(name, str) and name]
+        if not profile_names:
+            continue
+
+        backends.append({"plugin": plugin.name, "paths": paths, "profiles": profile_names})
+        for path in paths:
+            aliases.extend(f"{path}/{profile}" for profile in profile_names)
+
+    return {"aliases": aliases, "backends": backends}
+
+
 def register_admin_routes(app: FastAPI) -> None:
     """Attach the built-in admin/diagnostic endpoints to ``app``.
 
@@ -159,6 +186,10 @@ def register_admin_routes(app: FastAPI) -> None:
             }
             for name, p in app.state.plugins.active_plugins.items()
         }
+
+    @app.get("/plugins/backend-aliases")
+    async def list_backend_aliases() -> dict:
+        return _backend_alias_inventory(app.state.plugins.active_plugins)
 
     @app.get("/plugins/{name}/schema")
     async def plugin_schema(name: str) -> dict:

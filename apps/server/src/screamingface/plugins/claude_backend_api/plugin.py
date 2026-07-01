@@ -20,7 +20,7 @@ from screamingface.plugins.backend_api_base import (
     BackendApiPluginBase,
     BackendApiSettingsBase,
 )
-from screamingface.plugins.claude_backend_api.routes import create_router
+from screamingface.plugins.claude_backend_api.routes import create_route_bundle, create_router
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -91,6 +91,7 @@ class ClaudeBackendApiPlugin(BackendApiPluginBase):
     settings_class = ClaudeBackendApiSettings
 
     schema_link_base = "/claude/"
+    create_route_bundle = staticmethod(create_route_bundle)
     create_router = staticmethod(create_router)
 
     def customize_schema(self, schema: dict) -> dict:

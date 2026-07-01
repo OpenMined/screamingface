@@ -37,45 +37,24 @@ export function setUrl4BackendAliases(aliases: string[]): void {
   backendAliases = aliases;
 }
 
-// Profile-capable backends and the SF plugin(s) that may serve each URL4 path. Only the
-// plugin NAMES are fixed (a small known set, like BACKENDS above); the aliases come
-// dynamically from each plugin's `profiles` config — individual models are never hardcoded.
-const PROFILE_CAPABLE_BACKENDS: Array<{ path: string; plugins: string[] }> = [
-  { path: '/claude', plugins: ['aigw-claude-backend', 'claude-backend-api'] },
-  { path: '/codex', plugins: ['aigw-codex-backend', 'codex-backend-api'] },
-  { path: '/gemini', plugins: ['aigw-gemini-backend', 'gemini-backend-api'] },
-  { path: '/antigravity', plugins: ['aigw-antigravity-backend'] },
-  { path: '/huggingface', plugins: ['aigw-huggingface-backend'] },
-  { path: '/ollama', plugins: ['aigw-ollama-backend', 'ollama-backend-api'] },
-];
-
 /**
- * Fetch each profile-capable backend plugin's settings and derive `/path/<alias>`
- * suggestions from its configured `profiles`. Best-effort and fail-closed: inactive or
- * conflicting plugins 404 and are skipped, and any error yields no aliases rather than
- * throwing. `fetchFn` matches window.electronAPI.server.fetch's shape.
+ * Fetch configured backend profile alias suggestions from the SF server-owned inventory.
+ * Best-effort and fail-closed: any error yields no aliases rather than throwing.
+ * `fetchFn` matches window.electronAPI.server.fetch's shape.
  */
 export async function loadBackendAliases(
   fetchFn: (url: string) => Promise<{ ok: boolean; body: string }>,
   serverUrl: string,
 ): Promise<string[]> {
-  const out: string[] = [];
-  for (const { path, plugins } of PROFILE_CAPABLE_BACKENDS) {
-    for (const name of plugins) {
-      try {
-        const res = await fetchFn(`${serverUrl}/plugins/${name}/settings`);
-        if (!res.ok) continue;
-        const data = JSON.parse(res.body) as { profiles?: Record<string, unknown> };
-        if (data.profiles) {
-          for (const alias of Object.keys(data.profiles)) out.push(`${path}/${alias}`);
-          break; // one active plugin per path (conflicts guarantee a single owner)
-        }
-      } catch {
-        /* inactive plugin / offline / malformed body — skip */
-      }
-    }
+  try {
+    const res = await fetchFn(`${serverUrl}/plugins/backend-aliases`);
+    if (!res.ok) return [];
+    const data = JSON.parse(res.body) as { aliases?: unknown };
+    if (!Array.isArray(data.aliases)) return [];
+    return data.aliases.filter((alias): alias is string => typeof alias === 'string');
+  } catch {
+    return [];
   }
-  return out;
 }
 
 /**

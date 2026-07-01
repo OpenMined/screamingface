@@ -9,7 +9,8 @@ from fastapi import APIRouter
 from screamingface.plugins.gemini_backend_api.backend import GeminiBackend
 from screamingface.plugins.llm_base.routes_shared import (
     BackendApiConfig,
-    build_backend_api_router,
+    BackendApiRouteBundle,
+    build_backend_api_route_bundle,
 )
 
 if TYPE_CHECKING:
@@ -19,7 +20,9 @@ if TYPE_CHECKING:
 _DEFAULT_MODEL = "gemini-2.5-flash"
 
 
-def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRouter:
+def create_route_bundle(
+    settings: GeminiBackendApiSettings, app: Any = None
+) -> BackendApiRouteBundle:
     from screamingface.plugins.gemini_backend_api.plugin import _maybe_aigw_source
 
     backend = GeminiBackend(
@@ -35,7 +38,7 @@ def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRou
 
         return GeminiBackendApiInterpreter(app=app, settings=settings, backend=backend)
 
-    return build_backend_api_router(
+    return build_backend_api_route_bundle(
         BackendApiConfig(
             name="gemini-backend-api",
             path_prefix="/gemini",
@@ -47,3 +50,7 @@ def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRou
             span_prefix="gemini",
         )
     )
+
+
+def create_router(settings: GeminiBackendApiSettings, app: Any = None) -> APIRouter:
+    return create_route_bundle(settings, app).router

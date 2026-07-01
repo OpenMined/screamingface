@@ -15,7 +15,7 @@ from screamingface.plugins.backend_api_base import (
     BackendApiPluginBase,
     BackendApiSettingsBase,
 )
-from screamingface.plugins.codex_backend_api.routes import create_router
+from screamingface.plugins.codex_backend_api.routes import create_route_bundle, create_router
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -83,6 +83,7 @@ class CodexBackendApiPlugin(BackendApiPluginBase):
     settings_class = CodexBackendApiSettings
 
     schema_link_base = "/codex/"
+    create_route_bundle = staticmethod(create_route_bundle)
     create_router = staticmethod(create_router)
 
     def customize_schema(self, schema: dict) -> dict:

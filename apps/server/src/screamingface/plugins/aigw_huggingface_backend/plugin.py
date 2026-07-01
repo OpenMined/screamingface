@@ -9,7 +9,7 @@ from screamingface.plugins.aigw_base import (
     AigwBackendApiPluginBase,
     AigwBackendApiSettingsBase,
 )
-from screamingface.plugins.aigw_huggingface_backend.routes import create_router
+from screamingface.plugins.aigw_huggingface_backend.routes import create_route_bundle, create_router
 
 
 class AigwHuggingfaceBackendSettings(AigwBackendApiSettingsBase):
@@ -50,4 +50,5 @@ class AigwHuggingfaceBackendPlugin(AigwBackendApiPluginBase):
     supports_oauth = False
     settings_class = AigwHuggingfaceBackendSettings
     schema_link_base = "/huggingface/"
+    create_route_bundle = staticmethod(create_route_bundle)
     create_router = staticmethod(create_router)

@@ -9,7 +9,7 @@ from screamingface.plugins.aigw_base import (
     AigwBackendApiPluginBase,
     AigwBackendApiSettingsBase,
 )
-from screamingface.plugins.aigw_gemini_backend.routes import create_router
+from screamingface.plugins.aigw_gemini_backend.routes import create_route_bundle, create_router
 
 
 class AigwGeminiBackendSettings(AigwBackendApiSettingsBase):
@@ -45,4 +45,5 @@ class AigwGeminiBackendPlugin(AigwBackendApiPluginBase):
     supports_api_key = True
     settings_class = AigwGeminiBackendSettings
     schema_link_base = "/gemini/"
+    create_route_bundle = staticmethod(create_route_bundle)
     create_router = staticmethod(create_router)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, cast
 
 import httpx
@@ -64,15 +65,19 @@ async def test_process_returns_empty_when_no_input() -> None:
 def test_plugin_setup_and_interpreter_share_backend(monkeypatch) -> None:
     captured: dict[str, Any] = {}
 
-    def create_router(settings, app=None, *, backend=None):  # noqa: ANN001
+    def create_route_bundle(settings, app=None, *, backend=None):  # noqa: ANN001, ARG001
         captured["backend"] = backend
-        return APIRouter()
+        return SimpleNamespace(router=APIRouter(), config=SimpleNamespace())
 
     class _Routes:
         def add_router(self, name, router, prefix=""):  # noqa: ANN001, ARG002
             return None
 
-    monkeypatch.setattr(AigwClaudeBackendPlugin, "create_router", staticmethod(create_router))
+    monkeypatch.setattr(
+        AigwClaudeBackendPlugin,
+        "create_route_bundle",
+        staticmethod(create_route_bundle),
+    )
     plugin = AigwClaudeBackendPlugin()
     plugin.settings = AigwClaudeBackendSettings()
     app = FastAPI()

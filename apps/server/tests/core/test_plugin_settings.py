@@ -135,6 +135,48 @@ def test_plugins_list_endpoint(settings_client: TestClient) -> None:
     assert data["claude-frontend"]["has_settings"] is True
 
 
+def test_backend_aliases_endpoint_uses_active_profile_capable_plugins() -> None:
+    class AliasSettings(PluginSettings):
+        profiles: dict[str, str]
+
+    class ProfileBackend(Plugin):
+        name = "profile-backend"
+        backend_call_paths = ["/hf", "/huggingface"]
+        supports_profile_aliases = True
+
+    class PlainBackend(Plugin):
+        name = "plain-backend"
+        backend_call_paths = ["/plain"]
+
+    profile_backend = ProfileBackend()
+    profile_backend.settings = AliasSettings(profiles={"oss20b": "", "fast": ""})
+    plain_backend = PlainBackend()
+    plain_backend.settings = AliasSettings(profiles={"hidden": ""})
+
+    app = FastAPI()
+    app.state.plugins = SimpleNamespace(
+        active_plugins={
+            profile_backend.name: profile_backend,
+            plain_backend.name: plain_backend,
+        }
+    )
+    register_admin_routes(app)
+
+    resp = TestClient(app).get("/plugins/backend-aliases")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "aliases": ["/hf/oss20b", "/hf/fast", "/huggingface/oss20b", "/huggingface/fast"],
+        "backends": [
+            {
+                "plugin": "profile-backend",
+                "paths": ["/hf", "/huggingface"],
+                "profiles": ["oss20b", "fast"],
+            }
+        ],
+    }
+
+
 def test_plugin_schema_endpoint(settings_client: TestClient) -> None:
     resp = settings_client.get("/plugins/claude-frontend/schema")
     assert resp.status_code == 200

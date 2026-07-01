@@ -15,7 +15,8 @@ from screamingface.plugins.aigw_base import (
 from screamingface.plugins.aigw_base.config import resolve_aigw_runtime_config
 from screamingface.plugins.llm_base.routes_shared import (
     BackendApiConfig,
-    build_backend_api_router,
+    BackendApiRouteBundle,
+    build_backend_api_route_bundle,
 )
 
 if TYPE_CHECKING:
@@ -26,12 +27,12 @@ _PATH_PREFIX = "/codex"
 _DEFAULT_MODEL = "codex/gpt-5.4-mini"
 
 
-def create_router(
+def create_route_bundle(
     settings: AigwCodexBackendSettings,
     app: Any = None,
     *,
     backend: AigwBackend | None = None,
-) -> APIRouter:
+) -> BackendApiRouteBundle:
     gateway_url = _gateway_url(app, settings.gateway_url)
     backend = backend or AigwBackend(
         gateway_url=gateway_url,
@@ -48,7 +49,7 @@ def create_router(
             gateway_provider=_GATEWAY_PROVIDER,
         )
 
-    router = build_backend_api_router(
+    bundle = build_backend_api_route_bundle(
         BackendApiConfig(
             name="aigw-codex-backend",
             path_prefix=_PATH_PREFIX,
@@ -60,6 +61,7 @@ def create_router(
             span_prefix="aigw_codex",
         )
     )
+    router = bundle.router
     profile_defaults = build_profile_defaults_from_settings(settings)
     router.include_router(
         build_aigw_auth_proxy_router(
@@ -71,7 +73,16 @@ def create_router(
             defaults=profile_defaults or None,
         )
     )
-    return router
+    return bundle
+
+
+def create_router(
+    settings: AigwCodexBackendSettings,
+    app: Any = None,
+    *,
+    backend: AigwBackend | None = None,
+) -> APIRouter:
+    return create_route_bundle(settings, app, backend=backend).router
 
 
 def _gateway_url(app: Any, fallback: str) -> str:

@@ -9,7 +9,7 @@ from screamingface.plugins.aigw_base import (
     AigwBackendApiPluginBase,
     AigwBackendApiSettingsBase,
 )
-from screamingface.plugins.aigw_codex_backend.routes import create_router
+from screamingface.plugins.aigw_codex_backend.routes import create_route_bundle, create_router
 
 
 class AigwCodexBackendSettings(AigwBackendApiSettingsBase):
@@ -44,4 +44,5 @@ class AigwCodexBackendPlugin(AigwBackendApiPluginBase):
     gateway_provider = "codex"
     settings_class = AigwCodexBackendSettings
     schema_link_base = "/codex/"
+    create_route_bundle = staticmethod(create_route_bundle)
     create_router = staticmethod(create_router)

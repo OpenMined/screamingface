@@ -2,7 +2,7 @@
 
 Subclasses mirror direct backend plugin style: declare class-level metadata
 (`name`, `backend_call_paths`, `schema_link_base`, `settings_class`,
-`create_router`) and inherit `_make_interpreter` here.
+`create_route_bundle`/`create_router`) and inherit `_make_interpreter` here.
 """
 
 from __future__ import annotations
@@ -78,11 +78,11 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
     def setup(self, app: FastAPI, hooks, classes, routes) -> None:
         self._app = app
         self._assert_loopback_server_bind(app)
-        router = type(self).create_router(self.settings, app, backend=self._backend(app))
-        routes.add_router(self.name, router, prefix="")
-        # SF-346: same profile-alias wiring capture as BackendApiPluginBase.setup
-        # (this override does not call super().setup()).
-        self._api_config = getattr(router, "sf_api_config", None)
+        bundle = type(self).create_route_bundle(self.settings, app, backend=self._backend(app))
+        routes.add_router(self.name, bundle.router, prefix="")
+        # SF-346: same explicit profile-alias wiring capture as
+        # BackendApiPluginBase.setup (this override does not call super().setup()).
+        self._api_config = bundle.config
 
     def _assert_loopback_server_bind(self, app: FastAPI) -> None:
         assert_loopback_server_bind(

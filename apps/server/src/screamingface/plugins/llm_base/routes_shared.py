@@ -51,7 +51,13 @@ from screamingface.plugins.llm_base.messages import CoreMessage, TextPart, extra
 logger = logging.getLogger(__name__)
 
 
-__all__ = ["BackendApiConfig", "build_backend_api_router", "execute_profile_text"]
+__all__ = [
+    "BackendApiConfig",
+    "BackendApiRouteBundle",
+    "build_backend_api_route_bundle",
+    "build_backend_api_router",
+    "execute_profile_text",
+]
 
 
 @dataclass
@@ -94,8 +100,16 @@ class BackendApiConfig:
             self.operation_id_prefix = self.name.replace("-backend-api", "").replace("-", "_")
 
 
-def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
-    """Produce a FastAPI router with the four canonical backend-API endpoints.
+@dataclass(frozen=True)
+class BackendApiRouteBundle:
+    """The generated backend router plus the config that drives its shared helpers."""
+
+    router: APIRouter
+    config: BackendApiConfig
+
+
+def build_backend_api_route_bundle(cfg: BackendApiConfig) -> BackendApiRouteBundle:
+    """Produce a FastAPI router bundle with the canonical backend-API endpoints.
 
     Endpoints:
 
@@ -328,11 +342,13 @@ def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
     ) -> JSONResponse | StreamingResponse | PlainTextResponse:
         return await _handle_profile(profile_name, prompt, context, raw_context)
 
-    # Expose the wiring so BackendApiPluginBase can execute profile aliases
-    # (URL4 ``/backend/<alias>(...)``) through the same shared helpers the
-    # HTTP profile route uses — no divergent second execution path.
-    router.sf_api_config = cfg  # type: ignore[attr-defined]
-    return router
+    return BackendApiRouteBundle(router=router, config=cfg)
+
+
+def build_backend_api_router(cfg: BackendApiConfig) -> APIRouter:
+    """Compatibility wrapper returning only the generated backend APIRouter."""
+
+    return build_backend_api_route_bundle(cfg).router
 
 
 def _should_try_fallback(
