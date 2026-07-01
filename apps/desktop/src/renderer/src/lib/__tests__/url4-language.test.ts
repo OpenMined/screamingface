@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { registerUrl4Language, setUrl4SpecNames } from '../url4-language';
+import { loadBackendAliases, registerUrl4Language, setUrl4SpecNames } from '../url4-language';
 
 type Provider = {
   provideCompletionItems: (
@@ -56,5 +56,98 @@ describe('registerUrl4Language', () => {
     const { monaco } = makeMonaco();
     registerUrl4Language(monaco as never); // module-level flag already set above
     expect(monaco.languages.register).not.toHaveBeenCalled();
+  });
+
+  // registerUrl4Language is idempotent via module state, so only one provider is
+  // ever captured per module instance. These tests reset modules to get a fresh
+  // registration (and thus a fresh provider) without disturbing the tests above.
+  async function freshProvider(): Promise<{
+    mod: typeof import('../url4-language');
+    provider: Provider;
+  }> {
+    vi.resetModules();
+    const mod = await import('../url4-language');
+    const { monaco, getProvider } = makeMonaco();
+    mod.registerUrl4Language(monaco as never);
+    return { mod, provider: getProvider()! };
+  }
+
+  it('suggests dynamically-configured backend profile aliases (SF-346)', async () => {
+    const { mod, provider } = await freshProvider();
+
+    mod.setUrl4BackendAliases(['/huggingface/oss20b', '/gemini/flash']);
+    const labels = provider.provideCompletionItems(model, position).suggestions.map((s) => s.label);
+
+    expect(labels).toContain('/huggingface/oss20b');
+    expect(labels).toContain('/gemini/flash');
+    // static backend paths remain (aliases augment, not replace)
+    expect(labels).toContain('/huggingface');
+  });
+
+  it('keeps static suggestions when no aliases are configured', async () => {
+    const { mod, provider } = await freshProvider();
+
+    mod.setUrl4BackendAliases([]);
+    const labels = provider.provideCompletionItems(model, position).suggestions.map((s) => s.label);
+
+    expect(labels).toContain('/claude');
+    expect(labels).toContain('$prompt');
+  });
+
+  it('refreshBackendAliases clears stale aliases when a later load returns none (SF-346)', async () => {
+    const { mod, provider } = await freshProvider();
+    const labels = (): string[] =>
+      provider.provideCompletionItems(model, position).suggestions.map((s) => s.label);
+
+    // Server/config A has a profile → alias appears.
+    const withProfile = async (url: string): Promise<{ ok: boolean; body: string }> =>
+      url.endsWith('/plugins/aigw-huggingface-backend/settings')
+        ? { ok: true, body: JSON.stringify({ profiles: { oss20b: {} } }) }
+        : { ok: false, body: '' };
+    await mod.refreshBackendAliases(withProfile, 'http://x');
+    expect(labels()).toContain('/huggingface/oss20b');
+
+    // Config B (or offline) yields no aliases → the stale one MUST be cleared,
+    // not left in the shared module cache (regresses if the setter is guarded by
+    // `if (aliases.length)`).
+    const noProfiles = async (): Promise<{ ok: boolean; body: string }> => ({
+      ok: false,
+      body: '',
+    });
+    await mod.refreshBackendAliases(noProfiles, 'http://x');
+    expect(labels()).not.toContain('/huggingface/oss20b');
+    expect(labels()).toContain('/huggingface'); // static backends remain
+  });
+});
+
+describe('loadBackendAliases (SF-346)', () => {
+  it('derives /path/alias from each profile-capable backend plugin settings', async () => {
+    const fetchFn = async (url: string): Promise<{ ok: boolean; body: string }> => {
+      if (url.endsWith('/plugins/aigw-huggingface-backend/settings')) {
+        return { ok: true, body: JSON.stringify({ profiles: { oss20b: {}, llama8b: {} } }) };
+      }
+      return { ok: false, body: '' };
+    };
+
+    const aliases = await loadBackendAliases(fetchFn, 'http://localhost:8000');
+
+    expect(aliases).toContain('/huggingface/oss20b');
+    expect(aliases).toContain('/huggingface/llama8b');
+  });
+
+  it('does not hardcode models — an empty profiles map yields no aliases', async () => {
+    const fetchFn = async (url: string): Promise<{ ok: boolean; body: string }> => {
+      if (url.endsWith('/plugins/aigw-huggingface-backend/settings')) {
+        return { ok: true, body: JSON.stringify({ profiles: {} }) };
+      }
+      return { ok: false, body: '' };
+    };
+
+    expect(await loadBackendAliases(fetchFn, 'http://localhost:8000')).toEqual([]);
+  });
+
+  it('ignores inactive/404 plugins and never throws (fail closed)', async () => {
+    const fetchFn = async (): Promise<{ ok: boolean; body: string }> => ({ ok: false, body: '' });
+    expect(await loadBackendAliases(fetchFn, 'http://localhost:8000')).toEqual([]);
   });
 });

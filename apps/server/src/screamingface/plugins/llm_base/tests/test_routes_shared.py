@@ -12,18 +12,19 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from screamingface.plugins.backend_api_base.models import RunRequest
+from screamingface.plugins.backend_api_base.models import BackendProfile, RunRequest
 from screamingface.plugins.llm_base.backend_base import Backend, HealthStatus
 from screamingface.plugins.llm_base.constants import (
     CLI_ONLY_FIELD_DEFAULTS,
     CLI_ONLY_FIELDS,
 )
 from screamingface.plugins.llm_base.errors import BackendError
-from screamingface.plugins.llm_base.messages import CoreMessage, ToolDefinition
+from screamingface.plugins.llm_base.messages import CoreMessage, ToolDefinition, extract_text
 from screamingface.plugins.llm_base.routes_shared import (
     BackendApiConfig,
     _reject_cli_only_fields,
     build_backend_api_router,
+    execute_profile_text,
 )
 
 
@@ -188,3 +189,210 @@ def test_run_retries_configured_fallback_model_on_429() -> None:
     assert resp.status_code == 200
     assert resp.json()["so"] == "fallback ok"
     assert backend.models == ["primary/model", "fallback/model"]
+
+
+# ---------------------------------------------------------------------------
+# SF-346: shared profile execution helper (execute_profile_text)
+#
+# URL4 model/profile aliases dispatch through this helper. The invariant that
+# matters most: the profile's own `model` must reach ``backend.run()`` — a naive
+# implementation can false-pass by dispatching to the right backend while still
+# running ``default_model``. Every test here asserts the *recorded* model/prompt.
+# ---------------------------------------------------------------------------
+
+
+class _RecordingBackend(Backend):
+    """Backend that records what it was asked to run."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def health(self, model: str | None = None) -> HealthStatus:  # noqa: ARG002
+        return HealthStatus(authenticated=True)
+
+    async def run(
+        self,
+        messages: list[CoreMessage],
+        *,
+        model: str,
+        system: str | None = None,
+        tools: list[ToolDefinition] | None = None,  # noqa: ARG002
+        max_tokens: int = 16000,  # noqa: ARG002
+        temperature: float | None = None,  # noqa: ARG002
+        timeout_seconds: float = 300.0,
+    ) -> CoreMessage:
+        self.calls.append(
+            {
+                "model": model,
+                "system": system,
+                "timeout_seconds": timeout_seconds,
+                "prompt": extract_text(messages[0]) if messages else "",
+            }
+        )
+        return CoreMessage(role="assistant", content=f"ran {model}")
+
+
+def _profile_cfg(
+    backend: Backend,
+    profiles: dict[str, BackendProfile],
+    *,
+    default_model: str = "provider/hardcoded-default",
+    settings_default_model: str | None = None,
+) -> BackendApiConfig:
+    settings = SimpleNamespace(
+        default_model=settings_default_model,
+        timeout_seconds=300.0,
+        profiles=profiles,
+    )
+    return BackendApiConfig(
+        name="test-backend-api",
+        path_prefix="/test",
+        default_model=default_model,
+        backend=backend,
+        settings=settings,
+        app=None,
+        build_interpreter=lambda: None,
+        span_prefix="test",
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_profile_text_sends_profile_model_to_backend() -> None:
+    """MANDATORY anti-false-pass: the profile's model — not default_model — runs."""
+    backend = _RecordingBackend()
+    cfg = _profile_cfg(
+        backend,
+        {"oss20b": BackendProfile(model="huggingface/openai/gpt-oss-20b:cheapest")},
+        default_model="provider/hardcoded-default",
+        settings_default_model="huggingface/settings-default",
+    )
+
+    result = await execute_profile_text(cfg, "oss20b", packed_context="", intent="answer this")
+
+    assert backend.calls[0]["model"] == "huggingface/openai/gpt-oss-20b:cheapest"
+    assert backend.calls[0]["model"] != "huggingface/settings-default"
+    assert backend.calls[0]["model"] != "provider/hardcoded-default"
+    assert "gpt-oss-20b" in result  # _RecordingBackend echoes the model it ran
+
+
+@pytest.mark.asyncio
+async def test_execute_profile_text_intent_first_ordering() -> None:
+    """URL4 parity: prompt is ``intent\\n\\nsources`` (matches Url4Interpreter),
+    NOT the route's context-first ordering."""
+    backend = _RecordingBackend()
+    cfg = _profile_cfg(backend, {"oss20b": BackendProfile(model="m/x")})
+
+    await execute_profile_text(cfg, "oss20b", packed_context="CONTEXT", intent="QUESTION")
+
+    assert backend.calls[0]["prompt"] == "QUESTION\n\nCONTEXT"
+
+
+@pytest.mark.asyncio
+async def test_execute_profile_text_paren_context_wins_over_profile_context() -> None:
+    backend = _RecordingBackend()
+    cfg = _profile_cfg(backend, {"oss20b": BackendProfile(model="m/x", context="PROFILE_CONTEXT")})
+
+    await execute_profile_text(cfg, "oss20b", packed_context="PAREN_CONTEXT", intent="Q")
+
+    assert backend.calls[0]["prompt"] == "Q\n\nPAREN_CONTEXT"
+    assert "PROFILE_CONTEXT" not in backend.calls[0]["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_execute_profile_text_profile_context_used_when_parens_empty() -> None:
+    backend = _RecordingBackend()
+    cfg = _profile_cfg(backend, {"oss20b": BackendProfile(model="m/x", context="PROFILE_CONTEXT")})
+
+    await execute_profile_text(cfg, "oss20b", packed_context="", intent="Q")
+
+    assert backend.calls[0]["prompt"] == "Q\n\nPROFILE_CONTEXT"
+
+
+@pytest.mark.asyncio
+async def test_execute_profile_text_carries_system_prompt_and_timeout() -> None:
+    backend = _RecordingBackend()
+    cfg = _profile_cfg(
+        backend,
+        {
+            "oss20b": BackendProfile(
+                model="m/x",
+                system_prompt="SYS",
+                append_system_prompt="MORE",
+                timeout_seconds=42.0,
+            )
+        },
+    )
+
+    await execute_profile_text(cfg, "oss20b", packed_context="", intent="Q")
+
+    assert backend.calls[0]["system"] == "SYS\n\nMORE"
+    assert backend.calls[0]["timeout_seconds"] == 42.0
+
+
+@pytest.mark.asyncio
+async def test_execute_profile_text_none_model_uses_settings_default() -> None:
+    """A profile with no model uses settings.default_model (not the hardcoded cfg default)."""
+    backend = _RecordingBackend()
+    cfg = _profile_cfg(
+        backend,
+        {"bare": BackendProfile(model=None)},
+        default_model="provider/hardcoded-default",
+        settings_default_model="settings/chosen",
+    )
+
+    await execute_profile_text(cfg, "bare", packed_context="", intent="Q")
+
+    assert backend.calls[0]["model"] == "settings/chosen"
+
+
+@pytest.mark.asyncio
+async def test_execute_profile_text_unknown_profile_raises() -> None:
+    backend = _RecordingBackend()
+    cfg = _profile_cfg(backend, {"oss20b": BackendProfile(model="m/x")})
+
+    with pytest.raises(Exception, match="nope"):
+        await execute_profile_text(cfg, "nope", packed_context="", intent="Q")
+    assert backend.calls == []
+
+
+@pytest.mark.asyncio
+async def test_execute_profile_text_retries_profile_fallback_model_on_429() -> None:
+    """The profile's own fallback_model is carried into the RunRequest and used
+    on a 429 — locks BackendProfile.fallback_model -> RunRequest.fallback_model
+    -> _run_backend_with_fallback for the URL4 alias path (a rate-limit contract
+    that would otherwise regress silently)."""
+    backend = _FallbackBackend()
+    cfg = _profile_cfg(
+        backend,
+        {"p": BackendProfile(model="primary/model", fallback_model="fallback/model")},
+    )
+
+    result = await execute_profile_text(cfg, "p", packed_context="", intent="Q")
+
+    assert backend.models == ["primary/model", "fallback/model"]
+    assert "fallback ok" in result
+
+
+@pytest.mark.asyncio
+async def test_execute_profile_text_does_not_reresolve_nonempty_paren_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Anti-double-resolution: when the URL4 parens already carry (dispatcher-
+    resolved) context, execute_profile_text uses it verbatim and must NOT run it
+    back through resolve_str — otherwise already-fetched context would be
+    re-fetched or re-interpreted as a URL4 expression."""
+    calls: list[str] = []
+
+    async def _spy_resolve_str(expr: str, app: object = None, env: object = None) -> str:
+        calls.append(expr)
+        return f"RERESOLVED:{expr}"
+
+    monkeypatch.setattr("screamingface.plugins.url4_executor.url4.resolve_str", _spy_resolve_str)
+    backend = _RecordingBackend()
+    cfg = _profile_cfg(backend, {"p": BackendProfile(model="m/x", context="PROFILE_CTX")})
+
+    await execute_profile_text(cfg, "p", packed_context="ALREADY_RESOLVED", intent="Q")
+
+    assert calls == []  # non-empty parens → resolve_str never invoked
+    assert backend.calls[0]["prompt"] == "Q\n\nALREADY_RESOLVED"
+    assert "RERESOLVED" not in backend.calls[0]["prompt"]

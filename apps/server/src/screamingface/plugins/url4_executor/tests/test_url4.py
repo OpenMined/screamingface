@@ -325,6 +325,26 @@ def test_parse_backend_call_different_paths() -> None:
         assert node.path == path
 
 
+def test_parse_backend_call_alias_path() -> None:
+    """SF-346: a two-segment ``/backend/<alias>`` path parses to a single
+    Url4BackendCall whose ``path`` retains both segments. The dispatcher's
+    alias branch derives the alias from ``node.path`` after the exact-match
+    miss, so this grammar contract must fail loudly if the backend_path rule
+    ever stops accepting an interior '/' (otherwise alias specs silently
+    reparse as a relative-URL fetch and never dispatch)."""
+    node = parse("/huggingface/oss20b($prompt)!answer")
+    assert isinstance(node, Url4BackendCall)
+    assert node.path == "/huggingface/oss20b"
+    assert node.packed_context == "$prompt"
+    assert isinstance(node.intent, Url4Text)
+    assert node.intent.value == "answer"
+
+    for path in ("/huggingface/oss20b", "/gemini/flash"):
+        aliased = parse(f"{path}()!test")
+        assert isinstance(aliased, Url4BackendCall)
+        assert aliased.path == path
+
+
 def test_parse_list_of_backend_calls_fanout_shape() -> None:
     """The target spec's fan-out shape: a parenthesized list where every
     element is a backend call to a different backend with the same intent."""

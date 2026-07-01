@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from screamingface.core.classes import ClassRegistry
     from screamingface.core.hooks import HookRegistry
     from screamingface.core.routes import RouteRegistry
+    from screamingface.plugins.llm_base.routes_shared import BackendApiConfig
     from screamingface.plugins.url4_executor.scope import Env
 
 _PROFILE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -152,6 +153,15 @@ class BackendApiPluginBase(Plugin):
     # before handing it over. Backends that consume a raw locator instead
     # (e.g. python_runner, which fetches its own script) leave this False.
     resolves_context_sources: ClassVar[bool] = True
+    # SF-346: this plugin can resolve a URL4 backend-call suffix
+    # (``/<path>/<alias>``) to one of its configured ``settings.profiles`` and
+    # execute it. The URL4 dispatcher reads this flag by duck-typing (getattr) and
+    # MUST NOT import this class, so python-runner and other non-profile plugins
+    # simply never opt in and ``/python/foo`` stays an unknown backend call.
+    supports_profile_aliases: ClassVar[bool] = True
+    # Shared execution wiring captured from the router at setup() so alias
+    # dispatch runs profiles through the same helpers as the HTTP profile route.
+    _api_config: BackendApiConfig | None = None
 
     def customize_schema(self, schema: dict) -> dict:
         settings: BackendApiSettingsBase = self.settings  # type: ignore[assignment]
@@ -173,6 +183,10 @@ class BackendApiPluginBase(Plugin):
         self._assert_loopback_server_bind(app)
         router = type(self).create_router(self.settings, app)
         routes.add_router(self.name, router, prefix="")
+        # SF-346: capture the shared BackendApiConfig the router factory stashed,
+        # so handle_backend_alias can execute profiles through the same helpers
+        # the HTTP profile route uses (no divergent second execution path).
+        self._api_config = getattr(router, "sf_api_config", None)
 
     def _assert_loopback_server_bind(self, app: FastAPI) -> None:
         assert_loopback_server_bind(
@@ -198,6 +212,48 @@ class BackendApiPluginBase(Plugin):
         del env
         interpreter = self._make_interpreter(app)
         return await interpreter.process(sources=sources, intent=intent)
+
+    async def handle_backend_alias(
+        self,
+        alias: str,
+        *,
+        sources: str = "",
+        intent: str = "",
+        app: FastAPI,  # noqa: ARG002 — signature parity with handle_backend_call
+        env: Env | None = None,
+    ) -> str:
+        """Execute a URL4 profile alias (``/<backend>/<alias>(ctx)!intent``).
+
+        Called by the URL4 dispatcher only for plugins that advertise
+        :attr:`supports_profile_aliases`. Validates the alias with the same
+        ``_PROFILE_NAME_RE`` that guards profile-config keys — one regex, so the
+        alias gate and the config-key rule can never drift — then runs the
+        matching profile through the shared :func:`execute_profile_text` helper so
+        the profile's model reaches the backend. Raises with a clear URL4-facing
+        message on an invalid or unknown alias.
+        """
+        del env
+        base = self.backend_call_paths[0] if self.backend_call_paths else ""
+        if not _PROFILE_NAME_RE.match(alias):
+            raise ValueError(
+                f"Invalid profile alias {alias!r} for backend {base}. "
+                f"Aliases must match {_PROFILE_NAME_RE.pattern}."
+            )
+        profiles = getattr(self.settings, "profiles", {}) or {}
+        if alias not in profiles:
+            raise ValueError(f"No profile alias {alias!r} is configured for backend {base}.")
+        if self._api_config is None:
+            raise RuntimeError(
+                f"{self.name!r} cannot dispatch profile alias {alias!r}: backend-api "
+                "config was not captured during setup()."
+            )
+        # Local import — llm_base imports backend_api_base.models, so a module-load
+        # import here would cycle. Mirrors the lazy-import pattern in routes_shared.
+        from screamingface.plugins.llm_base.routes_shared import execute_profile_text
+
+        return await execute_profile_text(
+            self._api_config, alias, packed_context=sources, intent=intent
+        )
 
     def _make_interpreter(self, app: FastAPI) -> Any:
         """Subclass hook: build a fresh provider-specific interpreter.

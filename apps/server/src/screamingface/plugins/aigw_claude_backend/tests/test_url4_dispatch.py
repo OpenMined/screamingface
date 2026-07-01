@@ -14,6 +14,7 @@ from screamingface.plugins.aigw_claude_backend.plugin import (
     AigwClaudeBackendPlugin,
     AigwClaudeBackendSettings,
 )
+from screamingface.plugins.backend_api_base.models import BackendProfile
 
 
 def _factory_returning(text: str, captured: dict | None = None):
@@ -143,3 +144,35 @@ async def test_interpreter_retries_fallback_model_on_429() -> None:
         "anthropic/claude-sonnet-4-5",
         "anthropic/claude-haiku-4-5",
     ]
+
+
+@pytest.mark.anyio
+async def test_bare_path_uses_default_model_not_default_profile() -> None:
+    """SF-346 plan negative assertion: a bare exact /claude(...) URL4 call runs
+    settings.default_model through the interpreter and must NOT switch to a
+    configured profile's model just because a default_profile is set. Alias
+    dispatch is the only path that reads profiles; the bare path is unchanged."""
+    captured: dict = {}
+    factory = _factory_returning("pong", captured)
+    settings = AigwClaudeBackendSettings(
+        default_model="anthropic/claude-haiku-4-5",
+        profiles={"other": BackendProfile(model="anthropic/claude-opus-4-1")},
+        default_profile="other",
+    )
+    backend = AigwBackend(
+        gateway_url=settings.gateway_url,
+        profile_name=settings.auth_profile,
+        gateway_provider="anthropic",
+        http_client_factory=factory,
+    )
+    interpreter = AigwInterpreter(
+        app=None,
+        settings=settings,
+        backend=backend,
+        gateway_provider="anthropic",
+    )
+
+    await interpreter.process(sources="", intent="hi")
+
+    assert captured["body"]["model"] == "anthropic/claude-haiku-4-5"  # settings.default_model
+    assert captured["body"]["model"] != "anthropic/claude-opus-4-1"  # NOT default_profile's model

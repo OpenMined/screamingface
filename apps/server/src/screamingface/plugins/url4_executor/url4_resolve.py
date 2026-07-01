@@ -201,6 +201,47 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
                 set_openinference("CHAIN", output_value=result[:16000])
                 return result
 
+        # SF-346: no exact match — try profile-alias fallback. ``/backend/<alias>``
+        # resolves to a configured profile on a profile-capable plugin (one that
+        # advertises ``supports_profile_aliases`` — read by duck-typing so this
+        # module never imports the backend plugin classes). Exact matches above
+        # always win, so declaring an exact ``/backend/healthcheck`` path would
+        # shadow an alias of the same name. All three dispatch entry points (this
+        # function, the collection reducer, and the ensemble reducer) funnel here,
+        # so they inherit alias support.
+        for plugin in plugins_registry.active_plugins.values():
+            if not getattr(plugin, "supports_profile_aliases", False):
+                continue
+            for base_path in getattr(plugin, "backend_call_paths", []):
+                prefix = f"{base_path}/"
+                if not node.path.startswith(prefix):
+                    continue
+                suffix = node.path[len(prefix) :]
+                if "/" in suffix:
+                    # Reject raw provider model slugs (``/huggingface/org/model``);
+                    # aliases are one safe segment, validated by the plugin.
+                    raise RuntimeError(
+                        f"Profile alias paths must be a single segment: {node.path}. "
+                        "Raw provider model slugs are not valid URL4 paths."
+                    )
+                call_sources = sources_text
+                if getattr(plugin, "resolves_context_sources", False):
+                    call_sources = await _resolve_context_sources(sources_text, app, env)
+                # `handle_backend_alias` lives on BackendApiPluginBase, not the base
+                # Plugin; fetch it by name so url4_executor stays free of a
+                # backend_api_base import (same duck-typing as the capability flag).
+                alias_handler = getattr(plugin, "handle_backend_alias", None)
+                if alias_handler is None:
+                    continue
+                result = await alias_handler(
+                    suffix, sources=call_sources, intent=intent_text, app=app, env=env
+                )
+                set_span_attrs(
+                    {"sf.backend_plugin": plugin.name, "url4.result_length": len(result)}
+                )
+                set_openinference("CHAIN", output_value=result[:16000])
+                return result
+
         raise RuntimeError(
             f"No active plugin handles the backend call {node.path}(). "
             f"Known backend_call_paths across active plugins: {known_paths!r}. "

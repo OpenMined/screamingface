@@ -9,7 +9,7 @@ import { useRef } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 // Side-effect: bundle Monaco (no CDN) before it mounts.
 import '@/lib/monaco-setup';
-import { registerUrl4Language, setUrl4SpecNames } from '@/lib/url4-language';
+import { refreshBackendAliases, registerUrl4Language, setUrl4SpecNames } from '@/lib/url4-language';
 import { clampEditorHeight } from '@/lib/editor-height';
 
 interface Props {
@@ -60,6 +60,12 @@ export default function Url4MonacoEditor({
         /* offline — skip */
       }
     })();
+
+    // SF-346: refresh configured backend profile aliases for autocomplete
+    // (best-effort, fail-closed). Always overwrites — including clearing — so
+    // aliases from a prior server/config don't linger in the shared cache.
+    // Sourced from SF-server backend plugin settings, not the AIGateway inventory.
+    void refreshBackendAliases((url) => window.electronAPI.server.fetch(url), serverUrl);
 
     // NOTE: no server-side validation markers. /ensemble/highlight parses with
     // the base url4 grammar, which rejects the ensemble fan-out shape

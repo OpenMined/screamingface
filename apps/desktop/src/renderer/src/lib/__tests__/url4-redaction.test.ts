@@ -105,4 +105,10 @@ describe('deriveProviders', () => {
   it('detects huggingface', () => {
     expect(deriveProviders('/huggingface($prompt)!answer')).toEqual(['huggingface']);
   });
+
+  // SF-346: alias-form paths carry the provider substring, so the publish
+  // dialog still derives the right provider without knowing the alias/model.
+  it('detects the provider from an alias-form path (/huggingface/oss20b)', () => {
+    expect(deriveProviders('/huggingface/oss20b($prompt)!answer')).toEqual(['huggingface']);
+  });
 });

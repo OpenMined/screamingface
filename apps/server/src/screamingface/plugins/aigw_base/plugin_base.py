@@ -80,6 +80,9 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
         self._assert_loopback_server_bind(app)
         router = type(self).create_router(self.settings, app, backend=self._backend(app))
         routes.add_router(self.name, router, prefix="")
+        # SF-346: same profile-alias wiring capture as BackendApiPluginBase.setup
+        # (this override does not call super().setup()).
+        self._api_config = getattr(router, "sf_api_config", None)
 
     def _assert_loopback_server_bind(self, app: FastAPI) -> None:
         assert_loopback_server_bind(
