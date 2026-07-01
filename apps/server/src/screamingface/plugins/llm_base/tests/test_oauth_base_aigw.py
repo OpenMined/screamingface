@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -63,6 +63,32 @@ async def test_aigw_source_remains_authoritative_for_each_header_request():
     assert first == {"Authorization": "Bearer aigw-token-1"}
     assert second == {"Authorization": "Bearer aigw-token-2"}
     assert fake_source.fetch_token.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_aigw_source_expiry_restores_strategy_fast_path():
+    class _ExpiringSource(AigwTokenSource):
+        def __init__(self) -> None:
+            self.calls = 0
+            self.expires_at = datetime.now(UTC) + timedelta(hours=1)
+
+        async def fetch_token(self) -> str:
+            self.calls += 1
+            return f"aigw-token-{self.calls}"
+
+        @property
+        def cached_expires_at(self) -> datetime | None:
+            return self.expires_at
+
+    source = _ExpiringSource()
+    strat = _FakeStrategy(aigw_source=source)
+
+    first = await strat.get_authorization_header()
+    second = await strat.get_authorization_header()
+
+    assert first == {"Authorization": "Bearer aigw-token-1"}
+    assert second == {"Authorization": "Bearer aigw-token-1"}
+    assert source.calls == 1
 
 
 @pytest.mark.asyncio
