@@ -257,17 +257,46 @@ class SessionManager extends EventEmitter {
       });
 
       session.proxy = child;
+      let settled = false;
+      let timeout: NodeJS.Timeout;
+      let onClose: (code: number | null, signal: NodeJS.Signals | null) => void;
+      let onError: (err: Error) => void;
+      let onStderr: (data: Buffer) => void;
+      let onStdout: (data: Buffer) => void;
 
-      const timeout = setTimeout(() => {
-        reject(new Error('Proxy ready timeout'));
-      }, PROXY_READY_TIMEOUT_MS);
+      const cleanupStartupFailure = (): void => {
+        clearTimeout(timeout);
+        child.stdout?.removeListener('data', onStdout);
+        child.stderr?.removeListener('data', onStderr);
+        child.removeListener('close', onClose);
+        child.removeListener('error', onError);
+        session.proxyReady = null;
+        if (session.proxy === child) {
+          session.proxy = null;
+        }
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          /* already exited */
+        }
+        const forceKillTimer = setTimeout(() => {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            /* already exited */
+          }
+        }, 5000);
+        child.once('close', () => clearTimeout(forceKillTimer));
+      };
 
-      child.stdout!.on('data', (data: Buffer) => {
+      onStdout = (data: Buffer): void => {
         const lines = data.toString().split('\n').filter(Boolean);
         for (const line of lines) {
           try {
             const parsed = JSON.parse(line);
             if (parsed.event === 'ready') {
+              if (settled) return;
+              settled = true;
               clearTimeout(timeout);
               session.proxyReady = parsed as ReadyEvent;
               resolve();
@@ -278,29 +307,51 @@ class SessionManager extends EventEmitter {
           }
           this.emit('log', session.id, line);
         }
-      });
+      };
 
-      child.stderr!.on('data', (data: Buffer) => {
+      onStderr = (data: Buffer): void => {
         this.emit('log', session.id, data.toString());
-      });
+      };
 
-      child.on('close', (code, signal) => {
+      onClose = (code: number | null, signal: NodeJS.Signals | null): void => {
         clearTimeout(timeout);
         this.emit('log', session.id, `Proxy process exited (code=${code}, signal=${signal})`);
+        if (!settled) {
+          settled = true;
+          session.proxy = null;
+          session.proxyReady = null;
+          reject(new Error('Proxy exited before ready'));
+          return;
+        }
         if (session.status !== 'stopping' && session.status !== 'stopped') {
           session.status = 'error';
           session.proxy = null;
           this.emitSessionsChanged();
         }
-      });
+      };
 
-      child.on('error', (err) => {
+      onError = (err: Error): void => {
         clearTimeout(timeout);
         session.proxy = null;
+        session.proxyReady = null;
         session.status = 'error';
         this.emitSessionsChanged();
+        if (settled) return;
+        settled = true;
         reject(err);
-      });
+      };
+
+      timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanupStartupFailure();
+        reject(new Error('Proxy ready timeout'));
+      }, PROXY_READY_TIMEOUT_MS);
+
+      child.stdout!.on('data', onStdout);
+      child.stderr!.on('data', onStderr);
+      child.on('close', onClose);
+      child.on('error', onError);
     });
   }
 

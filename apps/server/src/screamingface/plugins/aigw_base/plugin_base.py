@@ -8,13 +8,12 @@ Subclasses mirror direct backend plugin style: declare class-level metadata
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
-from ipaddress import ip_address
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
 
+from screamingface.core.local_only import assert_loopback_server_bind
 from screamingface.plugins.backend_api_base.plugin_base import BackendApiPluginBase
 
 from .backend import AigwBackend
@@ -83,19 +82,11 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
         routes.add_router(self.name, router, prefix="")
 
     def _assert_loopback_server_bind(self, app: FastAPI) -> None:
-        if os.environ.get("SF_AIGW_ALLOW_LAN") == "1":
-            return
-        host = getattr(getattr(app.state, "config", None), "server", None)
-        bind_host = getattr(host, "host", "")
-        if not bind_host:
-            return
-        if _is_loopback_host(bind_host):
-            return
-        msg = (
-            f"{self.name} refuses to activate on non-loopback SF host {bind_host!r}; "
-            "set SF_AIGW_ALLOW_LAN=1 to override"
+        assert_loopback_server_bind(
+            app,
+            self.name,
+            allow_env_vars=("SF_SERVER_ALLOW_LAN",),
         )
-        raise RuntimeError(msg)
 
     # ------------------------------------------------------------------ #
     # Schema customization
@@ -347,16 +338,6 @@ def _dedupe_preserving_order(values: list[str]) -> list[str]:
         seen.add(value)
         result.append(value)
     return result
-
-
-def _is_loopback_host(host: str) -> bool:
-    normalized = (host or "").strip().lower()
-    if normalized == "localhost":
-        return True
-    try:
-        return ip_address(normalized).is_loopback
-    except ValueError:
-        return False
 
 
 def _gateway_url(app: FastAPI | None, settings: AigwBackendApiSettingsBase) -> str:

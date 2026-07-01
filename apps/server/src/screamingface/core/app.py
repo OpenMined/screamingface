@@ -19,6 +19,7 @@ from screamingface.core.classes import ClassRegistry
 from screamingface.core.config import AppConfig
 from screamingface.core.frontend import FrontendRegistry
 from screamingface.core.hooks import HookRegistry
+from screamingface.core.local_only import assert_loopback_bind_host
 from screamingface.core.registry import PluginRegistry
 from screamingface.core.routes import RouteRegistry
 
@@ -122,6 +123,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     config = _resolve_config(config)
+    assert_loopback_bind_host(
+        config.server.host,
+        "ScreamingFace admin router",
+        allow_env_vars=("SF_SERVER_ALLOW_LAN",),
+    )
 
     hooks = HookRegistry()
     classes = ClassRegistry()

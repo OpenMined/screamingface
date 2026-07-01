@@ -36,7 +36,7 @@ interface ServerPluginInfo {
 const defaultConfig: AppConfig = {
   version: '0.1.0',
   server: {
-    host: '0.0.0.0',
+    host: '127.0.0.1',
     port: 8000,
     reload: false,
     ssl: true,

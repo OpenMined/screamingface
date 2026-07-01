@@ -14,7 +14,7 @@ CONFIG_ENV_VAR = "SF_CONFIG"
 class ServerConfig(BaseModel):
     """Server-specific settings."""
 
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
     reload: bool = False
     ssl: bool = True

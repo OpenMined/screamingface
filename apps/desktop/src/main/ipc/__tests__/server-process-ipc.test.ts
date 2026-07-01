@@ -103,8 +103,9 @@ describe('server process IPC', () => {
 
     const result = await handler(
       { senderFrame: { url: 'file:///Applications/ScreamingFace.app/index.html' } },
-      'http://127.0.0.1:8001/ensemble',
+      'http://127.0.0.1:8001/private',
       {
+        method: 'GET',
         headers: {
           Accept: 'text/plain',
           'X-SF-Desktop-Secret': 'renderer-secret',
@@ -115,12 +116,34 @@ describe('server process IPC', () => {
 
     expect(result).toEqual({ ok: true, status: 200, body: 'ok' });
     expect(mocks.requireTrustedIpcSender).toHaveBeenCalledOnce();
+    expect(mocks.isAllowedServerFetchUrl).toHaveBeenCalledWith(
+      'http://127.0.0.1:8001/private',
+      { event: 'ready', host: '127.0.0.1', pid: 123, port: 8001, scheme: 'http' },
+      'GET',
+    );
     expect(capturedRequests).toHaveLength(1);
-    expect(capturedRequests[0].url).toBe('http://127.0.0.1:8001/ensemble');
+    expect(capturedRequests[0].url).toBe('http://127.0.0.1:8001/private');
     expect(capturedRequests[0].options.headers).toMatchObject({
       Accept: 'text/plain',
       'X-SF-Desktop-Secret': 'desktop-secret',
     });
     expect(capturedRequests[0].options.headers?.['x-sf-desktop-secret']).toBeUndefined();
+  });
+
+  it('does not proxy disallowed server.fetch requests', async () => {
+    mocks.isAllowedServerFetchUrl.mockReturnValue(false);
+    registerServerHandlers();
+    const handler = mocks.ipcHandlers.get('server:fetch');
+    if (!handler) throw new Error('server:fetch handler was not registered');
+
+    const result = await handler(
+      { senderFrame: { url: 'file:///Applications/ScreamingFace.app/index.html' } },
+      'http://127.0.0.1:8001/plugins',
+      { method: 'POST' },
+    );
+
+    expect(result).toEqual({ ok: false, status: 0, body: '' });
+    expect(mocks.httpRequest).not.toHaveBeenCalled();
+    expect(mocks.httpsRequest).not.toHaveBeenCalled();
   });
 });

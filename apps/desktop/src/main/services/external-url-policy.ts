@@ -1,5 +1,6 @@
 const BACKEND_NAME_RE = /^[a-z0-9-]+$/;
 const OAUTH_CONNECTION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PATH_SEGMENT_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Pinned Google OAuth installed-app client_ids (public identifiers, not
 // secrets). The gateway constructs the authorize URL from its configured
@@ -122,6 +123,7 @@ export function isAllowedExternalBrowserUrl(urlString: string): boolean {
 export function isAllowedServerFetchUrl(
   urlString: string,
   serverInfo: LocalServerInfo | null,
+  method = 'GET',
 ): boolean {
   if (!serverInfo) return false;
 
@@ -137,7 +139,8 @@ export function isAllowedServerFetchUrl(
   if (url.username || url.password) return false;
   if (!isLoopbackHostname(url.hostname)) return false;
   if (!isLoopbackOrWildcardHostname(serverInfo.host)) return false;
-  return url.port === String(serverInfo.port);
+  if (url.port !== String(serverInfo.port)) return false;
+  return isAllowedServerFetchPathAndMethod(url, method);
 }
 
 export function isAllowedPopupUrl(urlString: string): boolean {
@@ -217,4 +220,80 @@ function isLoopbackHostname(hostname: string): boolean {
 
 function isLoopbackOrWildcardHostname(hostname: string): boolean {
   return isLoopbackHostname(hostname) || hostname === '0.0.0.0';
+}
+
+function isAllowedServerFetchPathAndMethod(url: URL, method: string): boolean {
+  const normalizedMethod = method.toUpperCase();
+  if (url.hash) return false;
+
+  if (url.pathname === '/private' && hasNoQuery(url)) {
+    return normalizedMethod === 'GET' || normalizedMethod === 'POST';
+  }
+  const privateMatch = /^\/private\/([^/]+)$/.exec(url.pathname);
+  if (privateMatch && hasNoQuery(url) && UUID_PATH_SEGMENT_RE.test(privateMatch[1])) {
+    return (
+      normalizedMethod === 'GET' || normalizedMethod === 'PUT' || normalizedMethod === 'DELETE'
+    );
+  }
+
+  if (url.pathname === '/plugins' && hasNoQuery(url)) {
+    return normalizedMethod === 'GET';
+  }
+  if (/^\/plugins\/[a-z0-9-]+\/schema$/.test(url.pathname) && hasNoQuery(url)) {
+    return normalizedMethod === 'GET';
+  }
+  if (/^\/plugins\/[a-z0-9-]+\/settings$/.test(url.pathname) && hasNoQuery(url)) {
+    return normalizedMethod === 'GET' || normalizedMethod === 'POST';
+  }
+  if (/^\/plugins\/[a-z0-9-]+\/settings\/validate$/.test(url.pathname) && hasNoQuery(url)) {
+    return normalizedMethod === 'POST';
+  }
+
+  if (url.pathname === '/config/validate' && hasNoQuery(url)) {
+    return normalizedMethod === 'POST';
+  }
+  if (url.pathname === '/ensemble/format' && hasNoQuery(url)) {
+    return normalizedMethod === 'POST';
+  }
+  if (url.pathname === '/ensemble/highlight') {
+    return (
+      normalizedMethod === 'GET' &&
+      hasSingleParam(url.searchParams, 'q') &&
+      hasOnlySingleQueryParams(url, new Set(['q']))
+    );
+  }
+  if (url.pathname === '/ensemble') {
+    return (
+      normalizedMethod === 'GET' &&
+      hasSingleParam(url.searchParams, 'q') &&
+      hasOnlySingleQueryParams(url, new Set(['q', 'ast', 'processor']))
+    );
+  }
+
+  if (url.pathname === '/eval_runs') {
+    return (
+      normalizedMethod === 'GET' && hasOnlySingleQueryParams(url, new Set(['limit', 'offset']))
+    );
+  }
+  const evalRunMatch = /^\/eval_runs\/([^/]+)$/.exec(url.pathname);
+  if (evalRunMatch && hasNoQuery(url) && UUID_PATH_SEGMENT_RE.test(evalRunMatch[1])) {
+    return (
+      normalizedMethod === 'GET' || normalizedMethod === 'PATCH' || normalizedMethod === 'DELETE'
+    );
+  }
+
+  return false;
+}
+
+function hasNoQuery(url: URL): boolean {
+  return url.search === '';
+}
+
+function hasOnlySingleQueryParams(url: URL, allowedParams: Set<string>): boolean {
+  const seen = new Set<string>();
+  for (const [key, value] of url.searchParams) {
+    if (!allowedParams.has(key) || seen.has(key) || value === '') return false;
+    seen.add(key);
+  }
+  return true;
 }
