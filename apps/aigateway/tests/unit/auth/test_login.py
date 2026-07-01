@@ -41,7 +41,7 @@ def test_login_rejects_overlong_password(client) -> None:
     assert response.status_code == 422
 
 
-def test_inactive_account_returns_locked(client) -> None:
+def test_inactive_account_returns_generic_401(client) -> None:
     async def _deactivate() -> None:
         admin = await Account.get(username="admin")
         admin.is_active = False
@@ -52,7 +52,17 @@ def test_inactive_account_returns_locked(client) -> None:
         "/v1/auth/login",
         json={"username": "admin", "password": "test-admin-password"},
     )
-    assert response.status_code == 423
+    # SF-335: an inactive account (with the CORRECT password) must be
+    # INDISTINGUISHABLE from bad credentials: same status AND identical body,
+    # so no account-status enumeration oracle remains. Compare against a
+    # wrong-password attempt on the same (still-deactivated) user.
+    wrong = client.post(
+        "/v1/auth/login",
+        json={"username": "admin", "password": "definitely-wrong-password"},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "invalid_credentials"
+    assert (response.status_code, response.content) == (wrong.status_code, wrong.content)
 
 
 @pytest.mark.asyncio

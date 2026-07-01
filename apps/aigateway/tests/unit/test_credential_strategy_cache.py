@@ -13,6 +13,19 @@ import asyncio
 import pytest
 
 from aigateway.core.credential_strategy_cache import CredentialStrategyCache
+from aigateway.core.oauth_base import BaseOAuthStrategy
+
+# SF-335 / C12 cross-app contract: this window value is mirrored BY CONTRACT
+# (not by shared code) with the SF-server OAuth base
+# (apps/server/src/screamingface/plugins/llm_base/oauth_base.py).
+EXPECTED_REFRESH_WINDOW_SECONDS = 60
+
+
+def test_refresh_window_matches_cross_app_contract() -> None:
+    # The one genuinely-shared-yet-unpinned cross-app invariant (SF-335 / C12):
+    # if this drifts from the SF-server base, fan-out refresh decisions disagree
+    # across the HTTP boundary (SF-282 class). Mirror any change in BOTH apps.
+    assert BaseOAuthStrategy.refresh_window_seconds == EXPECTED_REFRESH_WINDOW_SECONDS
 
 
 def test_get_or_create_caches_per_key() -> None:

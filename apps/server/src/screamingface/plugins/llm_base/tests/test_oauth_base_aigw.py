@@ -10,6 +10,16 @@ import pytest
 from screamingface.plugins.llm_base.aigw_token_source import AigwTokenSource
 from screamingface.plugins.llm_base.oauth_base import OAuthStrategy
 
+# SF-335 / C12 cross-app contract: mirrored BY CONTRACT (not shared code) with
+# the AIGateway OAuth base (apps/aigateway/src/aigateway/core/oauth_base.py).
+EXPECTED_REFRESH_WINDOW_SECONDS = 60
+
+
+def test_refresh_window_matches_cross_app_contract() -> None:
+    # The one genuinely-shared-yet-unpinned cross-app invariant (SF-335 / C12);
+    # mirror any change in BOTH apps or fan-out refresh decisions drift (SF-282).
+    assert OAuthStrategy.refresh_window_seconds == EXPECTED_REFRESH_WINDOW_SECONDS
+
 
 class _FakeStrategy(OAuthStrategy):
     """Concrete strategy that uses the snake_case shape (like Codex/Gemini)."""

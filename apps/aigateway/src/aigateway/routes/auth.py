@@ -1032,8 +1032,10 @@ async def set_profile_api_key(
 
     No OAuth round-trip: the profile is AUTHENTICATED as soon as the key is
     stored. The key is persisted to the profile's credential blob slot (so a
-    later OAuth completion overwrites it, and delete removes it) and is never
-    echoed back in responses or logs.
+    later OAuth completion overwrites it, and delete removes it). The RAW key is
+    never returned in responses or logs; the profile carries only a masked
+    display label of the last 4 characters (``account_label = "API key ····WXYZ"``),
+    the same last-4 convention used by Stripe/AWS/GitHub.
     """
     plugin = _registry(request).get(provider)
     if plugin is None:
