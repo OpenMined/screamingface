@@ -44,3 +44,17 @@ def test_loader_discovers_antigravity_provider() -> None:
     assert "antigravity/gemini-3-flash" in names
     for m in models:
         assert m.litellm_params["model"].startswith("antigravity/")
+
+
+def test_loader_discovers_huggingface_provider() -> None:
+    reg = ProviderRegistry()
+    load_plugins(reg)
+    plugin = reg.get("huggingface")
+    assert plugin is not None
+    assert plugin.custom_llm_provider == "huggingface"
+    models = plugin.register_models()
+    names = {m.model_name for m in models}
+    assert "huggingface/deepseek-ai/DeepSeek-R1:novita" in names
+    for m in models:
+        assert m.litellm_params["model"].startswith("huggingface/")
+        assert m.litellm_params["api_base"] == "https://router.huggingface.co/v1"

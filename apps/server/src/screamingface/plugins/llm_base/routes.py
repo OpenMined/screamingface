@@ -220,6 +220,12 @@ def _provider_auth_status(app: Any, backends: dict[str, Any]) -> dict[str, Any]:
             # is to source this from the gateway (e.g. a provider-capabilities
             # endpoint) — deferred as a separate task; accepted tradeoff for now.
             "supports_api_key": bool(getattr(plugin, "supports_api_key", False)),
+            # Whether the provider offers browser OAuth. Defaults True (every
+            # gateway-backed backend today except Hugging Face is OAuth-capable);
+            # an api-key-only backend declares False so the desktop defaults to —
+            # and only offers — the API-key flow instead of dead-ending on an
+            # OAuth 'Start' the gateway rejects (no oauth_config).
+            "supports_oauth": bool(getattr(plugin, "supports_oauth", True)),
         }
     return providers
 
@@ -369,7 +375,9 @@ def _help_text(plugin: Any, health: dict[str, Any]) -> str | None:
         return "Backend rate limit reached. Capacity will reset automatically."
     if action == "reauth":
         if getattr(plugin, "gateway_provider", None):
-            return "OAuth profile is missing or expired. Click Authenticate to open a browser."
+            if getattr(plugin, "supports_oauth", True):
+                return "OAuth profile is missing or expired. Click Authenticate to open a browser."
+            return "API key is missing or invalid. Add a connection with your API key."
         command = getattr(plugin, "cli_auth_command", None)
         if isinstance(command, str):
             return f"Credential is missing or expired. Click Re-authenticate to run '{command}'."

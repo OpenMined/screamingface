@@ -89,6 +89,7 @@ def build_aigw_auth_proxy_router(
     http_client_factory: HttpClientFactory | None = None,
     timeout_seconds: float = 10.0,
     defaults: dict[str, Any] | None = None,
+    include_oauth_routes: bool = True,
 ) -> APIRouter:
     """Build the SF-side proxy routes that drive the gateway OAuth flow.
 
@@ -386,6 +387,30 @@ def build_aigw_auth_proxy_router(
             json={"api_key": body.api_key},
         )
         return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+    if not include_oauth_routes:
+        # Providers with no gateway OAuth surface (e.g. Hugging Face, api-key only)
+        # would dead-end on every OAuth route. Keep only the api-key connection CRUD
+        # (list/get/delete/create-key/replace-key). Drop all profile/OAuth-start
+        # routes (they forward to /v1/auth/{provider}/*, for which HF has no router)
+        # AND the two connection routes that target OAuth-only gateway endpoints:
+        # POST /connections starts an OAuth cycle (rejected: provider_does_not_use_oauth)
+        # and /connections/{id}/refresh only refreshes OAuth tokens (rejected for api-key).
+        # (Rebuilding router.routes is the same mechanism the RouteRegistry uses to deactivate.)
+        connection_prefix = f"{path_prefix}/auth/connections"
+        oauth_only = {
+            ("POST", connection_prefix),
+            ("POST", f"{connection_prefix}/{{connection_id}}/refresh"),
+        }
+
+        def _is_api_key_route(route: Any) -> bool:
+            path = getattr(route, "path", "")
+            if not path.startswith(connection_prefix):
+                return False
+            methods = getattr(route, "methods", None) or set()
+            return all((method, path) not in oauth_only for method in methods)
+
+        router.routes = [route for route in router.routes if _is_api_key_route(route)]
 
     return router
 

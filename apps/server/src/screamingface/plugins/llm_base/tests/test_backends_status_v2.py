@@ -111,6 +111,54 @@ def test_provider_auth_status_exposes_supports_api_key() -> None:
     assert providers["ollama"]["supports_api_key"] is False
 
 
+def test_provider_auth_status_exposes_supports_oauth() -> None:
+    """The desktop reads supports_oauth to default/gate the OAuth option. An
+    api-key-only provider (huggingface) must report False so the connection UI does
+    not dead-end on an OAuth 'Start' the gateway rejects."""
+
+    def _plugin(provider, path, *, supports_oauth=None):
+        ns = SimpleNamespace(
+            gateway_provider=provider,
+            backend_call_paths=[path],
+            settings=SimpleNamespace(auth_profile="default"),
+        )
+        if supports_oauth is not None:
+            ns.supports_oauth = supports_oauth
+        return ns
+
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            plugins=SimpleNamespace(
+                active_plugins={
+                    "huggingface": _plugin("huggingface", "/huggingface", supports_oauth=False),
+                    # A plugin that never declares the attr defaults to True (OAuth-capable).
+                    "gemini": _plugin("gemini-cli", "/gemini"),
+                }
+            )
+        )
+    )
+
+    providers = status_routes._provider_auth_status(app, {})
+
+    assert providers["huggingface"]["supports_oauth"] is False
+    assert providers["gemini"]["supports_oauth"] is True
+
+
+def test_help_text_is_api_key_specific_for_oauthless_provider() -> None:
+    """An api-key-only provider (supports_oauth=False) must not tell users to
+    complete OAuth on reauth — the help must point at the API key instead."""
+    reauth = {"action": "reauth"}
+    oauth_plugin = SimpleNamespace(gateway_provider="anthropic")  # supports_oauth defaults True
+    apikey_plugin = SimpleNamespace(gateway_provider="huggingface", supports_oauth=False)
+
+    oauth_text = status_routes._help_text(oauth_plugin, reauth)
+    apikey_text = status_routes._help_text(apikey_plugin, reauth)
+
+    assert oauth_text is not None and "OAuth" in oauth_text
+    assert apikey_text is not None and "API key" in apikey_text
+    assert "OAuth" not in apikey_text
+
+
 def test_create_app_registers_validation_redactor() -> None:
     app = create_app(AppConfig(plugins=[]))
     assert RequestValidationError in app.exception_handlers

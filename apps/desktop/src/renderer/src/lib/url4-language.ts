@@ -9,7 +9,15 @@ import type { Monaco } from '@monaco-editor/react';
 const LANGUAGE_ID = 'url4';
 
 // Backend dispatch paths and well-known variables/modifiers for autocomplete.
-const BACKENDS = ['/claude', '/codex', '/gemini', '/antigravity', '/python', '/ollama'];
+const BACKENDS = [
+  '/claude',
+  '/codex',
+  '/gemini',
+  '/antigravity',
+  '/huggingface',
+  '/python',
+  '/ollama',
+];
 const VARIABLES = ['$prompt', '$consensus', '$item.', '$var.'];
 const MODIFIERS = ['foreach.concurrency=', 'foreach.on_error=collect'];
 

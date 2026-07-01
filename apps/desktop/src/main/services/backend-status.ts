@@ -59,6 +59,11 @@ export interface ProviderAuthStatus {
   provider: string;
   profile: string;
   state: 'authenticated' | 'pending' | 'missing_profile' | 'error';
+  // Capability flags mirrored from the server status (kept aligned with
+  // preload/types.ts). Passed through to the renderer, which gates the
+  // connection auth UI on them. Absent => api-key false / oauth true.
+  supports_api_key?: boolean;
+  supports_oauth?: boolean;
 }
 
 export interface BackendStatusV2 {

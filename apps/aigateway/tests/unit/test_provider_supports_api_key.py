@@ -11,6 +11,7 @@ from __future__ import annotations
 from aigateway.plugins.anthropic_provider.plugin import PLUGIN as ANTHROPIC
 from aigateway.plugins.codex_provider.plugin import PLUGIN as CODEX
 from aigateway.plugins.gemini_provider.plugin import PLUGIN as GEMINI
+from aigateway.plugins.huggingface_provider.plugin import PLUGIN as HUGGINGFACE
 from aigateway.plugins.ollama_provider.plugin import PLUGIN as OLLAMA
 
 
@@ -29,3 +30,8 @@ def test_codex_does_not_support_api_key() -> None:
 def test_ollama_does_not_support_api_key() -> None:
     # Ollama is local/no-auth; it does not take a provider API key.
     assert OLLAMA.supports_api_key() is False
+
+
+def test_huggingface_supports_api_key() -> None:
+    # Hugging Face is api-key-only (PAT); no OAuth in v1.
+    assert HUGGINGFACE.supports_api_key() is True

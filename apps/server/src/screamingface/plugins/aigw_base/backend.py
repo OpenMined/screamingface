@@ -147,13 +147,13 @@ class AigwBackend(Backend):
             return HealthStatus(
                 authenticated=False,
                 error=(
-                    "Multiple active OAuth connections exist; select one with the "
+                    "Multiple active connections exist; select one with the "
                     "backend auth_profile setting"
                 ),
             )
         return HealthStatus(
             authenticated=False,
-            error=f"No active OAuth connection named {self._profile_name!r}",
+            error=f"No active connection named {self._profile_name!r}",
         )
 
     async def run(
