@@ -1,8 +1,16 @@
 // Which auth-requiring model backends a url4 expression dispatches to, by
-// scanning for their call-paths (/claude, /codex, /gemini, /antigravity, /ollama). /python,
+// scanning for their call-paths (/claude, /codex, /gemini, /antigravity,
+// /huggingface, /ollama). /python,
 // /data and /private are intentionally excluded — no credentials / not models.
 // Mirrors the server's backend keying (backend_call_paths[0].lstrip('/')).
-const AUTH_BACKENDS = ['claude', 'codex', 'gemini', 'antigravity', 'ollama'] as const;
+const AUTH_BACKENDS = [
+  'claude',
+  'codex',
+  'gemini',
+  'antigravity',
+  'huggingface',
+  'ollama',
+] as const;
 export type BackendName = (typeof AUTH_BACKENDS)[number];
 
 export function referencedBackends(expression: string): BackendName[] {

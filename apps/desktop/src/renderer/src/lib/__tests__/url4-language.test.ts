@@ -44,6 +44,7 @@ describe('registerUrl4Language', () => {
       .provideCompletionItems(model, position)
       .suggestions.map((s) => s.label);
     expect(labels).toContain('/antigravity');
+    expect(labels).toContain('/huggingface');
     expect(labels).toContain('/claude');
     expect(labels).toContain('/python');
     expect(labels).toContain('$prompt');

@@ -15,7 +15,14 @@
 
 const DATA_REF_RE = /\/data\/[A-Za-z0-9_./-]+/g;
 const REDACTED_REF = '/data/<redacted>';
-const KNOWN_PROVIDERS = ['claude', 'codex', 'gemini', 'antigravity', 'ollama'] as const;
+const KNOWN_PROVIDERS = [
+  'claude',
+  'codex',
+  'gemini',
+  'antigravity',
+  'huggingface',
+  'ollama',
+] as const;
 
 /** Every `/data/<ref>` segment in the expression (empty array if none). */
 export function findLocalDataRefs(expression: string): string[] {

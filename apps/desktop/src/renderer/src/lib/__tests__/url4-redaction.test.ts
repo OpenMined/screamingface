@@ -101,4 +101,8 @@ describe('deriveProviders', () => {
   it('detects antigravity', () => {
     expect(deriveProviders('/antigravity($prompt)!answer')).toEqual(['antigravity']);
   });
+
+  it('detects huggingface', () => {
+    expect(deriveProviders('/huggingface($prompt)!answer')).toEqual(['huggingface']);
+  });
 });
