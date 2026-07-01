@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
 from screamingface.plugins.aigw_base.backend import (
+    AIGW_ACCOUNT_ACTIVATION_REQUIRED_CODE,
     AigwBackend,
     AigwGatewayError,
 )
@@ -143,6 +145,124 @@ async def test_401_auth_required_maps_to_auth_error() -> None:
             [CoreMessage(role="user", content="hi")],
             model="anthropic/claude-haiku-4-5",
         )
+
+
+@pytest.mark.anyio
+async def test_403_account_activation_required_maps_to_auth_error() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={
+                "detail": {
+                    "code": "account_activation_required",
+                    "message": "Activate Google Antigravity for this Google account, then retry.",
+                }
+            },
+        )
+
+    backend = _backend(http_client_factory=_factory(httpx.MockTransport(handler)))
+    with pytest.raises(AuthError, match="Activate Google Antigravity"):
+        await backend.run(
+            [CoreMessage(role="user", content="hi")],
+            model="antigravity/gemini-3-flash",
+        )
+
+
+@pytest.mark.anyio
+async def test_provider_unavailable_detail_maps_to_backend_error() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            502,
+            json={
+                "detail": {
+                    "code": "provider_unavailable",
+                    "message": "Antigravity backend unavailable. Try again later.",
+                }
+            },
+        )
+
+    backend = _backend(http_client_factory=_factory(httpx.MockTransport(handler)))
+    with pytest.raises(BackendError) as exc_info:
+        await backend.run(
+            [CoreMessage(role="user", content="hi")],
+            model="antigravity/gemini-3-flash",
+        )
+
+    assert type(exc_info.value) is BackendError
+    assert exc_info.value.status == 502
+    assert (
+        str(exc_info.value)
+        == "Gateway provider unavailable: Antigravity backend unavailable. Try again later."
+    )
+
+
+@pytest.mark.anyio
+async def test_rate_limited_detail_preserves_retry_after() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            json={"detail": {"code": "rate_limited", "message": "quota reset later"}},
+            headers={"retry-after": "30"},
+        )
+
+    backend = _backend(http_client_factory=_factory(httpx.MockTransport(handler)))
+    with pytest.raises(BackendError) as exc_info:
+        await backend.run(
+            [CoreMessage(role="user", content="hi")],
+            model="antigravity/gemini-3-flash",
+        )
+
+    assert exc_info.value.status == 429
+    assert exc_info.value.retry_after == 30.0
+    assert str(exc_info.value) == "Gateway rate limited: quota reset later"
+
+
+@pytest.mark.anyio
+async def test_gateway_error_fallthrough_preserves_retry_after() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="boom", headers={"retry-after": "5"})
+
+    backend = _backend(http_client_factory=_factory(httpx.MockTransport(handler)))
+    with pytest.raises(AigwGatewayError) as exc_info:
+        await backend.run(
+            [CoreMessage(role="user", content="hi")],
+            model="antigravity/gemini-3-flash",
+        )
+
+    assert exc_info.value.status == 503
+    assert exc_info.value.retry_after == 5.0
+
+
+@pytest.mark.anyio
+async def test_provider_error_403_remains_backend_error_until_gateway_semantics_change() -> None:
+    def handler(_req: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            json={"detail": {"code": "provider_error", "message": "raw provider forbidden"}},
+        )
+
+    backend = _backend(http_client_factory=_factory(httpx.MockTransport(handler)))
+    with pytest.raises(BackendError) as exc_info:
+        await backend.run(
+            [CoreMessage(role="user", content="hi")],
+            model="antigravity/gemini-3-flash",
+        )
+
+    assert type(exc_info.value) is BackendError
+    assert exc_info.value.status == 403
+    assert str(exc_info.value) == "Gateway provider error: raw provider forbidden"
+
+
+def test_account_activation_code_contract_matches_gateway_literal() -> None:
+    repo_root = Path(__file__).resolve().parents[7]
+    source = (
+        repo_root / "apps/aigateway/src/aigateway/plugins/antigravity_provider/chat_handler.py"
+    ).read_text()
+
+    assert (
+        f'ANTIGRAVITY_ACTIVATION_REQUIRED_CODE = "{AIGW_ACCOUNT_ACTIVATION_REQUIRED_CODE}"'
+        in source
+    )
 
 
 @pytest.mark.anyio
