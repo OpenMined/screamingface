@@ -143,6 +143,19 @@ async def test_alias_path_routes_to_handle_backend_alias() -> None:
 
 
 @pytest.mark.asyncio
+async def test_alias_path_matches_backend_paths_with_trailing_slashes() -> None:
+    spy = _SpyBackendPlugin()
+    spy.backend_call_paths = ["/spy/"]
+    app = _app({"spy": spy})
+    node = Url4BackendCall(path="/spy/oss20b", intent=Url4Text(value="q"))
+
+    result = await _dispatch_backend_call(node, app, Env.root())
+
+    assert result == "ALIAS:oss20b"
+    assert spy.alias_called == "oss20b"
+
+
+@pytest.mark.asyncio
 async def test_multi_segment_suffix_is_rejected() -> None:
     spy = _SpyBackendPlugin()
     app = _app({"spy": spy})
@@ -151,6 +164,45 @@ async def test_multi_segment_suffix_is_rejected() -> None:
     with pytest.raises(RuntimeError, match="single segment"):
         await _dispatch_backend_call(node, app, Env.root())
     assert spy.alias_called is None
+
+
+@pytest.mark.asyncio
+async def test_invalid_alias_rejected_before_context_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
+    backend = _RecordingBackend()
+    plugin = _RealAliasPlugin(backend, {"oss20b": BackendProfile(model="m/x")})
+    app = _app({"faketest-backend-api": plugin})
+    node = Url4BackendCall(
+        path="/faketest/OSS20b",
+        packed_context="/private/00000000-0000-0000-0000-000000000001",
+        intent=Url4Text(value="q"),
+    )
+    calls: list[str] = []
+
+    async def _spy_resolve_context(sources, app, env):  # noqa: ANN001
+        calls.append(sources)
+        return "FETCHED"
+
+    monkeypatch.setattr(
+        "screamingface.plugins.url4_executor.url4_resolve._resolve_context_sources",
+        _spy_resolve_context,
+    )
+
+    with pytest.raises(ValueError, match="Invalid profile alias 'OSS20b'"):
+        await _dispatch_backend_call(node, app, Env.root())
+    assert calls == []
+    assert backend.calls == []
+
+
+@pytest.mark.asyncio
+async def test_invalid_alias_reports_matched_backend_path_for_multi_path_plugin() -> None:
+    backend = _RecordingBackend()
+    plugin = _RealAliasPlugin(backend, {"oss20b": BackendProfile(model="m/x")})
+    plugin.backend_call_paths = ["/primary", "/secondary/"]
+    app = _app({"faketest-backend-api": plugin})
+    node = Url4BackendCall(path="/secondary/OSS20b", intent=Url4Text(value="q"))
+
+    with pytest.raises(ValueError, match="backend /secondary"):
+        await _dispatch_backend_call(node, app, Env.root())
 
 
 @pytest.mark.asyncio
@@ -236,4 +288,27 @@ async def test_reducer_alias_sends_profile_model_to_backend() -> None:
     result = await _dispatch_backend_call_with_intent(node, '["a","b"]', app, Env.root())
 
     assert backend.calls[0]["model"] == "huggingface/openai/gpt-oss-20b:cheapest"
+    assert "gpt-oss-20b" in result
+
+
+@pytest.mark.asyncio
+async def test_resolve_ensemble_processor_alias_sends_profile_model_to_backend() -> None:
+    from screamingface.plugins.url4_executor.ensemble_helpers import resolve_ensemble
+
+    backend = _RecordingBackend()
+    plugin = _RealAliasPlugin(
+        backend, {"synthesizer": BackendProfile(model="huggingface/openai/gpt-oss-20b:cheapest")}
+    )
+    app = _app({"faketest-backend-api": plugin})
+
+    result = await resolve_ensemble(
+        [Url4Text(value="A"), Url4Text(value="B")],
+        "merge these",
+        processor="/faketest/synthesizer",
+        app=app,
+        env=Env.root(),
+    )
+
+    assert backend.calls[0]["model"] == "huggingface/openai/gpt-oss-20b:cheapest"
+    assert "[Response 1]" in backend.calls[0]["prompt"]
     assert "gpt-oss-20b" in result

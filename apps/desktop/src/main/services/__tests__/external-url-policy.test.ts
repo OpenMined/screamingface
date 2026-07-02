@@ -317,6 +317,9 @@ describe('external URL policy', () => {
     ).toBe(true);
     expect(isAllowedServerFetchUrl('https://127.0.0.1:8000/plugins', serverInfo, 'GET')).toBe(true);
     expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/plugins/backend-aliases', serverInfo, 'GET'),
+    ).toBe(true);
+    expect(
       isAllowedServerFetchUrl(
         'https://127.0.0.1:8000/plugins/url4-specs/settings',
         serverInfo,
@@ -388,6 +391,23 @@ describe('external URL policy', () => {
     ).toBe(false);
     expect(
       isAllowedServerFetchUrl('https://127.0.0.1:8000/plugins/Bad/settings', serverInfo, 'GET'),
+    ).toBe(false);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/plugins/backend-aliases?debug=1',
+        serverInfo,
+        'GET',
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedServerFetchUrl(
+        'https://127.0.0.1:8000/plugins/backend-aliases/extra',
+        serverInfo,
+        'GET',
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedServerFetchUrl('https://127.0.0.1:8000/plugins/backend-aliases', serverInfo, 'POST'),
     ).toBe(false);
     expect(isAllowedServerFetchUrl('https://127.0.0.1:8000/private', serverInfo, 'PUT')).toBe(
       false,

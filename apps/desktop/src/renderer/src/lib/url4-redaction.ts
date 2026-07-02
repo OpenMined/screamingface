@@ -24,6 +24,16 @@ const KNOWN_PROVIDERS = [
   'ollama',
 ] as const;
 
+type KnownProvider = (typeof KNOWN_PROVIDERS)[number];
+
+function providerCallPathRe(provider: KnownProvider): RegExp {
+  return new RegExp(`(^|[^A-Za-z0-9_./-])/${provider}(?:/[a-z0-9][a-z0-9_-]*)?\\s*\\(`);
+}
+
+function bareProviderTokenRe(provider: KnownProvider): RegExp {
+  return new RegExp(`(^|[(,:\\s])${provider}(?=\\s*(?:[,):]|$))`);
+}
+
 /** Every `/data/<ref>` segment in the expression (empty array if none). */
 export function findLocalDataRefs(expression: string): string[] {
   if (!expression) return [];
@@ -72,5 +82,8 @@ export function parseSpecName(specName: string): ParsedSpecName {
 export function deriveProviders(expression: string): string[] {
   if (!expression) return [];
   const lower = expression.toLowerCase();
-  return KNOWN_PROVIDERS.filter((provider) => lower.includes(provider));
+  return KNOWN_PROVIDERS.filter(
+    (provider) =>
+      providerCallPathRe(provider).test(lower) || bareProviderTokenRe(provider).test(lower),
+  );
 }

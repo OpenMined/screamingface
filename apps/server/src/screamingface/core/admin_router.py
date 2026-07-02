@@ -20,6 +20,7 @@ import subprocess
 
 from fastapi import FastAPI, HTTPException, Request
 
+from screamingface.core.backend_paths import normalize_backend_call_path
 from screamingface.plugin import Plugin
 
 logger = logging.getLogger(__name__)
@@ -133,26 +134,34 @@ def _inject_examples(schema: dict, field_name: str, examples: list[str]) -> None
 def _backend_alias_inventory(active_plugins: dict[str, Plugin]) -> dict:
     aliases: list[str] = []
     backends: list[dict[str, object]] = []
+    seen_aliases: set[str] = set()
 
     for plugin in active_plugins.values():
         if not getattr(plugin, "supports_profile_aliases", False):
             continue
         paths = [
-            path.rstrip("/")
+            normalized
             for path in getattr(plugin, "backend_call_paths", [])
-            if isinstance(path, str) and path.startswith("/") and path.rstrip("/")
+            if (normalized := normalize_backend_call_path(path)) is not None
         ]
         settings = getattr(plugin, "settings", None)
         profiles = getattr(settings, "profiles", {}) or {}
         if not paths or not isinstance(profiles, dict):
             continue
-        profile_names = [name for name in profiles if isinstance(name, str) and name]
+        default_profile = getattr(settings, "default_profile", None)
+        profile_names = [
+            name for name in profiles if isinstance(name, str) and name and name != default_profile
+        ]
         if not profile_names:
             continue
 
         backends.append({"plugin": plugin.name, "paths": paths, "profiles": profile_names})
         for path in paths:
-            aliases.extend(f"{path}/{profile}" for profile in profile_names)
+            for profile in profile_names:
+                alias = f"{path}/{profile}"
+                if alias not in seen_aliases:
+                    seen_aliases.add(alias)
+                    aliases.append(alias)
 
     return {"aliases": aliases, "backends": backends}
 

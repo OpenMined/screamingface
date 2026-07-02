@@ -28,4 +28,8 @@ describe('referencedBackends', () => {
     const e = '(a:/huggingface/oss20b($q)!x, b:/gemini/flash($q)!y)!reduce';
     expect(referencedBackends(e).sort()).toEqual(['gemini', 'huggingface']);
   });
+  it('does not detect provider names inside alias segments', () => {
+    expect(referencedBackends('/huggingface/claude-alt($q)!answer')).toEqual(['huggingface']);
+    expect(referencedBackends('/ollama/codex-clone($q)!answer')).toEqual(['ollama']);
+  });
 });

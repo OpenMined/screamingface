@@ -176,15 +176,21 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
         # provider request/response).
         set_openinference("CHAIN", input_value=_format_prompt_context(sources_text, intent_text))
 
+        from screamingface.core.backend_paths import normalize_backend_call_path
         from screamingface.core.helpers import get_plugins_registry
 
         plugins_registry = get_plugins_registry(app)
+        node_path = normalize_backend_call_path(node.path) or node.path
 
         known_paths: list[str] = []
         for plugin in plugins_registry.active_plugins.values():
-            paths = getattr(plugin, "backend_call_paths", [])
+            paths = [
+                path
+                for raw_path in getattr(plugin, "backend_call_paths", [])
+                if (path := normalize_backend_call_path(raw_path)) is not None
+            ]
             known_paths.extend(paths)
-            if node.path in paths:
+            if node_path in paths:
                 # SF-290: for backends that pack context into a prompt (LLM
                 # backends), fetch any ``/...`` or ``http(s)://`` ref in the
                 # context first. ``/python`` opts out — it receives the raw
@@ -212,11 +218,14 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
         for plugin in plugins_registry.active_plugins.values():
             if not getattr(plugin, "supports_profile_aliases", False):
                 continue
-            for base_path in getattr(plugin, "backend_call_paths", []):
-                prefix = f"{base_path}/"
-                if not node.path.startswith(prefix):
+            for raw_base_path in getattr(plugin, "backend_call_paths", []):
+                base_path = normalize_backend_call_path(raw_base_path)
+                if base_path is None:
                     continue
-                suffix = node.path[len(prefix) :]
+                prefix = f"{base_path}/"
+                if not node_path.startswith(prefix):
+                    continue
+                suffix = node_path[len(prefix) :]
                 if "/" in suffix:
                     # Reject raw provider model slugs (``/huggingface/org/model``);
                     # aliases are one safe segment, validated by the plugin.
@@ -224,6 +233,9 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
                         f"Profile alias paths must be a single segment: {node.path}. "
                         "Raw provider model slugs are not valid URL4 paths."
                     )
+                alias_validator = getattr(plugin, "validate_backend_alias", None)
+                if callable(alias_validator):
+                    alias_validator(suffix, base_path=base_path)
                 call_sources = sources_text
                 if getattr(plugin, "resolves_context_sources", False):
                     call_sources = await _resolve_context_sources(sources_text, app, env)

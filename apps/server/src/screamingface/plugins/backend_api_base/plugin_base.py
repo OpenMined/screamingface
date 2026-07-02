@@ -14,12 +14,12 @@ This base concentrates the shared behavior. Each subclass shrinks to
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 
+from screamingface.core.backend_paths import PROFILE_ALIAS_RE, is_valid_profile_alias
 from screamingface.core.local_only import assert_loopback_server_bind
 from screamingface.plugin import Plugin, PluginSettings
 from screamingface.plugins.backend_api_base.models import BackendProfile
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from screamingface.plugins.llm_base.routes_shared import BackendApiConfig
     from screamingface.plugins.url4_executor.scope import Env
 
-_PROFILE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+_PROFILE_NAME_RE = PROFILE_ALIAS_RE
 
 
 class BackendApiSettingsBase(PluginSettings):
@@ -100,9 +100,9 @@ class BackendApiSettingsBase(PluginSettings):
         default_factory=dict,
         description="Named pre-configured execution profiles.",
     )
-    default_profile: str = Field(
-        default="default",
-        description="Profile to use when none is specified. Must exist in profiles.",
+    default_profile: str | None = Field(
+        default=None,
+        description="Profile to use when none is specified. Must exist in profiles when set.",
     )
 
     @field_validator("profiles")
@@ -236,20 +236,13 @@ class BackendApiPluginBase(Plugin):
         message on an invalid or unknown alias.
         """
         del env
-        base = self.backend_call_paths[0] if self.backend_call_paths else ""
-        if not _PROFILE_NAME_RE.match(alias):
-            raise ValueError(
-                f"Invalid profile alias {alias!r} for backend {base}. "
-                f"Aliases must match {_PROFILE_NAME_RE.pattern}."
-            )
-        profiles = getattr(self.settings, "profiles", {}) or {}
-        if alias not in profiles:
-            raise ValueError(f"No profile alias {alias!r} is configured for backend {base}.")
+        self.validate_backend_alias(alias)
         if self._api_config is None:
             raise RuntimeError(
                 f"{self.name!r} cannot dispatch profile alias {alias!r}: backend-api "
                 "config was not captured during setup()."
             )
+        self._refresh_api_config_for_alias(app)
         # Local import — llm_base imports backend_api_base.models, so a module-load
         # import here would cycle. Mirrors the lazy-import pattern in routes_shared.
         from screamingface.plugins.llm_base.routes_shared import execute_profile_text
@@ -257,6 +250,24 @@ class BackendApiPluginBase(Plugin):
         return await execute_profile_text(
             self._api_config, alias, packed_context=sources, intent=intent
         )
+
+    def validate_backend_alias(self, alias: str, *, base_path: str | None = None) -> None:
+        """Validate alias syntax/existence before any context fetch or backend run."""
+
+        base = base_path or (self.backend_call_paths[0] if self.backend_call_paths else "")
+        if not is_valid_profile_alias(alias):
+            raise ValueError(
+                f"Invalid profile alias {alias!r} for backend {base}. "
+                f"Aliases must match {_PROFILE_NAME_RE.pattern}."
+            )
+        profiles = getattr(self.settings, "profiles", {}) or {}
+        if alias not in profiles:
+            raise ValueError(f"No profile alias {alias!r} is configured for backend {base}.")
+
+    def _refresh_api_config_for_alias(self, app: FastAPI) -> None:
+        del app
+        if self._api_config is not None:
+            self._api_config.settings = self.settings
 
     def _make_interpreter(self, app: FastAPI) -> Any:
         """Subclass hook: build a fresh provider-specific interpreter.

@@ -239,6 +239,9 @@ function isAllowedServerFetchPathAndMethod(url: URL, method: string): boolean {
   if (url.pathname === '/plugins' && hasNoQuery(url)) {
     return normalizedMethod === 'GET';
   }
+  if (url.pathname === '/plugins/backend-aliases' && hasNoQuery(url)) {
+    return normalizedMethod === 'GET';
+  }
   if (/^\/plugins\/[a-z0-9-]+\/schema$/.test(url.pathname) && hasNoQuery(url)) {
     return normalizedMethod === 'GET';
   }

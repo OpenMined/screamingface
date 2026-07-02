@@ -94,7 +94,7 @@ describe('registerUrl4Language', () => {
     expect(labels).toContain('$prompt');
   });
 
-  it('refreshBackendAliases clears stale aliases when a later load returns none (SF-346)', async () => {
+  it('refreshBackendAliases clears stale aliases when a later successful load returns none (SF-346)', async () => {
     const { mod, provider } = await freshProvider();
     const labels = (): string[] =>
       provider.provideCompletionItems(model, position).suggestions.map((s) => s.label);
@@ -107,16 +107,34 @@ describe('registerUrl4Language', () => {
     await mod.refreshBackendAliases(withProfile, 'http://x');
     expect(labels()).toContain('/huggingface/oss20b');
 
-    // Config B (or offline) yields no aliases → the stale one MUST be cleared,
+    // Config B yields no aliases → the stale one MUST be cleared,
     // not left in the shared module cache (regresses if the setter is guarded by
     // `if (aliases.length)`).
     const noProfiles = async (): Promise<{ ok: boolean; body: string }> => ({
-      ok: false,
-      body: '',
+      ok: true,
+      body: JSON.stringify({ aliases: [] }),
     });
     await mod.refreshBackendAliases(noProfiles, 'http://x');
     expect(labels()).not.toContain('/huggingface/oss20b');
     expect(labels()).toContain('/huggingface'); // static backends remain
+  });
+
+  it('refreshBackendAliases keeps cached aliases when a later load fails', async () => {
+    const { mod, provider } = await freshProvider();
+    const labels = (): string[] =>
+      provider.provideCompletionItems(model, position).suggestions.map((s) => s.label);
+
+    const withProfile = async (): Promise<{ ok: boolean; body: string }> => ({
+      ok: true,
+      body: JSON.stringify({ aliases: ['/huggingface/oss20b'] }),
+    });
+    await mod.refreshBackendAliases(withProfile, 'http://x');
+    expect(labels()).toContain('/huggingface/oss20b');
+
+    const failed = async (): Promise<{ ok: boolean; body: string }> => ({ ok: false, body: '' });
+    await mod.refreshBackendAliases(failed, 'http://x');
+
+    expect(labels()).toContain('/huggingface/oss20b');
   });
 });
 

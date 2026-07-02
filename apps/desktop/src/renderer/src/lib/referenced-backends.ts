@@ -13,10 +13,14 @@ const AUTH_BACKENDS = [
 ] as const;
 export type BackendName = (typeof AUTH_BACKENDS)[number];
 
+function backendCallPathRe(name: BackendName): RegExp {
+  return new RegExp(`(^|[^A-Za-z0-9_./-])/${name}(?:/[a-z0-9][a-z0-9_-]*)?\\s*\\(`);
+}
+
 export function referencedBackends(expression: string): BackendName[] {
   const found: BackendName[] = [];
   for (const name of AUTH_BACKENDS) {
-    if (new RegExp(`/${name}\\b`).test(expression)) found.push(name);
+    if (backendCallPathRe(name).test(expression)) found.push(name);
   }
   return found;
 }

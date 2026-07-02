@@ -19,7 +19,10 @@ from screamingface.core.config import AppConfig, ServerConfig
 from screamingface.core.hooks import HookRegistry
 from screamingface.core.routes import RouteRegistry
 from screamingface.plugins.backend_api_base.models import BackendProfile
-from screamingface.plugins.backend_api_base.plugin_base import BackendApiPluginBase
+from screamingface.plugins.backend_api_base.plugin_base import (
+    BackendApiPluginBase,
+    BackendApiSettingsBase,
+)
 from screamingface.plugins.llm_base.backend_base import Backend, HealthStatus
 from screamingface.plugins.llm_base.messages import CoreMessage, ToolDefinition, extract_text
 from screamingface.plugins.llm_base.routes_shared import (
@@ -87,6 +90,13 @@ def test_backend_api_base_supports_profile_aliases_by_default() -> None:
     assert BackendApiPluginBase.supports_profile_aliases is True
 
 
+def test_profile_aliases_do_not_require_a_default_profile_entry() -> None:
+    settings = BackendApiSettingsBase(profiles={"oss20b": BackendProfile(model="m/x")})
+
+    assert "oss20b" in settings.profiles
+    assert settings.default_profile is None
+
+
 @pytest.mark.asyncio
 async def test_handle_backend_alias_runs_the_profile_model() -> None:
     backend = _RecordingBackend()
@@ -97,6 +107,22 @@ async def test_handle_backend_alias_runs_the_profile_model() -> None:
 
     assert backend.calls[0]["model"] == "huggingface/openai/gpt-oss-20b:cheapest"
     assert "gpt-oss-20b" in out
+
+
+@pytest.mark.asyncio
+async def test_handle_backend_alias_uses_current_settings_after_rebind() -> None:
+    backend = _RecordingBackend()
+    plugin = _make_plugin(backend, {"old": BackendProfile(model="m/old")})
+    plugin.settings = SimpleNamespace(  # type: ignore[assignment]
+        default_model=None,
+        timeout_seconds=300.0,
+        profiles={"new": BackendProfile(model="m/new")},
+    )
+
+    out = await plugin.handle_backend_alias("new", sources="", intent="answer", app=_APP)
+
+    assert backend.calls[0]["model"] == "m/new"
+    assert "m/new" in out
 
 
 @pytest.mark.asyncio

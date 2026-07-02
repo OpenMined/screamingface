@@ -84,6 +84,11 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
         # BackendApiPluginBase.setup (this override does not call super().setup()).
         self._api_config = bundle.config
 
+    def _refresh_api_config_for_alias(self, app: FastAPI) -> None:
+        super()._refresh_api_config_for_alias(app)
+        if self._api_config is not None:
+            self._api_config.backend = self._backend(app)
+
     def _assert_loopback_server_bind(self, app: FastAPI) -> None:
         assert_loopback_server_bind(
             app,

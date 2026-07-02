@@ -37,6 +37,24 @@ export function setUrl4BackendAliases(aliases: string[]): void {
   backendAliases = aliases;
 }
 
+async function loadBackendAliasResult(
+  fetchFn: (url: string) => Promise<{ ok: boolean; body: string }>,
+  serverUrl: string,
+): Promise<{ ok: boolean; aliases: string[] }> {
+  try {
+    const res = await fetchFn(`${serverUrl}/plugins/backend-aliases`);
+    if (!res.ok) return { ok: false, aliases: [] };
+    const data = JSON.parse(res.body) as { aliases?: unknown };
+    if (!Array.isArray(data.aliases)) return { ok: false, aliases: [] };
+    return {
+      ok: true,
+      aliases: data.aliases.filter((alias): alias is string => typeof alias === 'string'),
+    };
+  } catch {
+    return { ok: false, aliases: [] };
+  }
+}
+
 /**
  * Fetch configured backend profile alias suggestions from the SF server-owned inventory.
  * Best-effort and fail-closed: any error yields no aliases rather than throwing.
@@ -46,29 +64,21 @@ export async function loadBackendAliases(
   fetchFn: (url: string) => Promise<{ ok: boolean; body: string }>,
   serverUrl: string,
 ): Promise<string[]> {
-  try {
-    const res = await fetchFn(`${serverUrl}/plugins/backend-aliases`);
-    if (!res.ok) return [];
-    const data = JSON.parse(res.body) as { aliases?: unknown };
-    if (!Array.isArray(data.aliases)) return [];
-    return data.aliases.filter((alias): alias is string => typeof alias === 'string');
-  } catch {
-    return [];
-  }
+  return (await loadBackendAliasResult(fetchFn, serverUrl)).aliases;
 }
 
 /**
- * Load configured backend aliases and publish them to the completion cache.
- * ALWAYS overwrites the cache — including with an empty list — so aliases from a
- * previously-selected server/config are cleared rather than left stale in the
- * module-level cache. (`loadBackendAliases` is fail-closed, returning [] on
- * offline or when no plugin has profiles.) Best-effort: never throws.
+ * Load configured backend aliases and publish them to the completion cache. A
+ * successful empty result clears stale aliases from the previous server/config;
+ * a failed fetch keeps the last known-good cache because autocomplete is
+ * best-effort and offline should not erase already-loaded local suggestions.
  */
 export async function refreshBackendAliases(
   fetchFn: (url: string) => Promise<{ ok: boolean; body: string }>,
   serverUrl: string,
 ): Promise<void> {
-  setUrl4BackendAliases(await loadBackendAliases(fetchFn, serverUrl));
+  const result = await loadBackendAliasResult(fetchFn, serverUrl);
+  if (result.ok) setUrl4BackendAliases(result.aliases);
 }
 
 let registered = false;

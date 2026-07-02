@@ -111,4 +111,11 @@ describe('deriveProviders', () => {
   it('detects the provider from an alias-form path (/huggingface/oss20b)', () => {
     expect(deriveProviders('/huggingface/oss20b($prompt)!answer')).toEqual(['huggingface']);
   });
+
+  it('does not detect provider names inside alias segments or intent text', () => {
+    expect(deriveProviders('/huggingface/mygemini($prompt)!answer')).toEqual(['huggingface']);
+    expect(deriveProviders('/huggingface/geminipro($prompt)!answer')).toEqual(['huggingface']);
+    expect(deriveProviders('/huggingface/claude-alt($prompt)!answer')).toEqual(['huggingface']);
+    expect(deriveProviders('/claude($prompt)!compare against gemini output')).toEqual(['claude']);
+  });
 });

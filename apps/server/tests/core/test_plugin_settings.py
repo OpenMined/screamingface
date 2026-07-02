@@ -20,6 +20,11 @@ from screamingface.plugins.aigw_claude_backend.plugin import (
     AigwClaudeBackendPlugin,
     AigwClaudeBackendSettings,
 )
+from screamingface.plugins.aigw_huggingface_backend.plugin import (
+    AigwHuggingfaceBackendPlugin,
+    AigwHuggingfaceBackendSettings,
+)
+from screamingface.plugins.backend_api_base.models import BackendProfile
 from screamingface.plugins.claude_frontend.plugin import ClaudeFrontendSettings
 
 # --- Settings resolution ---
@@ -172,6 +177,56 @@ def test_backend_aliases_endpoint_uses_active_profile_capable_plugins() -> None:
                 "plugin": "profile-backend",
                 "paths": ["/hf", "/huggingface"],
                 "profiles": ["oss20b", "fast"],
+            }
+        ],
+    }
+
+
+def test_backend_aliases_endpoint_excludes_default_and_empty_profiles() -> None:
+    class EmptySettings(PluginSettings):
+        profiles: dict[str, str] = {}
+        default_profile: str | None = None
+
+    class EmptyProfileBackend(Plugin):
+        name = "empty-profile-backend"
+        backend_call_paths = ["/empty"]
+        supports_profile_aliases = True
+
+    hf = AigwHuggingfaceBackendPlugin()
+    hf.settings = AigwHuggingfaceBackendSettings(
+        default_profile="default",
+        profiles={
+            "default": BackendProfile(model=None),
+            "oss20b": BackendProfile(model="huggingface/openai/gpt-oss-20b:cheapest"),
+        },
+    )
+    empty = EmptyProfileBackend()
+    empty.settings = EmptySettings()
+    missing_settings = EmptyProfileBackend()
+    missing_settings.name = "missing-settings-backend"
+    missing_settings.backend_call_paths = ["/missing"]
+    missing_settings.settings = None
+
+    app = FastAPI()
+    app.state.plugins = SimpleNamespace(
+        active_plugins={
+            hf.name: hf,
+            empty.name: empty,
+            missing_settings.name: missing_settings,
+        }
+    )
+    register_admin_routes(app)
+
+    resp = TestClient(app).get("/plugins/backend-aliases")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "aliases": ["/huggingface/oss20b"],
+        "backends": [
+            {
+                "plugin": "aigw-huggingface-backend",
+                "paths": ["/huggingface"],
+                "profiles": ["oss20b"],
             }
         ],
     }

@@ -67,7 +67,8 @@ def test_plugin_setup_and_interpreter_share_backend(monkeypatch) -> None:
 
     def create_route_bundle(settings, app=None, *, backend=None):  # noqa: ANN001, ARG001
         captured["backend"] = backend
-        return SimpleNamespace(router=APIRouter(), config=SimpleNamespace())
+        captured["config"] = SimpleNamespace()
+        return SimpleNamespace(router=APIRouter(), config=captured["config"])
 
     class _Routes:
         def add_router(self, name, router, prefix=""):  # noqa: ANN001, ARG002
@@ -91,3 +92,4 @@ def test_plugin_setup_and_interpreter_share_backend(monkeypatch) -> None:
     interpreter = plugin._make_interpreter(app)
 
     assert captured["backend"] is interpreter._backend
+    assert plugin._api_config is captured["config"]
