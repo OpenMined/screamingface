@@ -4,6 +4,13 @@ All notable changes to the ScreamingFace Desktop app are documented here.
 This project follows [Semantic Versioning](https://semver.org/) and uses
 release tags of the form `desktop-v<version>`.
 
+## [0.4.0](https://github.com/OpenMined/screamingface/compare/desktop-v0.3.0...desktop-v0.4.0) (2026-07-02)
+
+
+### Features
+
+* **aigateway:** add Hugging Face provider (SF-345) ([#356](https://github.com/OpenMined/screamingface/issues/356)) ([c556e6c](https://github.com/OpenMined/screamingface/commit/c556e6ce29543f4611e64e1cc239020315070592))
+
 ## [0.3.0](https://github.com/OpenMined/screamingface/compare/desktop-v0.2.0...desktop-v0.3.0) (2026-06-25)
 
 
