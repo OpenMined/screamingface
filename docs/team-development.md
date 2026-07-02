@@ -21,9 +21,10 @@ the source of truth when it is stricter than this document.
    the branch. Resolve conflicts locally, then push the rebased branch.
 6. Force-push is allowed only on your own PR branch after a rebase or cleanup.
    Do not force-push someone else's branch. Never force-push `main`.
-7. Direct commits to `main` are forbidden. Run `git config core.hooksPath .githooks`
-   once per checkout; `.githooks/pre-commit` blocks commits while the current
-   branch is `main`.
+7. Direct commits to `main` are forbidden, enforced in layers: branch protection
+   on `main` (authoritative), plus a local pre-commit guard — `.githooks/pre-commit`
+   (`git config core.hooksPath .githooks`), or the husky hook once you `npm install`
+   in `apps/desktop` (husky then owns `core.hooksPath` and carries the same guard).
 
 ## PR Lifecycle
 
@@ -49,10 +50,35 @@ the source of truth when it is stricter than this document.
    Asana moved to the right terminal state, and follow-up tickets filed for
    intentionally deferred work.
 8. PR descriptions must include the Asana link, a short summary, test plan, and
-   screenshots or recordings for UI changes. A template file is intentionally not
-   added yet; add one only if PR descriptions become inconsistent.
+   screenshots or recordings for UI changes. The template at
+   `.github/pull_request_template.md` prefills these fields.
 9. WIP limit is two tickets per developer: one actively coding and one waiting
    for review. Exceptions are allowed for urgent unblockers.
+
+## Branch Protection & Merge Queue
+
+Two-tier CI, so path-filtered checks never deadlock a merge:
+
+1. **On the PR** — the path-filtered `<component>-tests.yml` workflows run for
+   fast, relevant feedback. A workflow skipped by its `paths:` filter cannot report
+   a required status, so these are advisory, not the hard gate.
+2. **In the merge queue** — the same workflows also trigger on `merge_group` (no
+   path filter), so the full suite runs against the queued, rebased commit and must
+   pass before it lands. This is the authoritative gate, and the queue serializes
+   merges so `main` never breaks from stale-base races. Trade-off: every queued
+   merge runs all components' suites; add a `dorny/paths-filter` gate later if that
+   cost matters.
+
+Admin setup for `main` (one-time; needs repo admin — GitHub → Settings →
+Rules/Branches):
+
+- Require a PR before merging; require Code Owner approval.
+- Require status checks to pass and branches to be up to date.
+- Enable the merge queue for `main`.
+- Required checks = the `merge_group`-triggered test jobs (job `test` in each
+  `<component>-tests.yml`, matrix-expanded for aigateway: `test (3.12)`,
+  `test (3.13)`). Pick the exact contexts from a PR's checks list after the first
+  merge-queue run so the names match.
 
 ## Cross-Service Collaboration
 
@@ -60,11 +86,12 @@ the source of truth when it is stricter than this document.
    intermediate state. Split changes when they can land independently.
 2. Bias toward smaller PRs. If a change touches both Sergey-owned and
    Dmitry-owned areas, state the cross-service contract in the PR body.
-3. Informal ownership for now: Sergey owns `apps/server` and `apps/desktop`;
-   Dmitry owns `apps/aigateway` and future scoreboard/portal work; both own
-   `docs`, root files, workflows, and release glue.
-4. Do not add `.github/CODEOWNERS` yet. Add it after ownership stabilizes and
-   GitHub review routing would save more time than it costs.
+3. Ownership (routed by `.github/CODEOWNERS`): Sergey owns `apps/server` and
+   `apps/desktop`; Dmitry owns `apps/aigateway` and `apps/scoreboard`; Bennett owns
+   `web/portal`; Kyle owns `web/public` (marketing site); both leads own `docs`,
+   root files, workflows, and release glue.
+4. `.github/CODEOWNERS` now auto-routes review requests (added once the team grew
+   past ~10 developers). Keep it in sync with item 3.
 5. If two PRs touch the same file, the PR opened first has right-of-way. The
    second author rebases, unless the first author agrees to rebase instead.
 6. Before changing shared config, root docs, or workflow files, leave a short

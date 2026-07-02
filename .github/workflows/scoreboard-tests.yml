@@ -18,6 +18,11 @@ on:
       - "output_artifacts/eval_results/livetruth-masking.dataset.jsonl"
       - ".github/workflows/scoreboard-tests.yml"
   workflow_dispatch:
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

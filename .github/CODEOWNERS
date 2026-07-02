@@ -1,0 +1,23 @@
+# CODEOWNERS — auto-requests reviewers by path.
+#
+# GitHub uses the LAST matching pattern, so broad defaults come first and specific
+# paths override them. Handles verified from repo contributors (2026-07). Keep in
+# sync with the "Cross-Service Collaboration" section of docs/team-development.md.
+
+# Default: shared areas (docs, root config, release glue) → both leads
+*                                @sergio-bershadsky @HupBaHa
+
+# Deployable apps
+/apps/server/                    @sergio-bershadsky
+/apps/desktop/                   @sergio-bershadsky
+/apps/aigateway/                 @HupBaHa
+/apps/scoreboard/                @HupBaHa
+
+# Web
+/web/portal/                     @bennettfarkas
+/web/public/                     @KyleNumann
+
+# CI / release configuration → both leads (flag changes in the PR body)
+/.github/                        @sergio-bershadsky @HupBaHa
+/release-please-config.json      @sergio-bershadsky @HupBaHa
+/.release-please-manifest.json   @sergio-bershadsky @HupBaHa

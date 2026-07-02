@@ -140,8 +140,11 @@ that touch the gateway request/refresh path.
 
 - **Branch naming:** `SF-{n}-{description}` (e.g. `SF-344-contributing-guide`),
   where `{n}` is the ticket's `SF` number.
-- **Never commit directly to `main`.** The `.githooks/pre-commit` hook (enabled
-  by `git config core.hooksPath .githooks` above) blocks it.
+- **Never commit directly to `main`.** A local pre-commit guard blocks it —
+  `.githooks/pre-commit` (enabled by `git config core.hooksPath .githooks` above),
+  or the husky hook once you `npm install` in `apps/desktop` (husky then takes over
+  `core.hooksPath` for the whole repo). Branch protection on `main` is the
+  authoritative server-side gate.
 - **Conventional commits.** Use `feat:`, `fix:`, `docs:`, `chore:` etc. —
   release-please derives version bumps and changelogs from them (`feat:` → minor,
   `fix:` → patch; `docs:`/`chore:` don't bump). See "Cut a build" below.

@@ -4,13 +4,20 @@
 An AI ensemble system combining Claude Code, Gemini CLI, Codex, and Ollama to beat SOTA benchmarks. Users install it locally, it routes coding CLI prompts through the best available models, and they can share AI credits with friends. Built by OpenMined.
 
 ## Monorepo Structure
-- `web/` — static marketing website (leaderboard chart, install flow)
-- `app/` — local Electron desktop app
-- `cloud/` — cloud webapp (Gates/token sharing UI, leaderboards)
-- `personas/` — audience personas, research cohorts, and weighting guide
-- `brand/` — brand research (competitive landscape, design, SEO)
-- `docs/` — development plan, design guidance, internal docs
-  - **`docs/😱 Development Plan.docx`** — the original product development plan. Key reference for scope, phasing, and product decisions. A plain-text version is at `docs/devplan.txt`.
+
+Polyglot monorepo: each component is self-contained (own toolchain, lockfile, CI lane, release lane) and may be any stack (Python / Go / JS / TS).
+
+- `apps/` — independently deployable services & apps:
+  - `apps/server` — FastAPI localhost server + plugin system (Python, uv). CLI: `sf`.
+  - `apps/aigateway` — LiteLLM-based unified AI gateway (Python, uv).
+  - `apps/scoreboard` — benchmark scoreboard service (Python, uv).
+  - `apps/desktop` — Electron desktop app / control plane (TypeScript, npm).
+- `packages/` — shared libraries consumed by ≥2 components, **not** independently deployed (any stack; none exist yet — convention reserved to avoid cross-app coupling).
+- `web/` — static marketing site (`web/public/` → GitHub Pages) + leaderboard portal (`web/portal/`); no build toolchain.
+- `docs/` — architecture, setup, glossary, process docs, and superpowers plans/specs.
+- `infra/` — k3s / Kubernetes manifests. `scripts/`, `eval_scripts/` — repo-level tooling. `personas/` — audience & design personas.
+
+**Working across components** — which app to touch, which CI runs, who reviews, the branch/PR/release lane, and how to add a new component in any stack: see the **`working-in-this-repo`** skill (`.claude/skills/working-in-this-repo/`) and the canonical process doc `docs/team-development.md`.
 
 ## The Four App Screens
 - **Settings** — configure which AI models are in the ensemble
@@ -88,11 +95,10 @@ If a task involves copy, design, or positioning and you're unsure which audience
 ### Commit Rules
 
 - **Before every commit**, ask the user for the associated Asana ticket.
-- If no ticket exists, create one via the `/asana` command (default project `1213628819033917`), and set its `SF` custom field (GID `1213702745960748`) to the next sequential number.
-  - To find the next SF number: query project tasks with `opt_fields=custom_fields.display_value`, find the highest existing `SF-N` value, and use `N+1`.
+- If no ticket exists, create one via the `/asana` command (default project `1213628819033917`). The `SF` custom field (GID `1213703035415126`) is **auto-assigned** by an Asana rule — do **not** set it manually. Read the assigned `SF-N` back from the created task (poll its `custom_fields`) and use it for the branch name.
 - **Branch naming:** `SF-{n}-{description}` (e.g. `SF-22-fix-auth-bug`). Derive from the ticket's SF field value.
 - If on the wrong branch, ask to create/switch to the correct one before committing.
-- **Never commit directly to `main`** — the `.githooks/pre-commit` hook enforces this.
+- **Never commit directly to `main`** — enforced by branch protection (authoritative) plus a local pre-commit guard (`.githooks/pre-commit`, or the husky hook once desktop deps are installed).
 - Include the Asana task permalink in the commit message body.
 
 ## Planning Tickets
@@ -114,4 +120,4 @@ After cloning, activate the shared git hooks:
 git config core.hooksPath .githooks
 ```
 
-This enables the pre-commit hook that blocks direct commits to `main`.
+This enables the pre-commit hook that blocks direct commits to `main`. Note: if you develop the desktop app, `npm install` in `apps/desktop` makes husky take over `core.hooksPath` for the whole repo — the husky hook carries the same `main` guard plus the lint/format/type gates.

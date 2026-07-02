@@ -24,6 +24,15 @@ updates:
       aigateway-python:
         patterns: ["*"]
 
+  - package-ecosystem: "uv"
+    directory: "/apps/scoreboard"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      scoreboard-python:
+        patterns: ["*"]
+
   - package-ecosystem: "npm"
     directory: "/apps/desktop"
     schedule:

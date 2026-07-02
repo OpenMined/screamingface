@@ -1,3 +1,8 @@
+---
+description: ScreamingFace product & domain knowledge — what the product is, the team, and the key concepts (url4, Enclave, Ensemble, SOTA, Gates). Use for product/domain context. For repo structure, CI, ownership, and the PR/merge process, use the working-in-this-repo skill instead.
+user_invocable: true
+---
+
 # ScreamingFace — Project Knowledge
 
 ## Product

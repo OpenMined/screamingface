@@ -40,6 +40,15 @@
       "tag-separator": "-",
       "include-component-in-tag": true,
       "version-file": "apps/aigateway/pyproject.toml"
+    },
+    "apps/scoreboard": {
+      "release-type": "python",
+      "package-name": "scoreboard",
+      "component": "scoreboard",
+      "tag-separator": "-",
+      "include-component-in-tag": true,
+      "version-file": "apps/scoreboard/pyproject.toml",
+      "bootstrap-sha": "8a10b5d013b2719c140408683deeec13530b3700"
     }
   }
 }

@@ -1,6 +1,16 @@
 # Husky owns core.hooksPath for the whole repo, so this script dispatches
 # every language's gates from one entrypoint.
 
+# Block direct commits to main. Because husky overrides core.hooksPath, the
+# standalone .githooks/pre-commit guard is inactive once desktop deps are
+# installed — so the guard must live here too. (Branch protection on main is the
+# authoritative server-side gate; this is just a fast local backstop.)
+branch="$(git symbolic-ref --short HEAD 2>/dev/null)"
+if [ "$branch" = "main" ]; then
+    echo "ERROR: Direct commits to 'main' are not allowed. Use an SF-{n} feature branch."
+    exit 1
+fi
+
 # JS/TS gates — lint-staged + eslint + prettier (only fires on staged JS/TS).
 ( cd apps/desktop && npx lint-staged ) || exit 1
 
