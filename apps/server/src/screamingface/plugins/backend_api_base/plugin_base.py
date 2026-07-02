@@ -231,12 +231,12 @@ class BackendApiPluginBase(Plugin):
         :attr:`supports_profile_aliases`. Validates the alias with the same
         ``_PROFILE_NAME_RE`` that guards profile-config keys — one regex, so the
         alias gate and the config-key rule can never drift — then runs the
-        matching profile through the shared :func:`execute_profile_text` helper so
-        the profile's model reaches the backend. Raises with a clear URL4-facing
+        matching profile through the shared backend-profile helper so the
+        profile's model reaches the backend. Raises with a clear URL4-facing
         message on an invalid or unknown alias.
         """
         del env
-        self.validate_backend_alias(alias)
+        profile = self.resolve_backend_alias_profile(alias)
         if self._api_config is None:
             raise RuntimeError(
                 f"{self.name!r} cannot dispatch profile alias {alias!r}: backend-api "
@@ -245,15 +245,36 @@ class BackendApiPluginBase(Plugin):
         self._refresh_api_config_for_alias(app)
         # Local import — llm_base imports backend_api_base.models, so a module-load
         # import here would cycle. Mirrors the lazy-import pattern in routes_shared.
-        from screamingface.plugins.llm_base.routes_shared import execute_profile_text
+        from screamingface.plugins.llm_base.routes_shared import execute_backend_profile_text
 
-        return await execute_profile_text(
-            self._api_config, alias, packed_context=sources, intent=intent
+        return await execute_backend_profile_text(
+            self._api_config, profile, packed_context=sources, intent=intent
         )
+
+    def backend_alias_profiles(self) -> dict[str, BackendProfile]:
+        """Profiles to advertise as URL4 aliases in `/plugins/backend-aliases`."""
+
+        profiles = getattr(self.settings, "profiles", {}) or {}
+        if not isinstance(profiles, dict):
+            return {}
+        default_profile = getattr(self.settings, "default_profile", None)
+        return {
+            name: profile
+            for name, profile in profiles.items()
+            if isinstance(name, str) and name and name != default_profile
+        }
 
     def validate_backend_alias(self, alias: str, *, base_path: str | None = None) -> None:
         """Validate alias syntax/existence before any context fetch or backend run."""
 
+        self.resolve_backend_alias_profile(alias, base_path=base_path)
+
+    def resolve_backend_alias_profile(
+        self, alias: str, *, base_path: str | None = None, app: FastAPI | None = None
+    ) -> BackendProfile:
+        """Return the profile object backing a URL4 alias, or raise clearly."""
+
+        del app
         base = base_path or (self.backend_call_paths[0] if self.backend_call_paths else "")
         if not is_valid_profile_alias(alias):
             raise ValueError(
@@ -261,8 +282,10 @@ class BackendApiPluginBase(Plugin):
                 f"Aliases must match {_PROFILE_NAME_RE.pattern}."
             )
         profiles = getattr(self.settings, "profiles", {}) or {}
-        if alias not in profiles:
+        profile = profiles.get(alias) if isinstance(profiles, dict) else None
+        if profile is None:
             raise ValueError(f"No profile alias {alias!r} is configured for backend {base}.")
+        return profile
 
     def _refresh_api_config_for_alias(self, app: FastAPI) -> None:
         del app

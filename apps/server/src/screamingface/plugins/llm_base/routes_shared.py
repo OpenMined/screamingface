@@ -462,6 +462,20 @@ async def execute_profile_text(
     if prof is None:
         raise ValueError(f"Unknown profile alias {profile_name!r}")
 
+    return await execute_backend_profile_text(
+        cfg, prof, packed_context=packed_context, intent=intent
+    )
+
+
+async def execute_backend_profile_text(
+    cfg: BackendApiConfig, prof: BackendProfile, *, packed_context: str, intent: str
+) -> str:
+    """Execute a concrete profile object as URL4 backend-call text.
+
+    This powers both configured SF profiles and gateway-catalog model aliases,
+    keeping prompt assembly and backend execution identical for both paths.
+    """
+
     context = packed_context
     if not context.strip() and prof.context:
         # Local import: llm_base must not depend on url4_executor at module load

@@ -182,7 +182,9 @@ def test_backend_aliases_endpoint_uses_active_profile_capable_plugins() -> None:
     }
 
 
-def test_backend_aliases_endpoint_excludes_default_and_empty_profiles() -> None:
+def test_backend_aliases_endpoint_excludes_default_and_empty_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class EmptySettings(PluginSettings):
         profiles: dict[str, str] = {}
         default_profile: str | None = None
@@ -200,6 +202,7 @@ def test_backend_aliases_endpoint_excludes_default_and_empty_profiles() -> None:
             "oss20b": BackendProfile(model="huggingface/openai/gpt-oss-20b:cheapest"),
         },
     )
+    monkeypatch.setattr(hf, "_fetch_gateway_model_ids", lambda: None)
     empty = EmptyProfileBackend()
     empty.settings = EmptySettings()
     missing_settings = EmptyProfileBackend()
@@ -230,6 +233,70 @@ def test_backend_aliases_endpoint_excludes_default_and_empty_profiles() -> None:
             }
         ],
     }
+
+
+def test_backend_aliases_endpoint_includes_aigw_catalog_aliases_without_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hf = AigwHuggingfaceBackendPlugin()
+    hf.settings = AigwHuggingfaceBackendSettings()
+    monkeypatch.setattr(
+        hf,
+        "_fetch_gateway_model_ids",
+        lambda: [
+            "huggingface/openai/gpt-oss-120b:cerebras",
+            "huggingface/meta-llama/Llama-3.1-8B-Instruct:nscale",
+        ],
+    )
+
+    app = FastAPI()
+    app.state.plugins = SimpleNamespace(active_plugins={hf.name: hf})
+    register_admin_routes(app)
+
+    resp = TestClient(app).get("/plugins/backend-aliases")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "aliases": [
+            "/huggingface/gpt-oss-120b",
+            "/huggingface/llama-3-1-8b-instruct",
+        ],
+        "backends": [
+            {
+                "plugin": "aigw-huggingface-backend",
+                "paths": ["/huggingface"],
+                "profiles": ["gpt-oss-120b", "llama-3-1-8b-instruct"],
+            }
+        ],
+    }
+
+
+def test_backend_aliases_endpoint_uses_single_segment_claude_catalog_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claude = AigwClaudeBackendPlugin()
+    claude.settings = AigwClaudeBackendSettings()
+    monkeypatch.setattr(
+        claude,
+        "_fetch_gateway_model_ids",
+        lambda: [
+            "anthropic/claude-haiku-4-5",
+            "anthropic/claude-sonnet-4-5",
+        ],
+    )
+
+    app = FastAPI()
+    app.state.plugins = SimpleNamespace(active_plugins={claude.name: claude})
+    register_admin_routes(app)
+
+    resp = TestClient(app).get("/plugins/backend-aliases")
+
+    assert resp.status_code == 200
+    assert resp.json()["aliases"] == [
+        "/claude/claude-haiku-4-5",
+        "/claude/claude-sonnet-4-5",
+    ]
+    assert "/claude/claude/claude-haiku-4-5" not in resp.json()["aliases"]
 
 
 def test_plugin_schema_endpoint(settings_client: TestClient) -> None:

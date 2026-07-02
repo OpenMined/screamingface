@@ -227,15 +227,20 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
                     continue
                 suffix = node_path[len(prefix) :]
                 if "/" in suffix:
-                    # Reject raw provider model slugs (``/huggingface/org/model``);
-                    # aliases are one safe segment, validated by the plugin.
+                    # Reject raw provider model slugs (``/huggingface/org/model``)
+                    # and double-prefixed aliases (``/claude/claude/foo``). URL4
+                    # aliases are exactly one safe path segment.
                     raise RuntimeError(
                         f"Profile alias paths must be a single segment: {node.path}. "
                         "Raw provider model slugs are not valid URL4 paths."
                     )
-                alias_validator = getattr(plugin, "validate_backend_alias", None)
-                if callable(alias_validator):
-                    alias_validator(suffix, base_path=base_path)
+                alias_resolver = getattr(plugin, "resolve_backend_alias_profile", None)
+                if callable(alias_resolver):
+                    alias_resolver(suffix, base_path=base_path, app=app)
+                else:
+                    alias_validator = getattr(plugin, "validate_backend_alias", None)
+                    if callable(alias_validator):
+                        alias_validator(suffix, base_path=base_path)
                 call_sources = sources_text
                 if getattr(plugin, "resolves_context_sources", False):
                     call_sources = await _resolve_context_sources(sources_text, app, env)

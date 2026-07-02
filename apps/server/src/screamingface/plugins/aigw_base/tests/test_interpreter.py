@@ -9,6 +9,7 @@ import httpx
 import pytest
 from fastapi import APIRouter, FastAPI
 
+from screamingface.core.backend_paths import catalog_aliases_from_model_ids
 from screamingface.plugins.aigw_base.backend import AigwBackend
 from screamingface.plugins.aigw_base.interpreter import AigwInterpreter
 from screamingface.plugins.aigw_claude_backend.plugin import (
@@ -93,3 +94,21 @@ def test_plugin_setup_and_interpreter_share_backend(monkeypatch) -> None:
 
     assert captured["backend"] is interpreter._backend
     assert plugin._api_config is captured["config"]
+
+
+def test_catalog_aliases_from_model_ids_are_short_and_collision_safe() -> None:
+    aliases = catalog_aliases_from_model_ids(
+        [
+            "huggingface/openai/gpt-oss-120b:cerebras",
+            "huggingface/openai/gpt-oss-120b:novita",
+            "huggingface/meta-llama/Llama-3.1-8B-Instruct:nscale",
+            "gemini/gemini-2.5-pro",
+        ]
+    )
+
+    assert aliases == {
+        "gpt-oss-120b-cerebras": "huggingface/openai/gpt-oss-120b:cerebras",
+        "gpt-oss-120b-novita": "huggingface/openai/gpt-oss-120b:novita",
+        "llama-3-1-8b-instruct": "huggingface/meta-llama/Llama-3.1-8B-Instruct:nscale",
+        "gemini-2-5-pro": "gemini/gemini-2.5-pro",
+    }

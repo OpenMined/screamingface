@@ -145,7 +145,11 @@ def _backend_alias_inventory(active_plugins: dict[str, Plugin]) -> dict:
             if (normalized := normalize_backend_call_path(path)) is not None
         ]
         settings = getattr(plugin, "settings", None)
-        profiles = getattr(settings, "profiles", {}) or {}
+        alias_profiles_fn = getattr(plugin, "backend_alias_profiles", None)
+        if callable(alias_profiles_fn):
+            profiles = alias_profiles_fn()
+        else:
+            profiles = getattr(settings, "profiles", {}) or {}
         if not paths or not isinstance(profiles, dict):
             continue
         default_profile = getattr(settings, "default_profile", None)

@@ -13,7 +13,13 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
 
+from screamingface.core.backend_paths import (
+    PROFILE_ALIAS_RE,
+    catalog_aliases_from_model_ids,
+    is_valid_profile_alias,
+)
 from screamingface.core.local_only import assert_loopback_server_bind
+from screamingface.plugins.backend_api_base.models import BackendProfile
 from screamingface.plugins.backend_api_base.plugin_base import BackendApiPluginBase
 
 from .backend import AigwBackend
@@ -88,6 +94,37 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
         super()._refresh_api_config_for_alias(app)
         if self._api_config is not None:
             self._api_config.backend = self._backend(app)
+
+    def backend_alias_profiles(self) -> dict[str, BackendProfile]:
+        profiles = dict(super().backend_alias_profiles())
+        for alias, model in self._catalog_alias_model_map().items():
+            profiles.setdefault(alias, BackendProfile(model=model))
+        return profiles
+
+    def resolve_backend_alias_profile(
+        self, alias: str, *, base_path: str | None = None, app: FastAPI | None = None
+    ) -> BackendProfile:
+        base = base_path or (self.backend_call_paths[0] if self.backend_call_paths else "")
+        if not is_valid_profile_alias(alias):
+            raise ValueError(
+                f"Invalid profile alias {alias!r} for backend {base}. "
+                f"Aliases must match {PROFILE_ALIAS_RE.pattern}."
+            )
+
+        profiles = getattr(self.settings, "profiles", {}) or {}
+        if isinstance(profiles, dict) and alias in profiles:
+            return profiles[alias]
+
+        model = self._catalog_alias_model_map().get(alias)
+        if model is not None:
+            return BackendProfile(model=model)
+        raise ValueError(f"No profile alias {alias!r} is configured for backend {base}.")
+
+    def _catalog_alias_model_map(self) -> dict[str, str]:
+        models = self._fetch_gateway_model_ids()
+        if not models:
+            return {}
+        return catalog_aliases_from_model_ids(models)
 
     def _assert_loopback_server_bind(self, app: FastAPI) -> None:
         assert_loopback_server_bind(

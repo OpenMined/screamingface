@@ -16,6 +16,7 @@ import pytest
 from fastapi import FastAPI
 
 from screamingface.plugin import Plugin
+from screamingface.plugins.aigw_base.plugin_base import AigwBackendApiPluginBase
 from screamingface.plugins.backend_api_base.models import BackendProfile
 from screamingface.plugins.backend_api_base.plugin_base import BackendApiPluginBase
 from screamingface.plugins.llm_base.backend_base import Backend, HealthStatus
@@ -114,6 +115,42 @@ class _RealAliasPlugin(BackendApiPluginBase):
             build_interpreter=lambda: None,
             span_prefix="faketest",
         )
+
+
+class _CatalogAliasPlugin(AigwBackendApiPluginBase):
+    name = "catalogtest-backend-api"
+    backend_call_paths = ["/catalogtest"]
+    gateway_provider = "catalogtest"
+
+    def __init__(
+        self,
+        backend: Backend,
+        models: list[str],
+        profiles: dict[str, BackendProfile] | None = None,
+    ) -> None:
+        self._models = models
+        self.settings = SimpleNamespace(  # type: ignore[assignment]
+            default_model=None,
+            timeout_seconds=300.0,
+            profiles=profiles or {},
+        )
+        self._api_config = BackendApiConfig(
+            name="catalogtest-backend-api",
+            path_prefix="/catalogtest",
+            default_model="provider/hardcoded-default",
+            backend=backend,
+            settings=self.settings,
+            app=None,
+            build_interpreter=lambda: None,
+            span_prefix="catalogtest",
+        )
+
+    def _backend(self, app=None):  # noqa: ANN001
+        assert self._api_config is not None
+        return self._api_config.backend
+
+    def _fetch_gateway_model_ids(self) -> list[str] | None:
+        return list(self._models)
 
 
 @pytest.mark.asyncio
@@ -312,3 +349,69 @@ async def test_resolve_ensemble_processor_alias_sends_profile_model_to_backend()
     assert backend.calls[0]["model"] == "huggingface/openai/gpt-oss-20b:cheapest"
     assert "[Response 1]" in backend.calls[0]["prompt"]
     assert "gpt-oss-20b" in result
+
+
+@pytest.mark.asyncio
+async def test_aigw_catalog_alias_sends_catalog_model_to_backend() -> None:
+    backend = _RecordingBackend()
+    plugin = _CatalogAliasPlugin(
+        backend,
+        ["huggingface/openai/gpt-oss-120b:cerebras"],
+    )
+    app = _app({"catalogtest-backend-api": plugin})
+    node = Url4BackendCall(path="/catalogtest/gpt-oss-120b", intent=Url4Text(value="answer this"))
+
+    result = await _dispatch_backend_call(node, app, Env.root())
+
+    assert backend.calls[0]["model"] == "huggingface/openai/gpt-oss-120b:cerebras"
+    assert backend.calls[0]["prompt"] == "answer this"
+    assert "gpt-oss-120b" in result
+
+
+@pytest.mark.asyncio
+async def test_catalog_alias_rejects_accidental_backend_prefix_segment() -> None:
+    backend = _RecordingBackend()
+    plugin = _CatalogAliasPlugin(
+        backend,
+        ["catalogtest/gpt-oss-120b"],
+    )
+    app = _app({"catalogtest-backend-api": plugin})
+    node = Url4BackendCall(
+        path="/catalogtest/catalogtest/gpt-oss-120b",
+        intent=Url4Text(value="answer this"),
+    )
+
+    with pytest.raises(RuntimeError, match="single segment"):
+        await _dispatch_backend_call(node, app, Env.root())
+    assert backend.calls == []
+
+
+@pytest.mark.asyncio
+async def test_catalog_alias_still_rejects_raw_slug_after_backend_prefix() -> None:
+    backend = _RecordingBackend()
+    plugin = _CatalogAliasPlugin(backend, ["catalogtest/gpt-oss-120b"])
+    app = _app({"catalogtest-backend-api": plugin})
+    node = Url4BackendCall(
+        path="/catalogtest/catalogtest/org/model",
+        intent=Url4Text(value="answer this"),
+    )
+
+    with pytest.raises(RuntimeError, match="single segment"):
+        await _dispatch_backend_call(node, app, Env.root())
+
+
+@pytest.mark.asyncio
+async def test_explicit_profile_alias_wins_over_catalog_alias() -> None:
+    backend = _RecordingBackend()
+    plugin = _CatalogAliasPlugin(
+        backend,
+        ["huggingface/openai/gpt-oss-120b:cerebras"],
+        profiles={"gpt-oss-120b": BackendProfile(model="huggingface/curated/pinned")},
+    )
+    app = _app({"catalogtest-backend-api": plugin})
+    node = Url4BackendCall(path="/catalogtest/gpt-oss-120b", intent=Url4Text(value="answer this"))
+
+    result = await _dispatch_backend_call(node, app, Env.root())
+
+    assert backend.calls[0]["model"] == "huggingface/curated/pinned"
+    assert "curated/pinned" in result
