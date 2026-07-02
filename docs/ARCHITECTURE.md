@@ -72,40 +72,7 @@ grammar. A URL4 expression is a small program that resolves context and dispatch
 `/ensemble` endpoint parses it into a typed AST, **fans out** the backend calls in parallel (weighted),
 then **reduces** all responses into a final answer.
 
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontFamily':'ui-sans-serif, system-ui, -apple-system, sans-serif','fontSize':'14px','lineColor':'#adb5bd'},'flowchart':{'curve':'basis','htmlLabels':true,'padding':14,'nodeSpacing':45,'rankSpacing':75}}}%%
-flowchart LR
-  IN["<b>GET /ensemble</b><br/>or an active url4 spec<br/><i>(from a frontend proxy)</i>"]:::teal
-  P["<b>EnsembleInterpreter</b><br/>parse() → typed AST<br/><i>Url4BackendCall · Url4Reduce</i>"]:::green
-  C["<b>Context resolution</b><br/>*source · /data KV<br/>rel-url ASGI · http GET"]:::green
-  subgraph FO["&nbsp;⎇&nbsp; Fan-out — N backend calls in parallel (by weight) &nbsp;"]
-    direction TB
-    B1["<b>/claude</b> backend"]:::green
-    B2["<b>/gemini</b> backend"]:::green
-    B3["<b>/codex</b> backend"]:::green
-  end
-  G1["provider<br/><i>direct API or<br/>AIGateway :9105</i>"]:::amber
-  G2["provider"]:::amber
-  G3["provider"]:::amber
-  R["<b>Reduce</b><br/>feed all N responses into<br/>the reducer model → 1 answer"]:::violet
-  OUT["<b>Final answer</b><br/>→ caller / CLI"]:::teal
-  EV["<b>eval-runs</b> · records accuracy per question<br/>X-SF-Run-Id correlates the whole run"]:::violet
-
-  IN --> P --> C
-  C -->|context| B1
-  C -->|context| B2
-  C -->|context| B3
-  B1 --> G1 --> R
-  B2 --> G2 --> R
-  B3 --> G3 --> R
-  R --> OUT -.->|scored| EV
-
-  classDef green fill:#b2f2bb,stroke:#2f9e44,color:#1b3a23;
-  classDef amber fill:#ffec99,stroke:#e8590c,color:#5c2e00;
-  classDef violet fill:#d0bfff,stroke:#6741d9,color:#2d1a66;
-  classDef teal fill:#96f2d7,stroke:#0c8599,color:#06403f;
-  style FO fill:#ebfbee,stroke:#0c8599,stroke-width:1.5px,stroke-dasharray:6 5,color:#0c8599;
-```
+![URL4 ensemble flow](architecture/screamingface-url4-ensemble-flow-architecture.svg)
 
 > Example: `(reduce)/gpt( [claude:1:]/claude(*ctx)!"solve", [gemini:1:]/gemini(*ctx)!"solve" )`
 > — run the `claude` and `gemini` backends in parallel on shared context `*ctx`, then reduce with `gpt`.
@@ -146,40 +113,7 @@ URL4 is built upon these well-established building blocks
 
 How one prompt from a coding CLI travels through the stack:
 
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontFamily':'ui-sans-serif, system-ui, -apple-system, sans-serif','fontSize':'14px','lineColor':'#adb5bd'},'flowchart':{'curve':'basis','htmlLabels':true,'padding':14,'nodeSpacing':50,'rankSpacing':70}}}%%
-flowchart LR
-  CLI["<b>Coding CLI</b><br/>Claude Code"]:::slate
-  ICPT["<b>Interceptor</b><br/>claude / env / mitmproxy<br/><i>one active</i>"]:::red
-  FE["<b>Frontend proxy</b> :9101<br/>transparent → upstream<br/>redaction + tracing"]:::cyan
-  EX["<b>url4-executor</b><br/>GET /ensemble<br/>parse → fan-out → reduce"]:::green
-  PROV["<b>Upstream providers</b><br/>Anthropic · OpenAI<br/>Google · Ollama"]:::slate
-  EV["<b>eval-runs</b><br/>persists the run"]:::violet
-  DESK["<b>Desktop</b><br/>RunView / Eval Studio"]:::cyan
-
-  subgraph BE["&nbsp; Backend plugins — direct ⊕ gateway (mutually exclusive per /path) &nbsp;"]
-    direction TB
-    DIRECT["<b>Direct API backend</b><br/>/claude /codex /gemini /ollama<br/>OAuth from local CLI creds"]:::green
-    AIGW["<b>AIGateway backend</b> → :9105<br/>LiteLLM · OAuth · credential_blobs"]:::amber
-  end
-
-  CLI -->|1| ICPT -->|2| FE -->|"3 · /ensemble"| EX
-  EX -->|"4 · fan-out"| DIRECT
-  EX -->|"4 · fan-out"| AIGW
-  DIRECT -.->|5| PROV
-  AIGW -.->|5| PROV
-  PROV -.->|"6 · responses"| EX
-  EX -.->|"7 · response → frontend → CLI"| CLI
-  EX -->|records| EV -->|"poll /eval_runs"| DESK
-
-  classDef slate fill:#e9ecef,stroke:#495057,color:#212529;
-  classDef red fill:#ffc9c9,stroke:#e03131,color:#5c0000;
-  classDef cyan fill:#a5d8ff,stroke:#1971c2,color:#0b2e52;
-  classDef green fill:#b2f2bb,stroke:#2f9e44,color:#1b3a23;
-  classDef amber fill:#ffec99,stroke:#e8590c,color:#5c2e00;
-  classDef violet fill:#d0bfff,stroke:#6741d9,color:#2d1a66;
-  style BE fill:#ebfbee,stroke:#2f9e44,stroke-width:1.5px,stroke-dasharray:6 5,color:#2f9e44;
-```
+![Request lifecycle](architecture/screamingface-request-trace-architecture.svg)
 
 1. The **coding CLI** (e.g. Claude Code) makes its normal outbound API call.
 2. An **interceptor** (`claude-intercept` / `claude-env-intercept` / `mitmproxy-intercept`, one active)
@@ -236,17 +170,18 @@ rest). `apps/server` is one `uv` project holding all plugins. See
 
 ## Diagram sources
 
-Reference flowcharts (URL4 flow, request trace, plugin graph) are authored as **inline Mermaid** so
-they diff in PRs, render natively on GitHub, and stay in sync with the code. The polished
-**system overview / Server breakdown / auth flow** are kept as hand-laid Excalidraw exports.
+All reference diagrams are checked in as **SVG** (embedded above) with a **PNG** export alongside.
+The **URL4 ensemble flow** and **request trace** are authored with the blueprint diagramming skill —
+each has an interactive `.html` source with an export toolbar (open it in a browser for PNG / PDF
+export and hover highlights). The **system overview / Server breakdown / auth flow** are hand-laid
+Excalidraw exports.
 
-| Diagram | Canonical form | Also available |
-|---------|----------------|----------------|
-| System overview / Server breakdown / Auth flow | `architecture/screamingface-*-architecture.svg` (Excalidraw export) | — |
-| URL4 ensemble flow | Mermaid (inline, above) | [`…-url4-ensemble-flow.excalidraw`](architecture/screamingface-url4-ensemble-flow.excalidraw) |
-| Request trace | Mermaid (inline, above) | [`…-request-trace.excalidraw`](architecture/screamingface-request-trace.excalidraw) |
+| Diagram | Canonical source | Exports |
+|---------|------------------|---------|
+| System overview / Server breakdown / Auth flow | Excalidraw | `architecture/screamingface-*-architecture.svg` + `.png` |
+| URL4 ensemble flow | [`…-url4-ensemble-flow-architecture.html`](architecture/screamingface-url4-ensemble-flow-architecture.html) | `.svg` + `.png` |
+| Request trace | [`…-request-trace-architecture.html`](architecture/screamingface-request-trace-architecture.html) | `.svg` + `.png` |
 | Plugin dependency graph | Mermaid — [`architecture/plugin-dependencies.md`](architecture/plugin-dependencies.md) | — |
 
-> The `.excalidraw` files are retained for now (open at [excalidraw.com](https://excalidraw.com),
-> File → Open). When editing a Mermaid diagram, update the fenced block in this file — the inline
-> Mermaid is the source of truth.
+> When editing the URL4 flow or request trace, edit the `.html` source (the inline `<svg>` is the
+> drawing) and re-export the sibling `.svg` / `.png` — the `.html` is the source of truth.
