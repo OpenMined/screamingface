@@ -73,39 +73,54 @@ grammar. A URL4 expression is a small program that resolves context and dispatch
 then **reduces** all responses into a final answer.
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontFamily':'ui-sans-serif, system-ui, -apple-system, sans-serif','fontSize':'14px','lineColor':'#adb5bd'},'flowchart':{'curve':'basis','htmlLabels':true,'padding':14,'nodeSpacing':45,'rankSpacing':75}}}%%
+%%{init: {'flowchart': {'rankSpacing': 60, 'nodeSpacing': 30}}}%%
 flowchart LR
-  IN["<b>GET /ensemble</b><br/>or an active url4 spec<br/><i>(from a frontend proxy)</i>"]:::teal
-  P["<b>EnsembleInterpreter</b><br/>parse() → typed AST<br/><i>Url4BackendCall · Url4Reduce</i>"]:::green
-  C["<b>Context resolution</b><br/>*source · /data KV<br/>rel-url ASGI · http GET"]:::green
-  subgraph FO["&nbsp;⎇&nbsp; Fan-out — N backend calls in parallel (by weight) &nbsp;"]
-    direction TB
-    B1["<b>/claude</b> backend"]:::green
-    B2["<b>/gemini</b> backend"]:::green
-    B3["<b>/codex</b> backend"]:::green
-  end
-  G1["provider<br/><i>direct API or<br/>AIGateway :9105</i>"]:::amber
-  G2["provider"]:::amber
-  G3["provider"]:::amber
-  R["<b>Reduce</b><br/>feed all N responses into<br/>the reducer model → 1 answer"]:::violet
-  OUT["<b>Final answer</b><br/>→ caller / CLI"]:::teal
-  EV["<b>eval-runs</b> · records accuracy per question<br/>X-SF-Run-Id correlates the whole run"]:::violet
+    %% ── Entry: parse + context resolution ─────────────────────────────
+    ensemble_in["GET /ensemble<br/><i>or an active url4 spec<br/>from a frontend proxy</i>"]
+    interpreter["EnsembleInterpreter<br/><i>parse() → typed AST<br/>Url4BackendCall · Url4Reduce</i>"]
+    context["context resolution<br/><i>*source · /data KV<br/>rel-url ASGI · http GET</i>"]
 
-  IN --> P --> C
-  C -->|context| B1
-  C -->|context| B2
-  C -->|context| B3
-  B1 --> G1 --> R
-  B2 --> G2 --> R
-  B3 --> G3 --> R
-  R --> OUT -.->|scored| EV
+    %% ── Fan-out: N backend calls in parallel ──────────────────────────
+    subgraph FO["Fan-out — N backend calls in parallel (by weight)"]
+        direction TB
+        claude_call["/claude backend"]
+        gemini_call["/gemini backend"]
+        codex_call["/codex backend"]
+    end
 
-  classDef green fill:#b2f2bb,stroke:#2f9e44,color:#1b3a23;
-  classDef amber fill:#ffec99,stroke:#e8590c,color:#5c2e00;
-  classDef violet fill:#d0bfff,stroke:#6741d9,color:#2d1a66;
-  classDef teal fill:#96f2d7,stroke:#0c8599,color:#06403f;
-  style FO fill:#ebfbee,stroke:#0c8599,stroke-width:1.5px,stroke-dasharray:6 5,color:#0c8599;
+    %% ── Providers, reduce, eval ───────────────────────────────────────
+    claude_provider["🌐 provider<br/><i>direct API or AIGateway :9105</i>"]
+    gemini_provider["🌐 provider"]
+    codex_provider["🌐 provider"]
+    reduce["reduce<br/><i>all N responses → reducer model<br/>→ 1 answer</i>"]
+    answer["final answer<br/><i>→ caller / CLI</i>"]
+    eval_runs["eval-runs<br/><i>accuracy per question<br/>X-SF-Run-Id correlates the run</i>"]
+
+    %% ── Flow edges ────────────────────────────────────────────────────
+    ensemble_in --> interpreter --> context
+    context -->|context| claude_call
+    context -->|context| gemini_call
+    context -->|context| codex_call
+
+    %% ── Runtime call edges (HTTP to providers) ────────────────────────
+    claude_call ==> claude_provider
+    gemini_call ==> gemini_provider
+    codex_call ==> codex_provider
+    claude_provider --> reduce
+    gemini_provider --> reduce
+    codex_provider --> reduce
+    reduce --> answer -.->|scored| eval_runs
+
+    classDef standalone fill:#a8e6a3,stroke:#2d6a2a,color:#000
+    classDef external fill:#a3d8e6,stroke:#1e5868,color:#000
+
+    class ensemble_in,interpreter,context,claude_call,gemini_call,codex_call,reduce,eval_runs standalone
+    class answer,claude_provider,gemini_provider,codex_provider external
 ```
+
+Legend: green = url4 plugins inside the Server process, blue = external
+(🌐 provider / caller), thick double arrow = runtime HTTP call, dotted
+arrow = async record.
 
 > Example: `(reduce)/gpt( [claude:1:]/claude(*ctx)!"solve", [gemini:1:]/gemini(*ctx)!"solve" )`
 > — run the `claude` and `gemini` backends in parallel on shared context `*ctx`, then reduce with `gpt`.
@@ -147,39 +162,53 @@ URL4 is built upon these well-established building blocks
 How one prompt from a coding CLI travels through the stack:
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'fontFamily':'ui-sans-serif, system-ui, -apple-system, sans-serif','fontSize':'14px','lineColor':'#adb5bd'},'flowchart':{'curve':'basis','htmlLabels':true,'padding':14,'nodeSpacing':50,'rankSpacing':70}}}%%
+%%{init: {'flowchart': {'rankSpacing': 60, 'nodeSpacing': 30}}}%%
 flowchart LR
-  CLI["<b>Coding CLI</b><br/>Claude Code"]:::slate
-  ICPT["<b>Interceptor</b><br/>claude / env / mitmproxy<br/><i>one active</i>"]:::red
-  FE["<b>Frontend proxy</b> :9101<br/>transparent → upstream<br/>redaction + tracing"]:::cyan
-  EX["<b>url4-executor</b><br/>GET /ensemble<br/>parse → fan-out → reduce"]:::green
-  PROV["<b>Upstream providers</b><br/>Anthropic · OpenAI<br/>Google · Ollama"]:::slate
-  EV["<b>eval-runs</b><br/>persists the run"]:::violet
-  DESK["<b>Desktop</b><br/>RunView / Eval Studio"]:::cyan
+    %% ── Client side ───────────────────────────────────────────────────
+    cli["🌐 Coding CLI<br/><i>Claude Code</i>"]
+    interceptor["interceptor<br/><i>claude / env / mitmproxy<br/>one active</i>"]
+    frontend["*-frontend<br/><i>:9101 — transparent proxy<br/>redaction + tracing</i>"]
+    executor["url4-executor<br/><i>GET /ensemble<br/>parse → fan-out → reduce</i>"]
 
-  subgraph BE["&nbsp; Backend plugins — direct ⊕ gateway (mutually exclusive per /path) &nbsp;"]
-    direction TB
-    DIRECT["<b>Direct API backend</b><br/>/claude /codex /gemini /ollama<br/>OAuth from local CLI creds"]:::green
-    AIGW["<b>AIGateway backend</b> → :9105<br/>LiteLLM · OAuth · credential_blobs"]:::amber
-  end
+    %% ── Backend plugins (mutex per /path) ─────────────────────────────
+    subgraph BE["Backend plugins — one owner per /path"]
+        direction TB
+        direct_backend["*-backend-api<br/><i>/claude /codex /gemini /ollama<br/>OAuth from local CLI creds</i>"]
+        aigw_backend["aigw-*-backend<br/><i>→ AIGateway :9105<br/>LiteLLM · credential_blobs</i>"]
+    end
 
-  CLI -->|1| ICPT -->|2| FE -->|"3 · /ensemble"| EX
-  EX -->|"4 · fan-out"| DIRECT
-  EX -->|"4 · fan-out"| AIGW
-  DIRECT -.->|5| PROV
-  AIGW -.->|5| PROV
-  PROV -.->|"6 · responses"| EX
-  EX -.->|"7 · response → frontend → CLI"| CLI
-  EX -->|records| EV -->|"poll /eval_runs"| DESK
+    %% ── Downstream ────────────────────────────────────────────────────
+    providers["🌐 upstream providers<br/><i>Anthropic · OpenAI<br/>Google · Ollama</i>"]
+    eval_runs["eval-runs<br/><i>persists the run</i>"]
+    desktop["🌐 apps/desktop<br/><i>RunView / Eval Studio</i>"]
 
-  classDef slate fill:#e9ecef,stroke:#495057,color:#212529;
-  classDef red fill:#ffc9c9,stroke:#e03131,color:#5c0000;
-  classDef cyan fill:#a5d8ff,stroke:#1971c2,color:#0b2e52;
-  classDef green fill:#b2f2bb,stroke:#2f9e44,color:#1b3a23;
-  classDef amber fill:#ffec99,stroke:#e8590c,color:#5c2e00;
-  classDef violet fill:#d0bfff,stroke:#6741d9,color:#2d1a66;
-  style BE fill:#ebfbee,stroke:#2f9e44,stroke-width:1.5px,stroke-dasharray:6 5,color:#2f9e44;
+    %% ── Request path ──────────────────────────────────────────────────
+    cli -->|1| interceptor -->|2| frontend -->|"3 · /ensemble"| executor
+    executor -->|"4 · fan-out"| direct_backend
+    executor -->|"4 · fan-out"| aigw_backend
+
+    %% ── Runtime call edges + response path ────────────────────────────
+    direct_backend ==>|5| providers
+    aigw_backend ==>|5| providers
+    providers -.->|"6 · responses"| executor
+    executor -.->|"7 · response → frontend → CLI"| cli
+    executor -->|records| eval_runs -->|"poll /eval_runs"| desktop
+
+    %% ── Conflicts (mutex relations) ───────────────────────────────────
+    direct_backend -.-x|conflicts| aigw_backend
+
+    classDef standalone fill:#a8e6a3,stroke:#2d6a2a,color:#000
+    classDef external fill:#a3d8e6,stroke:#1e5868,color:#000
+    classDef mutex fill:#ffd6d6,stroke:#a33,color:#000
+
+    class frontend,executor,direct_backend,aigw_backend,eval_runs standalone
+    class cli,providers,desktop external
+    class interceptor mutex
 ```
+
+Legend: green = Server plugins, blue = external (🌐) services/apps, red =
+mutex group (one active), thick double arrow = runtime HTTP call, dotted
+arrow = response/async path, dotted X = `conflicts` (mutex).
 
 1. The **coding CLI** (e.g. Claude Code) makes its normal outbound API call.
 2. An **interceptor** (`claude-intercept` / `claude-env-intercept` / `mitmproxy-intercept`, one active)
