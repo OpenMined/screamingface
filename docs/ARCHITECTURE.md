@@ -72,55 +72,7 @@ grammar. A URL4 expression is a small program that resolves context and dispatch
 `/ensemble` endpoint parses it into a typed AST, **fans out** the backend calls in parallel (weighted),
 then **reduces** all responses into a final answer.
 
-```mermaid
-%%{init: {'flowchart': {'rankSpacing': 60, 'nodeSpacing': 30}}}%%
-flowchart LR
-    %% ── Entry: parse + context resolution ─────────────────────────────
-    ensemble_in["GET /ensemble<br/><i>or an active url4 spec<br/>from a frontend proxy</i>"]
-    interpreter["EnsembleInterpreter<br/><i>parse() → typed AST<br/>Url4BackendCall · Url4Reduce</i>"]
-    context["context resolution<br/><i>*source · /data KV<br/>rel-url ASGI · http GET</i>"]
-
-    %% ── Fan-out: N backend calls in parallel ──────────────────────────
-    subgraph FO["Fan-out — N backend calls in parallel (by weight)"]
-        direction TB
-        claude_call["/claude backend"]
-        gemini_call["/gemini backend"]
-        codex_call["/codex backend"]
-    end
-
-    %% ── Providers, reduce, eval ───────────────────────────────────────
-    claude_provider["🌐 provider<br/><i>direct API or AIGateway :9105</i>"]
-    gemini_provider["🌐 provider"]
-    codex_provider["🌐 provider"]
-    reduce["reduce<br/><i>all N responses → reducer model<br/>→ 1 answer</i>"]
-    answer["final answer<br/><i>→ caller / CLI</i>"]
-    eval_runs["eval-runs<br/><i>accuracy per question<br/>X-SF-Run-Id correlates the run</i>"]
-
-    %% ── Flow edges ────────────────────────────────────────────────────
-    ensemble_in --> interpreter --> context
-    context -->|context| claude_call
-    context -->|context| gemini_call
-    context -->|context| codex_call
-
-    %% ── Runtime call edges (HTTP to providers) ────────────────────────
-    claude_call ==> claude_provider
-    gemini_call ==> gemini_provider
-    codex_call ==> codex_provider
-    claude_provider --> reduce
-    gemini_provider --> reduce
-    codex_provider --> reduce
-    reduce --> answer -.->|scored| eval_runs
-
-    classDef standalone fill:#a8e6a3,stroke:#2d6a2a,color:#000
-    classDef external fill:#a3d8e6,stroke:#1e5868,color:#000
-
-    class ensemble_in,interpreter,context,claude_call,gemini_call,codex_call,reduce,eval_runs standalone
-    class answer,claude_provider,gemini_provider,codex_provider external
-```
-
-Legend: green = url4 plugins inside the Server process, blue = external
-(🌐 provider / caller), thick double arrow = runtime HTTP call, dotted
-arrow = async record.
+![URL4 ensemble flow](architecture/screamingface-url4-ensemble-flow-architecture.svg)
 
 > Example: `(reduce)/gpt( [claude:1:]/claude(*ctx)!"solve", [gemini:1:]/gemini(*ctx)!"solve" )`
 > — run the `claude` and `gemini` backends in parallel on shared context `*ctx`, then reduce with `gpt`.
@@ -161,54 +113,7 @@ URL4 is built upon these well-established building blocks
 
 How one prompt from a coding CLI travels through the stack:
 
-```mermaid
-%%{init: {'flowchart': {'rankSpacing': 60, 'nodeSpacing': 30}}}%%
-flowchart LR
-    %% ── Client side ───────────────────────────────────────────────────
-    cli["🌐 Coding CLI<br/><i>Claude Code</i>"]
-    interceptor["interceptor<br/><i>claude / env / mitmproxy<br/>one active</i>"]
-    frontend["*-frontend<br/><i>:9101 — transparent proxy<br/>redaction + tracing</i>"]
-    executor["url4-executor<br/><i>GET /ensemble<br/>parse → fan-out → reduce</i>"]
-
-    %% ── Backend plugins (mutex per /path) ─────────────────────────────
-    subgraph BE["Backend plugins — one owner per /path"]
-        direction TB
-        direct_backend["*-backend-api<br/><i>/claude /codex /gemini /ollama<br/>OAuth from local CLI creds</i>"]
-        aigw_backend["aigw-*-backend<br/><i>→ AIGateway :9105<br/>LiteLLM · credential_blobs</i>"]
-    end
-
-    %% ── Downstream ────────────────────────────────────────────────────
-    providers["🌐 upstream providers<br/><i>Anthropic · OpenAI<br/>Google · Ollama</i>"]
-    eval_runs["eval-runs<br/><i>persists the run</i>"]
-    desktop["🌐 apps/desktop<br/><i>RunView / Eval Studio</i>"]
-
-    %% ── Request path ──────────────────────────────────────────────────
-    cli -->|1| interceptor -->|2| frontend -->|"3 · /ensemble"| executor
-    executor -->|"4 · fan-out"| direct_backend
-    executor -->|"4 · fan-out"| aigw_backend
-
-    %% ── Runtime call edges + response path ────────────────────────────
-    direct_backend ==>|5| providers
-    aigw_backend ==>|5| providers
-    providers -.->|"6 · responses"| executor
-    executor -.->|"7 · response → frontend → CLI"| cli
-    executor -->|records| eval_runs -->|"poll /eval_runs"| desktop
-
-    %% ── Conflicts (mutex relations) ───────────────────────────────────
-    direct_backend -.-x|conflicts| aigw_backend
-
-    classDef standalone fill:#a8e6a3,stroke:#2d6a2a,color:#000
-    classDef external fill:#a3d8e6,stroke:#1e5868,color:#000
-    classDef mutex fill:#ffd6d6,stroke:#a33,color:#000
-
-    class frontend,executor,direct_backend,aigw_backend,eval_runs standalone
-    class cli,providers,desktop external
-    class interceptor mutex
-```
-
-Legend: green = Server plugins, blue = external (🌐) services/apps, red =
-mutex group (one active), thick double arrow = runtime HTTP call, dotted
-arrow = response/async path, dotted X = `conflicts` (mutex).
+![Request lifecycle](architecture/screamingface-request-trace-architecture.svg)
 
 1. The **coding CLI** (e.g. Claude Code) makes its normal outbound API call.
 2. An **interceptor** (`claude-intercept` / `claude-env-intercept` / `mitmproxy-intercept`, one active)
@@ -265,17 +170,18 @@ rest). `apps/server` is one `uv` project holding all plugins. See
 
 ## Diagram sources
 
-Reference flowcharts (URL4 flow, request trace, plugin graph) are authored as **inline Mermaid** so
-they diff in PRs, render natively on GitHub, and stay in sync with the code. The polished
-**system overview / Server breakdown / auth flow** are kept as hand-laid Excalidraw exports.
+All reference diagrams are checked in as **SVG** (embedded above) with a **PNG** export alongside.
+The **URL4 ensemble flow** and **request trace** are authored with the blueprint diagramming skill —
+each has an interactive `.html` source with an export toolbar (open it in a browser for PNG / PDF
+export and hover highlights). The **system overview / Server breakdown / auth flow** are hand-laid
+Excalidraw exports.
 
-| Diagram | Canonical form | Also available |
-|---------|----------------|----------------|
-| System overview / Server breakdown / Auth flow | `architecture/screamingface-*-architecture.svg` (Excalidraw export) | — |
-| URL4 ensemble flow | Mermaid (inline, above) | [`…-url4-ensemble-flow.excalidraw`](architecture/screamingface-url4-ensemble-flow.excalidraw) |
-| Request trace | Mermaid (inline, above) | [`…-request-trace.excalidraw`](architecture/screamingface-request-trace.excalidraw) |
+| Diagram | Canonical source | Exports |
+|---------|------------------|---------|
+| System overview / Server breakdown / Auth flow | Excalidraw | `architecture/screamingface-*-architecture.svg` + `.png` |
+| URL4 ensemble flow | [`…-url4-ensemble-flow-architecture.html`](architecture/screamingface-url4-ensemble-flow-architecture.html) | `.svg` + `.png` |
+| Request trace | [`…-request-trace-architecture.html`](architecture/screamingface-request-trace-architecture.html) | `.svg` + `.png` |
 | Plugin dependency graph | Mermaid — [`architecture/plugin-dependencies.md`](architecture/plugin-dependencies.md) | — |
 
-> The `.excalidraw` files are retained for now (open at [excalidraw.com](https://excalidraw.com),
-> File → Open). When editing a Mermaid diagram, update the fenced block in this file — the inline
-> Mermaid is the source of truth.
+> When editing the URL4 flow or request trace, edit the `.html` source (the inline `<svg>` is the
+> drawing) and re-export the sibling `.svg` / `.png` — the `.html` is the source of truth.
