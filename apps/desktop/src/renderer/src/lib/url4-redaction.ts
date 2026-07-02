@@ -12,6 +12,7 @@
 //
 // Also parses spec_name into benchmark/spec ids and derives the providers a run
 // used from the expression. All functions are pure and dependency-free.
+import { backendCallPathRe } from './backend-call-path';
 
 const DATA_REF_RE = /\/data\/[A-Za-z0-9_./-]+/g;
 const REDACTED_REF = '/data/<redacted>';
@@ -25,10 +26,6 @@ const KNOWN_PROVIDERS = [
 ] as const;
 
 type KnownProvider = (typeof KNOWN_PROVIDERS)[number];
-
-function providerCallPathRe(provider: KnownProvider): RegExp {
-  return new RegExp(`(^|[^A-Za-z0-9_./-])/${provider}(?:/[a-z0-9][a-z0-9_-]*)?\\s*\\(`);
-}
 
 function bareProviderTokenRe(provider: KnownProvider): RegExp {
   return new RegExp(`(^|[(,:\\s])${provider}(?=\\s*(?:[,):]|$))`);
@@ -84,6 +81,6 @@ export function deriveProviders(expression: string): string[] {
   const lower = expression.toLowerCase();
   return KNOWN_PROVIDERS.filter(
     (provider) =>
-      providerCallPathRe(provider).test(lower) || bareProviderTokenRe(provider).test(lower),
+      backendCallPathRe(provider).test(lower) || bareProviderTokenRe(provider).test(lower),
   );
 }

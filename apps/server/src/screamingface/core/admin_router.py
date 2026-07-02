@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException, Request
 
@@ -150,24 +152,64 @@ def _backend_alias_inventory(active_plugins: dict[str, Plugin]) -> dict:
             profiles = alias_profiles_fn()
         else:
             profiles = getattr(settings, "profiles", {}) or {}
-        if not paths or not isinstance(profiles, dict):
-            continue
-        default_profile = getattr(settings, "default_profile", None)
-        profile_names = [
-            name for name in profiles if isinstance(name, str) and name and name != default_profile
-        ]
-        if not profile_names:
-            continue
-
-        backends.append({"plugin": plugin.name, "paths": paths, "profiles": profile_names})
-        for path in paths:
-            for profile in profile_names:
-                alias = f"{path}/{profile}"
-                if alias not in seen_aliases:
-                    seen_aliases.add(alias)
-                    aliases.append(alias)
+        _add_backend_alias_inventory(plugin, paths, profiles, aliases, backends, seen_aliases)
 
     return {"aliases": aliases, "backends": backends}
+
+
+async def _backend_alias_inventory_async(active_plugins: dict[str, Plugin]) -> dict:
+    aliases: list[str] = []
+    backends: list[dict[str, object]] = []
+    seen_aliases: set[str] = set()
+
+    for plugin in active_plugins.values():
+        if not getattr(plugin, "supports_profile_aliases", False):
+            continue
+        paths = [
+            normalized
+            for path in getattr(plugin, "backend_call_paths", [])
+            if (normalized := normalize_backend_call_path(path)) is not None
+        ]
+        settings = getattr(plugin, "settings", None)
+        alias_profiles_async_fn = getattr(plugin, "backend_alias_profiles_async", None)
+        if callable(alias_profiles_async_fn):
+            profiles = await cast(
+                Callable[[], Awaitable[dict[str, Any]]], alias_profiles_async_fn
+            )()
+        elif callable(alias_profiles_fn := getattr(plugin, "backend_alias_profiles", None)):
+            profiles = alias_profiles_fn()
+        else:
+            profiles = getattr(settings, "profiles", {}) or {}
+        _add_backend_alias_inventory(plugin, paths, profiles, aliases, backends, seen_aliases)
+
+    return {"aliases": aliases, "backends": backends}
+
+
+def _add_backend_alias_inventory(
+    plugin: Plugin,
+    paths: list[str],
+    profiles: object,
+    aliases: list[str],
+    backends: list[dict[str, object]],
+    seen_aliases: set[str],
+) -> None:
+    if not paths or not isinstance(profiles, dict):
+        return
+    settings = getattr(plugin, "settings", None)
+    default_profile = getattr(settings, "default_profile", None)
+    profile_names = [
+        name for name in profiles if isinstance(name, str) and name and name != default_profile
+    ]
+    if not profile_names:
+        return
+
+    backends.append({"plugin": plugin.name, "paths": paths, "profiles": profile_names})
+    for path in paths:
+        for profile in profile_names:
+            alias = f"{path}/{profile}"
+            if alias not in seen_aliases:
+                seen_aliases.add(alias)
+                aliases.append(alias)
 
 
 def register_admin_routes(app: FastAPI) -> None:
@@ -202,7 +244,7 @@ def register_admin_routes(app: FastAPI) -> None:
 
     @app.get("/plugins/backend-aliases")
     async def list_backend_aliases() -> dict:
-        return _backend_alias_inventory(app.state.plugins.active_plugins)
+        return await _backend_alias_inventory_async(app.state.plugins.active_plugins)
 
     @app.get("/plugins/{name}/schema")
     async def plugin_schema(name: str) -> dict:

@@ -236,10 +236,29 @@ class BackendApiPluginBase(Plugin):
         message on an invalid or unknown alias.
         """
         del env
-        profile = self.resolve_backend_alias_profile(alias)
+        profile = self.resolve_backend_alias_profile(alias, app=app)
+        return await self.handle_resolved_backend_alias(
+            profile,
+            sources=sources,
+            intent=intent,
+            app=app,
+        )
+
+    async def handle_resolved_backend_alias(
+        self,
+        profile: BackendProfile,
+        *,
+        sources: str = "",
+        intent: str = "",
+        app: FastAPI,
+        env: Env | None = None,
+    ) -> str:
+        """Execute a URL4 profile alias after the dispatcher resolved it once."""
+
+        del env
         if self._api_config is None:
             raise RuntimeError(
-                f"{self.name!r} cannot dispatch profile alias {alias!r}: backend-api "
+                f"{self.name!r} cannot dispatch resolved profile alias: backend-api "
                 "config was not captured during setup()."
             )
         self._refresh_api_config_for_alias(app)
@@ -274,18 +293,58 @@ class BackendApiPluginBase(Plugin):
     ) -> BackendProfile:
         """Return the profile object backing a URL4 alias, or raise clearly."""
 
-        del app
-        base = base_path or (self.backend_call_paths[0] if self.backend_call_paths else "")
+        base = self._alias_base_path(base_path)
+        self._validate_profile_alias(alias, base)
+        profile = self._configured_alias_profile(alias)
+        if profile is None:
+            profile = self._resolve_alias_fallback(alias, base_path=base, app=app)
+        if profile is None:
+            raise self._unknown_profile_alias(alias, base)
+        return profile
+
+    async def resolve_backend_alias_profile_async(
+        self, alias: str, *, base_path: str | None = None, app: FastAPI | None = None
+    ) -> BackendProfile:
+        """Async resolver hook for plugins whose alias fallback does I/O."""
+
+        base = self._alias_base_path(base_path)
+        self._validate_profile_alias(alias, base)
+        profile = self._configured_alias_profile(alias)
+        if profile is None:
+            profile = await self._resolve_alias_fallback_async(alias, base_path=base, app=app)
+        if profile is None:
+            raise self._unknown_profile_alias(alias, base)
+        return profile
+
+    def _alias_base_path(self, base_path: str | None) -> str:
+        return base_path or (self.backend_call_paths[0] if self.backend_call_paths else "")
+
+    def _validate_profile_alias(self, alias: str, base: str) -> None:
         if not is_valid_profile_alias(alias):
             raise ValueError(
                 f"Invalid profile alias {alias!r} for backend {base}. "
                 f"Aliases must match {_PROFILE_NAME_RE.pattern}."
             )
+
+    def _configured_alias_profile(self, alias: str) -> BackendProfile | None:
         profiles = getattr(self.settings, "profiles", {}) or {}
-        profile = profiles.get(alias) if isinstance(profiles, dict) else None
-        if profile is None:
-            raise ValueError(f"No profile alias {alias!r} is configured for backend {base}.")
-        return profile
+        return profiles.get(alias) if isinstance(profiles, dict) else None
+
+    def _resolve_alias_fallback(
+        self, alias: str, *, base_path: str, app: FastAPI | None = None
+    ) -> BackendProfile | None:
+        """Subclass hook for non-configured aliases."""
+
+        del alias, base_path, app
+        return None
+
+    async def _resolve_alias_fallback_async(
+        self, alias: str, *, base_path: str, app: FastAPI | None = None
+    ) -> BackendProfile | None:
+        return self._resolve_alias_fallback(alias, base_path=base_path, app=app)
+
+    def _unknown_profile_alias(self, alias: str, base: str) -> ValueError:
+        return ValueError(f"No profile alias {alias!r} is configured for backend {base}.")
 
     def _refresh_api_config_for_alias(self, app: FastAPI) -> None:
         del app

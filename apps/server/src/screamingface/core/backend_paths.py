@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import logging
 import re
+
+_log = logging.getLogger(__name__)
 
 PROFILE_ALIAS_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 _UNSAFE_ALIAS_CHARS_RE = re.compile(r"[^a-z0-9_-]+")
@@ -30,22 +34,41 @@ def catalog_aliases_from_model_ids(model_ids: list[str]) -> dict[str, str]:
     """
 
     candidates: list[tuple[str, str | None, str | None, str]] = []
+    seen_model_ids: set[str] = set()
     for model_id in model_ids:
+        if model_id in seen_model_ids:
+            continue
         parts = _model_alias_parts(model_id)
         if parts is not None:
             candidates.append((*parts, model_id))
+            seen_model_ids.add(model_id)
+    candidates.sort(key=lambda item: item[3])
 
     base_counts: dict[str, int] = {}
     for base, _suffix, _owner, _model_id in candidates:
         base_counts[base] = base_counts.get(base, 0) + 1
 
-    aliases: dict[str, str] = {}
+    alias_groups: dict[str, list[str]] = {}
     for base, suffix, owner, model_id in candidates:
         alias = base
         if base_counts[base] > 1:
             alias = _join_alias_parts(base, suffix or owner)
-        alias = _unique_alias(alias, aliases)
-        aliases[alias] = model_id
+        alias_groups.setdefault(alias, []).append(model_id)
+
+    aliases: dict[str, str] = {}
+    for alias, ids in sorted(alias_groups.items()):
+        if len(ids) == 1:
+            aliases[alias] = ids[0]
+            continue
+        for model_id in ids:
+            hashed_alias = _hashed_alias(alias, model_id, aliases)
+            _log.warning(
+                "catalog model alias collision for %r; using %r for model %r",
+                alias,
+                hashed_alias,
+                model_id,
+            )
+            aliases[hashed_alias] = model_id
     return aliases
 
 
@@ -86,3 +109,8 @@ def _unique_alias(alias: str, aliases: dict[str, str]) -> str:
     while f"{alias}-{i}" in aliases:
         i += 1
     return f"{alias}-{i}"
+
+
+def _hashed_alias(alias: str, model_id: str, aliases: dict[str, str]) -> str:
+    digest = hashlib.sha1(model_id.encode("utf-8")).hexdigest()[:8]
+    return _unique_alias(f"{alias}-{digest}", aliases)

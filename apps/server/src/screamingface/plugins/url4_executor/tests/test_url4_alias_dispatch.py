@@ -10,13 +10,19 @@ that the profile's *model* actually reaches ``backend.run()``.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi import FastAPI
 
 from screamingface.plugin import Plugin
-from screamingface.plugins.aigw_base.plugin_base import AigwBackendApiPluginBase
+from screamingface.plugins.aigw_base.plugin_base import (
+    AigwBackendApiPluginBase,
+    AigwCatalogUnavailable,
+)
 from screamingface.plugins.backend_api_base.models import BackendProfile
 from screamingface.plugins.backend_api_base.plugin_base import BackendApiPluginBase
 from screamingface.plugins.llm_base.backend_base import Backend, HealthStatus
@@ -129,6 +135,7 @@ class _CatalogAliasPlugin(AigwBackendApiPluginBase):
         profiles: dict[str, BackendProfile] | None = None,
     ) -> None:
         self._models = models
+        self.fetch_count = 0
         self.settings = SimpleNamespace(  # type: ignore[assignment]
             default_model=None,
             timeout_seconds=300.0,
@@ -150,7 +157,42 @@ class _CatalogAliasPlugin(AigwBackendApiPluginBase):
         return self._api_config.backend
 
     def _fetch_gateway_model_ids(self) -> list[str] | None:
+        self.fetch_count += 1
         return list(self._models)
+
+    def _fetch_gateway_model_ids_strict(self) -> list[str]:
+        self.fetch_count += 1
+        return list(self._models)
+
+
+class _GatewayCatalogAliasPlugin(AigwBackendApiPluginBase):
+    name = "gatewaycatalog-backend-api"
+    backend_call_paths = ["/gatewaycatalog"]
+    gateway_provider = "gatewaycatalog"
+
+    def __init__(self, backend: Backend, transport: httpx.MockTransport) -> None:
+        self._http_transport = transport
+        self.settings = SimpleNamespace(  # type: ignore[assignment]
+            default_model=None,
+            timeout_seconds=300.0,
+            profiles={},
+            gateway_url="http://127.0.0.1:9105",
+            auth_profile="default",
+        )
+        self._api_config = BackendApiConfig(
+            name="gatewaycatalog-backend-api",
+            path_prefix="/gatewaycatalog",
+            default_model="provider/hardcoded-default",
+            backend=backend,
+            settings=self.settings,
+            app=None,
+            build_interpreter=lambda: None,
+            span_prefix="gatewaycatalog",
+        )
+
+    def _backend(self, app=None):  # noqa: ANN001
+        assert self._api_config is not None
+        return self._api_config.backend
 
 
 @pytest.mark.asyncio
@@ -366,6 +408,103 @@ async def test_aigw_catalog_alias_sends_catalog_model_to_backend() -> None:
     assert backend.calls[0]["model"] == "huggingface/openai/gpt-oss-120b:cerebras"
     assert backend.calls[0]["prompt"] == "answer this"
     assert "gpt-oss-120b" in result
+    assert plugin.fetch_count == 1
+
+
+@pytest.mark.asyncio
+async def test_aigw_catalog_alias_dispatch_uses_cached_real_gateway_client() -> None:
+    backend = _RecordingBackend()
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "data": [
+                    {
+                        "id": "gatewaycatalog/openai/gpt-oss-120b:cerebras",
+                        "object": "model",
+                        "owned_by": "gatewaycatalog",
+                    }
+                ],
+            },
+        )
+
+    plugin = _GatewayCatalogAliasPlugin(backend, httpx.MockTransport(handler))
+    app = _app({"gatewaycatalog-backend-api": plugin})
+    plugin._app = app
+    node = Url4BackendCall(path="/gatewaycatalog/gpt-oss-120b", intent=Url4Text(value="q"))
+
+    await _dispatch_backend_call(node, app, Env.root())
+    await _dispatch_backend_call(node, app, Env.root())
+
+    assert requests == ["/v1/models"]
+    assert [call["model"] for call in backend.calls] == [
+        "gatewaycatalog/openai/gpt-oss-120b:cerebras",
+        "gatewaycatalog/openai/gpt-oss-120b:cerebras",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_aigw_catalog_alias_dispatch_does_not_block_event_loop() -> None:
+    backend = _RecordingBackend()
+    tick_times: list[float] = []
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        time.sleep(0.08)
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "data": [
+                    {
+                        "id": "gatewaycatalog/openai/gpt-oss-120b:cerebras",
+                        "object": "model",
+                        "owned_by": "gatewaycatalog",
+                    }
+                ],
+            },
+        )
+
+    async def heartbeat() -> None:
+        await asyncio.sleep(0.01)
+        tick_times.append(time.perf_counter())
+
+    plugin = _GatewayCatalogAliasPlugin(backend, httpx.MockTransport(handler))
+    app = _app({"gatewaycatalog-backend-api": plugin})
+    plugin._app = app
+    node = Url4BackendCall(path="/gatewaycatalog/gpt-oss-120b", intent=Url4Text(value="q"))
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+    await _dispatch_backend_call(node, app, Env.root())
+    dispatch_finished_at = time.perf_counter()
+    await heartbeat_task
+
+    assert tick_times and tick_times[0] < dispatch_finished_at
+
+
+def test_gateway_model_fetch_failure_is_distinct_from_unknown_alias() -> None:
+    backend = _RecordingBackend()
+    down = _GatewayCatalogAliasPlugin(
+        backend,
+        httpx.MockTransport(lambda _request: httpx.Response(503, json={"error": "down"})),
+    )
+
+    with pytest.raises(AigwCatalogUnavailable, match="gateway model catalog unavailable"):
+        down.resolve_backend_alias_profile("missing", base_path="/gatewaycatalog")
+
+    empty = _GatewayCatalogAliasPlugin(
+        backend,
+        httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={"object": "list", "data": []})
+        ),
+    )
+    with pytest.raises(
+        ValueError, match="No profile alias 'missing' is configured for backend /gatewaycatalog"
+    ):
+        empty.resolve_backend_alias_profile("missing", base_path="/gatewaycatalog")
 
 
 @pytest.mark.asyncio
@@ -415,3 +554,4 @@ async def test_explicit_profile_alias_wins_over_catalog_alias() -> None:
 
     assert backend.calls[0]["model"] == "huggingface/curated/pinned"
     assert "curated/pinned" in result
+    assert plugin.fetch_count == 0

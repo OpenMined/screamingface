@@ -7,16 +7,16 @@ Subclasses mirror direct backend plugin style: declare class-level metadata
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
 
 from screamingface.core.backend_paths import (
-    PROFILE_ALIAS_RE,
     catalog_aliases_from_model_ids,
-    is_valid_profile_alias,
 )
 from screamingface.core.local_only import assert_loopback_server_bind
 from screamingface.plugins.backend_api_base.models import BackendProfile
@@ -36,6 +36,21 @@ _log = logging.getLogger(__name__)
 # Hard cap on the gateway profile-list fetch performed during schema
 # emission. The /plugins/{name}/schema endpoint must never hang the UI.
 _SCHEMA_FETCH_TIMEOUT_S = 2.0
+_CATALOG_ALIAS_CACHE_TTL_S = 30.0
+
+
+class AigwCatalogUnavailable(RuntimeError):
+    """Raised when a live gateway catalog is required but unavailable."""
+
+    retryable = True
+
+    def __init__(self, provider: str, cause: BaseException) -> None:
+        self.provider = provider
+        self.cause = cause
+        super().__init__(
+            f"gateway model catalog unavailable for provider {provider!r}; "
+            f"cannot resolve dynamic URL4 aliases ({type(cause).__name__}: {cause})"
+        )
 
 
 class AigwBackendApiPluginBase(BackendApiPluginBase):
@@ -97,34 +112,102 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
 
     def backend_alias_profiles(self) -> dict[str, BackendProfile]:
         profiles = dict(super().backend_alias_profiles())
-        for alias, model in self._catalog_alias_model_map().items():
+        for alias, model in self._catalog_alias_model_map_or_empty().items():
             profiles.setdefault(alias, BackendProfile(model=model))
         return profiles
 
-    def resolve_backend_alias_profile(
-        self, alias: str, *, base_path: str | None = None, app: FastAPI | None = None
-    ) -> BackendProfile:
-        base = base_path or (self.backend_call_paths[0] if self.backend_call_paths else "")
-        if not is_valid_profile_alias(alias):
-            raise ValueError(
-                f"Invalid profile alias {alias!r} for backend {base}. "
-                f"Aliases must match {PROFILE_ALIAS_RE.pattern}."
+    async def backend_alias_profiles_async(self) -> dict[str, BackendProfile]:
+        profiles = dict(super().backend_alias_profiles())
+        try:
+            catalog_profiles = await self._catalog_alias_model_map_async(
+                app=getattr(self, "_app", None)
             )
+        except AigwCatalogUnavailable as exc:
+            _log.debug("aigw alias inventory: gateway model-list fetch failed (%s)", exc)
+            catalog_profiles = {}
+        for alias, model in catalog_profiles.items():
+            profiles.setdefault(alias, BackendProfile(model=model))
+        return profiles
 
-        profiles = getattr(self.settings, "profiles", {}) or {}
-        if isinstance(profiles, dict) and alias in profiles:
-            return profiles[alias]
-
-        model = self._catalog_alias_model_map().get(alias)
+    def _resolve_alias_fallback(
+        self, alias: str, *, base_path: str, app: FastAPI | None = None
+    ) -> BackendProfile | None:
+        del base_path
+        model = self._catalog_alias_model_map(app=app).get(alias)
         if model is not None:
             return BackendProfile(model=model)
-        raise ValueError(f"No profile alias {alias!r} is configured for backend {base}.")
 
-    def _catalog_alias_model_map(self) -> dict[str, str]:
-        models = self._fetch_gateway_model_ids()
-        if not models:
+        return None
+
+    async def _resolve_alias_fallback_async(
+        self, alias: str, *, base_path: str, app: FastAPI | None = None
+    ) -> BackendProfile | None:
+        del base_path
+        model = (await self._catalog_alias_model_map_async(app=app)).get(alias)
+        if model is not None:
+            return BackendProfile(model=model)
+        return None
+
+    def _catalog_alias_model_map_or_empty(self) -> dict[str, str]:
+        try:
+            return self._catalog_alias_model_map(app=getattr(self, "_app", None))
+        except AigwCatalogUnavailable as exc:
+            _log.debug("aigw alias inventory: gateway model-list fetch failed (%s)", exc)
             return {}
-        return catalog_aliases_from_model_ids(models)
+
+    def _catalog_alias_model_map(self, *, app: FastAPI | None = None) -> dict[str, str]:
+        key = self._catalog_alias_cache_key(app)
+        cached = self._catalog_alias_cache_get(key)
+        if cached is not None:
+            return cached
+        models = self._fetch_gateway_model_ids_strict()
+        aliases = catalog_aliases_from_model_ids(models)
+        self._catalog_alias_cache_set(key, aliases)
+        return aliases
+
+    async def _catalog_alias_model_map_async(self, *, app: FastAPI | None = None) -> dict[str, str]:
+        key = self._catalog_alias_cache_key(app)
+        cached = self._catalog_alias_cache_get(key)
+        if cached is not None:
+            return cached
+        models = await asyncio.to_thread(self._fetch_gateway_model_ids_strict)
+        aliases = catalog_aliases_from_model_ids(models)
+        self._catalog_alias_cache_set(key, aliases)
+        return aliases
+
+    def _catalog_alias_cache_key(self, app: FastAPI | None) -> tuple[str, str] | None:
+        if not self.gateway_provider or self.settings is None:
+            return None
+        settings = cast(AigwBackendApiSettingsBase, self.settings)
+        if app is not None:
+            gateway_url = resolve_aigw_runtime_config(app).gateway_url
+        else:
+            gateway_url = getattr(settings, "gateway_url", "")
+        return str(gateway_url).rstrip("/"), self.gateway_provider
+
+    def _catalog_alias_cache_get(self, key: tuple[str, str] | None) -> dict[str, str] | None:
+        if key is None:
+            return None
+        cache = getattr(self, "_catalog_alias_cache", {})
+        entry = cache.get(key)
+        if entry is None:
+            return None
+        expires_at, aliases = entry
+        if expires_at <= time.monotonic():
+            cache.pop(key, None)
+            return None
+        return dict(aliases)
+
+    def _catalog_alias_cache_set(
+        self, key: tuple[str, str] | None, aliases: dict[str, str]
+    ) -> None:
+        if key is None:
+            return
+        cache = getattr(self, "_catalog_alias_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self._catalog_alias_cache = cache
+        cache[key] = (time.monotonic() + _CATALOG_ALIAS_CACHE_TTL_S, dict(aliases))
 
     def _assert_loopback_server_bind(self, app: FastAPI) -> None:
         assert_loopback_server_bind(
@@ -222,21 +305,42 @@ class AigwBackendApiPluginBase(BackendApiPluginBase):
         aggregates every loaded provider, so results are filtered to this
         backend's `gateway_provider` (which equals the gateway's ``owned_by``).
         """
-        if not self.gateway_provider:
-            return None
-        if self.settings is None:
-            return None
-        client = self._schema_gateway_client()
         try:
-            payload = _gateway_json(client, "/v1/models")
-        except (AigwGatewayClientError, httpx.HTTPError, ValueError) as exc:
+            return self._fetch_gateway_model_ids_strict()
+        except AigwCatalogUnavailable as exc:
             _log.debug(
                 "aigw schema: gateway model-list fetch failed (%s); "
                 "falling back to configured model values",
                 exc,
             )
             return None
-        return _model_ids_from_payload(payload, self.gateway_provider)
+
+    def _fetch_gateway_model_ids_strict(self) -> list[str]:
+        if not self.gateway_provider:
+            return []
+        if self.settings is None:
+            return []
+        instance_override = self.__dict__.get("_fetch_gateway_model_ids")
+        if callable(instance_override):
+            models = cast(Callable[[], list[str] | None], instance_override)()
+            if models is None:
+                raise AigwCatalogUnavailable(
+                    self.gateway_provider,
+                    ValueError("gateway model catalog override returned no models"),
+                )
+            return list(models)
+        client = self._schema_gateway_client()
+        try:
+            payload = _gateway_json(client, "/v1/models")
+        except (AigwGatewayClientError, httpx.HTTPError, ValueError) as exc:
+            raise AigwCatalogUnavailable(self.gateway_provider, exc) from exc
+        models = _model_ids_from_payload(payload, self.gateway_provider)
+        if models is None:
+            raise AigwCatalogUnavailable(
+                self.gateway_provider,
+                ValueError("unexpected /v1/models payload shape"),
+            )
+        return models
 
     def _inject_auth_profile_enum(self, auth_profile_field: dict[str, Any]) -> None:
         settings = cast(AigwBackendApiSettingsBase, self.settings)

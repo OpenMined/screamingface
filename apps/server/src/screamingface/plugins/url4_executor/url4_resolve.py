@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 from urllib.parse import quote, urlparse, urlunparse
 
 import httpx
@@ -234,9 +235,16 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
                         f"Profile alias paths must be a single segment: {node.path}. "
                         "Raw provider model slugs are not valid URL4 paths."
                     )
-                alias_resolver = getattr(plugin, "resolve_backend_alias_profile", None)
-                if callable(alias_resolver):
-                    alias_resolver(suffix, base_path=base_path, app=app)
+                alias_profile = None
+                alias_resolver_async = getattr(plugin, "resolve_backend_alias_profile_async", None)
+                if callable(alias_resolver_async):
+                    alias_profile = await cast(Callable[..., Awaitable[Any]], alias_resolver_async)(
+                        suffix, base_path=base_path, app=app
+                    )
+                elif callable(
+                    alias_resolver := getattr(plugin, "resolve_backend_alias_profile", None)
+                ):
+                    alias_profile = alias_resolver(suffix, base_path=base_path, app=app)
                 else:
                     alias_validator = getattr(plugin, "validate_backend_alias", None)
                     if callable(alias_validator):
@@ -244,15 +252,24 @@ async def _dispatch_backend_call(node: Url4BackendCall, app: Any, env: Env | Non
                 call_sources = sources_text
                 if getattr(plugin, "resolves_context_sources", False):
                     call_sources = await _resolve_context_sources(sources_text, app, env)
-                # `handle_backend_alias` lives on BackendApiPluginBase, not the base
-                # Plugin; fetch it by name so url4_executor stays free of a
-                # backend_api_base import (same duck-typing as the capability flag).
-                alias_handler = getattr(plugin, "handle_backend_alias", None)
-                if alias_handler is None:
-                    continue
-                result = await alias_handler(
-                    suffix, sources=call_sources, intent=intent_text, app=app, env=env
-                )
+                # Keep url4_executor dependency-neutral: resolved-profile handlers
+                # and legacy alias handlers are both duck-typed plugin hooks.
+                resolved_alias_handler = getattr(plugin, "handle_resolved_backend_alias", None)
+                if alias_profile is not None and callable(resolved_alias_handler):
+                    result = await cast(Callable[..., Awaitable[str]], resolved_alias_handler)(
+                        alias_profile,
+                        sources=call_sources,
+                        intent=intent_text,
+                        app=app,
+                        env=env,
+                    )
+                else:
+                    alias_handler = getattr(plugin, "handle_backend_alias", None)
+                    if alias_handler is None:
+                        continue
+                    result = await alias_handler(
+                        suffix, sources=call_sources, intent=intent_text, app=app, env=env
+                    )
                 set_span_attrs(
                     {"sf.backend_plugin": plugin.name, "url4.result_length": len(result)}
                 )

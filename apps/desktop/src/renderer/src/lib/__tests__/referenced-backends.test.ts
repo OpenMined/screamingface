@@ -19,8 +19,8 @@ describe('referencedBackends', () => {
     expect(referencedBackends('/python(/data/code/check_correct.py)!{}')).toEqual([]);
   });
   // SF-346: profile-alias form `/backend/<alias>` must still resolve to the
-  // backend. The `/name\b` word boundary already matches (existing behavior;
-  // locked here so a future regex change can't silently break alias detection).
+  // backend. Locked here so a future shared regex change can't silently break
+  // alias detection.
   it('detects the backend from an alias-form path (/huggingface/oss20b)', () => {
     expect(referencedBackends('/huggingface/oss20b($q)!answer')).toEqual(['huggingface']);
   });
