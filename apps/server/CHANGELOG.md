@@ -4,6 +4,18 @@ All notable changes to the ScreamingFace Server are documented here.
 This project follows [Semantic Versioning](https://semver.org/) and uses
 release tags of the form `server-v<version>`.
 
+## [0.3.0](https://github.com/OpenMined/screamingface/compare/server-v0.2.1...server-v0.3.0) (2026-07-02)
+
+
+### Features
+
+* **aigateway:** add Hugging Face provider (SF-345) ([#356](https://github.com/OpenMined/screamingface/issues/356)) ([c556e6c](https://github.com/OpenMined/screamingface/commit/c556e6ce29543f4611e64e1cc239020315070592))
+
+
+### Bug Fixes
+
+* start server container with sf run (SF-326) ([#345](https://github.com/OpenMined/screamingface/issues/345)) ([312ec8d](https://github.com/OpenMined/screamingface/commit/312ec8d11efa2e6755a4ee25d3b2533118794424))
+
 ## [0.2.1](https://github.com/OpenMined/screamingface/compare/server-v0.2.0...server-v0.2.1) (2026-06-24)
 
 
