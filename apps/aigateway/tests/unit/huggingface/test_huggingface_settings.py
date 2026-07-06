@@ -32,6 +32,11 @@ def test_router_api_base_default() -> None:
     assert HuggingFacePluginSettings().router_api_base == "https://router.huggingface.co/v1"
 
 
+def test_bill_to_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AIGW_HUGGINGFACE_BILL_TO", "OpenMinedFoundation")
+    assert HuggingFacePluginSettings().bill_to == "OpenMinedFoundation"
+
+
 def test_validator_accepts_suffix_and_bare_forms() -> None:
     assert (
         _validate_model_slug("huggingface/deepseek-ai/DeepSeek-R1:novita")

@@ -74,6 +74,13 @@ class HuggingFacePluginSettings(PluginSettings):
 
     default_models: list[str] = Field(default_factory=_default_model_slugs)
     router_api_base: str = _ROUTER_API_BASE
+    bill_to: str | None = Field(
+        default=None,
+        description=(
+            "Optional Hugging Face organization name for Inference Providers billing. "
+            "When set, gateway injects X-HF-Bill-To on router requests."
+        ),
+    )
 
     @field_validator("default_models")
     @classmethod

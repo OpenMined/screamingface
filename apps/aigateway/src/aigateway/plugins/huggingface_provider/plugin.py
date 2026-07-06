@@ -35,8 +35,13 @@ if TYPE_CHECKING:
     from aigateway.core.credential_blob.store import CredentialBlobStore
 
 # Caller-supplied copies of these are stripped before the gateway injects its own
-# credential, so a client can never smuggle auth material to the upstream router.
-_CLIENT_AUTH_HEADER_NAMES = {"authorization", "x-api-key", "proxy-authorization"}
+# provider-owned values, so a client can never smuggle auth/billing material upstream.
+_CLIENT_OWNED_HEADER_NAMES = {
+    "authorization",
+    "proxy-authorization",
+    "x-api-key",
+    "x-hf-bill-to",
+}
 
 
 def _credential_service_for(profile_name: str) -> str:
@@ -87,7 +92,7 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
             sanitized = {
                 key: value
                 for key, value in extra_headers.items()
-                if str(key).lower() not in _CLIENT_AUTH_HEADER_NAMES
+                if str(key).lower() not in _CLIENT_OWNED_HEADER_NAMES
             }
             if sanitized:
                 out["extra_headers"] = sanitized
@@ -99,6 +104,14 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         # Gateway-owned router base. routes/chat.py strips the caller's api_base
         # first, then we set our own; this keeps litellm on the request-local path.
         out["api_base"] = self.settings.router_api_base
+        # HF provider caps differ by backend; omitting max_tokens lets the router choose
+        # a provider-safe default instead of rejecting SF's generic 16k default.
+        out.pop("max_tokens", None)
+        bill_to = (self.settings.bill_to or "").strip()
+        if bill_to:
+            headers = dict(out.get("extra_headers") or {})
+            headers["X-HF-Bill-To"] = bill_to
+            out["extra_headers"] = headers
         return out
 
 

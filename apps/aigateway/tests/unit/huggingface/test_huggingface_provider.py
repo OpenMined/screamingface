@@ -17,6 +17,7 @@ from aigateway.plugins.huggingface_provider.plugin import (
     PLUGIN,
     HuggingFaceProviderPlugin,
 )
+from aigateway.plugins.huggingface_provider.settings import HuggingFacePluginSettings
 
 _ROUTER = "https://router.huggingface.co/v1"
 
@@ -120,13 +121,55 @@ def test_prepare_chat_body_strips_caller_credentials() -> None:
                 "Authorization": "Bearer attacker",
                 "X-Api-Key": "attacker",
                 "proxy-authorization": "attacker",
+                "X-HF-Bill-To": "attacker-org",
                 "X-Trace": "keep-me",
             },
         }
     )
     assert "api_key" not in out
-    # only the non-auth header survives (case-insensitive strip of auth names)
+    # only the non-sensitive header survives (case-insensitive strip)
     assert out["extra_headers"] == {"X-Trace": "keep-me"}
+
+
+def test_prepare_chat_body_injects_configured_bill_to() -> None:
+    plugin = HuggingFaceProviderPlugin(HuggingFacePluginSettings(bill_to="OpenMinedFoundation"))
+
+    out = plugin.prepare_chat_body(
+        {
+            "model": "huggingface/x/y:novita",
+            "messages": [],
+            "extra_headers": {"X-HF-Bill-To": "attacker-org", "X-Trace": "keep-me"},
+        }
+    )
+
+    assert out["extra_headers"] == {
+        "X-HF-Bill-To": "OpenMinedFoundation",
+        "X-Trace": "keep-me",
+    }
+
+
+def test_prepare_chat_body_omits_large_max_tokens() -> None:
+    out = PLUGIN.prepare_chat_body(
+        {
+            "model": "huggingface/google/gemma-2-2b-it:featherless-ai",
+            "messages": [],
+            "max_tokens": 16_000,
+        }
+    )
+
+    assert "max_tokens" not in out
+
+
+def test_prepare_chat_body_omits_safe_max_tokens() -> None:
+    out = PLUGIN.prepare_chat_body(
+        {
+            "model": "huggingface/google/gemma-2-2b-it:featherless-ai",
+            "messages": [],
+            "max_tokens": 256,
+        }
+    )
+
+    assert "max_tokens" not in out
 
 
 def test_prepare_chat_body_drops_all_auth_headers_leaves_none() -> None:
