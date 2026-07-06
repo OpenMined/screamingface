@@ -6,6 +6,7 @@ from tortoise import Tortoise
 
 from aigateway.core.credential_blob.store import ORMStore
 from aigateway.core.secrets.local import LocalSecretStore
+from aigateway.core.secrets.mixin import SecretDecryptionError
 from aigateway.db import build_tortoise_config
 
 _TEST_KEY = bytes(range(32))
@@ -63,6 +64,46 @@ async def test_orm_store_reads_legacy_plaintext(credential_blobs, orm_store) -> 
     raw = credential_blobs.read_raw("legacy", "account")
     assert raw.startswith("v1:")
     assert await orm_store.read("legacy", "account") == legacy
+
+
+@pytest.mark.asyncio
+async def test_orm_store_rejects_versioned_row_with_missing_ciphertext_prefix(
+    credential_blobs,
+    orm_store,
+) -> None:
+    credential_blobs.write_raw(
+        "svc",
+        "acct",
+        "prefix-damaged-ciphertext",
+        ciphertext_version="v1",
+    )
+
+    with pytest.raises(SecretDecryptionError) as exc_info:
+        await orm_store.read("svc", "acct")
+
+    message = str(exc_info.value)
+    assert "svc" in message
+    assert "acct" in message
+    assert "v1" in message
+    assert "AIGATEWAY_SECRET_KEY" in message
+
+
+@pytest.mark.asyncio
+async def test_orm_store_wrong_key_error_names_affected_credential(
+    credential_blobs,
+    orm_store,
+) -> None:
+    await orm_store.write("svc", "acct", "super-secret-value")
+    wrong_key_store = ORMStore(secret_store=LocalSecretStore(b"z" * 32))
+
+    with pytest.raises(SecretDecryptionError) as exc_info:
+        await wrong_key_store.read("svc", "acct")
+
+    message = str(exc_info.value)
+    assert "svc" in message
+    assert "acct" in message
+    assert "AIGATEWAY_SECRET_KEY" in message
+    assert "super-secret-value" not in message
 
 
 @pytest.mark.asyncio

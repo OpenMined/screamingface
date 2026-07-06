@@ -146,10 +146,13 @@ async def _lifespan(app):
             credential_store,
             app.state.settings.jwt_secret,
         )
-        admin = await ensure_admin_account(app.state.settings.admin_password)
-        bootstrap_account_id = (
-            str(admin.id) if app.state.settings.auth_enabled else str(ANONYMOUS_ACCOUNT_ID)
-        )
+        if app.state.settings.auth_enabled or app.state.settings.admin_password is not None:
+            admin = await ensure_admin_account(app.state.settings.admin_password)
+            bootstrap_account_id = (
+                str(admin.id) if app.state.settings.auth_enabled else str(ANONYMOUS_ACCOUNT_ID)
+            )
+        else:
+            bootstrap_account_id = str(ANONYMOUS_ACCOUNT_ID)
 
         # Provider startup bootstrap is opt-in.
         # By default the gateway boots with an empty profile index so the user

@@ -1,5 +1,7 @@
+import logging
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 
 from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
@@ -7,10 +9,15 @@ from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
 from tests.conftest import _prepare_sqlite_db
 
 
-def _configure_app_db(monkeypatch, tmp_path) -> None:
+def _configure_app_db(
+    monkeypatch, tmp_path, *, admin_password: str | None = "test-admin-password"
+) -> None:
     database_url = f"sqlite://{tmp_path / 'aigateway.sqlite3'}"
     monkeypatch.setenv("AIGATEWAY_DATABASE_URL", database_url)
-    monkeypatch.setenv("AIGATEWAY_ADMIN_PASSWORD", "test-admin-password")
+    if admin_password is None:
+        monkeypatch.delenv("AIGATEWAY_ADMIN_PASSWORD", raising=False)
+    else:
+        monkeypatch.setenv("AIGATEWAY_ADMIN_PASSWORD", admin_password)
     monkeypatch.setenv("AIGATEWAY_JWT_SECRET", "x" * 32)
     monkeypatch.setenv("AIGATEWAY_PROVISIONING_TOKEN", "p" * 32)
     _prepare_sqlite_db(database_url)
@@ -109,3 +116,37 @@ def test_lifespan_bootstraps_disabled_auth_under_anonymous_account(monkeypatch, 
 
     assert mock_bootstrap.call_count == 1
     assert mock_bootstrap.call_args.kwargs["account_id"] == str(ANONYMOUS_ACCOUNT_ID)
+
+
+def test_lifespan_auth_enabled_requires_configured_admin_password(monkeypatch, tmp_path) -> None:
+    _configure_app_db(monkeypatch, tmp_path, admin_password=None)
+
+    from aigateway import main as main_module
+
+    app = main_module.create_app()
+    with pytest.raises(RuntimeError, match="AIGATEWAY_ADMIN_PASSWORD"):
+        with TestClient(app):
+            pass
+
+
+def test_lifespan_auth_disabled_without_admin_password_does_not_log_secret(
+    monkeypatch,
+    tmp_path,
+    caplog,
+) -> None:
+    monkeypatch.setenv("AIGATEWAY_AUTH_ENABLED", "0")
+    _configure_app_db(monkeypatch, tmp_path, admin_password=None)
+
+    from aigateway import main as main_module
+
+    app = main_module.create_app()
+    with caplog.at_level(logging.WARNING):
+        with TestClient(
+            app,
+            base_url="http://127.0.0.1:9105",
+            client=("127.0.0.1", 50000),
+        ) as client:
+            resp = client.get("/v1/auth/me")
+
+    assert resp.status_code == 200
+    assert not any("Bootstrap admin password" in record.getMessage() for record in caplog.records)
