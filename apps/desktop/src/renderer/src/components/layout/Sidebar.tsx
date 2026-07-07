@@ -4,6 +4,7 @@ import {
   Settings,
   Puzzle,
   Terminal,
+  Trophy,
   Workflow,
   FileCode2,
   FileText,
@@ -20,6 +21,7 @@ export type View =
   | 'dashboard'
   | 'sessions'
   | 'eval-studio'
+  | 'leaderboard'
   | 'url4-studio'
   | 'code-studio'
   | 'private-data'
@@ -37,6 +39,7 @@ const coreItems: NavItem[] = [
   { id: 'url4-studio', label: 'URL4 Studio', icon: Workflow },
   { id: 'sessions', label: 'Sessions', icon: Terminal },
   { id: 'eval-studio', label: 'Eval Studio', icon: FlaskConical },
+  { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
   { id: 'code-studio', label: 'Code Studio', icon: FileCode2 },
   { id: 'private-data', label: 'Private Data', icon: FileText },
 ];

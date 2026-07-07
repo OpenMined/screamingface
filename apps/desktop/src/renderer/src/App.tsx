@@ -4,6 +4,7 @@ import type { View } from '@/components/layout/Sidebar';
 import { DashboardView } from '@/views/DashboardView';
 import { SessionsView } from '@/views/SessionsView';
 import { EvalStudioView } from '@/views/EvalStudioView';
+import { LeaderboardView } from '@/views/LeaderboardView';
 import { Url4StudioView } from '@/views/Url4StudioView';
 import { CodeStudioView } from '@/views/CodeStudioView';
 import { PrivateDataView } from '@/views/PrivateDataView';
@@ -79,6 +80,7 @@ export function App() {
         <EvalStudioView pendingRun={pendingRun} onPendingConsumed={() => setPendingRun(null)} />
       );
     }
+    if (currentView === 'leaderboard') return <LeaderboardView />;
     if (currentView === 'url4-studio') return <Url4StudioView />;
     if (currentView === 'code-studio') return <CodeStudioView />;
     if (currentView === 'private-data') return <PrivateDataView />;

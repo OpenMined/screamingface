@@ -57,6 +57,7 @@ describe('Sidebar nav order', () => {
       'URL4 Studio',
       'Sessions',
       'Eval Studio',
+      'Leaderboard',
       'Code Studio',
       'Private Data',
     ]);
