@@ -7,8 +7,9 @@ root `README.md` quickstart disagrees with this file, this file wins.
 ScreamingFace is three cooperating pieces:
 
 - **Desktop app** (`apps/desktop/`) — an Electron control plane. It owns the UI
-  (Settings, Eval Studio, URL4/Code Studio, Sessions) and **manages the local
-  server for you** (creates the venv, syncs deps, starts/stops the process).
+  (Settings, Eval Studio, Leaderboard, URL4/Code Studio, Sessions) and
+  **manages the local server for you** (creates the venv, syncs deps,
+  starts/stops the process).
 - **Local server** (`apps/server/`) — a FastAPI, plugin-based service that runs
   the URL4 engine, the per-provider frontends, and the Python runner. Reads
   `apps/server/sf.json`.
