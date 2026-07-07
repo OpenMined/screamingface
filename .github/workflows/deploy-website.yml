@@ -26,7 +26,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Prepare Pages artifact
         run: |
@@ -34,9 +34,9 @@ jobs:
           mkdir -p /tmp/sf-pages
           cp -R web/public/. /tmp/sf-pages/
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: /tmp/sf-pages
 
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5
         id: deployment

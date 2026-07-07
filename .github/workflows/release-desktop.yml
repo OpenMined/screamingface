@@ -19,7 +19,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -58,9 +58,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
@@ -89,7 +89,7 @@ jobs:
         run: npx electron-builder --"$EB_PLATFORM" --"$EB_ARCH" --publish never
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.os }}-${{ matrix.arch }}
           path: |
@@ -103,15 +103,15 @@ jobs:
     needs: [verify, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.verify.outputs.tag }}
           name: ScreamingFace Desktop ${{ needs.verify.outputs.version }}
