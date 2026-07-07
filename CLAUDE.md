@@ -4,19 +4,18 @@
 An AI ensemble system combining Claude Code, Gemini CLI, Codex, and Ollama to beat SOTA benchmarks. Users install it locally, it routes coding CLI prompts through the best available models, and they can share AI credits with friends. Built by OpenMined.
 
 ## Monorepo Structure
-- `web/` — static marketing website (leaderboard chart, install flow)
-- `app/` — local Electron desktop app
-- `cloud/` — cloud webapp (Gates/token sharing UI, leaderboards)
+- `apps/server/` — FastAPI plugin server: URL4 ensemble engine, per-provider frontend proxies, Python sandbox runner, eval-run persistence
+- `apps/aigateway/` — LiteLLM-based AI Gateway: unified `/v1/chat/completions`, provider OAuth, encrypted credential storage
+- `apps/desktop/` — Electron desktop app (the control plane / UI users actually run)
+- `apps/scoreboard/` — public benchmark scoreboard service: leaderboard read/write API, serves the `web/portal` UI
+- `web/` — static marketing site (`web/public`) plus the benchmark/leaderboard portal (`web/portal`, vanilla JS/HTML/CSS, served by `apps/scoreboard`)
 - `personas/` — audience personas, research cohorts, and weighting guide
-- `brand/` — brand research (competitive landscape, design, SEO)
-- `docs/` — development plan, design guidance, internal docs
-  - **`docs/😱 Development Plan.docx`** — the original product development plan. Key reference for scope, phasing, and product decisions. A plain-text version is at `docs/devplan.txt`.
+- `docs/` — architecture, setup, and internal docs. Start with `docs/SETUP.md` (canonical setup guide) and `docs/ARCHITECTURE.md` (system overview)
 
-## The Four App Screens
-- **Settings** — configure which AI models are in the ensemble
-- **Spend** — view/manage token usage and cost across all models
-- **Eval Studio** — run benchmark evals against available models, view results
-- **Cache/Log** — browse, search, filter cached AI queries; delete entries; view stats
+Brand guidance lives externally at brand.screamingface.ai (pulled in via the `screamingface-design` skill), not as a repo folder. There is no `app/`, `cloud/`, or `brand/` directory in this repo.
+
+## Desktop App Screens
+Per `apps/desktop/src/renderer/src/components/layout/Sidebar.tsx`: Dashboard, URL4 Studio, Sessions, Eval Studio, Leaderboard, Code Studio, Private Data, plus Settings (pinned separately). This list has changed over time — check `Sidebar.tsx` directly rather than trusting this doc if it matters for your task.
 
 ## Team
 - **Bennett** — design lead
