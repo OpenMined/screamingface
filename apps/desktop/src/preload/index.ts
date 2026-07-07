@@ -54,6 +54,10 @@ const api: ElectronAPI = {
     openExternal: (url) => ipcRenderer.invoke('publish:openExternal', url),
     listBenchmarks: () => ipcRenderer.invoke('publish:listBenchmarks'),
   },
+  leaderboard: {
+    getLeaderboard: (benchmarkId, top?) =>
+      ipcRenderer.invoke('leaderboard:getLeaderboard', benchmarkId, top),
+  },
   backends: {
     getStatus: () => ipcRenderer.invoke('backends:getStatus'),
     getPollingError: () => ipcRenderer.invoke('backends:getPollingError'),

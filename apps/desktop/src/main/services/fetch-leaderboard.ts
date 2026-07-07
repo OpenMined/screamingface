@@ -6,42 +6,18 @@
 // SF-273).
 //
 // Returns null on ANY failure (unreachable, non-2xx incl. unknown-benchmark 404,
-// bad body) — this milestone has no consumer yet, so there is no need for
-// status-specific error surfacing; a later milestone's renderer hook can treat
-// "couldn't load" as a single state.
+// bad body) — there is no status-specific error surfacing; the renderer hook
+// treats "couldn't load" as a single state.
 //
-// OME-321, milestone 1: this function is intentionally unwired — no IPC channel,
-// no preload exposure, no UI. It only proves the fetch/mapping/error-handling
-// logic in isolation ahead of later milestones that make it reachable.
+// Types live in preload/types.ts (not here), matching KnownBenchmark's
+// convention, since leaderboard.ipc.ts's handler return type and the renderer
+// hook both need them across the IPC boundary.
 
 import { resolvePublishContext } from './publish-context';
 import { publishLog } from './publish-log';
+import type { LeaderboardBenchmark, LeaderboardEntry, LeaderboardData } from '../../preload/types';
 
 const TIMEOUT_MS = 8_000;
-
-export interface LeaderboardBenchmark {
-  id: string;
-  displayName: string;
-  description: string | null;
-  datasetUrl: string | null;
-}
-
-export interface LeaderboardEntry {
-  rank: number;
-  specId: string;
-  accuracy: number;
-  totalQuestions: number;
-  ranWithProviders: string[];
-  submittedAt: string;
-  submittedBy: string | null;
-  verifiedByOpenmined: boolean;
-  url4Expression: string;
-}
-
-export interface LeaderboardData {
-  benchmark: LeaderboardBenchmark;
-  entries: LeaderboardEntry[];
-}
 
 interface BenchmarkResponseBody {
   id?: unknown;

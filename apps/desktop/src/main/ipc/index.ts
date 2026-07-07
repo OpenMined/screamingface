@@ -6,6 +6,7 @@ import { registerSessionHandlers } from './session.ipc';
 import { registerBackendStatusHandlers } from './backend-status.ipc';
 import { registerAigwSessionHandlers } from './aigw-session.ipc';
 import { registerPublishHandlers } from './publish.ipc';
+import { registerLeaderboardHandlers } from './leaderboard.ipc';
 
 export function registerAllHandlers(): void {
   registerConfigHandlers();
@@ -16,4 +17,5 @@ export function registerAllHandlers(): void {
   registerAigwSessionHandlers();
   registerBackendStatusHandlers();
   registerPublishHandlers();
+  registerLeaderboardHandlers();
 }

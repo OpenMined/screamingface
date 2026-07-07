@@ -272,6 +272,33 @@ export interface KnownBenchmark {
   displayName: string;
 }
 
+/** A benchmark's descriptive fields as returned alongside a leaderboard (GET /v1/leaderboard/{id}). */
+export interface LeaderboardBenchmark {
+  id: string;
+  displayName: string;
+  description: string | null;
+  datasetUrl: string | null;
+}
+
+/** One ranked leaderboard row (GET /v1/leaderboard/{id}). */
+export interface LeaderboardEntry {
+  rank: number;
+  specId: string;
+  accuracy: number;
+  totalQuestions: number;
+  ranWithProviders: string[];
+  submittedAt: string;
+  submittedBy: string | null;
+  verifiedByOpenmined: boolean;
+  url4Expression: string;
+}
+
+/** The ranked leaderboard for one benchmark (GET /v1/leaderboard/{id}). */
+export interface LeaderboardData {
+  benchmark: LeaderboardBenchmark;
+  entries: LeaderboardEntry[];
+}
+
 export interface ElectronAPI {
   popup: {
     open: (url: string, title?: string) => Promise<void>;
@@ -331,6 +358,15 @@ export interface ElectronAPI {
      * when the registry is unreachable, so callers never show a false "unknown".
      */
     listBenchmarks: () => Promise<KnownBenchmark[] | null>;
+  };
+  leaderboard: {
+    /**
+     * Ranked leaderboard for a benchmark (GET /v1/leaderboard/{id}), fetched
+     * from the main process (exempt from renderer CORS, SF-273). Resolves to
+     * null when the benchmark is unknown (404), the scoreboard is
+     * unreachable, or the response is malformed.
+     */
+    getLeaderboard: (benchmarkId: string, top?: number) => Promise<LeaderboardData | null>;
   };
   backends: {
     getStatus: () => Promise<BackendStatusResponse>;
