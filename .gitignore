@@ -10,9 +10,6 @@ Thumbs.db
 node_modules/
 dist/
 build/
-!apps/desktop/build/
-apps/desktop/build/*
-!apps/desktop/build/icon.*
 
 # Python
 __pycache__/
@@ -37,3 +34,6 @@ release/
 # Playwright MCP session logs (transient)
 .playwright-mcp/
 .sdlc/
+
+# Local AI-agent scratch docs (plans/specs staging, not committed)
+.docs/

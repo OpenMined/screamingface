@@ -1,4 +1,0 @@
-collections/
-*.retry
-*.secret.yml
-kubeconfig*

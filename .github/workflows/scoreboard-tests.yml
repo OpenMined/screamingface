@@ -4,18 +4,10 @@ on:
   push:
     paths:
       - "apps/scoreboard/**"
-      - "web/portal/**"
-      - "web/tests/portal_smoke.py"
-      - "output_artifacts/eval_results/livetruth-latest.jsonl"
-      - "output_artifacts/eval_results/livetruth-masking.dataset.jsonl"
       - ".github/workflows/scoreboard-tests.yml"
   pull_request:
     paths:
       - "apps/scoreboard/**"
-      - "web/portal/**"
-      - "web/tests/portal_smoke.py"
-      - "output_artifacts/eval_results/livetruth-latest.jsonl"
-      - "output_artifacts/eval_results/livetruth-masking.dataset.jsonl"
       - ".github/workflows/scoreboard-tests.yml"
   workflow_dispatch:
 

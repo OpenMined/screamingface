@@ -32,21 +32,19 @@ def register_portal(app: FastAPI, settings: Settings) -> None:
     app.mount("/", StaticFiles(directory=portal_dir, html=True), name="portal")
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[4]
+def _app_root() -> Path:
+    return Path(__file__).resolve().parents[2]
 
 
 def _resolve_portal_dir(settings: Settings) -> Path:
-    portal_dir = settings.portal_dir or _repo_root() / "web" / "portal"
+    portal_dir = settings.portal_dir or _app_root() / "portal"
     if not portal_dir.is_dir():
         raise RuntimeError(f"portal directory not found: {portal_dir}")
     return portal_dir
 
 
 def _resolve_artifacts_dir(settings: Settings) -> Path:
-    artifacts_dir = (
-        settings.portal_artifacts_dir or _repo_root() / "output_artifacts" / "eval_results"
-    )
+    artifacts_dir = settings.portal_artifacts_dir or _app_root() / "artifacts"
     if not artifacts_dir.is_dir():
         raise RuntimeError(f"portal artifacts directory not found: {artifacts_dir}")
     return artifacts_dir
