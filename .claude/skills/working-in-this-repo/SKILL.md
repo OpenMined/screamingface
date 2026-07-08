@@ -19,10 +19,10 @@ ScreamingFace is a **polyglot monorepo** worked on by multiple developers concur
 
 ## 2. Current apps — the routing table
 
-| Component | Stack | Run / test / lint / typecheck | Gating CI | Release lane | Key guardrails |
-|---|---|---|---|---|---|
-| `apps/aigateway` | Python · uv · FastAPI (LiteLLM) | `uv run uvicorn aigateway.main:app --port 9105` · `uv run pytest` (live tests opt-in) · `uv run ruff check` · `uv run pyright` | `aigateway-tests.yml` (matrix 3.12/3.13) | release-please → `aigateway-v*` → `release-aigateway.yml` (GHCR image + Helm chart) | **Never import `litellm-enterprise`** (guarded by `scripts/check_no_enterprise.py`). Credentials via ORMStore/Tortoise `credential_blobs`, **no OS keychain**; secrets AES-256-GCM; master key `AIGATEWAY_SECRET_KEY` never stored/logged. See `apps/aigateway/CLAUDE.md`. |
-| `apps/scoreboard` | Python · uv · FastAPI | `uv run scoreboard` · `uv run pytest` · `uv run ruff check` · `uv run pyright` | `scoreboard-tests.yml` | **Manual** tag `scoreboard-v*` → `release-scoreboard.yml` (GHCR image + Helm; **not** in release-please) | Portal assets and public eval artifacts are app-local (`portal/`, `artifacts/`) — they ship inside the image. |
+| Component | Landing label | Stack | Run / test / lint / typecheck | Gating CI | Release lane | Key guardrails |
+|---|---|---|---|---|---|---|
+| `apps/aigateway` | `app/aigateway` | Python · uv · FastAPI (LiteLLM) | `uv run uvicorn aigateway.main:app --port 9105` · `uv run pytest` (live tests opt-in) · `uv run ruff check` · `uv run pyright` | `aigateway-tests.yml` (matrix 3.12/3.13) | release-please → `aigateway-v*` → `release-aigateway.yml` (GHCR image + Helm chart) | **Never import `litellm-enterprise`** (guarded by `scripts/check_no_enterprise.py`). Credentials via ORMStore/Tortoise `credential_blobs`, **no OS keychain**; secrets AES-256-GCM; master key `AIGATEWAY_SECRET_KEY` never stored/logged. See `apps/aigateway/CLAUDE.md`. |
+| `apps/scoreboard` | `app/scoreboard` | Python · uv · FastAPI | `uv run scoreboard` · `uv run pytest` · `uv run ruff check` · `uv run pyright` | `scoreboard-tests.yml` | **Manual** tag `scoreboard-v*` → `release-scoreboard.yml` (GHCR image + Helm; **not** in release-please) | Portal assets and public eval artifacts are app-local (`portal/`, `artifacts/`) — they ship inside the image. |
 
 **Owner / reviewer per path:** see `.github/CODEOWNERS`. This skill deliberately does not hardcode owners — read them from one place.
 
@@ -56,8 +56,8 @@ Bring whatever stack fits; satisfy this **invariant contract** so the coordinati
 
 ## 6. Branch / commit / PR / merge
 
-- **Branch:** `SF-{n}-{description}`, `n` = the Asana `SF` field (auto-assigned; don't invent one). Never commit to `main`.
-- **Commit:** `SF-N: summary` or `feat(SF-N): …`; put the Asana permalink in the body; **no `Co-Authored-By`** lines.
+- **Branch:** `OME-N-<description>`, `N` = the Linear work-item number (file the item per the `task-management` skill; registry `.claude/task-board.local.md`). Never commit to `main`.
+- **Commit:** conventional (`feat: …`, `fix: …`); body carries `Refs: OME-N`; **no `Co-Authored-By`** lines.
 - **Keep current:** rebase on `origin/main` (don't merge `main` into your branch); force-push only your own branch.
 - **Merge:** squash-merge; the author merges after review approval + green required checks.
 - **Checks are path-dependent.** Live tests (`AIGW_LIVE=1`) are opt-in diagnostics, **not** merge gates.
@@ -68,6 +68,8 @@ Bring whatever stack fits; satisfy this **invariant contract** so the coordinati
 
 - **Setup / run-from-source:** `CONTRIBUTING.md`
 - **Per-app guardrails:** `apps/*/CLAUDE.md`
-- **Decision records / plans / specs:** `docs/`
+- **Work items / ticket lifecycle:** the `task-management` skill + `.claude/task-board.local.md`
+- **Per-stack dev loop:** the `sdlc-python` / `sdlc-electron` skills + `.claude/sdlc.local.md`
+- **Decision records & SDLC artifacts:** `docs/` (see `docs/README.md`)
 - **Brand / UI law:** the `screamingface-design` skill
 - **Legacy reference (desktop, server, url4 engine, web, infra):** tag `legacy-monorepo-2026-07-08`
