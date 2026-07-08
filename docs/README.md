@@ -6,10 +6,10 @@ by/with AI agents:
 - `docs/spec/`     — designs/specs (required before planning)
 - `docs/plan/`     — implementation plans (required before implementation)
 - `docs/diagrams/` — diagram assets (SVG source + PNG)
-- `docs/tasks/`    — work-item mirrors (arrive with the AI SDLC implementation)
-- `docs/work/`     — work ledgers (arrive with the AI SDLC implementation)
+- `docs/tasks/`    — work-item mirrors (`YYYY-MM-DD-<name>.md`, frontmatter; Linear is authority)
+- `docs/work/`     — work ledgers (`YYYY-MM-DD-<ticket-id>-<desc>.md`, created at work start; copy `TEMPLATE.md`)
 
-Process: `docs/spec/2026-07-08-ai-sdlc-adoption-spec.md` + its plan in `docs/plan/`.
+Process: the `task-management` + `sdlc-*` skills, the cards in `.claude/`, and CLAUDE.md "AI SDLC".
 Local scratch drafts that shouldn't be committed go to `.docs/` (gitignored).
 
 The previous `docs/` tree (architecture, setup, glossary, superpowers plans)
