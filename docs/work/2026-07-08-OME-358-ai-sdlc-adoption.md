@@ -22,7 +22,7 @@ loop.
 - `docs/tasks/`, `docs/work/` (+ `TEMPLATE.md`), this mirror + ledger; `docs/README.md`
 - `CLAUDE.md` — AI SDLC rules 0–7 replace the Asana git workflow
 - `.claude/skills/asana-product/`, `.claude/skills/task-management/`,
-  `.claude/skills/sdlc-python/`, `.claude/skills/sdlc-react/`
+  `.claude/skills/sdlc-python/`, `.claude/skills/sdlc-electron/`
 - `.claude/agents/sdlc-unit-executor.md`, `.claude/agents/ticket-filer.md`
 - `.claude/scripts/run_gates.py`, `.claude/scripts/check_loop_parity.py`
 - `.github/workflows/repo-checks.yml`
@@ -30,9 +30,9 @@ loop.
 
 ## Test plan
 
-- `check_loop_parity.py` → LOOP PARITY OK (sdlc-python ↔ sdlc-react SHARED-LOOP regions)
+- `check_loop_parity.py` → LOOP PARITY OK (sdlc-python ↔ sdlc-electron SHARED-LOOP regions)
 - `run_gates.py aigateway` and `run_gates.py scoreboard` → ALL GATES GREEN
-- Stale-reference grep (SF-{n}/Asana workflow/old paths) → zero hits outside spec/plan
+- Stale-reference grep (legacy Asana-workflow strings, old paths) → zero hits outside spec/plan
 - Linear round-trip already exercised live: labels, epic OME-358 + sub-issues, state moves
 
 ## Acceptance
@@ -43,8 +43,17 @@ loop.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, plus: CONTRIBUTING.md git-workflow section (Linear flow —
+  found by the sweep), docs/README.md, docs/spec + docs/plan updates (taxonomy lock,
+  sdlc-electron rename, MCP-only transport).
+- **Commits:** 75f5254 (taxonomy lock), 51c62af (cards), faf315e (docs tree),
+  2313367 (CLAUDE.md rules), 6ccbd19 (skill set), 132f79c (agents/scripts/CI/routing),
+  + this verification commit.
+- **Gates:** run_gates.py aigateway → ALL GATES GREEN (ruff, format, pyright,
+  no-enterprise guard, pytest-cov≥80); run_gates.py scoreboard → ALL GATES GREEN;
+  check_loop_parity.py → LOOP PARITY OK.
 - **Deviations:** work-ledger TEMPLATE adapted from the sdlc plugin (Linear ticket field +
-  D8 frontmatter instead of repo#N).
+  D8 frontmatter instead of repo#N); sdlc-react transformed to sdlc-electron (owner
+  decision mid-implementation); STOPs use existing `blocked ⛔` label instead of a new
+  `blocked` label; taxonomy aligned with the pre-existing Epic-group workstreams instead
+  of a `com/*` axis.

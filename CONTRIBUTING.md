@@ -61,15 +61,18 @@ Gateway-specific:
 
 ## Git workflow
 
-- **Branch naming:** `SF-{n}-{description}` (e.g. `SF-344-contributing-guide`),
-  where `{n}` is the Asana ticket's `SF` number.
+- **Work item first.** Every unit of work is a Linear issue (`OME-N`) — see the
+  `task-management` skill and the "AI SDLC" section of [`CLAUDE.md`](CLAUDE.md).
+- **Branch naming:** `OME-N-<description>` (e.g. `OME-12-fix-refresh`), where
+  `N` is the Linear work-item number.
 - **Never commit directly to `main`.** The `.githooks/pre-commit` hook (enabled
   above) blocks it; branch protection enforces it remotely.
 - **Conventional commits.** Use `feat:`, `fix:`, `docs:`, `chore:` etc. —
   release-please derives version bumps and changelogs from them (`feat:` →
-  minor, `fix:` → patch; `docs:`/`chore:` don't bump).
+  minor, `fix:` → patch; `docs:`/`chore:` don't bump). The body carries
+  `Refs: OME-N`.
 - **PRs:** squash-merge after review approval + green required checks. Include
-  the Asana permalink, a summary, and a test plan in the body.
+  the Linear work-item link, a summary, and a test plan in the body.
 - **Architecture is enforced.** DRY/SOLID/hexagonal are mandatory — see the
   "Architecture Principles" section of [`CLAUDE.md`](CLAUDE.md).
 
