@@ -1,7 +1,7 @@
 ---
 id: OME-358
 linear_url: https://linear.app/openmined/issue/OME-358/ai-sdlc-adoption-linear-work-items-repo-skills-docs-artifacts
-status: in_progress
+status: in_review
 type: epic
 priority: P1
 labels: [repo, agentic, autonomous]
