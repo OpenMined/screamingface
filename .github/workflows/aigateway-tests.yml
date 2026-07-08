@@ -27,11 +27,11 @@ jobs:
         working-directory: apps/aigateway
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.3.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -79,7 +79,7 @@ jobs:
         run: uv run pytest -m needs_postgres -v
 
       - name: Test report
-        uses: dorny/test-reporter@v2
+        uses: dorny/test-reporter@v3
         if: always()
         with:
           name: AI Gateway Test Results (${{ matrix.python-version }})
@@ -87,7 +87,7 @@ jobs:
           reporter: java-junit
 
       - name: Coverage report
-        uses: orgoro/coverage@v3.2
+        uses: orgoro/coverage@v3.3
         if: always() && github.event_name == 'pull_request'
         with:
           coverageFile: apps/aigateway/coverage.xml
