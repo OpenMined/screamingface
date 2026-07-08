@@ -130,8 +130,10 @@ Changes:
   name only the adopted pair; card-missing wording → restore from git.
 - `sdlc-electron` extends the source sdlc-react stack sections: main/preload/renderer
   process model, both-side IPC contract testing (rule S2), strict-TS at IPC boundaries,
-  security posture (contextIsolation on, nodeIntegration off, external HTTP in main only),
-  a11y gate retained (rule S1).
+  the **official Electron security checklist encoded** (contextIsolation/sandbox on,
+  nodeIntegration/webSecurity-off forbidden, IPC sender validation, permission handler +
+  CSP, navigation/window-open restriction, shell.openExternal hygiene, https-only,
+  current Electron; external HTTP in main only), a11y gate retained (rule S1).
 
 ### 2.4 `working-in-this-repo` (update, same change)
 §6 branch/PR rules → Linear flow (branch `OME-N-<desc>`, `Refs: OME-N` in commit body);

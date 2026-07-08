@@ -91,9 +91,21 @@ every cycle.
   typed preload bridge) with typed payloads.
 - **Strict TypeScript:** no `any` at boundaries — especially IPC payloads and the preload
   API surface.
-- **Security posture is non-negotiable:** `contextIsolation: true`,
-  `nodeIntegration: false`, no `remote`. **All external HTTP runs in the main process** —
-  the renderer reaches the network only via typed IPC (CORS + credential hygiene).
+- **Security posture is non-negotiable** — the official Electron security checklist
+  (electronjs.org/docs/latest/tutorial/security) is encoded here:
+  - `contextIsolation: true` · `nodeIntegration: false` · `sandbox: true` · never disable
+    `webSecurity` · never enable `allowRunningInsecureContent` or experimental features ·
+    no `<webview>` without `will-attach-webview` verification.
+  - **Validate the sender of every IPC message** in main-process handlers
+    (`event.senderFrame` against a URL allowlist) — an unvalidated handler is a
+    privileged-action hole.
+  - `session.setPermissionRequestHandler` set, deny-by-default; a **CSP** is defined
+    (headers via `onHeadersReceived` or meta tag).
+  - Navigation restricted (`will-navigate`) and window creation controlled
+    (`setWindowOpenHandler`); never pass untrusted input to `shell.openExternal`.
+  - Remote content only over `https:`/`wss:`; Electron stays on a current version.
+  - **All external HTTP runs in the main process** — the renderer reaches the network only
+    via typed IPC (CORS + credential hygiene).
 - **Gate categories the card's `gates:` must cover:** typecheck (tsc) · lint · format · test
   (full suite) · **a11y** (jest-axe / Testing-Library a11y assertions) · coverage. a11y is a
   GATE, not a nicety.
@@ -181,6 +193,8 @@ a finding to surface, not a thing to quietly edit.
 - All render states (loading/empty/error/success) covered? a11y assertions present (S1)?
 - Any `any` at a boundary — IPC payload, preload surface, external API response?
 - New/changed IPC channel → typed contract + both-side tests in this same iteration (S2)?
+- New IPC handler → is the sender validated (`senderFrame` allowlist)?
+- New window / navigation / external-link path → restricted per the checklist?
 - Any external HTTP or Node API creeping into the renderer?
 
 ## Stack red flags — Electron
@@ -190,6 +204,8 @@ a finding to surface, not a thing to quietly edit.
 | `any` at a boundary / `eslint-disable` to move on. | STOP. Fix the types/code, or ask. |
 | Asserting on implementation details. | STOP. Test behavior and roles. |
 | Disabling or skipping an a11y check. | STOP (S1). a11y is a gate. |
-| `nodeIntegration: true` / `contextIsolation: false` "to make it work". | HARD STOP. Security posture is non-negotiable — ask. |
+| `nodeIntegration: true` / `contextIsolation: false` / `sandbox: false` / `webSecurity: false` "to make it work". | HARD STOP. Security posture is non-negotiable — ask. |
 | External HTTP (or Node APIs) in the renderer. | STOP. Route via the main process over typed IPC. |
 | New IPC channel without its contract + both-side tests. | STOP (S2). Land them in the same iteration. |
+| `ipcMain` handler without sender validation (`senderFrame`). | STOP. Validate against the allowlist first. |
+| Untrusted input to `shell.openExternal` / unrestricted `will-navigate` / `setWindowOpenHandler`. | STOP. Restrict per the security checklist. |
