@@ -1,9 +1,9 @@
 ---
 ticket: OME-358
 stack: repo
-status: in_progress
+status: done
 started: 2026-07-08
-finished:
+finished: 2026-07-08
 ---
 
 # OME-358 — Adopt the Linear AI SDLC (skills, cards, agents, scripts, CI)
@@ -46,9 +46,12 @@ loop.
 - **Actual files:** as planned, plus: CONTRIBUTING.md git-workflow section (Linear flow —
   found by the sweep), docs/README.md, docs/spec + docs/plan updates (taxonomy lock,
   sdlc-electron rename, MCP-only transport).
-- **Commits:** 75f5254 (taxonomy lock), 51c62af (cards), faf315e (docs tree),
-  2313367 (CLAUDE.md rules), 6ccbd19 (skill set), 132f79c (agents/scripts/CI/routing),
-  + this verification commit.
+- **Commits:** squash-merged as `21da64a` (#376). Branch constituents: 75f5254 (taxonomy
+  lock), 51c62af (cards), faf315e (docs tree), 2313367 (CLAUDE.md rules), 6ccbd19 (skill
+  set), a4eb053 (Electron security checklist), f601896 (tortoise-dev mandate),
+  132f79c (agents/scripts/CI/routing), d55e0e8 (CONTRIBUTING/ledger), 0f8a563 (guide +
+  distilled CLAUDE.md), 7e328b7 (OME-363 mirror), d78804d (gitignore). Sub-issue mirrors
+  landed post-merge via the close-out PR (raced the squash).
 - **Gates:** run_gates.py aigateway → ALL GATES GREEN (ruff, format, pyright,
   no-enterprise guard, pytest-cov≥80); run_gates.py scoreboard → ALL GATES GREEN;
   check_loop_parity.py → LOOP PARITY OK.

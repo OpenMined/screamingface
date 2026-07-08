@@ -1,12 +1,12 @@
 ---
 id: OME-358
 linear_url: https://linear.app/openmined/issue/OME-358/ai-sdlc-adoption-linear-work-items-repo-skills-docs-artifacts
-status: in_progress
+status: done
 type: epic
 priority: P1
 labels: [repo, agentic, autonomous]
 created: 2026-07-08
-closed:
+closed: 2026-07-08
 ---
 
 Adopt the Linear AI SDLC per `docs/spec/2026-07-08-ai-sdlc-adoption-spec.md`, implemented
