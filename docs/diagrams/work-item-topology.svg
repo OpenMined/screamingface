@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1000" font-family="JetBrains Mono, Menlo, SF Mono, monospace">
+  <style>
+    text { font-family: 'JetBrains Mono','Menlo','SF Mono',monospace; fill:#e2e8f0;
+           paint-order: stroke fill; stroke: rgba(2,6,23,0.75); stroke-width:1px; }
+    .title { font-size:20px; font-weight:700; }
+    .sub   { font-size:11px; fill:#94a3b8; }
+    .keyl  { font-size:13px; font-weight:700; text-anchor:middle; }
+    .key   { font-size:16px; font-weight:700; text-anchor:middle; }
+    .dir   { font-size:9px;  fill:#94a3b8; text-anchor:middle; }
+    .note  { font-size:8px;  fill:#64748b; text-anchor:middle; }
+    .chipt { font-size:10px; }
+    .chipk { font-size:8px;  fill:#94a3b8; }
+    .tick  { font-size:10px; text-anchor:middle; }
+    .leg   { font-size:10px; fill:#cbd5e1; }
+    .legh  { font-size:11px; font-weight:700; }
+    .chip  { fill: rgba(15,23,42,0.92); stroke: rgba(148,163,184,0.75); stroke-width:1; }
+  </style>
+
+  <!-- background -->
+  <rect x="0" y="0" width="1500" height="1000" fill="#020617"/>
+
+  <!-- title -->
+  <text class="title" x="40" y="52">Work-item topology — one ID stream × label matrix</text>
+  <text class="sub" x="40" y="76">ScreamingFace AI SDLC · ONE team, one sequence: every work item is OM-N · labels app/* pkg/* com/* place the work · ≥2 apps/packages → cross-component epic (D9)</text>
+
+  <!-- ================= app/pkg label columns ================= -->
+  <!-- col 1: app/scoreboard (live) -->
+  <rect x="60" y="140" width="250" height="624" rx="8" fill="rgba(6,78,59,0.22)" stroke="#34d399" stroke-width="1.5"/>
+  <rect class="chip" x="72" y="152" width="36" height="16" rx="3"/>
+  <text class="chipk" x="79" y="164">APP</text>
+  <text class="keyl" x="185" y="185">app/scoreboard</text>
+  <text class="dir" x="185" y="204">Scoreboard</text>
+
+  <!-- col 2: app/desktop (future) -->
+  <rect x="350" y="140" width="250" height="624" rx="8" fill="rgba(6,78,59,0.12)" stroke="#34d399" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <rect class="chip" x="362" y="152" width="36" height="16" rx="3"/>
+  <text class="chipk" x="369" y="164">APP</text>
+  <rect class="chip" x="524" y="152" width="64" height="16" rx="3"/>
+  <text class="chipk" x="533" y="164">future</text>
+  <text class="keyl" x="475" y="185">app/desktop</text>
+  <text class="dir" x="475" y="204">Desktop app</text>
+  <text class="note" x="475" y="219">label created at name lock</text>
+
+  <!-- col 3: pkg/url4-python-sdk (future) -->
+  <rect x="640" y="140" width="250" height="624" rx="8" fill="rgba(76,29,149,0.20)" stroke="#a78bfa" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <rect class="chip" x="652" y="152" width="36" height="16" rx="3"/>
+  <text class="chipk" x="659" y="164">PKG</text>
+  <rect class="chip" x="814" y="152" width="64" height="16" rx="3"/>
+  <text class="chipk" x="823" y="164">future</text>
+  <text class="keyl" x="765" y="185">pkg/url4-python-sdk</text>
+  <text class="dir" x="765" y="204">url4 Python SDK</text>
+  <text class="note" x="765" y="219">publishes as `url4` on PyPI</text>
+
+  <!-- col 4: app/cli (future) -->
+  <rect x="930" y="140" width="250" height="624" rx="8" fill="rgba(6,78,59,0.12)" stroke="#34d399" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <rect class="chip" x="942" y="152" width="36" height="16" rx="3"/>
+  <text class="chipk" x="949" y="164">APP</text>
+  <rect class="chip" x="1104" y="152" width="64" height="16" rx="3"/>
+  <text class="chipk" x="1113" y="164">future</text>
+  <text class="keyl" x="1055" y="185">app/cli</text>
+  <text class="dir" x="1055" y="204">Server CLI (PyPI)</text>
+  <text class="note" x="1055" y="219">label created at name lock</text>
+
+  <!-- col 5: app/aigateway (live) -->
+  <rect x="1220" y="140" width="250" height="624" rx="8" fill="rgba(6,78,59,0.22)" stroke="#34d399" stroke-width="1.5"/>
+  <rect class="chip" x="1232" y="152" width="36" height="16" rx="3"/>
+  <text class="chipk" x="1239" y="164">APP</text>
+  <text class="keyl" x="1345" y="185">app/aigateway</text>
+  <text class="dir" x="1345" y="204">AI Gateway</text>
+
+  <!-- ================= com/* label bands (cross-component work) ================= -->
+
+  <!-- com/evalstudio: spans scoreboard + desktop -->
+  <rect x="45" y="310" width="570" height="80" rx="10" fill="rgba(34,211,238,0.14)" stroke="#22d3ee" stroke-width="1.5"/>
+  <rect class="chip" x="58" y="322" width="220" height="20" rx="3"/>
+  <text class="chipt" x="66" y="336" fill="#22d3ee">com/evalstudio · Eval Studio</text>
+  <text class="note" x="330" y="372">spans scoreboard + desktop</text>
+
+  <!-- com/url4: spans desktop + sdk + cli, with epic + sub-issues -->
+  <rect x="335" y="430" width="860" height="130" rx="10" fill="rgba(251,113,133,0.13)" stroke="#fb7185" stroke-width="1.5"/>
+  <rect class="chip" x="348" y="442" width="150" height="20" rx="3"/>
+  <text class="chipt" x="356" y="456" fill="#fb7185">com/url4 · url4</text>
+
+  <!-- epic chip -->
+  <rect class="chip" x="710" y="442" width="110" height="22" rx="3"/>
+  <text class="tick" x="765" y="457" fill="#fb7185">OM-7 · epic</text>
+
+  <!-- fan-out to per-app/pkg sub-issues -->
+  <path d="M 740 464 Q 615 495 485 528" fill="none" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="4,4"/>
+  <path d="M 765 464 L 765 528" fill="none" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="4,4"/>
+  <path d="M 790 464 Q 915 495 1045 528" fill="none" stroke="#fb7185" stroke-width="1.2" stroke-dasharray="4,4"/>
+
+  <!-- sub-issue chips at intersections -->
+  <rect class="chip" x="437" y="528" width="76" height="22" rx="3"/>
+  <text class="tick" x="475" y="543">OM-9</text>
+  <rect class="chip" x="727" y="528" width="76" height="22" rx="3"/>
+  <text class="tick" x="765" y="543">OM-3</text>
+  <rect class="chip" x="1017" y="528" width="76" height="22" rx="3"/>
+  <text class="tick" x="1055" y="543">OM-12</text>
+  <text class="note" x="765" y="576" fill="#fb7185">epic OM-7 carries com/url4 + all affected app/pkg labels · one sub-issue per affected app/package (one SDLC unit each)</text>
+
+  <!-- com/ensemble: spans cli + aigateway -->
+  <rect x="915" y="620" width="560" height="80" rx="10" fill="rgba(251,146,60,0.13)" stroke="#fb923c" stroke-width="1.5"/>
+  <rect class="chip" x="928" y="632" width="214" height="20" rx="3"/>
+  <text class="chipt" x="936" y="646" fill="#fb923c">com/ensemble · Ensemble</text>
+  <text class="note" x="1195" y="682">spans cli + aigateway</text>
+
+  <!-- single-app work items -->
+  <rect class="chip" x="150" y="712" width="70" height="22" rx="3"/>
+  <text class="tick" x="185" y="727">OM-58</text>
+  <text class="note" x="185" y="750">single-app work · label app/scoreboard</text>
+  <rect class="chip" x="1307" y="712" width="76" height="22" rx="3"/>
+  <text class="tick" x="1345" y="727">OM-321</text>
+  <text class="note" x="1345" y="750">single-app work · label app/aigateway</text>
+
+  <!-- ================= bottom: repo label + rules legend ================= -->
+  <rect x="60" y="810" width="250" height="150" rx="8" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="key" x="185" y="845">repo</text>
+  <text class="dir" x="185" y="866">label · process work</text>
+  <text class="note" x="185" y="890">no app/pkg label:</text>
+  <text class="note" x="185" y="905">SDLC adoption, name lock-down,</text>
+  <text class="note" x="185" y="920">CI plumbing, conventions</text>
+
+  <rect x="350" y="810" width="1120" height="150" rx="8" fill="rgba(15,23,42,0.6)" stroke="rgba(148,163,184,0.5)" stroke-width="1"/>
+  <text class="legh" x="374" y="840">Rules</text>
+  <text class="leg" x="374" y="866">• Every work item = OM-N — one team, one sequence · labels place the work, the ID doesn't</text>
+  <text class="leg" x="374" y="890">• app/[name] · pkg/[name] → where it lands (multi-value) · com/[name] → product component · repo → process work</text>
+  <text class="leg" x="374" y="914">• D9: ≥2 app/pkg labels → cross-component epic (com/X + all affected labels) + one sub-issue per affected app/package</text>
+  <text class="leg" x="374" y="938">• type/* and who-acts are Linear label groups (one per issue) · label registry: .claude/task-board.local.md</text>
+</svg>

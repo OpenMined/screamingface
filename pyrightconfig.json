@@ -1,7 +1,0 @@
-{
-  "include": ["apps/server/src", "apps/server/tests"],
-  "venvPath": "apps/server",
-  "venv": ".venv",
-  "pythonVersion": "3.12",
-  "typeCheckingMode": "basic"
-}
