@@ -89,6 +89,29 @@ async def test_orm_store_rejects_versioned_row_with_missing_ciphertext_prefix(
 
 
 @pytest.mark.asyncio
+async def test_orm_store_rejects_versioned_row_from_different_secret_provider(
+    credential_blobs,
+    orm_store,
+) -> None:
+    credential_blobs.write_raw(
+        "svc",
+        "acct",
+        "kms-v1:opaque-provider-payload",
+        ciphertext_version="kms-v1",
+    )
+
+    with pytest.raises(SecretDecryptionError) as exc_info:
+        await orm_store.read("svc", "acct")
+
+    message = str(exc_info.value)
+    assert "svc" in message
+    assert "acct" in message
+    assert "kms-v1" in message
+    assert "AIGATEWAY_SECRET_PROVIDER" in message
+    assert "different secret provider version" in str(exc_info.value.__cause__)
+
+
+@pytest.mark.asyncio
 async def test_orm_store_wrong_key_error_names_affected_credential(
     credential_blobs,
     orm_store,

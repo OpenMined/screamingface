@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from aigateway.config import Settings
 from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
 from tests.conftest import _prepare_sqlite_db
@@ -11,7 +12,7 @@ from tests.conftest import _prepare_sqlite_db
 
 def _configure_app_db(
     monkeypatch, tmp_path, *, admin_password: str | None = "test-admin-password"
-) -> None:
+) -> str:
     database_url = f"sqlite://{tmp_path / 'aigateway.sqlite3'}"
     monkeypatch.setenv("AIGATEWAY_DATABASE_URL", database_url)
     if admin_password is None:
@@ -21,6 +22,20 @@ def _configure_app_db(
     monkeypatch.setenv("AIGATEWAY_JWT_SECRET", "x" * 32)
     monkeypatch.setenv("AIGATEWAY_PROVISIONING_TOKEN", "p" * 32)
     _prepare_sqlite_db(database_url)
+    return database_url
+
+
+def _settings_without_dotenv(database_url: str, *, auth_enabled: bool = True) -> Settings:
+    return Settings(
+        **{
+            "_env_file": None,
+            "database_url": database_url,
+            "jwt_secret": "x" * 32,
+            "provisioning_token": "p" * 32,
+            "admin_password": None,
+            "auth_enabled": auth_enabled,
+        }
+    )
 
 
 def _auth_header(client: TestClient) -> dict[str, str]:
@@ -119,11 +134,13 @@ def test_lifespan_bootstraps_disabled_auth_under_anonymous_account(monkeypatch, 
 
 
 def test_lifespan_auth_enabled_requires_configured_admin_password(monkeypatch, tmp_path) -> None:
-    _configure_app_db(monkeypatch, tmp_path, admin_password=None)
+    database_url = _configure_app_db(monkeypatch, tmp_path, admin_password=None)
 
     from aigateway import main as main_module
 
-    app = main_module.create_app()
+    settings = _settings_without_dotenv(database_url)
+    assert settings.admin_password is None
+    app = main_module.create_app(settings)
     with pytest.raises(RuntimeError, match="AIGATEWAY_ADMIN_PASSWORD"):
         with TestClient(app):
             pass
@@ -135,11 +152,14 @@ def test_lifespan_auth_disabled_without_admin_password_does_not_log_secret(
     caplog,
 ) -> None:
     monkeypatch.setenv("AIGATEWAY_AUTH_ENABLED", "0")
-    _configure_app_db(monkeypatch, tmp_path, admin_password=None)
+    database_url = _configure_app_db(monkeypatch, tmp_path, admin_password=None)
 
     from aigateway import main as main_module
 
-    app = main_module.create_app()
+    settings = _settings_without_dotenv(database_url, auth_enabled=False)
+    assert settings.admin_password is None
+    assert settings.auth_enabled is False
+    app = main_module.create_app(settings)
     with caplog.at_level(logging.WARNING):
         with TestClient(
             app,

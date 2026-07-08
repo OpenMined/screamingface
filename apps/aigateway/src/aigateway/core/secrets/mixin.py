@@ -39,7 +39,9 @@ class SecretStoreMixin(ABC):
         """Return a versioned, self-describing ciphertext string.
 
         The payload format is owned by the provider; the local provider uses
-        ``"v1:<nonce-b64>:<ciphertext-b64>"``.
+        ``"v1:<nonce-b64>:<ciphertext-b64>"``. Every provider must prefix its
+        payload with ``f"{version}:"`` so the storage layer can validate the
+        persisted ``ciphertext_version`` before provider-specific decrypt logic.
         """
 
     @abstractmethod
