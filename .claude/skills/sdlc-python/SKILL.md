@@ -78,6 +78,14 @@ every cycle.
 ## Stack idiom — Python
 
 - **Anchor syntax:** `#` (e.g. `# WHY:`, `# INVARIANT:`).
+- **Tortoise ORM work — STRONGLY RECOMMENDED companion:** this repo's Python services
+  (`apps/aigateway`, `apps/scoreboard`) use Tortoise ORM. For ANY Tortoise-touching unit
+  (models, querysets, migrations, transactions, signals, FastAPI lifespan wiring), invoke
+  the **`tortoise-dev`** skill — it carries the house patterns (model-per-file, abstract
+  Base interfaces, strict member ordering, built-in Tortoise migrations — never Aerich,
+  Pydantic v2). It is `mandatory: true` in the card's `companion_skills` (rule 3). If the
+  plugin is not installed, STOP and propose installing it:
+  https://github.com/sergio-bershadsky/ai/tree/main/plugins/tortoise-dev
 - **Testing idiom:** unit-test service/business logic against abstract interfaces — no DB, no
   network. Integration-test persistence on an ephemeral database (in-memory engine or
   testcontainers). Parametrize table-style where it clarifies.

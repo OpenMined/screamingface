@@ -22,8 +22,8 @@ stacks:
 commit_refs: "Refs: OME-N"
 extra_anchors: []
 companion_skills:
-  - skill: tortoise-dev
-    when: "models/ or migrations/ touched in a python stack"
+  - skill: tortoise-dev  # https://github.com/sergio-bershadsky/ai/tree/main/plugins/tortoise-dev — propose install if absent
+    when: "any Tortoise ORM work in a python stack — models, querysets, migrations, transactions, signals, lifespan wiring"
     mandatory: true
 ledger_dir: docs/work/
 ---
