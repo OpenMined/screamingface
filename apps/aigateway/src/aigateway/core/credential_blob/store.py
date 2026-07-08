@@ -92,5 +92,6 @@ def _credential_decryption_error(
         "failed to decrypt credential blob "
         f"service={service!r} account={account!r} ciphertext_version={version!r}; "
         "verify AIGATEWAY_SECRET_KEY and AIGATEWAY_SECRET_PROVIDER, then restore "
-        "the matching secret key or re-authenticate this connection"
+        "the matching secret key. If the key is unrecoverable, delete this credential "
+        "so it can be regenerated (internal secrets) or re-authenticated (user connections)"
     )

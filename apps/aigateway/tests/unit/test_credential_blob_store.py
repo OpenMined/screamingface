@@ -126,7 +126,13 @@ async def test_orm_store_wrong_key_error_names_affected_credential(
     assert "svc" in message
     assert "acct" in message
     assert "AIGATEWAY_SECRET_KEY" in message
+    # Non-leakage. The outer _credential_decryption_error is built only from
+    # service/account/version and structurally cannot carry the plaintext; the
+    # wrapped cause (LocalSecretStore) is the layer that could regress, so assert
+    # the plaintext is absent from the whole exception chain, not just the outer
+    # message (SF-327 R2/F6).
     assert "super-secret-value" not in message
+    assert "super-secret-value" not in str(exc_info.value.__cause__ or "")
 
 
 @pytest.mark.asyncio

@@ -19,7 +19,10 @@ async def test_env_admin_password_creates_loginable_admin(db) -> None:
 
 @pytest.mark.asyncio
 async def test_missing_admin_password_is_not_generated_or_logged(db, caplog) -> None:
-    with caplog.at_level(logging.WARNING):
+    # Capture at DEBUG: a secret leak could be logged at any level, so this
+    # negative assertion must see DEBUG/INFO records too, not just WARNING+
+    # (SF-327 R2/F4).
+    with caplog.at_level(logging.DEBUG):
         with pytest.raises(RuntimeError, match="AIGATEWAY_ADMIN_PASSWORD"):
             await ensure_admin_account(None)
 
@@ -30,7 +33,7 @@ async def test_missing_admin_password_is_not_generated_or_logged(db, caplog) -> 
 
 @pytest.mark.asyncio
 async def test_missing_admin_password_race_creates_no_account_or_secret_log(db, caplog) -> None:
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.DEBUG):  # capture all levels — see R2/F4 rationale above
         for _ in range(4):
             with pytest.raises(RuntimeError, match="AIGATEWAY_ADMIN_PASSWORD"):
                 await ensure_admin_account(None)

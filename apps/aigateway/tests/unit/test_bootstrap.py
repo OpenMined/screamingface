@@ -160,7 +160,9 @@ def test_lifespan_auth_disabled_without_admin_password_does_not_log_secret(
     assert settings.admin_password is None
     assert settings.auth_enabled is False
     app = main_module.create_app(settings)
-    with caplog.at_level(logging.WARNING):
+    # Capture at DEBUG so a re-introduced bootstrap-password log at ANY level
+    # (not just WARNING+) is caught by the negative assertion below (SF-327 R2/F4).
+    with caplog.at_level(logging.DEBUG):
         with TestClient(
             app,
             base_url="http://127.0.0.1:9105",
