@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>screamingface — SOTA on your laptop</title>
+  <meta name="description" content="An AI ensemble that combines Claude Code, Gemini CLI, Codex, and Ollama to beat state-of-the-art benchmarks. One command to install.">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: "Times New Roman", Times, Georgia, serif; font-size: 16px; line-height: 1.6; color: #000; background: #fff; }
+    a { color: #0000EE; text-decoration: underline; }
+    a:visited { color: #551A8B; }
+    a:hover { color: #FF0000; }
+    code, pre, kbd { font-family: "Courier New", Courier, monospace; }
+
+    #gate {
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 32px; padding: 0 24px;
+    }
+    #gate .emoji { font-size: 64px; user-select: none; }
+    #gate .title { font-size: 20px; font-weight: 500; }
+    #gate form { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; max-width: 280px; }
+    #gate input[type="password"] {
+      width: 100%; border: 1px solid #ccc; border-radius: 6px;
+      padding: 10px 14px; font-size: 14px; outline: none; font-family: inherit;
+    }
+    #gate input.error { border-color: #dc2626; }
+    #gate .error-msg { font-size: 12px; color: #dc2626; display: none; }
+    #gate button {
+      width: 100%; background: #1a1a1a; color: #fff; padding: 10px 0;
+      border-radius: 6px; font-size: 14px; font-weight: 500; border: none; cursor: pointer;
+    }
+    #content { display: none; }
+  </style>
+</head>
+<body>
+
+  <div id="gate">
+    <div class="emoji">😱</div>
+    <p class="title">screamingface</p>
+    <form id="gate-form">
+      <input type="password" id="gate-input" placeholder="Password" autocomplete="current-password">
+      <p class="error-msg" id="gate-error">Incorrect password.</p>
+      <button type="submit">Enter</button>
+    </form>
+  </div>
+
+  <div id="content">
+    <div style="max-width:700px; margin:0 auto; padding:40px 20px 20px;">
+
+      <div style="text-align:center; margin-bottom:10px;">
+        <div style="font-size:64px; margin-bottom:8px;">😱</div>
+        <h1 style="font-size:36px; font-weight:bold; margin-bottom:8px; font-family:'Times New Roman', Times, serif;">screamingface</h1>
+      </div>
+
+      <marquee scrollamount="4" style="font-size:18px; font-weight:bold; padding:8px 0; margin-bottom:10px; letter-spacing:1px;">*** SOTA ON YOUR LAPTOP *** SOTA ON YOUR LAPTOP *** SOTA ON YOUR LAPTOP ***</marquee>
+
+      <p style="text-align:center; margin-bottom:24px;">
+        An ensemble of the CLI models you already run.<br>
+        Combines their outputs, picks the best answer.<br>
+        Open source. No new accounts.
+      </p>
+
+      <div style="text-align:center; margin:16px 0; letter-spacing:2px; color:#999;">════════════════════════════════════</div>
+
+      <h2 style="font-size:24px; font-weight:bold; text-align:center; margin-bottom:8px;">Install</h2>
+      <p style="text-align:center; margin-bottom:16px;">
+        One command. Detects models on your machine. Configures itself.<br>
+        Nothing sent to a server.
+      </p>
+
+      <div style="border:2px dotted #000; padding:12px 16px; margin-bottom:24px; background:#f5f5f5; font-family:'Courier New', Courier, monospace; font-size:14px; overflow-x:auto; white-space:nowrap;">
+        <span style="user-select:none;">$ </span>curl -fsSL https://screamingface.ai/install | sh
+      </div>
+
+      <h3 style="font-size:20px; font-weight:bold; margin-bottom:12px; text-align:center;">How it works:</h3>
+
+      <ol style="margin-bottom:24px; padding-left:24px; line-height:2;">
+        <li><b>Install</b> &mdash; One command. Configures locally. Nothing uploaded.</li>
+        <li><b>Auto-detect</b> &mdash; Finds Claude Code, Gemini CLI, Codex, and Ollama on your PATH.</li>
+        <li><b>Route</b> &mdash; Each prompt goes to whichever model scores best on the task.</li>
+      </ol>
+
+      <div style="text-align:center; margin:16px 0; letter-spacing:2px; color:#999;">════════════════════════════════════</div>
+
+      <p style="text-align:center; margin-bottom:24px; font-size:18px;">
+        <a href="https://github.com/OpenMined/screamingface" target="_blank" rel="noopener noreferrer">github.com/OpenMined/screamingface</a>
+      </p>
+
+      <footer style="text-align:center; padding-top:16px; padding-bottom:8px; font-size:14px; border-top:1px solid #ccc;">
+        <p style="margin-bottom:12px;">
+          😱 screamingface, built by <a href="https://openmined.org" target="_blank" rel="noopener noreferrer">OpenMined</a>
+        </p>
+        <div style="display:inline-block; width:88px; height:31px; border:1px solid #000; font-size:9px; line-height:31px; font-family:'Courier New', Courier, monospace; font-weight:bold; background:#000; color:#0f0; letter-spacing:0.5px; text-align:center; margin-bottom:12px;">😱 ENSEMBLE</div>
+        <p style="color:#888; font-size:12px;">Last updated: March 2026</p>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var PASSWORD = "letmein";
+      var KEY = "sf_auth";
+      if (sessionStorage.getItem(KEY) === "1") {
+        document.getElementById("gate").style.display = "none";
+        document.getElementById("content").style.display = "block";
+        return;
+      }
+      document.getElementById("gate-input").focus();
+      document.getElementById("gate-form").addEventListener("submit", function(e) {
+        e.preventDefault();
+        var input = document.getElementById("gate-input");
+        if (input.value === PASSWORD) {
+          sessionStorage.setItem(KEY, "1");
+          document.getElementById("gate").style.display = "none";
+          document.getElementById("content").style.display = "block";
+        } else {
+          input.value = "";
+          input.classList.add("error");
+          document.getElementById("gate-error").style.display = "block";
+          setTimeout(function() {
+            input.classList.remove("error");
+            document.getElementById("gate-error").style.display = "none";
+          }, 1200);
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
