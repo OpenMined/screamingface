@@ -244,7 +244,7 @@ Linear converts Markdown to its rich-text editor model. When writing via API/MCP
 
 ---
 
-### Task 8: `sdlc-python` + `sdlc-react` skills
+### Task 8: `sdlc-python` + `sdlc-electron` skills
 
 **Files:** Create both from `$SRC/skills/<name>/SKILL.md`
 
@@ -253,7 +253,7 @@ Linear converts Markdown to its rich-text editor model. When writing via API/MCP
   2. Rule 1 ledger → `(copy docs/work/TEMPLATE.md; this repo: docs/work/, named YYYY-MM-DD-<ticket-id>-<desc>.md per D8)`.
   3. Sibling references: name only the adopted pair; drop `sdlc-go` mentions.
 - [ ] **Step 8.2:** Stack sections stay verbatim.
-- [ ] **Step 8.3:** Parity check green (Task 10 script). Commit: `git add .claude/skills/sdlc-* && git commit -m "feat(OME-E): sdlc-python + sdlc-react rigid-loop skills" -m "Refs: OME-E"`
+- [ ] **Step 8.3:** Parity check green (Task 10 script). Commit: `git add .claude/skills/sdlc-* && git commit -m "feat(OME-E): sdlc-python + sdlc-electron rigid-loop skills" -m "Refs: OME-E"`
 
 ---
 
@@ -270,7 +270,7 @@ Linear converts Markdown to its rich-text editor model. When writing via API/MCP
 ### Task 10: Scripts
 
 - [ ] **Step 10.1:** `cp $SRC/scripts/run_gates.py .claude/scripts/run_gates.py` (verbatim); smoke-test: `uv run .claude/scripts/run_gates.py aigateway` and `… scoreboard` → ALL GATES GREEN.
-- [ ] **Step 10.2:** Write `.claude/scripts/check_loop_parity.py` — the plugin's parity script with `ROOT = pathlib.Path(__file__).resolve().parent.parent`, `SKILLS = ["sdlc-python","sdlc-react"]`, `path = ROOT / "skills" / name / "SKILL.md"`; rest byte-identical.
+- [ ] **Step 10.2:** Write `.claude/scripts/check_loop_parity.py` — the plugin's parity script with `ROOT = pathlib.Path(__file__).resolve().parent.parent`, `SKILLS = ["sdlc-python","sdlc-electron"]`, `path = ROOT / "skills" / name / "SKILL.md"`; rest byte-identical.
 - [ ] **Step 10.3:** `python3 .claude/scripts/check_loop_parity.py` → `LOOP PARITY OK …`.
 - [ ] **Step 10.4:** Commit: `git add .claude/scripts && git commit -m "feat(OME-E): run_gates + loop-parity scripts" -m "Refs: OME-E"`
 

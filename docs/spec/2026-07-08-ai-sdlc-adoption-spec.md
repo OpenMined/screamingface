@@ -31,7 +31,7 @@ copied verbatim.
 | D2 | Ticket IDs *(revised twice same day)* | **The existing `openmined` workspace Engineering team, key `OME`** — one global sequence `OME-N` for every work item (the Asana SF-N model). No new team is created in the shared org workspace. Per-component team keys (`AAGW-321` style) and a dedicated `OM` team were evaluated and dropped. No zero-padding (Linear cannot render it — verified; sources below). |
 | D3 | Asana role | **Strictly read-only** source of product/marketing top-level tasks (list/read/search). Never create or update. Technical work items NEVER go to Asana. |
 | D4 | Linear access *(revised twice)* | **The Linear MCP plugin, activated/authenticated in Claude, is the ONLY transport and a hard PRECONDITION** (`/mcp` → plugin:linear connected). **API tokens / raw GraphQL are FORBIDDEN.** Operations the MCP cannot perform (label deletion, team creation, workflow states) are OWNER actions in the Linear UI. |
-| D5 | Stack skills now | `sdlc-python` + `sdlc-react`. **`sdlc-go` deferred** until a Go component exists (YAGNI). |
+| D5 | Stack skills now *(revised)* | `sdlc-python` + **`sdlc-electron`** (transformed from the source plugin's sdlc-react for the upcoming desktop app: main/preload/renderer idiom, both-side IPC contract rule S2, security posture — contextIsolation on, external HTTP in main only). **`sdlc-go` deferred** until a Go component exists (YAGNI). |
 | D6 | Docs dirs | `docs/tasks/`, `docs/work/`, `docs/spec/`, `docs/plan/`, `docs/diagrams/` (spec/plan singular — user decision). |
 | D7 | Repo/process work | Plain **`repo`** label, no `app/*`/`pkg/*` label. |
 | D8 | Ledger timing | Ledger file created at work **start** (`docs/work/YYYY-MM-DD-<ticket-id>-<desc>.md`, date = start), frontmatter `status: planned|in_progress|done` + `finished:` date at close. Reconciles "ledger-first" (sdlc rule 1) with "write ledger when finished" (user rule 2). |
@@ -121,14 +121,17 @@ Changes:
 - Every work item gets a `docs/tasks/` mirror (see §4) — a repo-side record, not a second
   board: Linear stays the status authority; the mirror updates at create/close only.
 
-### 2.3 `sdlc-python` and `sdlc-react` (adopted; `sdlc-go` deferred — D5)
+### 2.3 `sdlc-python` and `sdlc-electron` (adopted; `sdlc-go` deferred — D5)
 - SHARED-LOOP regions kept **verbatim-identical** across the two adopted skills (loop parity
   enforced by script, §5).
-- Adaptations (identical in both files): gate runner path
+- Shared adaptations (identical in both files): gate runner path
   `uv run .claude/scripts/run_gates.py <stack>`; `ledger_dir` → `docs/work/` with D8 naming;
   ticket refs are `OME-N` (`Refs: OME-N` as the card's `commit_refs`); sibling references
-  name only the adopted pair; project names/examples → this repo's.
-- Stack idiom sections unchanged.
+  name only the adopted pair; card-missing wording → restore from git.
+- `sdlc-electron` extends the source sdlc-react stack sections: main/preload/renderer
+  process model, both-side IPC contract testing (rule S2), strict-TS at IPC boundaries,
+  security posture (contextIsolation on, nodeIntegration off, external HTTP in main only),
+  a11y gate retained (rule S1).
 
 ### 2.4 `working-in-this-repo` (update, same change)
 §6 branch/PR rules → Linear flow (branch `OME-N-<desc>`, `Refs: OME-N` in commit body);
@@ -188,7 +191,7 @@ per-stack invariants (aigateway credential rules; scoreboard artifact allowlist)
   registry, then files via the Linear MCP (`save_issue` with team + project + labels);
   all-or-nothing; returns `identifier | title | URL | state` table.
 - `.claude/scripts/run_gates.py` — adopted near-verbatim (card-driven, PEP-723 uv script).
-- `.claude/scripts/check_loop_parity.py` — `SKILLS = ["sdlc-python","sdlc-react"]`, paths
+- `.claude/scripts/check_loop_parity.py` — `SKILLS = ["sdlc-python","sdlc-electron"]`, paths
   under `.claude/skills/`; extended per stack added.
 - `.github/workflows/repo-checks.yml` — path-filtered to `.claude/skills/sdlc-*/**` +
   `.claude/scripts/**`; runs loop-parity.
@@ -203,7 +206,7 @@ per-stack invariants (aigateway credential rules; scoreboard artifact allowlist)
 2. **Cards + docs tree + CLAUDE.md** — both cards; docs/tasks + docs/work (+TEMPLATE);
    CLAUDE.md §4 rules; dogfood mirror/ledger for the epic.
 3. **Skills** — `asana-product`, `task-management` (Linear+MCP, incl. the rich-text
-   reference), `sdlc-python`, `sdlc-react`, `working-in-this-repo` update.
+   reference), `sdlc-python`, `sdlc-electron`, `working-in-this-repo` update.
 4. **Agents + scripts + CI** — §5 items; parity green.
 5. **Backfill work items** — `repo`: name lock-down/reservation, GH Pages decision;
    `app/scoreboard`: portal stopgap revisit; `pkg/url4-python-sdk` + `com/url4`: url4 SDK
