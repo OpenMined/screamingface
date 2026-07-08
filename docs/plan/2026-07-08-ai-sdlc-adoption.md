@@ -2,121 +2,44 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Adopt the Linear-based AI SDLC per `docs/spec/2026-07-08-ai-sdlc-adoption-spec.md` — one Linear team (`OM-N` IDs) with an `app/*`/`pkg/*`/`com/*` label matrix as system of record, repo-local skills/cards/agents/scripts, mandatory docs artifacts.
+**Goal:** Adopt the Linear-based AI SDLC per `docs/spec/2026-07-08-ai-sdlc-adoption-spec.md` — work items as `OME-N` in the existing Engineering team under the 😱 ScreamingFace V1 project, an `app/*`/`pkg/*`/`com/*` label matrix, repo-local skills/cards/agents/scripts, mandatory docs artifacts.
 
-**Architecture:** Single Linear team `OM` = one ID sequence; labels place the work (D10 taxonomy); two committed cards (`.claude/task-board.local.md`, `.claude/sdlc.local.md`) parameterize four skills (`asana-product`, `task-management`, `sdlc-python`, `sdlc-react`), two agents, and two scripts adapted from the installed sdlc plugin.
+**Architecture:** One ID sequence (`OME-N`, existing team — D2); labels place the work (D10) with the mandatory `actor` group agentic|human (D13); STOPs are labels, not states (D12); every item attaches to the ScreamingFace V1 project (D11). Two committed cards parameterize four skills, two agents, and two scripts adapted from the installed sdlc plugin.
 
-**Tech Stack:** Linear GraphQL API (curl), markdown skills/cards, Python (uv, PEP-723) scripts, GitHub Actions.
+**Tech Stack:** Linear MCP plugin (the ONLY Linear transport — D4; API tokens/GraphQL forbidden), markdown skills/cards, Python (uv, PEP-723) scripts, GitHub Actions.
 
 **Source plugin (copy-from):** `SRC=/Users/sergey/.claude/plugins/cache/socket0-claude/sdlc/0.1.0`
-**Spec:** `docs/spec/2026-07-08-ai-sdlc-adoption-spec.md` (decisions D1–D10)
+**Spec:** `docs/spec/2026-07-08-ai-sdlc-adoption-spec.md` (decisions D1–D13)
 
-**Terminology (binding for all authored text):** ONE team, one sequence — every work item is
-`OM-N`. `app/[name]`, `pkg/[name]`, `com/[name]` are plain multi-value labels; `type` and
-`who-acts` are Linear label groups. "Team" appears only where it names the Linear API object
-(`teamId`, `teamCreate`).
+**Terminology (binding for all authored text):** ONE team; every work item is `OME-N`.
+Labels place the work. "Team" appears only where it names the Linear object.
 
 ---
 
-### Task 0: Preconditions
+### Task 0: Preconditions — DONE 2026-07-08
 
-- [ ] **Step 0.1: Verify Linear API key**
+- [x] **Linear MCP activated in Claude** — `/mcp` → `plugin:linear:linear` authenticated. This is THE precondition: ALL Linear operations go through MCP tools (`save_issue`, `save_comment`, `create_issue_label`, `list_*`). **API tokens / raw GraphQL are FORBIDDEN**; operations the MCP cannot perform (label delete, team create, workflow states) are OWNER actions in the Linear UI.
+- [x] Source plugin present at `$SRC`.
+- [x] Workspace facts confirmed: team **Engineering** key `OME` id `5f4d721f-4452-4ed1-990a-7cdbcd923508`; project **😱 ScreamingFace V1** id `7cbe5759-cc07-476d-b81e-da05b6b2d4d7` (slug `screamingface-v1-27666092fc7f`); states Todo `88de5fec…` / In Progress `03621515…` / In Review `62b4c1a3…` / Done `699b96ac…` / Triage `a6fc6a19…` (full map in `.docs/linear-bootstrap-ids.md`).
 
-```bash
-export $(grep LINEAR_API_KEY ~/.config/linear/.env | xargs)
-curl -s -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" \
-  -d '{"query":"{ viewer { id name email } }"}' https://api.linear.app/graphql
-```
-Expected: JSON with viewer name/email. 401 → mint a key at linear.app → Settings → API, store as `LINEAR_API_KEY=lin_api_…` in `~/.config/linear/.env` (`chmod 600`).
+### Task 1: Linear bootstrap — labels — **DONE 2026-07-08 (taxonomy LOCKED: align + extend)**
 
-- [ ] **Step 0.2: Verify source plugin present**
+- [x] Taxonomy locked (D10): existing `Epic` group children = workstream axis; existing `blocked ⛔` reused; plain `Bug`/`Feature`/`Improvement` reused for type-ish tagging.
+- [x] Labels in place (survivors of the earlier trial, now canonical): `actor` group (agentic/human — D13), `who-acts` group (design-session/autonomous/deferred), `app/aigateway`, `app/scoreboard`, `pkg/url4-python-sdk`, `repo`, `needs-owner`. (`app/desktop`, `app/cli` wait for name lock — spec §7.)
+- [x] IDs recorded in `.docs/linear-bootstrap-ids.md` (source for Task 3's card).
+- [ ] **Owner UI cleanup:** delete obsolete trial labels — `com/url4`, `com/evalstudio`, `com/ensemble`, `com/credentials`, the `type` group (children task/decision), plain `blocked`.
 
-```bash
-ls $SRC/skills/sdlc-python/SKILL.md $SRC/agents/sdlc-unit-executor.md $SRC/scripts/run_gates.py $SRC/templates/task-board.local.md
-```
-Expected: all four paths listed.
+### Task 2: Adoption epic + sub-issues — FILED 2026-07-08
 
----
-
-### Task 1: Linear bootstrap — team `OM`, states, labels
-
-**Files:** Create: `.docs/linear-bootstrap-ids.md` (scratch, gitignored — IDs for Task 3)
-
-- [ ] **Step 1.1: Create (or confirm) the team**
-
-```bash
-curl -s -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" -d '{
-  "query": "mutation{ teamCreate(input:{name:\"OpenMined\",key:\"OM\"}){ team { id key name } } }"
-}' https://api.linear.app/graphql
-```
-Expected: `team.id` UUID. Key already exists → `{"query":"{ teams { nodes { id key } } }"}` and reuse. Record the ID.
-
-- [ ] **Step 1.2: Add `Blocked` and `Needs Owner` workflow states**
-
-```bash
-curl -s -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" -d '{
-  "query": "mutation($t:String!,$n:String!,$c:String!){ workflowStateCreate(input:{teamId:$t,name:$n,type:\"started\",color:$c}){ workflowState { id name } } }",
-  "variables": {"t":"<TEAM_ID>","n":"Blocked","c":"#eb5757"}
-}' https://api.linear.app/graphql
-```
-Repeat with `"n":"Needs Owner","c":"#f2994a"`. Then dump the full state map and record Todo / In Progress / Blocked / Needs Owner / Done IDs:
-
-```bash
-curl -s -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" \
-  -d '{"query":"{ teams { nodes { key states { nodes { id name type } } } } }"}' https://api.linear.app/graphql
-```
-
-- [ ] **Step 1.3: Create plain labels** — `app/aigateway`, `app/scoreboard`, `pkg/url4-python-sdk`, `com/url4`, `com/evalstudio`, `com/ensemble`, `com/credentials`, `repo`:
-
-```bash
-curl -s -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" -d '{
-  "query": "mutation($n:String!){ issueLabelCreate(input:{name:$n}){ issueLabel { id name } } }",
-  "variables": {"n":"app/aigateway"}
-}' https://api.linear.app/graphql
-```
-(`app/desktop`, `app/cli` are NOT created — they wait for name lock, spec §7.)
-
-- [ ] **Step 1.4: Create label GROUPS `type` and `who-acts`** — create the parent, then children with `parentId`:
-
-```bash
-# parent (group)
-… issueLabelCreate(input:{name:"type"}) …                                   # → <TYPE_GROUP_ID>
-# children
-… issueLabelCreate(input:{name:"epic",parentId:"<TYPE_GROUP_ID>"}) …        # repeat: feature, bug, task, decision
-… issueLabelCreate(input:{name:"who-acts"}) …                               # → <WHO_GROUP_ID>
-… issueLabelCreate(input:{name:"design-session",parentId:"<WHO_GROUP_ID>"}) …  # repeat: autonomous, deferred
-```
-Verify grouping in the Linear UI: children render as `type → epic` and the group enforces one-per-issue. Record all label IDs in `.docs/linear-bootstrap-ids.md`.
-
----
-
-### Task 2: File the adoption epic; create the branch
-
-- [ ] **Step 2.1: Create the epic**
-
-```bash
-curl -s -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" -d '{
-  "query": "mutation($i:IssueCreateInput!){ issueCreate(input:$i){ issue { id identifier url } } }",
-  "variables": {"i": {"teamId":"<TEAM_ID>","title":"AI SDLC adoption — Linear work items, repo skills, docs artifacts","labelIds":["<repo>","<type/epic>","<who-acts/autonomous>"],"priority":2,"description":"Spec: docs/spec/2026-07-08-ai-sdlc-adoption-spec.md — implement per docs/plan/2026-07-08-ai-sdlc-adoption.md"}}
-}' https://api.linear.app/graphql
-```
-Expected: identifier `OM-<n>` (call it `OM-E` below; likely `OM-1`). Create sub-issues (same mutation + `"parentId":"<epic id>"`, labels `repo` + `type/task` + `autonomous`) titled: `Cards + CLAUDE.md`, `Skills`, `Agents + scripts + CI`, `Backfill work items`.
-
+- [x] **Epic `OME-358`** + sub-issues `OME-359` (cards+docs+CLAUDE.md), `OME-360` (skills), `OME-361` (agents+scripts+CI), `OME-362` (backfill, deferred) — team Engineering, project 😱 ScreamingFace V1, labels `repo`+`agentic`+`autonomous`, priority High. Everywhere below, `OME-E` = **OME-358**.
 - [ ] **Step 2.2: Branch**
 
 ```bash
-git checkout main && git pull --ff-only && git checkout -b OM-E-ai-sdlc-adoption
+git checkout main && git pull --ff-only && git checkout -b OME-E-ai-sdlc-adoption
 ```
-(Substitute the real number, e.g. `OM-1-ai-sdlc-adoption`.) NOTE: this PR bootstraps the convention it documents — the branch uses the NEW format while CLAUDE.md still says SF-N until Task 5 lands. Deliberate one-time exception; state it in the PR body.
+(Substitute the epic's real number.) NOTE: this PR bootstraps the convention it documents — deliberate one-time exception; state it in the PR body.
 
-- [ ] **Step 2.3: Epic → In Progress**
-
-```bash
-curl -s -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" -d '{
-  "query": "mutation($id:String!,$s:String!){ issueUpdate(id:$id,input:{stateId:$s}){ issue { identifier state { name } } } }",
-  "variables": {"id":"<EPIC_ID>","s":"<In Progress state id>"}
-}' https://api.linear.app/graphql
-```
+- [ ] **Step 2.3:** Epic → In Progress via MCP: `save_issue {id: "OME-E", state: "In Progress"}`.
 
 ---
 
@@ -129,19 +52,22 @@ curl -s -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" 
 ```markdown
 ---
 system: linear
-workspace: <workspace-slug>
-key_source: ~/.config/linear/.env   # LINEAR_API_KEY
-endpoint: https://api.linear.app/graphql
-team: { key: OM, id: "<uuid>" }
-states: { todo: "<id>", in_progress: "<id>", blocked: "<id>", needs_owner: "<id>", done: "<id>" }
+workspace: openmined
+transport: "Linear MCP plugin (plugin:linear) — the ONLY transport; PRECONDITION: activate via /mcp. API tokens/GraphQL FORBIDDEN; MCP-uncovered ops are owner UI actions"
+team: { key: OME, name: Engineering, id: "5f4d721f-4452-4ed1-990a-7cdbcd923508" }
+project: { name: "😱 ScreamingFace V1", slug: screamingface-v1-27666092fc7f, id: "7cbe5759-cc07-476d-b81e-da05b6b2d4d7" }
+states: { todo: "<id>", in_progress: "<id>", in_review: "<id>", done: "<id>", triage: "<id>" }
 labels:
-  apps: { aigateway: "<id>", scoreboard: "<id>" }   # app/desktop, app/cli at name lock
-  pkgs: { url4-python-sdk: "<id>" }
-  coms: { url4: "<id>", evalstudio: "<id>", ensemble: "<id>", credentials: "<id>" }
-  repo: "<id>"
-  types: { group: "<id>", epic: "<id>", feature: "<id>", bug: "<id>", task: "<id>", decision: "<id>" }
+  epic_group:   # existing workstream axis (one per issue) — adopted as-is (D10)
+    url4-engine: "<id>", ai-gateway: "<id>", eval-runner-datasets: "<id>", results-runs: "<id>",
+    leaderboard: "<id>", auth-subsidized-compute: "<id>", desktop-app: "<id>", python-sdk: "<id>",
+    multi-turn-ensembles: "<id>", sota-hunt: "<id>", compute-budgeting: "<id>"
+  landing: { app/aigateway: "<id>", app/scoreboard: "<id>", pkg/url4-python-sdk: "<id>", repo: "<id>" }  # app/desktop, app/cli at name lock
+  stop: { blocked: "<blocked ⛔ id>", needs-owner: "<id>" }   # D12: labels + comment, not states
   who_acts: { group: "<id>", design-session: "<id>", autonomous: "<id>", deferred: "<id>" }
-priority: { P1: 2, P2: 3, P3: 4 }   # Linear ints: 1 urgent (incidents only), 2 high, 3 medium, 4 low
+  actor: { group: "<id>", agentic: "<id>", human: "<id>" }    # D13: MANDATORY, one per item
+  type_ish: { bug: "<Bug id>", feature: "<Feature id>", improvement: "<Improvement id>" }  # existing plain labels, optional
+priority: { P1: 2, P2: 3, P3: 4 }   # Linear ints: 1 urgent (incidents only)
 close_template: |
   Commits: <sha> <message>[, …]
   Gates: <run_gates.py summary / test counts>
@@ -152,11 +78,16 @@ close_template: |
 
 # Ticket rules (bind alongside the task-management skill)
 
+- Every work item: team Engineering + project 😱 ScreamingFace V1 (D11) + exactly one
+  `type` label + one `who-acts` label + one `actor` label (agentic|human — D13, mandatory).
 - Labels place the work: `app/*`/`pkg/*` = WHERE (multi-value), `com/*` = product component
   (open set — PRODUCT concepts, never internal modules), `repo` = process work (no app/pkg).
-  One `type/*` + one who-acts label per issue (Linear groups enforce it).
 - D9: ≥2 app/pkg labels → cross-component epic (`com/X` + all affected labels) with one
   sub-issue per affected app/package. Never a single-app filing, never one mega-ticket.
+- D12 STOPs: apply `blocked` or `needs-owner` label + comment stating the exact question;
+  issue stays In Progress; remove the label when resolved. Never add states to the shared team.
+- MCP quirk: `save_issue.labels` REPLACES the whole set — read current labels, resend the
+  union. Relations (blockedBy/relatedTo) are append-only.
 - New app/package/component ⇒ its label created AND registered here in the same change.
 - Every work item gets a mirror `docs/tasks/YYYY-MM-DD-<name>.md` at create; status closed
   in BOTH Linear and the mirror at finish. Linear is the status authority.
@@ -164,7 +95,7 @@ close_template: |
   description (`asana_url` in the mirror frontmatter). Technical work NEVER goes to Asana.
 ```
 
-- [ ] **Step 3.2: Write `.claude/sdlc.local.md`**:
+- [ ] **Step 3.2: Write `.claude/sdlc.local.md`** — unchanged from spec §3.2:
 
 ```markdown
 ---
@@ -188,7 +119,7 @@ stacks:
       - uv run ruff format --check
       - uv run pyright
       - uv run pytest --cov=scoreboard --cov-fail-under=80 -q
-commit_refs: "Refs: OM-N"
+commit_refs: "Refs: OME-N"
 extra_anchors: []
 companion_skills:
   - skill: tortoise-dev
@@ -219,55 +150,38 @@ Template: copy docs/work/TEMPLATE.md.
 
 ```bash
 git add .claude/task-board.local.md .claude/sdlc.local.md
-git commit -m "feat(OM-E): add task-board + sdlc cards (Linear registry, stack gates)" -m "Refs: OM-E"
+git commit -m "feat(OME-E): add task-board + sdlc cards (Linear registry, stack gates)" -m "Refs: OME-E"
 ```
 
 ---
 
-### Task 4: docs tree + artifact placement (+ dogfood mirror/ledger)
+### Task 4: docs tree + dogfood mirror/ledger
 
 **Files:**
-- Create: `docs/tasks/`, `docs/work/` (`docs/spec/`, `docs/plan/`, `docs/diagrams/` landed with SF-348)
-- Create: `docs/work/TEMPLATE.md` (copy `$SRC/templates/work-ledger/TEMPLATE.md`)
-- Modify: `docs/README.md`
-- Create: `docs/tasks/2026-07-08-ai-sdlc-adoption.md`, `docs/work/2026-07-08-OM-E-ai-sdlc-adoption.md`
+- Create: `docs/tasks/`, `docs/work/`; `docs/work/TEMPLATE.md` (copy `$SRC/templates/work-ledger/TEMPLATE.md`)
+- Modify: `docs/README.md` (mark tasks/work as live)
+- Create: `docs/tasks/2026-07-08-ai-sdlc-adoption.md`, `docs/work/2026-07-08-OME-E-ai-sdlc-adoption.md`
 
-- [ ] **Step 4.1:** `mkdir -p docs/{tasks,work}`; `cp $SRC/templates/work-ledger/TEMPLATE.md docs/work/TEMPLATE.md`. (Diagram already at `docs/diagrams/work-item-topology.{svg,png}`.)
-- [ ] **Step 4.2:** Rewrite `docs/README.md`:
+- [ ] **Step 4.1:** `mkdir -p docs/{tasks,work}`; `cp $SRC/templates/work-ledger/TEMPLATE.md docs/work/TEMPLATE.md`.
+- [ ] **Step 4.2:** In `docs/README.md` drop the "(arrive with the AI SDLC implementation)" qualifiers.
+- [ ] **Step 4.3:** Mirror `docs/tasks/2026-07-08-ai-sdlc-adoption.md`:
 
-```markdown
-# docs/ — AI-agentic decision records & SDLC artifacts
-
-- `docs/tasks/`    — work-item mirrors (`YYYY-MM-DD-<name>.md`, frontmatter; Linear is authority)
-- `docs/work/`     — work ledgers (`YYYY-MM-DD-<ticket-id>-<desc>.md`, created at start — D8)
-- `docs/spec/`     — designs/specs (required before planning)
-- `docs/plan/`     — implementation plans (required before implementation)
-- `docs/diagrams/` — diagram assets (SVG source + PNG)
-
-Process: see the `task-management` + `sdlc-*` skills and CLAUDE.md "AI SDLC".
-Local scratch drafts go to gitignored `.docs/`.
-Pre-July-2026 docs live at tag `legacy-monorepo-2026-07-08`.
-```
-
-- [ ] **Step 4.3:** Create this work's own mirror + ledger (dogfooding):
-
-`docs/tasks/2026-07-08-ai-sdlc-adoption.md`:
 ```markdown
 ---
-id: OM-E
+id: OME-E
 linear_url: <epic url>
 status: in_progress
 type: epic
 priority: P1
-labels: [repo]
+labels: [repo, agentic, autonomous]
 created: 2026-07-08
 closed:
 ---
 Adopt the Linear AI SDLC per docs/spec/2026-07-08-ai-sdlc-adoption-spec.md.
 ```
-`docs/work/2026-07-08-OM-E-ai-sdlc-adoption.md`: from TEMPLATE, Intent/Planned/Test plan/Acceptance from this plan; Outcome at close.
+Ledger `docs/work/2026-07-08-OME-E-ai-sdlc-adoption.md`: from TEMPLATE, Intent/Planned/Test plan/Acceptance from this plan; Outcome at close.
 
-- [ ] **Step 4.4: Commit** — `git add docs && git commit -m "feat(OM-E): docs SDLC tree + spec, plan, topology diagram" -m "Refs: OM-E"`
+- [ ] **Step 4.4: Commit** — `git add docs && git commit -m "feat(OME-E): docs tasks/work tree + dogfood mirror and ledger" -m "Refs: OME-E"`
 
 ---
 
@@ -275,41 +189,8 @@ Adopt the Linear AI SDLC per docs/spec/2026-07-08-ai-sdlc-adoption-spec.md.
 
 **Files:** Modify: `CLAUDE.md`
 
-- [ ] **Step 5.1:** DELETE sections `## Git Workflow` (incl. `### Commit Rules`, `### Setup (one-time)`) and `## Planning Tickets`. INSERT:
-
-```markdown
-## AI SDLC — MANDATORY
-
-Full process: `task-management` skill (work items) + `sdlc-*` skills (per-stack loop) +
-cards `.claude/task-board.local.md` / `.claude/sdlc.local.md`. These rules always hold:
-
-0. **95% confidence gate — TOP RULE.** Never write, assert, or implement anything you are
-   not ≥95% confident is both correct AND wanted. Below 95% → STOP and ask first. Applies
-   to every rule below and every artifact: code, work items, docs, diagrams.
-1. **Work item first.** All work starts as a Linear issue (`OM-N`) carrying its labels —
-   `app/*`/`pkg/*` (where it lands) or `repo` (process work); `com/*` when a product
-   component is affected; exactly one `type/*` and one who-acts label — plus a mirror
-   `docs/tasks/YYYY-MM-DD-<name>.md` (frontmatter: id, linear_url, asana_url?, status,
-   type, priority, labels, created, closed). At finish, close status in BOTH.
-2. **Work ledger.** Every finished unit has `docs/work/YYYY-MM-DD-<ticket-id>-<desc>.md`
-   (created at work start, outcome filled at finish — see the sdlc skills).
-3. **Spec before plan, plan before code.** `docs/spec/` artifact required before planning;
-   `docs/plan/` artifact required before implementation. Prefer `/superpowers`
-   (brainstorming → writing-plans) or similar. Never plan or implement without them.
-4. **Diagrams.** Propose the diagramming plugin
-   (https://github.com/sergio-bershadsky/ai/tree/main/plugins/diagramming) when it's absent;
-   assets live in `docs/diagrams/` (SVG source + PNG).
-5. **Branches/commits.** Branch `OM-N-<desc>` (e.g. `OM-12-fix-refresh`). Conventional
-   commits; body carries `Refs: OM-N`; never `Co-Authored-By`; never commit to `main`
-   (branch protection + `.githooks/pre-commit`; one-time: `git config core.hooksPath .githooks`).
-6. **Asana boundary.** Asana is READ-ONLY product/marketing input (`asana-product` skill).
-   Technical work items never go to Asana.
-7. **Cross-cutting work (D9).** Touching ≥2 apps/packages → epic with `com/<component>` +
-   all affected `app/*`/`pkg/*` labels, one sub-issue per affected app/package. Never a
-   single-app filing, never one mega-ticket.
-```
-
-- [ ] **Step 5.2:** Commit: `git add CLAUDE.md && git commit -m "feat(OM-E): replace Asana git workflow with AI SDLC rules" -m "Refs: OM-E"`
+- [ ] **Step 5.1:** DELETE sections `## Git Workflow` (incl. subsections) and `## Planning Tickets`. INSERT the spec §4 rules VERBATIM (rules 0–7: 95% gate top rule; work item first — Engineering team + ScreamingFace V1 project + labels incl. one `actor` agentic|human; work ledger; spec-before-plan-before-code; diagramming plugin + docs/diagrams; branches `OME-N-<desc>` + `Refs: OME-N`, no Co-Authored-By, never commit to main; Asana read-only boundary; D9 cross-cutting rule).
+- [ ] **Step 5.2:** Commit: `git add CLAUDE.md && git commit -m "feat(OME-E): replace Asana git workflow with AI SDLC rules" -m "Refs: OME-E"`
 
 ---
 
@@ -317,59 +198,62 @@ cards `.claude/task-board.local.md` / `.claude/sdlc.local.md`. These rules alway
 
 **Files:** Create: `.claude/skills/asana-product/SKILL.md`
 
-- [ ] **Step 6.1:** Author from `~/.claude/skills/asana/SKILL.md`, keeping the API-access block (PAT discovery order, curl pattern, URL parsing) VERBATIM and the read operations (`my tasks`, `workspaces`, `projects`, `tasks <gid>`, `task <gid>`, `search`, `sections`). DELETE: `create`, `update`, `complete`, `move`. Frontmatter description: "Read-only view of product/marketing top-level tasks in Asana. Use to list/read/search product context. NEVER creates or updates anything in Asana." Add:
-
-```markdown
-## Hard rules
-
-- READ-ONLY. GET requests only. Any request to create, update, complete, or move an Asana
-  task → refuse and point to the `task-management` skill (Linear).
-- Asana holds product/marketing top-level tasks defined by product/marketing tooling —
-  a SOURCE of context, never a destination for technical work.
-- A dev work item descending from an Asana task records the Asana permalink in its Linear
-  description and mirror frontmatter (`asana_url`).
-```
-
-- [ ] **Step 6.2:** Commit: `git add .claude/skills/asana-product && git commit -m "feat(OM-E): asana-product read-only skill" -m "Refs: OM-E"`
+- [ ] **Step 6.1:** Author from `~/.claude/skills/asana/SKILL.md`: keep the API-access block (PAT discovery, curl pattern, URL parsing) VERBATIM and the read operations (`my tasks`, `workspaces`, `projects`, `tasks <gid>`, `task <gid>`, `search`, `sections`). DELETE `create`, `update`, `complete`, `move`. Frontmatter description: "Read-only view of product/marketing top-level tasks in Asana. NEVER creates or updates anything in Asana." Add the Hard rules block (read-only; Asana = source, never destination; `asana_url` linkage — spec §2.1).
+- [ ] **Step 6.2:** Commit: `git add .claude/skills/asana-product && git commit -m "feat(OME-E): asana-product read-only skill" -m "Refs: OME-E"`
 
 ---
 
-### Task 7: `task-management` skill — Linear rewrite
+### Task 7: `task-management` skill — Linear rewrite (MCP-first)
 
 **Files:** Create: `.claude/skills/task-management/SKILL.md`
 
-- [ ] **Step 7.1:** Author using `$SRC/skills/task-management/SKILL.md` as the structural source. Keep verbatim-in-spirit: announce line ("Using the task-management skill — the Linear work-item lifecycle."), card-resolution HARD STOP, single-task-holder rule, lifecycle (PLAN → TICKETS → OWNER REVIEW → PLAN ONE → IMPLEMENT → CLOSE → NEXT), batching, mid-session-discovery (file first, 30s), status-mapping moments, milestones→Linear projects (one per plan doc with 3+ items), close discipline, anti-pattern table. Replace: the affect matrix section → D10 label taxonomy (app/pkg/com plain multi-value; type/who-acts groups; `repo`); ticket-ID/code-registry section → "one team, `OM-N` native; the card's label registry is THE single label source"; D9 section per spec §1; source-board anti-pattern rows → label-discipline rows ("cross-cutting work with a single app label" → D9 STOP; "minting an unregistered label" → register in card first, same commit). Command crib:
+- [ ] **Step 7.1:** Author using `$SRC/skills/task-management/SKILL.md` as the structural source, per spec §2.2: announce line "Using the task-management skill — the Linear work-item lifecycle."; card-resolution HARD STOP; lifecycle; batching; mid-session-discovery; close discipline; anti-pattern table with label-discipline rows. Transport section: **MCP tools first** (`save_issue`, `save_comment`, `list_issues`, `list_issue_labels`, `create_issue_label`; team/project/labels/state by NAME, priority ints), with these encoded quirks: `labels` REPLACES the set (read-modify-write); relations append-only; every create sets `team: Engineering` + `project: 😱 ScreamingFace V1` + one type + one who-acts + one actor label. No token/GraphQL usage anywhere — MCP only; uncovered ops go to the owner (D4). D12 STOP mechanics (label + comment). 
+
+- [ ] **Step 7.2: Include this "Linear rich text" reference section VERBATIM in the skill** (research 2026-07-08 — sources: [Editor docs](https://linear.app/docs/editor), [collapsible changelog](https://linear.app/changelog/2025-03-19-collapsible-sections), MCP tool contracts):
 
 ````markdown
-## Command crib (auth: `export $(grep LINEAR_API_KEY ~/.config/linear/.env | xargs)`; POST {{endpoint}})
+## Linear rich text — the markdown dialect for descriptions & comments
 
-# create work item (returns native OM-N)
-curl -s -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" -d '{
- "query":"mutation($i:IssueCreateInput!){issueCreate(input:$i){issue{id identifier url}}}",
- "variables":{"i":{"teamId":"{{team.id}}","title":"…","description":"…",
-   "labelIds":["{{labels…}}"],"priority":{{priority.P2}},"parentId":null}}}' {{endpoint}}
-# move state (Todo→In Progress at ledger creation; →Blocked/Needs Owner on STOP; →Done at close)
-… issueUpdate(id:$id,input:{stateId:"{{states.in_progress}}"}) …
-# close comment (MANDATORY before Done — card close_template filled)
-… commentCreate(input:{issueId:$id,body:$body}) …
-# list open items by label
-{"query":"{ issues(filter:{labels:{name:{eq:\"app/aigateway\"}},state:{type:{neq:\"completed\"}}}){nodes{identifier title state{name}}}}"}
+Linear converts Markdown to its rich-text editor model. When writing via API/MCP:
+
+- **Send raw markdown with literal newlines — NEVER escape sequences** (`\n` arrives as
+  two characters). The MCP tools state this contract explicitly.
+- **Headings:** `#`–`####` (H1–H4). Deeper levels don't exist.
+- **Text:** `**bold**`, `_italic_`, `~~strike~~`, `` `inline code` ``. Underline has NO
+  markdown syntax (editor-only Cmd/Ctrl U) — don't try.
+- **Lists:** `-`/`*`/`+` bullets, `1.` numbered, `- [ ]` / `[]` checklists; all nestable.
+  Checklists in a description render as interactive checkboxes — good for acceptance lists.
+- **Blockquote:** `>` … · **Collapsible section:** `+++ Title` on its own line, content,
+  closing `+++` (nestable) — use for long logs/gate output in close comments.
+- **Code:** fenced ``` blocks with language tag; ` ```mermaid ` renders a Mermaid diagram.
+- **Divider:** `---` on its own line. **Tables:** GFM pipe tables render as Linear tables —
+  keep them simple (no spans).
+- **Emoji:** `:name:` (`:warning:` etc.).
+- **Mentions — SIDE-EFFECTS:** `@displayName` mentions a user → notifies + subscribes them
+  (MCP contract). Issue references auto-link aggressively: `@OME-123`, pasted issue URLs,
+  AND **bare `OME-123` identifiers in plain prose** all get converted to issue embeds
+  (verified live 2026-07-08) and can create "related to" relations. When no link/relation
+  is wanted, wrap the ID in backticks — code spans are left alone.
+- **Embeds:** bare YouTube/Loom/Figma/Google-Docs URLs auto-embed. To keep a plain link,
+  wrap it in standard `[text](url)` markdown.
+- **No HTML.** Raw HTML is not rendered — write markdown only.
+- Copy an issue back out as markdown via the in-app command `copy issue in markdown`.
 ````
 
-- [ ] **Step 7.2:** Commit: `git add .claude/skills/task-management && git commit -m "feat(OM-E): task-management skill — Linear work-item lifecycle" -m "Refs: OM-E"`
+- [ ] **Step 7.3:** Commit: `git add .claude/skills/task-management && git commit -m "feat(OME-E): task-management skill — Linear MCP lifecycle + rich-text reference" -m "Refs: OME-E"`
 
 ---
 
-### Task 8: `sdlc-python` + `sdlc-react` skills
+### Task 8: `sdlc-python` + `sdlc-electron` skills
 
 **Files:** Create both from `$SRC/skills/<name>/SKILL.md`
 
-- [ ] **Step 8.1:** `cp` both files, then apply IDENTICAL edits inside the SHARED-LOOP regions of BOTH:
-  1. Rule 7 runner: `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/run_gates.py <stack>` (+ the "plugin root = two levels up…" parenthetical) → `uv run .claude/scripts/run_gates.py <stack>` (run from repo root).
-  2. Rule 1 ledger: `(copy TEMPLATE.md; ledger_dir from the card, default docs/work-ledger/)` → `(copy docs/work/TEMPLATE.md; ledger_dir from the card — this repo: docs/work/, named YYYY-MM-DD-<ticket-id>-<desc>.md per D8)`.
-  3. Sibling references: name only the adopted pair (python ↔ react); drop `sdlc-go` mentions from description + LOOP PARITY sentence.
-- [ ] **Step 8.2:** Stack sections (outside SHARED-LOOP) stay verbatim.
-- [ ] **Step 8.3:** Run parity (Task 10 script) → `LOOP PARITY OK`. Commit: `git add .claude/skills/sdlc-* && git commit -m "feat(OM-E): sdlc-python + sdlc-react rigid-loop skills" -m "Refs: OM-E"`
+- [ ] **Step 8.1:** `cp` both, then IDENTICAL edits in the SHARED-LOOP regions of BOTH:
+  1. Rule 7 runner path → `uv run .claude/scripts/run_gates.py <stack>` (drop the plugin-root parenthetical).
+  2. Rule 1 ledger → `(copy docs/work/TEMPLATE.md; this repo: docs/work/, named YYYY-MM-DD-<ticket-id>-<desc>.md per D8)`.
+  3. Sibling references: name only the adopted pair; drop `sdlc-go` mentions.
+- [ ] **Step 8.2:** Stack sections stay verbatim.
+- [ ] **Step 8.3:** Parity check green (Task 10 script). Commit: `git add .claude/skills/sdlc-* && git commit -m "feat(OME-E): sdlc-python + sdlc-electron rigid-loop skills" -m "Refs: OME-E"`
 
 ---
 
@@ -377,45 +261,24 @@ curl -s -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" 
 
 **Files:** Create both from `$SRC/agents/<name>.md`
 
-- [ ] **Step 9.1:** `sdlc-unit-executor.md` edits: "GitHub issue number" → "Linear identifier (`OM-N`)"; issue read "from the board card's `repo`" → "via the Linear API per the card"; stack resolution "affected paths / `app/*` labels" stays (labels now Linear); STOP table's board moves → Linear state changes (issueUpdate to `blocked`/`needs_owner` + commentCreate); drop `sdlc-go` from the skills list. JSON contract: `"ticket": "<OM-N>"` (string).
-- [ ] **Step 9.2:** `ticket-filer.md` edits: entry fields `title, body, labels (from the card registry), priority, type, parent?`; validation against the card's `labels:`/`priority:` maps (unknown value → all-or-nothing reject); procedure → issueCreate crib (labelIds resolved from the card; parentId for sub-issues; NO retitle step); return table `identifier | title | URL | state`.
-- [ ] **Step 9.3:** Commit: `git add .claude/agents && git commit -m "feat(OM-E): sdlc-unit-executor + ticket-filer agents (Linear)" -m "Refs: OM-E"`
+- [ ] **Step 9.1:** `sdlc-unit-executor.md` edits: input = "Linear identifier (`OME-N`)"; reads via Linear MCP per the card; STOP table's "Board move" column → "apply `blocked` (or `needs-owner`) label + comment via MCP `save_issue`/`save_comment`" (D12 — issue stays In Progress); drop `sdlc-go`; JSON contract `"ticket": "<OME-N>"`.
+- [ ] **Step 9.2:** `ticket-filer.md` edits: entries `title, body, labels, priority, type, actor, parent?`; validate against the card registry incl. **actor mandatory (D13)** — missing actor label → all-or-nothing reject; files via MCP `save_issue` (team + project from card); returns `identifier | title | URL | state`.
+- [ ] **Step 9.3:** Commit: `git add .claude/agents && git commit -m "feat(OME-E): sdlc-unit-executor + ticket-filer agents (Linear MCP)" -m "Refs: OME-E"`
 
 ---
 
 ### Task 10: Scripts
 
-**Files:**
-- Create: `.claude/scripts/run_gates.py` — `cp $SRC/scripts/run_gates.py` VERBATIM
-- Create: `.claude/scripts/check_loop_parity.py`
-
-- [ ] **Step 10.1:** Copy `run_gates.py`; smoke-test:
-
-```bash
-uv run .claude/scripts/run_gates.py aigateway    # expected: ALL GATES GREEN (exit 0)
-uv run .claude/scripts/run_gates.py scoreboard   # expected: ALL GATES GREEN (exit 0)
-```
-
-- [ ] **Step 10.2:** Write `check_loop_parity.py` — the plugin's parity script with:
-
-```python
-ROOT = pathlib.Path(__file__).resolve().parent.parent   # .claude/
-SKILLS = ["sdlc-python", "sdlc-react"]
-# shared_regions() path:
-path = ROOT / "skills" / name / "SKILL.md"
-```
-(rest byte-identical: MARKER regex, drift diff, exit codes 0/1/2)
-
-- [ ] **Step 10.3:** `python3 .claude/scripts/check_loop_parity.py` → `LOOP PARITY OK: sdlc-python, sdlc-react …`. Drift → fix Task 8 edits in BOTH files and re-run.
-- [ ] **Step 10.4:** Commit: `git add .claude/scripts && git commit -m "feat(OM-E): run_gates + loop-parity scripts" -m "Refs: OM-E"`
+- [ ] **Step 10.1:** `cp $SRC/scripts/run_gates.py .claude/scripts/run_gates.py` (verbatim); smoke-test: `uv run .claude/scripts/run_gates.py aigateway` and `… scoreboard` → ALL GATES GREEN.
+- [ ] **Step 10.2:** Write `.claude/scripts/check_loop_parity.py` — the plugin's parity script with `ROOT = pathlib.Path(__file__).resolve().parent.parent`, `SKILLS = ["sdlc-python","sdlc-electron"]`, `path = ROOT / "skills" / name / "SKILL.md"`; rest byte-identical.
+- [ ] **Step 10.3:** `python3 .claude/scripts/check_loop_parity.py` → `LOOP PARITY OK …`.
+- [ ] **Step 10.4:** Commit: `git add .claude/scripts && git commit -m "feat(OME-E): run_gates + loop-parity scripts" -m "Refs: OME-E"`
 
 ---
 
 ### Task 11: CI — `repo-checks.yml`
 
-**Files:** Create: `.github/workflows/repo-checks.yml`
-
-- [ ] **Step 11.1:**
+- [ ] **Step 11.1:** Create `.github/workflows/repo-checks.yml`:
 
 ```yaml
 name: Repo Checks
@@ -435,42 +298,40 @@ jobs:
         run: python3 .claude/scripts/check_loop_parity.py
 ```
 
-- [ ] **Step 11.2:** Commit: `git add .github/workflows/repo-checks.yml && git commit -m "ci(OM-E): loop-parity check on sdlc skill changes" -m "Refs: OM-E"`
+- [ ] **Step 11.2:** Commit: `git add .github/workflows/repo-checks.yml && git commit -m "ci(OME-E): loop-parity check on sdlc skill changes" -m "Refs: OME-E"`
 
 ---
 
 ### Task 12: `working-in-this-repo` skill update
 
-**Files:** Modify: `.claude/skills/working-in-this-repo/SKILL.md`
-
-- [ ] **Step 12.1:** §6: branch `SF-{n}-{description}` + Asana `SF` field → `OM-N-<desc>` ("`N` = the Linear number; labels per `.claude/task-board.local.md`"); commit bullet → body carries `Refs: OM-N`. Routing table: add `Label` column (`app/aigateway`, `app/scoreboard`). §7 pointers: add `task-management`, `sdlc-python`/`sdlc-react`, both cards; `docs/` pointer → "decision records & SDLC artifacts (docs/README.md)".
-- [ ] **Step 12.2:** Commit: `git add .claude/skills/working-in-this-repo && git commit -m "docs(OM-E): route working-in-this-repo to Linear SDLC" -m "Refs: OM-E"`
+- [ ] **Step 12.1:** §6: `SF-{n}` branch rule → `OME-N-<desc>` ("N = the Linear number; registry `.claude/task-board.local.md`"); commit body `Refs: OME-N`. Routing table: add `Label` column (`app/aigateway`, `app/scoreboard`). §7 pointers: add `task-management`, `sdlc-*` skills, both cards.
+- [ ] **Step 12.2:** Commit: `git add .claude/skills/working-in-this-repo && git commit -m "docs(OME-E): route working-in-this-repo to Linear SDLC" -m "Refs: OME-E"`
 
 ---
 
 ### Task 13: Verification sweep
 
-- [ ] **Step 13.1:** `python3 .claude/scripts/check_loop_parity.py` → OK; both `run_gates.py` stacks → ALL GATES GREEN.
-- [ ] **Step 13.2:** Stale-reference grep (tracked files):
+- [ ] **Step 13.1:** Parity OK; both `run_gates.py` stacks GREEN.
+- [ ] **Step 13.2:** Stale-reference grep:
 
 ```bash
-git grep -nE 'SF-\{n\}|Asana ticket|asana permalink|docs/plans/|docs/specs/|AAGW-|PUPS-|C-team|C-prefix|1213703035415126' -- . ':!docs/plan' ':!docs/spec' ':!.docs'
+git grep -nE 'SF-\{n\}|Asana ticket|asana permalink|docs/plans/|docs/specs/|AAGW-|C-team|C-prefix|OM-N|1213703035415126' -- . ':!docs/plan' ':!docs/spec' ':!.docs'
 ```
-Expected: zero hits (spec/plan may reference the old flow narratively; they're excluded).
-- [ ] **Step 13.3:** End-to-end crib dry-run: create a throwaway issue (labels `repo` + `type/task` + `autonomous`), move Todo→In Progress→Done with a close comment, verify the `type` group rejected a second type label, then `issueDelete` it.
+Expected: zero hits (spec/plan narrate history; they're excluded).
+- [ ] **Step 13.3:** MCP dry-run: create a throwaway issue (team Engineering, project ScreamingFace V1, labels `repo`+`task`+`autonomous`+`agentic`), verify the `type`/`actor` groups reject a second label from the same group, move Todo→In Progress→Done with a close comment, then delete it in the Linear UI (MCP has no delete tool).
 
 ---
 
 ### Task 14: Ledger outcome, PR, close discipline
 
-- [ ] **Step 14.1:** Fill Outcome in `docs/work/2026-07-08-OM-E-ai-sdlc-adoption.md`; set mirror + ledger `status: done` / `closed:` date.
-- [ ] **Step 14.2:** Push, open PR `feat(OM-E): adopt Linear AI SDLC (skills, cards, agents, scripts, CI)`; body: summary, epic URL, test plan (parity + gates + dry-run), the bootstrap-exception note (Step 2.2), "supersedes SF-N/Asana workflow".
-- [ ] **Step 14.3:** After CI green + review + squash-merge: close sub-issues then the epic with the card's `close_template` filled; file backfill items — `repo`: "Lock package names + reserve (pypi/npm/brew)", "GitHub Pages: keep frozen vs disable"; `app/scoreboard`: "Portal vendoring stopgap — revisit with web story"; `pkg/url4-python-sdk` + `com/url4`: "Extract url4 SDK from legacy tag" (epic).
+- [ ] **Step 14.1:** Fill ledger Outcome; mirror + ledger `status: done` / `closed:` date.
+- [ ] **Step 14.2:** Push, open PR `feat(OME-E): adopt Linear AI SDLC (skills, cards, agents, scripts, CI)`; body: summary, epic URL, test plan, bootstrap-exception note, "supersedes SF-N/Asana workflow".
+- [ ] **Step 14.3:** After CI green + review + squash-merge: close sub-issues then the epic with the card's `close_template` filled (use a `+++ Gates +++` collapsible for gate output); file backfill items (all with `actor` labels): `repo`+`human`: "Lock package names + reserve (pypi/npm/brew)" (design-session), "GitHub Pages: keep frozen vs disable" (design-session); `app/scoreboard`+`agentic`: "Portal vendoring stopgap — revisit with web story" (deferred); `pkg/url4-python-sdk`+`com/url4`+`agentic`: "Extract url4 SDK from legacy tag" (epic).
 
 ---
 
 ## Self-review
 
-- Spec coverage: D1/D2/D10 → Tasks 1–3, 7; D3 → Task 6; D5 → Tasks 8/10; D6/D8 → Task 4; D7/D9 → card rules + CLAUDE.md rules 1/7 (Task 5, incl. rule 0 the 95% gate); §5 → Tasks 9–11; §2.4 → Task 12; §6 phase 5 → Task 14.3. `app/desktop`/`app/cli`/`sdlc-go` deliberately absent (spec §7).
-- No placeholders beyond `<uuid>/<id>/OM-E` slots that Tasks 1–2 explicitly produce (inputs, not TBDs).
-- Naming consistent: `task-management`, `asana-product`, card paths, `docs/work/TEMPLATE.md`, `Refs: OM-N`, label namespaces `app/ pkg/ com/`.
+- Spec coverage: D1/D2 → Tasks 0–2 (done) + 3; D3 → 6; D4 → Task 0 + Task 7 transport; D5 → 8/10; D6/D8 → 4; D7/D9 → cards + CLAUDE.md (5); D10/D13 → Task 1 (done) + card + filer validation (9.2); D11 → card + every save_issue; D12 → card + executor STOP table (9.1); §5 → 9–11; §2.4 → 12; §6 phase 5 → 14.3. Rich-text research → Task 7.2 verbatim block.
+- No placeholders beyond `<id>/OME-E` slots produced by Tasks 0–2 (recorded in `.docs/linear-bootstrap-ids.md`).
+- Naming consistent: `Refs: OME-N`, label namespaces `app/ pkg/ com/`, groups `type`/`who-acts`/`actor`.

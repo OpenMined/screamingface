@@ -7,6 +7,7 @@ supersedes: Asana-based git workflow in CLAUDE.md (SF-N tickets)
 related:
   - .docs/teardown-plan.md (SF-348, PR #371)
   - docs/diagrams/work-item-topology.png (+ .svg source)
+  - https://linear.app/openmined/project/screamingface-v1-27666092fc7f (default Linear project)
   - https://github.com/sergio-bershadsky/ai/tree/main/plugins (source of sdlc/task-management artifacts)
 ---
 
@@ -27,57 +28,64 @@ copied verbatim.
 | # | Decision | Choice |
 |---|---|---|
 | D1 | System of record | **Linear** is the single system of record for dev work items; the task-management skill runs on it. |
-| D2 | Ticket IDs *(revised same day)* | **Single Linear team, key `OM`** — one global sequence `OM-N` for every work item (the Asana SF-N model). Per-component team keys (`AAGW-321` style) were evaluated and dropped: too heavy for ad-hoc work. No zero-padding (Linear cannot render it — verified; sources below). |
+| D2 | Ticket IDs *(revised twice same day)* | **The existing `openmined` workspace Engineering team, key `OME`** — one global sequence `OME-N` for every work item (the Asana SF-N model). No new team is created in the shared org workspace. Per-component team keys (`AAGW-321` style) and a dedicated `OM` team were evaluated and dropped. No zero-padding (Linear cannot render it — verified; sources below). |
 | D3 | Asana role | **Strictly read-only** source of product/marketing top-level tasks (list/read/search). Never create or update. Technical work items NEVER go to Asana. |
-| D4 | Linear access | Workspace + API key exist. Key stored at `~/.config/linear/.env` as `LINEAR_API_KEY`. |
-| D5 | Stack skills now | `sdlc-python` + `sdlc-react`. **`sdlc-go` deferred** until a Go component exists (YAGNI). |
-| D6 | Docs dirs | `docs/tasks/`, `docs/work/`, `docs/spec/`, `docs/plan/`, `docs/diagrams/` (spec/plan singular — user decision, overriding the plural SF-348 landed; CLAUDE.md + docs/README.md updated at implementation). |
-| D7 | Repo/process work *(revised)* | Plain **`repo`** label, no `app/*`/`pkg/*` label. (The earlier REPO catch-all team is obsolete under single-team D2.) |
+| D4 | Linear access *(revised twice)* | **The Linear MCP plugin, activated/authenticated in Claude, is the ONLY transport and a hard PRECONDITION** (`/mcp` → plugin:linear connected). **API tokens / raw GraphQL are FORBIDDEN.** Operations the MCP cannot perform (label deletion, team creation, workflow states) are OWNER actions in the Linear UI. |
+| D5 | Stack skills now *(revised)* | `sdlc-python` + **`sdlc-electron`** (transformed from the source plugin's sdlc-react for the upcoming desktop app: main/preload/renderer idiom, both-side IPC contract rule S2, security posture — contextIsolation on, external HTTP in main only). **`sdlc-go` deferred** until a Go component exists (YAGNI). |
+| D6 | Docs dirs | `docs/tasks/`, `docs/work/`, `docs/spec/`, `docs/plan/`, `docs/diagrams/` (spec/plan singular — user decision). |
+| D7 | Repo/process work | Plain **`repo`** label, no `app/*`/`pkg/*` label. |
 | D8 | Ledger timing | Ledger file created at work **start** (`docs/work/YYYY-MM-DD-<ticket-id>-<desc>.md`, date = start), frontmatter `status: planned|in_progress|done` + `finished:` date at close. Reconciles "ledger-first" (sdlc rule 1) with "write ledger when finished" (user rule 2). |
-| D9 | Cross-cutting work *(revised)* | Work spanning ≥2 apps/packages is **signed as a cross-app product component via labels**: `com/<component>` + every affected `app/*`/`pkg/*` label, filed as an **epic with one sub-issue per affected app/package**. (The interim C-prefix-team scheme is superseded by single-team D2.) |
-| D10 | Label taxonomy | Namespaced full-name labels: `app/[name]`, `pkg/[name]`, `com/[name]` as **plain multi-value labels** (Linear label groups enforce one-per-issue and would break cross-cutting); `type` and `who-acts` as **Linear label groups** (one-per-issue enforcement wanted there). |
+| D9 | Cross-cutting work | Work spanning ≥2 apps/packages is **signed as a cross-app product component via labels**: `com/<component>` + every affected `app/*`/`pkg/*` label, filed as an **epic with one sub-issue per affected app/package**. |
+| D10 | Label taxonomy — **LOCKED (align + extend)** | The existing Engineering **`Epic` label group children remain the workstream/component axis** (one per issue: url4 Engine, AI Gateway, Eval Runner & Datasets, Results & Runs, Leaderboard, Auth & Subsidized Compute, Desktop App, Python SDK, Multi-turn Ensembles, SOTA Hunt, Compute Budgeting). **Added:** `actor` group (D13), `who-acts` group (design-session/autonomous/deferred), plain landing labels `app/aigateway`, `app/scoreboard`, `pkg/url4-python-sdk`, `repo`, and `needs-owner`. **Reused:** existing `blocked ⛔`. **No `com/*` axis, no `type` group** (plain `Bug`/`Feature`/`Improvement` reused where useful; epics are parent issues). Obsolete trial labels (`com/*`, `type` group, plain `blocked`) → owner deletes in UI. |
+| D13 | Actor label — **MANDATORY, LOCKED** | Every work item carries exactly one **`actor` group label: `agentic` or `human`** — who executes it. Set at filing; flipped if ownership changes. |
+| D11 | Default project | Every work item for this repo attaches to the Linear project **😱 ScreamingFace V1** (`screamingface-v1-27666092fc7f`). |
+| D12 | STOP signals | The Engineering team's workflow is SHARED — we do not add states to it. `Blocked` / `Needs Owner` are **workspace labels** (`blocked`, `needs-owner`): a STOP = apply the label + a comment stating the exact question; the issue stays In Progress. Clearing the STOP removes the label. |
 
-Linear ID research sources: [Linear conceptual model](https://linear.app/docs/conceptual-model),
+Linear research sources: [conceptual model](https://linear.app/docs/conceptual-model),
 [Teams](https://linear.app/docs/teams), [Creating issues](https://linear.app/docs/creating-issues),
-[Labels](https://linear.app/docs/labels).
+[Editor](https://linear.app/docs/editor), [Collapsible sections changelog](https://linear.app/changelog/2025-03-19-collapsible-sections).
 
 ## 1. Work-item topology
 
-**We are ONE team.** One Linear team (key **`OM`**) → every work item is `OM-N`, one global
-sequence. WHERE the work lands and WHAT it affects live in **labels**, not in the ID:
+**We are ONE team.** Work items live in the existing **Engineering** team (key **`OME`**,
+id `5f4d721f-4452-4ed1-990a-7cdbcd923508`) → every work item is `OME-N`, one global
+sequence — attached to the **😱 ScreamingFace V1** project (D11). WHERE the work lands and
+WHAT it affects live in **labels**, not in the ID:
 
-| Namespace | Axis | Values (initial) |
+| Axis | Labels | Notes |
 |---|---|---|
-| `app/[name]` | application the work lands in | `app/aigateway`, `app/scoreboard`; `app/desktop`, `app/cli` created at name lock |
-| `pkg/[name]` | package the work lands in | `pkg/url4-python-sdk` |
-| `com/[name]` | product component affected (open set) | `com/url4`, `com/evalstudio`, `com/ensemble`, `com/credentials` |
-| `repo` | repo/process work (no app/pkg label) | — |
-| `type` group | deliverable kind — ONE per issue | `type/epic`, `type/feature`, `type/bug`, `type/task`, `type/decision` |
-| `who-acts` group | who moves it — ONE per issue | `design-session`, `autonomous`, `deferred` |
+| Workstream/component — ONE per issue | existing **`Epic` group** children: url4 Engine, AI Gateway, Eval Runner & Datasets, Results & Runs, Leaderboard, Auth & Subsidized Compute, Desktop App, Python SDK, Multi-turn Ensembles, SOTA Hunt, Compute Budgeting | pre-existing team layout, adopted as-is (D10) |
+| Repo landing (WHERE) — multi-value | plain `app/aigateway`, `app/scoreboard`, `pkg/url4-python-sdk`; `app/desktop`, `app/cli` at name lock | added by us |
+| Repo/process work | plain `repo` (no app/pkg label) | added by us (D7) |
+| `who-acts` group — ONE per issue | `design-session`, `autonomous`, `deferred` | added by us |
+| `actor` group — ONE per issue, MANDATORY (D13) | `agentic`, `human` | added by us |
+| STOP labels (D12) | existing `blocked ⛔` + added `needs-owner` | label + comment, not states |
 
 Mechanics:
-- `app/*`, `pkg/*`, `com/*` are **plain namespaced labels** — an issue may carry several
-  (required for cross-cutting epics). `type` and `who-acts` are **Linear label groups**, so
-  Linear itself enforces one-per-issue.
-- `com/*` names are PRODUCT concepts, never internal modules. New app/package/component ⇒
-  its label registered in the card **in the same change** that introduces it.
+- `app/*`/`pkg/*` are **plain labels** — an issue may carry several (required for
+  cross-cutting epics). `who-acts` and `actor` are **Linear label groups**, so Linear
+  itself enforces one-per-issue. The workstream axis is the existing `Epic` group.
+- New app/package/workstream ⇒ its label registered in the card **in the same change**
+  that introduces it (workstream additions coordinated with the project lead).
 - Priority: Linear's native field (card maps P1→High(2), P2→Medium(3), P3→Low(4); Urgent(1)
   reserved for incidents).
-- Workflow states (one set, one team): `Todo → In Progress → Blocked → Needs Owner → Done`
-  (+ built-ins Backlog/Canceled). `Blocked`/`Needs Owner` are the unit-executor STOP targets.
-- Epics = Linear parent issues with sub-issues; milestones = Linear projects (one per plan
-  doc that decomposes into 3+ work items).
+- Workflow states: the Engineering team's EXISTING set (`Todo → In Progress → In Review →
+  Done`, plus its backlog/triage states). We add none (D12); STOPs are labels + comment.
+- Epics = Linear parent issues with sub-issues; milestones = milestones of the
+  ScreamingFace V1 project.
 
-**Cross-cutting rule (D9):** ≥2 `app/*`/`pkg/*` labels ⇒ the work is cross-component: file an
-**epic** carrying `com/<component>` + all affected `app/*`/`pkg/*` labels, with **one
-sub-issue per affected app/package** (one SDLC unit each; each sub-issue carries its own
-`app/*`/`pkg/*` label + the same `com/*` label). Never one mega-ticket, never filed as if it
-were single-app work.
+**Cross-cutting rule (D9):** ≥2 `app/*`/`pkg/*` labels ⇒ the work is cross-cutting: file an
+**epic** carrying its workstream (`Epic` group) label + all affected `app/*`/`pkg/*` labels,
+with **one sub-issue per affected app/package** (one SDLC unit each; each sub-issue carries
+its own `app/*`/`pkg/*` label + the same workstream label). Never one mega-ticket, never
+filed as if it were single-app work.
 
 **Registry card:** `.claude/task-board.local.md` — **committed** (repo config, not personal).
-Contains: workspace slug, team key+ID, state name→ID map, label registry (all namespaces +
-group IDs), priority map, close-comment template, key source path. Card missing → HARD STOP
-(same rule as the source skill).
+Contains: workspace slug, team key+ID, default project (name/slug/ID), state name→ID map
+(existing states), label registry (all namespaces + group IDs + STOP labels), priority map,
+close-comment template, transport note (MCP ONLY — tokens/GraphQL forbidden). Label
+registry sections: `epic_group:` (workstream children), `landing:` (app/pkg/repo),
+`who_acts:`, `actor:`, `stop:`. Card missing → HARD STOP (same rule as the source skill).
 
 ## 2. Skills (repo-local, `.claude/skills/`)
 
@@ -94,118 +102,126 @@ Keeps verbatim-in-spirit: announce line, card-resolution HARD STOP, single-task-
 lifecycle (PLAN → TICKETS → owner ticket review → plan one ticket → implement via stack SDLC
 → close → next), batching, mid-session-discovery rule (file first, 30 seconds), close
 discipline (commits + gates + ledger paths + deviations in a comment before Done),
-anti-pattern table (GitHub-specific rows replaced with label-discipline rows, e.g. "filing
-cross-cutting work with a single app label" → D9 STOP).
+anti-pattern table (label-discipline rows: cross-cutting with a single app label → D9 STOP;
+minting unregistered labels → register in card first).
 Changes:
-- Command crib: Linear GraphQL via `curl` (`Authorization: <LINEAR_API_KEY>`), templated
-  from the card: issueCreate, issueUpdate (state), commentCreate, issue search/filter by label.
-- No retitle/code bookkeeping — Linear assigns `OM-N` natively.
-- Affect matrix: **entirely labels** — `app/*`/`pkg/*` = WHERE (multi-value), `com/*` = WHAT;
-  D9 epic/sub-issue discipline whenever WHERE has ≥2 values.
+- **Transport: the Linear MCP tools ONLY** (`save_issue`, `save_comment`, `list_issues`,
+  `create_issue_label`, …) — activated in Claude as a precondition (D4). Tokens/GraphQL
+  are forbidden; MCP-uncovered operations go to the owner (Linear UI).
+- Every work item sets `project: 😱 ScreamingFace V1` (D11) and `team: Engineering`.
+- No retitle/code bookkeeping — Linear assigns `OME-N` natively.
+- Affect matrix: **entirely labels** — `app/*`/`pkg/*` = WHERE (multi-value), the `Epic`
+  group workstream = WHAT; D9 epic/sub-issue discipline whenever WHERE has ≥2 values.
+- STOPs per D12: `blocked`/`needs-owner` label + comment; label removed when resolved.
+- MCP quirk encoded in the skill: `save_issue.labels` REPLACES the full label set — always
+  read current labels first and resend the union; relations (`blockedBy`, `relatedTo`) are
+  append-only by contrast.
+- **Embeds the "Linear rich text" reference** (research 2026-07-08) — the markdown dialect
+  for descriptions/comments (full content in the plan, Task 7).
 - Every work item gets a `docs/tasks/` mirror (see §4) — a repo-side record, not a second
   board: Linear stays the status authority; the mirror updates at create/close only.
 
-### 2.3 `sdlc-python` and `sdlc-react` (adopted; `sdlc-go` deferred — D5)
+### 2.3 `sdlc-python` and `sdlc-electron` (adopted; `sdlc-go` deferred — D5)
 - SHARED-LOOP regions kept **verbatim-identical** across the two adopted skills (loop parity
   enforced by script, §5).
-- Adaptations (identical in both files): gate runner path
-  `uv run .claude/scripts/run_gates.py <stack>` (no `${CLAUDE_PLUGIN_ROOT}` repo-locally);
-  `ledger_dir` → `docs/work/` with D8 naming; ticket refs are `OM-N` (`Refs: OM-N` as the
-  card's `commit_refs`); sibling references name only the adopted pair; project
-  names/examples → this repo's.
-- Stack idiom sections unchanged (python: migrations-with-schema S1, no bare except, no
-  type:ignore; react: a11y gate S1, RTL behavior/roles, no `any` at boundaries).
+- Shared adaptations (identical in both files): gate runner path
+  `uv run .claude/scripts/run_gates.py <stack>`; `ledger_dir` → `docs/work/` with D8 naming;
+  ticket refs are `OME-N` (`Refs: OME-N` as the card's `commit_refs`); sibling references
+  name only the adopted pair; card-missing wording → restore from git.
+- `sdlc-electron` extends the source sdlc-react stack sections: main/preload/renderer
+  process model, both-side IPC contract testing (rule S2), strict-TS at IPC boundaries,
+  the **official Electron security checklist encoded** (contextIsolation/sandbox on,
+  nodeIntegration/webSecurity-off forbidden, IPC sender validation, permission handler +
+  CSP, navigation/window-open restriction, shell.openExternal hygiene, https-only,
+  current Electron; external HTTP in main only), a11y gate retained (rule S1).
 
 ### 2.4 `working-in-this-repo` (update, same change)
-§6 branch/PR rules → Linear flow (branch `OM-N-<desc>`, `Refs: OM-N` in commit body);
+§6 branch/PR rules → Linear flow (branch `OME-N-<desc>`, `Refs: OME-N` in commit body);
 pointers add task-management + sdlc-* skills and the two cards; routing table gains the
 `app/*` label per app.
 
 ## 3. Cards
 
 ### 3.1 `.claude/task-board.local.md` (committed)
-Frontmatter: `system: linear`, workspace, `team: {key: OM, id}`, states map (todo /
-in_progress / blocked / needs_owner / done), label registry (`apps:`, `pkgs:`, `coms:`,
-`repo:`, `types:` group, `who_acts:` group — name→ID), priority map,
-`key_source: ~/.config/linear/.env`, `close_template`. Body: ticket rules (D9 label
-discipline, Asana-URL rule, mirror-file rule, com-labels-are-product-concepts).
+Frontmatter: `system: linear`, workspace `openmined`, `team: {key: OME, id}`,
+`project: {name, slug, id}`, states map (existing: todo / in_progress / in_review / done /
+triage / backlog), label registry (`apps:`, `pkgs:`, `coms:`, `repo:`, `stop:` (blocked /
+needs-owner), `types:` group, `who_acts:` group — name→ID), priority map, transport
+(`mcp: plugin:linear`, `fallback_key_source: ~/.config/linear/.env`), `close_template`.
+Body: ticket rules (D9 label discipline, D11 project rule, D12 STOP rule, Asana-URL rule,
+mirror-file rule, com-labels-are-product-concepts, labels-REPLACE quirk).
 
 ### 3.2 `.claude/sdlc.local.md` (committed)
-Frontmatter `stacks:`:
-- `aigateway` — root `apps/aigateway`, skill `sdlc-python`, gates: `uv run ruff check`,
-  `uv run ruff format --check`, `uv run pyright`, enterprise-import guard,
-  `uv run pytest --cov=aigateway --cov-fail-under=80`; `test_globs: ["tests/**"]`.
-- `scoreboard` — root `apps/scoreboard`, skill `sdlc-python`, same pattern (`--cov=scoreboard`).
-- (react/desktop stack entry added when the app lands.)
-Body per stack: invariants (aigateway: credential encryption path, no OS keychain, no
-litellm-enterprise; scoreboard: artifact allowlist/forbidden routes), `commit_refs: "Refs: OM-N"`,
-`extra_anchors: []`, companion_skills (e.g. `tortoise-dev` for schema/migrations — mandatory).
+As previously specified: stacks `aigateway` + `scoreboard` (python; ruff/format/pyright/
+pytest-cov gates; aigateway adds the enterprise-import guard), `commit_refs: "Refs: OME-N"`,
+`ledger_dir: docs/work/`, companion_skills (tortoise-dev mandatory for schema/migrations),
+per-stack invariants (aigateway credential rules; scoreboard artifact allowlist).
 
 ## 4. Mandatory CLAUDE.md "AI SDLC" section (replaces "Git Workflow" Asana rules)
 
 0. **95% confidence gate — TOP RULE.** Never write, assert, or implement anything you are
    not ≥95% confident is both correct AND wanted. Below 95% → STOP and ask first. Applies
    to every rule below and every artifact: code, work items, docs, diagrams.
-1. **Work item first.** All work starts as a Linear issue (`OM-N`) carrying its labels
-   (`app/*`/`pkg/*` or `repo`; `com/*` when a product component is affected; one `type/*`;
-   one who-acts) plus a mirror `docs/tasks/YYYY-MM-DD-<name>.md` (frontmatter: id,
-   linear_url, asana_url?, status, type, priority, labels, created, closed). At finish,
-   close status in BOTH.
+1. **Work item first.** All work starts as a Linear issue (`OME-N`) in the Engineering team,
+   attached to the **😱 ScreamingFace V1** project, carrying its labels (workstream from the
+   `Epic` group; `app/*`/`pkg/*` or `repo` for landing; one who-acts; one `actor` —
+   agentic|human) plus a mirror `docs/tasks/YYYY-MM-DD-<name>.md`. At finish, close status
+   in BOTH.
 2. **Work ledger.** Every finished unit has `docs/work/YYYY-MM-DD-<ticket-id>-<desc>.md`
    (created at work start, outcome filled at finish — see the sdlc skills).
 3. **Spec before plan, plan before code.** `docs/spec/` artifact required before planning;
-   `docs/plan/` artifact required before implementation. Prefer/propose `/superpowers`
+   `docs/plan/` artifact required before implementation. Prefer `/superpowers`
    (brainstorming → writing-plans) or similar. Never plan or implement without them.
 4. **Diagrams.** Propose the diagramming plugin
    (https://github.com/sergio-bershadsky/ai/tree/main/plugins/diagramming) when it's absent;
    assets live in `docs/diagrams/` (SVG source + PNG).
-5. **Branches/commits.** Branch `OM-N-<desc>` (e.g. `OM-12-fix-refresh`). Conventional
-   commits; body carries `Refs: OM-N`; never `Co-Authored-By`; never commit to `main`.
+5. **Branches/commits.** Branch `OME-N-<desc>` (e.g. `OME-12-fix-refresh`). Conventional
+   commits; body carries `Refs: OME-N`; never `Co-Authored-By`; never commit to `main`.
 6. **Asana boundary.** Asana is READ-ONLY product/marketing input (`asana-product` skill).
    Technical work items never go to Asana.
-7. **Cross-cutting work (D9).** Touching ≥2 apps/packages → epic with `com/<component>` +
-   all affected `app/*`/`pkg/*` labels, one sub-issue per affected app/package. Never a
-   single-app filing, never one mega-ticket.
+7. **Cross-cutting work (D9).** Touching ≥2 apps/packages → epic with its workstream
+   (`Epic` group) label + all affected `app/*`/`pkg/*` labels, one sub-issue per affected
+   app/package. Never a single-app filing, never one mega-ticket.
 
 ## 5. Agents & scripts
 
-- `.claude/agents/sdlc-unit-executor.md` — executes ONE `OM-N` work item through the stack's
-  SDLC loop; STOP conditions compile to Linear state moves (`Blocked` / `Needs Owner`) +
-  comment; same JSON return contract and prohibitions as the source agent.
+- `.claude/agents/sdlc-unit-executor.md` — executes ONE `OME-N` work item through the
+  stack's SDLC loop; STOP conditions compile to the D12 labels (`blocked` / `needs-owner`)
+  + a comment via the Linear MCP; same JSON return contract and prohibitions as the source
+  agent.
 - `.claude/agents/ticket-filer.md` — validates every entry against the card's label/priority
-  registry, then files via Linear GraphQL; all-or-nothing; returns
-  `identifier | title | URL | state` table.
+  registry, then files via the Linear MCP (`save_issue` with team + project + labels);
+  all-or-nothing; returns `identifier | title | URL | state` table.
 - `.claude/scripts/run_gates.py` — adopted near-verbatim (card-driven, PEP-723 uv script).
-- `.claude/scripts/check_loop_parity.py` — `SKILLS = ["sdlc-python","sdlc-react"]`, paths
+- `.claude/scripts/check_loop_parity.py` — `SKILLS = ["sdlc-python","sdlc-electron"]`, paths
   under `.claude/skills/`; extended per stack added.
 - `.github/workflows/repo-checks.yml` — path-filtered to `.claude/skills/sdlc-*/**` +
   `.claude/scripts/**`; runs loop-parity.
 
 ## 6. Implementation phases
 
-1. **Bootstrap Linear** — create/confirm team `OM`; add `Blocked` + `Needs Owner` states;
-   create labels (plain: `app/*`, `pkg/*`, `com/*`, `repo`; groups: `type`, `who-acts`);
-   record IDs; verify key at `~/.config/linear/.env`. File the adoption epic (`type/epic`,
-   `repo`, `autonomous`) with phase sub-issues.
-2. **Cards + CLAUDE.md** — write both cards; replace CLAUDE.md Git-Workflow section with §4;
-   update `working-in-this-repo`.
-3. **Skills** — `asana-product`, `task-management` (Linear), `sdlc-python`, `sdlc-react`.
+1. **Bootstrap Linear** *(DONE 2026-07-08)* — Linear MCP activated (D4); taxonomy locked
+   (D10 align + extend) and labels in place; adoption epic **OME-358** filed with phase
+   sub-issues OME-359/360/361/362 under 😱 ScreamingFace V1. IDs in
+   `.docs/linear-bootstrap-ids.md`. Owner cleanup pending: delete obsolete trial labels
+   (`com/*`, `type` group, plain `blocked`) in the Linear UI.
+2. **Cards + docs tree + CLAUDE.md** — both cards; docs/tasks + docs/work (+TEMPLATE);
+   CLAUDE.md §4 rules; dogfood mirror/ledger for the epic.
+3. **Skills** — `asana-product`, `task-management` (Linear+MCP, incl. the rich-text
+   reference), `sdlc-python`, `sdlc-electron`, `working-in-this-repo` update.
 4. **Agents + scripts + CI** — §5 items; parity green.
 5. **Backfill work items** — `repo`: name lock-down/reservation, GH Pages decision;
-   `app/scoreboard`: portal stopgap revisit; `pkg/url4-python-sdk`: url4 SDK extraction epic
-   (`app/desktop` / `app/cli` epics wait for name lock).
+   `app/scoreboard`: portal stopgap revisit; `pkg/url4-python-sdk` + `com/url4`: url4 SDK
+   extraction epic (`app/desktop` / `app/cli` epics wait for name lock).
 
 ## 7. Out of scope / deferred
 
 - `sdlc-go` (until a Go component exists — D5).
 - `app/desktop` / `app/cli` labels and epics (until package names locked).
 - Migration of historical Asana SF-N tickets into Linear (not requested).
-- Linear MCP integration (curl/GraphQL chosen; MCP can replace transport later without
-  changing the process).
 
 ## Open questions (none blocking)
 
-- Exact Linear team/state/label IDs — resolved during phase 1 bootstrap.
 - Whether `repo-checks.yml` also runs actionlint — nice-to-have, decide in implementation.
 
-Confidence: ≥95% on design correctness/completeness given locked decisions D1–D10.
+Confidence: ≥95% on design correctness/completeness given locked decisions D1–D12.
