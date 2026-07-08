@@ -76,8 +76,8 @@ When the user asks to **plan a ticket** (or any non-trivial task):
 
 - **Always use the agentic superpowers team for planning.** Use `superpowers:brainstorming` first, then `superpowers:writing-plans` (or the equivalent `write-plan` / `brainstorm` skills). Dispatch parallel agents (`superpowers:dispatching-parallel-agents`) for independent research as needed.
 - **Write output to disk** in this project:
-  - **Plans** → `docs/plans/`
-  - **Specs** → `docs/specs/`
+  - **Plans** → `docs/plan/`
+  - **Specs** → `docs/spec/`
   - Local scratch drafts (not for commit) → `.docs/` (gitignored)
 - **Reach ≥95% confidence before proposing the plan/spec for review.** Iterate — re-read source files, dispatch more research agents, ask the user targeted questions — until you can honestly claim ≥95% confidence in the plan's correctness, completeness, and feasibility. State the confidence level explicitly when presenting.
 - **Never switch to implementation until the user explicitly approves the plan.** Writing the plan to disk and presenting it is the end of the planning phase. Do not start editing code, creating branches, or executing the plan until the user says so in plain words. Implicit cues ("looks good", "thanks") are not approval — wait for an explicit go-ahead.
