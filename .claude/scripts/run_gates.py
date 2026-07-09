@@ -17,8 +17,10 @@ Exit codes: 0 all green · 1 a gate or the append-only check failed · 2 config 
 """
 
 import argparse
+import ast
 import fnmatch
 import pathlib
+import re
 import subprocess
 import sys
 from typing import NoReturn
@@ -65,8 +67,61 @@ def load_card(path: pathlib.Path) -> dict:
     return data
 
 
+_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@")
+
+
+def _old_test_ranges(root: pathlib.Path, base: str, path: str) -> list[tuple[int, int]]:
+    """Line ranges (1-indexed, inclusive) of every test function body in `path` at `base`."""
+    proc = subprocess.run(
+        ["git", "show", f"{base}:{path}"], cwd=root, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        return []  # file didn't exist at base — nothing to protect
+    try:
+        tree = ast.parse(proc.stdout)
+    except SyntaxError:
+        return []  # can't parse — fall through to the safe (permissive) side
+    ranges = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+            ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
+    return ranges
+
+
+def _removed_old_lines(root: pathlib.Path, base: str, path: str) -> set[int]:
+    """Old-file line numbers that a removal/change touches, per the diff for `path` vs `base`."""
+    proc = subprocess.run(
+        ["git", "diff", "--relative", "--unified=0", base, "--", path],
+        cwd=root, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        fail_config(f"git diff failed in {root}: {proc.stderr.strip()}")
+    removed: set[int] = set()
+    old_line = 0
+    for line in proc.stdout.splitlines():
+        if line.startswith("@@"):
+            m = _HUNK_HEADER.match(line)
+            old_line = int(m.group(1)) if m else old_line
+        elif line.startswith(("---", "+++", "\\")):
+            continue
+        elif line.startswith("-"):
+            removed.add(old_line)
+            old_line += 1
+        elif line.startswith("+"):
+            continue  # inserted line — doesn't consume an old line number
+        else:
+            old_line += 1  # context line (present only if a non-zero unified context is used)
+    return removed
+
+
 def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
-    """True when no previously committed test file was modified/deleted/renamed."""
+    """True when no previously committed *test* was modified/deleted (rule 5).
+
+    Pure additions to a test file (new test functions, new imports for them) are
+    always fine — only a removed/changed line that falls INSIDE a test function body
+    that already existed at `base` counts as a violation. Deleting or renaming a
+    whole test file is always a violation regardless of content.
+    """
     proc = subprocess.run(
         ["git", "diff", "--relative", "--name-status", base],
         cwd=root,
@@ -83,10 +138,20 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
             status[:1] not in "MDR"
         ):  # A(dded)/C(opied) etc. are fine — adding tests is always fine
             continue
-        for p in paths:
-            if any(fnmatch.fnmatch(p, g) for g in globs):
-                offenders.append(f"  {status}\t{p}")
-                break
+        matched = [p for p in paths if any(fnmatch.fnmatch(p, g) for g in globs)]
+        if not matched:
+            continue
+        p = matched[-1]  # for R(ename), name-status gives "old\tnew" — the new path is what's on disk
+        if status[:1] != "M":
+            offenders.append(f"  {status}\t{p}")
+            continue
+        test_ranges = _old_test_ranges(root, base, p)
+        bad_lines = sorted(
+            ln for ln in _removed_old_lines(root, base, p)
+            if any(lo <= ln <= hi for lo, hi in test_ranges)
+        )
+        if bad_lines:
+            offenders.append(f"  M\t{p}  (removed/changed inside an existing test, old line(s) {bad_lines})")
     if offenders:
         print(
             f"{RED} append-only test check — prior tests were modified/deleted (vs {base}):"
