@@ -22,30 +22,62 @@ rules referenced below), `screamingface-design` owns every visual/brand decision
 structure. Build-time work runs under `sdlc-electron` (its a11y gate S1 consumes L11).
 Deviating from an invariant is a Confidence-Gate decision: STOP and ask the owner.
 
-## The shell
+## The shell — initial layout (v1)
+
+The v1 default is based on the **Ensemble Studio** design
+(https://irinambejan.github.io/model-ensemble-studio/, researched 2026-07-09; screenshots
+in `.docs/ensemble-studio-research/`):
 
 ```
 +----------------------------------------------------------------------------+
-| TITLE BAR (custom or native — one choice per app)                          |
-+----+----------------------+------------------------------------------------+
-| AB | PRIMARY SIDEBAR      | MAIN AREA — document-centric (L7)              |
-|    |  view containers     |   editors / eval runs / documents              |
-|    |  (ext views land     |                                                |
-|    |  here via hints)     +------------------------------------------------+
-|    |                      | PANEL — tool lanes (L10: DEBUG logs)           |
-+----+----------------------+------------------------------------------------+
-| STATUS BAR — bounded, priority-ordered items (L9)                          |
-+----------------------------------------------------------------------------+
+| TITLE BAR (native chrome / minimal custom)                                 |
++------------------+---------------------------------------------------------+
+| PRIMARY SIDEBAR  | MAIN AREA — one view at a time:                         |
+|  brand + theme   |  hub · list+detail · document · table · cards           |
+|  nav: Ensembles  |                                                         |
+|   Models         |  document view: header (name · meta · Share url4)       |
+|   Leaderboard    |                 + document tabs (Compose | Runs)        |
+|   Scripts [2]    +---------------------------------------------------------+
+|  MY ENSEMBLES    | PANEL — hidden; DEBUG log lanes when DEBUG=on (L10)     |
+|  compute card    +---------------------------------------------------------+
+|  user footer     | STATUS BAR — reserved, hidden in v1 (L9)                |
++------------------+---------------------------------------------------------+
 ```
 
-AB = activity bar. Rendered diagram (SVG + PNG): `docs/diagrams/electron-workbench-layout.*`.
+Rendered diagram (SVG + PNG): `docs/diagrams/electron-workbench-layout.*`.
+
+**Initial-layout facts (from the Studio design):**
+
+- **One rich sidebar, no activity bar in v1.** The sidebar carries: brand header + theme
+  toggle · primary nav (Ensembles, Models, Leaderboard, Scripts — with count badges) ·
+  a **MY ENSEMBLES** section listing the user's ensemble documents · the subsidized-compute
+  program card (key connect) · the user identity footer. If view containers multiply beyond
+  what one sidebar holds, adding an activity bar is the escalation path — an owner decision,
+  not an extension's.
+- **The main area shows one view at a time**, navigated from the sidebar. Five view
+  archetypes: **hub** (hero + top ensembles), **list+detail** (Models: provider library
+  column + detail pane), **document** (ensemble: breadcrumb, header with name/meta/auto-save/
+  Share-url4, internal tab strip **Compose | Runs**; Compose = library pane + pipeline
+  canvas Loop→Reduce; Runs = new-run wizard + history), **table page** (Leaderboard:
+  benchmark tabs + scope filter + table), **card list** (Scripts: grouped cards with inline
+  code).
+- **The ensemble document is the app's document type** (L7): one open at a time in v1,
+  reachable via MY ENSEMBLES; each document owns its internal tab strip. A multi-document
+  tab strip in the main area is a future escalation, not v1.
+- **Panel and status bar exist in the layout model but are hidden in v1**: the panel
+  appears only as the DEBUG log-view home (L10, D2-gated); the status bar is reserved
+  (L9 binds whenever it ships). The Studio design has neither — don't add visible chrome
+  the design doesn't call for.
+- Visual styling (colors, type, density, dark mode) is `screamingface-design` territory —
+  this section binds structure only.
 
 ## Invariants (L)
 
-- **L1 — The shell is core-owned.** Exactly these regions: title bar, activity bar,
-  primary sidebar, main area, panel, status bar. Extensions never add top-level regions,
-  floating/always-on-top surfaces, or windows. *One coherent layout model; window creation
-  is a privileged capability (arch-electron T3).*
+- **L1 — The shell is core-owned.** Exactly these regions: title bar, primary sidebar,
+  main area, panel, status bar (activity bar: deferred — absent in v1, see initial layout).
+  Extensions never add top-level regions, floating/always-on-top surfaces, or windows.
+  *One coherent layout model; window creation is a privileged capability (arch-electron
+  T3).*
 - **L2 — Views live in view containers; containers dock into slots.** A contributed view
   belongs to a view container (its own or a shared one); containers dock into the sidebar
   or panel. Both are declared in the manifest (arch-electron X1) — rendered with zero
@@ -61,10 +93,10 @@ AB = activity bar. Rendered diagram (SVG + PNG): `docs/diagrams/electron-workben
 - **L6 — Layout state is a core-owned tree.** Visibility, order, sizes, and dock positions
   persist per window in core storage (arch-electron S1). Extensions never read or write
   layout state directly — reveal/focus of their OWN views via the API is the whole surface.
-- **L7 — The main area is document-centric.** It hosts primary work surfaces (editors,
-  eval runs, documents) as tabs; tool/auxiliary views belong to the sidebar or panel. An
-  extension reaches the main area only by contributing a document/editor type — never by
-  docking a tool view there.
+- **L7 — The main area is document-centric.** It hosts primary work surfaces — in v1 the
+  **ensemble document** (one at a time, with its internal Compose | Runs tab strip); tool/
+  auxiliary views belong to the sidebar or panel. An extension reaches the main area only
+  by contributing a document/editor type — never by docking a tool view there.
 - **L8 — One layout tree per window.** Multi-window means independent trees; **no
   cross-window docking in v1** (YAGNI). Revisiting this is an owner decision.
 - **L9 — Status-bar contributions are bounded.** Priority-ordered items with core-imposed

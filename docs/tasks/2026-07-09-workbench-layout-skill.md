@@ -15,4 +15,7 @@ containers docked into slots, manifest placement = hint / user override wins and
 no focus stealing, core-owned per-window layout tree, document-centric main area (L7 veto
 flag), no cross-window docking in v1 (L8 veto flag). Companion layer between arch-electron
 and screamingface-design. Fast-track (rule 3 waived, same pattern as OME-368); stacked PR
-on the OME-368 branch.
+on the OME-368 branch. Initial layout (v1) based on the Ensemble Studio design
+(irinambejan.github.io/model-ensemble-studio): single rich sidebar, no activity bar,
+five main-area view archetypes, ensemble document with Compose|Runs tabs, panel/status
+bar hidden in v1.
