@@ -20,9 +20,10 @@ ScreamingFace Electron app, each with its rationale. It binds at **design time**
 new subsystem, extension API change, external-process integration, architecture review.
 Per-iteration build work runs under `sdlc-electron` (rigid TDD loop + the official Electron
 **security checklist** — not duplicated here); the concrete extension-API surface is owned
-by a dedicated API-surface skill (separate deliverable) — this skill covers application-level
-architecture only. Deviating from an invariant is a Confidence-Gate decision: STOP and ask
-the owner.
+by a dedicated API-surface skill (separate deliverable); the workbench layout structure
+(shell regions, view containers/slots, layout persistence) is owned by
+`arch-electron-layout` — this skill covers application-level architecture only. Deviating
+from an invariant is a Confidence-Gate decision: STOP and ask the owner.
 
 This doctrine is the CLAUDE.md hexagonal mandate pushed across process boundaries: core
 defines ports, extensions/adapters implement them, wiring goes through registries — and the
