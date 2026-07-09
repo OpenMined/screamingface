@@ -19,8 +19,10 @@ This is a **RIGID** doctrine skill: the rules below are MUST-level invariants fo
 ScreamingFace Electron app, each with its rationale. It binds at **design time** — new app,
 new subsystem, extension API change, external-process integration, architecture review.
 Per-iteration build work runs under `sdlc-electron` (rigid TDD loop + the official Electron
-**security checklist** — not duplicated here). Deviating from an invariant is a
-Confidence-Gate decision: STOP and ask the owner.
+**security checklist** — not duplicated here); the concrete extension-API surface is owned
+by a dedicated API-surface skill (separate deliverable) — this skill covers application-level
+architecture only. Deviating from an invariant is a Confidence-Gate decision: STOP and ask
+the owner.
 
 This doctrine is the CLAUDE.md hexagonal mandate pushed across process boundaries: core
 defines ports, extensions/adapters implement them, wiring goes through registries — and the
@@ -77,6 +79,10 @@ scan → merge → render → event → load → activate; disable/uninstall/saf
   facade of RPC proxies. The manifest's `engines` semver range gates loading. The API is
   additive-only once published. *The injected API surface is a public contract forever —
   keep it an order of magnitude smaller than you're tempted to.*
+  **Scope boundary:** this skill binds only the MECHANISM (existence, injection, engines
+  gating, additive-only evolution). The concrete API surface — namespaces, capabilities,
+  types — is owned by a dedicated API-surface skill (separate deliverable); do not grow
+  API design into this skill.
 - **X5 — Every registration returns a Disposable.** Commands, providers, listeners, UI
   items — all collected into the extension's subscription bag; deactivate = dispose the
   bag. *This is the mechanism that makes runtime enable/disable real.*
