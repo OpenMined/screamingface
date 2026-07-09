@@ -1,7 +1,7 @@
 ---
 id: OME-322
 linear_url: https://linear.app/openmined/issue/OME-322/sf-28-leaderboard-import-single-model-baselines-from-lmarena
-status: in_progress
+status: in_review
 type: task
 priority: P2
 labels: [Leaderboard, app/scoreboard, autonomous, agentic]
