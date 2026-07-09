@@ -79,6 +79,10 @@ every cycle.
 
 ## Stack idiom — Electron (TS: main / preload / renderer)
 
+- **Architecture doctrine is a separate skill:** design-time invariants (process topology,
+  extension platform, process supervision, diagnostics) live in `arch-electron` — invoke it
+  when a unit designs new architecture, changes the extension API, or integrates an
+  external process. This skill owns the build-time loop and the security checklist below.
 - **Anchor syntax:** `//` (TS/TSX; e.g. `// WHY:`, `// INVARIANT:`).
 - **Process model:** every unit names which process(es) it touches — **main** (Node
   services, IPC handlers, external I/O), **preload** (the `contextBridge` API surface),

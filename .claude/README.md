@@ -24,6 +24,7 @@ close: Linear comment (close template) + state Done + mirror closed
 | `task-management` | ANY ticket work — session start, before starting/filing/closing a work item | The Linear lifecycle: card resolution, label taxonomy, D9 cross-cutting rule, STOP labels, close discipline, MCP command crib, the Linear rich-text dialect |
 | `sdlc-python` | EVERY Python change (apps/aigateway, apps/scoreboard, future pkg) | Rigid TDD loop: ledger-first → RED → GREEN → gates → wisdom → commit. Tortoise ORM work → `tortoise-dev` companion (mandatory) |
 | `sdlc-electron` | EVERY Electron change (upcoming desktop app) | Same loop; Electron idiom: main/preload/renderer, both-side IPC contracts (S2), official security checklist encoded, a11y gate (S1) |
+| `arch-electron` | DESIGNING/reviewing Electron architecture — app scaffold, extension platform, external-process integration, extension API changes | Binding invariants (VS Code model): manifest-first contributions, lazy activation, utilityProcess extension host, versioned injected API, disposables, core ProcessSupervisor, DEBUG-gated log view. Diagrams: `docs/diagrams/electron-*` |
 | `asana-product` | Reading product/marketing context from Asana | READ-ONLY. Never creates/updates in Asana; dev items link back via `asana_url` |
 | `working-in-this-repo` | Starting any change; unsure where code goes / which CI / how to PR | The routing map: components, toolchains, CI lanes, release lanes, branch/PR rules |
 | `screamingface-design` | Any UI/UX/visual/copy decision | The brand law (overrides shadcn/Tailwind defaults) |
