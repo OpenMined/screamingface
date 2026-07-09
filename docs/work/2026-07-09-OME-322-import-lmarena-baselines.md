@@ -72,7 +72,7 @@ follow-up once sourced) — and backend/API only, no portal "target line" render
   `_baseline_store` helper), `import_baselines.py` (new CLI, mirrors `seed.py`);
   tests: `test_models.py`, `test_schemas.py`, `test_leaderboard_routes.py` (extended),
   `test_baseline_store.py`, `test_import_baselines.py` (new).
-- **Commits:** <fill after commit below>
+- **Commits:** 0582ce6 — feat(scoreboard): import single-model baselines with source attribution
 - **Gates:** `run_gates.py scoreboard --skip-append-only` → ALL GATES GREEN (ruff
   check, ruff format --check, pyright 0 errors, pytest 95 passed/1 skipped,
   coverage 87.57% ≥ 80%). Migration applied + re-applied → second run "No migrations
