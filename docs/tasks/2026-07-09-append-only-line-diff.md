@@ -1,7 +1,7 @@
 ---
 id: OME-369
 linear_url: https://linear.app/openmined/issue/OME-369/run-gatespy-append-only-check-flags-pure-test-additions-as-violations
-status: in_progress
+status: in_review
 type: task
 priority: P2
 labels: [repo, autonomous, agentic, "Repo & Dev Process"]
