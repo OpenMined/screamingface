@@ -69,3 +69,20 @@ async def test_orm_store_reads_legacy_plaintext(credential_blobs, orm_store) -> 
 async def test_orm_store_delete_is_idempotent(credential_blobs, orm_store) -> None:
     await orm_store.delete("missing", "account")
     assert credential_blobs.read("missing", "account") is None
+
+
+@pytest.mark.asyncio
+async def test_orm_store_mutate_can_delete_existing_blob(credential_blobs, orm_store) -> None:
+    await orm_store.write("service", "account", "secret")
+
+    await orm_store.mutate("service", "account", lambda current: None)
+
+    assert await orm_store.read("service", "account") is None
+    assert credential_blobs.read_raw("service", "account") is None
+
+
+@pytest.mark.asyncio
+async def test_orm_store_mutate_delete_missing_blob_is_noop(credential_blobs, orm_store) -> None:
+    await orm_store.mutate("service", "account", lambda current: None)
+
+    assert await orm_store.read("service", "account") is None

@@ -3,7 +3,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import cast
 from urllib.parse import parse_qs, urlparse
 
@@ -11,8 +14,9 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from tortoise import Tortoise
-from tortoise.exceptions import IntegrityError
+from tortoise.exceptions import IntegrityError, OperationalError
 
+from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
 from aigateway.core.profile_index import ProfileIndexStore
@@ -40,6 +44,17 @@ from aigateway.routes.auth import (
 @pytest.fixture
 def client_with_index(authenticated_client, credential_blobs):
     return authenticated_client, credential_blobs
+
+
+@contextmanager
+def _server_errors_as_responses(client) -> Iterator[None]:
+    transport = getattr(client, "_transport")
+    previous = transport.raise_server_exceptions
+    transport.raise_server_exceptions = False
+    try:
+        yield
+    finally:
+        transport.raise_server_exceptions = previous
 
 
 def _account_id(client) -> str:
@@ -389,6 +404,12 @@ class _RecordingStrategy:
 
     async def refresh_credentials(self) -> None:
         self.refreshed = True
+
+    def credential_service(self) -> str:
+        return "aigateway:generic:test"
+
+    def credential_account(self) -> str:
+        return "default"
 
 
 class _GenericOAuthPlugin:
@@ -772,7 +793,7 @@ async def test_handle_loopback_callback_keeps_listener_for_stray_requests(
 
 
 @pytest.mark.asyncio
-async def test_handle_loopback_callback_escapes_completion_errors(client_with_index) -> None:
+async def test_handle_loopback_callback_sanitizes_completion_errors(client_with_index) -> None:
     client, credential_blobs = client_with_index
     account_id = _account_id(client)
     await _move_tortoise_to_pytest_loop(client, credential_blobs)
@@ -793,8 +814,9 @@ async def test_handle_loopback_callback_escapes_completion_errors(client_with_in
     )
 
     assert b"HTTP/1.1 500 Internal Server Error" in writer.response
-    assert b"&lt;script&gt;bad&lt;/script&gt;" in writer.response
+    assert b"&lt;script&gt;bad&lt;/script&gt;" not in writer.response
     assert b"<script>bad</script>" not in writer.response
+    assert b"OAuth callback failed. Try again." in writer.response
     assert server.closed is True
     assert server.waited is True
     profile = await client.app.state.profile_index.get(account_id, "generic", "loopback-error")
@@ -889,7 +911,7 @@ def test_connection_exchange_uses_redirect_uri_override(client_with_index) -> No
     assert plugin.exchange_request.redirect_uri == redirect_uri
 
 
-def test_connection_completion_persists_credentials_after_store_complete(
+def test_connection_completion_deletes_credentials_when_activation_conflicts(
     client_with_index, monkeypatch
 ) -> None:
     client, _ = client_with_index
@@ -917,7 +939,184 @@ def test_connection_completion_persists_credentials_after_store_complete(
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "connection_conflict"
-    assert plugin.strategy.creds is None
+    assert plugin.strategy.creds is not None
+    assert plugin.strategy.deleted is True
+
+
+def test_connection_completion_non_integrity_failure_deletes_credentials_and_marks_error(
+    client_with_index, monkeypatch
+) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    leak_marker = "sk-ant-api03-activation-secret-that-must-not-leak"
+
+    async def complete_failure(*_args, **_kwargs) -> None:
+        raise OperationalError(f"database locked while handling {leak_marker}")
+
+    monkeypatch.setattr(
+        "aigateway.routes.auth.OAuthConnectionStore.complete",
+        complete_failure,
+    )
+
+    start = client.post(
+        "/v1/oauth/connections",
+        json={"provider": "generic", "label": "operational-failure"},
+    )
+    assert start.status_code == 201
+    connection_id = start.json()["connection_id"]
+
+    with _server_errors_as_responses(client):
+        resp = client.post(
+            "/v1/auth/generic/exchange-code",
+            json={"code": "generic-code", "state": start.json()["state"]},
+        )
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "connection_activation_failed"
+    assert leak_marker not in resp.text
+    assert plugin.strategy.creds is not None
+    assert plugin.strategy.deleted is True
+    connection = client.get(f"/v1/oauth/connections/{connection_id}").json()
+    assert connection["status"] == "error"
+    assert leak_marker not in json.dumps(connection)
+
+
+def test_connection_completion_delete_compensation_failure_is_sanitized(
+    client_with_index, monkeypatch, caplog
+) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    leak_marker = "sk-ant-api03-delete-secret-that-must-not-leak"
+
+    async def complete_conflict(*_args, **_kwargs) -> None:
+        raise IntegrityError("simulated connection race")
+
+    async def delete_failure() -> None:
+        raise RuntimeError(f"delete failed for {leak_marker}")
+
+    monkeypatch.setattr(
+        "aigateway.routes.auth.OAuthConnectionStore.complete",
+        complete_conflict,
+    )
+    monkeypatch.setattr(plugin.strategy, "delete_credentials", delete_failure)
+    caplog.set_level(logging.ERROR, logger="aigateway.routes.auth")
+
+    start = client.post(
+        "/v1/oauth/connections",
+        json={"provider": "generic", "label": "delete-failure"},
+    )
+    assert start.status_code == 201
+
+    resp = client.post(
+        "/v1/auth/generic/exchange-code",
+        json={"code": "generic-code", "state": start.json()["state"]},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "connection_conflict"
+    assert "Failed to delete OAuth connection credentials" in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert leak_marker not in caplog.text
+
+
+def test_connection_completion_persist_failure_is_sanitized_and_non_active(
+    client_with_index, monkeypatch
+) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    leak_marker = "sk-ant-api03-loopback-secret-that-must-not-leak"
+
+    async def persist_failure(_creds: dict) -> None:
+        raise RuntimeError(f"credential store exploded with {leak_marker}")
+
+    monkeypatch.setattr(plugin.strategy, "persist_credentials", persist_failure)
+    start = client.post(
+        "/v1/oauth/connections",
+        json={"provider": "generic", "label": "persist-failure"},
+    )
+    assert start.status_code == 201
+    connection_id = start.json()["connection_id"]
+
+    auth_header = client.headers.pop("Authorization")
+    try:
+        with _server_errors_as_responses(client):
+            cb = client.get(
+                "/callback",
+                params={"code": "generic-code", "state": start.json()["state"]},
+                follow_redirects=False,
+            )
+    finally:
+        client.headers["Authorization"] = auth_header
+
+    assert cb.status_code == 503
+    assert leak_marker not in cb.text
+    connection = client.get(f"/v1/oauth/connections/{connection_id}").json()
+    assert connection["status"] == "error"
+    assert leak_marker not in json.dumps(connection)
+
+
+def test_profile_oauth_persist_failure_is_sanitized_and_marks_error(
+    client_with_index, monkeypatch
+) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    leak_marker = "sk-ant-api03-profile-secret-that-must-not-leak"
+
+    async def persist_failure(_creds: dict) -> None:
+        raise RuntimeError(f"credential store exploded with {leak_marker}")
+
+    monkeypatch.setattr(plugin.strategy, "persist_credentials", persist_failure)
+    start = client.post("/v1/auth/generic/profiles", json={"name": "persist-failure"})
+    assert start.status_code == 201
+
+    auth_header = client.headers.pop("Authorization")
+    try:
+        with _server_errors_as_responses(client):
+            cb = client.get(
+                "/callback",
+                params={"code": "generic-code", "state": start.json()["state"]},
+                follow_redirects=False,
+            )
+    finally:
+        client.headers["Authorization"] = auth_header
+
+    assert cb.status_code == 503
+    assert leak_marker not in cb.text
+    profile = client.get("/v1/auth/generic/profiles/persist-failure").json()
+    assert profile["state"] == "error"
+
+
+def test_profile_oauth_profile_index_conflict_returns_sanitized_503_html(
+    client_with_index, monkeypatch
+) -> None:
+    client, _ = client_with_index
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    start = client.post("/v1/auth/generic/profiles", json={"name": "index-conflict"})
+    assert start.status_code == 201
+
+    async def upsert_conflict(_profile) -> None:
+        raise CredentialBlobMutationConflict("forced contention")
+
+    monkeypatch.setattr(client.app.state.profile_index, "upsert", upsert_conflict)
+    auth_header = client.headers.pop("Authorization")
+    try:
+        with _server_errors_as_responses(client):
+            cb = client.get(
+                "/callback",
+                params={"code": "generic-code", "state": start.json()["state"]},
+                follow_redirects=False,
+            )
+    finally:
+        client.headers["Authorization"] = auth_header
+
+    assert cb.status_code == 503
+    assert "profile_index_conflict" in cb.text
+    assert "forced contention" not in cb.text
 
 
 def test_start_oauth_creates_pending_profile(client_with_index) -> None:
@@ -1106,6 +1305,51 @@ def test_callback_completes_auth(client_with_index) -> None:
     assert "new-tok" in blob
 
 
+def test_callback_restores_api_key_blob_when_profile_index_update_fails(
+    client_with_index, monkeypatch
+) -> None:
+    client, credential_blobs = client_with_index
+    account_id = _account_id(client)
+    client.app.state.anthropic_http_factory = _mock_token_factory()
+    api_key = "sk-ant-api03-existing-1234"
+    api_key_resp = client.put(
+        "/v1/auth/anthropic/profiles/default/api-key",
+        json={"api_key": api_key},
+    )
+    assert api_key_resp.status_code == 200
+
+    from aigateway.plugins.anthropic_provider.auth import credential_service_for
+
+    service = credential_service_for(credential_name_for(account_id, "default"))
+    previous = credential_blobs.read(service, "default")
+    assert previous is not None
+    assert api_key in previous
+
+    start = client.post("/v1/auth/anthropic/profiles", json={"name": "default"})
+    state = start.json()["state"]
+
+    async def _boom(_profile) -> None:
+        raise RuntimeError("profile index unavailable")
+
+    monkeypatch.setattr(client.app.state.profile_index, "upsert", _boom)
+    auth_header = client.headers.pop("Authorization")
+    try:
+        with _server_errors_as_responses(client):
+            cb = client.get(
+                "/callback",
+                params={"code": "auth-code-1", "state": state},
+                follow_redirects=False,
+            )
+    finally:
+        client.headers["Authorization"] = auth_header
+
+    assert cb.status_code == 500
+    assert "new-tok" not in cb.text
+    assert credential_blobs.read(service, "default") == previous
+    profile = client.get("/v1/auth/anthropic/profiles/default").json()
+    assert profile["auth_type"] == "api_key"
+
+
 def test_codex_nested_callback_completes_auth_with_provider_hook(client_with_index) -> None:
     client, credential_blobs = client_with_index
     account_id = _account_id(client)
@@ -1223,7 +1467,7 @@ async def test_complete_oauth_invalidates_provider_profile_session(client_with_i
     await Tortoise.close_connections()
 
 
-def test_callback_error_html_escapes_provider_response(client_with_index) -> None:
+def test_callback_error_html_sanitizes_provider_response(client_with_index) -> None:
     client, _ = client_with_index
     client.app.state.anthropic_http_factory = _html_failing_token_factory()
     start = client.post("/v1/auth/anthropic/profiles", json={"name": "htmlfail"})
@@ -1241,7 +1485,8 @@ def test_callback_error_html_escapes_provider_response(client_with_index) -> Non
 
     assert resp.status_code == 500
     assert "<script>" not in resp.text
-    assert "&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;" in resp.text
+    assert "&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;" not in resp.text
+    assert "OAuth callback failed. Try again." in resp.text
 
 
 def test_callback_with_unknown_state_400(client_with_index) -> None:

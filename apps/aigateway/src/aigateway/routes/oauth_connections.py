@@ -34,6 +34,7 @@ from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import credential_service_provider_for, credential_strategy_from
 
 from .auth import _redirect_uri_for
+from .credential_persistence import persist_credentials_or_503
 
 logger = logging.getLogger(__name__)
 
@@ -450,25 +451,11 @@ def _validate_api_key(raw_key: str) -> str:
 
 
 async def _persist_api_key_credentials(strategy, api_key: str) -> None:
-    try:
-        await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
-    except Exception as exc:
-        # A caught store failure is otherwise a silent 503 — log which service
-        # failed and the exception TYPE so ops can diagnose. Deliberately NOT
-        # str(exc)/the traceback: a store implementation could echo its write
-        # argument (the key) in the message, and this path must never log a key.
-        logger.error(
-            "Failed to persist API-key credentials for service %s: %s",
-            strategy.credential_service(),
-            type(exc).__name__,
-        )
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "credential_store_unavailable",
-                "message": "Could not store API-key credentials. Try again.",
-            },
-        ) from exc
+    await persist_credentials_or_503(
+        strategy,
+        {"auth_type": "api_key", "api_key": api_key},
+        description="API-key credentials",
+    )
 
 
 def _duplicate_id(message: str | None) -> UUID | None:

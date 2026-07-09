@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from pydantic import BaseModel
 from tortoise.exceptions import IntegrityError
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.credential_blob.store import CredentialBlobMutationConflict
 from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.store import (
@@ -40,7 +42,13 @@ from ..core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
+from .credential_persistence import (
+    SupportsCredentialPersistence,
+    SupportsCredentialSlot,
+    persist_credentials_or_503,
+)
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -382,13 +390,15 @@ async def _handle_loopback_callback(
         body = _CALLBACK_HTML
     except Exception as exc:
         status = 500
-        body = (
-            "<!doctype html><html><body>"
-            "<h2>Authentication failed</h2>"
-            f"<p>Provider: {escape(provider)}</p>"
-            f"<pre style='white-space:pre-wrap'>{escape(type(exc).__name__)}: "
-            f"{escape(str(exc))}</pre>"
-            "</body></html>"
+        logger.error(
+            "Loopback OAuth callback failed for provider %s: %s",
+            provider,
+            type(exc).__name__,
+        )
+        body = _callback_failure_html(
+            provider,
+            type(exc).__name__,
+            "OAuth callback failed. Try again.",
         )
     finally:
         writer.write(_http_response(status, body))
@@ -569,6 +579,16 @@ _CALLBACK_HTML = """<!doctype html>
 """
 
 
+def _callback_failure_html(provider: str, code: str, message: str) -> str:
+    return (
+        "<!doctype html><html><body>"
+        "<h2>Authentication failed</h2>"
+        f"<p>Provider: {escape(provider)}</p>"
+        f"<pre style='white-space:pre-wrap'>{escape(code)}: {escape(message)}</pre>"
+        "</body></html>"
+    )
+
+
 @router.get("/callback")
 async def oauth_callback(code: str, state: str, request: Request):
     """Provider-agnostic OAuth callback.
@@ -591,17 +611,28 @@ async def oauth_callback(code: str, state: str, request: Request):
     provider = pending_entry.provider
     try:
         return await _generic_callback(provider, code, state, request)
-    except Exception as exc:
-        # Surface a readable error in the browser tab so the user sees what
-        # went wrong (instead of a generic 500). Most failures here are
-        # token-endpoint mismatches; the message is helpful for debugging.
+    except CredentialBlobMutationConflict:
         return HTMLResponse(
-            f"<!doctype html><html><body>"
-            f"<h2>Authentication failed</h2>"
-            f"<p>Provider: {escape(provider)}</p>"
-            f"<pre style='white-space:pre-wrap'>{escape(type(exc).__name__)}: "
-            f"{escape(str(exc))}</pre>"
-            f"</body></html>",
+            _callback_failure_html(
+                provider,
+                "profile_index_conflict",
+                "Profile metadata update conflicted. Try again.",
+            ),
+            status_code=503,
+        )
+    except HTTPException as exc:
+        return HTMLResponse(
+            _callback_failure_html(provider, type(exc).__name__, str(exc.detail)),
+            status_code=exc.status_code,
+        )
+    except Exception as exc:
+        logger.error("OAuth callback failed for provider %s: %s", provider, type(exc).__name__)
+        return HTMLResponse(
+            _callback_failure_html(
+                provider,
+                type(exc).__name__,
+                "OAuth callback failed. Try again.",
+            ),
             status_code=500,
         )
 
@@ -675,11 +706,54 @@ async def _complete_oauth_for_app(
     except Exception:
         await _mark_oauth_completion_error(app, pending, "OAuth code exchange failed", state)
         raise
+    profile_credential_slot: tuple[object, str, str, str | None, str | None] | None = None
     if pending.connection_id is None:
-        await strategy.persist_credentials(creds)
+        # WHY: the credential slot and profile index are separate stores, so OAuth
+        # profile completion must snapshot and compensate around the index write.
+        credential_store = _credential_store_for_app(app)
+        slot = cast(SupportsCredentialSlot, strategy)
+        credential_service = slot.credential_service()
+        credential_account = slot.credential_account()
+        previous_credential = await credential_store.read(credential_service, credential_account)
+        try:
+            await persist_credentials_or_503(
+                slot,
+                creds,
+                description="OAuth profile credentials",
+            )
+        except HTTPException:
+            await _mark_oauth_completion_error(app, pending, "credential_store_unavailable", state)
+            raise
+        written_credential = await credential_store.read(credential_service, credential_account)
+        profile_credential_slot = (
+            credential_store,
+            credential_service,
+            credential_account,
+            previous_credential,
+            written_credential,
+        )
         _invalidate_profile_session(app, plugin, pending.account_id, pending.profile_name)
 
-    await _mark_profile_authenticated(app, pending, plugin, creds)
+    try:
+        await _mark_profile_authenticated(app, pending, plugin, creds)
+    except Exception:
+        if profile_credential_slot is not None:
+            (
+                credential_store,
+                credential_service,
+                credential_account,
+                previous_credential,
+                written_credential,
+            ) = profile_credential_slot
+            await _restore_credential_slot_after_failure(
+                credential_store,
+                credential_service,
+                credential_account,
+                expected_credential=written_credential,
+                previous_credential=previous_credential,
+                description="OAuth profile",
+            )
+        raise
     await _record_oauth_connection_completion(app, pending, plugin, creds)
     await _close_loopback_callback(app, state)
 
@@ -785,8 +859,67 @@ async def _persist_connection_credentials(
         credential_key_for(account_id, connection_id),
     )
     if strategy is not None:
-        await strategy.persist_credentials(creds)
+        await persist_credentials_or_503(
+            cast(SupportsCredentialPersistence, strategy),
+            creds,
+            description="OAuth connection credentials",
+        )
     credential_strategy_cache(app).evict(credential_key_for(account_id, connection_id))
+
+
+async def _delete_connection_strategy_credentials(
+    app,
+    plugin,
+    provider: str,
+    account_id: str,
+    connection_id: str,
+) -> None:
+    strategy = _credential_strategy_for_credential_name(
+        app,
+        plugin,
+        provider,
+        credential_key_for(account_id, connection_id),
+    )
+    if strategy is None:
+        return
+    strategy_for_log = cast(SupportsCredentialPersistence, strategy)
+    try:
+        await strategy.delete_credentials()
+    except Exception as exc:
+        # Best-effort compensation: never mask the activation-conflict response.
+        logger.error(
+            "Failed to delete OAuth connection credentials for service %s during compensation: %s",
+            strategy_for_log.credential_service(),
+            type(exc).__name__,
+        )
+
+
+async def _restore_credential_slot_after_failure(
+    credential_store,
+    credential_service: str,
+    credential_account: str,
+    *,
+    expected_credential: str | None,
+    previous_credential: str | None,
+    description: str,
+) -> None:
+    def restore_if_unchanged(current: str | None) -> str | None:
+        # INVARIANT: compensate only our own credential write; a concurrent writer wins.
+        if current != expected_credential:
+            return current
+        return previous_credential
+
+    try:
+        await credential_store.mutate(credential_service, credential_account, restore_if_unchanged)
+    except Exception as compensation_exc:
+        # Double-fault signal: the original error still propagates to the caller.
+        logger.error(
+            "Failed to compensate %s credential slot %s/%s after profile-index failure: %s",
+            description,
+            credential_service,
+            credential_account,
+            type(compensation_exc).__name__,
+        )
 
 
 async def _record_oauth_connection_completion(
@@ -813,21 +946,49 @@ async def _record_oauth_connection_completion(
 
     connection = await _connection_for_pending(store, pending, plugin, label)
     try:
+        await _persist_connection_credentials(
+            app,
+            plugin,
+            pending.provider,
+            pending.account_id,
+            str(connection.id),
+            creds,
+        )
         await store.complete(connection, label=label, identity=identity)
     except IntegrityError as exc:
+        await _delete_connection_strategy_credentials(
+            app,
+            plugin,
+            pending.provider,
+            pending.account_id,
+            str(connection.id),
+        )
         await store.mark_revoked(connection, "connection_conflict")
         raise HTTPException(
             status_code=409,
             detail={"code": "connection_conflict", "provider": pending.provider, "label": label},
         ) from exc
-    await _persist_connection_credentials(
-        app,
-        plugin,
-        pending.provider,
-        pending.account_id,
-        str(connection.id),
-        creds,
-    )
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            await store.mark_error(connection, "credential_store_unavailable")
+        raise
+    except Exception as exc:
+        await _delete_connection_strategy_credentials(
+            app,
+            plugin,
+            pending.provider,
+            pending.account_id,
+            str(connection.id),
+        )
+        await store.mark_error(connection, "connection_activation_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "connection_activation_failed",
+                "provider": pending.provider,
+                "message": "Could not activate OAuth connection. Try again.",
+            },
+        ) from exc
 
 
 def _plugin_extracts_identity(plugin) -> bool:
@@ -1081,8 +1242,29 @@ async def set_profile_api_key(
     profile.account_label = f"API key ····{api_key[-4:]}"
     profile.scopes = []  # OAuth scopes are meaningless for API-key auth (F24)
 
-    await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
-    await idx.upsert(profile)
+    credential_store = _credential_store_for_app(request.app)
+    strategy_for_slot = cast(SupportsCredentialSlot, strategy)
+    credential_service = strategy_for_slot.credential_service()
+    credential_account = strategy_for_slot.credential_account()
+    previous_credential = await credential_store.read(credential_service, credential_account)
+    await persist_credentials_or_503(
+        strategy_for_slot,
+        {"auth_type": "api_key", "api_key": api_key},
+        description="API-key credentials",
+    )
+    written_credential = await credential_store.read(credential_service, credential_account)
+    try:
+        await idx.upsert(profile)
+    except Exception:
+        await _restore_credential_slot_after_failure(
+            credential_store,
+            credential_service,
+            credential_account,
+            expected_credential=written_credential,
+            previous_credential=previous_credential,
+            description="API-key",
+        )
+        raise
     _invalidate_profile_session(request.app, plugin, account_id, name)
     return profile.model_dump(mode="json")
 
