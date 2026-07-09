@@ -58,4 +58,6 @@ Doc-only unit (owner waived rule 3 — fast-track locked in-session 2026-07-09).
   — flagged in the PR for veto; mirror/ledger marked done at PR time (Linear closes at
   merge) to avoid a post-merge close-out commit like OME-358's; owner scoped mid-review:
   the concrete extension-API surface is a SEPARATE future skill — X4 binds mechanism only
-  (scope-boundary note added to the skill).
+  (scope-boundary note added to the skill); critical-review round (owner-approved): X10
+  host-supervision rule, X1 manifest forward-compat, T1 webview-network nuance, topology
+  diagram protocol label aligned (JSON-RPC → RPC).

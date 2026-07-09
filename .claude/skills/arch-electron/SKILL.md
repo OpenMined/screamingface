@@ -52,7 +52,9 @@ scan → merge → render → event → load → activate; disable/uninstall/saf
 
 - **T1 — Four process classes, fixed responsibilities.** MAIN is the only privileged
   process (windows, IPC hub, spawning, external I/O). RENDERER is a sandboxed projection of
-  observable state — no Node, no network, no spawning. EXTENSION HOST is one Node
+  observable state — no Node, no network, no spawning (extension webviews are separate
+  renderer-class processes; their possibly-remote, https-only content is governed by the
+  sdlc-electron security checklist — see X6). EXTENSION HOST is one Node
   `utilityProcess` for all extensions. SUPERVISED CHILDREN are external binaries under the
   ProcessSupervisor. *Privilege lives in exactly one place; everything else is contained.*
 - **T2 — The renderer talks only through the typed contextBridge surface.** No dev-only
@@ -67,7 +69,9 @@ scan → merge → render → event → load → activate; disable/uninstall/saf
 - **X1 — Manifest-first contribution points.** An extension declares WHAT it contributes
   (commands, menus, views, settings schema) as data in its manifest; core renders UI from
   these declarations **without loading extension code**. `activate()` binds behavior, never
-  UI presence. *Install/enable changes the app instantly because only JSON was parsed.*
+  UI presence. Unknown contribution types are ignored with a logged warning, never a load
+  failure — forward compatibility for older hosts reading newer manifests.
+  *Install/enable changes the app instantly because only JSON was parsed.*
 - **X2 — Lazy activation.** Extension code loads only when a declared activation event
   fires (`onCommand:*`, `onView:*`, `onStartupFinished`). Startup time MUST NOT scale with
   the number of installed extensions.
@@ -97,6 +101,11 @@ scan → merge → render → event → load → activate; disable/uninstall/saf
   the shared host (full Node power — extensions are trusted-ish). Genuinely untrusted
   marketplace code requires an interpreter sandbox (QuickJS-in-WASM / isolated-vm) with a
   capability-based API — that is a separate owner-level design decision, never a patch.
+- **X10 — The extension host is itself supervised.** Main runs the host under the
+  ProcessSupervisor discipline: registration (P2), bounded restart + backoff (P4), and
+  ring-buffer capture (P6) apply to it like any child; a crash-looping host stops retrying
+  and offers safe mode (X8). *The platform's most privileged managed process must not be
+  its only unsupervised one.*
 
 ## Core vs extension — the boundary litmus (B)
 
