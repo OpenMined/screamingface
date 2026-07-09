@@ -153,3 +153,48 @@ class LeaderboardEntry(BaseModel):
     submitted_by: str | None
     verified_by_openmined: bool
     url4_expression: str
+
+
+class BaselineSchema(BaseModel):
+    """Read DTO for an imported single-model baseline ('line to beat')."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    benchmark_id: str
+    model_name: str
+    accuracy: float
+    source: str
+    source_url: str | None
+    imported_at: datetime
+    metadata: dict[str, Any] | None
+
+
+class BaselineImportRow(BaseModel):
+    """Input DTO for importing a single-model baseline score (e.g. from LMArena /
+    Artificial Analysis). Re-importing the same (benchmark_id, model_name, source)
+    updates the existing row rather than duplicating it (see BaselineStore).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    benchmark_id: str
+    model_name: str
+    accuracy: float
+    source: str
+    source_url: str | None = None
+    metadata: dict[str, Any] | None = None
+
+    @field_validator("benchmark_id", "model_name", "source")
+    @classmethod
+    def validate_identifiers(cls, value: str) -> str:
+        if not value:
+            raise ValueError("identifier fields must be non-empty")
+        return value
+
+    @field_validator("accuracy")
+    @classmethod
+    def validate_accuracy(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError("accuracy must be between 0 and 1")
+        return value

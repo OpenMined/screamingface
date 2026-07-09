@@ -7,8 +7,14 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
+from scoreboard.scores.baseline_store import BaselineStore
 from scoreboard.scores.models import Benchmark
-from scoreboard.scores.schemas import BenchmarkSchema, LeaderboardEntry, ScoreSchema
+from scoreboard.scores.schemas import (
+    BaselineSchema,
+    BenchmarkSchema,
+    LeaderboardEntry,
+    ScoreSchema,
+)
 from scoreboard.scores.store import ScoreStore
 
 MAX_LEADERBOARD_TOP = 200
@@ -42,6 +48,10 @@ class LeaderboardResponse(BaseModel):
 
     benchmark: BenchmarkSchema
     entries: list[RankedLeaderboardEntry]
+    # FEATURE: OME-322 — imported single-model "line to beat" baselines (LMArena /
+    # Artificial Analysis), surfaced alongside community entries. Empty until a
+    # baseline is imported via `python -m scoreboard.import_baselines`.
+    baselines: list[BaselineSchema]
 
 
 class HistorySubmission(BaseModel):
@@ -66,6 +76,10 @@ class HistoryResponse(BaseModel):
 
 def _score_store(request: Request) -> ScoreStore:
     return cast(ScoreStore, request.app.state.score_store)
+
+
+def _baseline_store(request: Request) -> BaselineStore:
+    return cast(BaselineStore, request.app.state.baseline_store)
 
 
 async def _get_benchmark_or_404(benchmark_id: str) -> BenchmarkSchema:
@@ -128,7 +142,8 @@ async def get_leaderboard(
         top_n=min(top, MAX_LEADERBOARD_TOP),
     )
     ranked = [_ranked_entry(index, entry) for index, entry in enumerate(entries, start=1)]
-    return LeaderboardResponse(benchmark=benchmark, entries=ranked)
+    baselines = await _baseline_store(request).list_baselines(benchmark_id)
+    return LeaderboardResponse(benchmark=benchmark, entries=ranked, baselines=baselines)
 
 
 @router.get(

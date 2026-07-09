@@ -10,6 +10,7 @@ from .config import Settings
 from .db import close_db, init_db
 from .portal import register_portal
 from .routes import health, leaderboard, scores
+from .scores.baseline_store import BaselineStore
 from .scores.store import ScoreStore
 
 
@@ -29,6 +30,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="scoreboard", version="0.1.0", lifespan=_lifespan)
     app.state.settings = settings
     app.state.score_store = ScoreStore()
+    app.state.baseline_store = BaselineStore()
 
     if settings.cors_origins:
         app.add_middleware(

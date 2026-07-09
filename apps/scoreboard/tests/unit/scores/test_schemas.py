@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from scoreboard.scores.schemas import ScoreSubmission
+from scoreboard.scores.schemas import BaselineImportRow, ScoreSubmission
 
 
 def _valid_payload() -> dict[str, object]:
@@ -81,5 +81,106 @@ def test_score_submission_rejects_correct_questions_above_total() -> None:
         ScoreSubmission.model_validate(payload)
     except ValidationError as exc:
         assert "correct_questions cannot exceed total_questions" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def _valid_baseline_payload() -> dict[str, object]:
+    return {
+        "benchmark_id": "hle",
+        "model_name": "GPT-5.2",
+        "accuracy": 0.62,
+        "source": "artificial_analysis",
+    }
+
+
+def test_baseline_import_row_accepts_valid_payload() -> None:
+    row = BaselineImportRow.model_validate(_valid_baseline_payload())
+
+    assert row.benchmark_id == "hle"
+    assert row.model_name == "GPT-5.2"
+    assert row.source_url is None
+    assert row.metadata is None
+
+
+def test_baseline_import_row_accepts_optional_source_url_and_metadata() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "https://artificialanalysis.ai/benchmarks/hle"
+    payload["metadata"] = {"published_at": "2026-06-01"}
+
+    row = BaselineImportRow.model_validate(payload)
+
+    assert row.source_url == "https://artificialanalysis.ai/benchmarks/hle"
+    assert row.metadata == {"published_at": "2026-06-01"}
+
+
+def test_baseline_import_row_rejects_empty_benchmark_id() -> None:
+    payload = _valid_baseline_payload()
+    payload["benchmark_id"] = ""
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "identifier fields must be non-empty" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_empty_model_name() -> None:
+    payload = _valid_baseline_payload()
+    payload["model_name"] = ""
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "identifier fields must be non-empty" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_empty_source() -> None:
+    payload = _valid_baseline_payload()
+    payload["source"] = ""
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "identifier fields must be non-empty" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_accuracy_below_zero() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = -0.01
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "accuracy must be between 0 and 1" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_accuracy_above_one() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = 1.01
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "accuracy must be between 0 and 1" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_unknown_fields() -> None:
+    payload = _valid_baseline_payload()
+    payload["extra_field"] = "not allowed"
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "extra_field" in str(exc)
     else:
         raise AssertionError("expected validation error")
