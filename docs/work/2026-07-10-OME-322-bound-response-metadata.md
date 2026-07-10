@@ -54,7 +54,7 @@ row is bad, not just moving where the same crash happens.
 - **Actual files:** as planned — `schemas.py` (shared `_validate_bounded_metadata` +
   `BaselineSchema` validator), `baseline_store.py` (`list_baselines` skip-on-error),
   `test_schemas.py`, `test_baseline_store.py`.
-- **Commits:** <fill after commit below>
+- **Commits:** ade85fa — fix(scoreboard): bound response metadata + skip a bad baseline row
 - **Gates:** `run_gates.py scoreboard --skip-append-only` → ALL GATES GREEN (ruff,
   format, pyright 0 errors, pytest 113 passed/1 skipped, coverage 88.16% ≥ 80%).
 - **Deviations:** none — matches the plan (option C, agreed with owner). Confirmed via
