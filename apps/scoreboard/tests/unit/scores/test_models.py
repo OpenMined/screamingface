@@ -9,8 +9,10 @@ from scoreboard.config import Settings
 from scoreboard.db import TORTOISE_CONFIG
 from scoreboard.main import create_app
 from scoreboard.scores.models import (
+    BaseBaseline,
     BaseBenchmark,
     BaseIdempotencyKey,
+    Baseline,
     BaseScore,
     BaseScoreboardModel,
     Benchmark,
@@ -78,3 +80,25 @@ def test_create_app_wires_score_store_without_db_io() -> None:
     app = create_app(Settings(database_url="sqlite://:memory:", cors_origins=[]))
 
     assert isinstance(app.state.score_store, ScoreStore)
+
+
+def test_baseline_model_table_name_and_relation() -> None:
+    benchmark_field = cast(Any, Baseline._meta.fields_map["benchmark"])
+
+    assert Baseline._meta.db_table == "baselines"
+    assert benchmark_field.on_delete is fields.OnDelete.RESTRICT
+    assert ("benchmark", "model_name", "source") in {
+        tuple(entry) for entry in Baseline._meta.unique_together
+    }
+
+
+def test_baseline_model_package_exports_and_abstract_base() -> None:
+    assert score_models.Baseline is Baseline
+    assert score_models.BaseBaseline is BaseBaseline
+    assert "Baseline" in score_models.__all__
+    assert "BaseBaseline" in score_models.__all__
+    assert BaseBaseline._meta.abstract is True
+
+
+def test_baseline_model_lives_in_its_own_file() -> None:
+    assert Baseline.__module__ == "scoreboard.scores.models.baseline"

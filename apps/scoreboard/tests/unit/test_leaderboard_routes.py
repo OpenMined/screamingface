@@ -9,8 +9,9 @@ import pytest_asyncio
 
 from scoreboard.config import Settings
 from scoreboard.main import create_app
+from scoreboard.scores.baseline_store import BaselineStore
 from scoreboard.scores.models import Score
-from scoreboard.scores.schemas import ClientInfo, ScoreSubmission
+from scoreboard.scores.schemas import BaselineImportRow, ClientInfo, ScoreSubmission
 from scoreboard.scores.store import ScoreStore
 
 pytestmark = pytest.mark.asyncio
@@ -246,3 +247,65 @@ async def test_openapi_includes_leaderboard_contracts(async_client: httpx.AsyncC
     assert "BenchmarksResponse" in body["components"]["schemas"]
     assert "LeaderboardResponse" in body["components"]["schemas"]
     assert "HistoryResponse" in body["components"]["schemas"]
+
+
+async def test_get_leaderboard_returns_empty_baselines_when_none_imported(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store, benchmark_id="demo-benchmark", display_name="Demo Benchmark")
+
+    response = await async_client.get("/v1/leaderboard/demo-benchmark")
+
+    assert response.status_code == 200
+    assert response.json()["baselines"] == []
+
+
+async def test_get_leaderboard_returns_imported_baselines_ordered_by_accuracy(
+    async_client: httpx.AsyncClient,
+) -> None:
+    store = ScoreStore()
+    await _register_benchmark(store, benchmark_id="demo-benchmark", display_name="Demo Benchmark")
+    baseline_store = BaselineStore()
+    await baseline_store.import_baseline(
+        BaselineImportRow(
+            benchmark_id="demo-benchmark",
+            model_name="Model A",
+            accuracy=0.55,
+            source="lmarena",
+        )
+    )
+    await baseline_store.import_baseline(
+        BaselineImportRow(
+            benchmark_id="demo-benchmark",
+            model_name="Model B",
+            accuracy=0.71,
+            source="artificial_analysis",
+            source_url="https://artificialanalysis.ai/demo-benchmark",
+        )
+    )
+
+    response = await async_client.get("/v1/leaderboard/demo-benchmark")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [baseline["model_name"] for baseline in body["baselines"]] == ["Model B", "Model A"]
+    assert body["baselines"][0]["source"] == "artificial_analysis"
+    assert body["baselines"][0]["source_url"] == "https://artificialanalysis.ai/demo-benchmark"
+    assert body["baselines"][1]["source_url"] is None
+
+
+async def test_get_leaderboard_returns_404_for_unknown_benchmark_with_baselines_wired(
+    async_client: httpx.AsyncClient,
+) -> None:
+    response = await async_client.get("/v1/leaderboard/missing")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Benchmark not found"}
+
+
+async def test_openapi_includes_baseline_schema(async_client: httpx.AsyncClient) -> None:
+    response = await async_client.get("/openapi.json")
+
+    assert response.status_code == 200
+    assert "BaselineSchema" in response.json()["components"]["schemas"]

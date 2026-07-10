@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import uuid4
+
+import pytest
 from pydantic import ValidationError
 
-from scoreboard.scores.schemas import ScoreSubmission
+from scoreboard.scores.schemas import BaselineImportRow, BaselineSchema, ScoreSubmission
 
 
 def _valid_payload() -> dict[str, object]:
@@ -83,3 +87,263 @@ def test_score_submission_rejects_correct_questions_above_total() -> None:
         assert "correct_questions cannot exceed total_questions" in str(exc)
     else:
         raise AssertionError("expected validation error")
+
+
+def _valid_baseline_payload() -> dict[str, object]:
+    return {
+        "benchmark_id": "demo-benchmark",
+        "model_name": "GPT-5.2",
+        "accuracy": 0.62,
+        "source": "artificial_analysis",
+    }
+
+
+def test_baseline_import_row_accepts_valid_payload() -> None:
+    row = BaselineImportRow.model_validate(_valid_baseline_payload())
+
+    assert row.benchmark_id == "demo-benchmark"
+    assert row.model_name == "GPT-5.2"
+    assert row.source_url is None
+    assert row.metadata is None
+
+
+def test_baseline_import_row_accepts_optional_source_url_and_metadata() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "https://artificialanalysis.ai/benchmarks/hle"
+    payload["metadata"] = {"published_at": "2026-06-01"}
+
+    row = BaselineImportRow.model_validate(payload)
+
+    assert row.source_url == "https://artificialanalysis.ai/benchmarks/hle"
+    assert row.metadata == {"published_at": "2026-06-01"}
+
+
+def test_baseline_import_row_rejects_empty_benchmark_id() -> None:
+    payload = _valid_baseline_payload()
+    payload["benchmark_id"] = ""
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "identifier fields must be non-empty" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_empty_model_name() -> None:
+    payload = _valid_baseline_payload()
+    payload["model_name"] = ""
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "identifier fields must be non-empty" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_empty_source() -> None:
+    payload = _valid_baseline_payload()
+    payload["source"] = ""
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "identifier fields must be non-empty" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_accuracy_below_zero() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = -0.01
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "accuracy must be between 0 and 1" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_accuracy_above_one() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = 1.01
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "accuracy must be between 0 and 1" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_unknown_fields() -> None:
+    payload = _valid_baseline_payload()
+    payload["extra_field"] = "not allowed"
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "extra_field" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_bool_accuracy() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = True
+
+    with pytest.raises(ValidationError):
+        BaselineImportRow.model_validate(payload)
+
+
+def test_baseline_import_row_rejects_numeric_string_accuracy() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = "0.62"
+
+    with pytest.raises(ValidationError):
+        BaselineImportRow.model_validate(payload)
+
+
+def test_baseline_import_row_rejects_non_finite_accuracy() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = float("nan")
+
+    with pytest.raises(ValidationError):
+        BaselineImportRow.model_validate(payload)
+
+
+def test_baseline_import_row_still_accepts_plain_float_accuracy() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = 0.71
+
+    row = BaselineImportRow.model_validate(payload)
+
+    assert row.accuracy == 0.71
+
+
+def test_baseline_import_row_rejects_deeply_nested_metadata() -> None:
+    payload = _valid_baseline_payload()
+    nested: dict[str, object] = {"v": 1}
+    for _ in range(10):
+        nested = {"nest": nested}
+    payload["metadata"] = nested
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "nested" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_oversized_metadata() -> None:
+    payload = _valid_baseline_payload()
+    payload["metadata"] = {"blob": "x" * 10_000}
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "bytes" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_javascript_source_url() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "javascript:alert(1)"
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "http" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_data_uri_source_url() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "data:text/html,<script>alert(1)</script>"
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "http" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_non_url_source_url() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "not a url"
+
+    with pytest.raises(ValidationError):
+        BaselineImportRow.model_validate(payload)
+
+
+def test_baseline_import_row_accepts_https_source_url() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "https://artificialanalysis.ai/evaluations/humanitys-last-exam"
+
+    row = BaselineImportRow.model_validate(payload)
+
+    assert row.source_url == "https://artificialanalysis.ai/evaluations/humanitys-last-exam"
+
+
+def test_baseline_import_row_rejects_oversized_source_url() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "https://example.test/" + "x" * 2048
+
+    with pytest.raises(ValidationError):
+        BaselineImportRow.model_validate(payload)
+
+
+def test_baseline_import_row_accepts_metadata_within_bounds() -> None:
+    payload = _valid_baseline_payload()
+    payload["metadata"] = {"published_at": "2026-06-01", "nested": {"note": "ok"}}
+
+    row = BaselineImportRow.model_validate(payload)
+
+    assert row.metadata == {"published_at": "2026-06-01", "nested": {"note": "ok"}}
+
+
+def _valid_baseline_schema_payload() -> dict[str, object]:
+    return {
+        "id": uuid4(),
+        "benchmark_id": "demo-benchmark",
+        "model_name": "GPT-5.2",
+        "accuracy": 0.62,
+        "source": "artificial_analysis",
+        "source_url": None,
+        "imported_at": datetime(2026, 7, 10, tzinfo=UTC),
+        "metadata": None,
+    }
+
+
+def test_baseline_schema_accepts_metadata_within_bounds() -> None:
+    payload = _valid_baseline_schema_payload()
+    payload["metadata"] = {"published_at": "2026-06-01"}
+
+    schema = BaselineSchema.model_validate(payload)
+
+    assert schema.metadata == {"published_at": "2026-06-01"}
+
+
+def test_baseline_schema_rejects_deeply_nested_metadata() -> None:
+    payload = _valid_baseline_schema_payload()
+    nested: dict[str, object] = {"v": 1}
+    for _ in range(10):
+        nested = {"nest": nested}
+    payload["metadata"] = nested
+
+    with pytest.raises(ValidationError):
+        BaselineSchema.model_validate(payload)
+
+
+def test_baseline_schema_rejects_oversized_metadata() -> None:
+    payload = _valid_baseline_schema_payload()
+    payload["metadata"] = {"blob": "x" * 10_000}
+
+    with pytest.raises(ValidationError):
+        BaselineSchema.model_validate(payload)

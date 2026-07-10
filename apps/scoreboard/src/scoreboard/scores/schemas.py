@@ -1,10 +1,39 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+# INVARIANT: a baseline's metadata is operator-supplied (via the import CLI, not a
+# public HTTP endpoint) but still bounded, so one bad import can't make
+# GET /v1/leaderboard/{id} fail to serialize for every consumer (found in PR review).
+_METADATA_MAX_DEPTH = 4
+_METADATA_MAX_BYTES = 4096
+
+
+def _metadata_depth(value: object, current: int = 0) -> int:
+    if isinstance(value, dict):
+        return max((_metadata_depth(v, current + 1) for v in value.values()), default=current)
+    if isinstance(value, list):
+        return max((_metadata_depth(v, current + 1) for v in value), default=current)
+    return current
+
+
+def _validate_bounded_metadata(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    # WHY: shared by both the import DTO and the read schema — a bad row must never
+    # reach storage in the first place, but bounding the read side too means the
+    # invariant holds regardless of how a row got into the database (found in PR
+    # review: metadata was previously bounded on import only).
+    if value is None:
+        return value
+    if _metadata_depth(value) > _METADATA_MAX_DEPTH:
+        raise ValueError(f"metadata must not be nested past {_METADATA_MAX_DEPTH} levels deep")
+    if len(json.dumps(value)) > _METADATA_MAX_BYTES:
+        raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
+    return value
 
 
 class ClientInfo(BaseModel):
@@ -153,3 +182,73 @@ class LeaderboardEntry(BaseModel):
     submitted_by: str | None
     verified_by_openmined: bool
     url4_expression: str
+
+
+class BaselineSchema(BaseModel):
+    """Read DTO for an imported single-model baseline ('line to beat')."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    benchmark_id: str
+    model_name: str
+    accuracy: float
+    source: str
+    source_url: str | None
+    imported_at: datetime
+    metadata: dict[str, Any] | None
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_bounded_metadata(value)
+
+
+class BaselineImportRow(BaseModel):
+    """Input DTO for importing a single-model baseline score (e.g. from LMArena /
+    Artificial Analysis). Re-importing the same (benchmark_id, model_name, source)
+    updates the existing row rather than duplicating it (see BaselineStore).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    benchmark_id: str
+    model_name: str
+    # WHY: strict + no-inf-nan closes a Pydantic v2 laziness gap where JSON true/false
+    # coerce to 1.0/0.0 and numeric strings coerce to float, letting malformed source
+    # data silently become a plausible-looking score (found in PR review). The range
+    # check stays a separate validator below so its error message doesn't change for
+    # an existing test.
+    accuracy: Annotated[float, Field(strict=True, allow_inf_nan=False)]
+    source: str
+    # WHY: this is returned through the public API and a future client will likely
+    # render it as a link — restrict to http(s) so a javascript:/data: URI can't
+    # become an XSS vector downstream (found in PR review).
+    source_url: Annotated[str, Field(max_length=2048)] | None = None
+    metadata: dict[str, Any] | None = None
+
+    @field_validator("benchmark_id", "model_name", "source")
+    @classmethod
+    def validate_identifiers(cls, value: str) -> str:
+        if not value:
+            raise ValueError("identifier fields must be non-empty")
+        return value
+
+    @field_validator("accuracy")
+    @classmethod
+    def validate_accuracy(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError("accuracy must be between 0 and 1")
+        return value
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith(("http://", "https://")):
+            raise ValueError("source_url must start with http:// or https://")
+        return value
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_bounded_metadata(value)
