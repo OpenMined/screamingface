@@ -344,6 +344,7 @@ async def get_connection_token(
             http_client_factory_for=lambda provider: getattr(
                 request.app.state, f"{provider}_http_factory", None
             ),
+            strategy_cache=credential_strategy_cache(request.app),
         )
     except OAuthConnectionTokenError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
@@ -375,10 +376,21 @@ async def refresh_connection(
     plugin = request.app.state.providers.get(connection.provider)
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
-    strategy = plugin.oauth_strategy_for(
-        credential_key_for(current.id, connection.id),
-        credential_store=request.app.state.credential_store,
-        http_client_factory=getattr(request.app.state, f"{connection.provider}_http_factory", None),
+    # Resolve the SHARED strategy (same cache key as chat/token dispatch) so its
+    # asyncio.Lock single-flights the refresh across paths instead of a private
+    # fresh strategy with its own lock (SF-323). The post-refresh eviction below
+    # still forces later dispatch to rebuild from the persisted credentials.
+    provider = connection.provider
+    credential_name = credential_key_for(str(current.id), connection.id)
+    strategy = credential_strategy_cache(request.app).get_or_create(
+        provider=provider,
+        auth_type="oauth",
+        credential_name=credential_name,
+        build=lambda: plugin.oauth_strategy_for(
+            credential_name,
+            credential_store=request.app.state.credential_store,
+            http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
+        ),
     )
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
@@ -386,15 +398,13 @@ async def refresh_connection(
         await strategy.refresh_credentials()
     except (CredentialNotFoundError, AuthError) as exc:
         await store.mark_error(connection, str(exc))
-        credential_strategy_cache(request.app).evict(
-            credential_key_for(str(current.id), connection.id)
-        )
+        credential_strategy_cache(request.app).evict(credential_name)
         raise HTTPException(
             status_code=401, detail={"code": "auth_required", "message": str(exc)}
         ) from exc
     # Manual refresh wrote new tokens to the store; drop the cached instance so the
     # chat path rebuilds and reads them (SF-282).
-    credential_strategy_cache(request.app).evict(credential_key_for(str(current.id), connection.id))
+    credential_strategy_cache(request.app).evict(credential_name)
     connection = await store.complete(
         connection,
         label=connection.label,
