@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+# INVARIANT: a baseline's metadata is operator-supplied (via the import CLI, not a
+# public HTTP endpoint) but still bounded, so one bad import can't make
+# GET /v1/leaderboard/{id} fail to serialize for every consumer (found in PR review).
+_METADATA_MAX_DEPTH = 4
+_METADATA_MAX_BYTES = 4096
+
+
+def _metadata_depth(value: object, current: int = 0) -> int:
+    if isinstance(value, dict):
+        return max((_metadata_depth(v, current + 1) for v in value.values()), default=current)
+    if isinstance(value, list):
+        return max((_metadata_depth(v, current + 1) for v in value), default=current)
+    return current
 
 
 class ClientInfo(BaseModel):
@@ -180,7 +195,12 @@ class BaselineImportRow(BaseModel):
 
     benchmark_id: str
     model_name: str
-    accuracy: float
+    # WHY: strict + no-inf-nan closes a Pydantic v2 laziness gap where JSON true/false
+    # coerce to 1.0/0.0 and numeric strings coerce to float, letting malformed source
+    # data silently become a plausible-looking score (found in PR review). The range
+    # check stays a separate validator below so its error message doesn't change for
+    # an existing test.
+    accuracy: Annotated[float, Field(strict=True, allow_inf_nan=False)]
     source: str
     source_url: str | None = None
     metadata: dict[str, Any] | None = None
@@ -197,4 +217,15 @@ class BaselineImportRow(BaseModel):
     def validate_accuracy(cls, value: float) -> float:
         if not 0 <= value <= 1:
             raise ValueError("accuracy must be between 0 and 1")
+        return value
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is None:
+            return value
+        if _metadata_depth(value) > _METADATA_MAX_DEPTH:
+            raise ValueError(f"metadata must not be nested past {_METADATA_MAX_DEPTH} levels deep")
+        if len(json.dumps(value)) > _METADATA_MAX_BYTES:
+            raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
         return value

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import cast
+
+from tortoise import BaseDBAsyncClient
+from tortoise.transactions import in_transaction
 
 from .models import Baseline, Benchmark
 from .schemas import BaselineImportRow, BaselineSchema
@@ -28,11 +32,17 @@ class BaselineStore:
     # a table.
     """
 
-    async def import_baseline(self, row: BaselineImportRow) -> BaselineSchema:
+    async def import_baseline(
+        self,
+        row: BaselineImportRow,
+        *,
+        using_db: BaseDBAsyncClient | None = None,
+    ) -> BaselineSchema:
         # INVARIANT: a baseline can only be imported against a benchmark that already
         # exists, mirroring the check the /v1/scores route performs before ScoreStore
         # sees a submission (see routes/scores.py::submit_score).
-        if not await Benchmark.exists(id=row.benchmark_id):
+        exists = await Benchmark.filter(id=row.benchmark_id).using_db(using_db).exists()
+        if not exists:
             raise ValueError(f"unknown benchmark_id: {row.benchmark_id!r}")
 
         baseline, _ = await Baseline.update_or_create(
@@ -44,8 +54,16 @@ class BaselineStore:
                 "source_url": row.source_url,
                 "metadata": row.metadata,
             },
+            using_db=using_db,
         )
         return _baseline_to_schema(baseline)
+
+    async def import_many(self, rows: Sequence[BaselineImportRow]) -> list[BaselineSchema]:
+        # INVARIANT: all-or-nothing — if any row in the batch fails (e.g. an unknown
+        # benchmark_id), no row from this batch is left persisted (found in PR review:
+        # a mid-batch failure used to leave earlier rows committed).
+        async with in_transaction() as connection:
+            return [await self.import_baseline(row, using_db=connection) for row in rows]
 
     async def list_baselines(self, benchmark_id: str) -> list[BaselineSchema]:
         rows = await Baseline.filter(benchmark_id=benchmark_id).order_by("-accuracy")

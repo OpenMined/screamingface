@@ -31,11 +31,7 @@ def load_baselines_json(raw_json: str) -> list[BaselineImportRow]:
 
 
 async def import_baselines(rows: Sequence[BaselineImportRow]) -> list[BaselineSchema]:
-    store = BaselineStore()
-    imported: list[BaselineSchema] = []
-    for row in rows:
-        imported.append(await store.import_baseline(row))
-    return imported
+    return await BaselineStore().import_many(rows)
 
 
 def _build_parser() -> argparse.ArgumentParser:

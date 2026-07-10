@@ -124,3 +124,34 @@ async def test_list_baselines_returns_empty_list_when_none_imported(
     baselines = await store.list_baselines("hle")
 
     assert baselines == []
+
+
+async def test_import_many_persists_every_row_when_all_valid(tortoise_db: None) -> None:
+    await _register_benchmark()
+    store = BaselineStore()
+
+    imported = await store.import_many(
+        [_row(model_name="Model A", accuracy=0.4), _row(model_name="Model B", accuracy=0.5)]
+    )
+    all_baselines = await store.list_baselines("hle")
+
+    assert len(imported) == 2
+    assert len(all_baselines) == 2
+
+
+async def test_import_many_rolls_back_earlier_rows_when_a_later_row_fails(
+    tortoise_db: None,
+) -> None:
+    await _register_benchmark()
+    store = BaselineStore()
+
+    with pytest.raises(ValueError, match="unknown benchmark_id"):
+        await store.import_many(
+            [
+                _row(model_name="Model A", accuracy=0.4),
+                _row(benchmark_id="does-not-exist", model_name="Model B"),
+            ]
+        )
+
+    all_baselines = await store.list_baselines("hle")
+    assert all_baselines == []

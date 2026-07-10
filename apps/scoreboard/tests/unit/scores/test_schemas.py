@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from pydantic import ValidationError
 
 from scoreboard.scores.schemas import BaselineImportRow, ScoreSubmission
@@ -184,3 +185,72 @@ def test_baseline_import_row_rejects_unknown_fields() -> None:
         assert "extra_field" in str(exc)
     else:
         raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_bool_accuracy() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = True
+
+    with pytest.raises(ValidationError):
+        BaselineImportRow.model_validate(payload)
+
+
+def test_baseline_import_row_rejects_numeric_string_accuracy() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = "0.62"
+
+    with pytest.raises(ValidationError):
+        BaselineImportRow.model_validate(payload)
+
+
+def test_baseline_import_row_rejects_non_finite_accuracy() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = float("nan")
+
+    with pytest.raises(ValidationError):
+        BaselineImportRow.model_validate(payload)
+
+
+def test_baseline_import_row_still_accepts_plain_float_accuracy() -> None:
+    payload = _valid_baseline_payload()
+    payload["accuracy"] = 0.71
+
+    row = BaselineImportRow.model_validate(payload)
+
+    assert row.accuracy == 0.71
+
+
+def test_baseline_import_row_rejects_deeply_nested_metadata() -> None:
+    payload = _valid_baseline_payload()
+    nested: dict[str, object] = {"v": 1}
+    for _ in range(10):
+        nested = {"nest": nested}
+    payload["metadata"] = nested
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "nested" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_oversized_metadata() -> None:
+    payload = _valid_baseline_payload()
+    payload["metadata"] = {"blob": "x" * 10_000}
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "bytes" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_accepts_metadata_within_bounds() -> None:
+    payload = _valid_baseline_payload()
+    payload["metadata"] = {"published_at": "2026-06-01", "nested": {"note": "ok"}}
+
+    row = BaselineImportRow.model_validate(payload)
+
+    assert row.metadata == {"published_at": "2026-06-01", "nested": {"note": "ok"}}
