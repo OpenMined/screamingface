@@ -14,5 +14,19 @@
       "mcp__plugin_playwright_playwright__*"
     ],
     "defaultMode": "plan"
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/sdlc-gate.py\"",
+            "timeout": 10,
+            "statusMessage": "SDLC gate"
+          }
+        ]
+      }
+    ]
   }
 }

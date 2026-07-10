@@ -1,0 +1,22 @@
+name: Repo Checks
+on:
+  push:
+    paths:
+      - ".claude/skills/sdlc-**"
+      - ".claude/scripts/**"
+      - ".github/workflows/repo-checks.yml"
+  pull_request:
+    paths:
+      - ".claude/skills/sdlc-**"
+      - ".claude/scripts/**"
+      - ".github/workflows/repo-checks.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  loop-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: SHARED-LOOP parity
+        run: python3 .claude/scripts/check_loop_parity.py

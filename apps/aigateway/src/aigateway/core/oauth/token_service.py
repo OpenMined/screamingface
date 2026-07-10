@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 from uuid import UUID
@@ -28,6 +28,17 @@ class TokenWithExpiryStrategy(Protocol):
     async def get_token_with_expiry(self) -> tuple[str, int, bool]: ...
 
 
+class StrategyCacheLike(Protocol):
+    def get_or_create(
+        self,
+        *,
+        provider: str,
+        auth_type: str,
+        credential_name: str,
+        build: Callable[[], Any],
+    ) -> Any: ...
+
+
 @dataclass(frozen=True)
 class OAuthConnectionToken:
     connection: OAuthConnection
@@ -44,9 +55,14 @@ class OAuthConnectionTokenError(Exception):
 
 
 class OAuthConnectionTokenService:
-    def __init__(self) -> None:
-        self._locks: dict[str, asyncio.Lock] = {}
-        self._locks_guard = asyncio.Lock()
+    """Mint a fresh access token for an OAuth connection.
+
+    Stateless use-case orchestrator: it resolves the connection, then defers to
+    the SHARED ``CredentialStrategyCache`` strategy whose ``asyncio.Lock``
+    single-flights the OAuth refresh across the token endpoint, chat dispatch,
+    and manual refresh (SF-323). It holds no lock of its own — the strategy is
+    the one and only refresh single-flight point (SF-282).
+    """
 
     async def get_token(
         self,
@@ -57,27 +73,7 @@ class OAuthConnectionTokenService:
         providers: ProviderRegistryLike,
         credential_store: Any,
         http_client_factory_for,
-    ) -> OAuthConnectionToken:
-        lock = await self._lock_for(account_id, connection_id)
-        async with lock:
-            return await self._get_token_locked(
-                account_id=account_id,
-                connection_id=connection_id,
-                store=store,
-                providers=providers,
-                credential_store=credential_store,
-                http_client_factory_for=http_client_factory_for,
-            )
-
-    async def _get_token_locked(
-        self,
-        *,
-        account_id: str | UUID,
-        connection_id: UUID,
-        store: OAuthConnectionStoreLike,
-        providers: ProviderRegistryLike,
-        credential_store: Any,
-        http_client_factory_for,
+        strategy_cache: StrategyCacheLike,
     ) -> OAuthConnectionToken:
         connection = await store.get(account_id, connection_id)
         if connection is None:
@@ -93,10 +89,20 @@ class OAuthConnectionTokenService:
         plugin = providers.get(connection.provider)
         if plugin is None:
             raise OAuthConnectionTokenError(404, {"code": "unknown_provider"})
-        strategy = plugin.oauth_strategy_for(
-            credential_key_for(account_id, connection.id),
-            credential_store=credential_store,
-            http_client_factory=http_client_factory_for(connection.provider),
+        # Resolve the SHARED strategy (keyed identically to routes/chat.py) so its
+        # asyncio.Lock single-flights the refresh across the token endpoint, chat
+        # dispatch, and manual refresh (SF-323). Building is only a constructor
+        # call; the cache is evicted on every credential mutation.
+        credential_name = credential_key_for(account_id, connection.id)
+        strategy = strategy_cache.get_or_create(
+            provider=connection.provider,
+            auth_type="oauth",
+            credential_name=credential_name,
+            build=lambda: plugin.oauth_strategy_for(
+                credential_name,
+                credential_store=credential_store,
+                http_client_factory=http_client_factory_for(connection.provider),
+            ),
         )
         if strategy is None:
             raise OAuthConnectionTokenError(400, {"code": "provider_does_not_use_oauth"})
@@ -128,15 +134,6 @@ class OAuthConnectionTokenService:
             expires_at_ms=expires_at_ms,
             refreshed=refreshed,
         )
-
-    async def _lock_for(self, account_id: str | UUID, connection_id: UUID) -> asyncio.Lock:
-        key = f"{account_id}:{connection_id}"
-        async with self._locks_guard:
-            lock = self._locks.get(key)
-            if lock is None:
-                lock = asyncio.Lock()
-                self._locks[key] = lock
-            return lock
 
 
 def oauth_connection_token_service(app: Any) -> OAuthConnectionTokenService:

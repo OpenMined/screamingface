@@ -1,0 +1,75 @@
+---
+description: How to work in the ScreamingFace monorepo — which app/component a change belongs to, the per-stack toolchain, how to add a new app or shared package, which CI runs, who reviews, and the branch/commit/PR/merge/release rules. Use when starting any change here, when unsure where code goes, which tests or CI apply, who reviews, or how to open and merge a PR.
+user_invocable: true
+---
+
+# Working in this repo
+
+ScreamingFace is a **polyglot monorepo** worked on by multiple developers concurrently. This skill is the **routing map**: given a change, it tells you which component you're in, the toolchain, the CI that will gate it, who reviews, and the branch/PR/release lane.
+
+> **Re-foundation (July 2026).** The legacy `apps/desktop` and `apps/server` (plus `web/`, `infra/`, root `Makefile`, and the old `docs/` tree) were removed; the full pre-teardown state is preserved at tag **`legacy-monorepo-2026-07-08`**. New desktop/CLI packages and the `url4-python-sdk` arrive as separate components with their own CI/release lanes once package names are locked. Setup lives in **`CONTRIBUTING.md`**; per-app guardrails in each app's `CLAUDE.md`.
+
+## 1. Component taxonomy
+
+- **`apps/<name>`** — an independently deployable service or app. Has its own toolchain, lockfile, CI workflow, and release lane.
+- **`packages/<name>`** — a shared library consumed by **≥2** components; **not** independently deployed. (None exist yet — `url4-python-sdk` lands here first. Put shared code here instead of importing one app's internals from another.)
+- **`docs/`** — AI-agentic decision records (plans, specs). Not a deployable component.
+
+**Rule:** apps never import another app's internals. Cross-app sharing goes through `packages/` (or a stable HTTP contract). This keeps each app independently testable and releasable.
+
+## 2. Current apps — the routing table
+
+| Component | Landing label | Stack | Run / test / lint / typecheck | Gating CI | Release lane | Key guardrails |
+|---|---|---|---|---|---|---|
+| `apps/aigateway` | `app/aigateway` | Python · uv · FastAPI (LiteLLM) | `uv run uvicorn aigateway.main:app --port 9105` · `uv run pytest` (live tests opt-in) · `uv run ruff check` · `uv run pyright` | `aigateway-tests.yml` (matrix 3.12/3.13) | release-please → `aigateway-v*` → `release-aigateway.yml` (GHCR image + Helm chart) | **Never import `litellm-enterprise`** (guarded by `scripts/check_no_enterprise.py`). Credentials via ORMStore/Tortoise `credential_blobs`, **no OS keychain**; secrets AES-256-GCM; master key `AIGATEWAY_SECRET_KEY` never stored/logged. See `apps/aigateway/CLAUDE.md`. |
+| `apps/scoreboard` | `app/scoreboard` | Python · uv · FastAPI | `uv run scoreboard` · `uv run pytest` · `uv run ruff check` · `uv run pyright` | `scoreboard-tests.yml` | **Manual** tag `scoreboard-v*` → `release-scoreboard.yml` (GHCR image + Helm; **not** in release-please) | Portal assets and public eval artifacts are app-local (`portal/`, `artifacts/`) — they ship inside the image. |
+
+**Owner / reviewer per path:** see `.github/CODEOWNERS`. This skill deliberately does not hardcode owners — read them from one place.
+
+## 3. Which CI runs on my PR?
+
+CI is **path-filtered**: a PR only triggers the workflow(s) for the paths it touches. A PR touching two apps runs both lanes. Each `<component>-tests.yml` also self-triggers when its own YAML changes.
+
+## 4. Adding a new component (any stack: Python / Go / JS / TS)
+
+Bring whatever stack fits; satisfy this **invariant contract** so the coordination machinery sees it:
+
+| Stack | Pkg manager | Layout | Lint | Typecheck | Test | CI: copy from | Release |
+|---|---|---|---|---|---|---|---|
+| Python | uv + hatchling | `src/<pkg>/` | ruff | pyright | pytest (+ markers) | `aigateway-tests.yml` | release-please `python`, or manual tag |
+| JS / TS | npm | `src/` | eslint | `tsc --noEmit` | vitest | new `<comp>-tests.yml` (mirror the aigateway structure) | release-please `node`, or manual tag |
+| Go | go modules | `cmd/` + `internal/` / `pkg/` | golangci-lint | `go vet` / build | `go test ./...` | new `go-<comp>-tests.yml` | release-please `go`, or manual tag |
+
+**6-step checklist for a new component:**
+1. Pick `apps/` (deployable) or `packages/` (shared lib).
+2. Self-contained toolchain + lockfile; no dependency on another app's internals.
+3. Add a path-filtered `.github/workflows/<component>-tests.yml` running that stack's lint + typecheck + test.
+4. Register a release lane — add to `release-please-config.json` **or** document a manual tag (or mark "not released").
+5. Add a `.github/CODEOWNERS` entry.
+6. Add the matching `dependabot.yml` ecosystem (`uv` / `npm` / `gomod`).
+
+## 5. Where does my change belong?
+
+- **`apps/aigateway`:** new providers/secrets backends implement the port and register in the factory — never edit ORMStore. See `apps/aigateway/CLAUDE.md`.
+- **`apps/scoreboard`:** portal/static changes live in `apps/scoreboard/portal/`; public artifact allowlists in `src/scoreboard/portal.py`.
+- **Shared logic used by ≥2 apps:** it belongs in `packages/`, not copied.
+
+## 6. Branch / commit / PR / merge
+
+- **Branch:** `OME-N-<description>`, `N` = the Linear work-item number (file the item per the `task-management` skill; registry `.claude/task-board.local.md`). Never commit to `main`.
+- **Commit:** conventional (`feat: …`, `fix: …`); body carries `Refs: OME-N`; **no `Co-Authored-By`** lines.
+- **Keep current:** rebase on `origin/main` (don't merge `main` into your branch); force-push only your own branch.
+- **Merge:** squash-merge; the author merges after review approval + green required checks.
+- **Checks are path-dependent.** Live tests (`AIGW_LIVE=1`) are opt-in diagnostics, **not** merge gates.
+- **WIP limit:** 2 tickets per dev (one coding, one in review).
+- **PR body:** Asana link · summary · test plan · screenshots for UI. If a PR spans two owners' areas, state the cross-service contract in the body.
+
+## 7. Pointers (single source of truth)
+
+- **Setup / run-from-source:** `CONTRIBUTING.md`
+- **Per-app guardrails:** `apps/*/CLAUDE.md`
+- **Work items / ticket lifecycle:** the `task-management` skill + `.claude/task-board.local.md`
+- **Per-stack dev loop:** the `sdlc-python` / `sdlc-electron` skills + `.claude/sdlc.local.md`
+- **Decision records & SDLC artifacts:** `docs/` (see `docs/README.md`)
+- **Brand / UI law:** the `screamingface-design` skill
+- **Legacy reference (desktop, server, url4 engine, web, infra):** tag `legacy-monorepo-2026-07-08`

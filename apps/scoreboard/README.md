@@ -59,8 +59,8 @@ Settings are read from environment variables with the `SCOREBOARD_` prefix.
 | `SCOREBOARD_LOG_LEVEL` | `info` | Uvicorn log level. |
 | `SCOREBOARD_DATABASE_URL` | `sqlite://./scoreboard.sqlite3` | Tortoise database URL. |
 | `SCOREBOARD_CORS_ORIGINS` | `["*"]` | JSON list of allowed CORS origins. |
-| `SCOREBOARD_PORTAL_DIR` | source `web/portal` | Static portal directory. |
-| `SCOREBOARD_PORTAL_ARTIFACTS_DIR` | source `output_artifacts/eval_results` | Public JSONL artifact directory. |
+| `SCOREBOARD_PORTAL_DIR` | app-local `portal/` | Static portal directory. |
+| `SCOREBOARD_PORTAL_ARTIFACTS_DIR` | app-local `artifacts/` | Public JSONL artifact directory. |
 
 `SCOREBOARD_CORS_ORIGINS` defaults to `["*"]` because the scaffold has no authenticated routes and never sets cookies. D-SCORE-007 will tighten this once the leaderboard write path lands.
 

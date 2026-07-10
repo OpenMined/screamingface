@@ -7,10 +7,14 @@ probe (which decrypts through the same master key as the app's ORMStore).
 from __future__ import annotations
 
 import json
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import httpx
 import pytest
 
+from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import (
     Profile,
@@ -24,6 +28,17 @@ from aigateway.plugins.gemini_provider.auth import (
 )
 
 ANTHROPIC_KEY = "sk-ant-api03-test-key-1234"
+
+
+@contextmanager
+def _server_errors_as_responses(client) -> Iterator[None]:
+    transport = getattr(client, "_transport")
+    previous = transport.raise_server_exceptions
+    transport.raise_server_exceptions = False
+    try:
+        yield
+    finally:
+        transport.raise_server_exceptions = previous
 
 
 def _oauth_token_factory():
@@ -90,6 +105,182 @@ def test_set_api_key_replaces_existing_key(authenticated_client, credential_blob
     assert json.loads(credential_blobs.read(service, "default"))["api_key"] == (
         "sk-ant-api03-rotated-9999"
     )
+
+
+def test_set_api_key_deletes_new_blob_when_profile_index_update_fails(
+    authenticated_client, credential_blobs, monkeypatch
+) -> None:
+    account_id = _account_id(authenticated_client)
+    service = credential_service_for(credential_name_for(account_id, "keyed"))
+
+    async def _boom(_profile) -> None:
+        raise RuntimeError("profile index unavailable")
+
+    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", _boom)
+
+    with _server_errors_as_responses(authenticated_client):
+        resp = _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY)
+
+    assert resp.status_code == 500
+    assert credential_blobs.read(service, "default") is None
+    assert authenticated_client.get("/v1/auth/anthropic/profiles/keyed").status_code == 404
+
+
+def test_set_api_key_profile_index_conflict_returns_retryable_503(
+    authenticated_client, credential_blobs, monkeypatch
+) -> None:
+    account_id = _account_id(authenticated_client)
+    service = credential_service_for(credential_name_for(account_id, "keyed"))
+
+    async def _boom(_profile) -> None:
+        raise CredentialBlobMutationConflict("forced contention")
+
+    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", _boom)
+
+    with _server_errors_as_responses(authenticated_client):
+        resp = _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY)
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "profile_index_conflict"
+    assert "forced contention" not in resp.text
+    assert credential_blobs.read(service, "default") is None
+
+
+def test_set_api_key_delete_compensation_failure_is_sanitized(
+    authenticated_client, monkeypatch, caplog
+) -> None:
+    leak_marker = "sk-ant-api03-compensation-secret-that-must-not-leak"
+
+    async def _boom(_profile) -> None:
+        raise RuntimeError("profile index unavailable")
+
+    async def _mutate_failure(_service: str, _account: str, _mutator) -> None:
+        raise RuntimeError(f"delete failed for {leak_marker}")
+
+    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", _boom)
+    monkeypatch.setattr(authenticated_client.app.state.credential_store, "mutate", _mutate_failure)
+    caplog.set_level(logging.ERROR, logger="aigateway.routes.auth")
+
+    with _server_errors_as_responses(authenticated_client):
+        resp = _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY)
+
+    assert resp.status_code == 500
+    assert "Failed to compensate API-key credential slot" in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert ANTHROPIC_KEY not in caplog.text
+    assert leak_marker not in caplog.text
+
+
+def test_set_api_key_compensation_preserves_concurrent_slot_write(
+    authenticated_client, credential_blobs, monkeypatch
+) -> None:
+    account_id = _account_id(authenticated_client)
+    service = credential_service_for(credential_name_for(account_id, "keyed"))
+    concurrent = json.dumps({"auth_type": "api_key", "api_key": "sk-ant-api03-other-5678"})
+
+    async def _boom(_profile) -> None:
+        credential_blobs.write(service, "default", concurrent)
+        raise RuntimeError("profile index unavailable")
+
+    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", _boom)
+
+    with _server_errors_as_responses(authenticated_client):
+        resp = _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY)
+
+    assert resp.status_code == 500
+    assert credential_blobs.read(service, "default") == concurrent
+
+
+@pytest.mark.asyncio
+async def test_set_api_key_restores_oauth_blob_when_profile_index_update_fails(
+    authenticated_client, credential_blobs, monkeypatch
+) -> None:
+    account_id = _account_id(authenticated_client)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    await idx.upsert(
+        Profile(
+            id=profile_id_for(account_id, "anthropic", "default"),
+            account_id=account_id,
+            provider="anthropic",
+            name="default",
+            state=ProfileState.AUTHENTICATED,
+            auth_type="oauth",
+            account_label="user@example.com",
+            scopes=["user:inference"],
+        )
+    )
+    service = credential_service_for(credential_name_for(account_id, "default"))
+    previous = json.dumps(
+        {
+            "access_token": "oauth-tok",
+            "refresh_token": "oauth-rt",
+            "expires_at_ms": 1,
+            "token_type": "Bearer",
+        }
+    )
+    credential_blobs.write(service, "default", previous)
+
+    async def _boom(_profile) -> None:
+        raise RuntimeError("profile index unavailable")
+
+    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", _boom)
+
+    with _server_errors_as_responses(authenticated_client):
+        resp = _put_api_key(authenticated_client, "anthropic", "default", ANTHROPIC_KEY)
+
+    assert resp.status_code == 500
+    assert credential_blobs.read(service, "default") == previous
+    profile = await idx.get(account_id, "anthropic", "default")
+    assert profile is not None
+    assert profile.auth_type == "oauth"
+
+
+@pytest.mark.asyncio
+async def test_set_api_key_restore_compensation_failure_is_sanitized(
+    authenticated_client, credential_blobs, monkeypatch, caplog
+) -> None:
+    account_id = _account_id(authenticated_client)
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    await idx.upsert(
+        Profile(
+            id=profile_id_for(account_id, "anthropic", "default"),
+            account_id=account_id,
+            provider="anthropic",
+            name="default",
+            state=ProfileState.AUTHENTICATED,
+            auth_type="oauth",
+        )
+    )
+    service = credential_service_for(credential_name_for(account_id, "default"))
+    previous = json.dumps(
+        {
+            "access_token": "oauth-tok",
+            "refresh_token": "oauth-rt",
+            "expires_at_ms": 1,
+            "token_type": "Bearer",
+        }
+    )
+    credential_blobs.write(service, "default", previous)
+    leak_marker = "sk-ant-api03-restore-secret-that-must-not-leak"
+
+    async def _boom(_profile) -> None:
+        raise RuntimeError("profile index unavailable")
+
+    async def _mutate_failure(_service: str, _account: str, _mutator) -> None:
+        raise RuntimeError(f"restore failed for {leak_marker}")
+
+    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", _boom)
+    monkeypatch.setattr(authenticated_client.app.state.credential_store, "mutate", _mutate_failure)
+    caplog.set_level(logging.ERROR, logger="aigateway.routes.auth")
+
+    with _server_errors_as_responses(authenticated_client):
+        resp = _put_api_key(authenticated_client, "anthropic", "default", ANTHROPIC_KEY)
+
+    assert resp.status_code == 500
+    assert "Failed to compensate API-key credential slot" in caplog.text
+    assert "RuntimeError" in caplog.text
+    assert ANTHROPIC_KEY not in caplog.text
+    assert leak_marker not in caplog.text
 
 
 @pytest.mark.asyncio

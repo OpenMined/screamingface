@@ -16,8 +16,9 @@ from aigateway.core.credential_strategy_cache import CredentialStrategyCache
 from aigateway.core.oauth_base import BaseOAuthStrategy
 
 # SF-335 / C12 cross-app contract: this window value is mirrored BY CONTRACT
-# (not by shared code) with the SF-server OAuth base
-# (apps/server/src/screamingface/plugins/llm_base/oauth_base.py).
+# (not by shared code) with the legacy SF-server OAuth base (see
+# apps/server/src/screamingface/plugins/llm_base/oauth_base.py at tag
+# legacy-monorepo-2026-07-08); successor CLI clients must keep matching it.
 EXPECTED_REFRESH_WINDOW_SECONDS = 60
 
 

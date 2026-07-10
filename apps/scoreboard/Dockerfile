@@ -35,10 +35,10 @@ WORKDIR /app
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin scoreboard
 
 COPY --from=builder --chown=scoreboard:scoreboard /app /app
-COPY --chown=scoreboard:scoreboard web/portal /app/web/portal
-COPY --chown=scoreboard:scoreboard output_artifacts/eval_results/livetruth-latest.jsonl /app/web/artifacts/livetruth-latest.jsonl
-COPY --chown=scoreboard:scoreboard output_artifacts/eval_results/livetruth-latest.eval.jsonl /app/web/artifacts/livetruth-latest.eval.jsonl
-COPY --chown=scoreboard:scoreboard output_artifacts/eval_results/livetruth-masking.dataset.jsonl /app/web/artifacts/livetruth-masking.dataset.jsonl
+COPY --chown=scoreboard:scoreboard apps/scoreboard/portal /app/web/portal
+COPY --chown=scoreboard:scoreboard apps/scoreboard/artifacts/livetruth-latest.jsonl /app/web/artifacts/livetruth-latest.jsonl
+COPY --chown=scoreboard:scoreboard apps/scoreboard/artifacts/livetruth-latest.eval.jsonl /app/web/artifacts/livetruth-latest.eval.jsonl
+COPY --chown=scoreboard:scoreboard apps/scoreboard/artifacts/livetruth-masking.dataset.jsonl /app/web/artifacts/livetruth-masking.dataset.jsonl
 
 USER scoreboard
 

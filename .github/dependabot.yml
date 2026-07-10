@@ -1,20 +1,10 @@
 # Scope Dependabot to the maintained apps only, with grouped updates.
 #
-# Without this file Dependabot auto-discovers EVERY manifest in the repo,
-# including the throwaway prototypes under web-iterations/ — which produced a
-# backlog of noise PRs. Listing explicit directories means only these trees are
-# scanned; `groups` collapses each ecosystem's bumps into a single PR.
+# Without this file Dependabot auto-discovers EVERY manifest in the repo.
+# Listing explicit directories means only these trees are scanned; `groups`
+# collapses each ecosystem's bumps into a single PR.
 version: 2
 updates:
-  - package-ecosystem: "uv"
-    directory: "/apps/server"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      server-python:
-        patterns: ["*"]
-
   - package-ecosystem: "uv"
     directory: "/apps/aigateway"
     schedule:
@@ -24,13 +14,13 @@ updates:
       aigateway-python:
         patterns: ["*"]
 
-  - package-ecosystem: "npm"
-    directory: "/apps/desktop"
+  - package-ecosystem: "uv"
+    directory: "/apps/scoreboard"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
-      desktop-npm:
+      scoreboard-python:
         patterns: ["*"]
 
   # Keep GitHub Actions pinned-version bumps current too (low volume).

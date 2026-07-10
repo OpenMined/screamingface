@@ -71,9 +71,10 @@ async def test_bootstrap_imports_cc_default_when_index_empty(credential_blobs) -
     assert converted["refresh_token"] == "cc-rt"
     assert "expires_at_ms" in converted
 
-    idx_raw = credential_blobs.read(INDEX_CREDENTIAL_SERVICE, "default")
+    idx_raw = credential_blobs.read(INDEX_CREDENTIAL_SERVICE, f"account:{ACCOUNT_ID}")
     assert idx_raw is not None
     assert profile_id_for(ACCOUNT_ID, "anthropic", "default") in idx_raw
+    assert credential_blobs.read(INDEX_CREDENTIAL_SERVICE, "default") is None
 
     # CC entry untouched
     assert credential_blobs.read(settings.claude_code_keychain_service, "alice") == cc_payload

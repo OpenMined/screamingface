@@ -9,6 +9,8 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
+from aigateway.core.credential_strategy_cache import credential_strategy_cache
+from aigateway.core.oauth.store import credential_key_for
 from aigateway.core.plugin_base import OAuthConfig
 from aigateway.plugins.codex_provider.oauth_config import (
     CODEX_AUTHORIZE_EXTRA_PARAMS,
@@ -431,6 +433,46 @@ def test_refresh_error_releases_label_for_reauth(authenticated_client, credentia
         ).status_code
         == 200
     )
+
+
+def test_refresh_connection_refreshes_the_shared_cached_strategy(
+    authenticated_client, credential_blobs
+) -> None:
+    # SF-323: manual refresh must resolve its strategy from the SAME app-scoped
+    # cache as chat/token dispatch, so a concurrent chat/token single-flights on
+    # ONE lock instead of building a private fresh strategy with its own lock.
+    # Pre-seed a sentinel under the connection's cache key: the route must refresh
+    # THAT instance, then evict it so later dispatch rebuilds from persisted creds.
+    connection_id = _connect_anthropic(authenticated_client, "refresh-shared-cache")
+    account_id = _account_id(authenticated_client)
+    _ = credential_blobs
+
+    class _SentinelStrategy:
+        def __init__(self) -> None:
+            self.refresh_calls = 0
+
+        async def refresh_credentials(self) -> None:
+            self.refresh_calls += 1
+
+    cache = credential_strategy_cache(authenticated_client.app)
+    key = credential_key_for(account_id, connection_id)
+    sentinel = _SentinelStrategy()
+    cache.get_or_create(
+        provider="anthropic", auth_type="oauth", credential_name=key, build=lambda: sentinel
+    )
+
+    resp = authenticated_client.post(f"/v1/oauth/connections/{connection_id}/refresh")
+    assert resp.status_code == 200
+    # Refreshed the shared cached instance (the fix), not a fresh build (the bug).
+    assert sentinel.refresh_calls == 1
+    # ...and evicted afterwards, so a subsequent chat/token rebuilds from the store.
+    rebuilt = cache.get_or_create(
+        provider="anthropic",
+        auth_type="oauth",
+        credential_name=key,
+        build=lambda: _SentinelStrategy(),
+    )
+    assert rebuilt is not sentinel
 
 
 def test_patch_connection_label_conflict_returns_409(authenticated_client) -> None:

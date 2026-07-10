@@ -34,6 +34,7 @@ from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import credential_service_provider_for, credential_strategy_from
 
 from .auth import _redirect_uri_for
+from .credential_persistence import persist_credentials_or_503
 
 logger = logging.getLogger(__name__)
 
@@ -343,6 +344,7 @@ async def get_connection_token(
             http_client_factory_for=lambda provider: getattr(
                 request.app.state, f"{provider}_http_factory", None
             ),
+            strategy_cache=credential_strategy_cache(request.app),
         )
     except OAuthConnectionTokenError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
@@ -374,10 +376,21 @@ async def refresh_connection(
     plugin = request.app.state.providers.get(connection.provider)
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
-    strategy = plugin.oauth_strategy_for(
-        credential_key_for(current.id, connection.id),
-        credential_store=request.app.state.credential_store,
-        http_client_factory=getattr(request.app.state, f"{connection.provider}_http_factory", None),
+    # Resolve the SHARED strategy (same cache key as chat/token dispatch) so its
+    # asyncio.Lock single-flights the refresh across paths instead of a private
+    # fresh strategy with its own lock (SF-323). The post-refresh eviction below
+    # still forces later dispatch to rebuild from the persisted credentials.
+    provider = connection.provider
+    credential_name = credential_key_for(str(current.id), connection.id)
+    strategy = credential_strategy_cache(request.app).get_or_create(
+        provider=provider,
+        auth_type="oauth",
+        credential_name=credential_name,
+        build=lambda: plugin.oauth_strategy_for(
+            credential_name,
+            credential_store=request.app.state.credential_store,
+            http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
+        ),
     )
     if strategy is None:
         raise HTTPException(status_code=400, detail={"code": "provider_does_not_use_oauth"})
@@ -385,15 +398,13 @@ async def refresh_connection(
         await strategy.refresh_credentials()
     except (CredentialNotFoundError, AuthError) as exc:
         await store.mark_error(connection, str(exc))
-        credential_strategy_cache(request.app).evict(
-            credential_key_for(str(current.id), connection.id)
-        )
+        credential_strategy_cache(request.app).evict(credential_name)
         raise HTTPException(
             status_code=401, detail={"code": "auth_required", "message": str(exc)}
         ) from exc
     # Manual refresh wrote new tokens to the store; drop the cached instance so the
     # chat path rebuilds and reads them (SF-282).
-    credential_strategy_cache(request.app).evict(credential_key_for(str(current.id), connection.id))
+    credential_strategy_cache(request.app).evict(credential_name)
     connection = await store.complete(
         connection,
         label=connection.label,
@@ -450,25 +461,11 @@ def _validate_api_key(raw_key: str) -> str:
 
 
 async def _persist_api_key_credentials(strategy, api_key: str) -> None:
-    try:
-        await strategy.persist_credentials({"auth_type": "api_key", "api_key": api_key})
-    except Exception as exc:
-        # A caught store failure is otherwise a silent 503 — log which service
-        # failed and the exception TYPE so ops can diagnose. Deliberately NOT
-        # str(exc)/the traceback: a store implementation could echo its write
-        # argument (the key) in the message, and this path must never log a key.
-        logger.error(
-            "Failed to persist API-key credentials for service %s: %s",
-            strategy.credential_service(),
-            type(exc).__name__,
-        )
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "credential_store_unavailable",
-                "message": "Could not store API-key credentials. Try again.",
-            },
-        ) from exc
+    await persist_credentials_or_503(
+        strategy,
+        {"auth_type": "api_key", "api_key": api_key},
+        description="API-key credentials",
+    )
 
 
 def _duplicate_id(message: str | None) -> UUID | None:
