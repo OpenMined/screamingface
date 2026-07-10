@@ -55,7 +55,7 @@ decision, not a code fix — asked him directly on the PR thread instead of gues
 
 - **Actual files:** as planned — `schemas.py`, `baseline_store.py`,
   `import_baselines.py`, `test_schemas.py`, `test_baseline_store.py`.
-- **Commits:** <fill after commit below>
+- **Commits:** be2d082 — fix(scoreboard): harden baseline import per review (metadata, accuracy, batch)
 - **Gates:** `run_gates.py scoreboard --skip-append-only` → ALL GATES GREEN (ruff,
   format, pyright 0 errors, pytest 104 passed/1 skipped, coverage 87.81% ≥ 80%).
 - **Deviations:**
