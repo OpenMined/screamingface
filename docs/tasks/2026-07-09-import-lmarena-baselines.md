@@ -1,12 +1,12 @@
 ---
 id: OME-322
 linear_url: https://linear.app/openmined/issue/OME-322/sf-28-leaderboard-import-single-model-baselines-from-lmarena
-status: in_review
+status: done
 type: task
 priority: P2
 labels: [Leaderboard, app/scoreboard, autonomous, agentic]
 created: 2026-07-09
-closed:
+closed: 2026-07-10
 ---
 
 Seed each benchmark's "line to beat" from external single-model baselines.
