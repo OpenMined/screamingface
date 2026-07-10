@@ -52,7 +52,7 @@ Filed OME-396 for the actual registry/canonical-id decision; that's out of scope
   `test_schemas.py`, `test_baseline_store.py`, `test_import_baselines.py`, and (only
   the 2 baseline-specific tests, via explicit override, not the shared helper default)
   `test_leaderboard_routes.py`. Also filed OME-396 (Linear, not a repo file).
-- **Commits:** <fill after commit below>
+- **Commits:** 420d081 — fix(scoreboard): restrict baseline source_url to http(s), rename demo fixtures
 - **Gates:** `run_gates.py scoreboard --skip-append-only` → ALL GATES GREEN (ruff,
   format, pyright 0 errors, pytest 109 passed/1 skipped, coverage 87.91% ≥ 80%).
 - **Deviations:** none — matches the plan. Fixture rename in
