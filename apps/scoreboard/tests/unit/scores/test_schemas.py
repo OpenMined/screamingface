@@ -88,7 +88,7 @@ def test_score_submission_rejects_correct_questions_above_total() -> None:
 
 def _valid_baseline_payload() -> dict[str, object]:
     return {
-        "benchmark_id": "hle",
+        "benchmark_id": "demo-benchmark",
         "model_name": "GPT-5.2",
         "accuracy": 0.62,
         "source": "artificial_analysis",
@@ -98,7 +98,7 @@ def _valid_baseline_payload() -> dict[str, object]:
 def test_baseline_import_row_accepts_valid_payload() -> None:
     row = BaselineImportRow.model_validate(_valid_baseline_payload())
 
-    assert row.benchmark_id == "hle"
+    assert row.benchmark_id == "demo-benchmark"
     assert row.model_name == "GPT-5.2"
     assert row.source_url is None
     assert row.metadata is None
@@ -245,6 +245,55 @@ def test_baseline_import_row_rejects_oversized_metadata() -> None:
         assert "bytes" in str(exc)
     else:
         raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_javascript_source_url() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "javascript:alert(1)"
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "http" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_data_uri_source_url() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "data:text/html,<script>alert(1)</script>"
+
+    try:
+        BaselineImportRow.model_validate(payload)
+    except ValidationError as exc:
+        assert "http" in str(exc)
+    else:
+        raise AssertionError("expected validation error")
+
+
+def test_baseline_import_row_rejects_non_url_source_url() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "not a url"
+
+    with pytest.raises(ValidationError):
+        BaselineImportRow.model_validate(payload)
+
+
+def test_baseline_import_row_accepts_https_source_url() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "https://artificialanalysis.ai/evaluations/humanitys-last-exam"
+
+    row = BaselineImportRow.model_validate(payload)
+
+    assert row.source_url == "https://artificialanalysis.ai/evaluations/humanitys-last-exam"
+
+
+def test_baseline_import_row_rejects_oversized_source_url() -> None:
+    payload = _valid_baseline_payload()
+    payload["source_url"] = "https://example.test/" + "x" * 2048
+
+    with pytest.raises(ValidationError):
+        BaselineImportRow.model_validate(payload)
 
 
 def test_baseline_import_row_accepts_metadata_within_bounds() -> None:

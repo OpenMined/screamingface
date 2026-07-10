@@ -202,7 +202,10 @@ class BaselineImportRow(BaseModel):
     # an existing test.
     accuracy: Annotated[float, Field(strict=True, allow_inf_nan=False)]
     source: str
-    source_url: str | None = None
+    # WHY: this is returned through the public API and a future client will likely
+    # render it as a link — restrict to http(s) so a javascript:/data: URI can't
+    # become an XSS vector downstream (found in PR review).
+    source_url: Annotated[str, Field(max_length=2048)] | None = None
     metadata: dict[str, Any] | None = None
 
     @field_validator("benchmark_id", "model_name", "source")
@@ -217,6 +220,13 @@ class BaselineImportRow(BaseModel):
     def validate_accuracy(cls, value: float) -> float:
         if not 0 <= value <= 1:
             raise ValueError("accuracy must be between 0 and 1")
+        return value
+
+    @field_validator("source_url")
+    @classmethod
+    def validate_source_url(cls, value: str | None) -> str | None:
+        if value is not None and not value.startswith(("http://", "https://")):
+            raise ValueError("source_url must start with http:// or https://")
         return value
 
     @field_validator("metadata")
