@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from scoreboard.scores.baseline_store import BaselineStore
+from scoreboard.scores.models import Baseline
 from scoreboard.scores.schemas import BaselineImportRow
 from scoreboard.scores.store import ScoreStore
 
@@ -155,3 +156,25 @@ async def test_import_many_rolls_back_earlier_rows_when_a_later_row_fails(
 
     all_baselines = await store.list_baselines("demo-benchmark")
     assert all_baselines == []
+
+
+async def test_list_baselines_skips_a_row_with_invalid_metadata_instead_of_crashing(
+    tortoise_db: None,
+) -> None:
+    # WHY: simulates a legacy/pre-existing row whose metadata predates the bound
+    # (or bypassed it entirely) — created directly via the model, not through
+    # BaselineImportRow, since that DTO would itself reject this payload.
+    await _register_benchmark()
+    store = BaselineStore()
+    await store.import_baseline(_row(model_name="Good Model", accuracy=0.5))
+    await Baseline.create(
+        benchmark_id="demo-benchmark",
+        model_name="Bad Model",
+        source="artificial_analysis",
+        accuracy=0.9,
+        metadata={"blob": "x" * 10_000},
+    )
+
+    baselines = await store.list_baselines("demo-benchmark")
+
+    assert [baseline.model_name for baseline in baselines] == ["Good Model"]

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import uuid4
+
 import pytest
 from pydantic import ValidationError
 
-from scoreboard.scores.schemas import BaselineImportRow, ScoreSubmission
+from scoreboard.scores.schemas import BaselineImportRow, BaselineSchema, ScoreSubmission
 
 
 def _valid_payload() -> dict[str, object]:
@@ -303,3 +306,44 @@ def test_baseline_import_row_accepts_metadata_within_bounds() -> None:
     row = BaselineImportRow.model_validate(payload)
 
     assert row.metadata == {"published_at": "2026-06-01", "nested": {"note": "ok"}}
+
+
+def _valid_baseline_schema_payload() -> dict[str, object]:
+    return {
+        "id": uuid4(),
+        "benchmark_id": "demo-benchmark",
+        "model_name": "GPT-5.2",
+        "accuracy": 0.62,
+        "source": "artificial_analysis",
+        "source_url": None,
+        "imported_at": datetime(2026, 7, 10, tzinfo=UTC),
+        "metadata": None,
+    }
+
+
+def test_baseline_schema_accepts_metadata_within_bounds() -> None:
+    payload = _valid_baseline_schema_payload()
+    payload["metadata"] = {"published_at": "2026-06-01"}
+
+    schema = BaselineSchema.model_validate(payload)
+
+    assert schema.metadata == {"published_at": "2026-06-01"}
+
+
+def test_baseline_schema_rejects_deeply_nested_metadata() -> None:
+    payload = _valid_baseline_schema_payload()
+    nested: dict[str, object] = {"v": 1}
+    for _ in range(10):
+        nested = {"nest": nested}
+    payload["metadata"] = nested
+
+    with pytest.raises(ValidationError):
+        BaselineSchema.model_validate(payload)
+
+
+def test_baseline_schema_rejects_oversized_metadata() -> None:
+    payload = _valid_baseline_schema_payload()
+    payload["metadata"] = {"blob": "x" * 10_000}
+
+    with pytest.raises(ValidationError):
+        BaselineSchema.model_validate(payload)

@@ -22,6 +22,20 @@ def _metadata_depth(value: object, current: int = 0) -> int:
     return current
 
 
+def _validate_bounded_metadata(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    # WHY: shared by both the import DTO and the read schema — a bad row must never
+    # reach storage in the first place, but bounding the read side too means the
+    # invariant holds regardless of how a row got into the database (found in PR
+    # review: metadata was previously bounded on import only).
+    if value is None:
+        return value
+    if _metadata_depth(value) > _METADATA_MAX_DEPTH:
+        raise ValueError(f"metadata must not be nested past {_METADATA_MAX_DEPTH} levels deep")
+    if len(json.dumps(value)) > _METADATA_MAX_BYTES:
+        raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
+    return value
+
+
 class ClientInfo(BaseModel):
     """Optional client metadata for a score submission."""
 
@@ -184,6 +198,11 @@ class BaselineSchema(BaseModel):
     imported_at: datetime
     metadata: dict[str, Any] | None
 
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return _validate_bounded_metadata(value)
+
 
 class BaselineImportRow(BaseModel):
     """Input DTO for importing a single-model baseline score (e.g. from LMArena /
@@ -232,10 +251,4 @@ class BaselineImportRow(BaseModel):
     @field_validator("metadata")
     @classmethod
     def validate_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
-        if value is None:
-            return value
-        if _metadata_depth(value) > _METADATA_MAX_DEPTH:
-            raise ValueError(f"metadata must not be nested past {_METADATA_MAX_DEPTH} levels deep")
-        if len(json.dumps(value)) > _METADATA_MAX_BYTES:
-            raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
-        return value
+        return _validate_bounded_metadata(value)

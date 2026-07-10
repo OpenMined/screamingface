@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import cast
 
+from pydantic import ValidationError
 from tortoise import BaseDBAsyncClient
 from tortoise.transactions import in_transaction
 
 from .models import Baseline, Benchmark
 from .schemas import BaselineImportRow, BaselineSchema
+
+logger = logging.getLogger(__name__)
 
 
 def _baseline_to_schema(model: Baseline) -> BaselineSchema:
@@ -67,4 +71,14 @@ class BaselineStore:
 
     async def list_baselines(self, benchmark_id: str) -> list[BaselineSchema]:
         rows = await Baseline.filter(benchmark_id=benchmark_id).order_by("-accuracy")
-        return [_baseline_to_schema(baseline) for baseline in rows]
+        # INVARIANT: one row that fails schema validation (e.g. metadata written
+        # before the bound existed, or inserted outside the import path) must not
+        # take down the whole board — skip it, keep serving every valid row
+        # (found in PR review: this used to be an unhandled 500 for everyone).
+        baselines: list[BaselineSchema] = []
+        for baseline in rows:
+            try:
+                baselines.append(_baseline_to_schema(baseline))
+            except ValidationError:
+                logger.warning("skipping baseline %s: failed schema validation", baseline.id)
+        return baselines
