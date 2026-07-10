@@ -21,7 +21,7 @@ from .core.auth.log_filter import (
     install_provisioning_token_redaction,
 )
 from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
-from .core.credential_blob.store import ORMStore
+from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
 from .core.loader import load_plugins
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
@@ -191,12 +191,25 @@ async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONRe
     return JSONResponse(status_code=422, content=jsonable_encoder({"detail": cleaned}))
 
 
+async def _profile_index_conflict(_request: Request, _exc: Exception) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": {
+                "code": "profile_index_conflict",
+                "message": "Profile metadata update conflicted. Try again.",
+            }
+        },
+    )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = Settings()
     _attach_log_filter()
     app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
     app.add_exception_handler(RequestValidationError, _redact_validation_errors)
+    app.add_exception_handler(CredentialBlobMutationConflict, _profile_index_conflict)
     app.state.settings = settings
     if not settings.auth_enabled:
         app.add_middleware(AuthDisabledLocalOnlyMiddleware)
