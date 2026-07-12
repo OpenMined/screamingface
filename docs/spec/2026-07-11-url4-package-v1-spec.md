@@ -7,6 +7,9 @@ ticket: OME-397
 related:
   - https://linear.app/openmined/issue/OME-397/package-and-commit-url4-sdk-v1-under-sdlc
   - docs/plan/2026-07-11-url4-package-v1.md
+  - docs/diagrams/url4-pipeline.svg (parse → compile → execute pipeline)
+  - docs/diagrams/url4-hexagonal-ports-adapters.svg (core, ports & adapters)
+  - docs/diagrams/url4-dag-execution-model.svg (DAG & ensemble runtime)
   - .claude/skills/url4-engine/SKILL.md (execution & telemetry doctrine)
   - packages/url4/tests/spec/ (executable conformance suite — one file per spec area)
 ---
@@ -137,6 +140,10 @@ url4 is a **pipeline of four layers** with a strict, cycle-free internal import 
  result: str                            via the injected IOLayer + process hook
 ```
 
+> **Diagram — the pipeline & its data flow:** `docs/diagrams/url4-pipeline.svg`
+> (`.png` rendered alongside). It carries the same stages, the running example, and the
+> design invariants (the flip, the transport-free import graph, the shared `decode_envelope`).
+
 ### 3.1 The expression-problem flip (a load-bearing design decision)
 
 The two typed layers deliberately invert each other's open/closed axes:
@@ -258,6 +265,11 @@ what lets the executor memoize shared (diamond) nodes by construction.
 
 ## 6. Execution layer (`dag/executor.py`, `dag/node.py`)
 
+> **Diagram — the runtime DAG & ensemble model:** `docs/diagrams/url4-dag-execution-model.svg`
+> traces a concrete fan-out+reduce expression into its node graph (sink `FanoutReduceNode`, the
+> `RelUrlNode` calls, the sub-request codec, the `IOLayer` port and adapter), with the
+> `ExecutionContext` capabilities, the iteration path, and the payload-shape legend.
+
 ### 6.1 The dataflow executor
 
 `Executor.execute(sink)` schedules the graph as a **demand-driven, memoized, structurally
@@ -353,6 +365,11 @@ merely contains commas is rejected by a header heuristic rather than mangled as 
 body is an empty collection (zero rows, success).
 
 ## 8. Hexagonal I/O (`io_layer.py`, `io_static.py`, `io_http.py`, `subrequest.py`)
+
+> **Diagram — core, ports & adapters:** `docs/diagrams/url4-hexagonal-ports-adapters.svg`
+> shows the framework-free core, the driving API port, the driven `IOLayer` port with its
+> optional capability ports and the `process`/`LoweringRegistry` extension ports, and the
+> `StaticIOLayer` / `HttpIOLayer` / custom adapters that implement them.
 
 ### 8.1 The port and its optional capabilities
 

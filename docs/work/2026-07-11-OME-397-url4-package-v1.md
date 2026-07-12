@@ -63,3 +63,19 @@ enters history under the AI SDLC process. **No re-development or rewrite of the 
   package's own suite passes. (3) The new-component coordination contract (CI workflow,
   CODEOWNERS, dependabot, release lane, `sdlc.local.md` stack entry) is intentionally out of
   scope — follow-up. (4) `main` history untouched; nothing pushed.
+
+## Follow-up work (same branch, post-package)
+
+- **Spec upgraded to a real technical spec.** `docs/spec/2026-07-11-url4-package-v1-spec.md`
+  was rewritten from a packaging note into a full as-built technical specification of the url4
+  core (language grammar, parse→compile→execute pipeline, expression-problem flip, lowering &
+  reference-edge model, dataflow executor + concurrency/admission control, execution/iteration
+  semantics, hexagonal IOLayer ports/adapters, sub-request codec, variable/reference model,
+  error model, extensibility, trade-offs). Commit `24d9128`.
+- **Architecture diagrams added** under `docs/diagrams/` (SVG + PNG), referenced from the spec:
+  `url4-pipeline`, `url4-hexagonal-ports-adapters`, `url4-dag-execution-model`. Hand-authored
+  via a scratchpad generator (no diagramming plugin installed); rendered with `rsvg-convert`;
+  visually verified for legibility and no overlaps. Committed with the spec diagram references.
+- No docs gate exists for markdown/SVG (the repo's gates are the Python stack gates); these are
+  docs artifacts verified by review + visual render, not TDD. The url4 code was untouched, so
+  its gates remain green from the package commit.
