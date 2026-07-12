@@ -51,7 +51,8 @@ enters history under the AI SDLC process. **No re-development or rewrite of the 
   No caches/venv/coverage/`.claude` tracked. rsync excludes did the filtering; `git add`
   (gitignore-respected) staged exactly 44 package files — verified against the anchor
   `git ls-tree -r b1277c4 -- packages/url4` + the three known additions.
-- **Commits:** _<sha filled at close>_ — `feat(url4): package v1 SDK`
+- **Commits:** `ffc1c95` — `feat(url4): package v1 SDK` (code + docs); a small docs
+  follow-up records this sha in the ledger.
 - **Gates:** ruff check → All checks passed; ruff format --check → 41 files already formatted;
   pyright → 0 errors, 0 warnings; pytest → **385 passed** in ~0.5s. (`uv sync` from the
   committed `uv.lock` first; lock unchanged afterward.)
