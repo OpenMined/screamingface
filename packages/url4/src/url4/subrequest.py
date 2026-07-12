@@ -1,0 +1,119 @@
+"""The ``?q=(context)!intent`` sub-request wire format — one codec, one owner.
+
+A url4 relative expression ``/path(context)!intent`` is dispatched as a
+localhost fetch of ``/path?[params&]q=(context)!intent`` (there is no separate
+"backend call" primitive — see :mod:`url4.io_layer`). This module is the single
+owner of that encoding: the executable nodes in :mod:`url4.dag.nodes` build
+sub-requests with :func:`encode_subrequest`, and
+:class:`~url4.io_layer.StaticIOLayer` decodes the ``?q=`` payload back with
+:func:`decode_subrequest`. :func:`extract_expression_params` is the spec §3.3.1
+depth-aware query-string splitter a receiving node runs first. Keeping all
+sides here means the wire format has exactly one definition, and the balanced
+paren scan it needs is reused from :mod:`url4._scan` rather than re-derived.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Sequence
+from urllib.parse import unquote, unquote_plus
+
+from url4._scan import balanced_body, split_top_level
+
+# Characters that cannot appear raw inside a context/intent payload:
+#   ( )  would desync the balanced-paren scan that delimits the context;
+#   '    would let the decoder's quote-aware scan skip a structural ')';
+#   %    would be misread as a percent-escape by the decoder;
+#   & #  break query parsing on a real HTTP transport;
+#   space is invalid raw in a URL (spec §7.3: MUST encode as + or %20);
+#   control chars (incl. newline/tab/CR) make httpx reject the URL as invalid.
+# Everything else — ``$``, ordinary punctuation — is left verbatim so the wire
+# form stays human-readable, which is the whole point of url4 URLs.
+_WIRE_UNSAFE = re.compile(r"[()'%&# \x00-\x1f\x7f]")
+
+# Expression-bearing parameters (spec §3.3.1): their values are returned raw so
+# the expression decoder owns the percent-decoding, not the query splitter.
+_EXPRESSION_BEARING = frozenset({"q", "processor"})
+
+
+def _wire_escape(text: str) -> str:
+    """Percent-encode only the characters that would corrupt the wire format."""
+    return _WIRE_UNSAFE.sub(lambda m: f"%{ord(m.group()):02X}", text)
+
+
+def encode_subrequest(
+    path: str, context: str, intent: str | None, params: Sequence[tuple[str, str]] = ()
+) -> str:
+    """Build the ``/path?[params&]q=(context)!intent`` relative sub-request URL.
+
+    ``intent`` of ``None`` omits the ``!`` tail (a context-only sub-request);
+    ``context`` may be empty (``()``), the reducer/processor fan-out shape.
+    ``params`` are protocol parameters emitted before ``q=`` — ``q`` is ALWAYS
+    the last parameter (spec §8 query-string production).
+
+    The context, intent, and param values are wire-escaped (:func:`_wire_escape`)
+    so arbitrary text — a multiline reducer input, an ``&``, a stray ``(`` —
+    round-trips through the URL instead of crashing the fetch or desyncing the
+    paren scan.
+    """
+    query = f"({_wire_escape(context)})"
+    if intent is not None:
+        query += f"!{_wire_escape(intent)}"
+    prefix = "".join(f"{key}={_wire_escape(value)}&" for key, value in params)
+    return f"{path}?{prefix}q={query}"
+
+
+def decode_subrequest(query: str) -> tuple[str, str]:
+    """Decode a ``(context)!intent`` ``?q=`` payload into ``(context, intent)``.
+
+    Inverse of :func:`encode_subrequest`: the structural ``(context)`` and the
+    first ``!`` delimiter are located on the still-escaped text (content parens
+    and quotes are ``%28``/``%29``/``%27`` and cannot interfere), then each part
+    is unescaped.
+
+    A payload without a leading ``(`` is treated as a bare intent (empty
+    context); a payload with no ``!`` tail yields an empty intent. A payload
+    whose structural parens do not balance falls back to the whole (unescaped)
+    payload as context.
+    """
+    text = query.strip()
+    if not text.startswith("("):
+        return "", unquote(text)
+    context = balanced_body(text, 1)
+    if context is None:
+        return unquote(text), ""
+    rest = text[len(context) + 2 :]
+    intent = rest[1:] if rest.startswith("!") else ""
+    return unquote(context), unquote(intent)
+
+
+def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | None]:
+    """Split a full query string into ``(params, raw q value)`` — spec §3.3.1.
+
+    ``&`` separates parameters only at depth 0 outside quotes, so an ``&``
+    inside a nested expression (``q=(https://a?x=1&y=2)!go``) never terminates
+    the expression-bearing value; a depth-0 ``&`` after the ``q`` value does
+    (and what follows is parsed as further params).
+
+    The expression-bearing values (``q``, and ``processor`` inside the params
+    dict) are returned RAW — percent-decoding them is the expression decoder's
+    job (:func:`decode_subrequest`), matching the spec's processing pipeline
+    (§7.4). All other param values are percent-decoded with ``unquote_plus``;
+    a bare valueless segment becomes a flag param with value ``""``.
+    """
+    params: dict[str, str] = {}
+    q: str | None = None
+    for segment in split_top_level(query_string, "&"):
+        if not segment:
+            continue
+        key, sep, value = segment.partition("=")
+        if not sep:
+            params[segment] = ""
+        elif key == "q":
+            q = value
+        else:
+            params[key] = value if key in _EXPRESSION_BEARING else unquote_plus(value)
+    return params, q
+
+
+__all__ = ["decode_subrequest", "encode_subrequest", "extract_expression_params"]

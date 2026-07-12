@@ -1,0 +1,857 @@
+"""The built-in executable node vocabulary.
+
+Each class here is one Strategy: the piece of url4 execution logic it owns,
+behind the uniform :class:`~url4.dag.node.DagNode` interface. Nodes hold their
+*template* data (raw text fragments, paths, directives) and perform their own
+substitution / dispatch / dynamic compilation at ``resolve`` time — this is
+where "the whole expression is not parsed upfront" lives: :class:`LazyExprNode`
+compiles its fragment on demand, :class:`MapNode` re-compiles its body per
+collection row, and :class:`ReduceNode` parses its reducer only when the rows
+exist.
+
+All I/O flows through ``ctx.io`` (the port); every ``$`` substitution
+reuses the pure helpers in :mod:`url4.ensemble`. Reference-edge inputs use the
+``bind:<name>`` / ``pos:<N>`` role convention — :func:`_frame` turns them into
+a :class:`~url4.context.Context` frame chained onto ``ctx.scope``.
+
+Terminal-state additions (spec Part A / §10): :class:`GuardNode` wraps a
+source's subtree with the per-source execution disposition (``;optional``,
+``;t=``, ``;retry=``) and converts a tolerated failure into a
+:class:`~url4.dag.node.SourceFailure` *value*; :class:`ExpandNode` splices a
+collection-valued source into N sibling values (§5.3.12); the group nodes
+(:class:`GatherNode` / :class:`ProcessNode`) skip failures, flatten
+expansions, and enforce ``quorum=N``.
+
+Classes are ``@dataclass(eq=False)``: node identity is object identity, which
+is what lets the executor memoize shared nodes (diamond dependencies) by
+construction.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Literal
+
+from url4._scan import skip_quoted, split_top_level
+from url4.context import Context
+from url4.ensemble import (
+    FanoutResponse,
+    build_reducer_input,
+    substitute_env_vars,
+    substitute_item,
+    substitute_response_vars,
+)
+from url4.errors import CollectionError, ResolutionError, ScopeError, Url4Error
+from url4.grammar import parse as grammar_parse
+from url4.io_layer import FetchRequest, SupportsHoldings, fetch_result, parse_collection
+from url4.nodes import IterationDirectives, Params
+from url4.nodes import RelExpr as AstRelExpr
+from url4.parser import split_intent
+from url4.subrequest import encode_subrequest
+
+from url4.dag.node import (  # isort: skip
+    DagNode,
+    ExecutionContext,
+    Payload,
+    SourceFailure,
+    first_error,
+)
+
+
+def _as_text(value: Payload) -> str:
+    if isinstance(value, SourceFailure):
+        return ""
+    return value if isinstance(value, str) else "\n".join(value)
+
+
+def _frame(inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Context:
+    """Turn ``bind:``/``pos:`` reference-edge inputs into a scope frame.
+
+    A :class:`SourceFailure` dependency contributes no binding — the failed
+    optional source's ``$name`` stays unbound and substitutes verbatim.
+    """
+    bindings: dict[str, str] = {}
+    for role, value in inputs.items():
+        if isinstance(value, SourceFailure):
+            continue
+        if role.startswith("bind:"):
+            bindings[role[5:]] = _as_text(value)
+        elif role.startswith("pos:"):
+            bindings[role[4:]] = _as_text(value)
+    return Context(bindings=bindings, parent=ctx.scope) if bindings else ctx.scope
+
+
+# The current collection row is bound into the spawned scope under this reserved
+# key rather than substituted into the expression text: a row value carrying a
+# stray "(" or "!" would otherwise desync the paren/intent scanners when the row
+# expression is re-compiled. The NUL prefix keeps it out of the $name namespace.
+_ITEM_KEY = "\x00item"
+
+# The default per-MapNode fan-out cap when ``;iteration.concurrency`` is not
+# given. Without a default bound, a collection with no directive spawns one
+# concurrent sub-executor PER ROW (thousands, for a large collection) before any
+# backpressure exists — an accidental-explosion hazard against whatever backend
+# the rows' fetches hit. ``;iteration.concurrency=N`` overrides this; there is
+# currently no "explicitly unbounded" escape hatch — name one if a real use case
+# needs it.
+DEFAULT_MAP_CONCURRENCY = 8
+
+
+def _current_item(scope: Context) -> str | None:
+    """The row bound by an enclosing :class:`MapNode`, or None outside a map."""
+    try:
+        return scope.lookup(_ITEM_KEY)
+    except ScopeError:
+        return None
+
+
+def _substitute(text: str, scope: Context, ctx: ExecutionContext) -> str:
+    """Resolve a leaf's ``$item`` (row) then ``$name``/``$N`` (scope) references.
+
+    ``$item`` is applied first so its ``$$item`` escape still sees the raw
+    template and so a row value is treated as opaque data, not re-scanned for
+    ``$name``. Outside a map (no bound row) this is just
+    :func:`substitute_env_vars`. ``ctx.strict_fields`` selects the spec
+    §5.3.4.1 field-path error mode.
+    """
+    item = _current_item(scope)
+    if item is not None:
+        text = substitute_item(text, item, strict=ctx.strict_fields)
+    return substitute_env_vars(text, scope, strict=ctx.strict_fields)
+
+
+def _maybe_json(text: str):
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return text
+
+
+def _error_payload(exc: BaseException) -> dict:
+    return {"error": {"kind": type(exc).__name__, "message": str(exc) or repr(exc)}}
+
+
+def _wire_params(params: Params) -> list[tuple[str, str]]:
+    """Protocol params for the sub-request codec; a valueless flag emits ``k=``."""
+    return [(key, value if value is not None else "") for key, value in params]
+
+
+@dataclass(eq=False)
+class TextNode:
+    """Inline text / a prompt template: pure ``$`` substitution.
+
+    Quotes are delimiters at the grammar layer (spec §5.1), so the template
+    arrives already unquoted — there is no quote handling here.
+    """
+
+    template: str
+    deps: Mapping[str, DagNode] = field(default_factory=dict)
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        return _substitute(self.template, _frame(inputs, ctx), ctx)
+
+
+@dataclass(eq=False)
+class WebFetchNode:
+    """An absolute-URI fetch through the I/O layer port.
+
+    The scheme classifies the request (spec §3.5): ``url4://`` targets expect
+    URL4 protocol semantics from the adapter, ``http(s)://`` is a raw read,
+    anything else (``s3://``, …) is adapter-defined. ``accept`` carries the
+    per-source ``;accept=`` annotation.
+    """
+
+    url: str
+    accept: str | None = None
+    deps: Mapping[str, DagNode] = field(default_factory=dict)
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        request = FetchRequest(
+            self.url, relative=False, kind=_kind_of(self.url), accept=self.accept
+        )
+        return (await fetch_result(ctx.io, request)).body
+
+
+def _kind_of(url: str) -> Literal["http", "url4", "other"]:
+    if url.startswith("url4://"):
+        return "url4"
+    if url.startswith(("http://", "https://")):
+        return "http"
+    return "other"
+
+
+@dataclass(eq=False)
+class RelUrlNode:
+    """A relative ``/path`` reference resolved against the current node (localhost).
+
+    Both shapes are a single fetch through the port:
+
+    - a bare relative URI ``/api/x`` (``is_expr=False``) → ``fetch("/api/x")``,
+      a plain data read;
+    - a relative *expression* ``/claude(context)!intent`` (``is_expr=True``) →
+      a fetch of the encoded sub-request ``/claude?[params&]q=(context)!intent``,
+      which the local node evaluates. ``name`` / ``weight`` come from the
+      enclosing :class:`~url4.nodes.Source` descriptor and let the ensemble
+      reducer format and weight this source.
+    """
+
+    path: str
+    context: str | None = None
+    is_expr: bool = False
+    name: str | None = None
+    weight: float | None = None
+    params: Params = ()
+    accept: str | None = None
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …} + $refs
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        scope = _frame(inputs, ctx)
+        # The path template may embed dot-path references (/api/$item, spec
+        # §8.2.3 — bare-value embedding), so it substitutes like the context.
+        path = _substitute(self.path, scope, ctx)
+        if not self.is_expr:
+            request = FetchRequest(path, relative=True, kind="relative", accept=self.accept)
+            return (await fetch_result(ctx.io, request)).body
+        # context is raw text on this node, so $item/$name are resolved here; the
+        # intent flows in from its own (already-substituted) leaf node.
+        context = _substitute(self.context or "", scope, ctx)
+        intent = (
+            substitute_env_vars(_as_text(inputs["intent"]), scope, strict=ctx.strict_fields)
+            if "intent" in inputs
+            else None
+        )
+        target = encode_subrequest(path, context, intent, params=_wire_params(self.params))
+        request = FetchRequest(target, relative=True, kind="relative", accept=self.accept)
+        return (await fetch_result(ctx.io, request)).body
+
+
+@dataclass(eq=False)
+class RemoteFetchNode:
+    """A remote expression ``url4://authority/path?[params&]q=(context)!intent``.
+
+    The :class:`RelUrlNode` expression shape addressed to another node: the
+    same canonical sub-request encoding, prefixed with the ``url4://`` scheme
+    and authority so the adapter applies URL4 protocol semantics (spec §3.5 —
+    the transport translation to ``https://`` is the adapter's concern).
+    """
+
+    authority: str
+    path: str
+    context: str | None = None
+    params: Params = ()
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …} + $refs
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        scope = _frame(inputs, ctx)
+        context = _substitute(self.context or "", scope, ctx)
+        intent = (
+            substitute_env_vars(_as_text(inputs["intent"]), scope, strict=ctx.strict_fields)
+            if "intent" in inputs
+            else None
+        )
+        rel = encode_subrequest(self.path, context, intent, params=_wire_params(self.params))
+        request = FetchRequest(f"url4://{self.authority}{rel}", relative=False, kind="url4")
+        return (await fetch_result(ctx.io, request)).body
+
+
+@dataclass(eq=False)
+class HoldingsNode:
+    """``@`` / ``@identity[/collection]`` — the holdings port (spec §5.6).
+
+    Dispatches to the adapter's optional ``fetch_holdings`` capability. An
+    adapter without it has no concept of policy-governed holdings — the spec's
+    non-URL4 source case, a permanent error (§5.6.6).
+    """
+
+    identity: str | None = None
+    collection: str | None = None
+    deps: Mapping[str, DagNode] = field(default_factory=dict)
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        if not isinstance(ctx.io, SupportsHoldings):
+            code = "self_ref_on_non_url4" if self.identity is None else "identity_ref_on_non_url4"
+            ref = "@" if self.identity is None else f"@{self.identity}"
+            raise ResolutionError(
+                f"{ref} requires a URL4-aware adapter (no fetch_holdings port; spec §5.6.6)",
+                code=code,
+                permanent=True,
+            )
+        return await ctx.io.fetch_holdings(self.identity, self.collection)
+
+
+@dataclass(eq=False)
+class StructNode:
+    """An inline ``{key: value, …}`` structured object (spec §5.3.11.3).
+
+    The raw balanced-brace text is decoded at resolve time — after ``$``
+    substitution of its string values — and re-emitted as canonical JSON, so a
+    downstream ``$name.field`` path or RDS consumer sees a real object.
+    """
+
+    raw: str
+    deps: Mapping[str, DagNode] = field(default_factory=dict)
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        scope = _frame(inputs, ctx)
+        return json.dumps(_decode_struct(self.raw, scope, ctx))
+
+
+def _decode_struct(raw: str, scope: Context, ctx: ExecutionContext) -> dict:
+    result: dict[str, object] = {}
+    for fld in split_top_level(raw.strip()[1:-1], ","):
+        key, sep, value = fld.partition(":")
+        if not sep:
+            raise CollectionError(f"malformed struct field {fld!r}", code="malformed_source")
+        result[key.strip()] = _decode_struct_value(value.strip(), scope, ctx)
+    return result
+
+
+def _decode_struct_value(value: str, scope: Context, ctx: ExecutionContext) -> object:
+    if value.startswith("{"):
+        return _decode_struct(value, scope, ctx)
+    if value.startswith("'"):
+        end = skip_quoted(value, 0)
+        if end >= 2 and end == len(value):
+            value = value[1:-1].replace("\\'", "'").replace("\\\\", "\\")
+    return _substitute(value, scope, ctx)
+
+
+@dataclass(eq=False)
+class BindingNode:
+    """``name=value`` / ``name:value`` — a named passthrough other nodes edge to."""
+
+    name: str
+    kind: str
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"value": node}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        return inputs["value"]
+
+
+@dataclass(eq=False)
+class LazyExprNode:
+    """A Virtual Proxy over an unparsed url4 fragment.
+
+    The fragment is compiled and executed only when this node resolves —
+    the mechanism behind distributed / on-demand parsing. Reference-edge
+    inputs become the scope frame the spawned sub-graph sees.
+    """
+
+    text: str
+    deps: Mapping[str, DagNode] = field(default_factory=dict)
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        return await ctx.spawn(self.text, _frame(inputs, ctx))
+
+
+@dataclass(eq=False)
+class GuardNode:
+    """The per-source execution disposition (spec §10.1): retry, timeout, optional.
+
+    ``inner`` is deliberately an *attribute*, not a dependency edge. A
+    dependency's exception propagates through the run's shared TaskGroup and
+    cancels every sibling before this node could catch it — so the guarded
+    subtree executes via ``ctx.execute_node`` on an isolated sub-executor
+    (its own TaskGroup), the same containment boundary ``spawn`` gives lazy
+    fragments. The cost is a separate memo for the subtree; the compiler keeps
+    shared bindings OUT of the subtree (they flow in as this node's reference
+    edges → scope frame), so diamond deps still resolve exactly once.
+
+    Failure handling: a permanent error (``Url4Error.permanent``) never
+    retries; a transient one retries up to ``retries`` extra attempts; a
+    timeout (``;t=``) is transient. A source that still fails is terminal —
+    ``required`` (default) raises, ``optional`` returns a
+    :class:`~url4.dag.node.SourceFailure` value for the group to tolerate.
+    """
+
+    inner: DagNode
+    optional: bool = False
+    timeout: float | None = None
+    retries: int = 0
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # $ref edges only
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        scope = _frame(inputs, ctx)
+        try:
+            return await self._attempt(scope, ctx)
+        except Exception as exc:  # control-flow signals (CancelledError) propagate
+            if not self.optional:
+                raise
+            code = exc.code if isinstance(exc, Url4Error) else "resolution_failed"
+            return SourceFailure(code, str(exc) or type(exc).__name__)
+
+    async def _attempt(self, scope: Context, ctx: ExecutionContext) -> Payload:
+        last: Exception | None = None
+        for _ in range(self.retries + 1):
+            try:
+                return await self._once(scope, ctx)
+            except Url4Error as exc:
+                if exc.permanent:
+                    raise
+                last = exc
+        assert last is not None  # the loop always runs at least once
+        raise last
+
+    async def _once(self, scope: Context, ctx: ExecutionContext) -> Payload:
+        if self.timeout is None:
+            return await ctx.execute_node(self.inner, scope)
+        try:
+            async with asyncio.timeout(self.timeout):
+                return await ctx.execute_node(self.inner, scope)
+        except TimeoutError as exc:
+            raise ResolutionError(
+                f"source timed out after {self.timeout:g}s (;t=)", code="timeout"
+            ) from exc
+
+
+@dataclass(eq=False)
+class ExpandNode:
+    """``*source`` / ``;expand`` — splice a collection into N sources (§5.3.12).
+
+    Resolves the inner value, parses it into elements, and returns them as a
+    ``list[str]`` payload; the enclosing group node flattens the list into
+    consecutive source positions (renumbering ``$N``, §5.3.12.4). A resolved
+    value that is not a collection fails with ``expansion_not_iterable``.
+    """
+
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"inner": node}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        try:
+            return parse_collection(_as_text(inputs["inner"]))
+        except CollectionError as exc:
+            raise CollectionError(
+                f"expansion source is not iterable: {exc}", code="expansion_not_iterable"
+            ) from exc
+
+
+@dataclass(eq=False)
+class BarrierNode:
+    """Pass ``inner`` through after every ``wait:*`` dependency has resolved.
+
+    Used to make a non-substituting intent (a URL fetch) structurally depend
+    on all sources, preserving the reference engine's sources-then-intent
+    resolution order.
+    """
+
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"inner": …, "wait:i": …}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        return inputs["inner"]
+
+
+SlotSpec = tuple[str | None, bool]
+"""One group slot: ``(name, is_binding)``. A named Source has a name but is
+NOT a binding — it stays in the packed sources (contract: Binding vs Source)."""
+
+
+@dataclass
+class _Gathered:
+    """The flattened view of a group's slots after failures and expansion."""
+
+    positional: list[str]  # $N values, renumbered post-expansion
+    named: dict[str, str]  # $name values (bindings AND named sources)
+    sources: list[str]  # the packed non-binding source values, in order
+    resolved: int  # successfully-resolved non-binding source count
+
+
+def _gather(inputs: Mapping[str, Payload], slots: tuple[SlotSpec, ...]) -> _Gathered:
+    """Flatten group slots: skip failures, splice expansions, renumber positions."""
+    g = _Gathered([], {}, [], 0)
+    for i, (name, is_binding) in enumerate(slots):
+        value = inputs[f"src:{i}"]
+        if isinstance(value, SourceFailure):
+            continue
+        if isinstance(value, list):
+            _gather_expanded(g, value, name, is_binding)
+            continue
+        g.positional.append(value)
+        if name is not None:
+            g.named[name] = value
+        if not is_binding:
+            g.sources.append(value)
+            g.resolved += 1
+    return g
+
+
+def _gather_expanded(g: _Gathered, elements: list[str], name: str | None, is_binding: bool) -> None:
+    """Expanded elements each take a position; the name binds the JSON array,
+    so a ``$name[i]`` field path selects one element (spec §5.3.12.5)."""
+    g.positional.extend(elements)
+    if name is not None:
+        g.named[name] = json.dumps([_maybe_json(e) for e in elements])
+    if not is_binding:
+        g.sources.extend(elements)
+        g.resolved += len(elements)
+
+
+def _check_quorum(g: _Gathered, quorum: int | None) -> None:
+    if quorum is not None and g.resolved < quorum:
+        raise ResolutionError(
+            f"quorum not met: {g.resolved} of {quorum} required sources resolved",
+            code="quorum_not_met",
+        )
+
+
+@dataclass(eq=False)
+class GatherNode:
+    """A bare group ``(a, b, c)`` — join the non-binding sources.
+
+    A pure-binding group falls back to joining every slot value. ``quorum``
+    (spec §9.1) gates on the post-expansion resolved-source count.
+    """
+
+    slots: tuple[SlotSpec, ...] = ()
+    quorum: int | None = None
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"src:i": node}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        g = _gather(inputs, self.slots)
+        _check_quorum(g, self.quorum)
+        return "\n".join(g.sources) or "\n".join(g.positional)
+
+
+@dataclass(eq=False)
+class InlineCollectionNode:
+    """An inline parenthesized collection ``(e1, e2, …)`` feeding ``*`` (§5.3.11).
+
+    Each authored element (a scalar, URI, sub-expression, or ``{}`` structured
+    object) is ONE collection element. Unlike :class:`GatherNode` — which
+    newline-joins a bare group into a single text blob for the §5.3.7
+    content-sniffer — this preserves the elements as a real ordered ``list[str]``
+    payload, which the enclosing :class:`MapNode` consumes directly *without*
+    routing back through body sniffing. That distinction is what makes a
+    one-element inline collection iterable at all: a lone scalar joined-to-text
+    is a single line the sniffer rejects as a non-iterable scalar (§5.3.9), and a
+    lone ``{}`` element is rejected as a JSON object (§5.3.7) — both are
+    structurally impossible to represent as one collection element through the
+    text path. Elements keep their serialized shape (a scalar stays scalar text;
+    a ``{}`` element stays canonical JSON, so a per-row ``$item.field`` path
+    resolves). A ``;expand`` element still splices into consecutive positions
+    (§5.3.12); a failed ``;optional`` element contributes no element.
+    """
+
+    slots: tuple[SlotSpec, ...] = ()
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"src:i": node}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        # Every comma-entry's value, in order, post-expansion and post-failure —
+        # the authored element list, NOT a joined blob (contrast GatherNode).
+        return _gather(inputs, self.slots).positional
+
+
+@dataclass(eq=False)
+class ProcessNode:
+    """The ``(sources)!intent`` base case — merge via the ``ctx.process`` hook.
+
+    The scope handed to ``process`` is populated with every slot value (by
+    ``$N`` position — renumbered after expansion, §5.3.12.4 — and by name for
+    bindings and named sources), mirroring the reference engine's
+    fully-resolved list context.
+
+    A *text* intent arrives as ``intent_template`` and substitutes HERE,
+    against the populated post-gather scope — this is what keeps ``$N``
+    references correct after expansion renumbers the positions (a
+    pre-substituted intent node would only ever see pre-expansion slots). A
+    *fetch* intent stays an ``intent`` dependency behind the barrier.
+    """
+
+    slots: tuple[SlotSpec, ...] = ()
+    quorum: int | None = None
+    intent_template: str | None = None
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"src:i": …, ["intent": …]}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        g = _gather(inputs, self.slots)
+        _check_quorum(g, self.quorum)
+        bindings = {str(i + 1): value for i, value in enumerate(g.positional)}
+        bindings.update(g.named)
+        scope = Context(bindings=bindings, parent=ctx.scope)
+        if self.intent_template is not None:
+            intent = _substitute(self.intent_template, scope, ctx)
+        else:
+            intent = _as_text(inputs["intent"])
+        return await ctx.process("\n".join(g.sources), intent, scope)
+
+
+@dataclass(eq=False)
+class MergeNode:
+    """One broadcast application (spec §6.1.2): merge a single source with the intent.
+
+    ``$current`` is bound to this source's resolved data in the scope handed to
+    ``process``. A *text* intent arrives as ``intent_template`` and is
+    substituted here — once per source, with ``current`` in scope — rather than
+    as a shared pre-substituted node; a *fetch* intent stays a shared ``intent``
+    dependency (resolved exactly once) and carries no ``$current``.
+    """
+
+    intent_template: str | None = None
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"source": …, ["intent": …]}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        source = _as_text(inputs["source"])
+        scope = Context(bindings={"current": source}, parent=ctx.scope)
+        if self.intent_template is not None:
+            intent = substitute_env_vars(self.intent_template, scope, strict=ctx.strict_fields)
+        else:
+            intent = _as_text(inputs["intent"]) if "intent" in inputs else ""
+        return await ctx.process(source, intent, scope)
+
+
+@dataclass(eq=False)
+class BroadcastCollectNode:
+    """Assemble per-source broadcast results into the §6.1.4 collection shape.
+
+    A JSON array of ``{"source_position", "source_name", "result"}`` objects,
+    ordered by source position (1-based). A failed optional source's part is
+    omitted — broadcast applies across *resolved* sources (§6.1.3) — while the
+    surviving parts keep their original positions.
+    """
+
+    names: tuple[str | None, ...] = ()
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"part:i": node}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        rows = [
+            {
+                "source_position": i + 1,
+                "source_name": self.names[i] if i < len(self.names) else None,
+                "result": _as_text(inputs[role]),
+            }
+            for i, role in enumerate(self.deps)
+            if not isinstance(inputs[role], SourceFailure)
+        ]
+        return json.dumps(rows)
+
+
+@dataclass(eq=False)
+class JoinNode:
+    """Join ordered parts with a separator; flattens ``list[str]`` payloads."""
+
+    sep: str = "\n"
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"part:i": node}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        parts: list[str] = []
+        for role in self.deps:
+            value = inputs[role]
+            if isinstance(value, SourceFailure):
+                continue
+            parts.extend(value) if isinstance(value, list) else parts.append(value)
+        return self.sep.join(parts)
+
+
+@dataclass(eq=False)
+class CollectNode:
+    """Serialize iteration rows as the protocol-default JSON array (spec §5.3.8).
+
+    A row that is itself a JSON *container* (an object or array — error
+    objects, structured results) is embedded structurally; every other row is
+    a JSON string. Scalar-looking text (``"1"``, ``"true"``) stays a string —
+    a row is prose unless it is visibly structured. Row order is element order
+    — the Map contract already preserves it.
+    """
+
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"rows": MapNode}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        rows = inputs["rows"]
+        rows = rows if isinstance(rows, list) else [_as_text(rows)]
+        return json.dumps([_maybe_json(r) if r[:1] in "[{" else r for r in rows])
+
+
+@dataclass(eq=False)
+class FanoutReduceNode:
+    """Fan-out + reduce: label the parallel relative-expression responses, reduce.
+
+    The N sources (each a relative expression, ``call:i``) resolve in parallel;
+    ``meta[i]`` carries the i-th one's ``(name, weight)`` label. The formatted
+    reducer input (:func:`~url4.ensemble.build_reducer_input`) is then fetched
+    from the configured ``ctx.processor`` route as ``processor?q=()!<input>`` —
+    the reduce step is itself a localhost fetch. A failed optional call is
+    excluded from the reducer input (it is not a resolved response).
+    """
+
+    meta: tuple[tuple[str | None, float | None], ...] = ()
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …, "call:i": …}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        entries = [
+            FanoutResponse(text=_as_text(inputs[f"call:{i}"]), name=name, weight=weight)
+            for i, (name, weight) in enumerate(self.meta)
+            if not isinstance(inputs[f"call:{i}"], SourceFailure)
+        ]
+        instruction = substitute_response_vars(_as_text(inputs.get("intent", "")), entries)
+        reducer_input = build_reducer_input(entries, instruction)
+        target = encode_subrequest(ctx.processor, "", reducer_input)
+        return await ctx.io.fetch(target, relative=True)
+
+
+@dataclass(eq=False)
+class MapNode:
+    """``src*(body)`` — evaluate ``body`` once per collection row (spec §5.3).
+
+    Returns ``list[str]`` (the internal Map→Collect/Reduce contract) so row
+    boundaries survive rows that contain newlines. Each row spawns
+    ``({body})!{intent}`` as an independent sub-graph — per-row parsing happens
+    here, at resolve time. The row value is bound into the spawned scope (not
+    substituted into the expression text), so ``$item`` resolves at the leaves
+    and a row containing ``(``/``!`` can't corrupt the re-parse.
+
+    Spec semantics: an empty collection resolves to zero rows (success,
+    §5.3.9); ``iteration.slice`` selects the half-open element range before
+    evaluation; ``iteration.on_error`` picks the per-row failure policy —
+    ``collect`` (default) embeds error objects, ``skip`` omits failed rows,
+    ``fail`` aborts the whole map on the first error (§5.3.6).
+    """
+
+    body: str
+    intent: str | None = None
+    directives: IterationDirectives = field(default_factory=IterationDirectives)
+    label: str = ""
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"collection": node}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        items = self._items(inputs["collection"])
+        if not items:
+            return []
+        # `concurrency <= 0` (only reachable by constructing the directives
+        # directly — the surface `;iteration.concurrency` syntax rejects n < 1)
+        # means "use the default", not "unbounded": a falsy directive must never
+        # silently disable the bound.
+        concurrency = self.directives.concurrency
+        if concurrency is None or concurrency <= 0:
+            concurrency = DEFAULT_MAP_CONCURRENCY
+        sem = asyncio.Semaphore(concurrency)
+        if self.directives.on_error == "fail":
+            return await self._run_all(items, sem, ctx)
+        rows = [self._row(item, sem, ctx) for item in items]
+        raw = await asyncio.gather(*rows, return_exceptions=True)
+        return self._skip(raw) if self.directives.on_error == "skip" else self._collect(raw, ctx)
+
+    def _items(self, collection: Payload) -> list[str]:
+        # An inline parenthesized collection (§5.3.11) arrives pre-materialized as
+        # a real element list from InlineCollectionNode — used verbatim, one row
+        # per element. A fetched/URI collection arrives as body text parsed by
+        # declared or sniffed content type (§5.3.7).
+        if isinstance(collection, list):
+            items = collection
+        else:
+            items = parse_collection(_as_text(collection))
+        if self.directives.slice is not None:
+            start, end = self.directives.slice
+            items = items[start:end]
+        return items
+
+    async def _run_all(
+        self, items: list[str], sem: asyncio.Semaphore | None, ctx: ExecutionContext
+    ) -> list[str]:
+        # TaskGroup so the first failing row cancels its in-flight siblings.
+        try:
+            async with asyncio.TaskGroup() as tg:
+                tasks = [tg.create_task(self._row(item, sem, ctx)) for item in items]
+        except BaseExceptionGroup as group:
+            error = first_error(group)
+            if error is None:
+                raise
+            raise error from None
+        return [task.result() for task in tasks]
+
+    async def _row(self, item: str, sem: asyncio.Semaphore | None, ctx: ExecutionContext) -> str:
+        # The body is spawned verbatim (with $item still in it) and the row is
+        # bound into scope, so arbitrary row data never enters the re-parse.
+        scope = Context(bindings={_ITEM_KEY: item}, parent=ctx.scope)
+        expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
+        if sem is None:
+            return await ctx.spawn(expr, scope)
+        async with sem:
+            return await ctx.spawn(expr, scope)
+
+    def _skip(self, raw: list) -> list[str]:
+        # skip omits failed elements (spec §5.3.6); control-flow signals
+        # (CancelledError, KeyboardInterrupt — BaseException but not Exception)
+        # are never a row outcome and must propagate.
+        results: list[str] = []
+        for item in raw:
+            if isinstance(item, BaseException) and not isinstance(item, Exception):
+                raise item
+            if not isinstance(item, Exception):
+                results.append(item)
+        return results
+
+    def _collect(self, raw: list, ctx: ExecutionContext) -> list[str]:
+        results: list[str] = []
+        for item in raw:
+            # collect captures per-row *errors* as data; control-flow signals
+            # propagate exactly as in _skip.
+            if isinstance(item, BaseException) and not isinstance(item, Exception):
+                raise item
+            if isinstance(item, Exception):
+                ctx.record_collected_error()
+                results.append(json.dumps(_error_payload(item)))
+            else:
+                results.append(item)
+        return results
+
+
+@dataclass(eq=False)
+class ReduceNode:
+    """``(src*(body))!reducer`` — reduce all rows through the reducer template.
+
+    The reducer is parsed lazily, here at resolve time: a relative-expression
+    reducer (``/reduce(all)``) is fetched with the JSON row array as its intent
+    (``/reduce?q=(all)!<array>``); any other reducer merges via ``ctx.process``
+    with the *raw* reducer text.
+    """
+
+    reducer: str
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"rows": MapNode}
+
+    async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        rows = inputs["rows"]
+        rows = rows if isinstance(rows, list) else [_as_text(rows)]
+        array_json = json.dumps([_maybe_json(r) for r in rows])
+        reducer_src, _, _ = split_intent(self.reducer)
+        node = grammar_parse(reducer_src)
+        if isinstance(node, AstRelExpr):
+            return await self._dispatch(node, array_json, ctx)
+        return await ctx.process(array_json, self.reducer, ctx.scope)
+
+    async def _dispatch(self, expr: AstRelExpr, array_json: str, ctx: ExecutionContext) -> str:
+        context = substitute_env_vars(expr.context or "", ctx.scope, strict=ctx.strict_fields)
+        # array_json is the row data, not a template: pass it through verbatim.
+        # Running $-substitution over it would collapse a row's literal "$$" or
+        # replace a "$1" that happens to match an in-scope binding — corrupting
+        # the very data the reducer is meant to see. encode_subrequest wire-escapes
+        # it, so quotes/newlines survive the URL without any JSON pre-escaping.
+        return await ctx.io.fetch(encode_subrequest(expr.path, context, array_json), relative=True)
+
+
+__all__ = [
+    "DEFAULT_MAP_CONCURRENCY",
+    "BarrierNode",
+    "BindingNode",
+    "BroadcastCollectNode",
+    "CollectNode",
+    "ExpandNode",
+    "FanoutReduceNode",
+    "GatherNode",
+    "GuardNode",
+    "HoldingsNode",
+    "InlineCollectionNode",
+    "JoinNode",
+    "LazyExprNode",
+    "MapNode",
+    "MergeNode",
+    "ProcessNode",
+    "ReduceNode",
+    "RelUrlNode",
+    "RemoteFetchNode",
+    "SlotSpec",
+    "StructNode",
+    "TextNode",
+    "WebFetchNode",
+]

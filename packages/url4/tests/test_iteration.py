@@ -1,0 +1,361 @@
+"""Golden behavior for collection iteration and reduce-over-iteration.
+
+These pin the observable output of every iteration surface form. They were
+written against the pre-DAG engine and carried through the executable-DAG
+refactor unchanged (entry point aside), proving it behavior-preserving.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+from conftest import RecordingIOLayer
+
+from url4.dag import ExecutionContext, run
+from url4.errors import CollectionError
+from url4.io_static import StaticIOLayer
+from url4.parser import build
+
+ROWS = json.dumps([{"q": "2+2"}, {"q": "3+3"}])
+
+
+def _resolver() -> StaticIOLayer:
+    return StaticIOLayer(
+        fetch_map={"https://data": ROWS},
+        routes={
+            "/solve": lambda context, intent: f"A={context}",
+            "/reduce": lambda context, intent: f"REDUCED[intent={intent!r}]",
+            # default processor used by the per-row top-intent fan-out
+            "/claude": lambda context, intent: f"CLAUDE[intent={intent!r}]",
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_iteration_map_returns_json_array() -> None:
+    # Spec §5.3.8 — the protocol-default collection serialization is a JSON array.
+    result = await run("https://data*(/solve($item.q))", _resolver())
+    assert json.loads(result) == ["A=2+2", "A=3+3"]
+
+
+@pytest.mark.asyncio
+async def test_iteration_backend_intent_inside_parens() -> None:
+    # The '!go' binds to the backend call, not the iteration — /solve ignores it.
+    result = await run("https://data*(/solve($item.q)!go)", _resolver())
+    assert json.loads(result) == ["A=2+2", "A=3+3"]
+
+
+@pytest.mark.asyncio
+async def test_iteration_row_with_unbalanced_parens_does_not_crash() -> None:
+    # A row value carrying a stray ')' or '(' must not corrupt the per-row
+    # re-parse: $item is bound into scope as data, never injected into the grammar.
+    io = StaticIOLayer(fetch_map={"https://data": "task done)\nsmile :("})
+    result = await run("https://data*(answer $item)", io)
+    assert json.loads(result) == ["answer task done)", "answer smile :("]
+
+
+@pytest.mark.asyncio
+async def test_iteration_top_level_intent_reduces_each_row() -> None:
+    # A top-level intent AFTER the iteration reduces each 1-element row-group
+    # through the default processor (/claude).
+    result = await run("https://data*(/solve($item.q))!topintent", _resolver())
+    # The reducer input is repr'd by the fake /claude, so its real newlines show
+    # as literal \n; the per-row results assemble into the JSON-array result.
+    assert json.loads(result) == [
+        r"CLAUDE[intent='[Response 1]\nA=2+2\n\n[Instruction]\ntopintent']",
+        r"CLAUDE[intent='[Response 1]\nA=3+3\n\n[Instruction]\ntopintent']",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reduce_over_iteration_via_backend_call() -> None:
+    result = await run("(https://data*(/solve($item.q)))!/reduce(all)", _resolver())
+    assert result == 'REDUCED[intent=\'["A=2+2", "A=3+3"]\']'
+
+
+@pytest.mark.asyncio
+async def test_reduce_passes_row_data_verbatim_without_substitution() -> None:
+    # The row array is data, not a template: a literal "$$" a row produces must
+    # reach the reducer intact, not be collapsed to "$" by env-var substitution
+    # running over the payload.
+    seen: dict[str, str] = {}
+    io = StaticIOLayer(
+        fetch_map={"https://data": json.dumps([{"q": "x"}])},
+        routes={
+            "/solve": lambda context, intent: "cost: $$5",
+            "/reduce": lambda context, intent: seen.setdefault("intent", intent) or "ok",
+        },
+    )
+    await run("(https://data*(/solve($item.q)))!/reduce(all)", io)
+    assert seen["intent"] == '["cost: $$5"]'
+
+
+@pytest.mark.asyncio
+async def test_reduce_over_iteration_via_text_reducer() -> None:
+    expr = "(https://data*(/solve($item.q)))!combine these"
+    result = await run(expr, _resolver())
+    assert result == 'combine these\n\n["A=2+2", "A=3+3"]'
+
+
+@pytest.mark.asyncio
+async def test_reduce_over_iteration_with_per_row_intent() -> None:
+    result = await run("(https://data*(/solve($item.q)!go))!/reduce(all)", _resolver())
+    assert result == 'REDUCED[intent=\'["A=2+2", "A=3+3"]\']'
+
+
+@pytest.mark.asyncio
+async def test_reduce_over_iteration_with_inner_directive() -> None:
+    result = await run(
+        "(https://data*(/solve($item.q));iteration.concurrency=1)!/reduce(all)", _resolver()
+    )
+    assert result == 'REDUCED[intent=\'["A=2+2", "A=3+3"]\']'
+
+
+@pytest.mark.asyncio
+async def test_iteration_with_concurrency_directive() -> None:
+    result = await run("https://data*(/solve($item.q));iteration.concurrency=1", _resolver())
+    assert json.loads(result) == ["A=2+2", "A=3+3"]
+
+
+@pytest.mark.asyncio
+async def test_iteration_on_error_collect_captures_failures() -> None:
+    # `collect` is the default policy (spec §5.3.6). The bad row fails only in
+    # strict field mode (RDS, §5.3.4.1) — lenient mode substitutes "".
+    rows = json.dumps([{"q": "ok"}, {"other": "bad"}])
+    resolver = StaticIOLayer(
+        fetch_map={"https://data": rows},
+        routes={"/solve": lambda context, intent: f"OK:{context}"},
+    )
+    ctx = ExecutionContext(resolver, strict_fields=True)
+    result = await run("https://data*(/solve($item.q)!go)", ctx=ctx)
+    assert "OK:ok" in result
+    assert ctx.collected_errors == 1
+    assert '"error"' in result
+
+
+@pytest.mark.asyncio
+async def test_empty_collection_resolves_to_empty_array() -> None:
+    # Spec §5.3.9 — zero elements is a SUCCESS with an empty result collection.
+    resolver = StaticIOLayer(fetch_map={"https://data": "[]"})
+    assert await run("https://data*(/solve($item.q))", resolver) == "[]"
+
+
+@pytest.mark.asyncio
+async def test_scalar_collection_raises_malformed_source() -> None:
+    # Spec §5.3.9 — a non-iterable collection reference is malformed_source.
+    resolver = StaticIOLayer(fetch_map={"https://data": "one scalar value"})
+    with pytest.raises(CollectionError) as exc_info:
+        await run("https://data*(/solve($item.q))", resolver)
+    assert exc_info.value.code == "malformed_source"
+
+
+@pytest.mark.asyncio
+async def test_directive_after_top_level_intent_is_parsed_not_swallowed() -> None:
+    # Pre-0.2 QUIRK, now fixed per spec §5.3.6: a trailing ';iteration.*' after
+    # the intent is an execution annotation on the iteration, never intent text.
+    result = await run(
+        "https://data*(/solve($item.q))!topintent;iteration.concurrency=1", _resolver()
+    )
+    assert json.loads(result) == [
+        r"CLAUDE[intent='[Response 1]\nA=2+2\n\n[Instruction]\ntopintent']",
+        r"CLAUDE[intent='[Response 1]\nA=3+3\n\n[Instruction]\ntopintent']",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_map_rows_share_one_compile_per_unique_body(monkeypatch) -> None:
+    # Every row of a MapNode spawns the SAME body text (body/intent are node
+    # attributes, constant across rows), so the per-row lowering must compile
+    # it once and reuse the graph for every row — not re-parse per row. A spy on
+    # compile_expression should see the outer expression once and the shared
+    # row body exactly once, regardless of row count.
+    import url4.dag.executor as executor
+
+    calls: list[str] = []
+    real = executor.compile_expression
+
+    def spy(text: str, *, registry=None):  # type: ignore[no-untyped-def]
+        calls.append(text)
+        return real(text, registry=registry)
+
+    monkeypatch.setattr(executor, "compile_expression", spy)
+
+    rows = json.dumps([{"q": f"r{i}"} for i in range(5)])
+    io = StaticIOLayer(
+        fetch_map={"https://data": rows},
+        routes={"/solve": lambda context, intent: f"A={context}"},
+    )
+    result = await run("https://data*(/solve($item.q))", io)
+
+    assert json.loads(result) == [f"A=r{i}" for i in range(5)]  # correctness preserved
+    # One compile for the outer expression + exactly one for the shared row body
+    # (5 rows, but the body text is identical, so it lowers once).
+    assert len(calls) == 2
+    assert calls[0] == "https://data*(/solve($item.q))"
+    assert calls[1] == "(/solve($item.q))"
+
+
+@pytest.mark.asyncio
+async def test_distinct_spawned_bodies_each_compile_once(monkeypatch) -> None:
+    # One run, TWO distinct spawned texts: each row's body (a group) and the
+    # lazy fragment inside it. The compile cache is keyed by text, so each
+    # distinct text lowers exactly once even though 3 rows each spawn both —
+    # proving the memo is text-keyed, not "compile once per run". Without the
+    # cache this would be 1 (outer) + 3 (row body) + 3 (lazy fragment) = 7 calls.
+    import url4.dag.executor as executor
+
+    calls: list[str] = []
+    real = executor.compile_expression
+
+    def spy(text: str, *, registry=None):  # type: ignore[no-untyped-def]
+        calls.append(text)
+        return real(text, registry=registry)
+
+    monkeypatch.setattr(executor, "compile_expression", spy)
+
+    rows = json.dumps([{"k": i} for i in range(3)])
+    io = StaticIOLayer(
+        fetch_map={"https://data": rows, "https://inner": "PAYLOAD"},
+    )
+    result = await run("https://data*((https://inner)!p)", io)
+
+    # Correctness: each row resolves the lazy fragment (fetch + intent "p").
+    assert json.loads(result) == ["p\n\nPAYLOAD"] * 3
+    # Outer once + the two distinct spawn texts once each, despite 3 rows.
+    assert len(calls) == 3
+    assert calls[0] == "https://data*((https://inner)!p)"
+    assert sorted(calls[1:]) == ["((https://inner)!p)", "(https://inner)!p"]
+
+
+@pytest.mark.asyncio
+async def test_acyclic_check_runs_once_per_unique_fragment_not_per_row(monkeypatch) -> None:
+    # Acyclicity is a property of the *graph*, so a compiled fragment is
+    # validated once (on first compile in the spawn closure) and the N rows that
+    # re-execute it skip the redundant O(V+E) DFS in execute. A 5-row map should
+    # call check_acyclic exactly twice: once for the outer graph (top-level
+    # execute, the default non-prevalidated path) + once for the shared row-body
+    # fragment — not 1 + 5 = 6. (The hand-built cycle guard still fires via that
+    # default path — pinned by test_cycle_detected_before_any_resolve.)
+    import url4.dag.executor as executor
+
+    calls: list = []
+    real = executor.check_acyclic
+
+    def spy(root):  # type: ignore[no-untyped-def]
+        calls.append(root)
+        return real(root)
+
+    monkeypatch.setattr(executor, "check_acyclic", spy)
+
+    rows = json.dumps([{"q": f"r{i}"} for i in range(5)])
+    io = StaticIOLayer(
+        fetch_map={"https://data": rows},
+        routes={"/solve": lambda context, intent: f"A={context}"},
+    )
+    result = await run("https://data*(/solve($item.q))", io)
+
+    assert json.loads(result) == [f"A=r{i}" for i in range(5)]  # correctness preserved
+    assert len(calls) == 2  # 1 outer graph + 1 shared row body; was 6 pre-fix
+
+
+@pytest.mark.asyncio
+async def test_iteration_ast_path_matches_text_path() -> None:
+    # F3: the eager parse-tree path (compile_expression → _lower_iteration) and
+    # the lazy text path (_compile_text) must produce identical observable
+    # execution for every src*(body) surface form. test_bare_relexpr_text_path
+    # _matches_ast_path pins parity only for a bare relative expression; this
+    # extends it to the iteration shapes the AST path lowers via _lower_iteration
+    # (otherwise uncovered). Assert on both the resolved string AND the fetch
+    # sequence so a divergence in graph shape that still resolves the same is
+    # still caught (the compiler's own F2 note warns result parity is not
+    # evidence of identical graphs — so check dispatch too).
+    routes = {
+        "/solve": lambda context, intent: f"A={context}",
+        "/reduce": lambda context, intent: f"REDUCED[intent={intent!r}]",
+        "/claude": lambda context, intent: f"CLAUDE[intent={intent!r}]",
+    }
+    cases = [
+        "https://data*(/solve($item.q))",
+        "https://data*(/solve($item.q))!topintent",
+        "(https://data*(/solve($item.q)))!/reduce(all)",
+        "(https://data*(/solve($item.q)!go))!/reduce(all)",
+        "https://data*(/solve($item.q));iteration.concurrency=1",
+    ]
+    for expr in cases:
+        text_io = RecordingIOLayer(fetch_map={"https://data": ROWS}, routes=routes)
+        ast_io = RecordingIOLayer(fetch_map={"https://data": ROWS}, routes=routes)
+        text_result = await run(expr, text_io)  # text path (string)
+        ast_result = await run(build(expr), ast_io)  # AST path (Iteration node)
+        assert text_result == ast_result, f"result diverged for {expr!r}"
+        assert text_io.fetches == ast_io.fetches, f"fetches diverged for {expr!r}"
+
+
+@pytest.mark.asyncio
+async def test_iteration_ast_path_matches_text_path_for_map_only() -> None:
+    # F3: a map-only iteration (no reduce tail) exercises the _lower_iteration
+    # branch that emits a JoinNode wrapping the MapNode — distinct from the
+    # reduce-over-iteration shape (ReduceNode). Pin it in isolation so the AST
+    # path is covered for both iteration outcomes, not just the reduce form.
+    rows = json.dumps([{"q": "1"}, {"q": "2"}, {"q": "3"}])
+    io_kwargs = {
+        "fetch_map": {"https://data": rows},
+        "routes": {"/solve": lambda context, intent: f"A={context}"},
+    }
+    text_io, ast_io = RecordingIOLayer(**io_kwargs), RecordingIOLayer(**io_kwargs)
+    expr = "https://data*(/solve($item.q))"
+    assert await run(expr, text_io) == await run(build(expr), ast_io)
+    assert text_io.fetches == ast_io.fetches
+
+
+# --- inline parenthesized collections (spec §5.3.11) --------------------------
+
+
+@pytest.mark.asyncio
+async def test_inline_collection_single_scalar_element_iterates() -> None:
+    # Spec §5.3.11 — a ONE-element inline collection is a genuine 1-element
+    # collection, not a scalar. It must NOT be joined-to-text and re-sniffed by
+    # the §5.3.7 body parser (which would reject a lone line as a non-iterable
+    # scalar, §5.3.9). Regression: this used to 422 with "resolved to a scalar
+    # value, not an iterable collection".
+    result = await run("('only-one')*()!'Item is $item'", StaticIOLayer())
+    assert json.loads(result) == ["Item is only-one"]
+
+
+@pytest.mark.asyncio
+async def test_inline_collection_single_struct_element_field_access() -> None:
+    # Spec §5.3.11.3 — a lone ``{}`` element keeps its JSON shape, so a per-row
+    # ``$item.field`` path resolves. Joined-to-text this used to be rejected as a
+    # "JSON object is malformed" collection (§5.3.7).
+    result = await run("({outer:{inner:'val'}})*()!'$item.outer.inner'", StaticIOLayer())
+    assert json.loads(result) == ["val"]
+
+
+@pytest.mark.asyncio
+async def test_inline_collection_multi_element_still_iterates() -> None:
+    # Regression guard: the 2+-element inline collection that already worked
+    # (accidentally, via multi-line-plaintext sniffing) still yields one row per
+    # authored element after the fix routes it through InlineCollectionNode.
+    result = await run("('a','b')*()!'Item is $item'", StaticIOLayer())
+    assert json.loads(result) == ["Item is a", "Item is b"]
+
+
+@pytest.mark.asyncio
+async def test_inline_collection_empty_is_zero_rows() -> None:
+    # Spec §5.3.11.4 / §5.3.9 — an empty inline collection iterates to zero rows
+    # (success), not an error. The fix must not disturb this edge.
+    result = await run("()*()!'Item is $item'", StaticIOLayer())
+    assert json.loads(result) == []
+
+
+@pytest.mark.asyncio
+async def test_inline_collection_text_path_matches_ast_path() -> None:
+    # Both compile paths must lower an inline collection identically: the text
+    # path (_collection_dag) and the AST path (_lower_collection) each build an
+    # InlineCollectionNode from the bare group's authored elements.
+    for expr in (
+        "('only-one')*()!'Item is $item'",
+        "({outer:{inner:'val'}})*()!'$item.outer.inner'",
+        "('a','b')*()!'Item is $item'",
+    ):
+        assert await run(expr, StaticIOLayer()) == await run(build(expr), StaticIOLayer())

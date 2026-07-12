@@ -1,0 +1,88 @@
+"""The executable DAG — url4's execution model.
+
+An expression compiles into a directed acyclic graph of typed nodes, each
+owning its own piece of execution logic behind the :class:`DagNode` protocol
+(``deps`` + ``resolve``). The :class:`Executor` schedules the graph as a
+dataflow: one memoized task per node, independent nodes running in parallel.
+Parsing is distributed — nested groups, iteration row bodies, and reducers are
+compiled by their owning node at resolve time, not upfront.
+
+Public surface: :func:`compile_expression` / :class:`Graph` (compiler),
+:func:`run` / :class:`Executor` / :class:`ExecutionContext` (execution), the
+built-in node classes, and :class:`LoweringRegistry` for extension.
+"""
+
+from __future__ import annotations
+
+from url4.dag.compiler import Graph, LoweringRegistry, compile_expression, default_registry
+from url4.dag.executor import Executor, check_acyclic, run
+from url4.dag.node import (
+    DEFAULT_PROCESSOR,
+    DEFAULT_RUN_CONCURRENCY,
+    BoundedIOLayer,
+    DagNode,
+    ExecutionContext,
+    Payload,
+    SourceFailure,
+)
+from url4.dag.nodes import (
+    DEFAULT_MAP_CONCURRENCY,
+    BarrierNode,
+    BindingNode,
+    BroadcastCollectNode,
+    CollectNode,
+    ExpandNode,
+    FanoutReduceNode,
+    GatherNode,
+    GuardNode,
+    HoldingsNode,
+    JoinNode,
+    LazyExprNode,
+    MapNode,
+    MergeNode,
+    ProcessNode,
+    ReduceNode,
+    RelUrlNode,
+    RemoteFetchNode,
+    StructNode,
+    TextNode,
+    WebFetchNode,
+)
+
+__all__ = [
+    "DEFAULT_MAP_CONCURRENCY",
+    "DEFAULT_PROCESSOR",
+    "DEFAULT_RUN_CONCURRENCY",
+    "BarrierNode",
+    "BindingNode",
+    "BoundedIOLayer",
+    "BroadcastCollectNode",
+    "CollectNode",
+    "DagNode",
+    "ExecutionContext",
+    "Executor",
+    "ExpandNode",
+    "FanoutReduceNode",
+    "GatherNode",
+    "Graph",
+    "GuardNode",
+    "HoldingsNode",
+    "JoinNode",
+    "LazyExprNode",
+    "LoweringRegistry",
+    "MapNode",
+    "MergeNode",
+    "Payload",
+    "ProcessNode",
+    "ReduceNode",
+    "RelUrlNode",
+    "RemoteFetchNode",
+    "SourceFailure",
+    "StructNode",
+    "TextNode",
+    "WebFetchNode",
+    "check_acyclic",
+    "compile_expression",
+    "default_registry",
+    "run",
+]
