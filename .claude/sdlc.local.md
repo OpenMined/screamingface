@@ -19,6 +19,15 @@ stacks:
       - uv run ruff format --check
       - uv run pyright
       - uv run pytest --cov=scoreboard --cov-fail-under=80 -q
+  - name: screamingface
+    root: packages/screamingface
+    skill: sdlc-python
+    test_globs: ["tests/**"]
+    gates:
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run pyright
+      - uv run pytest --cov=screamingface --cov-fail-under=80 -q
 commit_refs: "Refs: OME-N"
 extra_anchors: []
 companion_skills:
@@ -43,6 +52,18 @@ ledger_dir: docs/work/
 - INVARIANTS: public artifact allowlist in `src/scoreboard/portal.py` (PUBLIC_ARTIFACTS /
   FORBIDDEN_ARTIFACTS — forbidden routes must stay 404); portal + artifacts stay app-local
   (`portal/`, `artifacts/`).
+
+## screamingface (python, packages/screamingface)
+
+- INVARIANTS (spec 2026-07-13-screamingface-sdk-quickstart-spec.md §4): determinism
+  (same fusion/benchmark/first/seed → identical run; `hash01` is the only randomness);
+  honest lift (marginal P(correct) = accuracy regardless of correlation); judge must be
+  a member (ValueError at construction); keys never escape (in-memory KeyStore, masked,
+  never in url/repr/logs); port purity (core imports no transport/IPython at import time;
+  `import screamingface` works with no extras).
+- All answer generation goes through the `EngineBackend` port (`engine.py`); adapters
+  never leak into the studio surface. The flat `url4://` codec stays isolated in
+  `share.py` (real grammar = OME-408).
 
 ## ledger naming (D8)
 
