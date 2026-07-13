@@ -79,3 +79,11 @@ enters history under the AI SDLC process. **No re-development or rewrite of the 
 - No docs gate exists for markdown/SVG (the repo's gates are the Python stack gates); these are
   docs artifacts verified by review + visual render, not TDD. The url4 code was untouched, so
   its gates remain green from the package commit.
+- **Pre-PR cleanliness scan.** Audited `packages/url4/` for residual/artifact files before
+  opening the PR. Tracked set (`git ls-files`) was already exactly right — no caches, venv, or
+  tooling junk committed. Found and removed one untracked, ungitignored residual artifact —
+  `examples/.ipynb_checkpoints/url4_examples-checkpoint.ipynb` (Jupyter checkpoint) — and added
+  `.ipynb_checkpoints/` to the root `.gitignore` to prevent recurrence repo-wide. Also cleared
+  regenerable local caches (`__pycache__/`, `.pytest_cache/`, `.ruff_cache/`) from the working
+  tree; `.venv/` left in place (active local dev env, already gitignored, not part of the PR
+  diff). No code changes.

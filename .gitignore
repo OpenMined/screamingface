@@ -19,6 +19,9 @@ venv/
 .coverage
 coverage.xml
 
+# Jupyter
+.ipynb_checkpoints/
+
 # Local databases
 *.sqlite3
 *.sqlite3-shm
