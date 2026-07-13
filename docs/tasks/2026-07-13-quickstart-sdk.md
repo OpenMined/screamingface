@@ -1,12 +1,12 @@
 ---
 id: OME-400
 linear_url: https://linear.app/openmined/issue/OME-400/sf-notebook-ship-00-quickstart-the-sdk-surface-it-needs
-status: in_progress
+status: done
 type: feature
 priority: P0
 labels: [py-screamingface]
 created: 2026-07-13
-closed:
+closed: 2026-07-13
 ---
 
 Ship `00_quickstart.ipynb` + the SDK surface it needs: new package `packages/screamingface`
