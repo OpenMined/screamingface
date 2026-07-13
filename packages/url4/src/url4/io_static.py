@@ -15,7 +15,7 @@ from inspect import isawaitable
 
 from url4.errors import ResolutionError
 from url4.io_layer import FetchRequest, FetchResult
-from url4.subrequest import decode_subrequest
+from url4.subrequest import decode_subrequest, extract_expression_params
 
 RouteHandler = Callable[[str, str], str | Awaitable[str]]
 
@@ -50,11 +50,16 @@ class StaticIOLayer:
         self._media_types = dict(media_types or {})
 
     async def fetch(self, target: str, *, relative: bool) -> str:
-        path, sep, query = target.partition("?q=")
+        # Routes accept the full canonical form "/path?[params&]q=…" (spec
+        # §3.1.1) — protocol params before q= are tolerated and ignored by
+        # this test double; the expression alone reaches the handler.
+        path, sep, query = target.partition("?")
         if sep and path in self._routes:
-            context, intent = decode_subrequest(query)
-            result = self._routes[path](context, intent)
-            return await result if isawaitable(result) else result
+            _params, q = extract_expression_params(query)
+            if q is not None:
+                context, intent = decode_subrequest(q)
+                result = self._routes[path](context, intent)
+                return await result if isawaitable(result) else result
         try:
             return self._fetch[target]
         except KeyError:
