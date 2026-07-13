@@ -136,7 +136,7 @@ curl -fsS http://scoreboard.40.76.107.241.nip.io/healthz
 curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/benchmarks
 ```
 
-Submit a smoke score with an idempotency key:
+Submit a smoke score with an idempotency key. If `SCOREBOARD_SUBMISSION_API_KEY` is set, add `-H "Authorization: Bearer <key>"` or this 401s:
 
 ```bash
 curl -fsS -X POST http://scoreboard.40.76.107.241.nip.io/v1/scores \
