@@ -61,12 +61,13 @@ Settings are read from environment variables with the `SCOREBOARD_` prefix.
 | `SCOREBOARD_CORS_ORIGINS` | `["*"]` | JSON list of allowed CORS origins. |
 | `SCOREBOARD_PORTAL_DIR` | app-local `portal/` | Static portal directory. |
 | `SCOREBOARD_PORTAL_ARTIFACTS_DIR` | app-local `artifacts/` | Public JSONL artifact directory. |
+| `SCOREBOARD_SUBMISSION_API_KEY` | unset | Placeholder gate on `POST /v1/scores` (OME-391 / C2). Unset is a no-op; when set, requests must send `Authorization: Bearer <key>`. Stub until OME-326 (real identity) exists — not per-user. |
 
 `SCOREBOARD_CORS_ORIGINS` defaults to `["*"]` because the scaffold has no authenticated routes and never sets cookies. D-SCORE-007 will tighten this once the leaderboard write path lands.
 
 ## Portal And Public Artifacts
 
-The scoreboard service serves the demo portal at `/`. The portal UI, API routes, and public JSONL artifacts are unauthenticated.
+The scoreboard service serves the demo portal at `/`. The portal UI, GET routes, and public JSONL artifacts are always unauthenticated. `POST /v1/scores` is unauthenticated only while `SCOREBOARD_SUBMISSION_API_KEY` is unset.
 
 Public artifact routes are exact-file allowlisted and served as inline `text/plain`:
 

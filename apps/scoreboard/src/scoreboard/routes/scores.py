@@ -1,7 +1,10 @@
 """Public score submission and score lookup routes.
 
-No authentication is required in v1. The verified_by_openmined response field is
-the trust-tier signal for consumers; submitted scores default to unverified.
+Reads are always public. Writes are open by default; setting
+SCOREBOARD_SUBMISSION_API_KEY gates POST /v1/scores behind a shared placeholder key
+(OME-391 / C2) until real per-submitter identity exists (OME-326). The
+verified_by_openmined response field is the trust-tier signal for consumers;
+submitted scores default to unverified regardless of the key.
 """
 
 from __future__ import annotations
@@ -10,9 +13,10 @@ from decimal import Decimal
 from typing import Annotated, Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from tortoise.exceptions import OperationalError
 
+from scoreboard.config import Settings
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
     FieldErrorDetail,
@@ -27,6 +31,26 @@ router = APIRouter(prefix="/v1", tags=["scores"])
 
 ACCURACY_TOLERANCE = Decimal("0.01")
 STORE_UNAVAILABLE_DETAIL = "score store unavailable"
+INVALID_API_KEY_DETAIL = "missing or invalid API key"
+
+
+async def _require_submission_api_key(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    # INVARIANT: SCOREBOARD_SUBMISSION_API_KEY unset means this is a no-op — every
+    # existing deployment/test keeps today's behavior until it's explicitly set
+    # (OME-391 / C2).
+    expected_key = cast(Settings, request.app.state.settings).submission_api_key
+    if expected_key is None:
+        return
+
+    if authorization != f"Bearer {expected_key}":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=INVALID_API_KEY_DETAIL,
+        )
+
 
 SUBMIT_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_200_OK: {
@@ -36,6 +60,10 @@ SUBMIT_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_400_BAD_REQUEST: {
         "model": FieldErrorResponse,
         "description": "Field-specific validation error.",
+    },
+    status.HTTP_401_UNAUTHORIZED: {
+        "model": MessageErrorResponse,
+        "description": "Missing or invalid submission API key.",
     },
     status.HTTP_404_NOT_FOUND: {
         "model": FieldErrorResponse,
@@ -66,6 +94,7 @@ def _field_error_detail(field: str, message: str) -> dict[str, str]:
     response_model=ScoreSchema,
     status_code=status.HTTP_201_CREATED,
     responses=SUBMIT_SCORE_RESPONSES,
+    dependencies=[Depends(_require_submission_api_key)],
 )
 async def submit_score(
     submission: ScoreSubmission,
@@ -73,7 +102,7 @@ async def submit_score(
     response: Response,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> ScoreSchema:
-    """Create a public unauthenticated score submission."""
+    """Create a score submission; gated by SCOREBOARD_SUBMISSION_API_KEY if set."""
 
     submitted_accuracy = Decimal(str(submission.accuracy))
     expected_accuracy = Decimal(submission.correct_questions) / Decimal(submission.total_questions)
