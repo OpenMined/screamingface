@@ -55,9 +55,10 @@ uv run uvicorn aigateway.main:app --port 9105 --reload
 curl -sf http://localhost:9105/healthz
 ```
 
-On first boot, set `AIGATEWAY_ADMIN_PASSWORD` to choose the admin password.
-If it is unset, the gateway generates a 24-character password and logs it once
-as `Bootstrap admin password: ...`.
+On first boot with auth enabled, set `AIGATEWAY_ADMIN_PASSWORD` to choose the
+admin password. The gateway does not generate or log bootstrap passwords; if the
+variable is missing before the initial admin account exists, startup fails with a
+recovery-oriented error.
 
 Authenticated endpoints require a JWT:
 

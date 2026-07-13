@@ -14,11 +14,12 @@ class BaseCredentialBlob(Model):
     service = fields.CharField(max_length=255, index=True)
     account = fields.CharField(max_length=255, index=True)
     value = fields.TextField()
-    # Encoding version stamped at write time (SF-221). Write-time annotation for
-    # future key rotation; decryption keys off the self-describing value prefix,
-    # not this column. Nullable so the migration can ADD COLUMN to an already-
-    # populated table without a backfill; legacy pre-encryption rows carry NULL
-    # ("unknown version") until their next write stamps "v1".
+    # Encoding version stamped at write time (SF-221). The read path uses this
+    # metadata together with the self-describing value prefix to reject corrupt or
+    # wrong-provider blobs before plaintext legacy fallback. Nullable so the
+    # migration can ADD COLUMN to an already-populated table without a backfill;
+    # legacy pre-encryption rows carry NULL ("unknown version") until their next
+    # write stamps "v1".
     #
     # NOTE: the ``default="v1"`` is ORM-side only — Tortoise emits no SQL DEFAULT,
     # so any row created outside ORMStore.write (and every pre-existing row) is
