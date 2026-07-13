@@ -231,7 +231,9 @@ class ScoreStore:
         # whether a submission would dedupe, e.g. to answer 200 vs 201 — reuses the
         # exact same idempotency-key-then-content-hash priority as submit()'s own
         # pre-check, via one hash computation, instead of two separate lookups
-        # (OME-391 / C28).
+        # (OME-391 / C28). NOTE: submit() re-runs this same resolution internally on
+        # a miss — that's intentional (submit() must stand alone for callers that skip
+        # this pre-check), not a bug to "optimize away".
         existing = await self._resolve_existing(idempotency_key, _content_hash(submission))
         return _score_to_schema(existing) if existing is not None else None
 

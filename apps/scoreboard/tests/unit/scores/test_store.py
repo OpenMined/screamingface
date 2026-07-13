@@ -244,6 +244,22 @@ async def test_submit_identical_recipe_ignores_submitted_by_and_client_metadata(
     assert await Score.all().count() == 1
 
 
+async def test_submit_identical_recipe_ignores_version(tortoise_db: None) -> None:
+    # `version` is deliberately excluded from the content hash (see the WHY comment
+    # on _content_hash) — model_copy bypasses the Literal[1] validator so this proves
+    # the exclusion even though the public schema can't yet submit version=2 for real
+    # (OME-391 / C28).
+    store = await _store_with_benchmark()
+    first_submission = _submission(spec_id="spec-version", accuracy=0.65)
+    second_submission = first_submission.model_copy(update={"version": 2})
+
+    first = await store.submit(first_submission)
+    second = await store.submit(second_submission)
+
+    assert second.id == first.id
+    assert await Score.all().count() == 1
+
+
 async def test_submit_identical_recipe_dedupes_across_different_idempotency_keys(
     tortoise_db: None,
 ) -> None:
