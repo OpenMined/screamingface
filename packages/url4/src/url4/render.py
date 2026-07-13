@@ -113,16 +113,18 @@ def _verify(node: Node, text: str) -> None:
 def _render_expression(e: Expression, *, top: bool = False) -> str:
     if e.intent is None and e.broadcast:
         raise RenderError("broadcast (!*) requires an intent")
-    if e.intent is not None and _iteration_decode_hazard(e):
-        # AIDEV-NOTE: the envelope's reduce-over-iteration decode is greedy —
-        # in "(…, A*(b)!'p')!'r'" it takes everything before the first depth-0
-        # '*(' as the collection (spanning commas!) and misdecodes unless that
-        # prefix parses as one descriptored source. Only a FIRST-position,
-        # Source/Binding-wrapped iteration source is provably safe.
+    if top and e.intent is not None and _iteration_decode_hazard(e):
+        # AIDEV-NOTE: the TOP-LEVEL envelope's reduce-over-iteration decode is
+        # greedy — in "(…, A*(b)!'p')!'r'" it takes everything before the first
+        # depth-0 '*(' as the collection (spanning commas!) and misdecodes
+        # unless that prefix parses as one descriptored source. Only a
+        # FIRST-position, Source/Binding-wrapped iteration source is provably
+        # safe. Nested expressions parse via the grammar and are unaffected.
         raise RenderError(
-            "an Iteration source in an intent-bearing group is only representable "
-            "when it is descriptor-wrapped and first — otherwise the text reparses "
-            "as reduce-over-iteration; wrap it as Expression(sources=(iteration,))"
+            "at top level, an Iteration source in an intent-bearing group is only "
+            "representable when it is descriptor-wrapped and first — otherwise the "
+            "text reparses as reduce-over-iteration; wrap it in its own group "
+            "(Expression(sources=(iteration,))) or reorder the sources"
         )
     out = "(" + ", ".join(_render_source(s) for s in e.sources) + ")"
     if e.intent is not None:
