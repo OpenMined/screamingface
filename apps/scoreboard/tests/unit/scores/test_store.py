@@ -210,6 +210,66 @@ async def test_mark_verified_flips_score_flag(tortoise_db: None) -> None:
     assert verified.verified_by_openmined is True
 
 
+async def test_submit_identical_recipe_without_header_returns_existing_score(
+    tortoise_db: None,
+) -> None:
+    store = await _store_with_benchmark()
+
+    first = await store.submit(_submission(spec_id="spec-dup", accuracy=0.42))
+    second = await store.submit(_submission(spec_id="spec-dup", accuracy=0.42))
+
+    assert second.id == first.id
+    assert second.submitted_at == first.submitted_at
+    assert await Score.all().count() == 1
+
+
+async def test_submit_identical_recipe_ignores_submitted_by_and_client_metadata(
+    tortoise_db: None,
+) -> None:
+    store = await _store_with_benchmark()
+    first_submission = _submission(spec_id="spec-attrib", accuracy=0.6)
+    second_submission = first_submission.model_copy(
+        update={
+            "submitted_by": "someone-else",
+            "client": ClientInfo(name="other-client", version="9.9.9", platform="other"),
+            "ran_at_local": datetime(2026, 6, 1, tzinfo=UTC),
+        }
+    )
+
+    first = await store.submit(first_submission)
+    second = await store.submit(second_submission)
+
+    assert second.id == first.id
+    assert second.submitted_by == first.submitted_by
+    assert await Score.all().count() == 1
+
+
+async def test_submit_same_recipe_different_provider_order_is_not_deduped(
+    tortoise_db: None,
+) -> None:
+    store = await _store_with_benchmark()
+
+    first = await store.submit(
+        _submission(spec_id="spec-order", accuracy=0.77, providers=["openai", "gemini"])
+    )
+    second = await store.submit(
+        _submission(spec_id="spec-order", accuracy=0.77, providers=["gemini", "openai"])
+    )
+
+    assert second.id != first.id
+    assert await Score.all().count() == 2
+
+
+async def test_submit_different_accuracy_is_not_deduped(tortoise_db: None) -> None:
+    store = await _store_with_benchmark()
+
+    first = await store.submit(_submission(spec_id="spec-diff", accuracy=0.3))
+    second = await store.submit(_submission(spec_id="spec-diff", accuracy=0.31))
+
+    assert second.id != first.id
+    assert await Score.all().count() == 2
+
+
 async def test_postgres_concurrent_idempotency_submissions_share_winner(
     tortoise_db: None,
 ) -> None:
@@ -225,6 +285,21 @@ async def test_postgres_concurrent_idempotency_submissions_share_winner(
             )
             for index in range(10)
         ),
+    )
+
+    assert len({result.id for result in results}) == 1
+    assert await Score.all().count() == 1
+
+
+async def test_postgres_concurrent_identical_recipe_submissions_share_winner(
+    tortoise_db: None,
+) -> None:
+    if Tortoise.get_connection("default").capabilities.dialect != "postgres":
+        pytest.skip("requires Postgres")
+
+    store = await _store_with_benchmark()
+    results = await asyncio.gather(
+        *(store.submit(_submission(spec_id="spec-race", accuracy=0.66)) for _ in range(10)),
     )
 
     assert len({result.id for result in results}) == 1

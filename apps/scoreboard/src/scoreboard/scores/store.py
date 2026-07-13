@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
@@ -66,7 +68,26 @@ def _submission_to_kwargs(submission: ScoreSubmission) -> dict[str, object]:
         "client_version": submission.client.version if submission.client else None,
         "client_platform": submission.client.platform if submission.client else None,
         "metadata": submission.metadata,
+        "content_hash": _content_hash(submission),
     }
+
+
+def _content_hash(submission: ScoreSubmission) -> str:
+    # WHY: identity is the recipe (what was run + its result), not who ran it or
+    # when — submitted_by/client_*/ran_at_local/metadata are deliberately excluded.
+    # Provider order is kept as submitted (not sorted) since it's part of what
+    # actually happened, not incidental serialization (OME-391 / C28).
+    identity = {
+        "benchmark_id": submission.benchmark_id,
+        "spec_id": submission.spec_id,
+        "url4_expression": submission.url4_expression,
+        "accuracy": submission.accuracy,
+        "total_questions": submission.total_questions,
+        "correct_questions": submission.correct_questions,
+        "ran_with_providers": submission.ran_with_providers,
+    }
+    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
@@ -134,19 +155,35 @@ class ScoreStore:
         rows = await Benchmark.all().order_by("id")
         return [_benchmark_to_schema(benchmark) for benchmark in rows]
 
+    async def _resolve_existing(
+        self,
+        idempotency_key: str | None,
+        content_hash: str,
+    ) -> Score | None:
+        # Shared by the pre-insert check and the post-IntegrityError race handler —
+        # idempotency_key (a fast path keyed to one client's retry) takes priority
+        # when present; content_hash is the unconditional backstop (OME-391 / C28).
+        if idempotency_key is not None:
+            linked = await IdempotencyKey.get_or_none(
+                key=idempotency_key,
+                expires_at__gt=datetime.now(UTC),
+            ).prefetch_related("score")
+            if linked is not None:
+                return linked.score
+
+        return await Score.get_or_none(content_hash=content_hash)
+
     async def submit(
         self,
         submission: ScoreSubmission,
         idempotency_key: str | None = None,
     ) -> ScoreSchema:
         now_ts = datetime.now(UTC)
-        if idempotency_key is not None:
-            existing = await IdempotencyKey.get_or_none(
-                key=idempotency_key,
-                expires_at__gt=now_ts,
-            ).prefetch_related("score")
-            if existing is not None:
-                return _score_to_schema(existing.score)
+        content_hash = _content_hash(submission)
+
+        existing = await self._resolve_existing(idempotency_key, content_hash)
+        if existing is not None:
+            return _score_to_schema(existing)
 
         expires_at = now_ts + IDEMPOTENCY_TTL
         try:
@@ -176,17 +213,18 @@ class ScoreStore:
 
             return _score_to_schema(score)
         except IntegrityError:
-            if idempotency_key is None:
-                raise
-
-            live = await IdempotencyKey.get_or_none(
-                key=idempotency_key,
-                expires_at__gt=datetime.now(UTC),
-            ).prefetch_related("score")
-            if live is not None:
-                return _score_to_schema(live.score)
-
+            # A concurrent request may have won the race on either constraint.
+            existing = await self._resolve_existing(idempotency_key, content_hash)
+            if existing is not None:
+                return _score_to_schema(existing)
             raise
+
+    async def get_by_content_hash(self, submission: ScoreSubmission) -> ScoreSchema | None:
+        # Mirrors get_by_idempotency_key's shape — the route pre-checks this to know
+        # whether to answer 200 (existing) vs 201 (new), same as the idempotency-key
+        # path already does (OME-391 / C28).
+        existing = await Score.get_or_none(content_hash=_content_hash(submission))
+        return _score_to_schema(existing) if existing is not None else None
 
     async def get_by_idempotency_key(self, key: str) -> ScoreSchema | None:
         now_ts = datetime.now(UTC)

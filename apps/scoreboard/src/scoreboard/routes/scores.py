@@ -146,6 +146,11 @@ async def submit_score(
                 response.status_code = status.HTTP_200_OK
                 return existing
 
+        existing_by_recipe = await store.get_by_content_hash(submission)
+        if existing_by_recipe is not None:
+            response.status_code = status.HTTP_200_OK
+            return existing_by_recipe
+
         return await store.submit(submission, idempotency_key=idempotency_key)
     except OperationalError as exc:
         raise HTTPException(
