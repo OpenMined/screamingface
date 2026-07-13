@@ -52,7 +52,7 @@ def _score_to_schema(model: Score) -> ScoreSchema:
     )
 
 
-def _submission_to_kwargs(submission: ScoreSubmission) -> dict[str, object]:
+def _submission_to_kwargs(submission: ScoreSubmission, content_hash: str) -> dict[str, object]:
     return {
         "benchmark_id": submission.benchmark_id,
         "version": submission.version,
@@ -68,7 +68,7 @@ def _submission_to_kwargs(submission: ScoreSubmission) -> dict[str, object]:
         "client_version": submission.client.version if submission.client else None,
         "client_platform": submission.client.platform if submission.client else None,
         "metadata": submission.metadata,
-        "content_hash": _content_hash(submission),
+        "content_hash": content_hash,
     }
 
 
@@ -76,7 +76,10 @@ def _content_hash(submission: ScoreSubmission) -> str:
     # WHY: identity is the recipe (what was run + its result), not who ran it or
     # when — submitted_by/client_*/ran_at_local/metadata are deliberately excluded.
     # Provider order is kept as submitted (not sorted) since it's part of what
-    # actually happened, not incidental serialization (OME-391 / C28).
+    # actually happened, not incidental serialization (OME-391 / C28). `version` is
+    # also excluded — currently a no-op since ScoreSubmission.version is pinned to
+    # Literal[1], but revisit this if a future schema version is ever accepted, since
+    # two payloads differing only in version would otherwise dedupe together.
     identity = {
         "benchmark_id": submission.benchmark_id,
         "spec_id": submission.spec_id,
@@ -200,7 +203,7 @@ class ScoreStore:
 
                 score = await Score.create(
                     using_db=connection,
-                    **_submission_to_kwargs(submission),
+                    **_submission_to_kwargs(submission, content_hash),
                 )
 
                 if idempotency_key is not None:
@@ -219,11 +222,17 @@ class ScoreStore:
                 return _score_to_schema(existing)
             raise
 
-    async def get_by_content_hash(self, submission: ScoreSubmission) -> ScoreSchema | None:
-        # Mirrors get_by_idempotency_key's shape — the route pre-checks this to know
-        # whether to answer 200 (existing) vs 201 (new), same as the idempotency-key
-        # path already does (OME-391 / C28).
-        existing = await Score.get_or_none(content_hash=_content_hash(submission))
+    async def find_existing(
+        self,
+        submission: ScoreSubmission,
+        idempotency_key: str | None = None,
+    ) -> ScoreSchema | None:
+        # Public entry point for a caller (the route) that needs to know up front
+        # whether a submission would dedupe, e.g. to answer 200 vs 201 — reuses the
+        # exact same idempotency-key-then-content-hash priority as submit()'s own
+        # pre-check, via one hash computation, instead of two separate lookups
+        # (OME-391 / C28).
+        existing = await self._resolve_existing(idempotency_key, _content_hash(submission))
         return _score_to_schema(existing) if existing is not None else None
 
     async def get_by_idempotency_key(self, key: str) -> ScoreSchema | None:

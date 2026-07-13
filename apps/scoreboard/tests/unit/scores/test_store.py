@@ -244,6 +244,28 @@ async def test_submit_identical_recipe_ignores_submitted_by_and_client_metadata(
     assert await Score.all().count() == 1
 
 
+async def test_submit_identical_recipe_dedupes_across_different_idempotency_keys(
+    tortoise_db: None,
+) -> None:
+    # The core C28 scenario: two clients each send their own Idempotency-Key for the
+    # same underlying recipe — the header alone would never catch this, only the
+    # content-hash backstop does (OME-391 / C28).
+    store = await _store_with_benchmark()
+
+    first = await store.submit(
+        _submission(spec_id="spec-multi-key", accuracy=0.55),
+        idempotency_key="client-a-key",
+    )
+    second = await store.submit(
+        _submission(spec_id="spec-multi-key", accuracy=0.55),
+        idempotency_key="client-b-key",
+    )
+
+    assert second.id == first.id
+    assert second.submitted_at == first.submitted_at
+    assert await Score.all().count() == 1
+
+
 async def test_submit_same_recipe_different_provider_order_is_not_deduped(
     tortoise_db: None,
 ) -> None:

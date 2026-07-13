@@ -67,15 +67,21 @@ posted on the ticket as blocked on a product decision + a dependency on OME-326
     new migration; verified against a scratch DB seeded with pre-existing rows
     (clean apply, second run is a no-op).
   - `apps/scoreboard/src/scoreboard/scores/store.py` — `_content_hash()`;
-    `get_by_content_hash()`; `ScoreStore._resolve_existing()` (shared helper for the
-    pre-insert check and the `IntegrityError` race handler — added during the
-    complexity-gate pass to bring `submit()` back under `PLR0911`/`PLR0912`).
+    `ScoreStore._resolve_existing()` (shared helper for the pre-insert check and the
+    `IntegrityError` race handler — added during the complexity-gate pass to bring
+    `submit()` back under `PLR0911`/`PLR0912`); `ScoreStore.find_existing()` (public,
+    added during self-review to replace two separate route-level lookups —
+    `get_by_idempotency_key` + a since-removed `get_by_content_hash` — with one call
+    that reuses `_resolve_existing` and computes the content hash once instead of
+    per-lookup); `_submission_to_kwargs()` now takes the already-computed
+    `content_hash` instead of recomputing it a third time on the insert path.
   - `apps/scoreboard/src/scoreboard/routes/scores.py` — route-level pre-check via
-    `get_by_content_hash()` so a dedup hit answers 200, not 201. Deviation from plan:
-    the plan expected no route change; this was required once testing showed the
-    route didn't know `store.submit()` had resolved to an existing row internally.
-  - `apps/scoreboard/tests/unit/scores/test_store.py` — 5 new tests (4 dedup cases +
-    1 Postgres concurrent-race test).
+    `find_existing()` so a dedup hit answers 200, not 201. Deviation from plan: the
+    plan expected no route change; this was required once testing showed the route
+    didn't know `store.submit()` had resolved to an existing row internally.
+  - `apps/scoreboard/tests/unit/scores/test_store.py` — 6 new tests (5 dedup cases,
+    including one added during self-review for sequential different-idempotency-keys
+    same-recipe dedup, + 1 Postgres concurrent-race test).
   - `apps/scoreboard/tests/unit/test_scores_routes.py` — 2 prior tests modified with
     explicit user sign-off (see Deviations).
 - **Commits:** this unit's commit (see `git log` on this file's introducing commit;
@@ -96,3 +102,15 @@ posted on the ticket as blocked on a product decision + a dependency on OME-326
   - `ScoreStore.submit()` initially exceeded `PLR0911`/`PLR0912`; resolved via
     `_resolve_existing()` extraction rather than bumping the threshold, per
     `docs/complexity-baseline.md` convention.
+  - Self-review (3 rounds) after the initial commit found: (1) redundant
+    content-hash computation/lookups across the route pre-check and `submit()`'s own
+    internal pre-check — partially addressed via `find_existing()` and threading the
+    hash through `_submission_to_kwargs`; the remaining route-vs-`submit()` double
+    pre-check on the genuinely-new-submission path was deliberately left as-is rather
+    than changing `submit()`'s return contract to a `(schema, created)` tuple, since
+    that would ripple through ~30 existing call sites for a sub-millisecond gain —
+    disproportionate to the task; (2) added an explicit test for the sequential
+    different-idempotency-keys-same-recipe scenario (the core C28 case) instead of
+    relying on it being implied by the no-header tests; (3) documented (comment only)
+    that `version` is excluded from the hash as currently a no-op since
+    `ScoreSubmission.version` is pinned to `Literal[1]` — revisit if that changes.

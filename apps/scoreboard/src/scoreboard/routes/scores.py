@@ -140,16 +140,10 @@ async def submit_score(
             )
 
         store = cast(ScoreStore, request.app.state.score_store)
-        if idempotency_key is not None:
-            existing = await store.get_by_idempotency_key(idempotency_key)
-            if existing is not None:
-                response.status_code = status.HTTP_200_OK
-                return existing
-
-        existing_by_recipe = await store.get_by_content_hash(submission)
-        if existing_by_recipe is not None:
+        existing = await store.find_existing(submission, idempotency_key=idempotency_key)
+        if existing is not None:
             response.status_code = status.HTTP_200_OK
-            return existing_by_recipe
+            return existing
 
         return await store.submit(submission, idempotency_key=idempotency_key)
     except OperationalError as exc:
