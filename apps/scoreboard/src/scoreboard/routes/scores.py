@@ -9,6 +9,7 @@ submitted scores default to unverified regardless of the key.
 
 from __future__ import annotations
 
+import hmac
 from decimal import Decimal
 from typing import Annotated, Any, cast
 from uuid import UUID
@@ -38,6 +39,13 @@ async def _require_submission_api_key(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> None:
+    # AIDEV-NOTE: this whole function is a TEMPORARY stub (OME-391 / C2), scoped to
+    # be deleted once OME-326 (real per-user identity) ships. It intentionally does
+    # NOT distinguish submitters — one shared key, everyone looks identical to the
+    # server. When OME-326 lands: delete this function, its Depends() wiring below,
+    # submission_api_key off Settings, and swap in real per-request identity that
+    # also populates ScoreSubmission.submitted_by from something verified instead of
+    # self-reported free text.
     # INVARIANT: SCOREBOARD_SUBMISSION_API_KEY unset means this is a no-op — every
     # existing deployment/test keeps today's behavior until it's explicitly set
     # (OME-391 / C2).
@@ -45,7 +53,9 @@ async def _require_submission_api_key(
     if expected_key is None:
         return
 
-    if authorization != f"Bearer {expected_key}":
+    # WHY: compare_digest instead of != to avoid a timing side-channel on the key.
+    presented = authorization or ""
+    if not hmac.compare_digest(presented, f"Bearer {expected_key}"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=INVALID_API_KEY_DETAIL,

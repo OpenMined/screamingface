@@ -274,6 +274,7 @@ async def test_post_score_missing_api_key_header_returns_401(
     response = await gated_score_client.post("/v1/scores", json=_valid_payload())
 
     assert response.status_code == 401
+    assert response.json() == {"detail": "missing or invalid API key"}
 
 
 async def test_post_score_wrong_api_key_returns_401(
@@ -286,6 +287,7 @@ async def test_post_score_wrong_api_key_returns_401(
     )
 
     assert response.status_code == 401
+    assert response.json() == {"detail": "missing or invalid API key"}
 
 
 async def test_get_score_remains_public_when_api_key_configured(
