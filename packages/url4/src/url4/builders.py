@@ -34,7 +34,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from url4.grammar import _IDENT_RE, intent_atom, parse, parse_value
+from url4._annotations import _VALID_ON_ERROR
+from url4.grammar import _IDENT_RE, _STRUCT_KEY_RE, intent_atom, parse, parse_value
 from url4.nodes import (
     Binding,
     Expression,
@@ -61,8 +62,6 @@ SourceLike = str | Node | Mapping[str, object]
 
 ParamsLike = Sequence[tuple[str, object]] | Mapping[str, object]
 """Protocol/execution parameters: ordered pairs or a mapping; None values are flags."""
-
-_VALID_ON_ERROR = ("skip", "fail", "collect")
 
 
 # --- leaf constructors ---------------------------------------------------------
@@ -105,7 +104,9 @@ def _struct_raw(mapping: Mapping[str, object]) -> str:
 
 
 def _struct_field_key(key: object) -> str:
-    if not isinstance(key, str) or not key.replace("_", "").isalnum():
+    # WHY: the grammar's field-key class, not str.isalnum() — Unicode letters
+    # would mint a struct the parser cannot faithfully reparse.
+    if not isinstance(key, str) or not _STRUCT_KEY_RE.fullmatch(key):
         raise ValueError(f"invalid struct field key {key!r} (ALPHA/DIGIT/_ only, spec §8)")
     return key
 

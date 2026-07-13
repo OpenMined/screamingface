@@ -29,6 +29,7 @@ Canonical-form choices (each reparses to the identical AST):
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from math import isfinite
 
@@ -387,8 +388,11 @@ def _raise_seg(seg: object) -> str:
     raise RenderError(f"invalid field-path segment {seg!r}")
 
 
+_IDENTITY_NAME_RE = re.compile(r"\w+")  # the grammar's @(\w+) name production
+
+
 def _render_identity(node: IdentityRef) -> str:
-    if not node.name.replace("_", "").isalnum():
+    if not _IDENTITY_NAME_RE.fullmatch(node.name):
         raise RenderError(f"invalid identity name {node.name!r}")
     if node.collection is None:
         return f"@{node.name}"

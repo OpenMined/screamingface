@@ -87,6 +87,48 @@ def decode_subrequest(query: str) -> tuple[str, str]:
     return unquote(context), unquote(intent)
 
 
+def decode_subrequest_http(query: str) -> tuple[str, str]:
+    """Decode a ``?q=`` payload arriving over HTTP — either wire convention.
+
+    url4's own :func:`encode_subrequest` keeps STRUCTURAL characters raw and
+    escapes only content; standard HTTP clients (httpx, a browser) encode
+    everything. Spec §3.4: a node MUST accept both. A leading ``%28`` can only
+    be an encoded structural ``(`` — the discriminator. For the fully-encoded
+    form, one full decode restores the author's text, and structure is scanned
+    on the decoded form WITHOUT re-unquoting the parts.
+    """
+    if not _fully_encoded(query):
+        return decode_subrequest(query)
+    return _split_decoded(unquote_plus(query))
+
+
+def decode_expression_http(query: str) -> str:
+    """A ``?q=`` payload (either convention) as full expression text.
+
+    The eval-surface counterpart of :func:`decode_subrequest_http`: the whole
+    ``(context)!intent`` (with any trailing ``;`` chain) as one string, ready
+    for the expression parser.
+    """
+    if _fully_encoded(query):
+        return unquote_plus(query)
+    context, intent = decode_subrequest(query)
+    return f"({context})" + (f"!{intent}" if intent else "")
+
+
+def _fully_encoded(query: str) -> bool:
+    return query[:3].lower() == "%28"
+
+
+def _split_decoded(text: str) -> tuple[str, str]:
+    if not text.startswith("("):
+        return "", text
+    context = balanced_body(text, 1)
+    if context is None:
+        return text, ""
+    rest = text[len(context) + 2 :]
+    return context, rest[1:] if rest.startswith("!") else ""
+
+
 def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | None]:
     """Split a full query string into ``(params, raw q value)`` — spec §3.3.1.
 
@@ -116,4 +158,10 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
     return params, q
 
 
-__all__ = ["decode_subrequest", "encode_subrequest", "extract_expression_params"]
+__all__ = [
+    "decode_expression_http",
+    "decode_subrequest",
+    "decode_subrequest_http",
+    "encode_subrequest",
+    "extract_expression_params",
+]

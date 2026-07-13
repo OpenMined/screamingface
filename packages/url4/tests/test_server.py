@@ -209,3 +209,21 @@ async def test_registration_validation(node):
 async def test_serve_requires_uvicorn(node):
     with pytest.raises(RuntimeError, match=r"url4\[server\]"):
         node.serve()
+
+
+async def test_constructor_data_param():
+    n = Url4Node("d", data={"/api/x": "payload"})
+    assert await n.fetch("/api/x", relative=True) == "payload"
+
+
+async def test_dual_wire_conventions_are_codec_owned():
+    # WHY: spec §3.4 — a node MUST accept url4's raw-structural escaping AND a
+    # standard client's full percent-encoding; the codec module owns both.
+    from url4.subrequest import decode_expression_http, decode_subrequest_http
+
+    raw = "(a=https://x)!'go'"
+    encoded = "%28a%3Dhttps%3A%2F%2Fx%29%21%27go%27"
+    assert decode_subrequest_http(raw) == ("a=https://x", "'go'")
+    assert decode_subrequest_http(encoded) == ("a=https://x", "'go'")
+    assert decode_expression_http(raw) == raw
+    assert decode_expression_http(encoded) == raw

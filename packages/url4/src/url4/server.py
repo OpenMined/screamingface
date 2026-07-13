@@ -36,9 +36,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from inspect import isawaitable
-from urllib.parse import unquote_plus
 
-from url4._scan import balanced_body
 from url4.client import Url4Result
 from url4.context import Context
 from url4.dag import DEFAULT_PROCESSOR, DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
@@ -47,8 +45,14 @@ from url4.errors import ResolutionError, Url4Error
 from url4.io_layer import FetchRequest, FetchResult, IOLayer, fetch_result
 from url4.nodes import Node
 from url4.render import render
-from url4.subrequest import decode_subrequest, extract_expression_params
+from url4.subrequest import (
+    decode_expression_http,
+    decode_subrequest_http,
+    extract_expression_params,
+)
 
+# WHY: \w+ matches the grammar's identity-name production (grammar._IDENTITY_RE
+# is r"@(\w+)") — one rule for what counts as a principal name.
 _IDENTITY_NAME_RE = re.compile(r"\w+")
 
 # Transport-level query params a node consumes itself rather than re-attaching
@@ -104,6 +108,7 @@ class Url4Node:
         default_processor: str = DEFAULT_PROCESSOR,
         process: ProcessFn = default_process,
         outbound: IOLayer | None = None,
+        data: Mapping[str, DataProvider] | None = None,
         concurrency: int | None = DEFAULT_RUN_CONCURRENCY,
         strict_fields: bool = False,
     ) -> None:
@@ -119,6 +124,8 @@ class Url4Node:
         self._data: dict[str, DataProvider] = {}
         self._self_holdings: dict[str | None, HoldingsHandler] = {}
         self._identities: dict[str, HoldingsHandler] = {}
+        for path, provider in (data or {}).items():
+            self.data_route(path, provider)
 
     # --- registration ----------------------------------------------------------
 
@@ -223,7 +230,7 @@ class Url4Node:
         )
 
     async def _call_endpoint(self, path: str, q: str, params: Mapping[str, str]) -> str:
-        context, intent = _decode_q(q)
+        context, intent = decode_subrequest_http(q)
         request = Request(path=path, context=context, intent=intent, params=params)
         return await _text(self._endpoints[path](request))
 
@@ -312,48 +319,16 @@ class Url4Node:
 def _reassemble(q: str, params: Mapping[str, str]) -> str:
     """Rebuild the eval-path expression, re-attaching non-transport params.
 
+    The dual-convention decode lives with the wire codec
+    (:func:`url4.subrequest.decode_expression_http` — one owner, spec §3.4).
     ``broadcast`` and friends keep their §9 semantics by riding the trailing
     ``;`` chain the envelope decode reads (a flag param decodes to value "").
     """
-    if _fully_encoded(q):
-        text = unquote_plus(q)
-    else:
-        context, intent = decode_subrequest(q)
-        text = f"({context})" + (f"!{intent}" if intent else "")
+    text = decode_expression_http(q)
     for key, value in params.items():
         if key not in _TRANSPORT_PARAMS:
             text += f";{key}" if value == "" else f";{key}={value}"
     return text
-
-
-def _fully_encoded(q: str) -> bool:
-    """True for a q value whose STRUCTURAL parens were percent-encoded.
-
-    url4's own wire convention keeps structural characters raw and escapes
-    only content (``encode_subrequest``); standard HTTP clients (httpx, a
-    browser) encode everything. Spec §3.4: a node MUST accept both. A leading
-    ``%28`` can only be an encoded structural ``(`` — the discriminator.
-    """
-    return q[:3].lower() == "%28"
-
-
-def _decode_q(q: str) -> tuple[str, str]:
-    """Decode an endpoint call's ``q=`` under either encoding convention."""
-    if not _fully_encoded(q):
-        return decode_subrequest(q)
-    # one full decode restores the author's text; structure is then scanned
-    # on the decoded form WITHOUT re-unquoting
-    return _split_decoded(unquote_plus(q))
-
-
-def _split_decoded(text: str) -> tuple[str, str]:
-    if not text.startswith("("):
-        return "", text
-    body = balanced_body(text, 1)
-    if body is None:
-        return text, ""
-    rest = text[len(body) + 2 :]
-    return body, rest[1:] if rest.startswith("!") else ""
 
 
 async def _text(result: str | Awaitable[str]) -> str:

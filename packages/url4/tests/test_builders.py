@@ -69,7 +69,8 @@ def test_struct_builder():
 
 @pytest.mark.parametrize(
     "mapping",
-    [{"bad key": 1}, {"k": None}, {"k": [1, 2]}, {"k": True}],
+    # "café" is str.isalnum()-true but outside the grammar's [A-Za-z0-9_] class
+    [{"bad key": 1}, {"café": 1}, {"k": None}, {"k": [1, 2]}, {"k": True}],
 )
 def test_struct_rejects_uncarriable(mapping):
     with pytest.raises((ValueError, TypeError)):

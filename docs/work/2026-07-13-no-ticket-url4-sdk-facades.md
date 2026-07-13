@@ -1,9 +1,9 @@
 ---
 ticket: none (Linear filing explicitly waived by owner this session — "skip the linear task step")
 stack: pkg/url4 (not yet registered in .claude/sdlc.local.md — card gap; gates run manually)
-status: in_progress
+status: done
 started: 2026-07-13
-finished:
+finished: 2026-07-13
 ---
 
 # url4 SDK facades — renderer, builders, client, node
@@ -62,9 +62,37 @@ endpoints + holdings with in-process/ASGI serving):
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, with two renames/additions: the node SDK landed as
+  `src/url4/server.py` (not `node.py` — avoids the `nodes.py`/`dag/node.py` name pileup)
+  and the review relocated the dual-wire-convention decode into `subrequest.py`
+  (`decode_subrequest_http` / `decode_expression_http`). Also touched (small, additive):
+  `io_static.py` (routes accept canonical `?params&q=` forms), `grammar.py`
+  (`parse_value`), `errors.py` (`RenderError`), `pyproject.toml` (`server` extra),
+  `tests/test_public_api.py` (extra).
+- **Commits:** d06c983 chore(url4): snapshot in-progress v0.2 working tree ·
+  a7fb9ef feat(url4): expression renderer · a02844a feat(url4): builder facade ·
+  e3e5177 feat(url4): client facade + StaticIOLayer canonical routes ·
+  9233022 feat(url4): node SDK + ASGI shim · e2bd242 feat(url4): package exports ·
+  (+ final commit: design-review fixes + docs)
+- **Gates:** `uv run ruff check` ✓ · `ruff format --check` ✓ · `pyright` 0 errors ·
+  `pytest` 585 passed (385 baseline, all green and unmodified; 200 new). Baseline venv
+  had stale shebangs from a moved checkout — rebuilt before starting.
+- **Design review:** design-reviewer verdict ACCEPT-WITH-FIXES, zero structural
+  findings; applied F1 (wire decode moved to its single-owner codec module),
+  F2/F3 (grammar `_STRUCT_KEY_RE` + `_annotations._VALID_ON_ERROR` reused), F4
+  (`Url4Node(data=…)` restored), F8 (one identity-name rule); F5 resolved by amending
+  the spec (`elements` raises ValueError), F6 spec corrected (quorum IS enforced).
 - **Deviations:** Linear ticket + docs/tasks mirror waived by owner; url4 stack missing
-  from sdlc card (gates run manually); working tree carried pre-existing uncommitted
-  v0.2 WIP — only files this unit touches are committed.
+  from sdlc card (gates run manually — card should gain a url4 entry); pre-existing
+  uncommitted v0.2 WIP committed as its own base snapshot so every commit is a
+  self-consistent checkout; `render.py` (633 lines) exceeds the skill's ≤450 guidance
+  but matches package norms (grammar.py 739, dag/nodes.py 857).
+- **Engine findings for the grammar owner (Kevin):** (1) top-level `/p(c)!'i'` /
+  `url4://…(c)!'i'` HOISTS the intent to expression level — spec §3.1.1 reads as
+  whole-expression-remote; (2) the envelope's reduce-over-iteration decode is greedy:
+  `(…, A*(b)!'p')!'r'` swallows sibling sources into the collection prefix (silent
+  data loss on some shapes) — consider requiring double parens for expression
+  collections; (3) spec §5.3.1's direct `(expr)!'Clean'*(…)` form does not parse —
+  engine needs `((expr)!'Clean')*(…)`; (4) unnamed structured weights and unnamed
+  budget-first descriptors are parser-unreachable (sugar/value-shape capture) —
+  worth a spec note.

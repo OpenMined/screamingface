@@ -104,8 +104,9 @@ weight scalar ≥ 0 or struct dict; budget keys ≠ `weight`/`src`.
 class Url4Result:
     text: str          # result body (== str(result))
     request: str       # the canonical expression that ran — the audit artifact
-    # .data  → json.loads(text) (ValueError → Url4Error-free, raises ValueError)
-    # .elements → .data as list (iterate/broadcast results), TypeError otherwise
+    # .data  → json.loads(text); raises ValueError for non-JSON bodies
+    # .elements → .data as list (iterate/broadcast results); raises ValueError
+    #   otherwise (right type, wrong payload — Python's ValueError convention)
 
 class Client:
     def __init__(self, io=None, *, node=None, path="/v1",
@@ -132,8 +133,9 @@ class Client:
 - **No module-level `url4.query()`**: a module-global async client binds to an event
   loop (footgun). The `screamingface` app layer may add that sugar with its own
   lifecycle. (Deviation from the mockup, deliberate.)
-- Quorum/triggers/fmt are carried as protocol params (parser preserves them) but not
-  yet enforced by the executor — documented as Part C follow-up.
+- Protocol params (quorum/triggers/fmt/…) are carried on the expression; the executor
+  already ENFORCES `quorum` (verified — `dag/compiler.py` `_quorum_of`); triggers/fmt
+  remain carried-but-unenforced Part C follow-ups.
 
 ## G4 — `url4/server.py` (named to avoid `url4/nodes.py`/`url4/dag/node.py` collision)
 
