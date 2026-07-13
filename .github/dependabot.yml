@@ -23,6 +23,15 @@ updates:
       scoreboard-python:
         patterns: ["*"]
 
+  - package-ecosystem: "uv"
+    directory: "/packages/screamingface"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      screamingface-python:
+        patterns: ["*"]
+
   # Keep GitHub Actions pinned-version bumps current too (low volume).
   - package-ecosystem: "github-actions"
     directory: "/"

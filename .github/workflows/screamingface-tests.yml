@@ -1,0 +1,72 @@
+name: screamingface SDK Tests
+
+on:
+  push:
+    paths:
+      - "packages/screamingface/**"
+      - ".github/workflows/screamingface-tests.yml"
+  pull_request:
+    paths:
+      - "packages/screamingface/**"
+      - ".github/workflows/screamingface-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/screamingface
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v8.1.0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint (ruff check)
+        run: uv run ruff check --output-format=github
+
+      - name: Lint (ruff format)
+        run: uv run ruff format --check
+
+      - name: Typecheck
+        run: uv run pyright
+
+      - name: Run tests with coverage
+        run: |
+          uv run pytest \
+            --tb=short \
+            --junitxml=results.xml \
+            --cov=screamingface \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            -v
+
+      - name: Test report
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: screamingface Test Results
+          path: packages/screamingface/results.xml
+          reporter: java-junit
+
+      - name: Coverage report
+        uses: orgoro/coverage@v3.2
+        if: always() && github.event_name == 'pull_request'
+        with:
+          coverageFile: packages/screamingface/coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.80
