@@ -13,7 +13,7 @@ IDS = ["anthropic/claude-opus-4.8", "google/gemini-2.5-pro", "openai/gpt-5"]
 
 
 @pytest.fixture(scope="module")
-def run() -> "sf.Run":
+def run() -> sf.Run:
     fusion = sf.Fusion("fusion", models=IDS, reduce="majority_vote", judge=IDS[0])
     return fusion.evaluate("gpqa", first=20, seed=0)
 

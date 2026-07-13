@@ -49,8 +49,10 @@ class TestList:
         assert ids == sorted(
             ids,
             key=lambda i: getattr(
-                sf.models.get(i), {"price": "price", "context": "ctx",
-                                   "ability": "ability", "name": "name"}[sort_key]
+                sf.models.get(i),
+                {"price": "price", "context": "ctx", "ability": "ability", "name": "name"}[
+                    sort_key
+                ],
             ),
             reverse=sort_key in ("ability", "context"),  # WHY: desc defaults for these
         )
@@ -70,8 +72,10 @@ class TestGet:
 
     def test_get_accepts_owner_prefixed_id(self):
         # WHY: owner/provider/model is the federation seam; local owner is implied.
-        assert sf.models.get("local/anthropic/claude-opus-4.8").id == \
-            sf.models.get("anthropic/claude-opus-4.8").id
+        assert (
+            sf.models.get("local/anthropic/claude-opus-4.8").id
+            == sf.models.get("anthropic/claude-opus-4.8").id
+        )
 
     def test_get_unknown_raises_keyerror_with_hint(self):
         with pytest.raises(KeyError, match="models.list"):

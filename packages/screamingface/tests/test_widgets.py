@@ -16,7 +16,7 @@ from screamingface.widgets import MockHandle, setup_panel
 
 
 def test_mock_widgets_toggle_is_available():
-    sf.mock_widgets(True)   # the notebook's first line — must be a no-op-safe toggle
+    sf.mock_widgets(True)  # the notebook's first line — must be a no-op-safe toggle
     sf.mock_widgets(False)
     sf.mock_widgets(True)
 
@@ -25,7 +25,7 @@ class TestSetupPanel:
     def test_renders_self_contained_html(self):
         handle = setup_panel()
         html = handle._repr_html_()
-        assert "<style>" in html            # self-contained: styles inline
+        assert "<style>" in html  # self-contained: styles inline
         assert "Connect a provider" in html
         assert "Anthropic" in html and "OpenAI" in html
 
@@ -38,7 +38,7 @@ class TestSetupPanel:
         sf.session.connect("anthropic", api_key="sk-visible-never-9876")
         html = setup_panel()._repr_html_()
         assert "sk-visible-never" not in html
-        assert "9876" in html               # the mask's tail is fine
+        assert "9876" in html  # the mask's tail is fine
 
     def test_handle_is_mock_in_v01(self):
         assert isinstance(setup_panel(), MockHandle)

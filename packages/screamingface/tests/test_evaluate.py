@@ -16,7 +16,7 @@ from screamingface.engine import SimulatedBackend
 IDS = ["anthropic/claude-opus-4.8", "google/gemini-2.5-pro", "openai/gpt-5"]
 
 
-def _fusion() -> "sf.Fusion":
+def _fusion() -> sf.Fusion:
     return sf.Fusion("fusion", models=IDS, reduce="majority_vote", judge=IDS[0])
 
 
@@ -24,8 +24,12 @@ class TestDeterminism:
     def test_same_seed_same_run(self):
         r1 = _fusion().evaluate("gpqa", first=20, seed=0)
         r2 = _fusion().evaluate("gpqa", first=20, seed=0)
-        assert (r1.score, r1.baseline, r1.gain, r1.cost) == \
-            (r2.score, r2.baseline, r2.gain, r2.cost)
+        assert (r1.score, r1.baseline, r1.gain, r1.cost) == (
+            r2.score,
+            r2.baseline,
+            r2.gain,
+            r2.cost,
+        )
 
     def test_different_seed_differs_somewhere(self):
         # WHY: not every metric must move, but two seeds over 20 GPQA questions

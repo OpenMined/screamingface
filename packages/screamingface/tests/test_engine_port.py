@@ -6,8 +6,6 @@ plugs in — the SimulatedBackend must be swappable for any conforming adapter.
 
 from __future__ import annotations
 
-import pytest
-
 from screamingface.catalog import BENCHMARKS
 from screamingface.datasets import load_benchmark
 from screamingface.engine import Answer, EngineBackend, SimulatedBackend, hash01
@@ -61,11 +59,14 @@ class TestAccuracyModel:
                 assert 0.02 <= acc <= 0.98
 
     def test_stronger_model_scores_higher_on_average(self):
-        # WHY: ability must actually drive the simulation — an-1 (38.4) vs hf-2 (14.5).
+        # WHY: ability must drive the simulation — an-1 (38.4) vs hf-2 (14.5).
+        # The invariant is about EXPECTATION, so aggregate over many seeds: any
+        # single seed over 20 questions can be a (deterministic) unlucky streak.
         bench = load_benchmark("gpqa", n=200, seed=0)
         backend = SimulatedBackend()
-        totals = {}
-        for mid in ("an-1", "hf-2"):
+        totals = {"an-1": 0, "hf-2": 0}
+        for mid in totals:
             m = get_model(mid)
-            totals[mid] = sum(backend.answer(m, q, bench.spec, 0).correct for q in bench)
+            for seed in range(25):
+                totals[mid] += sum(backend.answer(m, q, bench.spec, seed).correct for q in bench)
         assert totals["an-1"] > totals["hf-2"]

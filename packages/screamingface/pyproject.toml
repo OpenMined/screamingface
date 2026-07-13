@@ -19,6 +19,11 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]
 
+# wv.py's CSS is single-purpose data (a minified stylesheet string), not logic —
+# wrapping it to 100 cols would only hurt diffability against the source .css.
+[tool.ruff.lint.per-file-ignores]
+"src/screamingface/wv.py" = ["E501"]
+
 [tool.ruff.lint.mccabe]
 max-complexity = 8
 

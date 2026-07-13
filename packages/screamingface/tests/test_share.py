@@ -11,8 +11,7 @@ from screamingface.share import to_url4
 
 
 def test_emits_flat_recipe_with_short_ids():
-    core = (FusionCore("my-fusion").add("an-1").add("dm-1")
-            .reduce("majority_vote", judge="an-1"))
+    core = FusionCore("my-fusion").add("an-1").add("dm-1").reduce("majority_vote", judge="an-1")
     assert to_url4(core) == (
         "url4://my-fusion?models=an-1+dm-1&reduce=majority_vote&loop=parallel&judge=an-1"
     )

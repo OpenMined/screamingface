@@ -15,8 +15,14 @@ from screamingface.reduce import reduce_answers
 
 def _answer(choice: str) -> Answer:
     return Answer(
-        choice=choice, text=choice, correct=False, reasoning="",
-        latency_ms=0, tokens_in=0, tokens_out=0, cost=0.0,
+        choice=choice,
+        text=choice,
+        correct=False,
+        reasoning="",
+        latency_ms=0,
+        tokens_in=0,
+        tokens_out=0,
+        cost=0.0,
     )
 
 
@@ -36,24 +42,30 @@ M3 = ["an-1", "dm-1", "oa-1"]
 class TestMajorityVote:
     def test_majority_wins(self):
         core = _core(M3)
-        choice, note = reduce_answers(core, [_answer("A"), _answer("A"), _answer("B")],
-                                      core.normalized_weights())
+        choice, note = reduce_answers(
+            core, [_answer("A"), _answer("A"), _answer("B")], core.normalized_weights()
+        )
         assert choice == "A"
         assert "majority" in note
 
     def test_tie_prefers_judge_answer(self):
+        # WHY: the judge doesn't vote, but when the VOTERS tie it breaks the tie
+        # toward its own answer. Voters dm-1 (A) and oa-1 (C) tie; judge an-1
+        # also says A → A wins. Without judge preference the tie-break would be
+        # best-ability voter oa-1 (37.2 > 35.6) → C, so this pins the contract.
         core = _core(M3, judge="an-1")
-        # judge (an-1) says B; dm-1 says A; oa-1 abstains into C → 3-way tie
-        choice, _ = reduce_answers(core, [_answer("B"), _answer("A"), _answer("C")],
-                                   core.normalized_weights())
-        assert choice == "B"
+        choice, _ = reduce_answers(
+            core, [_answer("A"), _answer("A"), _answer("C")], core.normalized_weights()
+        )
+        assert choice == "A"
 
 
 class TestWeightedAvg:
     def test_heavier_weight_wins(self):
         core = _core(M3, strategy="weighted_avg", weights=[0.8, 0.1, 0.1])
-        choice, _ = reduce_answers(core, [_answer("B"), _answer("A"), _answer("A")],
-                                   core.normalized_weights())
+        choice, _ = reduce_answers(
+            core, [_answer("B"), _answer("A"), _answer("A")], core.normalized_weights()
+        )
         # 0.8 for B beats 0.2 combined for A
         assert choice == "B"
 
@@ -62,16 +74,18 @@ class TestBestOfN:
     def test_picks_highest_ability_member(self):
         core = _core(M3, strategy="best_of_n")
         # an-1 has the highest ability in the catalog → its answer wins
-        choice, _ = reduce_answers(core, [_answer("C"), _answer("A"), _answer("A")],
-                                   core.normalized_weights())
+        choice, _ = reduce_answers(
+            core, [_answer("C"), _answer("A"), _answer("A")], core.normalized_weights()
+        )
         assert choice == "C"
 
 
 class TestMerge:
     def test_merge_reduces_to_consensus(self):
         core = _core(M3, strategy="merge")
-        choice, _ = reduce_answers(core, [_answer("A"), _answer("A"), _answer("B")],
-                                   core.normalized_weights())
+        choice, _ = reduce_answers(
+            core, [_answer("A"), _answer("A"), _answer("B")], core.normalized_weights()
+        )
         assert choice == "A"
 
 

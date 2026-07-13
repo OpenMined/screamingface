@@ -1,0 +1,242 @@
+[
+ {
+  "kind": "mcq",
+  "subject": "physics",
+  "q": "A gas occupies 2.0 L at 300 K. At constant pressure, what is its volume at 450 K?",
+  "options": [
+   "1.3 L",
+   "3.0 L",
+   "4.5 L",
+   "2.0 L"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "physics",
+  "q": "Which particle mediates the electromagnetic force?",
+  "options": [
+   "Gluon",
+   "Photon",
+   "W boson",
+   "Graviton"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "chemistry",
+  "q": "What is the hybridization of the carbon atoms in benzene?",
+  "options": [
+   "sp",
+   "sp2",
+   "sp3",
+   "sp3d"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "biology",
+  "q": "During which phase of the cell cycle is DNA replicated?",
+  "options": [
+   "G1",
+   "S",
+   "G2",
+   "M"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "physics",
+  "q": "A photon has wavelength 500 nm. Roughly what is its energy?",
+  "options": [
+   "2.5 eV",
+   "0.025 eV",
+   "250 eV",
+   "25 keV"
+  ],
+  "answer": 0
+ },
+ {
+  "kind": "mcq",
+  "subject": "chemistry",
+  "q": "Which quantity is conserved in an adiabatic free expansion of an ideal gas?",
+  "options": [
+   "Temperature",
+   "Pressure",
+   "Internal energy",
+   "Volume"
+  ],
+  "answer": 2
+ },
+ {
+  "kind": "mcq",
+  "subject": "biology",
+  "q": "Which organelle is the primary site of ATP synthesis in eukaryotes?",
+  "options": [
+   "Ribosome",
+   "Mitochondrion",
+   "Golgi apparatus",
+   "Lysosome"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "physics",
+  "q": "Two resistors of 4 ohm and 4 ohm are connected in parallel. What is the equivalent resistance?",
+  "options": [
+   "8 ohm",
+   "4 ohm",
+   "2 ohm",
+   "1 ohm"
+  ],
+  "answer": 2
+ },
+ {
+  "kind": "mcq",
+  "subject": "chemistry",
+  "q": "What is the oxidation state of sulfur in sulfate, SO4^2-?",
+  "options": [
+   "+2",
+   "+4",
+   "+6",
+   "-2"
+  ],
+  "answer": 2
+ },
+ {
+  "kind": "mcq",
+  "subject": "astronomy",
+  "q": "Stellar parallax is used primarily to measure a star's:",
+  "options": [
+   "Mass",
+   "Distance",
+   "Temperature",
+   "Composition"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "physics",
+  "q": "The half-life of an isotope is 8 days. What fraction remains after 24 days?",
+  "options": [
+   "1/2",
+   "1/4",
+   "1/8",
+   "1/16"
+  ],
+  "answer": 2
+ },
+ {
+  "kind": "mcq",
+  "subject": "biology",
+  "q": "Which molecule carries amino acids to the ribosome during translation?",
+  "options": [
+   "mRNA",
+   "tRNA",
+   "rRNA",
+   "snRNA"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "physics",
+  "q": "Which quantum number determines the shape of an atomic orbital?",
+  "options": [
+   "The principal quantum number n",
+   "The azimuthal quantum number l",
+   "The magnetic quantum number m_l",
+   "The spin quantum number m_s"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "biology",
+  "q": "During which phase of mitosis do sister chromatids separate and move to opposite poles?",
+  "options": [
+   "Prophase",
+   "Metaphase",
+   "Anaphase",
+   "Telophase"
+  ],
+  "answer": 2
+ },
+ {
+  "kind": "mcq",
+  "subject": "physics",
+  "q": "A charged parallel-plate capacitor stores its energy in what form?",
+  "options": [
+   "A magnetic field between the plates",
+   "An electric field between the plates",
+   "Thermal motion of the plates",
+   "The rest mass of the dielectric"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "chemistry",
+  "q": "What is the pH of a 1.0 x 10^-3 M solution of the strong acid HCl at 25 C?",
+  "options": [
+   "1",
+   "3",
+   "7",
+   "11"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "physics",
+  "q": "Which law of thermodynamics states that the entropy of an isolated system never decreases?",
+  "options": [
+   "The first law",
+   "The second law",
+   "The third law",
+   "The zeroth law"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "biology",
+  "q": "In eukaryotic cells, oxidative phosphorylation takes place at which location?",
+  "options": [
+   "The nucleolus",
+   "The cytosolic ribosomes",
+   "The inner mitochondrial membrane",
+   "The Golgi apparatus"
+  ],
+  "answer": 2
+ },
+ {
+  "kind": "mcq",
+  "subject": "astronomy",
+  "q": "The Chandrasekhar limit of about 1.4 solar masses is the maximum mass of which object?",
+  "options": [
+   "A neutron star",
+   "A white dwarf",
+   "A stellar black hole",
+   "A main-sequence star"
+  ],
+  "answer": 1
+ },
+ {
+  "kind": "mcq",
+  "subject": "chemistry",
+  "q": "Which intermolecular force is primarily responsible for the anomalously high boiling point of water?",
+  "options": [
+   "London dispersion forces",
+   "Dipole-induced dipole forces",
+   "Hydrogen bonding",
+   "Ionic bonding"
+  ],
+  "answer": 2
+ }
+]
