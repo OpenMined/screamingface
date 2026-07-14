@@ -1,6 +1,6 @@
 ---
 title: url4 — technical specification of the SDK (packages/url4, v0.2.0)
-status: as-built — describes the implemented url4 core library
+status: as-built — describes the implemented url4 SDK (engine core + product surface + package integration)
 created: 2026-07-11
 author: Claude (Opus 4.8) + ionesio
 ticket: OME-397
@@ -18,13 +18,18 @@ related:
 
 ## 0. Status of this document
 
-This is a **descriptive (as-built) specification** of the `url4` core library as it exists at
+This is a **descriptive (as-built) specification** of the `url4` package as it exists at
 `packages/url4` v0.2.0 — reverse-derived from the source and its conformance tests, not a
 forward design proposal. It is the document an engineer reads to understand how url4 turns an
-expression string into a resolved result. Section references of the form `§N.N` point at the
-url4 *language* spec that the code cites in its own docstrings and in `tests/spec/`; that
-language spec is the normative authority for surface semantics, this document describes the
-*implementation architecture* that realizes it.
+expression string into a resolved result, how to drive it from Python, and how it is wired
+into the monorepo. The package is one SDLC unit (OME-397) in three layers, each covered here:
+the **engine core** (§2–§12 — parse → compile → execute, hexagonal I/O), the **SDK product
+surface** (§13 — renderer, builders, client, node/server), and its **package integration**
+(§15 — CI, coverage gate, release lane). Section references of the form `§N.N` that carry a
+decimal beyond this document's own numbering point at the url4 *language* spec that the code
+cites in its own docstrings and in `tests/spec/`; that language spec is the normative authority
+for surface semantics, this document describes the *implementation architecture* that realizes
+it.
 
 ## 1. Purpose & scope
 
@@ -55,10 +60,18 @@ string.
   (`io_static.StaticIOLayer` for deterministic/offline runs, `io_http.HttpIOLayer` over httpx).
 - The `(context)!intent` **sub-request wire codec** (`subrequest`), the scope/`$`-substitution
   machinery (`context`, `ensemble`), and a spec-coded **error hierarchy** (`errors`).
+- A **Python SDK product surface** on top of the engine (§13): a **renderer** (`render`, the
+  AST→text inverse of `parse`), Python **builders** (`builders`), a **client** façade
+  (`client.Client` + `Url4Result`), and a **node/server** SDK (`server.Url4Node` + a
+  framework-free ASGI shim). These are pure consumers of the engine — the core never imports
+  them.
 
 Package facts: distribution `url4`; version `0.2.0`; `requires-python >= 3.12`; a single
-runtime dependency (`httpx`); hatchling build backend; ruff + pyright + pytest tooling. The
-top-level façade is `url4.run(...)` / `url4.compile_expression(...)`.
+runtime dependency (`httpx`, imported lazily) plus an optional `server` extra (`uvicorn`);
+hatchling build backend; ruff + pyright + pytest tooling. The engine façade is
+`url4.run(...)` / `url4.compile_expression(...)`; the SDK façade is `url4.Client` /
+`url4.Url4Node` plus the builder functions. The package is CI-gated and release-registered as a
+monorepo component (§15).
 
 ### 1.3 Non-goals
 
@@ -476,21 +489,152 @@ state of a tolerated `;optional` source. `errors.py` imports nothing internal (d
 | `SourceFailure` as a value, not an exception | an `;optional` failure flows through the gather without cancelling | group nodes must handle a third payload shape |
 | Lazy, distributed parsing | nested/iterated fragments compile only on demand | parse errors in a dead branch surface late (mitigated by `Graph.validate()`) |
 
-## 13. Public API surface
+## 13. The SDK product surface (`render`, `builders`, `client`, `server`)
 
-Top-level (`import url4`): `run`, `compile_expression`, `Parser`/`build`/`walk`; the I/O
-port + adapters (`IOLayer`, `StaticIOLayer`, `HttpIOLayer`, `FetchRequest`, `FetchResult`,
-`SupportsFetchEx`, `SupportsHoldings`, `fetch_result`, `parse_collection`); the AST node types
-and `Context`; the sub-request codec (`encode_subrequest`, `decode_subrequest`,
-`extract_expression_params`); and the full error hierarchy. The DAG internals
-(`Executor`, `ExecutionContext`, `Graph`, `LoweringRegistry`, `DagNode`, `Payload`,
-`SourceFailure`, `DEFAULT_PROCESSOR`, the concrete node classes) are exported under `url4.dag`
-for advanced/extension use.
+Sections 2–12 describe the engine: its only entry is `run(text, io) -> str`. The SDK layer
+turns that engine into a product surface — an AST→text inverse, Python constructors, a client
+façade, and a node/server side — without widening the core's import graph (the four modules
+below import the engine; the engine imports none of them). Six design principles, forced by the
+language spec and the codebase, govern all four:
 
-## 14. Conformance
+1. **Strings stay first-class.** Every facade accepts a raw expression string wherever it
+   accepts a `Node`; every builder output renders to canonical text.
+2. **Renderer output is certified.** `render()` re-parses its own output and compares ASTs —
+   no silently-wrong wire text can escape.
+3. **Mode is inferred, never declared** — LLM vs RDS falls out of intent shape (§6), so no
+   facade takes a "mode" flag.
+4. **Two-axis annotations stay visibly separate** in `src()`: attribution
+   (`name`/`weight`/`budgets`) vs execution (a closed set of typed kwargs).
+5. **A node IS an `IOLayer`.** `Url4Node` implements `fetch`/`fetch_ex`/`fetch_holdings`;
+   `node.evaluate(expr)` ≡ `run(expr, io=node)`; the ASGI shim reuses the same dispatch. GET is
+   the only verb (url4-engine doctrine N1).
+6. **The core stays framework-free** (repo hexagonal mandate): the ASGI app is a plain async
+   callable; uvicorn is imported only inside `serve()`, behind the `server` extra.
+
+### 13.1 Renderer (`render.py`)
+
+`render(node: Node, *, check: bool = True) -> str` is the inverse of `build()`/`parse()`:
+`build(render(x)) == x` for every parser-producible AST `x` (wrapped in
+`Expression(sources=(x,))` when `x` is not itself an `Expression`/`Iteration`, mirroring
+`build()`'s envelope). `check=True` enforces that equality per call; a mismatch or an
+unrepresentable input raises **`RenderError`** (a new `Url4Error` subclass, code `unrenderable`)
+naming the offending node. Normalization is deliberate and documented: a descriptor-empty
+`Source` renders as the canonical `Binding` form; `Text` always renders quoted; `RelExpr`/
+`RemoteExpr` use sugar form when `params == ()` and the canonical `?k=v&q=` form otherwise;
+top-level `Expression`/`Iteration` and leaf values render bare while composite source nodes
+render parenthesized (to defeat `build()`'s top-level intent-hoisting — see the engine findings
+in the work ledger); `Source.expand` renders as the `*` prefix; numbers use decimal-only
+formatting (negative/nonfinite/sub-1e-12 → `RenderError`). Unrepresentable inputs (→ `RenderError`) include URLs carrying unbalanced
+parens/quotes/depth-0 `,;!`, struct nesting > 2, an `Iteration.reducer` in value position, and
+a `Source` wrapping an expression-valued node whose first execution annotation is a dual-scope
+key (the §8.1.2 boundary would reclassify it on reparse). A supporting addition,
+`grammar.parse_value(text)`, exposes the value-detection path so builders classify strings
+exactly as the grammar does.
+
+### 13.2 Builders (`builders.py`)
+
+Python constructors that lower to the existing frozen AST (no parallel representation):
+`text`, `ref`, `self_`, `identity`, `struct`, `expand`, `src` (the two-axis descriptor:
+attribution kwargs `name`/`weight`/`budgets`; execution kwargs `mode`/`t`/`retry`/`accept`/
+`required`/`optional`/`expand`/`annotations`), `expr`, `broadcast`, `iterate`, and `reduce`.
+Coercions match the grammar: a `str` source → `grammar.parse(str)` (full descriptor grammar); a
+`str` value → `grammar.parse_value(str)` (a plain word is a *bare token*, not text — inline
+prose needs `text(...)`); a `Mapping` → `struct()`; a `list`/`tuple` collection in `iterate` →
+an inline parenthesized collection. `intent` accepts only `str | Text | Url | RelUrl` (what the
+engine's `intent_atom` can produce); anything else raises `TypeError` with guidance.
+`iterate(reduce=…)` embedded as a source is auto-rewritten by `expr()` into the
+value-position-valid `Expression(sources=(iteration-sans-reducer,), intent=reducer)`. Every
+builder result satisfies `render(node, check=True)` by construction.
+
+### 13.3 Client (`client.py`)
+
+`Client` is the caller-side façade; `Url4Result` (frozen) is its envelope — `.text` (the body),
+`.request` (the canonical expression that ran, the audit artifact), `.data` (`json.loads(text)`,
+raising `ValueError` for non-JSON), and `.elements` (`.data` as a list, raising `ValueError`
+otherwise). The async helpers `query`/`broadcast`/`iterate`/`reduce`/`evaluate` share **one**
+execution path: build the AST via the §13.2 builders, wrap in `RemoteExpr` when a node target is
+set, render to canonical text (that text *is* `Url4Result.request`), and execute via `run()`.
+Local vs remote differ only in which DAG node does the wire hop. `io=None` lazily owns an
+`HttpIOLayer` closed by `aclose()`; an injected `io` is never closed. Protocol params
+(quorum/triggers/fmt/…) ride on the expression — the executor already enforces `quorum`
+(`dag/compiler._quorum_of`); triggers/fmt are carried-but-unenforced Part C follow-ups. There is
+deliberately **no** module-level `url4.query()` (a module-global async client would bind an event
+loop); the `screamingface` app layer may add that sugar with its own lifecycle.
+
+### 13.4 Node / server (`server.py`)
+
+`Url4Node` implements the `IOLayer` + `SupportsFetchEx` + `SupportsHoldings` ports — a node *is*
+an io layer. Decorators register the surface: `@node.endpoint("/claude")` (intent processors —
+a `Request(path, context, intent, params)` handler whose `context` is *opaque, already-resolved*
+data, never an unresolved expression), `@node.holdings(collection=None)` and
+`@node.identity("emily")` (the `@`/`@name[/coll]` holdings ports), and `node.data_route(...)`
+(static-or-callable data reads). `node.evaluate(expr)` runs `run(expr, io=self)` in-process;
+`asgi()` returns a plain async **GET-only** callable (405 otherwise) whose eval path
+`GET /v1?…&q=<expr>` reconstructs and evaluates the expression — the surface a remote `Client`
+query targets, closing the loop end-to-end. Relative fetches route inbound; absolute
+`http(s)://`/`url4://` delegate to the (lazily-owned or injected) outbound layer. ASGI errors map
+by code: `ParseError`→400, unknown identity/path→404, `identity_access_denied`/`consent_*`→403,
+transient `ResolutionError`→502, other `Url4Error`→500; the body is the result string (200,
+`text/plain`) or `{"error": {code, message}}`. `serve(host, port, …)` imports uvicorn lazily
+behind the `server` extra. No response-envelope JSON is invented — Parts C+ define it; v1 returns
+the raw body and reserves the shape.
+
+### 13.5 SDK boundary (out of scope, reserved for Part C+)
+
+Quorum/trigger *enforcement* beyond what the executor already does, streaming delivery, the
+response envelope (§18 of the language spec), settlement/attribution reporting, policy
+registries, auth/consent transport (needs the URL4-Auth-Token / Part C transport spec),
+telemetry planes (url4-engine doctrine T/O/F), module-level query sugar, and the `screamingface`
+branding layer are all deliberately deferred.
+
+## 14. Public API surface
+
+Top-level (`import url4`) — **engine:** `run`, `compile_expression`, `Parser`/`build`/`walk`;
+the I/O port + adapters (`IOLayer`, `StaticIOLayer`, `HttpIOLayer`, `FetchRequest`,
+`FetchResult`, `SupportsFetchEx`, `SupportsHoldings`, `fetch_result`, `parse_collection`); the
+AST node types and `Context`; the sub-request codec (`encode_subrequest`, `decode_subrequest`,
+`extract_expression_params`); and the full error hierarchy (incl. `RenderError`). **SDK
+surface** (§13): `render`; the builder functions (`text`, `ref`, `self_`, `identity`, `struct`,
+`expand`, `src`, `expr`, `broadcast`, `iterate`, `reduce`); `Client` + `Url4Result`; and
+`Url4Node`. The DAG internals (`Executor`, `ExecutionContext`, `Graph`, `LoweringRegistry`,
+`DagNode`, `Payload`, `SourceFailure`, `DEFAULT_PROCESSOR`, the concrete node classes) are
+exported under `url4.dag` for advanced/extension use.
+
+## 15. Package integration — CI, coverage & release
+
+url4 is a first-class monorepo component, wired into the same machinery as `apps/aigateway`/
+`apps/scoreboard` (mirroring their structure, not inventing new conventions):
+
+- **CI** — `.github/workflows/url4-tests.yml`, path-filtered to `packages/url4/**` (self-
+  triggering on its own YAML), single Python 3.12 (matching `requires-python >= 3.12` and
+  scoreboard's single-version lane): `uv sync` → `ruff check` → `ruff format --check` →
+  `pyright` → `pytest … --cov=url4 --cov-fail-under=95`, with the `dorny/test-reporter` and
+  PR-only `orgoro/coverage` steps copied from `scoreboard-tests.yml`.
+- **Coverage gate — 95%, deliberately above the repo's usual 80%.** The two apps stay at 80%;
+  url4 is held higher by explicit decision. This is a real bar met by real tests (`tests/unit/`
+  + `tests/spec/`), not a copy of the app threshold — a future reader should not "correct" it
+  back down to 80%.
+- **SDLC stack** — a `url4` entry in `.claude/sdlc.local.md` (root `packages/url4`, skill
+  `sdlc-python`, gates including `pytest --cov=url4 --cov-fail-under=95 -q`), so the standard
+  gate loop exercises the package automatically instead of by hand.
+- **Release lane** — a `packages/url4` entry in `release-please-config.json`
+  (`release-type: python`, `version-file: packages/url4/pyproject.toml`) for version-bump /
+  CHANGELOG automation on merge to `main`.
+
+Deliberately **out of scope** (documented so they are not re-litigated): a **CODEOWNERS entry**
+and a **`dependabot.yml`** `uv` ecosystem — neither exists anywhere in the repo yet, so minting
+them for url4 alone would set unreviewed repo-wide convention; and an actual **package-publish
+target** (PyPI or a private index) — neither app's release lane publishes a Python package (both
+build only Docker images + Helm charts, which don't apply to a library), so `release-please`
+registration buys version automation without inventing a publish target. Both are separate,
+repo-wide decisions.
+
+## 16. Conformance
 
 `tests/spec/` is an executable conformance suite, one file per language area — value detection,
 descriptors, references, structured values, expansion, iteration, canonical form, holdings, and
-the HTTP wire format — alongside the module unit/characterization tests. The full suite is
-**385 tests**, green under ruff + pyright + pytest, and is the practical oracle for the
+the HTTP wire format — alongside the module unit/characterization tests under `tests/unit/`
+(renderer round-trip corpus + random-AST property, builder golden strings, client envelope, node
+dispatch + ASGI status mapping). The full suite is **697 tests** at **97.86%** line coverage,
+green under ruff + pyright + pytest and gated at ≥95% in CI — the practical oracle for the
 surface-semantics `§` claims in this document.
