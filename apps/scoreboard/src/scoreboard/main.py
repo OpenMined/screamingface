@@ -27,7 +27,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = Settings()
 
-    app = FastAPI(title="scoreboard", version="0.1.0", lifespan=_lifespan)
+    app = FastAPI(title="scoreboard", version="0.1.1", lifespan=_lifespan)
     app.state.settings = settings
     app.state.score_store = ScoreStore()
     app.state.baseline_store = BaselineStore()
