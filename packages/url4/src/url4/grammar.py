@@ -76,6 +76,20 @@ def parse(text: str) -> Node:
     return _parse_source(stripped)
 
 
+def parse_value(text: str) -> Node:
+    """Classify ``text`` by the §5.2 value-detection rules alone (no descriptor).
+
+    The value-position entry point for callers that already know the token is a
+    data value — the builder facade uses it so a Python string is classified
+    exactly as the grammar would classify it (a plain word is a bare token, a
+    ``scheme://`` is a URI, …), never re-interpreted as an attribution chain.
+    """
+    stripped = text.strip()
+    if not stripped:
+        raise ParseError("empty url4 value")
+    return _parse_value(stripped)
+
+
 # --- source descriptors (§4.3) -------------------------------------------------
 
 
@@ -722,4 +736,4 @@ def intent_atom(intent: str) -> Node:
     return node
 
 
-__all__ = ["intent_atom", "parse"]
+__all__ = ["intent_atom", "parse", "parse_value"]
