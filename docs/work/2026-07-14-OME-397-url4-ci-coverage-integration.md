@@ -91,9 +91,8 @@ run in GitHub Actions).
   the corresponding source file, with a design-reviewer pass (verdict: ACCEPT-WITH-FIXES,
   findings were documentation-only — see Deviations) before commit. No `packages/url4/src/**`
   production file was touched.
-- **Commits:** pending — this ledger's Outcome is filled pre-commit per this branch's
-  established pattern (see the original OME-397 ledger); the sha will be recorded in a small
-  follow-up if not already present in the same commit.
+- **Commits:** `7b3b150` — `feat(url4): register CI, coverage gate, and release-please
+  conformity` (22 files changed, 1537 insertions, 88 deletions).
 - **Gates:** from `packages/url4` — `uv run ruff check` → all checks passed; `uv run ruff
   format --check` → 50 files already formatted; `uv run pyright` → 0 errors, 0 warnings, 0
   informations; `uv run pytest --cov=url4 --cov-fail-under=95 -q` → **697 passed**, **97.86%**
