@@ -42,6 +42,15 @@ def test_portal_assets_and_pages_are_public(tmp_path: Path) -> None:
             assert response.status_code == 200, path
 
 
+def test_portal_pages_include_plausible_analytics(tmp_path: Path) -> None:
+    # OME-373: traffic/visit analytics on the public board — a future rewrite of any
+    # of these pages must not silently drop the tracking snippet.
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        for path in ("/index.html", "/benchmark.html", "/spec.html", "/data.html"):
+            response = client.get(path)
+            assert "plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js" in response.text, path
+
+
 def test_api_routes_remain_public_before_root_static_mount(tmp_path: Path) -> None:
     with TestClient(create_app(_settings(tmp_path))) as client:
         assert client.get("/healthz").status_code == 200
