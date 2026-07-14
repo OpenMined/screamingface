@@ -540,6 +540,63 @@ async def test_decode_struct_rejects_field_without_colon() -> None:
 
 
 @pytest.mark.asyncio
+async def test_struct_bare_literals_keep_json_scalar_types() -> None:
+    # nodes.py _decode_struct_value(): an inline {k: v} object is canonical JSON
+    # (spec §5.3.11.3) — a bare number/float/bool/null literal keeps its JSON
+    # type, while a bare word and a quoted value stay strings.
+    result = await run(
+        StructNode("{age: 30, ratio: 1.5, active: true, missing: null, tag: hi, name: 'Bob'}"),
+        StaticIOLayer(),
+    )
+    assert json.loads(result) == {
+        "age": 30,
+        "ratio": 1.5,
+        "active": True,
+        "missing": None,
+        "tag": "hi",
+        "name": "Bob",
+    }
+
+
+@pytest.mark.asyncio
+async def test_struct_reference_value_is_never_numerically_coerced() -> None:
+    # nodes.py _decode_struct_value(): a $-referenced value is substituted as
+    # text and never coerced — {id: $uid} with uid bound to "30" stays the
+    # string "30", so a resolved id is not silently renumbered.
+    result = await run(compile_expression("(uid=30, {id: $uid})"), StaticIOLayer())
+    assert json.loads(result) == {"id": "30"}
+
+
+def test_refs_of_ast_extracts_relurl_path_reference() -> None:
+    # compiler.py _refs_of_ast(): on the AST compile path a bare relative URI
+    # /data/$topic contributes its embedded $topic reference, so the edge
+    # _lower_relurl attaches actually gets wired.
+    graph = compile_expression(grammar_parse("(topic=hello, /data/$topic)"))
+    relurl = graph.sink.deps["src:1"]
+    assert isinstance(relurl, RelUrlNode)
+    assert "bind:topic" in relurl.deps
+
+
+@pytest.mark.asyncio
+async def test_relurl_bare_path_resolves_sibling_reference_text_path() -> None:
+    # compiler.py _lower_relurl(): a bare relative URI embedding $name gets its
+    # sibling-binding scope frame, so /data/$topic fetches /data/hello, not the
+    # literal /data/$topic (which would raise "no fetch mapping").
+    io = RecordingIOLayer(fetch_map={"/data/hello": "OK"})
+    assert await run("(topic=hello, /data/$topic)", io) == "OK"
+    assert "/data/hello" in io.fetches
+
+
+@pytest.mark.asyncio
+async def test_relurl_bare_path_resolves_sibling_reference_ast_path() -> None:
+    # The AST twin of the text path — the same edge wired via _refs_of_ast.
+    io = RecordingIOLayer(fetch_map={"/data/hello": "OK"})
+    ast = grammar_parse("(topic=hello, /data/$topic)")
+    assert await run(compile_expression(ast), io) == "OK"
+    assert "/data/hello" in io.fetches
+
+
+@pytest.mark.asyncio
 async def test_guard_retries_transient_error_then_raises_last() -> None:
     # nodes.py GuardNode._attempt(): a transient Url4Error (permanent=False)
     # retries up to `retries` extra attempts, then raises the last one.

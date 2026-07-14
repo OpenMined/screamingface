@@ -34,7 +34,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import NoReturn, Protocol, runtime_checkable
 
 from url4.context import Context
 from url4.io_layer import (
@@ -247,6 +247,21 @@ def first_error(group: BaseExceptionGroup) -> BaseException | None:
     return None
 
 
+def reraise_first(group: BaseExceptionGroup) -> NoReturn:
+    """Re-raise a TaskGroup failure as the plain error url4 callers expect.
+
+    Unwrap the (possibly nested) group to its first non-cancellation leaf via
+    :func:`first_error` and re-raise that with ``from None``; a group carrying
+    only cancellations re-raises verbatim. Shared by the top-level executor and
+    :class:`~url4.dag.nodes.MapNode` so both surface the identical exception
+    type for the same underlying failure.
+    """
+    error = first_error(group)
+    if error is None:
+        raise group
+    raise error from None
+
+
 __all__ = [
     "DEFAULT_PROCESSOR",
     "DEFAULT_RUN_CONCURRENCY",
@@ -260,4 +275,5 @@ __all__ = [
     "SpawnFn",
     "default_process",
     "first_error",
+    "reraise_first",
 ]

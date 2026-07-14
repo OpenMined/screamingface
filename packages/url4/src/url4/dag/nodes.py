@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
@@ -57,7 +58,7 @@ from url4.dag.node import (  # isort: skip
     ExecutionContext,
     Payload,
     SourceFailure,
-    first_error,
+    reraise_first,
 )
 
 
@@ -130,6 +131,50 @@ def _maybe_json(text: str):
         return text
 
 
+def _rows_to_json(rows: list[str]) -> str:
+    """Serialize iteration rows as the protocol-default JSON array (spec §5.3.8).
+
+    A visibly structured row (a JSON object or array — error objects, structured
+    results) is embedded structurally; every other row, including scalar-looking
+    text (``"1"``, ``"true"``), stays a JSON string — a row is prose unless it is
+    visibly structured. Shared by :class:`CollectNode` and :class:`ReduceNode`
+    so both consumers of a :class:`MapNode`'s rows type them identically.
+    """
+    return json.dumps([_maybe_json(r) if r[:1] in "[{" else r for r in rows])
+
+
+class FetchedText(str):
+    """A fetched body that also carries the adapter-reported media type.
+
+    It *is* the body string — every ``str`` operation and ``isinstance(x, str)``
+    check treats it as plain text — but a downstream :class:`MapNode` /
+    :class:`ExpandNode` reads :attr:`media_type` to parse the collection by its
+    declared Content-Type (spec §5.3.7) instead of sniffing. The media type is
+    consulted only at the fetch→collection boundary, where the payload passes
+    from the producer node to the consumer unchanged; any string transformation
+    (``join``, slicing) yields a plain ``str`` that correctly falls back to
+    sniffing, since it is no longer the adapter's own body.
+    """
+
+    media_type: str | None
+
+    def __new__(cls, body: str, media_type: str | None) -> FetchedText:
+        text = super().__new__(cls, body)
+        text.media_type = media_type
+        return text
+
+
+async def _fetch(ctx: ExecutionContext, request: FetchRequest) -> FetchedText:
+    """Resolve ``request`` through the port, preserving the media type (§5.3.7)."""
+    result = await fetch_result(ctx.io, request)
+    return FetchedText(result.body, result.media_type)
+
+
+def _media_type_of(payload: Payload) -> str | None:
+    """The Content-Type a fetch attached to ``payload``, or None when unknown."""
+    return getattr(payload, "media_type", None)
+
+
 def _error_payload(exc: BaseException) -> dict:
     return {"error": {"kind": type(exc).__name__, "message": str(exc) or repr(exc)}}
 
@@ -172,7 +217,7 @@ class WebFetchNode:
         request = FetchRequest(
             self.url, relative=False, kind=_kind_of(self.url), accept=self.accept
         )
-        return (await fetch_result(ctx.io, request)).body
+        return await _fetch(ctx, request)
 
 
 def _kind_of(url: str) -> Literal["http", "url4", "other"]:
@@ -214,7 +259,7 @@ class RelUrlNode:
         path = _substitute(self.path, scope, ctx)
         if not self.is_expr:
             request = FetchRequest(path, relative=True, kind="relative", accept=self.accept)
-            return (await fetch_result(ctx.io, request)).body
+            return await _fetch(ctx, request)
         # context is raw text on this node, so $item/$name are resolved here; the
         # intent flows in from its own (already-substituted) leaf node.
         context = _substitute(self.context or "", scope, ctx)
@@ -225,7 +270,7 @@ class RelUrlNode:
         )
         target = encode_subrequest(path, context, intent, params=_wire_params(self.params))
         request = FetchRequest(target, relative=True, kind="relative", accept=self.accept)
-        return (await fetch_result(ctx.io, request)).body
+        return await _fetch(ctx, request)
 
 
 @dataclass(eq=False)
@@ -254,7 +299,7 @@ class RemoteFetchNode:
         )
         rel = encode_subrequest(self.path, context, intent, params=_wire_params(self.params))
         request = FetchRequest(f"url4://{self.authority}{rel}", relative=False, kind="url4")
-        return (await fetch_result(ctx.io, request)).body
+        return await _fetch(ctx, request)
 
 
 @dataclass(eq=False)
@@ -309,13 +354,47 @@ def _decode_struct(raw: str, scope: Context, ctx: ExecutionContext) -> dict:
     return result
 
 
+_NOT_SCALAR = object()
+
+
+def _json_scalar(token: str) -> object:
+    """A bare struct token's JSON scalar value (number/bool/null), or _NOT_SCALAR.
+
+    Backs :class:`StructNode`'s "canonical JSON" guarantee (spec §5.3.11.3): a
+    literal ``30`` becomes the number 30, ``true`` the boolean, ``null`` None.
+    A bare word, a non-finite float, or anything else is not a scalar and stays
+    a string.
+    """
+    try:
+        parsed = json.loads(token)
+    except (json.JSONDecodeError, ValueError):
+        return _NOT_SCALAR
+    # bool is an int subclass, so isinstance(_, int) covers true/false; a
+    # non-finite float (NaN/Infinity) is not canonical JSON and stays a string.
+    is_scalar = (
+        parsed is None
+        or isinstance(parsed, int)
+        or (isinstance(parsed, float) and math.isfinite(parsed))
+    )
+    return parsed if is_scalar else _NOT_SCALAR
+
+
 def _decode_struct_value(value: str, scope: Context, ctx: ExecutionContext) -> object:
     if value.startswith("{"):
         return _decode_struct(value, scope, ctx)
+    quoted = False
     if value.startswith("'"):
         end = skip_quoted(value, 0)
         if end >= 2 and end == len(value):
             value = value[1:-1].replace("\\'", "'").replace("\\\\", "\\")
+            quoted = True
+    # A bare literal keeps its JSON scalar type (canonical JSON); a quoted value
+    # is always a string, and a value carrying a $reference stays the substituted
+    # string so a resolved id like "007" is never silently renumbered to 7.
+    if not quoted and "$" not in value:
+        scalar = _json_scalar(value)
+        if scalar is not _NOT_SCALAR:
+            return scalar
     return _substitute(value, scope, ctx)
 
 
@@ -420,8 +499,9 @@ class ExpandNode:
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"inner": node}
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
+        inner = inputs["inner"]
         try:
-            return parse_collection(_as_text(inputs["inner"]))
+            return parse_collection(_as_text(inner), _media_type_of(inner))
         except CollectionError as exc:
             raise CollectionError(
                 f"expansion source is not iterable: {exc}", code="expansion_not_iterable"
@@ -595,7 +675,11 @@ class MergeNode:
         source = _as_text(inputs["source"])
         scope = Context(bindings={"current": source}, parent=ctx.scope)
         if self.intent_template is not None:
-            intent = substitute_env_vars(self.intent_template, scope, strict=ctx.strict_fields)
+            # _substitute (not bare substitute_env_vars) so a broadcast intent
+            # nested inside an iteration resolves $item too, exactly as the
+            # non-broadcast ProcessNode path does — $current still resolves via
+            # the substitute_env_vars pass _substitute ends with.
+            intent = _substitute(self.intent_template, scope, ctx)
         else:
             intent = _as_text(inputs["intent"]) if "intent" in inputs else ""
         return await ctx.process(source, intent, scope)
@@ -660,7 +744,7 @@ class CollectNode:
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         rows = inputs["rows"]
         rows = rows if isinstance(rows, list) else [_as_text(rows)]
-        return json.dumps([_maybe_json(r) if r[:1] in "[{" else r for r in rows])
+        return _rows_to_json(rows)
 
 
 @dataclass(eq=False)
@@ -740,7 +824,7 @@ class MapNode:
         if isinstance(collection, list):
             items = collection
         else:
-            items = parse_collection(_as_text(collection))
+            items = parse_collection(_as_text(collection), _media_type_of(collection))
         if self.directives.slice is not None:
             start, end = self.directives.slice
             items = items[start:end]
@@ -754,10 +838,7 @@ class MapNode:
             async with asyncio.TaskGroup() as tg:
                 tasks = [tg.create_task(self._row(item, sem, ctx)) for item in items]
         except BaseExceptionGroup as group:
-            error = first_error(group)
-            if error is None:
-                raise
-            raise error from None
+            reraise_first(group)
         return [task.result() for task in tasks]
 
     async def _row(self, item: str, sem: asyncio.Semaphore | None, ctx: ExecutionContext) -> str:
@@ -813,7 +894,7 @@ class ReduceNode:
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         rows = inputs["rows"]
         rows = rows if isinstance(rows, list) else [_as_text(rows)]
-        array_json = json.dumps([_maybe_json(r) for r in rows])
+        array_json = _rows_to_json(rows)
         reducer_src, _, _ = split_intent(self.reducer)
         node = grammar_parse(reducer_src)
         if isinstance(node, AstRelExpr):

@@ -40,6 +40,47 @@ async def test_iteration_map_returns_json_array() -> None:
 
 
 @pytest.mark.asyncio
+async def test_iteration_declared_ndjson_single_row_iterates() -> None:
+    # nodes.py MapNode._items(): a fetch producer threads FetchResult.media_type
+    # to parse_collection, so a source declared application/x-ndjson holding a
+    # single row iterates (spec §5.3.7) instead of being sniffed and rejected as
+    # a scalar / JSON object.
+    io = StaticIOLayer(
+        fetch_map={"https://rows": '{"q": "2+2"}'},
+        routes={"/solve": lambda context, intent: f"A={context}"},
+        media_types={"https://rows": "application/x-ndjson"},
+    )
+    result = await run("https://rows*(/solve($item.q))", io)
+    assert json.loads(result) == ["A=2+2"]
+
+
+@pytest.mark.asyncio
+async def test_reduce_scalar_rows_stay_strings_like_collect() -> None:
+    # nodes.py ReduceNode: scalar-looking rows ("1", "2") stay JSON strings in
+    # the reducer's row array — matching CollectNode (spec §5.3.8) — rather than
+    # being coerced to numbers, so the two consumers of a MapNode agree.
+    io = StaticIOLayer(
+        routes={
+            "/n": lambda context, intent: context,  # echo the row value
+            "/reduce": lambda context, intent: intent,  # echo the row array verbatim
+        },
+    )
+    result = await run("((1, 2)*(/n($item)))!/reduce(all)", io)
+    assert json.loads(result) == ["1", "2"]
+
+
+@pytest.mark.asyncio
+async def test_broadcast_intent_resolves_item_inside_iteration() -> None:
+    # nodes.py MergeNode: a broadcast intent nested in an iteration resolves
+    # $item (via _substitute, like ProcessNode) — the literal "$item" must not
+    # reach the model.
+    result = await run("(alpha, beta)*(('S')!*'row:$item')", StaticIOLayer())
+    assert "$item" not in result
+    assert "row:alpha" in result
+    assert "row:beta" in result
+
+
+@pytest.mark.asyncio
 async def test_iteration_backend_intent_inside_parens() -> None:
     # The '!go' binds to the backend call, not the iteration — /solve ignores it.
     result = await run("https://data*(/solve($item.q)!go)", _resolver())

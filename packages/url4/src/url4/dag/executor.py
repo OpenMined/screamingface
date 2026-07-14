@@ -40,7 +40,7 @@ from url4.dag.node import (  # isort: skip
     ProcessFn,
     SourceFailure,
     default_process,
-    first_error,
+    reraise_first,
 )
 from url4.dag.nodes import GuardNode  # isort: skip
 
@@ -151,10 +151,7 @@ class Executor:
                 self._tg = tg
                 result = await self._run(root)
         except BaseExceptionGroup as group:
-            error = first_error(group)
-            if error is None:
-                raise
-            raise error from None
+            reraise_first(group)
         return result
 
     async def _run(self, node: DagNode) -> Payload:

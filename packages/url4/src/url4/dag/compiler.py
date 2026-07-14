@@ -141,7 +141,10 @@ def _lower_url(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
 
 def _lower_relurl(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     assert isinstance(node, RelUrl)
-    return RelUrlNode(node.value)
+    # A bare relative URI may embed dot-path refs (/data/$topic, spec §8.2.3),
+    # so its sibling-binding edges must reach the node's scope frame — the same
+    # deps every other substituting leaf (_lower_text/_lower_struct) carries.
+    return RelUrlNode(node.value, deps=dict(edges))
 
 
 def _lower_binding(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
@@ -716,6 +719,10 @@ def _refs_of_ast(node: Node) -> set[str]:
     refs: set[str] = set()
     for descendant in ast_walk(node):
         if isinstance(descendant, Text):
+            refs |= find_references(descendant.value)
+        elif isinstance(descendant, RelUrl):
+            # A bare relative URI /data/$topic embeds refs in its path, the AST
+            # twin of the text path's per-segment find_references (§8.2.3).
             refs |= find_references(descendant.value)
         elif isinstance(descendant, (RelExpr, RemoteExpr)) and descendant.context:
             refs |= find_references(descendant.context)
