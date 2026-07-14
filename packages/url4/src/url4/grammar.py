@@ -56,7 +56,8 @@ from url4.nodes import (
 _IDENT_RE = re.compile(r"[A-Za-z_]\w*")
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 _SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://")
-_IDENTITY_RE = re.compile(r"@(\w+)")
+_IDENTITY_NAME_RE = re.compile(r"\w+")  # the principal-name production, on its own
+_IDENTITY_RE = re.compile(rf"@({_IDENTITY_NAME_RE.pattern})")
 _VARREF_HEAD_RE = re.compile(r"\$([A-Za-z_]\w*|\d+)")
 _FIELD_SEG_RE = re.compile(r"[A-Za-z_]\w*")
 _INDEX_SEG_RE = re.compile(r"(0|[1-9]\d*)\]")

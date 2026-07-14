@@ -29,7 +29,6 @@ Canonical-form choices (each reparses to the identical AST):
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from math import isfinite
 
@@ -39,7 +38,14 @@ from url4.errors import ParseError, RenderError
 
 # WHY: these regexes ARE the grammar's character classes; re-declaring them
 # here would let the two modules drift. Private-name import is deliberate.
-from url4.grammar import _IDENT_RE, _NUMBER_RE, _SCHEME_RE, _STRUCT_KEY_RE, _STRUCT_TOKEN_RE
+from url4.grammar import (
+    _IDENT_RE,
+    _IDENTITY_NAME_RE,
+    _NUMBER_RE,
+    _SCHEME_RE,
+    _STRUCT_KEY_RE,
+    _STRUCT_TOKEN_RE,
+)
 from url4.nodes import (
     Binding,
     Expression,
@@ -386,9 +392,6 @@ def _render_varref(node: VarRef) -> str:
 
 def _raise_seg(seg: object) -> str:
     raise RenderError(f"invalid field-path segment {seg!r}")
-
-
-_IDENTITY_NAME_RE = re.compile(r"\w+")  # the grammar's @(\w+) name production
 
 
 def _render_identity(node: IdentityRef) -> str:
