@@ -37,6 +37,17 @@ def test_score_model_table_names_and_indexes() -> None:
     assert ("benchmark_id", "spec_id", "submitted_at") in Score._meta.indexes
 
 
+def test_score_model_content_hash_field_is_unique_and_nullable() -> None:
+    # Mirrors what migration 0003 adds — nullable so it can be added to a table with
+    # pre-existing rows without a backfill, unique so the DB itself rejects a
+    # duplicate recipe (OME-391 / C28).
+    content_hash_field = cast(Any, Score._meta.fields_map["content_hash"])
+
+    assert content_hash_field.unique is True
+    assert content_hash_field.null is True
+    assert content_hash_field.max_length == 64
+
+
 def test_score_model_relations_use_expected_delete_rules() -> None:
     benchmark_field = cast(Any, Score._meta.fields_map["benchmark"])
     score_field = cast(Any, IdempotencyKey._meta.fields_map["score"])

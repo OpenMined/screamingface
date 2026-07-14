@@ -27,6 +27,14 @@ class BaseScore(BaseScoreboardModel):
     client_platform = fields.CharField(max_length=32, null=True)
     verified_by_openmined = fields.BooleanField(default=False)
     metadata = fields.JSONField(null=True)
+    # INVARIANT: sha256 hex over the submission's recipe identity (benchmark, spec,
+    # url4 expression, result numbers, provider order) — NOT submitted_by or client
+    # metadata. Unique so the DB itself rejects a duplicate recipe, independent of
+    # any client-supplied Idempotency-Key (OME-391 / C28). Nullable so this column
+    # can be added to a table with pre-existing rows without a backfill migration —
+    # multiple NULLs don't violate a unique constraint, and every row created from
+    # here on always gets one (the store always computes it on submit).
+    content_hash = fields.CharField(max_length=64, unique=True, null=True)
 
 
 class Score(BaseScore):

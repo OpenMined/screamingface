@@ -89,8 +89,9 @@ async def test_register_benchmark_updates_existing_row(tortoise_db: None) -> Non
 async def test_submit_inserts_and_returns_score(tortoise_db: None) -> None:
     store = await _store_with_benchmark()
 
-    score = await store.submit(_submission())
+    score, created = await store.submit(_submission())
 
+    assert created is True
     assert score.benchmark_id == "hle"
     assert score.spec_id == "spec-1"
     assert score.accuracy == 0.75
@@ -107,9 +108,15 @@ async def test_submit_with_live_idempotency_key_returns_existing_score(
 ) -> None:
     store = await _store_with_benchmark()
 
-    first = await store.submit(_submission(accuracy=0.5), idempotency_key="repeat-key")
-    second = await store.submit(_submission(accuracy=0.9), idempotency_key="repeat-key")
+    first, first_created = await store.submit(
+        _submission(accuracy=0.5), idempotency_key="repeat-key"
+    )
+    second, second_created = await store.submit(
+        _submission(accuracy=0.9), idempotency_key="repeat-key"
+    )
 
+    assert first_created is True
+    assert second_created is False
     assert second.id == first.id
     assert second.submitted_at == first.submitted_at
     assert second.accuracy == 0.5
@@ -120,13 +127,16 @@ async def test_submit_with_expired_idempotency_key_creates_new_score(
     tortoise_db: None,
 ) -> None:
     store = await _store_with_benchmark()
-    first = await store.submit(_submission(accuracy=0.5), idempotency_key="expired-key")
+    first, _ = await store.submit(_submission(accuracy=0.5), idempotency_key="expired-key")
     await IdempotencyKey.filter(key="expired-key").update(
         expires_at=datetime.now(UTC) - timedelta(seconds=1),
     )
 
-    second = await store.submit(_submission(accuracy=0.9), idempotency_key="expired-key")
+    second, second_created = await store.submit(
+        _submission(accuracy=0.9), idempotency_key="expired-key"
+    )
 
+    assert second_created is True
     assert second.id != first.id
     assert second.accuracy == 0.9
     assert await Score.all().count() == 2
@@ -136,7 +146,7 @@ async def test_get_by_idempotency_key_respects_expiry_and_cleanup(
     tortoise_db: None,
 ) -> None:
     store = await _store_with_benchmark()
-    score = await store.submit(_submission(), idempotency_key="lookup-key")
+    score, _ = await store.submit(_submission(), idempotency_key="lookup-key")
 
     assert await store.get_by_idempotency_key("lookup-key") == score
 
@@ -169,8 +179,8 @@ async def test_leaderboard_uses_newer_submission_as_accuracy_tie_breaker(
     tortoise_db: None,
 ) -> None:
     store = await _store_with_benchmark()
-    older = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["older"]))
-    newer = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["newer"]))
+    older, _ = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["older"]))
+    newer, _ = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["newer"]))
     await Score.filter(id=older.id).update(
         submitted_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
     )
@@ -186,8 +196,8 @@ async def test_leaderboard_uses_newer_submission_as_accuracy_tie_breaker(
 
 async def test_list_for_spec_returns_history_newest_first(tortoise_db: None) -> None:
     store = await _store_with_benchmark()
-    older = await store.submit(_submission(spec_id="spec-history", accuracy=0.5))
-    newer = await store.submit(_submission(spec_id="spec-history", accuracy=0.8))
+    older, _ = await store.submit(_submission(spec_id="spec-history", accuracy=0.5))
+    newer, _ = await store.submit(_submission(spec_id="spec-history", accuracy=0.8))
     await Score.filter(id=older.id).update(
         submitted_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
     )
@@ -202,7 +212,7 @@ async def test_list_for_spec_returns_history_newest_first(tortoise_db: None) -> 
 
 async def test_mark_verified_flips_score_flag(tortoise_db: None) -> None:
     store = await _store_with_benchmark()
-    score = await store.submit(_submission())
+    score, _ = await store.submit(_submission())
 
     await store.mark_verified(score.id)
 
@@ -210,9 +220,166 @@ async def test_mark_verified_flips_score_flag(tortoise_db: None) -> None:
     assert verified.verified_by_openmined is True
 
 
+async def test_submit_identical_recipe_without_header_returns_existing_score(
+    tortoise_db: None,
+) -> None:
+    store = await _store_with_benchmark()
+
+    first, first_created = await store.submit(_submission(spec_id="spec-dup", accuracy=0.42))
+    second, second_created = await store.submit(_submission(spec_id="spec-dup", accuracy=0.42))
+
+    assert first_created is True
+    assert second_created is False
+    assert second.id == first.id
+    assert second.submitted_at == first.submitted_at
+    assert await Score.all().count() == 1
+
+
+async def test_submit_identical_recipe_ignores_submitted_by_and_client_metadata(
+    tortoise_db: None,
+) -> None:
+    store = await _store_with_benchmark()
+    first_submission = _submission(spec_id="spec-attrib", accuracy=0.6)
+    second_submission = first_submission.model_copy(
+        update={
+            "submitted_by": "someone-else",
+            "client": ClientInfo(name="other-client", version="9.9.9", platform="other"),
+            "ran_at_local": datetime(2026, 6, 1, tzinfo=UTC),
+        }
+    )
+
+    first, _ = await store.submit(first_submission)
+    second, second_created = await store.submit(second_submission)
+
+    assert second_created is False
+    assert second.id == first.id
+    assert second.submitted_by == first.submitted_by
+    assert await Score.all().count() == 1
+
+
+async def test_submit_identical_recipe_ignores_version(tortoise_db: None) -> None:
+    # `version` is deliberately excluded from the content hash (see the WHY comment
+    # on _content_hash) — model_copy bypasses the Literal[1] validator so this proves
+    # the exclusion even though the public schema can't yet submit version=2 for real
+    # (OME-391 / C28).
+    store = await _store_with_benchmark()
+    first_submission = _submission(spec_id="spec-version", accuracy=0.65)
+    second_submission = first_submission.model_copy(update={"version": 2})
+
+    first, _ = await store.submit(first_submission)
+    second, second_created = await store.submit(second_submission)
+
+    assert second_created is False
+    assert second.id == first.id
+    assert await Score.all().count() == 1
+
+
+async def test_submit_identical_counts_dedupe_despite_different_accuracy_precision(
+    tortoise_db: None,
+) -> None:
+    # The route accepts any reported accuracy within 0.01 of correct/total, so the
+    # same result (2 of 3 correct) can arrive as 0.6666666667 or 0.67 — both must
+    # still dedupe, since the hash is derived from the counts, not the raw float
+    # (found in PR review, OME-391 / C28).
+    store = await _store_with_benchmark()
+    first_submission = _submission(spec_id="spec-precision", accuracy=0.75).model_copy(
+        update={"total_questions": 3, "correct_questions": 2, "accuracy": 0.6666666667}
+    )
+    second_submission = first_submission.model_copy(update={"accuracy": 0.67})
+
+    first, first_created = await store.submit(first_submission)
+    second, second_created = await store.submit(second_submission)
+
+    assert first_created is True
+    assert second_created is False
+    assert second.id == first.id
+    assert await Score.all().count() == 1
+
+
+async def test_submit_identical_recipe_dedupes_across_different_idempotency_keys(
+    tortoise_db: None,
+) -> None:
+    # The core C28 scenario: two clients each send their own Idempotency-Key for the
+    # same underlying recipe — the header alone would never catch this, only the
+    # content-hash backstop does (OME-391 / C28).
+    store = await _store_with_benchmark()
+
+    first, first_created = await store.submit(
+        _submission(spec_id="spec-multi-key", accuracy=0.55),
+        idempotency_key="client-a-key",
+    )
+    second, second_created = await store.submit(
+        _submission(spec_id="spec-multi-key", accuracy=0.55),
+        idempotency_key="client-b-key",
+    )
+
+    assert first_created is True
+    assert second_created is False
+    assert second.id == first.id
+    assert second.submitted_at == first.submitted_at
+    assert await Score.all().count() == 1
+
+
+async def test_submit_reused_key_after_content_hash_hit_stays_bound_to_original_score(
+    tortoise_db: None,
+) -> None:
+    # Regression for the bug found in PR review: a content-hash hit with an
+    # idempotency_key attached must bind that key permanently. Before the fix,
+    # "client-b-key" stayed unbound after hitting recipe A via content_hash, so a
+    # later, unrelated recipe B reusing "client-b-key" would silently create a new
+    # row AND rebind the key to it — meaning a third replay of the *original*
+    # client-b-key request would then wrongly return recipe B instead of recipe A
+    # (OME-391 / C28).
+    store = await _store_with_benchmark()
+    recipe_a = _submission(spec_id="spec-bind-a", accuracy=0.55)
+    recipe_b = _submission(spec_id="spec-bind-b", accuracy=0.9)
+
+    first, _ = await store.submit(recipe_a, idempotency_key="client-a-key")
+    second, second_created = await store.submit(recipe_a, idempotency_key="client-b-key")
+    assert second_created is False
+    assert second.id == first.id
+
+    third, third_created = await store.submit(recipe_b, idempotency_key="client-b-key")
+
+    assert third_created is False
+    assert third.id == first.id
+    assert await Score.all().count() == 1
+
+
+async def test_submit_same_recipe_different_provider_order_is_not_deduped(
+    tortoise_db: None,
+) -> None:
+    store = await _store_with_benchmark()
+
+    first, _ = await store.submit(
+        _submission(spec_id="spec-order", accuracy=0.77, providers=["openai", "gemini"])
+    )
+    second, second_created = await store.submit(
+        _submission(spec_id="spec-order", accuracy=0.77, providers=["gemini", "openai"])
+    )
+
+    assert second_created is True
+    assert second.id != first.id
+    assert await Score.all().count() == 2
+
+
+async def test_submit_different_accuracy_is_not_deduped(tortoise_db: None) -> None:
+    store = await _store_with_benchmark()
+
+    first, _ = await store.submit(_submission(spec_id="spec-diff", accuracy=0.3))
+    second, second_created = await store.submit(_submission(spec_id="spec-diff", accuracy=0.31))
+
+    assert second_created is True
+    assert second.id != first.id
+    assert await Score.all().count() == 2
+
+
 async def test_postgres_concurrent_idempotency_submissions_share_winner(
     tortoise_db: None,
 ) -> None:
+    # AIDEV-NOTE: this test currently only ever skips — see OME-430 for why
+    # (postgres_schema_database_url calls asyncio.run() inside an already-running
+    # event loop, and CI never sets SCOREBOARD_TEST_DATABASE_URL). Fix there, not here.
     if Tortoise.get_connection("default").capabilities.dialect != "postgres":
         pytest.skip("requires Postgres")
 
@@ -227,5 +394,21 @@ async def test_postgres_concurrent_idempotency_submissions_share_winner(
         ),
     )
 
-    assert len({result.id for result in results}) == 1
+    assert len({outcome.score.id for outcome in results}) == 1
+    assert await Score.all().count() == 1
+
+
+async def test_postgres_concurrent_identical_recipe_submissions_share_winner(
+    tortoise_db: None,
+) -> None:
+    # AIDEV-NOTE: see OME-430 — same dead-fixture issue as the test above.
+    if Tortoise.get_connection("default").capabilities.dialect != "postgres":
+        pytest.skip("requires Postgres")
+
+    store = await _store_with_benchmark()
+    results = await asyncio.gather(
+        *(store.submit(_submission(spec_id="spec-race", accuracy=0.66)) for _ in range(10)),
+    )
+
+    assert len({outcome.score.id for outcome in results}) == 1
     assert await Score.all().count() == 1

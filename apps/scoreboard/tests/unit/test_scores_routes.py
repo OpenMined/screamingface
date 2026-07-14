@@ -97,9 +97,12 @@ async def test_post_score_creates_new_row_201(score_client: AsyncClient) -> None
     assert body["verified_by_openmined"] is False
 
 
-async def test_post_score_without_idempotency_key_always_creates_new_row(
+async def test_post_score_without_idempotency_key_dedupes_identical_recipe(
     score_client: AsyncClient,
 ) -> None:
+    # WHY: dedup is server-enforced by recipe content hash, independent of any
+    # client-supplied header — a resubmitted identical recipe returns the existing
+    # row instead of creating a duplicate (OME-391 / C28).
     first = await score_client.post(
         "/v1/scores", json=_valid_payload(accuracy=0.5, correct_questions=2)
     )
@@ -108,8 +111,8 @@ async def test_post_score_without_idempotency_key_always_creates_new_row(
     )
 
     assert first.status_code == 201
-    assert second.status_code == 201
-    assert second.json()["id"] != first.json()["id"]
+    assert second.status_code == 200
+    assert second.json()["id"] == first.json()["id"]
 
 
 async def test_post_score_with_live_idempotency_key_returns_200(
@@ -136,7 +139,14 @@ async def test_post_score_with_expired_idempotency_key_creates_new_row(
 
     assert await ScoreStore().get_by_idempotency_key("expired-key") is None
 
-    second = await score_client.post("/v1/scores", json=_valid_payload(), headers=headers)
+    # A genuinely different recipe (not just a different key) — proves the expired
+    # key no longer blocks resubmission, without colliding with the unrelated
+    # content-hash dedup guard this test isn't exercising.
+    second = await score_client.post(
+        "/v1/scores",
+        json=_valid_payload(accuracy=1.0, correct_questions=4),
+        headers=headers,
+    )
 
     assert first.status_code == 201
     assert second.status_code == 201
