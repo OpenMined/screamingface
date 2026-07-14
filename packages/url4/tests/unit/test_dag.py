@@ -13,18 +13,23 @@ from url4.dag import (
     BarrierNode,
     BindingNode,
     ExecutionContext,
+    ExpandNode,
+    FanoutReduceNode,
+    GuardNode,
     JoinNode,
     LazyExprNode,
     MapNode,
     ProcessNode,
     RelUrlNode,
+    StructNode,
     TextNode,
     WebFetchNode,
     compile_expression,
     default_registry,
     run,
 )
-from url4.errors import CycleError, ParseError, ResolutionError
+from url4.errors import CollectionError, CycleError, ParseError, ResolutionError
+from url4.grammar import parse as grammar_parse
 from url4.io_static import StaticIOLayer
 from url4.nodes import ForeachDirectives, Text, Url
 
@@ -313,6 +318,17 @@ def test_collect_captures_errors_but_propagates_cancellation() -> None:
         node._collect([asyncio.CancelledError()], ctx)
 
 
+def test_skip_omits_errors_but_propagates_cancellation() -> None:
+    # nodes.py MapNode._skip(): the ;iteration.on_error=skip twin of
+    # _collect() above — a regular error is omitted from the results...
+    node = MapNode(body="x")
+    out = node._skip(["ok", ResolutionError("boom")])
+    assert out == ["ok"]
+    # ...but a CancelledError is a control-flow signal, never a row: it propagates.
+    with pytest.raises(asyncio.CancelledError):
+        node._skip([asyncio.CancelledError()])
+
+
 @pytest.mark.asyncio
 async def test_validate_uses_graph_registry_for_lazy_fragments() -> None:
     class Marker(Exception):
@@ -455,12 +471,380 @@ async def test_relative_url_intent_is_a_data_read_through_barrier() -> None:
     # expression), so it ALSO goes through the Barrier path — inner is a
     # RelUrlNode with is_expr=False. Pin that shape so the barrier branch stays
     # covered for the relative-URL form too.
-    io = RecordingIOLayer(fetch_map={"https://a": "A", "/doc": "DOC"})
     graph = compile_expression("(https://a)!/doc")
     intent = graph.sink.deps["intent"]
     assert isinstance(intent, BarrierNode)
     inner = intent.deps["inner"]
     assert isinstance(inner, RelUrlNode)
     assert inner.is_expr is False
+
+
+# --- coverage: nodes.py private helpers, reached through node/graph shapes ------
+
+
+class BoomNode:
+    """A hand-built node that always fails — for exercising guard/failure paths."""
+
+    deps: dict = {}
+
+    async def resolve(self, inputs, ctx) -> str:
+        raise ResolutionError("boom")
+
+
+@pytest.mark.asyncio
+async def test_as_text_treats_source_failure_as_empty_string() -> None:
+    # nodes.py _as_text(): a SourceFailure input renders as "", not str(failure)
+    # — reached here via a RelUrlNode whose optional "intent" dep failed.
+    node = RelUrlNode("/path", is_expr=True, deps={"intent": GuardNode(BoomNode(), optional=True)})
+    io = StaticIOLayer(fetch_map={"/path?q=()!": "RESULT"})
+    assert await run(node, io) == "RESULT"
+
+
+@pytest.mark.asyncio
+async def test_frame_skips_failed_optional_binding() -> None:
+    # nodes.py _frame(): a SourceFailure reference-edge input contributes no
+    # binding — the sibling's $name stays unbound and substitutes verbatim.
+    # Also exercises GuardNode.resolve()'s optional catch (a failing inner
+    # node becomes a SourceFailure value instead of propagating).
+    io = StaticIOLayer()  # no fetch mapping for https://x: the fetch fails
+    result = await run("(a=https://x;optional, use $a)!go", io)
+    assert result == "go\n\nuse $a"
+
+
+@pytest.mark.asyncio
+async def test_frame_binds_positional_pos_role() -> None:
+    # nodes.py _frame(): a "pos:N" role binds as $N, mirroring "bind:name" as
+    # $name — reached when a later unnamed source references an earlier named
+    # slot positionally.
+    io = StaticIOLayer(fetch_map={"https://x": "V"})
+    result = await run("(a=https://x, use $1)!go", io)
+    assert result == "go\n\nuse V"
+
+
+@pytest.mark.asyncio
+async def test_kind_of_classifies_url4_and_other_schemes() -> None:
+    # nodes.py _kind_of(): "url4://" classifies as kind "url4"; any other
+    # non-http(s) scheme ("s3://", …) classifies as "other".
+    io = StaticIOLayer(fetch_map={"url4://host/path": "U4", "s3://bucket/key": "S3"})
+    assert await run(WebFetchNode("url4://host/path"), io) == "U4"
+    assert await run(WebFetchNode("s3://bucket/key"), io) == "S3"
+
+
+@pytest.mark.asyncio
+async def test_decode_struct_rejects_field_without_colon() -> None:
+    # nodes.py _decode_struct(): a struct field missing a ":" separator raises
+    # CollectionError(code="malformed_source").
+    with pytest.raises(CollectionError) as exc_info:
+        await run(StructNode("{foo}"), RecordingIOLayer())
+    assert exc_info.value.code == "malformed_source"
+
+
+@pytest.mark.asyncio
+async def test_guard_retries_transient_error_then_raises_last() -> None:
+    # nodes.py GuardNode._attempt(): a transient Url4Error (permanent=False)
+    # retries up to `retries` extra attempts, then raises the last one.
+    class CountingBoom:
+        deps: dict = {}
+
+        def __init__(self) -> None:
+            self.attempts = 0
+
+        async def resolve(self, inputs, ctx) -> str:
+            self.attempts += 1
+            raise ResolutionError("transient boom")
+
+    inner = CountingBoom()
+    with pytest.raises(ResolutionError, match="transient boom"):
+        await run(GuardNode(inner, retries=2), RecordingIOLayer())
+    assert inner.attempts == 3
+
+
+@pytest.mark.asyncio
+async def test_guard_does_not_retry_permanent_error() -> None:
+    # nodes.py GuardNode._attempt(): a permanent error raises immediately, on
+    # the first attempt, even though retries is configured.
+    class CountingBoom:
+        deps: dict = {}
+
+        def __init__(self) -> None:
+            self.attempts = 0
+
+        async def resolve(self, inputs, ctx) -> str:
+            self.attempts += 1
+            raise ResolutionError("permanent boom", permanent=True)
+
+    inner = CountingBoom()
+    with pytest.raises(ResolutionError, match="permanent boom"):
+        await run(GuardNode(inner, retries=5), RecordingIOLayer())
+    assert inner.attempts == 1
+
+
+@pytest.mark.asyncio
+async def test_guard_timeout_raises_resolution_error() -> None:
+    # nodes.py GuardNode._once(): a ";t=" timeout wrapping a slow inner node
+    # raises ResolutionError(code="timeout") once the timeout elapses.
+    class SlowNode:
+        deps: dict = {}
+
+        async def resolve(self, inputs, ctx) -> str:
+            await asyncio.sleep(10)
+            return "never"
+
+    with pytest.raises(ResolutionError) as exc_info:
+        await run(GuardNode(SlowNode(), timeout=0.05), RecordingIOLayer())
+    assert exc_info.value.code == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_gather_expanded_json_stringifies_named_binding() -> None:
+    # nodes.py _gather_expanded(): a named expanded source's elements are
+    # JSON-stringified into g.named[name] (so a $name[i] field path can select
+    # one element, spec §5.3.12.5).
+    io = StaticIOLayer(fetch_map={"https://list": '["x", "y"]'})
+    result = await run("(a=https://list;expand, use $a)!go", io)
+    assert result == "go\n\nx\ny\nuse x\ny"
+
+
+@pytest.mark.asyncio
+async def test_quorum_not_met_raises_resolution_error() -> None:
+    # nodes.py _check_quorum(): fewer resolved sources than the configured
+    # quorum raises ResolutionError(code="quorum_not_met").
+    io = StaticIOLayer(fetch_map={"https://a": "A"})
+    with pytest.raises(ResolutionError) as exc_info:
+        await run("(https://a, https://missing;optional)!'go';quorum=2", io)
+    assert exc_info.value.code == "quorum_not_met"
+
+
+@pytest.mark.asyncio
+async def test_join_node_skips_source_failure_part() -> None:
+    # nodes.py JoinNode.resolve(): a SourceFailure dependency contributes no
+    # part to the join.
+    graph = JoinNode(
+        deps={
+            "part:0": TextNode("A"),
+            "part:1": GuardNode(BoomNode(), optional=True),
+            "part:2": TextNode("B"),
+        }
+    )
+    assert await run(graph, RecordingIOLayer()) == "A\nB"
+
+
+@pytest.mark.asyncio
+async def test_run_all_success_path_returns_row_results() -> None:
+    # nodes.py MapNode._run_all(): the success path (no row errors,
+    # ;iteration.on_error=fail) returns every row's result, in order.
+    io = StaticIOLayer(fetch_map={"https://data": '["1", "2", "3"]'})
+    result = await run("https://data*($item);iteration.on_error=fail", io)
+    assert json.loads(result) == ["1", "2", "3"]
+
+
+class NoHoldingsIOLayer:
+    """An IOLayer that does not even implement fetch_holdings (unlike
+    StaticIOLayer(), which always duck-types as SupportsHoldings and raises
+    its OWN self_ref_on_non_url4/identity_ref_on_non_url4 error internally —
+    never reaching HoldingsNode.resolve()'s own port-support check)."""
+
+    async def fetch(self, target: str, *, relative: bool) -> str:
+        raise ResolutionError(f"no fetch mapping for {target!r}")
+
+
+@pytest.mark.asyncio
+async def test_holdings_node_without_port_support_fails() -> None:
+    # nodes.py HoldingsNode.resolve(): an adapter that lacks fetch_holdings
+    # entirely fails the isinstance(ctx.io, SupportsHoldings) check here,
+    # raising self_ref_on_non_url4 / identity_ref_on_non_url4 permanently.
+    io = NoHoldingsIOLayer()
+    with pytest.raises(ResolutionError) as exc_info:
+        await run("(@)!'q'", io)
+    assert exc_info.value.code == "self_ref_on_non_url4"
+    assert exc_info.value.permanent is True
+
+    with pytest.raises(ResolutionError) as exc_info:
+        await run("(@emily)!'q'", io)
+    assert exc_info.value.code == "identity_ref_on_non_url4"
+
+
+# --- coverage: compiler.py private helpers, reached through compile_expression --
+
+
+@pytest.mark.asyncio
+async def test_lowering_registry_copy_is_independent() -> None:
+    # compiler.py LoweringRegistry.copy(): mutating the copy's lowerers must
+    # not affect the original registry's.
+    original = default_registry()
+    copy = original.copy()
+    copy.register(Url, lambda node, edges, reg: TextNode("OVERRIDDEN"))
+    io = RecordingIOLayer(fetch_map={"https://x": "V"})
+    result = await run("https://x!go", io, registry=original)
+    assert result == "go\n\nV"
+
+
+def test_expand_annotation_wraps_in_expand_node() -> None:
+    # compiler.py _lower_source(): the ";expand" annotation wraps the value in
+    # an ExpandNode.
+    graph = compile_expression("(https://list;expand)!go")
+    assert isinstance(graph.sink.deps["src:0"], ExpandNode)
+
+
+def test_guard_options_produce_guard_node_for_each_annotation() -> None:
+    # compiler.py _guard_options(): ";optional" / ";t=" / ";retry=" each
+    # produce a non-default guard, so the source lowers through a GuardNode.
+    for source in ("https://x;optional", "https://x;t=5", "https://x;retry=2"):
+        graph = compile_expression(f"({source})!go")
+        assert isinstance(graph.sink.deps["src:0"], GuardNode)
+
+
+def test_annotation_number_uncastable_raises_parse_error() -> None:
+    # compiler.py _annotation_number(): an uncastable ";t=" / ";retry=" value
+    # raises ParseError at compile time, not at execution.
+    with pytest.raises(ParseError):
+        compile_expression("(https://x;t=notanumber)!go")
+    with pytest.raises(ParseError):
+        compile_expression("(https://x;retry=abc)!go")
+
+
+def test_accept_annotation_sets_node_accept() -> None:
+    # compiler.py _push_label(): ";accept=" on a fetch-like source sets the
+    # node's `accept` attribute.
+    graph = compile_expression("(https://x;accept=application/json)!go")
+    node = graph.sink.deps["src:0"]
+    assert isinstance(node, WebFetchNode)
+    assert node.accept == "application/json"
+
+
+def test_scalar_weight_extracts_default_from_structured_weight() -> None:
+    # compiler.py _scalar_weight(): a structured weight dict's fan-out label
+    # scalar comes from its "_default" key.
+    ast = grammar_parse("claude:(_default:0.4):/solve(ctx)!go")
+    graph = compile_expression(ast)
+    assert isinstance(graph.sink, RelUrlNode)
+    assert graph.sink.weight == 0.4
+
+
+def test_quorum_of_skips_non_quorum_params() -> None:
+    # compiler.py _quorum_of(): a non-quorum param is skipped via `continue`,
+    # falling through to the unbounded (None) default.
+    graph = compile_expression("(https://x)!go;t=60")
+    assert isinstance(graph.sink, ProcessNode)
+    assert graph.sink.quorum is None
+
+
+def test_quorum_of_all_is_explicitly_unbounded() -> None:
+    # compiler.py _quorum_of(): "quorum=all" is the explicit spelling of "no
+    # cap", same as omitting quorum entirely.
+    graph = compile_expression("(https://x)!go;quorum=all")
+    assert isinstance(graph.sink, ProcessNode)
+    assert graph.sink.quorum is None
+
+
+def test_quorum_of_uncastable_raises_parse_error() -> None:
+    # compiler.py _quorum_of(): a non-integer, non-"all" quorum value raises
+    # ParseError at compile time.
+    with pytest.raises(ParseError, match="invalid quorum"):
+        compile_expression("(https://x)!go;quorum=notanumber")
+
+
+@pytest.mark.asyncio
+async def test_fanout_call_unwraps_guarded_relative_expression() -> None:
+    # compiler.py _fanout_call(): a guarded relative-expression call
+    # (";optional" etc.) is still recognized as a fan-out element through the
+    # GuardNode wrapper, so the group still compiles to fan-out+reduce.
+    io = StaticIOLayer(
+        fetch_map={},
+        routes={"/a": lambda c, i: "A", "/b": lambda c, i: "B", "/claude": lambda c, i: i},
+    )
+    graph = compile_expression("(/a()!x;optional, /b()!y)!combine")
+    assert isinstance(graph.sink, FanoutReduceNode)
     result = await run(graph, io)
-    assert result == "DOC\n\nA"
+    assert "A" in result and "B" in result
+
+
+def test_is_lazy_group_detects_bare_paren_group_without_tail() -> None:
+    # compiler.py _is_lazy_group(): a bare "(...)" segment with no "!tail" is
+    # ALSO a lazy group (distinct from the "(...)!tail" shape) — it defers to
+    # a LazyExprNode thunk rather than being parsed inline.
+    graph = compile_expression("(a, (nested, stuff))!go")
+    lazies = [node for node in graph.walk() if isinstance(node, LazyExprNode)]
+    assert [lazy.text for lazy in lazies] == ["(nested, stuff)"]
+
+
+@pytest.mark.asyncio
+async def test_group_binding_rhs_lowers_to_lazy_binding_thunk() -> None:
+    # compiler.py _slot_from_text() / _make_binding_thunk(): a binding whose
+    # RHS is a lazy group ("name=(...)!x") produces a BindingNode wrapping a
+    # LazyExprNode thunk, compiled and executed only when the binding resolves.
+    io = StaticIOLayer(fetch_map={"https://x": "X"})
+    graph = compile_expression("(g=(https://x)!'label', use $g)!combine")
+    binding = graph.sink.deps["src:0"]
+    assert isinstance(binding, BindingNode)
+    assert isinstance(binding.deps["value"], LazyExprNode)
+    result = await run(graph, io)
+    assert result == "combine\n\nuse label\n\nX"
+
+
+@pytest.mark.asyncio
+async def test_empty_collection_text_lowers_to_empty_text_node() -> None:
+    # compiler.py _collection_dag(): an empty-string collection (e.g. "*(x)"
+    # with no source before the "*") lowers to TextNode(""), so iteration sees
+    # zero rows (spec §5.3.9).
+    graph = compile_expression("*(x)")
+    map_node = graph.sink.deps["rows"]
+    collection = map_node.deps["collection"]
+    assert isinstance(collection, TextNode)
+    assert collection.template == ""
+    result = await run(graph, StaticIOLayer())
+    assert json.loads(result) == []
+
+
+def test_refs_of_ast_extracts_relexpr_context_and_struct_references() -> None:
+    # compiler.py _refs_of_ast(): on the parse-tree (AST) compile path, a
+    # RelExpr's context (a relative/remote call) and a StructObject's raw text
+    # are both scanned for $ references — the text-compile path never reaches
+    # this function (it uses find_references directly per segment).
+    ast = grammar_parse("(data=https://d, /path($data)!go, {key: $data})!combine")
+    graph = compile_expression(ast)
+    call = graph.sink.deps["src:1"]
+    struct = graph.sink.deps["src:2"]
+    assert isinstance(call, RelUrlNode)
+    assert "bind:data" in call.deps
+    assert isinstance(struct, StructNode)
+    assert "bind:data" in struct.deps
+
+
+def test_refs_of_ast_extracts_standalone_var_ref() -> None:
+    # compiler.py _refs_of_ast(): a standalone $name (a VarRef source, not
+    # embedded in Text/context/struct) is itself scanned for its reference —
+    # the AST-path twin of find_references picking up a bare "$name" segment.
+    ast = grammar_parse("(data=https://d, $data)!combine")
+    graph = compile_expression(ast)
+    ref = graph.sink.deps["src:1"]
+    assert isinstance(ref, TextNode)
+    assert "bind:data" in ref.deps
+
+
+def test_graph_walk_deduplicates_diamond_dependency() -> None:
+    # compiler.py Graph.walk(): a node reached via multiple paths (a diamond
+    # dependency) is yielded exactly once.
+    graph = compile_expression("(a=https://x, use $a, also $a)!both: $a")
+    binding = graph.sink.deps["src:0"]
+    assert list(graph.walk()).count(binding) == 1
+
+
+def test_graph_walk_traverses_guard_node_inner() -> None:
+    # compiler.py Graph.walk(): a GuardNode's `.inner` is walked too (it's an
+    # attribute, not a `deps` edge), so a guarded subtree's nodes are reachable.
+    graph = compile_expression("(https://x;optional)!go")
+    guard = graph.sink.deps["src:0"]
+    assert isinstance(guard, GuardNode)
+    assert guard.inner in list(graph.walk())
+
+
+def test_validate_parses_reducer_instruction() -> None:
+    # compiler.py Graph.validate(): a ReduceNode's reducer template is parsed
+    # by validate() too, not just LazyExprNode fragments — a malformed reducer
+    # fails fast at validate() instead of only surfacing at execution.
+    good = compile_expression("(https://data*(x))!/reduce(all)")
+    good.validate()  # does not raise
+    bad = compile_expression("(https://data*(x))!/reduce((bad")
+    with pytest.raises(ParseError):
+        bad.validate()

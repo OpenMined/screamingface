@@ -227,3 +227,154 @@ async def test_dual_wire_conventions_are_codec_owned():
     assert decode_subrequest_http(encoded) == ("a=https://x", "'go'")
     assert decode_expression_http(raw) == raw
     assert decode_expression_http(encoded) == raw
+
+
+# --- holdings / identity registration errors ---------------------------------------------
+
+
+async def test_holdings_duplicate_registration_raises():
+    n = Url4Node("dup")
+
+    @n.holdings(collection="notes")
+    def notes(collection: str | None) -> str:
+        return "x"
+
+    with pytest.raises(ValueError, match="already registered"):
+
+        @n.holdings(collection="notes")
+        def notes2(collection: str | None) -> str:
+            return "y"
+
+
+async def test_identity_invalid_name_raises():
+    n = Url4Node("badid")
+
+    with pytest.raises(ValueError, match="invalid or duplicate identity name"):
+
+        @n.identity("bad-name")
+        def handler(collection: str | None) -> str:
+            return "x"
+
+
+async def test_identity_duplicate_registration_raises():
+    n = Url4Node("dupid")
+
+    @n.identity("emily")
+    def emily(collection: str | None) -> str:
+        return "x"
+
+    with pytest.raises(ValueError, match="invalid or duplicate identity name"):
+
+        @n.identity("emily")
+        def emily2(collection: str | None) -> str:
+            return "y"
+
+
+# --- the IOLayer ports, directly -----------------------------------------------------------
+
+
+async def test_fetch_absolute_delegates_to_outbound(node):
+    # relative=False with an absolute target skips node dispatch entirely and
+    # delegates to the injected outbound io layer.
+    assert await node.fetch("https://x", relative=False) == "ARTICLE"
+
+
+async def test_fetch_holdings_self_with_no_handler_registered_raises():
+    n = Url4Node("noholdings")
+    with pytest.raises(ResolutionError, match="serves no self holdings"):
+        await n.fetch_holdings(None, "notes")
+
+
+# --- ASGI lifespan -------------------------------------------------------------------------
+
+
+async def test_asgi_lifespan_startup_and_shutdown(node):
+    app = node.asgi()
+    sent = []
+    messages = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
+
+    async def receive():
+        return next(messages)
+
+    async def send(message):
+        sent.append(message)
+
+    await app({"type": "lifespan"}, receive, send)
+
+    assert sent == [
+        {"type": "lifespan.startup.complete"},
+        {"type": "lifespan.shutdown.complete"},
+    ]
+
+
+async def test_lifespan_helper_directly_sends_complete_messages():
+    from url4.server import _lifespan
+
+    sent = []
+    messages = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
+
+    async def receive():
+        return next(messages)
+
+    async def send(message):
+        sent.append(message)
+
+    await _lifespan(receive, send)
+
+    assert sent == [
+        {"type": "lifespan.startup.complete"},
+        {"type": "lifespan.shutdown.complete"},
+    ]
+
+
+# --- lazy-owned outbound lifecycle ----------------------------------------------------------
+
+
+async def test_outbound_io_creates_and_caches_http_layer():
+    n = Url4Node("cache")
+    first = n._outbound_io()
+    assert isinstance(first, HttpIOLayer)
+    second = n._outbound_io()
+    assert second is first
+
+
+async def test_aclose_closes_lazily_created_outbound():
+    n = Url4Node("lazy")
+    first = n._outbound_io()
+    assert n._owned_outbound is first
+    await n.aclose()
+    assert n._owned_outbound is None
+    # a fresh call after close creates a new instance, not the closed one
+    second = n._outbound_io()
+    assert second is not first
+
+
+async def test_aenter_returns_self(node):
+    async with node as n:
+        assert n is node
+
+
+async def test_aexit_closes_lazily_created_outbound():
+    n = Url4Node("lazy2")
+    async with n:
+        n._outbound_io()
+        assert n._owned_outbound is not None
+    assert n._owned_outbound is None
+
+
+# --- error-to-status mapping -----------------------------------------------------------------
+
+
+async def test_status_for_transient_resolution_error_is_502():
+    from url4.server import _status_for
+
+    exc = ResolutionError("upstream hiccup")
+    assert exc.permanent is False
+    assert _status_for(exc) == 502
+
+
+async def test_status_for_unmapped_code_falls_back_to_500():
+    from url4.server import _status_for
+
+    exc = Url4Error("something odd", code="something_else")
+    assert _status_for(exc) == 500

@@ -404,6 +404,196 @@ def test_unknown_node_type_raises():
         render(object())  # type: ignore[arg-type]
 
 
+# --- additional error/validation branches (OME-397 coverage follow-up) -----------------
+
+
+def test_broadcast_without_intent_raises():
+    node = Expression(sources=(Url("https://x"),), intent=None, broadcast=True)
+    with pytest.raises(RenderError, match="broadcast"):
+        render(node)
+
+
+@pytest.mark.parametrize("key", ["broadcast", "iteration.concurrency", "foreach.slice"])
+def test_non_canonical_param_key_raises(key):
+    # broadcast/iteration.*/foreach.* keys fold into dedicated node fields — they
+    # are never legal as literal Expression.params entries.
+    node = Expression(sources=(Url("https://x"),), intent=Text("go"), params=((key, None),))
+    with pytest.raises(RenderError, match="non-canonical"):
+        render(node)
+
+
+def test_source_level_param_on_nested_expression_raises():
+    # "mode" is exclusively source-level (§8.1.3); on a NESTED (non-top)
+    # Expression it has nowhere faithful to reparse to.
+    inner = Expression(sources=(Url("https://x"),), intent=Text("go"), params=(("mode", "agent"),))
+    outer = Expression(sources=(inner,))
+    with pytest.raises(RenderError, match="source-level"):
+        render(outer)
+
+
+def test_non_leaf_intent_raises():
+    # intent_atom() only produces Text / Url / RelUrl; anything else has no
+    # intent-position surface form.
+    with pytest.raises(RenderError, match="cannot be an intent"):
+        render(Expression(sources=(Url("https://x"),), intent=VarRef("a")))
+
+
+def test_relurl_intent_depth0_semicolon_raises():
+    with pytest.raises(RenderError, match="depth-0 ';'"):
+        render(Expression(sources=(Url("https://x"),), intent=RelUrl("/a;b")))
+
+
+def test_reserved_source_name_raises():
+    with pytest.raises(RenderError, match="invalid source name"):
+        render(Source(value=Url("https://x"), name="src", weight=0.5))
+
+
+def test_invalid_budget_key_raises():
+    with pytest.raises(RenderError, match="invalid budget key"):
+        render(Source(value=Url("https://x"), name="a", budgets=(("src", "4000"),)))
+
+
+def test_url_missing_scheme_raises():
+    with pytest.raises(RenderError, match="scheme"):
+        render(Url("not-a-url"))
+
+
+def test_relurl_missing_leading_slash_raises():
+    with pytest.raises(RenderError, match="must start with"):
+        render(RelUrl("no-slash"))
+
+
+def test_uri_unbalanced_closing_paren_raises():
+    # a stray ')' (no matching '(') drives the depth counter negative mid-scan.
+    with pytest.raises(RenderError, match="unbalanced parentheses"):
+        render(Url("https://x)"))
+
+
+def test_invalid_varref_name_raises():
+    with pytest.raises(RenderError, match="invalid variable name"):
+        render(VarRef("bad-name"))
+
+
+def test_invalid_varref_path_segment_raises():
+    with pytest.raises(RenderError, match="invalid field-path segment"):
+        render(VarRef("item", ("bad seg",)))
+
+
+@pytest.mark.parametrize(
+    ("node", "match"),
+    [
+        (IdentityRef("bad name"), "invalid identity name"),
+        (IdentityRef("emily", "my notes"), "invalid identity collection"),
+    ],
+)
+def test_identity_ref_validation_raises(node, match):
+    with pytest.raises(RenderError, match=match):
+        render(node)
+
+
+@pytest.mark.parametrize("raw", ["not-braces", "{a: 1", "{a:1}{b:2}"])
+def test_struct_object_unbalanced_raises(raw):
+    with pytest.raises(RenderError, match="not one balanced"):
+        render(StructObject(raw))
+
+
+@pytest.mark.parametrize("authority", ["", "bad/host", "bad?host", "bad'host"])
+def test_remoteexpr_invalid_authority_raises(authority):
+    with pytest.raises(RenderError, match="invalid remote authority"):
+        render(RemoteExpr(authority=authority, path="/v1"))
+
+
+def test_expression_path_invalid_raises():
+    with pytest.raises(RenderError, match="invalid expression path"):
+        render(RelExpr(path="noslash"))
+
+
+def test_expression_context_unbalanced_raises():
+    with pytest.raises(RenderError, match="unbalanced or unstripped"):
+        render(RelExpr(path="/claude", context="a(b"))
+
+
+def test_top_iteration_descriptored_collection_reducer_raises():
+    # §5.3.10 — the reduce-over-iteration decode rejects a descriptored
+    # collection (the descriptor would attribute the iteration in the
+    # enclosing expression instead), so this shape has no text form.
+    it = Iteration(
+        collection=Source(value=Url("https://x"), weight=0.5), body="x=$item", reducer="'r'"
+    )
+    with pytest.raises(RenderError, match="descriptored collection"):
+        render(it)
+
+
+def test_top_iteration_reducer_depth0_semicolon_raises():
+    it = Iteration(collection=Url("https://x"), body="x=$item", reducer="a;b")
+    with pytest.raises(RenderError, match="depth-0 ';'"):
+        render(it)
+
+
+def test_iteration_collection_cannot_be_iteration_raises():
+    inner = Iteration(collection=Url("https://x"), body="a=1")
+    outer = Iteration(collection=inner, body="b=2")
+    with pytest.raises(RenderError, match="cannot be another iteration's collection"):
+        render(outer)
+
+
+def test_iteration_body_unbalanced_raises():
+    with pytest.raises(RenderError, match="unbalanced"):
+        render(Iteration(collection=Url("https://x"), body="(a=1"))
+
+
+def test_iteration_intent_depth0_semicolon_raises():
+    with pytest.raises(RenderError, match="depth-0 ';'"):
+        render(Iteration(collection=Url("https://x"), body="x=$item", intent="a;b"))
+
+
+def test_nested_reduce_over_iteration_in_value_position_raises():
+    # Distinct from test_iteration_reducer_in_value_position_raises above: that
+    # case trips the TOP-LEVEL decode-hazard guard before the iteration is even
+    # rendered. Here the reducer'd iteration is a bare source of a NESTED
+    # (non-top) Expression, which skips the hazard check entirely and reaches
+    # _check_value_iteration's own reducer guard.
+    inner_it = Iteration(collection=Url("https://x"), body="a=$item", reducer="'r'")
+    nested = Expression(sources=(inner_it,))
+    outer = Expression(sources=(nested,))
+    with pytest.raises(RenderError, match="top-level envelope"):
+        render(outer)
+
+
+# AIDEV-NOTE: _render_value_iteration's non-default-directives guard
+# (render.py lines 518-524) is unreachable through render() as currently
+# structured — every source-position Iteration (bare, Binding-wrapped,
+# Source-wrapped, or a bare Expression-source element) is intercepted by
+# _source_value_and_tail's own `isinstance(value, Iteration)` branch, which
+# calls _render_iteration_core directly and serializes directives onto the
+# source's ';' tail instead of ever calling _render_value(iteration). Verified
+# empirically (coverage never marks lines 518-524 hit regardless of nesting
+# position); skipped per the spec's fallback for parser-only-reachable shapes.
+
+
+def test_empty_struct_annotation_raises():
+    with pytest.raises(RenderError, match="cannot be empty"):
+        render(Source(value=Url("https://x"), name="a", weight={}))
+
+
+def test_struct_value_nested_three_levels_raises():
+    # Distinct from test_overdeep_struct_budget_raises above: that case is
+    # unnamed+weightless+budgeted and actually raises via the sugar-ambiguity
+    # guard before struct nesting is ever checked. Naming the source here lets
+    # the render reach the §24.4.6 two-level nesting check itself.
+    node = Source(
+        value=Url("https://x"), name="a", budgets=(("tokens", {"top": {"mid": {"leaf": 1}}}),)
+    )
+    with pytest.raises(RenderError, match="nested deeper than two levels"):
+        render(node)
+
+
+def test_invalid_struct_value_type_raises():
+    node = Source(value=Url("https://x"), name="a", budgets=(("tokens", {"key": [1, 2]}),))
+    with pytest.raises(RenderError, match="invalid structured annotation value"):
+        render(node)
+
+
 # --- the corpus: every spec construct round-trips --------------------------------------
 
 CORPUS = [
