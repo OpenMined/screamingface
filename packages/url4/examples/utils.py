@@ -26,8 +26,8 @@ import html
 
 import graphviz
 
-from url4 import StaticIOLayer, compile_expression, run
-from url4.dag import DagNode, Graph
+from url4 import StaticIOLayer
+from url4.dag import DagNode, Graph, compile_expression, run
 
 # category -> (fill, border). Dark text on a light fill reads on any theme.
 _STYLE = {
@@ -71,17 +71,41 @@ def _p_map(n) -> str:
     return _trunc(n.body, 24) + tail
 
 
+def _p_holdings(n) -> str:
+    ref = f"@{n.identity}" if n.identity else "@"
+    return _trunc(f"{ref}/{n.collection}" if n.collection else ref)
+
+
+def _p_guard(n) -> str:
+    parts = []
+    if n.optional:
+        parts.append("optional")
+    if n.timeout is not None:
+        parts.append(f"t={n.timeout:g}")
+    if n.retries:
+        parts.append(f"retry={n.retries}")
+    return ";".join(parts)
+
+
 # class name -> (display, category, param-formatter or None)
 _TYPE_META = {
     "WebFetchNode": ("WebFetch", "source", lambda n: _trunc(n.url)),
     "RelUrlNode": ("RelUrl", "source", _p_relurl),
+    "RemoteFetchNode": ("Remote", "source", lambda n: _trunc(f"{n.authority}{n.path}")),
+    "HoldingsNode": ("Holdings", "source", _p_holdings),
     "TextNode": ("Text", "literal", lambda n: _trunc(repr(n.template))),
+    "StructNode": ("Struct", "literal", lambda n: _trunc(n.raw)),
     "BindingNode": ("Binding", "binding", lambda n: f"{n.name} {n.kind}"),
     "FanoutReduceNode": ("FanoutReduce", "dispatch", lambda n: f"{len(n.meta)} call(s)"),
+    "GuardNode": ("Guard", "dispatch", _p_guard),
     "LazyExprNode": ("LazyExpr", "lazy", lambda n: _trunc(n.text)),
     "MapNode": ("Map", "collection", _p_map),
     "ReduceNode": ("Reduce", "collection", lambda n: _trunc(n.reducer)),
+    "CollectNode": ("Collect", "collection", None),
+    "ExpandNode": ("Expand", "collection", None),
+    "InlineCollectionNode": ("InlineColl", "collection", lambda n: f"{len(n.slots)} elem"),
     "MergeNode": ("Merge", "merge", None),
+    "BroadcastCollectNode": ("Broadcast", "merge", lambda n: f"{len(n.names)} src"),
     "JoinNode": ("Join", "merge", None),
     "GatherNode": ("Gather", "merge", None),
     "ProcessNode": ("Process", "merge", None),
