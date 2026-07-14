@@ -6,7 +6,8 @@ from __future__ import annotations
 import pytest
 from conftest import RecordingIOLayer
 
-from url4 import StaticIOLayer, run
+from url4 import StaticIOLayer
+from url4.dag import run
 from url4.errors import ResolutionError
 
 

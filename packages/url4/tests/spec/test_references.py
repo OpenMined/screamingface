@@ -7,8 +7,9 @@ import json
 
 import pytest
 
-from url4 import StaticIOLayer, run
+from url4 import StaticIOLayer
 from url4.context import Context
+from url4.dag import run
 from url4.errors import ScopeError
 
 RECORD = '{"author": {"name": "Ada"}, "tags": ["t1", "t2"], "reviews": [{"text": "Great"}]}'

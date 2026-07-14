@@ -32,16 +32,17 @@ from __future__ import annotations
 
 import importlib
 import json
-import re
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from inspect import isawaitable
+from inspect import isawaitable, signature
+from typing import overload
 
 from url4.client import Url4Result
 from url4.context import Context
 from url4.dag import DEFAULT_PROCESSOR, DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
 from url4.dag.node import ProcessFn, default_process
 from url4.errors import ResolutionError, Url4Error
+from url4.grammar import _IDENTITY_NAME_RE
 from url4.io_layer import FetchRequest, FetchResult, IOLayer, fetch_result
 from url4.nodes import Node
 from url4.render import render
@@ -50,10 +51,6 @@ from url4.subrequest import (
     decode_subrequest_http,
     extract_expression_params,
 )
-
-# WHY: \w+ matches the grammar's identity-name production (grammar._IDENTITY_RE
-# is r"@(\w+)") — one rule for what counts as a principal name.
-_IDENTITY_NAME_RE = re.compile(r"\w+")
 
 # Transport-level query params a node consumes itself rather than re-attaching
 # to the expression (spec §11.6.3); `processor` is expression-bearing and its
@@ -88,8 +85,11 @@ class Request:
 
 
 EndpointHandler = Callable[[Request], str | Awaitable[str]]
-HoldingsHandler = Callable[[str | None], str | Awaitable[str]]
-DataProvider = str | Callable[[], str | Awaitable[str]]
+# handlers may take the requested collection or nothing at all
+HoldingsHandler = Callable[[str | None], str | Awaitable[str]] | Callable[[], str | Awaitable[str]]
+_HoldingsPort = Callable[[str | None], str | Awaitable[str]]
+DataCallable = Callable[[], str | Awaitable[str]]
+DataProvider = str | DataCallable
 
 
 class Url4Node:
@@ -106,7 +106,7 @@ class Url4Node:
         *,
         eval_path: str = "/v1",
         default_processor: str = DEFAULT_PROCESSOR,
-        process: ProcessFn = default_process,
+        process_fn: ProcessFn = default_process,
         outbound: IOLayer | None = None,
         data: Mapping[str, DataProvider] | None = None,
         concurrency: int | None = DEFAULT_RUN_CONCURRENCY,
@@ -115,17 +115,28 @@ class Url4Node:
         self.name = name
         self._eval_path = eval_path
         self._processor = default_processor
-        self._process = process
+        self._process = process_fn
         self._outbound = outbound
         self._owned_outbound: IOLayer | None = None
         self._concurrency = concurrency
         self._strict_fields = strict_fields
         self._endpoints: dict[str, EndpointHandler] = {}
         self._data: dict[str, DataProvider] = {}
-        self._self_holdings: dict[str | None, HoldingsHandler] = {}
-        self._identities: dict[str, HoldingsHandler] = {}
+        self._data_media_types: dict[str, str] = {}
+        self._self_holdings: dict[str | None, _HoldingsPort] = {}
+        self._identities: dict[str, _HoldingsPort] = {}
         for path, provider in (data or {}).items():
-            self.data_route(path, provider)
+            self.data(path, provider)
+
+    def __repr__(self) -> str:
+        counts = (
+            (len(self._endpoints), "endpoint", "endpoints"),
+            (len(self._self_holdings), "holdings shelf", "holdings shelves"),
+            (len(self._identities), "identity", "identities"),
+            (len(self._data), "data route", "data routes"),
+        )
+        listed = ", ".join(f"{n} {one if n == 1 else many}" for n, one, many in counts if n)
+        return f"<Url4Node {self.name!r}: {listed or 'empty'}>"
 
     # --- registration ----------------------------------------------------------
 
@@ -139,28 +150,75 @@ class Url4Node:
 
         return register
 
-    def data_route(self, path: str, provider: DataProvider) -> None:
-        """Serve a plain data read at ``path`` — static text or a callable."""
+    @overload
+    def data(
+        self, path: str, *, media_type: str | None = None
+    ) -> Callable[[DataCallable], DataCallable]: ...
+
+    @overload
+    def data(self, path: str, provider: DataProvider, *, media_type: str | None = None) -> None: ...
+
+    def data(
+        self, path: str, provider: DataProvider | None = None, *, media_type: str | None = None
+    ) -> Callable[[DataCallable], DataCallable] | None:
+        """Serve a plain data read at ``path`` — static text, a callable, or a decorator.
+
+        ``node.data("/api/rows", '[…]')`` registers a value directly;
+        ``@node.data("/api/rows")`` decorates a provider function. ``media_type``
+        declares the route's Content-Type so a collection served here parses by
+        its declared type (spec §5.3.7) rather than being sniffed — the node's
+        :meth:`fetch_ex` reports it when it serves this route.
+        """
         self._check_routable(path)
-        self._data[path] = provider
+        if media_type is not None:
+            self._data_media_types[path] = media_type
+        if provider is not None:
+            self._data[path] = provider
+            return None
 
-    def holdings(
-        self, collection: str | None = None
-    ) -> Callable[[HoldingsHandler], HoldingsHandler]:
-        """Register the node's own ``@`` holdings (optionally per collection)."""
-        if collection in self._self_holdings:
-            raise ValueError(f"holdings for collection {collection!r} already registered")
-
-        def register(handler: HoldingsHandler) -> HoldingsHandler:
-            self._self_holdings[collection] = handler
-            return handler
+        def register(fn: DataCallable) -> DataCallable:
+            self._data[path] = fn
+            return fn
 
         return register
+
+    @overload
+    def holdings(self, collection: HoldingsHandler) -> HoldingsHandler: ...
+
+    @overload
+    def holdings(
+        self, collection: str | None = None
+    ) -> Callable[[HoldingsHandler], HoldingsHandler]: ...
+
+    def holdings(
+        self, collection: str | HoldingsHandler | None = None
+    ) -> Callable[[HoldingsHandler], HoldingsHandler] | HoldingsHandler:
+        """Register the node's own ``@`` holdings (optionally per collection).
+
+        Use bare (``@node.holdings``), default (``@node.holdings()``), or per
+        shelf (``@node.holdings("science")``). Handlers may take the requested
+        collection or nothing at all.
+        """
+        if callable(collection):  # bare @node.holdings
+            return self._register_holdings(None, collection)
+
+        def register(handler: HoldingsHandler) -> HoldingsHandler:
+            return self._register_holdings(collection, handler)
+
+        return register
+
+    def _register_holdings(
+        self, collection: str | None, handler: HoldingsHandler
+    ) -> HoldingsHandler:
+        if collection in self._self_holdings:
+            raise ValueError(f"holdings for collection {collection!r} already registered")
+        self._self_holdings[collection] = _adapt_holdings(handler)
+        return handler
 
     def identity(self, name: str) -> Callable[[HoldingsHandler], HoldingsHandler]:
         """Register a principal's ``@name`` holdings (§5.6.2).
 
-        The handler receives the requested collection and may raise
+        The handler takes the requested collection (or nothing) and may raise
         :class:`~url4.errors.ResolutionError` with the spec's codes
         (``identity_access_denied``, ``consent_required``, …) to gate access.
         """
@@ -168,7 +226,7 @@ class Url4Node:
             raise ValueError(f"invalid or duplicate identity name {name!r}")
 
         def register(handler: HoldingsHandler) -> HoldingsHandler:
-            self._identities[name] = handler
+            self._identities[name] = _adapt_holdings(handler)
             return handler
 
         return register
@@ -190,8 +248,18 @@ class Url4Node:
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
         if request.relative or request.target.startswith("/"):
-            return FetchResult(await self._dispatch(request.target), None)
+            body = await self._dispatch(request.target)
+            return FetchResult(body, self._data_media_type(request.target))
         return await fetch_result(self._outbound_io(), request)
+
+    def _data_media_type(self, target: str) -> str | None:
+        """The declared Content-Type of the data route serving ``target``, if any.
+
+        Mirrors ``_dispatch``'s exact-target-then-path data lookup; endpoint and
+        eval-path dispatches have no declared media type and report None.
+        """
+        media = self._data_media_types
+        return media.get(target, media.get(target.partition("?")[0]))
 
     async def fetch_holdings(self, identity: str | None, collection: str | None) -> str:
         if identity is None:
@@ -220,7 +288,15 @@ class Url4Node:
                 return await self._call_endpoint(path, q, params)
             if path == self._eval_path:
                 return await self._run_text(_reassemble(q, params))
-        provider = self._data.get(target, self._data.get(path))
+        # Exact-target first, then the bare path — membership, not `.get(...,
+        # .get(...))`, so a hit avoids the second lookup and a legitimately
+        # falsy provider (e.g. "") is still served rather than skipped.
+        if target in self._data:
+            provider: DataProvider | None = self._data[target]
+        elif path in self._data:
+            provider = self._data[path]
+        else:
+            provider = None
         if provider is not None:
             return await _text(provider() if callable(provider) else provider)
         raise ResolutionError(
@@ -333,6 +409,21 @@ def _reassemble(q: str, params: Mapping[str, str]) -> str:
 
 async def _text(result: str | Awaitable[str]) -> str:
     return await result if isawaitable(result) else result
+
+
+def _adapt_holdings(handler: Callable[..., str | Awaitable[str]]) -> _HoldingsPort:
+    """Normalize a holdings/identity handler to the one-arg port shape.
+
+    Zero-arg handlers are common (most holdings don't branch on the requested
+    collection); detect them by signature and drop the argument for them.
+    """
+    try:
+        signature(handler).bind(None)
+    except TypeError:
+        return lambda _collection: handler()
+    except ValueError:  # no introspectable signature — assume the port shape
+        return handler
+    return handler
 
 
 def _status_for(exc: Url4Error) -> int:

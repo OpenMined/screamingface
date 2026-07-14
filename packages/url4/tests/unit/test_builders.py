@@ -127,7 +127,7 @@ def test_src_full_descriptor_golden():
 def test_src_spec_examples():
     # spec §4.5: unnamed, weighted, with execution annotations (builders emit
     # typed annotations before flags; order is semantically irrelevant, §4.2)
-    node = src(text("Supplementary AMA guidelines"), weight=0.2, optional=True, retry=3)
+    node = src(text("Supplementary AMA guidelines"), weight=0.2, required=False, retry=3)
     assert render(expr(node, intent="go")) == (
         "(0.2:'Supplementary AMA guidelines';retry=3;optional)!'go'"
     )
@@ -158,9 +158,16 @@ def test_src_accepts_expression_values():
     )
 
 
+def test_src_required_is_tristate():
+    # §10.1 — True marks ;required, False marks ;optional, None marks nothing
+    assert render(expr(src("https://x", required=True), intent="go")) == "(https://x;required)!'go'"
+    assert (
+        render(expr(src("https://x", required=False), intent="go")) == "(https://x;optional)!'go'"
+    )
+    assert render(expr(src("https://x"), intent="go")) == "(https://x)!'go'"
+
+
 def test_src_validation():
-    with pytest.raises(ValueError):
-        src("https://x", required=True, optional=True)
     with pytest.raises(ValueError):
         src("https://x", name="src")  # reserved
     with pytest.raises(ValueError):
@@ -215,14 +222,15 @@ def test_expr_empty_and_broadcast():
 
 
 def test_reduce_is_query_sugar():
-    calls = ["/claude(https://u.com)!'Go'", "/llama(https://u.com)!'Go'"]
-    e = reduce(calls, "Merge $1 and $2")
+    e = reduce(
+        "/claude(https://u.com)!'Go'", "/llama(https://u.com)!'Go'", intent="Merge $1 and $2"
+    )
     assert render(e) == (
         "(/claude(https://u.com)!'Go', /llama(https://u.com)!'Go')!'Merge $1 and $2'"
     )
     assert isinstance(e.sources[0], RelExpr)
     with pytest.raises(ValueError):
-        reduce([], "Merge")
+        reduce(intent="Merge")
 
 
 # --- iterate() ---------------------------------------------------------------------------

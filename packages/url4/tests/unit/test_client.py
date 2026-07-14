@@ -7,13 +7,14 @@ canonical expression that ran (`.request`) — the protocol's audit artifact.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
 
 from url4 import StaticIOLayer, build
 from url4.builders import iterate, src
-from url4.client import Client, Url4Result
+from url4.client import Client, Url4Result, evaluate_sync
 
 pytestmark = pytest.mark.asyncio
 
@@ -52,15 +53,22 @@ def io(wire) -> StaticIOLayer:
 async def test_result_envelope_accessors():
     res = Url4Result(text='["a", "b"]', request="(x)!'go'")
     assert str(res) == '["a", "b"]'
-    assert res.data == ["a", "b"]
+    assert res.json() == ["a", "b"]
     assert res.elements == ["a", "b"]
     scalar = Url4Result(text='{"k": 1}', request="(x)!'go'")
-    assert scalar.data == {"k": 1}
+    assert scalar.json() == {"k": 1}
     with pytest.raises(ValueError, match="list"):
         _ = scalar.elements
     prose = Url4Result(text="not json", request="(x)!'go'")
     with pytest.raises(ValueError, match="JSON"):
-        _ = prose.data
+        _ = prose.json()
+
+
+async def test_result_reprs_stay_readable():
+    res = Url4Result(text="A" * 300, request="(x)!'go'")
+    assert repr(res).startswith("Url4Result(request=")
+    assert len(repr(res)) < 250  # long bodies are truncated, not dumped
+    assert "(x)!" in res._repr_html_()  # request shown (quotes are HTML-escaped)
 
 
 # --- local execution ------------------------------------------------------------------
@@ -103,7 +111,7 @@ async def test_local_broadcast_produces_per_source_results(io):
 async def test_local_reduce_dispatches_calls_and_reducer(io, wire):
     async with Client(io) as client:
         res = await client.reduce(
-            ["/claude(https://x)!'Go'", "/llama(https://x)!'Go'"], "Merge $1 and $2"
+            "/claude(https://x)!'Go'", "/llama(https://x)!'Go'", intent="Merge $1 and $2"
         )
     routes = [name for name, _, _ in wire]
     assert "/claude" in routes and "/llama" in routes
@@ -151,7 +159,7 @@ async def test_remote_broadcast_rides_as_param(io, wire):
 async def test_remote_iterate_reduce_is_canonical_reduce_over_iteration(io, wire):
     async with Client(io, node="url4://node.ai/v1") as client:
         it = iterate("https://data/rows", "x=$item", intent="per row", reduce="agg")
-        res = await client.execute(it)
+        res = await client.evaluate(it)
     _, context, intent = wire[0]
     assert context == "https://data/rows*(x=$item)!'per row'"
     assert intent == "agg"
@@ -185,4 +193,49 @@ async def test_owned_io_lifecycle_without_use():
 
 async def test_result_is_json_roundtrippable():
     res = Url4Result(text=json.dumps({"ok": True}), request="()!'x'")
-    assert res.data == {"ok": True}
+    assert res.json() == {"ok": True}
+
+
+# --- the unified front door -----------------------------------------------------------------
+
+
+async def test_evaluate_routes_raw_text_to_the_node_target(io, wire):
+    async with Client(io, node="url4://node.ai/v1") as client:
+        res = await client.evaluate("(a=https://x)!'Summarize $a'")
+    assert res.text == "REMOTE-RESULT"
+    assert res.request == "(url4://node.ai/v1(a=https://x)!'Summarize $a')"
+    assert wire == [("remote", "a=https://x", "Summarize $a")]
+
+
+async def test_evaluate_merges_params_locally(io):
+    async with Client(io) as client:
+        res = await client.evaluate("(https://x)!'go'", params={"quorum": 1})
+    assert res.request == "(https://x)!'go';quorum=1"
+
+
+async def test_query_seeds_env(io):
+    async with Client(io) as client:
+        res = await client.query("https://x", intent="[$who] go", env={"who": "junior"})
+    assert "junior" in res.text
+
+
+# --- string-first construction and the sync convenience --------------------------------------
+
+
+async def test_client_accepts_a_node_target_string():
+    async with Client("url4://node.ai/v1") as client:
+        assert client._node == "url4://node.ai/v1"  # noqa: SLF001 — facade contract
+    with pytest.raises(ValueError, match="once"):
+        Client("url4://node.ai", node="url4://other.ai")
+
+
+async def test_evaluate_sync_refuses_a_running_loop(io):
+    with pytest.raises(RuntimeError, match="event loop"):
+        evaluate_sync("(https://x)!'go'", io)
+
+
+async def test_evaluate_sync_runs_from_plain_sync_code(io):
+    # a worker thread has no running loop — exactly the script/REPL situation
+    res = await asyncio.to_thread(evaluate_sync, "(a=https://x)!'Summarize $a'", io)
+    assert "ARTICLE" in res.text
+    assert res.request == "(a=https://x)!'Summarize $a'"

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from url4 import StaticIOLayer, run
+from url4 import StaticIOLayer
 from url4.context import Context
+from url4.dag import run
 from url4.errors import Url4Error
 from url4.grammar import parse
 from url4.nodes import Url

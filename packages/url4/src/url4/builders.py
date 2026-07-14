@@ -24,9 +24,9 @@ clear error when it does not.
 
 The two-axis annotation model (§4) is kept visible in :func:`src`'s signature:
 attribution = ``name`` / ``weight`` / ``budgets`` (open key namespace);
-execution = ``mode`` / ``t`` / ``retry`` / ``accept`` / ``required`` /
-``optional`` / ``expand`` (the spec's closed key set) plus ``annotations`` for
-extension keys.
+execution = ``mode`` / ``t`` / ``retry`` / ``accept`` / ``required`` (tri-state
+→ ``;required`` / ``;optional``) / ``expand`` (the spec's closed key set) plus
+``annotations`` for extension keys.
 """
 
 from __future__ import annotations
@@ -139,8 +139,7 @@ def src(
     t: float | int | None = None,
     retry: int | None = None,
     accept: str | None = None,
-    required: bool = False,
-    optional: bool = False,
+    required: bool | None = None,
     expand: bool = False,
     annotations: ParamsLike = (),
 ) -> Node:
@@ -148,8 +147,10 @@ def src(
 
     Attribution axis: ``name``, ``weight`` (scalar or domain-conditional
     mapping, §4.1.1), ``budgets`` (open key namespace). Execution axis:
-    ``mode``/``t``/``retry``/``accept``/``required``/``optional``/``expand``
-    plus ``annotations`` for extension keys.
+    ``mode``/``t``/``retry``/``accept``/``required``/``expand`` plus
+    ``annotations`` for extension keys. ``required`` is tri-state (§10.1):
+    ``True`` marks ``;required``, ``False`` marks ``;optional``, and the
+    default ``None`` leaves the spec's default handling.
 
     Returns the parser-canonical node for the descriptor: a bare value node
     when no descriptor content is given, a :class:`Binding` for name-only, a
@@ -157,9 +158,7 @@ def src(
     """
     node = _coerce_value(value)
     _check_name(name)
-    if required and optional:
-        raise ValueError("a source cannot be both ;required and ;optional (§10.1)")
-    ann = _exec_annotations(mode, t, retry, accept, required, optional, annotations)
+    ann = _exec_annotations(mode, t, retry, accept, required, annotations)
     norm_weight = _norm_weight(weight)
     norm_budgets = _norm_budgets(budgets)
     if norm_weight is None and not norm_budgets and not ann and not expand:
@@ -188,8 +187,7 @@ def _exec_annotations(
     t: float | int | None,
     retry: int | None,
     accept: str | None,
-    required: bool,
-    optional: bool,
+    required: bool | None,
     extra: ParamsLike,
 ) -> Params:
     typed = (
@@ -198,9 +196,9 @@ def _exec_annotations(
         ("retry", None if retry is None else _retry_text(retry)),
         ("accept", accept),
     )
-    flags = (("required", required), ("optional", optional))
     pairs: list[tuple[str, str | None]] = [(k, v) for k, v in typed if v is not None]
-    pairs.extend((flag, None) for flag, on in flags if on)
+    if required is not None:
+        pairs.append(("required" if required else "optional", None))
     return tuple(pairs) + _pairs(extra)
 
 
@@ -353,15 +351,14 @@ def broadcast(
 
 
 def reduce(
-    calls: Sequence[SourceLike],
-    instruction: str | Node,
-    *,
+    *calls: SourceLike,
+    intent: str | Node,
     params: ParamsLike | None = None,
 ) -> Expression:
-    """``(call1, call2, …)!instruction`` — fan-out/reduce sugar over :func:`expr`."""
+    """``(call1, call2, …)!intent`` — fan-out/reduce sugar over :func:`expr`."""
     if not calls:
         raise ValueError("reduce() needs at least one call to reduce over")
-    return expr(*calls, intent=instruction, params=params)
+    return expr(*calls, intent=intent, params=params)
 
 
 # --- iterate() ------------------------------------------------------------------------------

@@ -7,7 +7,8 @@ import json
 
 import pytest
 
-from url4 import StaticIOLayer, run
+from url4 import StaticIOLayer
+from url4.dag import run
 from url4.errors import CollectionError, ResolutionError
 from url4.parser import build
 

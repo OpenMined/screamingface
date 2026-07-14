@@ -14,7 +14,7 @@ def test_sdk_surface_is_exported():
         # G1 renderer
         "render",
         "RenderError",
-        "parse_value",
+        "build",
         # G2 builders
         "expr",
         "src",
@@ -30,12 +30,19 @@ def test_sdk_surface_is_exported():
         # G3 client
         "Client",
         "Url4Result",
+        "evaluate_sync",
         # G4 node SDK
         "Url4Node",
         "Request",
     ):
         assert hasattr(url4, name), name
         assert name in url4.__all__, name
+
+
+def test_engine_internals_stay_off_the_front_page():
+    # the engine room is one level down (url4.dag), not in the root namespace
+    for name in ("Graph", "Executor", "DagNode", "LoweringRegistry", "run", "compile_expression"):
+        assert name not in url4.__all__, name
 
 
 def test_render_is_inverse_of_build_from_the_top_level():

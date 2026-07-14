@@ -21,13 +21,16 @@ Known grammar limit: multi-valued params (``triggers=1,2``) cannot ride a
 list — so they raise :class:`~url4.errors.RenderError` on remote queries;
 local (top-level) queries carry them fine.
 
-Deliberately absent: a module-level ``query()`` — a global async client binds
-an httpx pool to one event loop, a footgun in notebooks and servers. Construct
-a :class:`Client` (ideally ``async with``) and own its lifecycle.
+Deliberately absent: a module-level async ``query()`` — a global async client
+binds an httpx pool to one event loop, a footgun in notebooks and servers.
+Construct a :class:`Client` (ideally ``async with``) and own its lifecycle.
+:func:`evaluate_sync` is the one module-level convenience, and it avoids the
+footgun by owning a fresh client for exactly one call.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -43,6 +46,7 @@ from url4.dag import DEFAULT_PROCESSOR, DEFAULT_RUN_CONCURRENCY, ExecutionContex
 from url4.dag.node import ProcessFn, default_process
 from url4.io_layer import IOLayer
 from url4.nodes import Expression, Iteration, Node, Params, RemoteExpr
+from url4.parser import build
 from url4.render import _render_source, render
 
 
@@ -62,8 +66,20 @@ class Url4Result:
     def __str__(self) -> str:
         return self.text
 
-    @property
-    def data(self) -> Any:
+    def __repr__(self) -> str:
+        return f"Url4Result(request={_trunc(self.request)!r}, text={_trunc(self.text)!r})"
+
+    def _repr_html_(self) -> str:
+        import html
+
+        return (
+            '<div style="font-family: var(--jp-code-font-family, monospace)">'
+            f'<div style="opacity:.6;font-size:85%">{html.escape(self.request)}</div>'
+            f'<pre style="margin:.3em 0 0;white-space:pre-wrap">{html.escape(self.text)}</pre>'
+            "</div>"
+        )
+
+    def json(self) -> Any:
         """The body decoded as JSON; raises ``ValueError`` for non-JSON bodies."""
         try:
             return json.loads(self.text)
@@ -75,7 +91,7 @@ class Url4Result:
     @property
     def elements(self) -> list[Any]:
         """Per-element results of an iteration/broadcast (a JSON array body)."""
-        data = self.data
+        data = self.json()
         if not isinstance(data, list):
             raise ValueError(
                 f"result of {self.request!r} is not a JSON list (got {type(data).__name__}) — "
@@ -87,31 +103,37 @@ class Url4Result:
 class Client:
     """The requestor-side entry point for evaluating url4 expressions.
 
-    ``io`` is the outbound :class:`~url4.io_layer.IOLayer`; omitted, an
-    httpx-backed adapter is created lazily and owned (closed by
-    :meth:`aclose` / ``async with``). ``node`` sets a default remote target
-    (``"url4://host/path"`` / ``"host"``); without one, expressions evaluate
-    locally against ``io``. ``processor`` is the endpoint local intent
-    execution dispatches to (spec: the node's intent processor).
+    ``io`` is the outbound :class:`~url4.io_layer.IOLayer` — or, string-first,
+    a node target: ``Client("url4://host/v1")`` is ``Client(node=...)`` with
+    an owned httpx adapter. With ``io`` omitted, that adapter is created
+    lazily and owned (closed by :meth:`aclose` / ``async with``). ``node``
+    sets a default remote target (``"url4://host/path"`` / ``"host"``);
+    without one, expressions evaluate locally against ``io``. ``processor``
+    is the endpoint local intent execution dispatches to (spec: the node's
+    intent processor); ``process_fn`` is the callable that executes it.
     """
 
     def __init__(
         self,
-        io: IOLayer | None = None,
+        io: IOLayer | str | None = None,
         *,
         node: str | None = None,
         path: str = "/v1",
         processor: str = DEFAULT_PROCESSOR,
-        process: ProcessFn = default_process,
+        process_fn: ProcessFn = default_process,
         concurrency: int | None = DEFAULT_RUN_CONCURRENCY,
         strict_fields: bool = False,
     ) -> None:
+        if isinstance(io, str):
+            if node is not None:
+                raise ValueError("pass the node target once — positionally or as node=, not both")
+            io, node = None, io
         self._io = io
         self._owned_io: IOLayer | None = None
         self._node = node
         self._path = path
         self._processor = processor
-        self._process = process
+        self._process = process_fn
         self._concurrency = concurrency
         self._strict_fields = strict_fields
 
@@ -145,6 +167,7 @@ class Client:
         self,
         *sources: SourceLike,
         intent: str | Node | None = None,
+        env: Mapping[str, object] | None = None,
         node: str | None = None,
         path: str | None = None,
         quorum: int | None = None,
@@ -155,21 +178,22 @@ class Client:
     ) -> Url4Result:
         """``(sources)!intent`` — the core request; everything else is sugar."""
         proto = _proto_params(quorum, triggers, t, fmt, params)
-        return await self.execute(
-            _expr(*sources, intent=intent), node=node, path=path, params=proto
+        return await self.evaluate(
+            _expr(*sources, intent=intent), env=env, node=node, path=path, params=proto
         )
 
     async def broadcast(
         self,
         *sources: SourceLike,
         intent: str | Node,
+        env: Mapping[str, object] | None = None,
         node: str | None = None,
         path: str | None = None,
         params: ParamsLike = (),
     ) -> Url4Result:
         """``(sources)!*intent`` — apply the intent per source (§6.1)."""
-        return await self.execute(
-            _broadcast(*sources, intent=intent), node=node, path=path, params=_pairs(params)
+        return await self.evaluate(
+            _broadcast(*sources, intent=intent), env=env, node=node, path=path, params=params
         )
 
     async def iterate(
@@ -179,6 +203,7 @@ class Client:
         *,
         intent: str | Node | None = None,
         reduce: str | Node | None = None,
+        env: Mapping[str, object] | None = None,
         node: str | None = None,
         path: str | None = None,
         concurrency: int | None = None,
@@ -197,47 +222,49 @@ class Client:
             slice=slice,
             fmt_result=fmt_result,
         )
-        return await self.execute(root, node=node, path=path)
+        return await self.evaluate(root, env=env, node=node, path=path)
 
     async def reduce(
         self,
-        calls: list[SourceLike] | tuple[SourceLike, ...],
-        instruction: str | Node,
-        *,
+        *calls: SourceLike,
+        intent: str | Node,
+        env: Mapping[str, object] | None = None,
         node: str | None = None,
         path: str | None = None,
         params: ParamsLike = (),
     ) -> Url4Result:
-        """``(call1, call2, …)!instruction`` — fan-out/reduce sugar (§2)."""
-        return await self.execute(
-            _reduce(calls, instruction), node=node, path=path, params=_pairs(params)
+        """``(call1, call2, …)!intent`` — fan-out/reduce sugar (§2)."""
+        return await self.evaluate(
+            _reduce(*calls, intent=intent), env=env, node=node, path=path, params=params
         )
 
-    async def execute(
+    async def evaluate(
         self,
-        root: Expression | Iteration,
+        expression: str | Node,
         *,
+        env: Mapping[str, object] | None = None,
         node: str | None = None,
         path: str | None = None,
-        params: Params = (),
+        params: ParamsLike = (),
     ) -> Url4Result:
-        """Evaluate a prebuilt AST, remotely when a node target applies."""
-        target = node or self._node
-        if target is None:
-            request = render(_with_params(root, params))
-        else:
-            request = render(_as_remote(root, target, path or self._path, params))
-        return await self.evaluate(request)
+        """Evaluate url4 text or an AST — the front door every helper routes through.
 
-    async def evaluate(
-        self, expression: str | Node, *, env: Mapping[str, object] | None = None
-    ) -> Url4Result:
-        """Evaluate raw url4 text or an AST as-is (no routing, no param merging).
-
-        ``env`` seeds the lexical scope: ``$name`` references in the expression
-        resolve against it (the mockups' ``Env``).
+        A node target (``node=`` here, or the client default) wraps the
+        expression in a remote sub-request; otherwise it evaluates locally
+        against ``io``. ``env`` seeds the lexical scope: ``$name`` references
+        in the expression resolve against it. ``params`` are protocol params
+        merged onto the expression.
         """
-        request = expression if isinstance(expression, str) else render(expression)
+        target = node or self._node
+        proto = _pairs(params)
+        if target is None and not proto:
+            request = expression if isinstance(expression, str) else render(expression)
+        else:
+            root = _as_composite(build(expression) if isinstance(expression, str) else expression)
+            if target is None:
+                request = render(_with_params(root, proto))
+            else:
+                request = render(_as_remote(root, target, path or self._path, proto))
         ctx = ExecutionContext(
             self._effective_io(),
             processor=self._processor,
@@ -249,7 +276,50 @@ class Client:
         return Url4Result(text=text, request=request)
 
 
+# --- the sync convenience ---------------------------------------------------------
+
+
+def evaluate_sync(
+    expression: str | Node,
+    io: IOLayer | str | None = None,
+    *,
+    env: Mapping[str, object] | None = None,
+    node: str | None = None,
+    path: str = "/v1",
+) -> Url4Result:
+    """Evaluate one expression from synchronous code — scripts and REPLs.
+
+    Owns a fresh :class:`Client` for exactly one call (created, run, closed),
+    so no event-loop or lifecycle management leaks into the caller. Inside
+    async code, construct a :class:`Client` and ``await`` it instead.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError(
+            "evaluate_sync() cannot run inside an event loop — "
+            "use 'await Client(...).evaluate(...)' there"
+        )
+
+    async def go() -> Url4Result:
+        async with Client(io, node=node, path=path) as client:
+            return await client.evaluate(expression, env=env)
+
+    return asyncio.run(go())
+
+
 # --- routing helpers -------------------------------------------------------------
+
+
+def _trunc(text: str, limit: int = 80) -> str:
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _as_composite(node: Node) -> Expression | Iteration:
+    """Routing and params need the composite forms; shield anything else."""
+    return node if isinstance(node, (Expression, Iteration)) else _expr(node)
 
 
 def _proto_params(
@@ -322,4 +392,4 @@ def _split_target(target: str, default_path: str) -> tuple[str, str]:
     return authority, f"/{path}" if sep else default_path
 
 
-__all__ = ["Client", "Url4Result"]
+__all__ = ["Client", "Url4Result", "evaluate_sync"]

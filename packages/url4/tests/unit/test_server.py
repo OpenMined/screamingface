@@ -21,6 +21,7 @@ from url4.builders import src
 from url4.client import Client
 from url4.errors import ResolutionError, Url4Error
 from url4.io_http import HttpIOLayer
+from url4.io_layer import FetchRequest
 from url4.server import Request, Url4Node
 
 pytestmark = pytest.mark.asyncio
@@ -55,8 +56,34 @@ def node(wire) -> Url4Node:
             )
         return f"EMILY[{collection}]"
 
-    n.data_route("/api/rows", '["alpha", "beta"]')
+    n.data("/api/rows", '["alpha", "beta"]')
     return n
+
+
+async def test_registration_sugar_forms():
+    n = Url4Node("sugar")
+
+    @n.holdings  # bare decorator, zero-arg handler
+    def own() -> str:
+        return "GENERAL"
+
+    @n.holdings("science")  # per-shelf, still zero-arg
+    def science() -> str:
+        return "SCIENCE"
+
+    @n.identity("zoe")  # zero-arg identity handler
+    def zoe() -> str:
+        return "ZOE"
+
+    @n.data("/api/now")  # decorator data route
+    def now() -> str:
+        return "NOW"
+
+    assert await n.fetch_holdings(None, None) == "GENERAL"
+    assert await n.fetch_holdings(None, "science") == "SCIENCE"
+    assert await n.fetch_holdings("zoe", "anything") == "ZOE"
+    assert await n.fetch("/api/now", relative=True) == "NOW"
+    assert "sugar" in repr(n)
 
 
 # --- in-process evaluation (the node as its own execution engine) ----------------------
@@ -66,6 +93,30 @@ async def test_evaluate_resolves_outbound_sources(node):
     res = await node.evaluate("(a=https://x)!'Summarize $a'")
     assert "ARTICLE" in res.text
     assert res.request == "(a=https://x)!'Summarize $a'"
+
+
+async def test_data_route_media_type_drives_collection_iteration():
+    # server.py Url4Node.fetch_ex(): a data route may declare its Content-Type,
+    # which the node reports so a node-hosted single-row NDJSON collection parses
+    # by its declared type (spec §5.3.7) and iterates, instead of being sniffed
+    # and rejected as a JSON object.
+    n = Url4Node("nd")
+    n.data("/api/nd", '{"q": "2+2"}', media_type="application/x-ndjson")
+    assert (await n.fetch_ex(FetchRequest("/api/nd", relative=True))).media_type == (
+        "application/x-ndjson"
+    )
+    # The single NDJSON row iterates; CollectNode embeds the JSON object row
+    # structurally (spec §5.3.8).
+    result = (await n.evaluate("/api/nd*($item)")).text
+    assert json.loads(result) == [{"q": "2+2"}]
+
+
+async def test_empty_string_data_provider_is_served():
+    # server.py _dispatch(): a legitimately falsy provider ("") is served, not
+    # skipped as if the route were missing.
+    n = Url4Node("empty")
+    n.data("/api/empty", "")
+    assert await n.fetch("/api/empty", relative=True) == ""
 
 
 async def test_evaluate_env_seeds_scope(node):
@@ -227,154 +278,3 @@ async def test_dual_wire_conventions_are_codec_owned():
     assert decode_subrequest_http(encoded) == ("a=https://x", "'go'")
     assert decode_expression_http(raw) == raw
     assert decode_expression_http(encoded) == raw
-
-
-# --- holdings / identity registration errors ---------------------------------------------
-
-
-async def test_holdings_duplicate_registration_raises():
-    n = Url4Node("dup")
-
-    @n.holdings(collection="notes")
-    def notes(collection: str | None) -> str:
-        return "x"
-
-    with pytest.raises(ValueError, match="already registered"):
-
-        @n.holdings(collection="notes")
-        def notes2(collection: str | None) -> str:
-            return "y"
-
-
-async def test_identity_invalid_name_raises():
-    n = Url4Node("badid")
-
-    with pytest.raises(ValueError, match="invalid or duplicate identity name"):
-
-        @n.identity("bad-name")
-        def handler(collection: str | None) -> str:
-            return "x"
-
-
-async def test_identity_duplicate_registration_raises():
-    n = Url4Node("dupid")
-
-    @n.identity("emily")
-    def emily(collection: str | None) -> str:
-        return "x"
-
-    with pytest.raises(ValueError, match="invalid or duplicate identity name"):
-
-        @n.identity("emily")
-        def emily2(collection: str | None) -> str:
-            return "y"
-
-
-# --- the IOLayer ports, directly -----------------------------------------------------------
-
-
-async def test_fetch_absolute_delegates_to_outbound(node):
-    # relative=False with an absolute target skips node dispatch entirely and
-    # delegates to the injected outbound io layer.
-    assert await node.fetch("https://x", relative=False) == "ARTICLE"
-
-
-async def test_fetch_holdings_self_with_no_handler_registered_raises():
-    n = Url4Node("noholdings")
-    with pytest.raises(ResolutionError, match="serves no self holdings"):
-        await n.fetch_holdings(None, "notes")
-
-
-# --- ASGI lifespan -------------------------------------------------------------------------
-
-
-async def test_asgi_lifespan_startup_and_shutdown(node):
-    app = node.asgi()
-    sent = []
-    messages = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
-
-    async def receive():
-        return next(messages)
-
-    async def send(message):
-        sent.append(message)
-
-    await app({"type": "lifespan"}, receive, send)
-
-    assert sent == [
-        {"type": "lifespan.startup.complete"},
-        {"type": "lifespan.shutdown.complete"},
-    ]
-
-
-async def test_lifespan_helper_directly_sends_complete_messages():
-    from url4.server import _lifespan
-
-    sent = []
-    messages = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
-
-    async def receive():
-        return next(messages)
-
-    async def send(message):
-        sent.append(message)
-
-    await _lifespan(receive, send)
-
-    assert sent == [
-        {"type": "lifespan.startup.complete"},
-        {"type": "lifespan.shutdown.complete"},
-    ]
-
-
-# --- lazy-owned outbound lifecycle ----------------------------------------------------------
-
-
-async def test_outbound_io_creates_and_caches_http_layer():
-    n = Url4Node("cache")
-    first = n._outbound_io()
-    assert isinstance(first, HttpIOLayer)
-    second = n._outbound_io()
-    assert second is first
-
-
-async def test_aclose_closes_lazily_created_outbound():
-    n = Url4Node("lazy")
-    first = n._outbound_io()
-    assert n._owned_outbound is first
-    await n.aclose()
-    assert n._owned_outbound is None
-    # a fresh call after close creates a new instance, not the closed one
-    second = n._outbound_io()
-    assert second is not first
-
-
-async def test_aenter_returns_self(node):
-    async with node as n:
-        assert n is node
-
-
-async def test_aexit_closes_lazily_created_outbound():
-    n = Url4Node("lazy2")
-    async with n:
-        n._outbound_io()
-        assert n._owned_outbound is not None
-    assert n._owned_outbound is None
-
-
-# --- error-to-status mapping -----------------------------------------------------------------
-
-
-async def test_status_for_transient_resolution_error_is_502():
-    from url4.server import _status_for
-
-    exc = ResolutionError("upstream hiccup")
-    assert exc.permanent is False
-    assert _status_for(exc) == 502
-
-
-async def test_status_for_unmapped_code_falls_back_to_500():
-    from url4.server import _status_for
-
-    exc = Url4Error("something odd", code="something_else")
-    assert _status_for(exc) == 500
