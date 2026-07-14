@@ -87,7 +87,9 @@ posted on the ticket as blocked on a product decision + a dependency on OME-326
 - **Commits:** this unit's commit (see `git log` on this file's introducing commit;
   `Refs: OME-391`).
 - **Gates:** `run_gates.py scoreboard --skip-append-only` — ALL GATES GREEN (ruff
-  check, ruff format --check, pyright, pytest). 117 passed, 2 skipped, 88.01% coverage.
+  check, ruff format --check, pyright, pytest). Post-PR-review: 128 passed, 2
+  skipped, 87.99% coverage (`test_leaderboard_routes.py` also touched — 2 call sites
+  needed unpacking for the new `submit()` tuple return, no behavior change).
 - **Deviations:**
   - Acceptance criterion "all prior tests remain green and unmodified" was not fully
     met: `test_post_score_without_idempotency_key_always_creates_new_row` and
@@ -114,3 +116,36 @@ posted on the ticket as blocked on a product decision + a dependency on OME-326
     relying on it being implied by the no-header tests; (3) documented (comment only)
     that `version` is excluded from the hash as currently a no-op since
     `ScoreSubmission.version` is pinned to `Literal[1]` — revisit if that changes.
+  - PR review (Dmitry) found the earlier "disproportionate" call above was wrong once
+    a real correctness bug was identified, not just an efficiency question — reversed
+    that decision:
+    1. `ScoreStore.submit()` now returns `SubmitOutcome(score, created)`. A
+       content-hash hit with an `idempotency_key` attached now permanently binds that
+       key to the found score via the new `_bind_idempotency_key()` (previously it
+       stayed unbound, so a later, unrelated submission reusing the same key could
+       silently rebind it — breaking "the same key always replays the same original
+       result"). This also removed the route's separate `find_existing()` pre-check
+       entirely — the route now makes one atomic `submit()` call and reads
+       `.created` for the status code, closing a TOCTOU where concurrent identical
+       submissions could both report `201`. Touched ~15 test call sites
+       (`test_store.py`, `test_leaderboard_routes.py`) to unpack the new tuple; added
+       `test_submit_reused_key_after_content_hash_hit_stays_bound_to_original_score`
+       as the regression test (confirmed by manual trace it would have failed
+       pre-fix).
+    2. `_content_hash()` now hashes `correct_questions / total_questions` (recomputed
+       server-side) instead of the client's raw reported `accuracy` — the route
+       accepts any reported value within 0.01 of that ratio, so the same result
+       (e.g. 2/3 correct) could be reported as `0.67` or `0.6666666667` and hash
+       differently, defeating dedup. Added
+       `test_submit_identical_counts_dedupe_despite_different_accuracy_precision`.
+    3. The Postgres concurrent-race tests were confirmed dead (fixture calls
+       `asyncio.run()` inside an already-running event loop; CI never sets
+       `SCOREBOARD_TEST_DATABASE_URL`) — filed OME-430 rather than fixing inline,
+       since it's CI/workflow infrastructure, a separable scope from this ticket's
+       app-code fixes. Left `AIDEV-NOTE`s pointing at OME-430 on both tests.
+  - Two lines in `store.py` remain uncovered (93% file coverage, still 87.99% overall,
+    above the 80% gate): the `IntegrityError` swallow inside `_bind_idempotency_key`
+    and `submit()`'s own race-handler body. Both are concurrency-only branches that
+    have — even before this change — only ever been exercisable by the Postgres
+    concurrent tests, which OME-430 tracks as currently non-functional. Not forcing
+    artificial SQLite-level coverage for a genuine multi-writer race.

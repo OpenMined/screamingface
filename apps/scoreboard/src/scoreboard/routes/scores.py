@@ -140,12 +140,14 @@ async def submit_score(
             )
 
         store = cast(ScoreStore, request.app.state.score_store)
-        existing = await store.find_existing(submission, idempotency_key=idempotency_key)
-        if existing is not None:
+        outcome = await store.submit(submission, idempotency_key=idempotency_key)
+        if not outcome.created:
+            # WHY: a single atomic submit() call — not a separate pre-check plus a
+            # second call — so the reported status code always matches what actually
+            # happened, including under a concurrent-duplicate race (found in PR
+            # review, OME-391 / C28).
             response.status_code = status.HTTP_200_OK
-            return existing
-
-        return await store.submit(submission, idempotency_key=idempotency_key)
+        return outcome.score
     except OperationalError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

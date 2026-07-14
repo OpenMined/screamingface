@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import NamedTuple, cast
 from uuid import UUID
 
 from pypika_tortoise.analytics import RowNumber
@@ -80,17 +80,27 @@ def _content_hash(submission: ScoreSubmission) -> str:
     # also excluded — currently a no-op since ScoreSubmission.version is pinned to
     # Literal[1], but revisit this if a future schema version is ever accepted, since
     # two payloads differing only in version would otherwise dedupe together.
+    # accuracy is recomputed from correct_questions/total_questions rather than the
+    # client's raw reported value: the route accepts any reported accuracy within
+    # 0.01 of that ratio, so the same result (e.g. 2/3 correct) could otherwise be
+    # reported as 0.67 or 0.6666666667 and hash differently, defeating dedup for the
+    # exact near-duplicate case this hash exists to catch (found in PR review).
     identity = {
         "benchmark_id": submission.benchmark_id,
         "spec_id": submission.spec_id,
         "url4_expression": submission.url4_expression,
-        "accuracy": submission.accuracy,
+        "accuracy": submission.correct_questions / submission.total_questions,
         "total_questions": submission.total_questions,
         "correct_questions": submission.correct_questions,
         "ran_with_providers": submission.ran_with_providers,
     }
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+class SubmitOutcome(NamedTuple):
+    score: ScoreSchema
+    created: bool
 
 
 def _build_leaderboard_query(benchmark_id: str, top_n: int) -> QueryBuilder:
@@ -166,27 +176,62 @@ class ScoreStore:
         # Shared by the pre-insert check and the post-IntegrityError race handler —
         # idempotency_key (a fast path keyed to one client's retry) takes priority
         # when present; content_hash is the unconditional backstop (OME-391 / C28).
+        now_ts = datetime.now(UTC)
         if idempotency_key is not None:
             linked = await IdempotencyKey.get_or_none(
                 key=idempotency_key,
-                expires_at__gt=datetime.now(UTC),
+                expires_at__gt=now_ts,
             ).prefetch_related("score")
             if linked is not None:
                 return linked.score
 
-        return await Score.get_or_none(content_hash=content_hash)
+        existing = await Score.get_or_none(content_hash=content_hash)
+        if existing is not None and idempotency_key is not None:
+            # INVARIANT: a content-hash hit with an idempotency_key attached must
+            # bind that key to the found score NOW. Without this, the key stays
+            # unbound and a later, unrelated submission reusing it would silently
+            # rebind it to different content — breaking "the same key always
+            # replays the same original result" (found in PR review, OME-391 / C28).
+            await self._bind_idempotency_key(idempotency_key, existing, now_ts)
+        return existing
+
+    async def _bind_idempotency_key(
+        self,
+        idempotency_key: str,
+        score: Score,
+        now_ts: datetime,
+    ) -> None:
+        # Any stale (expired) row for this key is cleared first so it can be rebound
+        # cleanly. IntegrityError on create means a concurrent request already won
+        # this exact bind — the desired end state (key bound to this score) holds
+        # either way, so it's safe to ignore.
+        try:
+            async with in_transaction() as connection:
+                await (
+                    IdempotencyKey.filter(key=idempotency_key, expires_at__lte=now_ts)
+                    .using_db(connection)
+                    .delete()
+                )
+                await IdempotencyKey.create(
+                    using_db=connection,
+                    key=idempotency_key,
+                    score=score,
+                    expires_at=now_ts + IDEMPOTENCY_TTL,
+                )
+        except IntegrityError:
+            pass
 
     async def submit(
         self,
         submission: ScoreSubmission,
         idempotency_key: str | None = None,
-    ) -> ScoreSchema:
+    ) -> SubmitOutcome:
         now_ts = datetime.now(UTC)
         content_hash = _content_hash(submission)
 
         existing = await self._resolve_existing(idempotency_key, content_hash)
         if existing is not None:
-            return _score_to_schema(existing)
+            return SubmitOutcome(score=_score_to_schema(existing), created=False)
 
         expires_at = now_ts + IDEMPOTENCY_TTL
         try:
@@ -214,28 +259,13 @@ class ScoreStore:
                         expires_at=expires_at,
                     )
 
-            return _score_to_schema(score)
+            return SubmitOutcome(score=_score_to_schema(score), created=True)
         except IntegrityError:
             # A concurrent request may have won the race on either constraint.
             existing = await self._resolve_existing(idempotency_key, content_hash)
             if existing is not None:
-                return _score_to_schema(existing)
+                return SubmitOutcome(score=_score_to_schema(existing), created=False)
             raise
-
-    async def find_existing(
-        self,
-        submission: ScoreSubmission,
-        idempotency_key: str | None = None,
-    ) -> ScoreSchema | None:
-        # Public entry point for a caller (the route) that needs to know up front
-        # whether a submission would dedupe, e.g. to answer 200 vs 201 — reuses the
-        # exact same idempotency-key-then-content-hash priority as submit()'s own
-        # pre-check, via one hash computation, instead of two separate lookups
-        # (OME-391 / C28). NOTE: submit() re-runs this same resolution internally on
-        # a miss — that's intentional (submit() must stand alone for callers that skip
-        # this pre-check), not a bug to "optimize away".
-        existing = await self._resolve_existing(idempotency_key, _content_hash(submission))
-        return _score_to_schema(existing) if existing is not None else None
 
     async def get_by_idempotency_key(self, key: str) -> ScoreSchema | None:
         now_ts = datetime.now(UTC)

@@ -117,8 +117,8 @@ async def test_get_leaderboard_breaks_accuracy_ties_by_newer_submission(
 ) -> None:
     store = ScoreStore()
     await _register_benchmark(store)
-    older = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["older"]))
-    newer = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["newer"]))
+    older, _ = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["older"]))
+    newer, _ = await store.submit(_submission(spec_id="spec-a", accuracy=0.9, providers=["newer"]))
     await Score.filter(id=older.id).update(
         submitted_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
     )
@@ -166,8 +166,8 @@ async def test_get_spec_history_returns_submissions_newest_first(
 ) -> None:
     store = ScoreStore()
     await _register_benchmark(store)
-    older = await store.submit(_submission(spec_id="spec-history", accuracy=0.5))
-    newer = await store.submit(_submission(spec_id="spec-history", accuracy=0.8))
+    older, _ = await store.submit(_submission(spec_id="spec-history", accuracy=0.5))
+    newer, _ = await store.submit(_submission(spec_id="spec-history", accuracy=0.8))
     await store.submit(_submission(spec_id="other-spec", accuracy=0.95))
     await Score.filter(id=older.id).update(
         submitted_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
