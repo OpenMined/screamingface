@@ -98,6 +98,8 @@ helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/s
 
 `values-prod.yaml` sets three app replicas, Traefik ingress, TLS annotations, production CORS for `https://screamingface.ai`, and NetworkPolicy enabled. The chart also sets `FORWARDED_ALLOW_IPS="*"` so uvicorn honors Traefik's forwarded HTTPS scheme for redirects. Adjust `ingress.className` if the production cluster uses a different ingress controller.
 
+Set `SCOREBOARD_SUBMISSION_API_KEY` to gate `POST /v1/scores` (OME-391 / C2) — a placeholder shared key until OME-326 (real identity) exists. Unset, the write path stays open, matching today's behavior. Once set, submitting clients (desktop app, SDK, CI) need `Authorization: Bearer <key>` — coordinate the key distribution before flipping this on in production, since it isn't per-user.
+
 ## Benchmark Seeding
 
 The app chart runs `python -m scoreboard.seed` after install and upgrade. Seed data comes from `.Values.seedBenchmarks.benchmarks` and is passed through `SCOREBOARD_SEED_BENCHMARKS_JSON`.
@@ -134,7 +136,7 @@ curl -fsS http://scoreboard.40.76.107.241.nip.io/healthz
 curl -fsS http://scoreboard.40.76.107.241.nip.io/v1/benchmarks
 ```
 
-Submit a smoke score with an idempotency key:
+Submit a smoke score with an idempotency key. If `SCOREBOARD_SUBMISSION_API_KEY` is set, add `-H "Authorization: Bearer <key>"` or this 401s:
 
 ```bash
 curl -fsS -X POST http://scoreboard.40.76.107.241.nip.io/v1/scores \

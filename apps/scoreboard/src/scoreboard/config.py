@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=lambda: ["*"])
     portal_dir: Path | None = None
     portal_artifacts_dir: Path | None = None
+    # AIDEV-NOTE: TEMPORARY (OME-391 / C2) — delete alongside
+    # routes/scores.py::_require_submission_api_key once OME-326 ships real identity.
+    # INVARIANT: unset means the submission write-gate is a no-op — a placeholder
+    # stub, not per-user; everyone holding the key looks identical to the server.
+    submission_api_key: str | None = None
 
     @field_validator("database_url")
     @classmethod

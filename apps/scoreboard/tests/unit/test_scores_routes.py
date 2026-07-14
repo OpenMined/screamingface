@@ -59,6 +59,32 @@ async def score_client(app_with_benchmark: FastAPI) -> AsyncGenerator[AsyncClien
         yield client
 
 
+@pytest_asyncio.fixture
+async def app_with_api_key(tortoise_db: None) -> FastAPI:
+    settings = Settings(
+        database_url="sqlite://:memory:",
+        cors_origins=[],
+        submission_api_key="test-key",
+    )
+    app = create_app(settings)
+    await Benchmark.create(
+        id="hle",
+        display_name="Humanity's Last Exam",
+        description="Fixture benchmark",
+        dataset_url="https://example.test/hle.jsonl",
+    )
+    return app
+
+
+@pytest_asyncio.fixture
+async def gated_score_client(app_with_api_key: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+    async with AsyncClient(
+        transport=ASGITransport(app=app_with_api_key),
+        base_url="http://test",
+    ) as client:
+        yield client
+
+
 async def test_post_score_creates_new_row_201(score_client: AsyncClient) -> None:
     response = await score_client.post("/v1/scores", json=_valid_payload())
 
@@ -220,6 +246,65 @@ async def test_get_score_unknown_id_returns_404(score_client: AsyncClient) -> No
     assert response.json() == {"detail": "score not found"}
 
 
+async def test_post_score_without_configured_api_key_remains_public(
+    score_client: AsyncClient,
+) -> None:
+    # WHY: SCOREBOARD_SUBMISSION_API_KEY unset (local dev, and every fixture above)
+    # must be a true no-op — this is the pre-OME-326 default (OME-391 / C2).
+    response = await score_client.post("/v1/scores", json=_valid_payload())
+
+    assert response.status_code == 201
+
+
+async def test_post_score_with_correct_api_key_succeeds(
+    gated_score_client: AsyncClient,
+) -> None:
+    response = await gated_score_client.post(
+        "/v1/scores",
+        json=_valid_payload(),
+        headers={"Authorization": "Bearer test-key"},
+    )
+
+    assert response.status_code == 201
+
+
+async def test_post_score_missing_api_key_header_returns_401(
+    gated_score_client: AsyncClient,
+) -> None:
+    response = await gated_score_client.post("/v1/scores", json=_valid_payload())
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "missing or invalid API key"}
+
+
+async def test_post_score_wrong_api_key_returns_401(
+    gated_score_client: AsyncClient,
+) -> None:
+    response = await gated_score_client.post(
+        "/v1/scores",
+        json=_valid_payload(),
+        headers={"Authorization": "Bearer wrong-key"},
+    )
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "missing or invalid API key"}
+
+
+async def test_get_score_remains_public_when_api_key_configured(
+    gated_score_client: AsyncClient,
+) -> None:
+    created = await gated_score_client.post(
+        "/v1/scores",
+        json=_valid_payload(),
+        headers={"Authorization": "Bearer test-key"},
+    )
+
+    response = await gated_score_client.get(f"/v1/scores/{created.json()['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == created.json()["id"]
+
+
 async def test_openapi_schema_includes_new_endpoints(score_client: AsyncClient) -> None:
     response = await score_client.get("/openapi.json")
 
@@ -239,6 +324,9 @@ async def test_openapi_schema_includes_new_endpoints(score_client: AsyncClient) 
     )
     assert post_score["responses"]["400"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/FieldErrorResponse",
+    )
+    assert post_score["responses"]["401"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/MessageErrorResponse",
     )
     assert post_score["responses"]["404"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "/FieldErrorResponse",
