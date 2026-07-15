@@ -1,3 +1,4 @@
 {
-  "apps/aigateway": "0.2.0"
+  "apps/aigateway": "0.2.0",
+  "packages/url4": "0.1.0"
 }
