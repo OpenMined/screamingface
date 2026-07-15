@@ -118,6 +118,15 @@ def test_validate_rejects_reserved_path_and_empty_argv() -> None:
         ServeConfig(routes={"/claude": "m"}, commands={"/py": ()}, processor="/claude").validate()
 
 
+def test_validate_rejects_eval_path_on_reserved_health_path() -> None:
+    # Regression: an eval path equal to /healthz would collide with the node's
+    # health data route at build time — must fail fast as a clean config error,
+    # not an uncaught ValueError once the node is assembled.
+    config = ServeConfig(eval_path="/healthz")
+    with pytest.raises(ConfigError, match="reserved health path"):
+        config.validate()
+
+
 def test_valid_config_passes() -> None:
     ServeConfig().validate()  # defaults are self-consistent
 

@@ -76,6 +76,13 @@ class ServeConfig:
         _require(not (set(self.routes) & set(self.commands)), "route/command paths collide")
         reserved = {self.eval_path, _HEALTH_PATH} & (set(self.routes) | set(self.commands))
         _require(not reserved, f"route/command paths clash with reserved {sorted(reserved)}")
+        # The node registers /healthz as a data route; an eval path equal to it
+        # would collide at build time (an uncaught ValueError) — reject it here so
+        # the misconfiguration fails fast with a clean config error before bind.
+        _require(
+            self.eval_path != _HEALTH_PATH,
+            f"eval path cannot be the reserved health path {_HEALTH_PATH!r}",
+        )
         # INVARIANT: a fan-out reduce dispatches to ``processor`` at runtime, so it
         # MUST be a registered LLM route or the reduce fails mid-evaluation.
         _require(
@@ -302,9 +309,12 @@ async def _run_command(command: list[str], stdin_text: str, timeout: float) -> s
         raise ResolutionError(f"command {command[0]!r} timed out after {timeout}s") from None
     if proc.returncode != 0:
         raise ResolutionError(
-            f"command {command[0]!r} exited {proc.returncode}: {err.decode()[:500].strip()}"
+            f"command {command[0]!r} exited {proc.returncode}: "
+            f"{err.decode(errors='replace')[:500].strip()}"
         )
-    return out.decode()
+    # errors='replace': a command that emits non-UTF-8 bytes must not escape the
+    # handler's ResolutionError contract as a raw UnicodeDecodeError (→ bare 500).
+    return out.decode(errors="replace")
 
 
 # --- node + ASGI assembly --------------------------------------------------------

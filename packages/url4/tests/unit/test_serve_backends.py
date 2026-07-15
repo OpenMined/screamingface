@@ -107,3 +107,14 @@ async def test_command_handler_start_failure_becomes_resolution_error() -> None:
     handler = make_command_handler(["/nonexistent/url4-binary-xyz"], timeout=5.0)
     with pytest.raises(ResolutionError, match="failed to start"):
         await handler(_req())
+
+
+async def test_command_handler_non_utf8_stdout_does_not_crash() -> None:
+    # Regression: a command that exits 0 with non-UTF-8 stdout must not escape the
+    # handler as a raw UnicodeDecodeError (which would bypass Url4Error → HTTP
+    # mapping and surface as a bare 500); decode is lenient instead.
+    handler = make_command_handler(
+        ["python3", "-c", "import sys; sys.stdout.buffer.write(bytes([0xff, 0xfe]))"], timeout=5.0
+    )
+    result = await handler(_req())
+    assert result  # replacement chars, not an exception
