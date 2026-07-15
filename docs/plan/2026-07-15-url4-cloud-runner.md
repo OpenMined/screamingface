@@ -47,27 +47,27 @@ _Filed — IDs below. Landing `url4-engine` unless noted `pkg/url4-python-sdk` (
 
 | Phase | Deliverable | OME-# |
 |---|---|---|
-| P0 | Scaffold apps/runner + CI/CODEOWNERS/dependabot/sdlc entry | _(filing)_ |
-| P0 | docker-compose local-dev infra | _(filing)_ |
-| SDK | url4 execution seams (observability + node-stop + traceparent + transport ext) | _(filing)_ |
-| P1 | Session/node state + Store (absorbing terminal CAS) | _(filing)_ |
-| P1 | Token + scoped NATS creds | _(filing)_ |
-| P1 | Event envelope + JetStream | _(filing)_ |
-| P1 | JobRunner port + Docker adapter | _(filing)_ |
-| P1 | Worker runtime | _(filing)_ |
-| P1 | Control-plane REST + NATS-over-WS delivery | _(filing)_ |
-| P1 | Docker-compose e2e validation | _(filing)_ |
-| P2 | InternalNodeAdapter recursion (+ admission budget + orphan cascade) | _(filing)_ |
-| P2 | Recursion e2e | _(filing)_ |
-| P2 | (follow-up) non-blocking continuation | _(filing)_ |
-| P3 | Full liveness/death (reaper singleton + fencing) | _(filing)_ |
-| P4 | ExternalNodeAdapter | _(filing)_ |
-| P4 | Per-trace concurrency budget + result cache hook | _(filing)_ |
-| P5 | K8sJobAdapter | _(filing)_ |
-| P5 | Helm chart | _(filing)_ |
-| P5 | Helm local-dev (kind) validation | _(filing)_ |
-| P5 | Release lane | _(filing)_ |
-| process | Reconcile stale task-board card | _(filing)_ |
+| P0 | Scaffold apps/runner + CI/CODEOWNERS/dependabot/sdlc entry | OME-444 |
+| P0 | docker-compose local-dev infra | OME-445 |
+| SDK | url4 execution seams (observability + node-stop + traceparent + transport ext) | OME-446 |
+| P1 | Session/node state + Store (absorbing terminal CAS) | OME-447 |
+| P1 | Token + scoped NATS creds | OME-448 |
+| P1 | Event envelope + JetStream | OME-449 |
+| P1 | JobRunner port + Docker adapter | OME-450 |
+| P1 | Worker runtime | OME-451 |
+| P1 | Control-plane REST + NATS-over-WS delivery | OME-452 |
+| P1 | Docker-compose e2e validation | OME-453 |
+| P2 | InternalNodeAdapter recursion (+ admission budget + orphan cascade) | OME-454 |
+| P2 | Recursion e2e | OME-455 |
+| P2 | (follow-up) non-blocking continuation | OME-456 |
+| P3 | Full liveness/death (reaper singleton + fencing) | OME-457 |
+| P4 | ExternalNodeAdapter | OME-458 |
+| P4 | Per-trace concurrency budget + result cache hook | OME-459 |
+| P5 | K8sJobAdapter | OME-460 |
+| P5 | Helm chart | OME-461 |
+| P5 | Helm local-dev (kind) validation | OME-462 |
+| P5 | Release lane | OME-463 |
+| process | Reconcile stale task-board card | OME-464 |
 
 ## Non-goals / follow-ups
 Distributing in-process fan-out; non-blocking recursion (P2 follow-up); external-GET `Link` telemetry contract (P4); `logs()/tail()` k8s semantics (P5); N1 Enclave GET cache + doctrine F4 (deferred, owner). See spec §14.
