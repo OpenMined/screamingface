@@ -23,6 +23,14 @@
       "tag-separator": "-",
       "include-component-in-tag": true,
       "version-file": "apps/aigateway/pyproject.toml"
+    },
+    "packages/url4": {
+      "release-type": "python",
+      "package-name": "url4",
+      "component": "url4",
+      "tag-separator": "-",
+      "include-component-in-tag": true,
+      "version-file": "packages/url4/pyproject.toml"
     }
   }
 }

@@ -19,6 +19,15 @@ stacks:
       - uv run ruff format --check
       - uv run pyright
       - uv run pytest --cov=scoreboard --cov-fail-under=80 -q
+  - name: url4
+    root: packages/url4
+    skill: sdlc-python
+    test_globs: ["tests/**"]
+    gates:
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run pyright
+      - uv run pytest --cov=url4 --cov-fail-under=95 -q
 commit_refs: "Refs: OME-N"
 extra_anchors: []
 companion_skills:
