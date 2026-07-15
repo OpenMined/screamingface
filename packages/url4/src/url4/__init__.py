@@ -111,7 +111,7 @@ from url4.parser import build, walk
 from url4.render import render
 from url4.server import Request, Url4Node
 
-__version__ = "0.2.0"
+__version__ = "0.1.0"
 
 __all__ = [
     "Binding",

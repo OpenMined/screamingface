@@ -1,6 +1,6 @@
 [project]
 name = "url4"
-version = "0.2.0"
+version = "0.1.0"
 description = "Standalone core library for the url4 expression protocol — grammar, parser, AST, interpreter, and scope"
 requires-python = ">=3.12"
 dependencies = [
