@@ -8,8 +8,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Url4Node.serve() — the ASGI app itself is framework-free; only serving needs this.
+# Url4Node.serve() and `url4 serve` — the ASGI app itself is framework-free; only
+# serving over HTTP needs uvicorn.
 server = ["uvicorn>=0.30"]
+
+# The `url4` CLI: `url4 serve` (HTTP node) and `url4 eval` (network-free one-shot).
+# `serve` additionally needs the `server` extra (uvicorn) at runtime.
+[project.scripts]
+url4 = "url4.cli:main"
 
 [build-system]
 requires = ["hatchling"]
