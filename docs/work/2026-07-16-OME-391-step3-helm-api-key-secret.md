@@ -60,4 +60,20 @@ This is a Helm chart, not an app-code change — no pytest coverage applies. Ver
   - `apps/scoreboard/DEPLOYMENT.md` — replaced the existing "coordinate key distribution" note with concrete `kubectl create secret` + `helm upgrade --set` steps.
 - **Commits:** this unit's commit (`Refs: OME-391`).
 - **Gates:** `helm lint charts/scoreboard` clean in 3 configurations (default, `--set submissionApiKey.*`, `--values values-prod.yaml`). `helm template` confirmed: unset → no env entry rendered (unchanged default behavior); set → correct `secretKeyRef` rendered with the given secret/key names.
-- **Deviations:** none — matched the plan exactly.
+- **Deviations:**
+  - Dmitry (review, PR #403) split this into its own sub-issue **OME-467** (parented under
+    OME-391) and requested two changes before merge/deploy, from live evidence: the
+    production Secret is already named `scoreboard-submission-api-key` (key
+    `SCOREBOARD_SUBMISSION_API_KEY`), set via an out-of-band `kubectl set env` that Helm
+    revision 12's values don't own.
+    1. "Keep the rendered `secretKeyRef` required, not `optional: true`" — already true
+       without any change: Kubernetes defaults `secretKeyRef` to required when `optional`
+       is omitted, verified by re-reading the diff (no `optional:` key present anywhere).
+    2. "Ensure the production Secret reference is supplied declaratively on every
+       deploy" — added `submissionApiKey.existingSecret: scoreboard-submission-api-key` /
+       `existingSecretKey: SCOREBOARD_SUBMISSION_API_KEY` directly to `values-prod.yaml`
+       (matching the live Secret exactly), so every production `helm upgrade` renders it
+       automatically — no `--set` flag needed. Verified via `helm template --values
+       values-prod.yaml`.
+  - Going forward, reference **OME-467** (not just OME-391) in commits/PR for this scope,
+    per Dmitry's request.
