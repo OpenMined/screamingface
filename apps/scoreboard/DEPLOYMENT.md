@@ -104,15 +104,17 @@ The chart never takes the raw key value directly — put it in a Secret and poin
 
 ```bash
 kubectl -n scoreboard create secret generic scoreboard-submission-api-key \
-  --from-literal=api-key='<the key value>'
+  --from-literal=SCOREBOARD_SUBMISSION_API_KEY='<the key value>'
 
 helm upgrade scoreboard oci://ghcr.io/openmined/screamingface/charts/scoreboard \
   --namespace scoreboard \
   --reuse-values \
   --set submissionApiKey.existingSecret=scoreboard-submission-api-key \
-  --set submissionApiKey.existingSecretKey=api-key \
+  --set submissionApiKey.existingSecretKey=SCOREBOARD_SUBMISSION_API_KEY \
   --wait
 ```
+
+`values-prod.yaml` already declares this exact Secret/key pair by default, so a production deploy that includes it doesn't need the `--set` flags above at all — they're shown here for the general/non-prod case.
 
 Leaving `submissionApiKey.existingSecret` unset (the default) renders no `SCOREBOARD_SUBMISSION_API_KEY` env var at all — the gate stays a no-op.
 
