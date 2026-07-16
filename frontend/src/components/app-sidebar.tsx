@@ -58,7 +58,12 @@ export function AppSidebar() {
           <SidebarMenu>
             {navigation.map(({ label, href, Icon, badge }) => (
               <SidebarMenuItem key={label}>
-                <SidebarMenuButton asChild isActive={pathname.startsWith(href)} tooltip={label}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname.startsWith(href)}
+                  tooltip={label}
+                  className="hover:bg-sidebar-accent/40 data-[active=true]:bg-sidebar-accent data-[active=true]:hover:bg-sidebar-accent"
+                >
                   <Link href={href} prefetch={false}>
                     <Icon />
                     <span className="group-data-[state=collapsed]/sidebar:hidden">{label}</span>

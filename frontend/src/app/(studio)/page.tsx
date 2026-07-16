@@ -15,7 +15,7 @@ const topEnsembles = [
 
 export default function HomePage() {
   return (
-    <div className="relative h-full overflow-y-auto bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--primary)_9%,transparent),transparent_34%),radial-gradient(circle_at_20%_30%,color-mix(in_srgb,var(--accent)_6%,transparent),transparent_28%)]">
+    <div className="relative h-full overflow-y-auto [scrollbar-color:transparent_transparent] scrollbar-thin hover:[scrollbar-color:color-mix(in_srgb,var(--muted-foreground)_28%,transparent)_transparent] [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/40 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/25 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5 bg-[radial-gradient(circle_at_top_right,color-mix(in_srgb,var(--primary)_9%,transparent),transparent_34%),radial-gradient(circle_at_20%_30%,color-mix(in_srgb,var(--accent)_6%,transparent),transparent_28%)]">
       <section className="mx-auto w-full max-w-4xl px-6 pb-12 pt-24 sm:px-10 sm:pt-24">
         <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-primary/15 bg-card/70 px-3 py-1.5 shadow-sm backdrop-blur">
           <span className="select-none text-lg" aria-hidden="true">😱</span>
