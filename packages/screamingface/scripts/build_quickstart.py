@@ -14,7 +14,8 @@ def notebook() -> nbformat.NotebookNode:
         nbformat.v4.new_markdown_cell(
             """# screamingface · Quickstart
 
-Connect → pick → compose → run → compare in five small cells.
+Compose several AI models into one **fusion**, run it on a benchmark sample, and see whether the
+panel beats its strongest member. Connect → pick → compose → run → compare, in five small cells.
 
 This checked-in run is an explicit **SIMULATION**: it uses 20 synthetic, GPQA-shaped science
 questions and deterministic local model adapters, so GitHub can render a safe and reproducible
@@ -22,9 +23,8 @@ example. It is not a provider benchmark and it does not use or reveal gated GPQA
 
 For a real run, start AI Gateway and replace the setup call below with `sf.setup()`. Gateway login
 unlocks your encrypted credential vault; provider authorization separately enables model calls.
-The setup panel discovers each provider's supported methods and offers OAuth, an API key, or both.
-
-Real GPQA also requires accepting the dataset's Hugging Face terms. Live mode never silently
+The setup panel shows each loaded provider's supported methods and offers OAuth, an API key, or
+both. Real GPQA also requires accepting the dataset's Hugging Face terms. Live mode never silently
 falls back to simulation.
 
 When running from a repository checkout, launch this notebook with
@@ -64,10 +64,12 @@ When running from a repository checkout, launch this notebook with
         nbformat.v4.new_markdown_cell(
             """## 4 · Run
 
-Each member answers each question once through URL4. The fusion vote and best-member baseline
-reuse those same answers, so the comparison does not spend twice. In live mode, evaluation first
-checks that every required provider is connected and every model is available. A blocked run fails
-once with `FusionNotReady` before loading benchmark data or making model calls."""
+Each member answers each question exactly once through an embedded URL4 node — the `url4`
+package's node facade running inside this process, with no extra server to start. The fusion vote
+and best-member baseline reuse those same answers, so the comparison does not spend twice. In live
+mode, evaluation first checks that every required provider is connected and every model is
+available. A blocked run fails once with `FusionNotReady` before loading benchmark data or making
+model calls."""
         ),
         nbformat.v4.new_code_cell('run = fusion.evaluate("gpqa", first=20, seed=0)\nrun'),
         nbformat.v4.new_markdown_cell("## 5 · Compare"),
@@ -86,7 +88,11 @@ once with `FusionNotReady` before loading benchmark data or making model calls."
             """> **Interpretation:** gain is the fusion score minus the strongest member score,
 using the same panel answers. The number above demonstrates the SDK flow only; because this
 checked-in execution is simulated, it is not evidence that these named providers achieve these
-scores on GPQA."""
+scores on GPQA.
+
+**Next:** keep a lineup in a reviewable file with the YAML companion,
+[`yaml_quickstart.ipynb`](yaml_quickstart.ipynb) — or share this exact fusion by sending its
+`fusion.url4` recipe."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

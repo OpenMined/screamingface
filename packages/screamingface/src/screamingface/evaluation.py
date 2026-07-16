@@ -10,7 +10,7 @@ from html import escape
 from typing import Protocol
 from urllib.parse import unquote, urlsplit
 
-from url4.dag import run as run_url4
+from url4 import Url4Node
 
 from screamingface.data import Question, load_live_questions, load_mock_questions
 from screamingface.errors import FusionNotReady, ProviderCallError
@@ -293,12 +293,13 @@ async def _run_question(
     on_call_complete: Callable[[str], None] | None = None,
 ):
     io = QuestionIOLayer(question, adapter, seed, on_call_complete=on_call_complete)
-    final = await run_url4(
-        fusion.expression,
-        io=io,
-        process=_majority_processor(fusion.models, fusion.judge),
+    node = Url4Node(
+        "screamingface",
+        outbound=io,
+        process_fn=_majority_processor(fusion.models, fusion.judge),
     )
-    return final, io
+    result = await node.evaluate(fusion.expression)
+    return result.text, io
 
 
 def _majority_processor(model_ids: tuple[str, ...], judge: str | None):

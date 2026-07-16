@@ -84,6 +84,10 @@ Ask for the canonical, shareable URL4 only when you need it:"""
             '    "mode": run.mode,\n'
             "}"
         ),
+        nbformat.v4.new_markdown_cell(
+            """**Next:** [`00_quickstart.ipynb`](00_quickstart.ipynb) walks the same flow with an
+inline Python lineup and explains how to switch this notebook to a live run."""
+        ),
     ]
     for index, cell in enumerate(cells, start=1):
         cell["id"] = f"yaml-quickstart-{index:02d}"

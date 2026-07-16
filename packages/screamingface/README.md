@@ -170,8 +170,16 @@ timeout. Pass `progress=False` to suppress the display.
 
 ## What URL4 does
 
-`Fusion` compiles the panel into a canonical URL4 expression. `fusion.url4` exposes that recipe;
-the normal text/HTML representation intentionally shows the lineup instead. During evaluation,
+`Fusion` compiles the panel into a canonical URL4 expression and includes versioned,
+non-secret ScreamingFace metadata for its name and tie-breaking judge. `fusion.url4` exposes that
+recipe; the normal text/HTML representation intentionally shows the lineup instead. During evaluation,
 URL4 performs the model fan-out and invokes the majority-vote reducer. ScreamingFace supplies the
 model I/O, benchmark scoring, best-member baseline, and provenance. Every member response is reused
 for the baseline, so comparison does not make duplicate provider calls.
+
+ScreamingFace uses `url4.Url4Node` in embedded mode: the SDK constructs and evaluates the node
+inside the Python process, and its outbound I/O adapter translates `sf-model://...` sources into
+AI Gateway completion calls. Users do **not** start a URL4 server for the quickstart. The separate
+`url4_server.ipynb` example demonstrates the optional deployment mode where the same node is
+served over HTTP for remote URL4 clients; AI Gateway is the only external service required by a
+live ScreamingFace notebook.

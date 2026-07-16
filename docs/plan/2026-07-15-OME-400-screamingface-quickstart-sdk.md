@@ -54,7 +54,8 @@ will prefer server-reported `auth_methods` when a separate gateway change adds t
    reuses those answers.
 3. RED: test GPQA answer extraction, invalid outputs, majority voting, judge tie-breaking,
    incomplete rows, score/baseline/gain arithmetic, and provenance.
-4. GREEN: implement URL4 adapter, evaluation service, immutable Run, and provenance accounting.
+4. GREEN: execute through the public `Url4Node` facade with a ScreamingFace outbound adapter,
+   then implement the evaluation service, immutable Run, and provenance accounting.
 6. Refactor into focused files below the repository's 450-line guidance while all tests stay
    green.
 

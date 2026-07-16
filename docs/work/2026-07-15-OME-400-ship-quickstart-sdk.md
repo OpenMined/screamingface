@@ -23,7 +23,7 @@ outputs. The slice does not implement DRACO or every product-demo surface.
   deterministic mock adapters, GPQA loader, provenance, run-result, and notebook-display
   modules required by `00_quickstart.ipynb`.
 - Depend on `packages/url4` and compile each `Fusion` into a canonical URL4 expression that the
-  URL4 executor runs through a ScreamingFace I/O adapter.
+  public `Url4Node` facade runs through a ScreamingFace outbound I/O adapter.
 - Consume AI Gateway through its existing HTTP contract without importing or changing app
   internals; temporarily map the six current providers' authentication methods inside the SDK.
 - Add `packages/screamingface/examples/00_quickstart.ipynb`, committed with explicit mock-mode
@@ -88,8 +88,8 @@ outputs. The slice does not implement DRACO or every product-demo surface.
 - Test model/pricing filtering, input validation, judge membership, GPQA extraction/voting,
   deterministic mock evaluation, incomplete rows, score/baseline/gain arithmetic, provenance,
   and dataset boundaries.
-- Test that a fusion produces a canonical URL4 expression and that evaluation invokes the URL4
-  executor through the SDK adapter rather than bypassing it.
+- Test that a fusion produces a canonical, versioned URL4 expression and that evaluation invokes
+  the public `Url4Node` through the SDK adapter rather than bypassing it.
 - Test that provider credentials never appear in URL4 recipes or object representations.
 - Test that secrets also never appear in logs, errors, or notebook output.
 - Execute the notebook from a clean kernel and assert every code cell succeeds and the committed
@@ -145,11 +145,14 @@ outputs. The slice does not implement DRACO or every product-demo surface.
   labeling. The executed `yaml_quickstart.ipynb` companion covers file and inline configuration,
   exact model-ID validation, explicit URL4 access, and the full evaluate/compare path. Python and
   YAML composition now share connection-independent catalog discovery and the same aggregated,
-  zero-call readiness preflight at evaluation time.
+  zero-call readiness preflight at evaluation time. Evaluation now runs through an embedded public
+  `Url4Node` whose outbound adapter is the only model-call seam, and recipes carry versioned
+  non-secret name/judge metadata needed for exact future import.
 - **Pre-PR review round (2026-07-16):** three parallel spec-conformance reviews found the
   staged `00_quickstart.ipynb` had drifted from its generator (regenerated; SHA unchanged and
   byte-deterministic), the spec-mandated URL4 execution-seam spy test missing (added
-  `tests/test_url4_seam.py` proving each question executes through `run_url4` and that a
+  `tests/test_url4_seam.py` proving each question executes through an embedded public `Url4Node`
+  and that a
   URL4 bypass yields no answers), and a tie-break deviation (a tied vote now selects the
   judge's existing valid answer per spec §7, with the alphabetical fallback documented in the
   spec for judgeless/invalid-judge ties). Also fixed: startup instructions on the
@@ -161,13 +164,22 @@ outputs. The slice does not implement DRACO or every product-demo surface.
 - **Commits:** `feat(screamingface): ship OME-400 quickstart SDK thin slice` on
   `OME-400-ship-quickstart-sdk` (Refs: OME-400); Linear label/state sync remains an owner
   handoff.
-- **Gates:** ScreamingFace package checks are green (Ruff check/format, Pyright, 67 tests +
-  three explicitly skipped-by-default live tests, 96% coverage); clean-kernel notebook
+- **Embedded-node landing round (2026-07-16):** the Url4Node refactor was validated and landed
+  with a documented append-only override (`--skip-append-only` once): the seam tests retarget from
+  `url4.dag.run` to the `Url4Node` facade because that seam was replaced, and the successors are
+  strictly stronger (they additionally assert the rendered request equals `fusion.url4`). The
+  notebook generators were tidied for shareability (value-proposition intro, embedded-node wording
+  instead of the ambiguous "public URL4 node", cross-links between the two quickstarts) and both
+  notebooks regenerated. The URL4 topology decision record (embedded execution; OME-466 optional,
+  not a dependency) was appended to
+  `docs/questions/2026-07-16-screamingface-url4-integration-questions.md`.
+- **Gates:** ScreamingFace package checks are green (Ruff check/format, Pyright, 68 tests +
+  three explicitly skipped-by-default live tests, 95.97% coverage); clean-kernel notebook
   execution green and byte-deterministic at SHA-256
-  `20c2a21c73eef99ba1e4acdd8b3b8f1fb7f97348caac9fe15983a1b08b65fa3c`; wheel and sdist build
+  `b3cc031afc643f3905e3b0c2cc1312a32030c2c148ee786a90ca812cf5bb83cf`; wheel and sdist build
   green with the widget and bundled fixture verified. The YAML companion is clean-kernel green and
   byte-deterministic at SHA-256
-  `f12acb6e6943cc1cce97b1963d49b6fd2b522c0e4c0d11b1149ad9a84b8b8b77`. The new
+  `0336a9d15980f7820e97d05489c8b68be846b7d8dd4711907092ac0114a09b6b`. The new
   auth-enabled proof passed against a
   fresh local AI Gateway using `sf.setup(username=..., password=...)`; its server was stopped and
   disposable database deleted afterward. The opt-in live smoke previously passed against local AI
@@ -175,11 +187,10 @@ outputs. The slice does not implement DRACO or every product-demo surface.
   baseline 100, gain 0, incomplete 0, and estimated cost $0.001554. The gated
   GPQA loader proof passed using the machine's existing Hugging Face CLI login after dataset access
   was accepted; it loaded one row while asserting only ID/shape, and no gated question text was
-  printed, rendered, or committed. URL4's
-  704-test suite is green at 97.06% coverage. Its aggregate lint gate is red only in the three
-  pre-existing, user-owned modified URL4 notebooks, which this change deliberately did not edit.
-  AI Gateway's full gate is green (Ruff check/format, Pyright, enterprise-import boundary,
-  732 tests + 28 skips, 89.00% coverage); the changed model route is at 100% coverage. Browser-level
+  printed, rendered, or committed. URL4's 704-test suite is green at 97.06% coverage and its
+  package source is unchanged by OME-400. AI Gateway's full gate is green (Ruff check/format,
+  Pyright, enterprise-import boundary, 732 tests + 28 skips, 89.00% coverage) and its source is
+  unchanged by OME-400. Browser-level
   visual inspection was unavailable in this session, so widget appearance remains a manual
   handoff check; Jupyter MIME rendering and all card interactions are covered by automated tests.
 - **Deviations:** live verification found and fixed persistent async-client event-loop reuse and a

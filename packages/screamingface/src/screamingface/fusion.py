@@ -41,7 +41,13 @@ class Fusion:
         self.reduce = reduce
         self.judge = judge
         calls = tuple(src(f"sf-model://{quote(model, safe='/.-')}") for model in members)
-        self.expression = expr(*calls, intent=reduce)
+        recipe_params = [
+            ("sf_version", "1"),
+            ("sf_name", normalized),
+        ]
+        if judge is not None:
+            recipe_params.append(("sf_judge", judge))
+        self.expression = expr(*calls, intent=reduce, params=recipe_params)
         self._url4 = render(self.expression)
         # Kept for compatibility with the first OME-400 SDK draft. New code should
         # use ``url4`` so the value is only surfaced when explicitly requested.

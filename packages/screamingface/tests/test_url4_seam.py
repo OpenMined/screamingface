@@ -1,8 +1,9 @@
-"""Spec §8 guard: fusion fan-out must execute through the URL4 executor."""
+"""Spec §8 guard: fusion fan-out must execute through the public URL4 node."""
 
 from __future__ import annotations
 
 import pytest
+from url4 import Url4Node, Url4Result, render
 
 import screamingface as sf
 import screamingface.evaluation as evaluation
@@ -19,42 +20,47 @@ def _mock_fusion() -> sf.Fusion:
     return sf.Fusion("seam", ids[:3], judge=ids[0])
 
 
-def test_every_panel_answer_traverses_the_url4_executor(
+def test_every_panel_answer_traverses_a_public_url4_node(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # INVARIANT: spec §8 — URL4 is the execution seam, not just serialization. Every
-    # question is one run_url4 call on the fusion's compiled expression, and every
-    # panel answer used for vote/baseline comes from the IO layer it executed.
+    # INVARIANT: spec §8 — URL4 is the execution seam, not just serialization.
+    # Every question is evaluated by the public Url4Node facade, whose outbound
+    # I/O layer produces every panel answer used for both vote and baseline.
     fusion = _mock_fusion()
-    real_run_url4 = evaluation.run_url4
-    recorded: list[tuple[object, evaluation.QuestionIOLayer]] = []
+    recorded: list[tuple[object, evaluation.QuestionIOLayer, str]] = []
 
-    async def spying_run_url4(expression, *, io, process):
-        recorded.append((expression, io))
-        return await real_run_url4(expression, io=io, process=process)
+    class SpyingUrl4Node(Url4Node):
+        async def evaluate(self, expression, *, env=None):
+            result = await super().evaluate(expression, env=env)
+            assert isinstance(self._outbound, evaluation.QuestionIOLayer)
+            recorded.append((expression, self._outbound, result.request))
+            return result
 
-    monkeypatch.setattr(evaluation, "run_url4", spying_run_url4)
+    monkeypatch.setattr(evaluation, "Url4Node", SpyingUrl4Node)
 
     run = fusion.evaluate("gpqa", first=4, seed=0)
 
     assert run.sample_size == 4
     assert len(recorded) == 4
-    assert all(expression is fusion.expression for expression, _io in recorded)
-    assert all(set(io.answers) == set(fusion.models) for _expression, io in recorded)
+    assert all(expression is fusion.expression for expression, _io, _request in recorded)
+    assert all(set(io.answers) == set(fusion.models) for _expression, io, _request in recorded)
+    assert all(request == fusion.url4 for _expression, _io, request in recorded)
 
 
 def test_a_model_loop_bypassing_url4_produces_no_answers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # INVARIANT: spec §8 — answers exist only if run_url4 drives the CompletionPort;
+    # INVARIANT: spec §8 — answers exist only if Url4Node drives the CompletionPort;
     # a direct Python model loop plus vote cannot satisfy the evaluator.
     fusion = _mock_fusion()
 
-    async def bypassing_run_url4(expression, *, io, process):
-        del expression, io, process
-        return ""
+    class BypassingUrl4Node(Url4Node):
+        async def evaluate(self, expression, *, env=None):
+            del env
+            request = expression if isinstance(expression, str) else render(expression)
+            return Url4Result(text="", request=request)
 
-    monkeypatch.setattr(evaluation, "run_url4", bypassing_run_url4)
+    monkeypatch.setattr(evaluation, "Url4Node", BypassingUrl4Node)
 
     run = fusion.evaluate("gpqa", first=2, seed=0)
 

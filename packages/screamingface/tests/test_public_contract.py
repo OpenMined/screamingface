@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 
 import pytest
-from url4 import build, render
+from url4 import Expression, build, render
 
 import screamingface as sf
 import screamingface.session as session_module
@@ -50,6 +50,22 @@ def test_mock_quickstart_contract_runs_end_to_end() -> None:
     assert "no provider spend" in html
     assert "reduce majority_vote" in html
     assert len(run.model_results) == 3
+
+
+def test_url4_recipe_carries_versioned_import_metadata() -> None:
+    sf.setup(mode="mock")
+    ids = sf.models.list()
+    fusion = sf.Fusion("Importable Fusion", ids[:3], judge=ids[0])
+
+    parsed = build(fusion.url4)
+
+    assert isinstance(parsed, Expression)
+    assert render(parsed) == fusion.url4
+    assert parsed.params == (
+        ("sf_version", "1"),
+        ("sf_name", "importable-fusion"),
+        ("sf_judge", ids[0]),
+    )
 
 
 def test_setup_defaults_to_live_and_never_silently_mocks(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -67,7 +67,7 @@ Notebook / public ScreamingFace API
 Fusion + benchmark application layer
                  |
                  v
-URL4 expression + URL4 executor
+URL4 expression + public Url4Node
                  |
                  v
 CompletionPort
@@ -85,6 +85,13 @@ DeterministicMockAdapter     AIGatewayAdapter (HTTP)
 ```
 
 Responsibilities:
+
+- ScreamingFace owns an embedded `Url4Node`; notebook users do not start or configure a URL4
+  server for OME-400.
+- The node resolves each `sf-model://...` source through a ScreamingFace outbound I/O adapter,
+  which selects deterministic mock execution or an AI Gateway completion.
+- `Url4Node.serve()` and remote `url4.Client("url4://...")` deployment remain valid URL4 SDK
+  capabilities but are outside the quickstart's runtime topology.
 
 - `screamingface`: setup UX, gateway client, catalog/pricing view, Fusion, benchmark loading,
   scoring, provenance, and notebook representations.
@@ -257,6 +264,8 @@ Invariants:
   readiness are enforced once, at the evaluation preflight.
 - A judge must be a fusion member.
 - OME-400 supports `majority_vote` only; unknown reducers fail clearly.
+- The canonical recipe carries `sf_version`, normalized `sf_name`, and `sf_judge` when configured,
+  so a future importer can reconstruct semantic tie-breaking rather than infer it.
 - Credentials, gateway JWTs, and profile labels never appear in the recipe.
 - YAML is parsed with a safe loader, must be a mapping containing only the Fusion fields, and does
   not execute or contact a provider while loading.
@@ -264,7 +273,8 @@ Invariants:
   silently rewritten; unknown model IDs fail during Fusion construction, and unavailable
   models or providers fail at the evaluation preflight.
 
-`Fusion.url4` is canonical URL4 rendered by the URL4 SDK. It must parse and compile through URL4;
+`Fusion.url4` is canonical URL4 rendered by the URL4 SDK. It must parse and execute through the
+public `Url4Node` facade;
 it is not an unrelated query string with a `url4://` prefix. `Fusion.url` remains a compatibility
 alias for the first SDK draft. Plain and rich notebook representations show a lineup table and do
 not expose the recipe until the caller asks for `.url4`.
