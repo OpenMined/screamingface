@@ -1,0 +1,7 @@
+name: yaml-trio
+models:
+  - codex/gpt-5.5
+  - gemini-cli/gemini-2.5-pro
+  - anthropic/claude-sonnet-4-6
+reduce: majority_vote
+judge: codex/gpt-5.5
