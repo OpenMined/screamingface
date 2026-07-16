@@ -100,6 +100,22 @@ helm upgrade --install scoreboard oci://ghcr.io/openmined/screamingface/charts/s
 
 Set `SCOREBOARD_SUBMISSION_API_KEY` to gate `POST /v1/scores` (OME-391 / C2) — a placeholder shared key until OME-326 (real identity) exists. Unset, the write path stays open, matching today's behavior. Once set, submitting clients (desktop app, SDK, CI) need `Authorization: Bearer <key>` — coordinate the key distribution before flipping this on in production, since it isn't per-user.
 
+The chart never takes the raw key value directly — put it in a Secret and point the chart at it, mirroring the `database.existingSecret` pattern:
+
+```bash
+kubectl -n scoreboard create secret generic scoreboard-submission-api-key \
+  --from-literal=api-key='<the key value>'
+
+helm upgrade scoreboard oci://ghcr.io/openmined/screamingface/charts/scoreboard \
+  --namespace scoreboard \
+  --reuse-values \
+  --set submissionApiKey.existingSecret=scoreboard-submission-api-key \
+  --set submissionApiKey.existingSecretKey=api-key \
+  --wait
+```
+
+Leaving `submissionApiKey.existingSecret` unset (the default) renders no `SCOREBOARD_SUBMISSION_API_KEY` env var at all — the gate stays a no-op.
+
 ## Benchmark Seeding
 
 The app chart runs `python -m scoreboard.seed` after install and upgrade. Seed data comes from `.Values.seedBenchmarks.benchmarks` and is passed through `SCOREBOARD_SEED_BENCHMARKS_JSON`.
