@@ -84,6 +84,9 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(23, 22, 29, .15); border-radius: 2px; }
 
 body {
   margin: 0;
@@ -137,6 +140,7 @@ input { font-weight: 400; }
   color: inherit;
   text-align: left;
   cursor: pointer;
+  text-decoration: none;
 }
 
 .brand-mark {
@@ -190,6 +194,7 @@ input { font-weight: 400; }
   font-weight: 500;
   line-height: 1.25rem;
   text-align: left;
+  text-decoration: none;
   transition: color 150ms ease, background 150ms ease;
 }
 .nav-item:hover { background: color-mix(in srgb, var(--sidebar-accent) 40%, transparent); color: var(--foreground); }
@@ -205,7 +210,7 @@ input { font-weight: 400; }
 .key-field svg { flex: 0 0 auto; }
 .key-field input { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--foreground); font-size: 11px; line-height: 1.5; }
 .key-field input::placeholder { color: var(--muted-foreground); opacity: 1; }
-.connect-button, .apply-button { display: flex; align-items: center; justify-content: center; gap: .375rem; padding: .375rem .75rem; border-radius: .5rem; cursor: pointer; font-size: .75rem; font-weight: 500; line-height: 1rem; transition: background 150ms ease; }
+.connect-button, .apply-button { display: flex; align-items: center; justify-content: center; gap: .375rem; padding: .375rem .75rem; border-radius: .5rem; cursor: pointer; font-size: .75rem; font-weight: 500; line-height: 1rem; text-decoration: none; transition: background 150ms ease; }
 .connect-button { border: 0; background: var(--primary); color: var(--primary-foreground); }
 .connect-button:hover { background: color-mix(in srgb, var(--primary) 90%, transparent); }
 .apply-button { border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent); background: transparent; color: var(--primary); }
@@ -217,3 +222,46 @@ input { font-weight: 400; }
 .profile-copy small { overflow: hidden; color: var(--muted-foreground); font-family: "IBM Plex Mono", monospace; font-size: 10px; line-height: 1rem; text-overflow: ellipsis; white-space: nowrap; }
 
 .workspace { min-width: 0; flex: 1; overflow: hidden; background: var(--background); }
+
+.home-view { height: 100%; overflow-y: auto; background: var(--background); }
+.home-hero, .top-section { width: 100%; max-width: 48rem; margin-inline: auto; padding-inline: 2rem; }
+.home-hero { padding-top: 5rem; padding-bottom: 2.5rem; }
+.home-kicker { display: flex; align-items: center; gap: .5rem; margin-bottom: 1.5rem; }
+.home-kicker-emoji { font-size: 1.25rem; line-height: 1.75rem; user-select: none; }
+.home-kicker-brand { color: var(--foreground); font-size: .875rem; font-weight: 600; line-height: 1.25rem; }
+.home-kicker-tagline { color: var(--muted-foreground); font-family: "IBM Plex Mono", monospace; font-size: 11px; line-height: 1rem; }
+.home-hero h1 { margin: 0; color: var(--foreground); font-size: clamp(1.9rem, 4vw, 2.5rem); font-weight: 600; letter-spacing: -.025em; line-height: 1.15; }
+.home-actions { display: flex; flex-wrap: wrap; align-items: center; column-gap: 1.25rem; row-gap: .5rem; margin-top: 1.75rem; }
+.home-actions a, .all-results { padding: 0; border: 0; background: transparent; cursor: pointer; font-size: .875rem; font-weight: 500; line-height: 1.25rem; text-decoration: none; }
+.home-primary-action { display: flex; align-items: center; gap: .375rem; color: var(--primary); }
+.home-primary-action:hover { text-decoration: underline; }
+.home-secondary-action, .all-results { color: var(--muted-foreground); transition: color 150ms ease; }
+.home-secondary-action:hover, .all-results:hover { color: var(--foreground); }
+.home-stats { margin-top: .75rem; color: var(--muted-foreground); font-family: "IBM Plex Mono", monospace; font-size: .75rem; line-height: 1rem; }
+
+.top-section { padding-bottom: 5rem; }
+.top-heading { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 1rem; padding-top: 2rem; border-top: 1px solid var(--border); }
+.top-heading h2 { margin: 0; color: var(--foreground); font-size: 1.05rem; font-weight: 500; line-height: 1.5; }
+.top-heading p { margin: .125rem 0 0; color: var(--muted-foreground); font-size: .875rem; line-height: 1.25rem; }
+.all-results { display: flex; flex: 0 0 auto; align-items: center; gap: .25rem; }
+.ensemble-list { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: .75rem; background: var(--card); }
+.ensemble-row { display: flex; align-items: center; gap: .75rem; padding: .75rem 1rem; border: 0; background: transparent; color: inherit; font-weight: 500; text-align: left; text-decoration: none; cursor: pointer; transition: background 150ms ease; }
+.ensemble-row:not(:last-child) { border-bottom: 1px solid var(--border); }
+.ensemble-row:hover { background: color-mix(in srgb, var(--secondary) 40%, transparent); }
+.ensemble-rank { width: 1rem; flex: 0 0 1rem; color: var(--muted-foreground); font-family: "IBM Plex Mono", monospace; font-size: .75rem; font-weight: 500; line-height: 1rem; }
+.ensemble-details { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.ensemble-name-line { display: flex; align-items: center; gap: .375rem; }
+.ensemble-name { overflow: hidden; color: var(--foreground); font-family: "IBM Plex Mono", monospace; font-size: .875rem; font-weight: 500; line-height: 1.25rem; text-overflow: ellipsis; white-space: nowrap; }
+.private-icon { flex: 0 0 auto; color: var(--muted-foreground); }
+.ensemble-meta { display: flex; align-items: center; gap: .375rem; margin-top: .25rem; color: var(--muted-foreground); font-size: .75rem; font-weight: 500; line-height: 1rem; }
+.provider-dots { display: flex; align-items: center; gap: .125rem; }
+.provider-dot { display: inline-block; width: .5rem; height: .5rem; flex: 0 0 .5rem; border-radius: 50%; }
+.model-count { font-family: "IBM Plex Mono", monospace; }
+.meta-divider { color: color-mix(in srgb, var(--muted-foreground) 40%, transparent); }
+.ensemble-author { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ensemble-benchmark { flex: 0 0 auto; color: var(--muted-foreground); font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 500; line-height: 1rem; }
+.ensemble-uplift { width: 3.5rem; flex: 0 0 3.5rem; color: var(--accent); font-family: "IBM Plex Mono", monospace; font-weight: 600; text-align: right; }
+
+@media (max-width: 640px) {
+  .ensemble-benchmark { display: none; }
+}
