@@ -1,4 +1,4 @@
-"""Build the reviewable OME-400 quickstart notebook and optionally execute it."""
+"""Build the bare-bones ScreamingFace quickstart notebook."""
 
 from __future__ import annotations
 
@@ -14,70 +14,53 @@ def notebook() -> nbformat.NotebookNode:
         nbformat.v4.new_markdown_cell(
             """# screamingface · Quickstart
 
-Compose several AI models into one **fusion**, run it on a benchmark sample, and see whether the
-panel beats its strongest member. Connect → pick → compose → run → compare.
+Compose three models, evaluate their majority vote, and check whether the fusion beats its best
+member.
 
-This committed copy runs in mock mode — synthetic questions, deterministic local answers — so it
-renders reproducibly on GitHub. The scores demonstrate the flow, not provider quality.
+This quickstart uses deterministic model routes through the real local URL4 engine. Start it from
+`packages/screamingface`, then run the notebook:
 
-**Going live:** replace the setup call with `sf.setup()` and have three things ready:
+```bash
+./scripts/dev-url4.sh
+```
 
-1. **AI Gateway** running:
-   `cd apps/aigateway && uv sync && uv run uvicorn aigateway.main:app --port 9105`.
-   `sf.setup()` finds `http://127.0.0.1:9105`; for any other host, pass `gateway="..."` or set
-   `SCREAMINGFACE_GATEWAY_URL`.
-2. **Providers connected** in the setup panel, with OAuth or an API key. `sf.models.list()` shows
-   models from connected providers.
-3. **Hugging Face access** for the real GPQA benchmark: `uv sync --extra datasets`, accept the
-   terms at `huggingface.co/datasets/Idavidrein/gpqa`, then `huggingface-cli login`."""
+To fetch GPQA Diamond instead of the bundled fixture, first accept its gated dataset terms and be
+logged in to Hugging Face, then select the live dataset with `sf.config(mode="live")`. Your URL4
+engine must also expose production-backed model routes."""
         ),
-        nbformat.v4.new_markdown_cell("## 1 · Connect"),
         nbformat.v4.new_code_cell(
             "import screamingface as sf\n\n"
-            "# REMOVE mode and static_widgets to run live: sf.setup()\n"
-            'session = sf.setup(mode="mock", static_widgets=True)\n'
-            "session"
+            "# Optional: point the SDK at a hosted engine instead of the localhost default.\n"
+            '# sf.config("https://url4.example")'
         ),
-        nbformat.v4.new_markdown_cell("## 2 · Pick models"),
-        nbformat.v4.new_code_cell("available = sf.models.list()\navailable"),
-        nbformat.v4.new_markdown_cell("## 3 · Compose a URL4-backed fusion"),
+        nbformat.v4.new_markdown_cell("## 1 · Compose"),
         nbformat.v4.new_code_cell(
             "fusion = sf.Fusion(\n"
             '    "frontier-trio",\n'
-            "    models=available[:3],\n"
-            '    reduce="majority_vote",\n'
-            "    judge=available[0],\n"
+            "    models=[\n"
+            '        "codex/gpt-5.5",\n'
+            '        "gemini-cli/gemini-2.5-pro",\n'
+            '        "anthropic/claude-sonnet-4-6",\n'
+            "    ],\n"
+            '    reducer=sf.MajorityVote(tie_breaker="codex/gpt-5.5"),\n'
             ")\n"
             "fusion"
         ),
-        nbformat.v4.new_markdown_cell("Ask for the shareable URL4 recipe when you need it:"),
+        nbformat.v4.new_markdown_cell(
+            """Every fusion has a shareable URL4 recipe. Displaying it does not execute it."""
+        ),
         nbformat.v4.new_code_cell("fusion.url4"),
-        nbformat.v4.new_markdown_cell(
-            """## 4 · Run
-
-Each member answers every question once through an embedded URL4 node; the vote and the
-best-member baseline reuse the same answers, so nothing is asked twice. Live runs validate
-providers and models up front and fail fast with `FusionNotReady` before any call."""
-        ),
+        nbformat.v4.new_markdown_cell("## 2 · Run"),
         nbformat.v4.new_code_cell('run = fusion.evaluate("gpqa", first=20, seed=0)\nrun'),
-        nbformat.v4.new_markdown_cell("## 5 · Compare"),
+        nbformat.v4.new_markdown_cell("## 3 · Compare"),
         nbformat.v4.new_code_cell(
-            "{\n"
-            '    "mode": run.mode,\n'
-            '    "provenance": run.dataset_source,\n'
-            '    "sample_size": run.sample_size,\n'
-            '    "score": run.score,\n'
-            '    "baseline": run.baseline,\n'
-            '    "gain": run.gain,\n'
-            '    "cost_usd": run.cost_usd,\n'
-            "}"
+            "run.score, run.baseline, run.gain  # fusion, best member, improvement"
         ),
         nbformat.v4.new_markdown_cell(
-            """> Gain = fusion score − best member, on the same answers. Positive means the panel
-beat its strongest member.
+            """> Positive gain means the fusion outperformed its strongest individual member.
 
-**Next:** [`yaml_quickstart.ipynb`](yaml_quickstart.ipynb) keeps the lineup in a file — or share
-this fusion by sending `fusion.url4`."""
+For the exact URL4 HTTP request and compiled-node walkthrough, open
+[`sf_url4_engine.ipynb`](sf_url4_engine.ipynb)."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):
@@ -103,9 +86,21 @@ def main() -> None:
     target = args.output or Path(__file__).parents[1] / "examples" / "00_quickstart.ipynb"
     document = notebook()
     if args.execute:
-        document = NotebookClient(document, timeout=120, kernel_name="python3").execute()
+        document = NotebookClient(
+            document,
+            timeout=120,
+            kernel_name="python3",
+            resources={"metadata": {"path": str(target.parent)}},
+        ).execute()
         for cell in document.cells:
             cell.metadata.pop("execution", None)
+            if "outputs" in cell:
+                cell.outputs = [
+                    output
+                    for output in cell.outputs
+                    if "application/vnd.jupyter.widget-view+json" not in output.get("data", {})
+                ]
+        document.metadata.pop("widgets", None)
         document.metadata["language_info"] = {"name": "python", "version": "3.12"}
     nbformat.write(document, target)
 

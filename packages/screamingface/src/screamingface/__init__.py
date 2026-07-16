@@ -1,62 +1,40 @@
-"""ScreamingFace — compose URL4-backed model fusions and measure their gain."""
+"""ScreamingFace — URL4-native model fusions and benchmark comparison."""
 
 from screamingface.errors import (
-    AmbiguousProfile,
     DatasetUnavailable,
-    FusionNotReady,
-    GatewayError,
-    GatewayUnavailable,
-    LoginRequired,
-    ProviderCallError,
+    EngineError,
+    EngineUnavailable,
     ScreamingFaceError,
 )
 from screamingface.fusion import Fusion
-from screamingface.gateway import Connection, OAuthStart, ProviderCapability
 from screamingface.models import models
+from screamingface.reducers import MajorityVote
 from screamingface.results import ModelResult, Run, RunFailure
 from screamingface.session import (
     Session,
-    connect,
-    connect_oauth,
-    connections,
+    config,
     current_session,
-    disconnect,
-    providers,
     reset_session,
-    setup,
     shutdown,
-    wait_for_connection,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
-    "AmbiguousProfile",
-    "Connection",
     "DatasetUnavailable",
+    "EngineError",
+    "EngineUnavailable",
     "Fusion",
-    "FusionNotReady",
-    "GatewayError",
-    "GatewayUnavailable",
-    "LoginRequired",
+    "MajorityVote",
     "ModelResult",
-    "OAuthStart",
-    "ProviderCapability",
-    "ProviderCallError",
     "Run",
     "RunFailure",
     "ScreamingFaceError",
     "Session",
     "__version__",
-    "connect",
-    "connect_oauth",
-    "connections",
     "current_session",
-    "disconnect",
     "models",
-    "providers",
     "reset_session",
-    "setup",
+    "config",
     "shutdown",
-    "wait_for_connection",
 ]

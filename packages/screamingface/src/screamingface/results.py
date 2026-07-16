@@ -41,8 +41,8 @@ class Run:
     gain: float
     cost_usd: float
     fusion_name: str = "fusion"
-    reduce: str = "majority_vote"
-    judge: str | None = None
+    reducer: str = "majority_vote"
+    tie_breaker: str | None = None
     incomplete: int = 0
     profiles: tuple[tuple[str, str], ...] = ()
     pricing_source: str = "estimate:SDK catalog"
@@ -62,8 +62,7 @@ class Run:
 
 def _run_html(run: Run) -> str:
     simulated = run.mode == "mock"
-    mode_color = "#8a5a00" if simulated else "#137333"
-    mode_label = "MOCK · NO PROVIDER CLAIM" if simulated else "LIVE PROVIDER RUN"
+    mode_note = "no provider-quality claim" if simulated else "provider responses"
     cost_value = "$0.000" if simulated else f"${run.cost_usd:.4f}"
     cost_label = "no provider spend" if simulated else "estimated cost"
     metrics = "".join(
@@ -74,9 +73,9 @@ def _run_html(run: Run) -> str:
             _metric(cost_value, cost_label),
         ]
     )
-    recipe = f"reduce {escape(run.reduce)}"
-    if run.judge:
-        recipe += f" · judge {_model_name(run.judge)}"
+    recipe = f"reducer {escape(run.reducer)}"
+    if run.tie_breaker:
+        recipe += f" · tie breaker {_model_name(run.tie_breaker)}"
     model_rows = "".join(
         _model_result_html(result, result.score == run.baseline) for result in run.model_results
     )
@@ -94,32 +93,31 @@ def _run_html(run: Run) -> str:
         ""
         if not model_rows
         else (
-            "<div style='border-top:1px solid #dadce0;margin-top:.8rem;padding-top:.7rem'>"
-            "<div style='font-size:.82rem;color:#5f6368;margin-bottom:.35rem'>"
+            "<div style='border-top:1px solid #e0e3e7;margin-top:.9rem;padding-top:.8rem'>"
+            "<div style='font-size:.72rem;font-weight:700;letter-spacing:.04em;"
+            "color:#5f6368;margin-bottom:.3rem'>"
             "PER-MODEL ACCURACY</div>"
             f"{model_rows}</div>"
         )
     )
     dataset = escape(run.dataset_source)
+    pricing_date = "" if run.pricing_as_of == "n/a" else f" · as of {escape(run.pricing_as_of)}"
     return (
-        "<div style='font-family:system-ui,-apple-system,sans-serif;max-width:980px;"
-        "border:1px solid #dadce0;border-radius:10px;padding:16px 18px;"
-        "box-shadow:0 2px 8px rgba(60,64,67,.08)'>"
-        "<div style='display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap'>"
-        f"<div><div style='font-size:.75rem;font-weight:700;color:{mode_color}'>"
-        f"{mode_label}</div><div style='font-size:1.15rem;font-weight:700'>"
-        f"{escape(run.fusion_name)}</div></div>"
-        f"<div style='color:#3c4043'>{escape(run.benchmark)} · n={run.sample_size} · "
-        f"seed {run.seed}</div></div>"
-        "<div style='display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));"
-        f"gap:.75rem;margin:.9rem 0'>{metrics}</div>"
-        f"{_score_bar(run.score)}"
-        f"<div style='margin-top:.55rem;color:#3c4043'>{recipe}</div>"
+        "<div style='font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;"
+        "max-width:760px;color:#202124;background:#fff;border:1px solid #e0e3e7;"
+        "border-radius:10px;padding:18px;box-shadow:0 2px 10px rgba(60,64,67,.10)'>"
+        f"<div><div style='font-size:1.05rem;font-weight:700'>{escape(run.fusion_name)}</div>"
+        f"<div style='margin-top:.2rem;font-size:.78rem;color:#5f6368'>"
+        f"{escape(run.benchmark)} · {run.sample_size} questions · seed {run.seed}</div></div>"
+        "<div style='display:grid;grid-template-columns:repeat(4,minmax(105px,1fr));"
+        f"gap:.5rem;margin:1rem 0 .75rem'>{metrics}</div>"
+        "<div style='padding:.55rem .7rem;background:#f8f9fa;border:1px solid #eceff1;"
+        f"border-radius:7px;font-size:.78rem;color:#3c4043'>{recipe} · {mode_note}</div>"
         f"{models}{incomplete}"
-        "<div style='margin-top:.75rem;padding-top:.6rem;border-top:1px solid #eceff1;"
-        "font-size:.75rem;color:#70757a'>"
-        f"Dataset: {dataset} · pricing: {escape(run.pricing_source)} "
-        f"({escape(run.pricing_as_of)}) · {run.total_tokens:,} tokens"
+        "<div style='margin-top:.8rem;padding-top:.65rem;border-top:1px solid #eceff1;"
+        "font-size:.72rem;color:#70757a'>"
+        f"Dataset: {dataset} · {escape(run.pricing_source)}{pricing_date} · "
+        f"{run.total_tokens:,} tokens"
         "</div></div>"
     )
 
@@ -136,17 +134,12 @@ def _metric(value: float | str, label: str, *, signed: bool = False) -> str:
             else ("#b3261e" if signed and value < 0 else "#202124")
         )
     return (
-        "<div><div style='font-size:1.35rem;font-weight:700;"
-        f"color:{color}'>{rendered}</div>"
-        f"<div style='font-size:.8rem;color:#5f6368'>{escape(label)}</div></div>"
-    )
-
-
-def _score_bar(score: float) -> str:
-    width = min(100.0, max(0.0, score))
-    return (
-        "<div style='height:8px;background:#e8eaed;border-radius:999px;overflow:hidden'>"
-        f"<div style='height:100%;width:{width:.1f}%;background:#202124'></div></div>"
+        "<div style='min-width:0;padding:.62rem .7rem;background:#f8f9fa;"
+        "border:1px solid #eceff1;border-radius:7px'>"
+        f"<div style='font-size:1.18rem;line-height:1.2;font-weight:700;color:{color}'>"
+        f"{rendered}</div>"
+        f"<div style='margin-top:.15rem;font-size:.72rem;color:#5f6368'>{escape(label)}</div>"
+        "</div>"
     )
 
 
@@ -154,16 +147,23 @@ def _model_result_html(result: ModelResult, best: bool) -> str:
     width = min(100.0, max(0.0, result.score))
     name = escape(_model_name(result.model))
     provider = escape(_provider_name(result.model))
-    best_label = " <span style='color:#a15c00'>best</span>" if best else ""
+    best_label = (
+        " <span style='display:inline-block;padding:.08rem .32rem;border-radius:999px;"
+        "background:#fef7e0;color:#8a5a00;font-size:.65rem'>best</span>"
+        if best
+        else ""
+    )
     failures = f" · {result.failures} failures" if result.failures else ""
     return (
-        "<div style='display:grid;grid-template-columns:minmax(180px,1.2fr) 3fr 70px;"
-        "gap:.7rem;align-items:center;padding:.35rem 0'>"
-        f"<div><strong>{name}</strong><div style='font-size:.72rem;color:#70757a'>"
+        "<div style='display:grid;grid-template-columns:minmax(165px,1.25fr) 2fr 72px;"
+        "gap:.7rem;align-items:center;padding:.48rem 0'>"
+        f"<div style='font-size:.82rem'><strong>{name}</strong>"
+        "<div style='font-size:.7rem;color:#70757a'>"
         f"{provider}{failures}</div></div>"
-        "<div style='height:7px;background:#e8eaed;border-radius:999px;overflow:hidden'>"
+        "<div style='height:6px;background:#e8eaed;border-radius:999px;overflow:hidden'>"
         f"<div style='height:100%;width:{width:.1f}%;background:#5f6368'></div></div>"
-        f"<div style='text-align:right;font-weight:700'>{result.score:.1f}{best_label}</div></div>"
+        f"<div style='text-align:right;font-size:.8rem;font-weight:700'>"
+        f"{result.score:.1f}{best_label}</div></div>"
     )
 
 

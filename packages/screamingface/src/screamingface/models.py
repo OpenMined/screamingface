@@ -1,12 +1,10 @@
-"""Model metadata and the session-aware catalog façade."""
+"""Model metadata and URL4 route catalog."""
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
 from datetime import date
-
-from screamingface.session import require_session
 
 
 @dataclass(frozen=True)
@@ -17,11 +15,20 @@ class Model:
     mock_error_bucket: int
     pricing_source: str
     pricing_as_of: date
+    route: str
     pricing_basis: str = "blended_tokens"
 
 
 _CATALOG = (
-    Model("codex/gpt-5.5", "GPT-5.5", 12.0, 0, "estimate:SDK catalog", date(2026, 7, 16)),
+    Model(
+        "codex/gpt-5.5",
+        "GPT-5.5",
+        12.0,
+        0,
+        "estimate:SDK catalog",
+        date(2026, 7, 16),
+        "/codex/gpt-5.5",
+    ),
     Model(
         "gemini-cli/gemini-2.5-pro",
         "Gemini 2.5 Pro",
@@ -29,6 +36,7 @@ _CATALOG = (
         1,
         "estimate:SDK catalog",
         date(2026, 7, 16),
+        "/gemini/2.5",
     ),
     Model(
         "anthropic/claude-sonnet-4-6",
@@ -37,6 +45,7 @@ _CATALOG = (
         2,
         "estimate:SDK catalog",
         date(2026, 7, 16),
+        "/claude/sonnet-4.6",
     ),
 )
 
@@ -47,38 +56,16 @@ class Models:
     def list(self, *, max_price: float | None = None) -> list[str]:
         if max_price is not None and (not math.isfinite(max_price) or max_price < 0):
             raise ValueError("max_price must be a non-negative finite number")
-        session = require_session()
-        available = set(_BY_ID)
-        if session.mode == "live":
-            if session.gateway is None:
-                return []
-            from screamingface.session import _run
-
-            # WHY: spec §5 — discovery mirrors the setup panel: only models whose
-            # provider holds an active connection are runnable, and connections are
-            # re-read per call so a newly connected provider appears immediately.
-            connected = {
-                connection.provider
-                for connection in _run(session.gateway.list_connections())
-                if connection.status == "active"
-            }
-            available = {
-                model_id
-                for model_id in _run(session.gateway.list_models())
-                if model_id.split("/", 1)[0] in connected
-            }
         return [
             model.id
             for model in _CATALOG
-            if model.id in available
-            and (
+            if (
                 max_price is None
                 or (model.price_per_million is not None and model.price_per_million <= max_price)
             )
         ]
 
     def get(self, model_id: str) -> Model:
-        require_session()
         try:
             return _BY_ID[model_id]
         except KeyError as exc:

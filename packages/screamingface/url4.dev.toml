@@ -1,0 +1,8 @@
+# Local-only URL4 server configuration for the deterministic SDK quickstart.
+# These commands simulate model routes; they never contact AI Gateway.
+default_route = "/codex/gpt-5.5"
+
+[commands]
+"/codex/gpt-5.5" = ["python3", "../screamingface/scripts/url4_mock_model.py", "codex/gpt-5.5"]
+"/gemini/2.5" = ["python3", "../screamingface/scripts/url4_mock_model.py", "gemini-cli/gemini-2.5-pro"]
+"/claude/sonnet-4.6" = ["python3", "../screamingface/scripts/url4_mock_model.py", "anthropic/claude-sonnet-4-6"]
