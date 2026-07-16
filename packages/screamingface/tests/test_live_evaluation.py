@@ -104,9 +104,12 @@ def test_live_evaluation_uses_gateway_and_reports_live_provenance(
     assert gateway.calls == 6
 
 
-def test_model_discovery_does_not_require_provider_connections(
+def test_model_discovery_lists_only_actively_connected_providers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # INVARIANT: spec §5 — live discovery mirrors the setup panel: only models whose
+    # provider holds an ACTIVE gateway connection are listed, re-read on every call so
+    # a provider connected through the widget appears without a new setup.
     gateway = FakeGateway()
     session = sf.Session(
         mode="live",
@@ -116,11 +119,14 @@ def test_model_discovery_does_not_require_provider_connections(
     )
     monkeypatch.setattr(session_module, "_active", session)
 
-    assert sf.models.list() == [
-        "codex/gpt-5.5",
-        "gemini-cli/gemini-2.5-pro",
-        "anthropic/claude-sonnet-4-6",
-    ]
+    assert sf.models.list() == []
+
+    gateway.connections.append(Connection("anthropic", "anthropic", "default", "active", "oauth"))
+    gateway.connections.append(Connection("codex", "codex", "default", "pending", "oauth"))
+    assert sf.models.list() == ["anthropic/claude-sonnet-4-6"]
+
+    gateway.connections.append(Connection("codex-2", "codex", "default", "active", "oauth"))
+    assert sf.models.list() == ["codex/gpt-5.5", "anthropic/claude-sonnet-4-6"]
 
 
 def test_evaluation_preflight_aggregates_missing_providers_without_calls(
@@ -144,7 +150,13 @@ def test_evaluation_preflight_aggregates_missing_providers_without_calls(
         "_progress_reporter",
         lambda *_args: pytest.fail("progress must not render before preflight"),
     )
-    ids = sf.models.list()
+    # Explicit SDK-catalog IDs: with no active connections, sf.models.list() is
+    # empty by design, yet composition must still work for known models.
+    ids = (
+        "codex/gpt-5.5",
+        "gemini-cli/gemini-2.5-pro",
+        "anthropic/claude-sonnet-4-6",
+    )
     fusion = sf.Fusion("blocked", ids, judge=ids[0])
 
     with pytest.raises(sf.FusionNotReady) as caught:

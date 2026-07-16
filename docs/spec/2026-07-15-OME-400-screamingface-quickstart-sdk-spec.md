@@ -220,10 +220,12 @@ omitted. A non-negative finite maximum is required.
 Mock mode exposes a deterministic catalog with the same identifier shape. The caller receives a
 new list and cannot mutate catalog state.
 
-Live catalog discovery is connection-independent: it reports the SDK-known models loaded by AI
-Gateway even if their provider credentials have not been connected. This lets Python construction
-and YAML loading share the same compose-first behavior. Provider readiness is enforced once, at
-the evaluation boundary.
+Live catalog discovery mirrors the setup panel: `sf.models.list()` returns only SDK-known models
+whose provider holds an active gateway connection, and connections are re-read on every call so a
+provider connected through the widget appears immediately. Composition stays available for any
+SDK-catalog model — Python construction and YAML loading validate against the SDK catalog without
+requiring connections — and provider/model readiness is re-verified once more at the evaluation
+preflight.
 
 Gateway-authoritative pricing, richer capability metadata, or billing reconciliation requires a
 separate AI Gateway work item.

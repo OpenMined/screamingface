@@ -21,7 +21,10 @@ run the same URL4-backed evaluation flow as the main quickstart.
 This checked-in execution is an explicit **SIMULATION**. It uses the bundled synthetic science
 fixture and deterministic local model answers, so it runs offline and makes no provider claims.
 For a live run, replace the setup call with `sf.setup()` and update `fusion.yaml` with exact model
-IDs returned by that live session's `sf.models.list()`.
+IDs returned by that live session's `sf.models.list()`, which lists models from your actively
+connected providers. The live prerequisites — a running AI Gateway, connected providers, and
+Hugging Face access for gated GPQA — are listed in
+[`00_quickstart.ipynb`](00_quickstart.ipynb).
 
 Model IDs are not aliases: `hf/...` is not silently expanded to `huggingface/...`, and an
 `open_router/...` model is valid only when the connected gateway reports that exact ID."""

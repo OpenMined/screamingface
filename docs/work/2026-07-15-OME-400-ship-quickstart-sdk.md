@@ -80,6 +80,16 @@ outputs. The slice does not implement DRACO or every product-demo surface.
   - regenerate both example notebooks from their generators (staged `00_quickstart.ipynb` had
     drifted and would fail the CI drift check) and remove Jupyter `*copy*` scratch.
 
+- Owner-directed discovery change approved on 2026-07-16:
+  - `sf.models.list()` in live mode lists only models whose provider has an **active** gateway
+    connection (the setup panel's notion of connected), refreshed on every call; mock mode and
+    Fusion/YAML composition are unchanged, and the evaluation preflight still re-verifies
+    readiness. Spec §5's "connection-independent discovery" paragraph is amended accordingly, and
+    the prior test asserting the old contract is replaced (owner-directed reversal).
+  - Both notebook generators state the live-GPQA Hugging Face prerequisites: the `datasets` extra,
+    accepting the gated terms, and `huggingface-cli login`/`HF_TOKEN`, noting HF login is separate
+    from AI Gateway login.
+
 ## Test plan
 
 - RED: public imports and the exact OME-400 call chain do not exist before implementation.
@@ -173,13 +183,23 @@ outputs. The slice does not implement DRACO or every product-demo surface.
   notebooks regenerated. The URL4 topology decision record (embedded execution; OME-466 optional,
   not a dependency) was appended to
   `docs/questions/2026-07-16-screamingface-url4-integration-questions.md`.
+- **Connected-only discovery round (2026-07-16):** `sf.models.list()` now mirrors the setup
+  panel in live mode — only models whose provider holds an active connection, re-read per call.
+  Owner-directed reversal of the earlier connection-independent contract: spec §5 and the README
+  were amended, the prior discovery test was replaced by
+  `test_model_discovery_lists_only_actively_connected_providers` (empty/pending/refresh cases),
+  the preflight test now composes from explicit SDK-catalog IDs, and the `SetupClient` fakes were
+  made port-conformant (`Connection` objects instead of dicts). Both quickstart intros now carry a
+  "Going live" checklist: how to run AI Gateway locally (uvicorn on port 9105) and how discovery
+  finds it, connected-provider expectations, and the Hugging Face prerequisites for gated GPQA
+  (`datasets` extra, accepted terms, `huggingface-cli login`/`HF_TOKEN`).
 - **Gates:** ScreamingFace package checks are green (Ruff check/format, Pyright, 68 tests +
   three explicitly skipped-by-default live tests, 95.97% coverage); clean-kernel notebook
   execution green and byte-deterministic at SHA-256
-  `b3cc031afc643f3905e3b0c2cc1312a32030c2c148ee786a90ca812cf5bb83cf`; wheel and sdist build
+  `f62666e547d6375834ddd08e09c18f318491427472e6030cc6da3c3549470404`; wheel and sdist build
   green with the widget and bundled fixture verified. The YAML companion is clean-kernel green and
   byte-deterministic at SHA-256
-  `0336a9d15980f7820e97d05489c8b68be846b7d8dd4711907092ac0114a09b6b`. The new
+  `6ab34eba0a496b1aaeea1f3e727142308c2a420ad01f0345786c33b49765880a`. The new
   auth-enabled proof passed against a
   fresh local AI Gateway using `sf.setup(username=..., password=...)`; its server was stopped and
   disposable database deleted afterward. The opt-in live smoke previously passed against local AI

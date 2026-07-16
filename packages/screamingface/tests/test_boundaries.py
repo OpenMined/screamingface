@@ -19,7 +19,7 @@ from screamingface.evaluation import (
     _majority_processor,
     normalize_answer,
 )
-from screamingface.gateway import AIGatewayClient, Completion, GatewayLogin
+from screamingface.gateway import AIGatewayClient, Completion, Connection, GatewayLogin
 
 
 @pytest.fixture(autouse=True)
@@ -185,14 +185,8 @@ class SetupClient:
     async def list_models(self) -> list[str]:
         return []
 
-    async def list_connections(self) -> list[dict[str, str]]:
-        return [
-            {
-                "provider": "codex",
-                "label": "personal",
-                "status": "active",
-            }
-        ]
+    async def list_connections(self) -> list[Connection]:
+        return [Connection("codex-personal", "codex", "personal", "active")]
 
 
 def test_live_setup_login_and_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -228,10 +222,10 @@ def test_live_setup_validates_credentials_and_profile_selection(
         )
 
     class AmbiguousClient(SetupClient):
-        async def list_connections(self) -> list[dict[str, str]]:
+        async def list_connections(self) -> list[Connection]:
             return [
-                {"provider": "codex", "label": "one", "status": "active"},
-                {"provider": "codex", "label": "two", "status": "active"},
+                Connection("codex-one", "codex", "one", "active"),
+                Connection("codex-two", "codex", "two", "active"),
             ]
 
     monkeypatch.setattr(session_module, "AIGatewayClient", AmbiguousClient)

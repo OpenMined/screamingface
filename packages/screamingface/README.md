@@ -54,8 +54,9 @@ validation, `Fusion.from_yaml(...)`, the lineup representation, explicit `.url4`
 The word “budget” has no special meaning in a Fusion name. Runtime budgeting and spend approval
 were removed from this SDK. The optional `sf.models.list(max_price=20)` argument only filters the
 catalog by listed per-token price; it does not reserve funds, approve spending, or enforce a cap.
-In live mode, `sf.models.list()` reports models loaded by AI Gateway even when their providers are
-not connected yet, so Python and YAML users can compose the same fusion before authentication.
+In live mode, `sf.models.list()` mirrors the setup panel: it lists only models whose provider has
+an active gateway connection, re-checked on every call. Python and YAML users can still compose a
+fusion from any SDK-catalog model before connecting; readiness is verified at evaluation time.
 
 The checked-in [notebook](examples/00_quickstart.ipynb) executes this path in explicit mock mode.
 Its questions and model answers are synthetic and its output is prominently labeled as a

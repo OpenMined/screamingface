@@ -21,11 +21,20 @@ This checked-in run is an explicit **SIMULATION**: it uses 20 synthetic, GPQA-sh
 questions and deterministic local model adapters, so GitHub can render a safe and reproducible
 example. It is not a provider benchmark and it does not use or reveal gated GPQA questions.
 
-For a real run, start AI Gateway and replace the setup call below with `sf.setup()`. Gateway login
-unlocks your encrypted credential vault; provider authorization separately enables model calls.
-The setup panel shows each loaded provider's supported methods and offers OAuth, an API key, or
-both. Real GPQA also requires accepting the dataset's Hugging Face terms. Live mode never silently
-falls back to simulation.
+**Going live.** Replace the setup call below with `sf.setup()` and have three things ready:
+
+1. **A running AI Gateway.** From this repository:
+   `cd apps/aigateway && uv sync && uv run uvicorn aigateway.main:app --port 9105`.
+   `sf.setup()` discovers `http://127.0.0.1:9105` automatically; for any other host, pass
+   `gateway="..."` or set `SCREAMINGFACE_GATEWAY_URL`.
+2. **Connected providers.** Gateway login unlocks your encrypted credential vault; the setup
+   panel then connects providers with OAuth or an API key. `sf.models.list()` shows models from
+   your actively connected providers only.
+3. **Hugging Face access for real GPQA.** Install the dataset extra (`uv sync --extra datasets`),
+   accept the gated terms at `huggingface.co/datasets/Idavidrein/gpqa`, and log in with
+   `huggingface-cli login` (or set `HF_TOKEN`). This HF login is separate from gateway login.
+
+Live mode never silently falls back to simulation.
 
 When running from a repository checkout, launch this notebook with
 `uv run --extra notebook jupyter lab examples/00_quickstart.ipynb`, or select the interpreter at

@@ -54,7 +54,19 @@ class Models:
                 return []
             from screamingface.session import _run
 
-            available = set(_run(session.gateway.list_models()))
+            # WHY: spec §5 — discovery mirrors the setup panel: only models whose
+            # provider holds an active connection are runnable, and connections are
+            # re-read per call so a newly connected provider appears immediately.
+            connected = {
+                connection.provider
+                for connection in _run(session.gateway.list_connections())
+                if connection.status == "active"
+            }
+            available = {
+                model_id
+                for model_id in _run(session.gateway.list_models())
+                if model_id.split("/", 1)[0] in connected
+            }
         return [
             model.id
             for model in _CATALOG
