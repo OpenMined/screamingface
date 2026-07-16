@@ -11,7 +11,8 @@ single-model SOTA, runs locally, publishes to a public leaderboard. By OpenMined
 - `apps/aigateway` — LiteLLM-based AI gateway (Python, uv)
 - `apps/scoreboard` — benchmark scoreboard + portal (Python, uv)
 - `packages/` — shared libs (reserved; `url4-python-sdk` first)
-- `web/public` — static site → GitHub Pages (screamingface.ai)
+- Public website lives in the separate `screamingface-web` repo; this monorepo does not
+  publish GitHub Pages.
 - `docs/` — SDLC artifacts: `spec/ plan/ tasks/ work/ diagrams/` (see `docs/README.md`)
 - Legacy (desktop, server, url4 engine): tag `legacy-monorepo-2026-07-08` — read-only,
   never resurrect from it.
