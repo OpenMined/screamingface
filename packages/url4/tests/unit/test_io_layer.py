@@ -400,3 +400,19 @@ async def test_injected_client_is_not_closed() -> None:
         assert io._get_client() is client
     assert not client.is_closed
     await client.aclose()
+
+
+# --- SupportsDefaultRoute: the io world's declared default reduce route ---------
+
+
+@pytest.mark.asyncio
+async def test_static_io_default_route_is_first_declared() -> None:
+    # WHY: no hardcoded processor route in the core — an adapter that declares
+    # routes reports the FIRST one as the reduce default (SupportsDefaultRoute).
+    io = StaticIOLayer(routes={"/first": lambda c, i: "1", "/second": lambda c, i: "2"})
+    assert io.default_route() == "/first"
+
+
+@pytest.mark.asyncio
+async def test_static_io_default_route_is_none_without_routes() -> None:
+    assert StaticIOLayer(fetch_map={"https://x": "y"}).default_route() is None

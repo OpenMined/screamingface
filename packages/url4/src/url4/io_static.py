@@ -65,6 +65,11 @@ class StaticIOLayer:
         except KeyError:
             raise ResolutionError(f"no fetch mapping for {target!r}") from None
 
+    def default_route(self) -> str | None:
+        """The first declared route — the engine's ``processor`` default
+        (:class:`~url4.io_layer.SupportsDefaultRoute`); ``None`` without routes."""
+        return next(iter(self._routes), None)
+
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
         body = await self.fetch(request.target, relative=request.relative)
         return FetchResult(body, media_type=self._media_types.get(request.target))

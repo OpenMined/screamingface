@@ -31,7 +31,6 @@ from url4.nodes import Node as AstNode
 
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.node import (  # isort: skip
-    DEFAULT_PROCESSOR,
     DEFAULT_RUN_CONCURRENCY,
     BoundedIOLayer,
     DagNode,
@@ -245,7 +244,7 @@ async def run(
     target: str | AstNode | Graph | DagNode,
     io: IOLayer | None = None,
     *,
-    processor: str = DEFAULT_PROCESSOR,
+    processor: str | None = None,
     process: ProcessFn = default_process,
     registry: LoweringRegistry | None = None,
     ctx: ExecutionContext | None = None,
@@ -259,6 +258,12 @@ async def run(
     (httpx GET). Pass a :class:`~url4.io_static.StaticIOLayer` for deterministic,
     network-free runs. Pass an explicit ``ctx`` instead to inspect per-run state
     afterwards (e.g. ``ctx.collected_errors``).
+
+    ``processor`` is the route a fan-out reduce dispatches to. Unset, it
+    resolves to the io world's first declared route
+    (:class:`~url4.io_layer.SupportsDefaultRoute`) — the core hardcodes no
+    route names; with neither, a reduce raises a clear
+    :class:`~url4.errors.ResolutionError`.
 
     When ``ctx`` is supplied, ``io``/``processor``/``process`` must be left at
     their defaults — the ctx already carries them, and combining both is
@@ -287,7 +292,7 @@ async def run(
     mode otherwise applies.
     """
     if ctx is not None and (
-        io is not None or processor != DEFAULT_PROCESSOR or process is not default_process
+        io is not None or processor is not None or process is not default_process
     ):
         raise ValueError(
             "run(): pass either `ctx` or `io`/`processor`/`process`, not both — "
@@ -314,7 +319,7 @@ async def run(
 def _run_context(
     io: IOLayer | None,
     ctx: ExecutionContext | None,
-    processor: str,
+    processor: str | None,
     process: ProcessFn,
     strict_fields: bool,
 ):

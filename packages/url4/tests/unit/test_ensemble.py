@@ -15,7 +15,7 @@ from url4.ensemble import (
     substitute_item,
     substitute_response_vars,
 )
-from url4.errors import CollectionError, ScopeError
+from url4.errors import CollectionError, ResolutionError, ScopeError
 from url4.io_layer import parse_collection
 from url4.io_static import StaticIOLayer
 from url4.subrequest import decode_subrequest
@@ -25,10 +25,12 @@ from url4.subrequest import decode_subrequest
 async def test_fanout_reduce_builds_weighted_reducer_input() -> None:
     io = RecordingIOLayer()
     expr = "(claude:0.6:/claude(x)!answer, llama:0.4:/llama(x)!answer)!merge $claude and $llama"
-    await run(expr, io)
+    # The recorder declares no routes, so the processor is explicit (the core no
+    # longer hardcodes /claude).
+    await run(expr, io, processor="/claude")
 
     # Two relative-expression fetches in parallel, then the reducer fetch via the
-    # default processor (/claude) — all encoded as /path?q=… localhost fetches.
+    # explicit processor (/claude) — all encoded as /path?q=… localhost fetches.
     paths = [target.split("?q=")[0] for target in io.fetches]
     assert paths == ["/claude", "/llama", "/claude"]
     # The reducer input is wire-escaped into the URL; decode it back to assert on
@@ -239,3 +241,49 @@ def test_substitute_item_field_inside_json_string_with_brace() -> None:
     import json as _json
 
     assert _json.loads(out) == {"k": 'a{b q"r'}
+
+
+@pytest.mark.asyncio
+async def test_fanout_reduce_uses_first_declared_route_when_processor_unset() -> None:
+    # WHY: no hardcoded default processor — an unset processor resolves to the
+    # io world's FIRST declared route, mirroring `url4 serve`'s default_route.
+    seen: list[str] = []
+
+    def route(tag: str):
+        def handler(context: str, intent: str) -> str:
+            seen.append(tag)
+            return f"{tag}:{intent}"
+
+        return handler
+
+    io = StaticIOLayer(routes={"/reducer": route("reducer"), "/leaf": route("leaf")})
+    result = await run("(/leaf(a)!go)!'pick best'", io)
+    assert seen == ["leaf", "reducer"]
+    assert result.startswith("reducer:")
+
+
+@pytest.mark.asyncio
+async def test_fanout_reduce_explicit_processor_wins_over_declared_routes() -> None:
+    seen: list[str] = []
+
+    def route(tag: str):
+        def handler(context: str, intent: str) -> str:
+            seen.append(tag)
+            return f"{tag}:{intent}"
+
+        return handler
+
+    io = StaticIOLayer(routes={"/first": route("first"), "/pick": route("pick")})
+    result = await run("(/first(a)!go)!'choose'", io, processor="/pick")
+    assert seen == ["first", "pick"]
+    assert result.startswith("pick:")
+
+
+@pytest.mark.asyncio
+async def test_fanout_reduce_without_processor_or_routes_is_a_clear_error() -> None:
+    # Leaves resolve via exact fetch_map entries; the io declares NO routes and
+    # no processor was set — the reduce fails with an error naming the fix, not
+    # a dispatch to a phantom hardcoded path.
+    io = StaticIOLayer(fetch_map={"/x?q=(a)!go": "X", "/y?q=(b)!go": "Y"})
+    with pytest.raises(ResolutionError, match="processor"):
+        await run("(/x(a)!go, /y(b)!go)!'merge'", io)

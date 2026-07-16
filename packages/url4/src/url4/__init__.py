@@ -87,6 +87,7 @@ from url4.io_layer import (
     FetchRequest,
     FetchResult,
     IOLayer,
+    SupportsDefaultRoute,
     SupportsFetchEx,
     SupportsHoldings,
 )
@@ -140,6 +141,7 @@ __all__ = [
     "SourceLike",
     "StaticIOLayer",
     "StructObject",
+    "SupportsDefaultRoute",
     "SupportsFetchEx",
     "SupportsHoldings",
     "Text",

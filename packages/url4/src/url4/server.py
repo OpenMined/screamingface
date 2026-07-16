@@ -18,7 +18,8 @@ Dispatch contract (mirrors the engine's wire conventions):
   full url4 expression: the node reconstructs it, re-attaches non-transport
   protocol params as the ``;``-chain (so ``broadcast``/``quorum`` keep their
   spec meaning, §6.1.1/§9), and evaluates it against itself — sources resolve
-  HERE (§5.6.3 pass-through), the intent dispatches to ``default_processor``.
+  HERE (§5.6.3 pass-through), the intent dispatches to the node's default
+  route (explicit ``default_processor``, else its first registered endpoint).
 - **Data routes** serve plain reads (`/api/rows`) for sources and collections.
 - **GET is the only verb** (url4-engine doctrine N1: the expression is the
   address, so the transactional call is an idempotent GET).
@@ -39,7 +40,7 @@ from typing import overload
 
 from url4.client import Url4Result
 from url4.context import Context
-from url4.dag import DEFAULT_PROCESSOR, DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
+from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
 from url4.dag.node import ProcessFn, default_process
 from url4.errors import ResolutionError, Url4Error
 from url4.grammar import _IDENTITY_NAME_RE
@@ -105,7 +106,7 @@ class Url4Node:
         name: str = "node",
         *,
         eval_path: str = "/v1",
-        default_processor: str = DEFAULT_PROCESSOR,
+        default_processor: str | None = None,
         process_fn: ProcessFn = default_process,
         outbound: IOLayer | None = None,
         data: Mapping[str, DataProvider] | None = None,
@@ -230,6 +231,17 @@ class Url4Node:
             return handler
 
         return register
+
+    def default_route(self) -> str | None:
+        """The node's reduce route (:class:`~url4.io_layer.SupportsDefaultRoute`).
+
+        The explicit ``default_processor`` when one was given, else the FIRST
+        registered endpoint — the node hardcodes no route names; with neither,
+        a fan-out reduce fails with a clear error.
+        """
+        if self._processor is not None:
+            return self._processor
+        return next(iter(self._endpoints), None)
 
     def _check_routable(self, path: str) -> None:
         if not path.startswith("/"):

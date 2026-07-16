@@ -2,15 +2,17 @@
 
 This is the transport-adapter layer behind the CLI (:mod:`url4.cli`). It builds a
 :class:`~url4.server.Url4Node` from a :class:`ServeConfig` — registering one
-intent-processor endpoint per configured route (LLM routes call the aigateway;
-command routes run a local subprocess, doctrine N4) — and wraps the node's
+intent-processor endpoint per configured ``[commands]`` route (a local
+subprocess, doctrine N4; there is no other backend kind — a user's LLM backend
+is their own gateway script mounted as a command) — and wraps the node's
 framework-free ``asgi()`` with the run-level concerns the node does not own:
 bounded in-flight admission (503), a per-request timeout (504), and graceful
-shutdown of the shared HTTP client.
+node shutdown.
 
-# INVARIANT: this module imports no web framework. Serving is the existing
-# ``Url4Node.asgi()`` (raw ASGI) run under uvicorn (the ``url4[server]`` extra);
-# Starlette is never involved. The core import graph stays framework-free.
+# INVARIANT: this module imports no web framework and no HTTP client. Serving is
+# the existing ``Url4Node.asgi()`` (raw ASGI) run under uvicorn (the
+# ``url4[server]`` extra); Starlette is never involved. The core import graph
+# stays framework-free.
 """
 
 from __future__ import annotations
@@ -18,28 +20,14 @@ from __future__ import annotations
 import asyncio
 import json
 import shlex
-import sys
 import tomllib
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import httpx
-
 from url4.errors import ResolutionError
 from url4.server import Request, Url4Node
 
-# WHY: friendly url4 route -> aigateway ``provider/model``. The single bump point
-# when model ids drift (they will); fully overridable via url4.toml [routes] /
-# --route. Deliberately concrete so ``url4 serve`` works against a running
-# aigateway with zero config.
-DEFAULT_ROUTES: dict[str, str] = {
-    "/claude": "claude/claude-opus-4-8",
-    "/gemini": "gemini/gemini-2.0-flash",
-    "/codex": "codex/gpt-5-codex",
-}
-
-_CHAT_PATH = "/v1/chat/completions"
 _HEALTH_PATH = "/healthz"
 
 EndpointHandler = Callable[[Request], Awaitable[str]]
@@ -51,18 +39,21 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ServeConfig:
-    """Everything ``url4 serve`` needs, resolved from flags > env > toml > default."""
+    """Everything ``url4 serve`` needs, resolved from flags > env > toml > default.
+
+    ``commands`` is the ONLY backend registry: url4.toml ``[commands]`` maps a
+    route path to an operator-owned argv template. ``default_route`` names the
+    command a fan-out reduce dispatches to; unset, the FIRST declared command
+    is used (see :attr:`resolved_default_route`).
+    """
 
     host: str = "127.0.0.1"
     port: int = 4404
-    backend_url: str = "http://127.0.0.1:9105"
-    backend_token: str | None = None
-    processor: str = "/claude"
+    default_route: str | None = None
     eval_path: str = "/v1"
     concurrency: int = 32
     max_inflight: int = 16
     timeout: float = 120.0
-    routes: Mapping[str, str] = field(default_factory=lambda: dict(DEFAULT_ROUTES))
     commands: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     def validate(self) -> None:
@@ -70,12 +61,17 @@ class ServeConfig:
         _require(self.concurrency >= 1, f"concurrency must be >= 1, got {self.concurrency}")
         _require(self.max_inflight >= 1, f"max-inflight must be >= 1, got {self.max_inflight}")
         _require(self.timeout > 0, f"timeout must be > 0, got {self.timeout}")
-        _require_paths(self.routes, "route")
+        # WHY: the connector is gone — the operator owns every backend, so a
+        # node with zero commands has nothing to dispatch to. Fail fast.
+        _require(
+            bool(self.commands),
+            "url4 serve requires at least one [commands] route in url4.toml — "
+            "define your backends as commands (e.g. your own gateway script)",
+        )
         _require_paths(self.commands, "command")
         _require_argv(self.commands)
-        _require(not (set(self.routes) & set(self.commands)), "route/command paths collide")
-        reserved = {self.eval_path, _HEALTH_PATH} & (set(self.routes) | set(self.commands))
-        _require(not reserved, f"route/command paths clash with reserved {sorted(reserved)}")
+        reserved = {self.eval_path, _HEALTH_PATH} & set(self.commands)
+        _require(not reserved, f"command paths clash with reserved {sorted(reserved)}")
         # The node registers /healthz as a data route; an eval path equal to it
         # would collide at build time (an uncaught ValueError) — reject it here so
         # the misconfiguration fails fast with a clean config error before bind.
@@ -83,12 +79,26 @@ class ServeConfig:
             self.eval_path != _HEALTH_PATH,
             f"eval path cannot be the reserved health path {_HEALTH_PATH!r}",
         )
-        # INVARIANT: a fan-out reduce dispatches to ``processor`` at runtime, so it
-        # MUST be a registered LLM route or the reduce fails mid-evaluation.
-        _require(
-            self.processor in self.routes,
-            f"processor {self.processor!r} is not a configured route: {sorted(self.routes)}",
-        )
+        # INVARIANT: a fan-out reduce dispatches to the default route at
+        # runtime, so an EXPLICIT one must be a declared command or the reduce
+        # fails mid-evaluation.
+        if self.default_route is not None:
+            _require(
+                self.default_route in self.commands,
+                f"default route {self.default_route!r} is not a declared command "
+                f"route: {sorted(self.commands)}",
+            )
+
+    @property
+    def resolved_default_route(self) -> str:
+        """The reduce route: the explicit ``default_route``, else the first command.
+
+        # INVARIANT: only meaningful after :meth:`validate` — commands is
+        # non-empty and an explicit default_route is declared.
+        """
+        if self.default_route is not None:
+            return self.default_route
+        return next(iter(self.commands))
 
 
 def _require(ok: bool, message: str) -> None:  # noqa: FBT001 - tiny internal guard
@@ -114,23 +124,20 @@ def resolve(
 ) -> ServeConfig:
     """Build a :class:`ServeConfig` — flag > env > url4.toml > default, per field.
 
-    ``overrides`` holds CLI flag values (``None`` == unset). Route maps merge
-    across layers (defaults <- toml ``[routes]`` <- ``--route`` flags); commands
-    come from url4.toml ``[commands]`` only.
+    ``overrides`` holds CLI flag values (``None`` == unset). Commands come from
+    url4.toml ``[commands]`` only — argv templates are operator config, not
+    something to squeeze through a flag.
     """
     toml = _read_toml(toml_path)
-    routes = {**DEFAULT_ROUTES, **_toml_str_map(toml.get("routes")), **_flag_routes(overrides)}
+    raw_route = _pick("default_route", overrides, env, toml)
     return ServeConfig(
         host=_pick_str("host", overrides, env, toml, "127.0.0.1"),
         port=_pick_int("port", overrides, env, toml, 4404),
-        backend_url=_pick_str("backend_url", overrides, env, toml, "http://127.0.0.1:9105"),
-        backend_token=_resolve_token(overrides, env),
-        processor=_pick_str("processor", overrides, env, toml, "/claude"),
+        default_route=None if raw_route is None else str(raw_route),
         eval_path=_pick_str("eval_path", overrides, env, toml, "/v1"),
         concurrency=_pick_int("concurrency", overrides, env, toml, 32),
         max_inflight=_pick_int("max_inflight", overrides, env, toml, 16),
         timeout=_pick_float("timeout", overrides, env, toml, 120.0),
-        routes=routes,
         commands=_toml_command_map(toml.get("commands")),
     )
 
@@ -170,20 +177,6 @@ def _pick_float(name, overrides, env, toml, default: float) -> float:
         raise ConfigError(f"{name} must be a number, got {value!r}") from None
 
 
-def _resolve_token(overrides: Mapping[str, object], env: Mapping[str, str]) -> str | None:
-    # WHY: keep secrets off argv — the flag carries a *path* (or '-' for stdin),
-    # never the raw token; the value itself comes from a file, stdin, or env.
-    source = overrides.get("backend_token")
-    if source is None:
-        return env.get("URL4_BACKEND_TOKEN")
-    if source == "-":
-        return sys.stdin.readline().strip()
-    try:
-        return Path(str(source)).read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        raise ConfigError(f"cannot read backend-token file {source!r}: {exc}") from exc
-
-
 def _read_toml(path: Path | None) -> Mapping[str, object]:
     if path is None:
         return {}
@@ -192,10 +185,6 @@ def _read_toml(path: Path | None) -> Mapping[str, object]:
             return tomllib.load(handle)
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ConfigError(f"cannot read config {str(path)!r}: {exc}") from exc
-
-
-def _toml_str_map(value: object) -> dict[str, str]:
-    return {str(k): str(v) for k, v in value.items()} if isinstance(value, Mapping) else {}
 
 
 def _toml_command_map(value: object) -> dict[str, tuple[str, ...]]:
@@ -210,65 +199,7 @@ def _as_argv(value: object) -> tuple[str, ...]:
     raise ConfigError(f"command must be a string or list, got {value!r}")
 
 
-def _flag_routes(overrides: Mapping[str, object]) -> dict[str, str]:
-    raw = overrides.get("routes")
-    items = raw if isinstance(raw, Sequence) and not isinstance(raw, str) else ()
-    result: dict[str, str] = {}
-    for item in items:
-        path, sep, model = str(item).partition("=")
-        if not sep:
-            raise ConfigError(f"--route must be PATH=MODEL, got {item!r}")
-        result[path] = model
-    return result
-
-
 # --- backend handlers ------------------------------------------------------------
-
-
-def _merge(intent: str, context: str) -> str:
-    """Combine a leaf's instruction and data into one prompt (engine convention)."""
-    # WHY: mirrors url4.dag.node.default_process so a served leaf reads exactly like
-    # an in-engine (sources)!intent merge — HTTP and in-process cannot diverge.
-    if intent and context:
-        return f"{intent}\n\n{context}"
-    return intent or context or ""
-
-
-def make_llm_handler(
-    client: httpx.AsyncClient, backend_url: str, model: str, token: str | None
-) -> EndpointHandler:
-    """An intent processor that runs ``model`` via the aigateway chat API.
-
-    # FEATURE: ensemble model routes. The engine dispatches ``/claude?q=(ctx)!intent``
-    # here for BOTH leaf calls and the fan-out reduce; the handler shapes it into an
-    # OpenAI-compatible completion and returns the assistant text.
-    """
-    url = backend_url.rstrip("/") + _CHAT_PATH
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-
-    async def handler(request: Request) -> str:
-        payload = {
-            "model": model,
-            "messages": [{"role": "user", "content": _merge(request.intent, request.context)}],
-            "stream": False,
-        }
-        try:
-            response = await client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise ResolutionError(f"aigateway call for model {model!r} failed: {exc}") from exc
-        return _extract_content(response, model)
-
-    return handler
-
-
-def _extract_content(response: httpx.Response, model: str) -> str:
-    try:
-        return response.json()["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError, ValueError) as exc:
-        raise ResolutionError(
-            f"aigateway returned an unexpected response for model {model!r}: {exc}"
-        ) from exc
 
 
 def make_command_handler(argv: Sequence[str], timeout: float) -> EndpointHandler:
@@ -320,23 +251,15 @@ async def _run_command(command: list[str], stdin_text: str, timeout: float) -> s
 # --- node + ASGI assembly --------------------------------------------------------
 
 
-def build_client(config: ServeConfig) -> httpx.AsyncClient:
-    """The shared outbound HTTP client (one pool for all LLM-route calls)."""
-    return httpx.AsyncClient(timeout=config.timeout)
-
-
-def build_node(config: ServeConfig, client: httpx.AsyncClient) -> Url4Node:
-    """Assemble a :class:`Url4Node` with one endpoint per configured route."""
+def build_node(config: ServeConfig) -> Url4Node:
+    """Assemble a :class:`Url4Node` with one endpoint per configured command."""
     node = Url4Node(
         "url4-serve",
         eval_path=config.eval_path,
-        default_processor=config.processor,
+        default_processor=config.resolved_default_route,
         concurrency=config.concurrency,
     )
     node.data(_HEALTH_PATH, "ok")
-    for path, model in config.routes.items():
-        handler = make_llm_handler(client, config.backend_url, model, config.backend_token)
-        node.endpoint(path)(handler)
     for path, argv in config.commands.items():
         node.endpoint(path)(make_command_handler(argv, config.timeout))
     return node
@@ -345,19 +268,19 @@ def build_node(config: ServeConfig, client: httpx.AsyncClient) -> Url4Node:
 AsgiApp = Callable[[Mapping, Callable, Callable], Awaitable[None]]
 
 
-def build_asgi_app(node: Url4Node, client: httpx.AsyncClient, config: ServeConfig) -> AsgiApp:
+def build_asgi_app(node: Url4Node, config: ServeConfig) -> AsgiApp:
     """Wrap ``node.asgi()`` with admission control, timeout, and shutdown cleanup.
 
     The node owns dispatch and ``Url4Error`` -> HTTP mapping; this wrapper adds only
     what the node does not: 503 over max-inflight, 504 on per-request timeout, and
-    closing the shared client + node on lifespan shutdown.
+    closing the node on lifespan shutdown.
     """
     base = node.asgi()
     state = {"inflight": 0}
 
     async def app(scope: Mapping, receive: Callable, send: Callable) -> None:
         if scope["type"] == "lifespan":
-            await _lifespan(receive, send, node, client)
+            await _lifespan(receive, send, node)
         elif scope["type"] == "http":
             await _serve_http(base, scope, receive, send, state, config)
         else:  # pragma: no cover - no websocket surface in v1
@@ -408,29 +331,23 @@ async def _send_error(
     await send({"type": "http.response.body", "body": body})
 
 
-async def _lifespan(
-    receive: Callable, send: Callable, node: Url4Node, client: httpx.AsyncClient
-) -> None:
+async def _lifespan(receive: Callable, send: Callable, node: Url4Node) -> None:
     while True:
         message = await receive()
         if message["type"] == "lifespan.startup":
             await send({"type": "lifespan.startup.complete"})
         elif message["type"] == "lifespan.shutdown":
-            await client.aclose()  # graceful: release the shared pool + node's outbound
-            await node.aclose()
+            await node.aclose()  # graceful: release the node's owned outbound adapter
             await send({"type": "lifespan.shutdown.complete"})
             return
 
 
 __all__ = [
-    "DEFAULT_ROUTES",
     "ConfigError",
     "EndpointHandler",
     "ServeConfig",
     "build_asgi_app",
-    "build_client",
     "build_node",
     "make_command_handler",
-    "make_llm_handler",
     "resolve",
 ]

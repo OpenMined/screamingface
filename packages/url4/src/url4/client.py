@@ -42,7 +42,7 @@ from url4.builders import expr as _expr
 from url4.builders import iterate as _iterate
 from url4.builders import reduce as _reduce
 from url4.context import Context
-from url4.dag import DEFAULT_PROCESSOR, DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
+from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
 from url4.dag.node import ProcessFn, default_process
 from url4.io_layer import IOLayer
 from url4.nodes import Expression, Iteration, Node, Params, RemoteExpr
@@ -110,7 +110,9 @@ class Client:
     sets a default remote target (``"url4://host/path"`` / ``"host"``);
     without one, expressions evaluate locally against ``io``. ``processor``
     is the endpoint local intent execution dispatches to (spec: the node's
-    intent processor); ``process_fn`` is the callable that executes it.
+    intent processor) — unset, it resolves to the io world's first declared
+    route (:class:`~url4.io_layer.SupportsDefaultRoute`); ``process_fn`` is
+    the callable that executes it.
     """
 
     def __init__(
@@ -119,7 +121,7 @@ class Client:
         *,
         node: str | None = None,
         path: str = "/v1",
-        processor: str = DEFAULT_PROCESSOR,
+        processor: str | None = None,
         process_fn: ProcessFn = default_process,
         concurrency: int | None = DEFAULT_RUN_CONCURRENCY,
         strict_fields: bool = False,

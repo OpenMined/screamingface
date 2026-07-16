@@ -278,3 +278,41 @@ async def test_dual_wire_conventions_are_codec_owned():
     assert decode_subrequest_http(encoded) == ("a=https://x", "'go'")
     assert decode_expression_http(raw) == raw
     assert decode_expression_http(encoded) == raw
+
+
+# --- default route: first registered endpoint replaces the hardcoded default ----
+
+
+async def test_node_default_route_is_first_registered_endpoint() -> None:
+    n = Url4Node("t")
+    assert n.default_route() is None
+
+    @n.endpoint("/alpha")
+    async def alpha(request: Request) -> str:  # noqa: ARG001 - handler contract
+        return "alpha"
+
+    @n.endpoint("/beta")
+    async def beta(request: Request) -> str:  # noqa: ARG001 - handler contract
+        return "beta"
+
+    assert n.default_route() == "/alpha"
+    assert Url4Node("t", default_processor="/x").default_route() == "/x"
+
+
+async def test_node_reduce_dispatches_to_first_registered_endpoint() -> None:
+    n = Url4Node("t")
+    calls: list[str] = []
+
+    @n.endpoint("/reducer")
+    async def reducer(request: Request) -> str:  # noqa: ARG001 - handler contract
+        calls.append("/reducer")
+        return "REDUCED"
+
+    @n.endpoint("/leaf")
+    async def leaf(request: Request) -> str:  # noqa: ARG001 - handler contract
+        calls.append("/leaf")
+        return "LEAF"
+
+    result = await n.evaluate("(/leaf(x)!'go')!'pick'")
+    assert result.text == "REDUCED"
+    assert calls == ["/leaf", "/reducer"]

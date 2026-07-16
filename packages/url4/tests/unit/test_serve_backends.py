@@ -1,19 +1,16 @@
 """Backend endpoint handlers for `url4 serve` (url4._serve).
 
-STORY: a served model route calls the aigateway and returns the completion text;
-a served command route runs a local subprocess (doctrine N4) and returns its
-stdout. Both surface upstream failures as ResolutionError so the node maps them
-to the right HTTP status.
+STORY: a served command route runs a local subprocess (doctrine N4) and returns
+its stdout — the ONLY backend kind `url4 serve` ships; a user's LLM backend is
+their own gateway script mounted as a command. Failures surface as
+ResolutionError so the node maps them to the right HTTP status.
 """
 
 from __future__ import annotations
 
-import json
-
-import httpx
 import pytest
 
-from url4._serve import _merge, make_command_handler, make_llm_handler
+from url4._serve import make_command_handler
 from url4.errors import ResolutionError
 from url4.server import Request
 
@@ -21,62 +18,7 @@ pytestmark = pytest.mark.asyncio
 
 
 def _req(context: str = "the data", intent: str = "do it") -> Request:
-    return Request(path="/claude", context=context, intent=intent, params={})
-
-
-def _gateway_client(recorder: list[httpx.Request], response: httpx.Response) -> httpx.AsyncClient:
-    def handler(request: httpx.Request) -> httpx.Response:
-        recorder.append(request)
-        return response
-
-    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
-
-async def test_merge_matches_engine_convention() -> None:
-    assert _merge("do it", "data") == "do it\n\ndata"
-    assert _merge("", "data") == "data"
-    assert _merge("do it", "") == "do it"
-    assert _merge("", "") == ""
-
-
-async def test_llm_handler_calls_aigateway_with_model_prompt_and_auth() -> None:
-    seen: list[httpx.Request] = []
-    ok = httpx.Response(200, json={"choices": [{"message": {"content": "ANSWER"}}]})
-    async with _gateway_client(seen, ok) as client:
-        handler = make_llm_handler(client, "http://gw:9105", "claude/opus", token="secret")
-        result = await handler(_req(context="ctx", intent="summarize"))
-    assert result == "ANSWER"
-    (request,) = seen
-    assert request.method == "POST"
-    assert str(request.url) == "http://gw:9105/v1/chat/completions"
-    assert request.headers["authorization"] == "Bearer secret"
-    body = json.loads(request.content)
-    assert body["model"] == "claude/opus"
-    assert body["stream"] is False
-    assert body["messages"] == [{"role": "user", "content": "summarize\n\nctx"}]
-
-
-async def test_llm_handler_omits_auth_header_without_token() -> None:
-    seen: list[httpx.Request] = []
-    ok = httpx.Response(200, json={"choices": [{"message": {"content": "x"}}]})
-    async with _gateway_client(seen, ok) as client:
-        handler = make_llm_handler(client, "http://gw", "m", token=None)
-        await handler(_req())
-    assert "authorization" not in seen[0].headers
-
-
-async def test_llm_handler_upstream_error_becomes_resolution_error() -> None:
-    async with _gateway_client([], httpx.Response(500, text="boom")) as client:
-        handler = make_llm_handler(client, "http://gw", "m", token=None)
-        with pytest.raises(ResolutionError, match="aigateway call for model 'm' failed"):
-            await handler(_req())
-
-
-async def test_llm_handler_unexpected_shape_becomes_resolution_error() -> None:
-    async with _gateway_client([], httpx.Response(200, json={"nope": 1})) as client:
-        handler = make_llm_handler(client, "http://gw", "m", token=None)
-        with pytest.raises(ResolutionError, match="unexpected response"):
-            await handler(_req())
+    return Request(path="/cmd", context=context, intent=intent, params={})
 
 
 async def test_command_handler_pipes_context_and_returns_stdout() -> None:
@@ -118,3 +60,12 @@ async def test_command_handler_non_utf8_stdout_does_not_crash() -> None:
     )
     result = await handler(_req())
     assert result  # replacement chars, not an exception
+
+
+async def test_llm_connector_is_gone() -> None:
+    # INVARIANT: the aigateway connector was removed from the serve layer —
+    # users own their backends entirely (commands only).
+    import url4._serve as serve
+
+    for legacy in ("make_llm_handler", "build_client", "DEFAULT_ROUTES", "_merge"):
+        assert not hasattr(serve, legacy), legacy

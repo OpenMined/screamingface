@@ -62,7 +62,7 @@ async def test_single_relative_expression_group_takes_fanout_path() -> None:
     # A group whose only source is a relative expression still goes through the
     # fan-out reducer (the reducer fetch runs even for one response).
     resolver = RecordingIOLayer()
-    await run("(/solve(x)!go)!merge", resolver)
+    await run("(/solve(x)!go)!merge", resolver, processor="/claude")
     paths = [target.split("?q=")[0] for target in resolver.fetches]
     assert paths == ["/solve", "/claude"]
     # Decode the wire-escaped reducer sub-request back to its readable input.
@@ -117,6 +117,6 @@ async def test_parenthesized_single_relexpr_still_reduces() -> None:
     # list is a genuine fan-out + reduce (two calls), even for one member —
     # matching the reference engine's ``_is_fanout and raw_intent`` gate.
     resolver = RecordingIOLayer()
-    await run("(/claude(https://n))!'sum'", resolver)
+    await run("(/claude(https://n))!'sum'", resolver, processor="/claude")
     paths = [target.split("?q=")[0] for target in resolver.fetches]
     assert paths == ["/claude", "/claude"]

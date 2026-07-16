@@ -812,7 +812,7 @@ async def test_fanout_call_unwraps_guarded_relative_expression() -> None:
     )
     graph = compile_expression("(/a()!x;optional, /b()!y)!combine")
     assert isinstance(graph.sink, FanoutReduceNode)
-    result = await run(graph, io)
+    result = await run(graph, io, processor="/claude")
     assert "A" in result and "B" in result
 
 
@@ -905,3 +905,21 @@ def test_validate_parses_reducer_instruction() -> None:
     bad = compile_expression("(https://data*(x))!/reduce((bad")
     with pytest.raises(ParseError):
         bad.validate()
+
+
+# --- processor resolution: declared routes replace the hardcoded default --------
+
+
+def test_execution_context_resolves_processor_from_io_declared_routes() -> None:
+    # WHY: the processor default is the io world's first declared route
+    # (SupportsDefaultRoute) — never a hardcoded path name.
+    io = StaticIOLayer(routes={"/r": lambda c, i: i, "/other": lambda c, i: i})
+    assert ExecutionContext(io).processor == "/r"
+    assert ExecutionContext(io, processor="/explicit").processor == "/explicit"
+    assert ExecutionContext(StaticIOLayer()).processor is None
+
+
+def test_execution_context_child_inherits_resolved_processor() -> None:
+    io = StaticIOLayer(routes={"/r": lambda c, i: i})
+    ctx = ExecutionContext(io)
+    assert ctx.child(ctx.scope).processor == "/r"

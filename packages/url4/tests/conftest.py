@@ -26,6 +26,10 @@ class RecordingIOLayer:
         except ResolutionError:
             return f"<{target}>"
 
+    def default_route(self) -> str | None:
+        """Delegate SupportsDefaultRoute — first declared route, like the static layer."""
+        return self._static.default_route()
+
 
 # Structural check that the helper satisfies the port.
 _: IOLayer = RecordingIOLayer()

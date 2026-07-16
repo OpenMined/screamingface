@@ -1,8 +1,9 @@
 """The `url4` CLI entry point (url4.cli).
 
 STORY: `url4 --version` and `url4 eval` work on the base install (no serving extra);
-`url4 serve` resolves config, warns on risky exposure, and hands the assembled ASGI
-app to uvicorn — failing fast with clear exit codes (0 ok, 1 runtime, 2 usage/config).
+`url4 serve` resolves a commands-only config, warns on risky exposure, and hands the
+assembled ASGI app to uvicorn — failing fast with clear exit codes (0 ok, 1 runtime,
+2 usage/config).
 
 These tests are synchronous: `url4 eval` owns its own event loop via evaluate_sync,
 so the tests must not run inside one.
@@ -14,9 +15,14 @@ import io
 
 import pytest
 
-import url4._serve as _serve
 import url4.cli as cli
 from url4 import __version__
+
+
+def _commands_toml(tmp_path, body: str = '[commands]\n"/py" = "python3 -"\n') -> str:
+    config_file = tmp_path / "url4.toml"
+    config_file.write_text(body, encoding="utf-8")
+    return str(config_file)
 
 
 def test_version_prints_and_exits_zero(capsys) -> None:
@@ -54,7 +60,7 @@ def test_eval_parse_error_is_runtime_error(capsys) -> None:
     assert "url4 eval:" in capsys.readouterr().err
 
 
-def test_serve_wires_app_and_calls_uvicorn(monkeypatch, capsys) -> None:
+def test_serve_wires_app_and_calls_uvicorn(monkeypatch, tmp_path, capsys) -> None:
     captured: dict[str, object] = {}
 
     def fake_forever(app, host, port) -> int:
@@ -63,34 +69,50 @@ def test_serve_wires_app_and_calls_uvicorn(monkeypatch, capsys) -> None:
         captured["port"] = port
         return 0
 
-    monkeypatch.setattr(_serve, "build_client", lambda _config: object())
     monkeypatch.setattr(cli, "_serve_forever", fake_forever)
-    assert cli.main(["serve", "--port", "5001"]) == 0
+    config = _commands_toml(tmp_path)
+    assert cli.main(["serve", "--port", "5001", "--config", config]) == 0
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 5001
     assert callable(captured["app"])
     assert "listening on http://127.0.0.1:5001" in capsys.readouterr().err
 
 
-def test_serve_invalid_config_is_usage_error(capsys) -> None:
-    assert cli.main(["serve", "--processor", "/absent"]) == 2
-    assert "not a configured route" in capsys.readouterr().err
+def test_serve_without_commands_is_usage_error(tmp_path, monkeypatch, capsys) -> None:
+    # The aigateway connector is gone — zero-config serve has no backends and
+    # must fail fast with an actionable message, not bind a useless node.
+    monkeypatch.chdir(tmp_path)  # isolate from any ambient ./url4.toml
+    monkeypatch.delenv("URL4_CONFIG", raising=False)
+    assert cli.main(["serve"]) == 2
+    assert "requires at least one" in capsys.readouterr().err
 
 
-def test_serve_warns_on_non_loopback_bind(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(_serve, "build_client", lambda _config: object())
+def test_serve_undeclared_default_route_is_usage_error(tmp_path, capsys) -> None:
+    config = _commands_toml(tmp_path)
+    assert cli.main(["serve", "--default-route", "/absent", "--config", config]) == 2
+    assert "not a declared command route" in capsys.readouterr().err
+
+
+def test_serve_removed_connector_flags_are_rejected(tmp_path) -> None:
+    config = _commands_toml(tmp_path)
+    for flag in (
+        ["--route", "/x=m"],
+        ["--backend-url", "http://gw"],
+        ["--backend-token", "-"],
+        ["--processor", "/py"],
+    ):
+        with pytest.raises(SystemExit) as exit_info:
+            cli.main(["serve", "--config", config, *flag])
+        assert exit_info.value.code == 2
+
+
+def test_serve_warns_on_non_loopback_bind_with_commands(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setattr(cli, "_serve_forever", lambda _app, _host, _port: 0)
-    cli.main(["serve", "--host", "0.0.0.0"])
-    assert "WARNING binding non-loopback" in capsys.readouterr().err
-
-
-def test_serve_config_flag_warns_on_exposed_commands(monkeypatch, tmp_path, capsys) -> None:
-    config_file = tmp_path / "url4.toml"
-    config_file.write_text('[commands]\n"/py" = "python3 -"\n', encoding="utf-8")
-    monkeypatch.setattr(_serve, "build_client", lambda _config: object())
-    monkeypatch.setattr(cli, "_serve_forever", lambda _app, _host, _port: 0)
-    assert cli.main(["serve", "--host", "0.0.0.0", "--config", str(config_file)]) == 0
-    assert "command routes are enabled" in capsys.readouterr().err
+    config = _commands_toml(tmp_path)
+    assert cli.main(["serve", "--host", "0.0.0.0", "--config", config]) == 0
+    err = capsys.readouterr().err
+    assert "WARNING binding non-loopback" in err
+    assert "command routes are enabled" in err
 
 
 def test_serve_forever_without_uvicorn_prints_hint(capsys) -> None:

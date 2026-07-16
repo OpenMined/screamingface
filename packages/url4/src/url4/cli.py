@@ -7,7 +7,8 @@ install — uvicorn (the ``url4[server]`` extra) is imported only when serving, 
 serve assembly (:mod:`url4._serve`) is imported lazily inside :func:`_run_serve`.
 
 # STORY: as an operator, I run `url4 serve` to expose the url4 engine over HTTP with my
-# model routes, and `url4 eval '<expr>'` to sanity-check an expression with no backend.
+# own [commands] backends (my gateway script is just another command), and
+# `url4 eval '<expr>'` to sanity-check an expression with no backend.
 """
 
 from __future__ import annotations
@@ -27,14 +28,11 @@ _LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost", ""})
 _SERVE_FIELDS = (
     "host",
     "port",
-    "backend_url",
-    "backend_token",
-    "processor",
+    "default_route",
     "eval_path",
     "concurrency",
     "max_inflight",
     "timeout",
-    "routes",
 )
 
 
@@ -60,13 +58,11 @@ def _add_serve_parser(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("serve", help="run the node as an HTTP server (foreground)")
     parser.add_argument("--host", help="bind address (default 127.0.0.1)")
     parser.add_argument("--port", type=int, help="bind port (default 4404)")
-    parser.add_argument("--backend-url", dest="backend_url", help="aigateway base URL")
     parser.add_argument(
-        "--backend-token",
-        dest="backend_token",
-        help="path to a token file, or '-' to read one line from stdin (never the raw token)",
+        "--default-route",
+        dest="default_route",
+        help="reduce route (default: first declared [commands] route); must be a declared command",
     )
-    parser.add_argument("--processor", help="reduce route (default /claude); must be a route")
     parser.add_argument("--eval-path", dest="eval_path", help="eval endpoint path (default /v1)")
     parser.add_argument("--concurrency", type=int, help="run-wide I/O cap (default 32)")
     parser.add_argument(
@@ -74,9 +70,6 @@ def _add_serve_parser(sub: argparse._SubParsersAction) -> None:
     )
     parser.add_argument("--timeout", type=float, help="per-request timeout seconds (default 120)")
     parser.add_argument("--config", help="url4.toml path (default ./url4.toml if present)")
-    parser.add_argument(
-        "--route", dest="routes", action="append", metavar="PATH=MODEL", help="add/override a route"
-    )
 
 
 def _add_eval_parser(sub: argparse._SubParsersAction) -> None:
@@ -116,9 +109,8 @@ def _run_serve(args: argparse.Namespace) -> int:
         print(f"url4 serve: {exc}", file=sys.stderr)
         return 2
     _warn_exposure(config)
-    client = _serve.build_client(config)
-    node = _serve.build_node(config, client)
-    app = _serve.build_asgi_app(node, client, config)
+    node = _serve.build_node(config)
+    app = _serve.build_asgi_app(node, config)
     print(
         f"url4 serve: listening on http://{config.host}:{config.port} "
         f"(eval {config.eval_path}?q=…)",

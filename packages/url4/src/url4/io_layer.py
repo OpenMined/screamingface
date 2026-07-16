@@ -97,6 +97,20 @@ class SupportsFetchEx(Protocol):
 
 
 @runtime_checkable
+class SupportsDefaultRoute(Protocol):
+    """Optional adapter capability: the io world's default reduce route.
+
+    An adapter that DECLARES routes (a node's registered endpoints, a static
+    layer's ``routes``) reports the first-declared one; the engine uses it as
+    the ``processor`` default when none is set explicitly — the core hardcodes
+    no route names. Adapters without a registry simply don't implement it, and
+    a fan-out reduce then requires an explicit ``processor``.
+    """
+
+    def default_route(self) -> str | None: ...
+
+
+@runtime_checkable
 class SupportsHoldings(Protocol):
     """Optional adapter capability: ``@`` / ``@identity`` holdings resolution.
 
@@ -313,6 +327,7 @@ __all__ = [
     "FetchRequest",
     "FetchResult",
     "IOLayer",
+    "SupportsDefaultRoute",
     "SupportsFetchEx",
     "SupportsHoldings",
     "fetch_result",

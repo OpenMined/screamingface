@@ -41,11 +41,10 @@ from url4.io_layer import (
     FetchRequest,
     FetchResult,
     IOLayer,
+    SupportsDefaultRoute,
     SupportsFetchEx,
     SupportsHoldings,
 )
-
-DEFAULT_PROCESSOR = "/claude"
 
 
 @dataclass(frozen=True)
@@ -151,11 +150,20 @@ class BoundedIOLayer:
             return await self._inner.fetch_holdings(identity, collection)  # type: ignore[attr-defined]
 
 
+def _declared_default_route(io: IOLayer) -> str | None:
+    """The io world's first declared route, or ``None`` for registry-less adapters."""
+    if isinstance(io, SupportsDefaultRoute):
+        return io.default_route()
+    return None
+
+
 class ExecutionContext:
     """Per-run capabilities handed to every ``resolve`` call.
 
     Carries the :class:`~url4.io_layer.IOLayer` port ``io`` (all I/O flows
-    through it), the reducer ``processor`` path, the lexical ``scope`` for
+    through it), the reducer ``processor`` path (unset, it resolves to the io
+    world's first declared route via
+    :class:`~url4.io_layer.SupportsDefaultRoute`), the lexical ``scope`` for
     ``$name`` fallback in dynamically spawned fragments, the overridable
     ``process`` merge hook, ``strict_fields`` (the spec §5.3.4.1 field-path
     error mode: lenient/LLM by default, strict/RDS when True), and two
@@ -177,7 +185,7 @@ class ExecutionContext:
         self,
         io: IOLayer,
         *,
-        processor: str = DEFAULT_PROCESSOR,
+        processor: str | None = None,
         process: ProcessFn = default_process,
         scope: Context | None = None,
         spawn: SpawnFn | None = None,
@@ -186,7 +194,10 @@ class ExecutionContext:
         _tally: _ErrorTally | None = None,
     ) -> None:
         self.io = io
-        self.processor = processor
+        # WHY: no hardcoded processor route in the core — unset resolves to the
+        # io world's first declared route (SupportsDefaultRoute), or stays None
+        # (a fan-out reduce then fails with a clear error naming the fix).
+        self.processor = processor if processor is not None else _declared_default_route(io)
         self.process = process
         self.scope = scope if scope is not None else Context.root()
         self.strict_fields = strict_fields
@@ -263,7 +274,6 @@ def reraise_first(group: BaseExceptionGroup) -> NoReturn:
 
 
 __all__ = [
-    "DEFAULT_PROCESSOR",
     "DEFAULT_RUN_CONCURRENCY",
     "BoundedIOLayer",
     "DagNode",

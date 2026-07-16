@@ -26,7 +26,7 @@ def _resolver() -> StaticIOLayer:
         routes={
             "/solve": lambda context, intent: f"A={context}",
             "/reduce": lambda context, intent: f"REDUCED[intent={intent!r}]",
-            # default processor used by the per-row top-intent fan-out
+            # the processor tests pass explicitly for the per-row top-intent fan-out
             "/claude": lambda context, intent: f"CLAUDE[intent={intent!r}]",
         },
     )
@@ -99,8 +99,9 @@ async def test_iteration_row_with_unbalanced_parens_does_not_crash() -> None:
 @pytest.mark.asyncio
 async def test_iteration_top_level_intent_reduces_each_row() -> None:
     # A top-level intent AFTER the iteration reduces each 1-element row-group
-    # through the default processor (/claude).
-    result = await run("https://data*(/solve($item.q))!topintent", _resolver())
+    # through the explicit processor (/claude — the resolver declares /solve
+    # first, so relying on the first-declared-route default would mis-dispatch).
+    result = await run("https://data*(/solve($item.q))!topintent", _resolver(), processor="/claude")
     # The reducer input is repr'd by the fake /claude, so its real newlines show
     # as literal \n; the per-row results assemble into the JSON-array result.
     assert json.loads(result) == [
@@ -196,7 +197,9 @@ async def test_directive_after_top_level_intent_is_parsed_not_swallowed() -> Non
     # Pre-0.2 QUIRK, now fixed per spec §5.3.6: a trailing ';iteration.*' after
     # the intent is an execution annotation on the iteration, never intent text.
     result = await run(
-        "https://data*(/solve($item.q))!topintent;iteration.concurrency=1", _resolver()
+        "https://data*(/solve($item.q))!topintent;iteration.concurrency=1",
+        _resolver(),
+        processor="/claude",
     )
     assert json.loads(result) == [
         r"CLAUDE[intent='[Response 1]\nA=2+2\n\n[Instruction]\ntopintent']",

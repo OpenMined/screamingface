@@ -770,6 +770,15 @@ class FanoutReduceNode:
         ]
         instruction = substitute_response_vars(_as_text(inputs.get("intent", "")), entries)
         reducer_input = build_reducer_input(entries, instruction)
+        if ctx.processor is None:
+            # INVARIANT: the core hardcodes no processor route — with nothing
+            # declared (SupportsDefaultRoute) and nothing passed, the reduce
+            # cannot dispatch; fail with the fix in the message.
+            raise ResolutionError(
+                "fan-out reduce has no processor route — the io layer declares no "
+                "routes and none was set; pass processor= (run/Client) or register "
+                "a route/endpoint on the node"
+            )
         target = encode_subrequest(ctx.processor, "", reducer_input)
         return await ctx.io.fetch(target, relative=True)
 

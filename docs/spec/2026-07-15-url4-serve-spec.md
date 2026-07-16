@@ -277,3 +277,28 @@ to be hardened in later layers. v1 minimum bar:
 - **Label drift:** the task-board card's Epic/workstream group (e.g. "url4 Engine") has been
   removed from Linear. OME-466 filed with `pkg/url4-python-sdk` + `autonomous` + `agentic`
   only. Card taxonomy needs an owner reconcile (tracked in the ledger).
+
+---
+
+## 11. Revision (2026-07-16) — commands-only backends + `default_route` (owner-directed)
+
+Supersedes every `[routes]`/aigateway-connector part of this spec (§ affected: the
+LLM-route handler, `--backend-url`/`--backend-token`, `DEFAULT_ROUTES`, `--route`):
+
+- **The aigateway connector is DELETED.** `url4 serve` ships exactly one backend
+  kind: `[commands]` — operator-owned subprocess argv templates. An LLM backend is
+  the operator's own gateway script mounted as a command, e.g.
+  `"/claude" = ["python", "ai_gateway_script.py", "--url", "<gw>", "-m", "<model>"]`.
+  The SDK/CLI provides no such script.
+- **`processor` (serve config) → `default_route`** (`--default-route`,
+  `URL4_DEFAULT_ROUTE`, toml `default_route`). An explicit value must be a declared
+  command route (fail-fast `ConfigError`); unset resolves to the FIRST declared
+  command; an empty `[commands]` is a fail-fast `ConfigError` (zero-config serve is
+  gone by design — the operator owns all backend wiring).
+- **Core SDK:** the `processor` NAME stays (spec term), but `DEFAULT_PROCESSOR =
+  "/claude"` is removed. Unset `processor` resolves to the io world's first
+  declared route via a new optional port capability
+  `url4.io_layer.SupportsDefaultRoute` (`Url4Node` → first registered endpoint,
+  `StaticIOLayer` → first `routes` key); with none declared, a fan-out reduce
+  raises a clear `ResolutionError`. The HTTP wire param `processor=` (§3.3.1/§27.3)
+  is unchanged.
