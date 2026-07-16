@@ -6,6 +6,9 @@
     "main"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-internal-toggle-maximize"
   ]
 }

@@ -4,13 +4,14 @@ import { Boxes, FileCode, Flame, Key, Layers, Plug, Sparkles, Trophy, User } fro
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { ThemeToggle } from "@/components/theme-toggle";
+import { SidebarThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useIsTauri } from "@/hooks/use-is-tauri";
 
 const navigation = [
   { label: "Ensembles", href: "/ensembles/", Icon: Boxes },
@@ -36,10 +37,11 @@ function MonsterFusionCard() {
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const isTauri = useIsTauri();
 
   return (
     <Sidebar aria-label="Primary navigation">
-      <SidebarHeader className="border-b border-sidebar-border bg-gradient-to-b from-primary/[0.04] to-transparent p-3 group-data-[state=collapsed]/sidebar:p-2">
+      <SidebarHeader className="border-b border-sidebar-border bg-sidebar p-3 group-data-[state=collapsed]/sidebar:p-2">
         <div className="flex h-10 items-center gap-2">
           <Link href="/" className="group/brand flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-md px-1 group-data-[state=collapsed]/sidebar:justify-center group-data-[state=collapsed]/sidebar:px-0">
             <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary/15 text-base shadow-sm ring-1 ring-primary/10 transition-transform group-hover/brand:rotate-[8deg]" aria-hidden="true">😱</span>
@@ -92,7 +94,7 @@ export function AppSidebar() {
           </Popover>
         </div>
 
-        <ThemeToggle />
+        {isTauri === false && <SidebarThemeToggle />}
 
         <div className="flex h-10 items-center gap-2.5 overflow-hidden rounded-md px-1 group-data-[state=collapsed]/sidebar:justify-center group-data-[state=collapsed]/sidebar:px-0">
           <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/15 text-primary transition-[width,height] duration-200 group-data-[state=collapsed]/sidebar:size-10"><User className="size-4 transition-[width,height] duration-200 group-data-[state=collapsed]/sidebar:size-5" /></span>

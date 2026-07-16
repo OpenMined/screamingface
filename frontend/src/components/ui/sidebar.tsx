@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Dialog, Slot } from "radix-ui";
-import { PanelLeft, X } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
@@ -79,7 +79,7 @@ function Sidebar({ className, children, ...props }: React.ComponentProps<"aside"
   }
 
   return (
-    <aside data-state={state} className={cn("group/sidebar relative hidden h-svh shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex md:w-(--sidebar-width) md:data-[state=collapsed]:w-(--sidebar-width-icon)", className)} {...props}>
+    <aside data-state={state} className={cn("group/sidebar relative hidden h-full shrink-0 bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex md:w-(--sidebar-width) md:data-[state=collapsed]:w-(--sidebar-width-icon)", className)} {...props}>
       <div className="flex size-full min-w-0 flex-col overflow-hidden">{children}</div>
     </aside>
   );
@@ -114,8 +114,8 @@ function SidebarMenuButton({ asChild = false, isActive = false, tooltip, classNa
 }
 
 function SidebarTrigger({ className, ...props }: React.ComponentProps<typeof Button>) {
-  const { toggleSidebar } = useSidebar();
-  return <Button {...props} variant="ghost" size="icon" className={cn("size-8", className)} onClick={(event) => { props.onClick?.(event); toggleSidebar(); }}><PanelLeft /><span className="sr-only">Toggle sidebar</span></Button>;
+  const { state, toggleSidebar } = useSidebar();
+  return <Button {...props} variant="ghost" size="icon" className={cn("size-8", className)} onClick={(event) => { props.onClick?.(event); toggleSidebar(); }}>{state === "collapsed" ? <PanelLeftOpen /> : <PanelLeftClose />}<span className="sr-only">Toggle sidebar</span></Button>;
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
