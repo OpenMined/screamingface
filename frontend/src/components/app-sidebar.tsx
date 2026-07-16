@@ -1,16 +1,16 @@
-import {
-  Boxes,
-  FileCode,
-  Flame,
-  Key,
-  Layers,
-  Plug,
-  Sparkles,
-  Trophy,
-  User,
-} from "lucide-react";
+"use client";
+
+import { Boxes, FileCode, Flame, Key, Layers, Plug, Sparkles, Trophy, User } from "lucide-react";
 import Link from "next/link";
-import { ThemeToggle } from "./theme-toggle";
+import { usePathname } from "next/navigation";
+
+import { ThemeToggle } from "@/components/theme-toggle";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const navigation = [
   { label: "Ensembles", href: "/ensembles/", Icon: Boxes },
@@ -19,49 +19,87 @@ const navigation = [
   { label: "Scripts", href: "/scripts/", Icon: FileCode, badge: "2" },
 ];
 
-export function AppSidebar() {
+function MonsterFusionCard() {
   return (
-    <aside className="sidebar" aria-label="Primary navigation">
-      <header className="brand-row">
-        <Link className="brand" href="/">
-          <span className="brand-mark" aria-hidden="true">😱</span>
-          <span className="brand-copy">
-            <strong>ScreamingFace</strong>
-            <small>the loudest ensemble hub</small>
-          </span>
-        </Link>
-        <ThemeToggle />
-      </header>
+    <section className="flex flex-col gap-2.5 rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/12 to-primary/[0.04] p-3.5 shadow-sm">
+      <div className="flex items-center gap-2 text-xs font-medium text-primary"><Flame className="size-3.5" /><span>Monster Fusion Program</span></div>
+      <p className="text-[11px] leading-relaxed text-muted-foreground">Connect your key to use subsidized OpenMined compute.</p>
+      <div className="relative">
+        <Key className="absolute left-2.5 top-1/2 z-10 size-3 -translate-y-1/2 text-muted-foreground" />
+        <Input type="password" placeholder="om-…" aria-label="OpenMined key" className="h-8 pl-8 font-mono text-xs" />
+      </div>
+      <Button size="sm" type="button"><Plug className="size-3.5" />Connect OpenMined</Button>
+      <Button size="sm" variant="outline" asChild><a href="https://openmined.org" target="_blank" rel="noreferrer"><Sparkles className="size-3.5" />Apply</a></Button>
+    </section>
+  );
+}
 
-      <nav className="primary-nav">
-        {navigation.map(({ label, href, Icon, badge }) => (
-          <Link className="nav-item" href={href} key={label}>
-            <Icon size={15} strokeWidth={2} />
-            <span>{label}</span>
-            {badge && <span className="nav-badge">{badge}</span>}
+export function AppSidebar() {
+  const pathname = usePathname();
+
+  return (
+    <Sidebar aria-label="Primary navigation">
+      <SidebarHeader className="border-b border-sidebar-border bg-gradient-to-b from-primary/[0.04] to-transparent p-3 group-data-[state=collapsed]/sidebar:p-2">
+        <div className="flex h-10 items-center gap-2">
+          <Link href="/" className="group/brand flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden rounded-md px-1 group-data-[state=collapsed]/sidebar:justify-center group-data-[state=collapsed]/sidebar:px-0">
+            <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-primary/15 text-base shadow-sm ring-1 ring-primary/10 transition-transform group-hover/brand:rotate-[8deg]" aria-hidden="true">😱</span>
+            <span className="min-w-0 group-data-[state=collapsed]/sidebar:hidden">
+              <span className="block truncate text-sm font-semibold">ScreamingFace</span>
+              <span className="block truncate font-mono text-[10px] text-muted-foreground">the loudest ensemble hub</span>
+            </span>
           </Link>
-        ))}
-      </nav>
-
-      <div className="sidebar-spacer" />
-
-      <footer className="sidebar-footer">
-        <section className="program-card">
-          <div className="program-title"><Flame size={11} /><span>Monster Fusion Program</span></div>
-          <p>Connect your key to use subsidized OpenMined compute.</p>
-          <label className="key-field">
-            <Key size={10} />
-            <input type="password" placeholder="om-…" aria-label="OpenMined key" />
-          </label>
-          <button className="connect-button" type="button"><Plug size={11} /> Connect OpenMined</button>
-          <a className="apply-button" href="https://openmined.org" target="_blank" rel="noreferrer"><Sparkles size={11} /> Apply</a>
-        </section>
-
-        <div className="profile">
-          <span className="avatar" aria-hidden="true"><User size={14} /></span>
-          <span className="profile-copy"><strong>irina</strong><small>irina@openmined.org</small></span>
         </div>
-      </footer>
-    </aside>
+      </SidebarHeader>
+
+      <SidebarContent className="p-3 group-data-[state=collapsed]/sidebar:p-2">
+        <nav aria-label="Studio">
+          <SidebarMenu>
+            {navigation.map(({ label, href, Icon, badge }) => (
+              <SidebarMenuItem key={label}>
+                <SidebarMenuButton asChild isActive={pathname.startsWith(href)} tooltip={label}>
+                  <Link href={href} prefetch={false}>
+                    <Icon />
+                    <span className="group-data-[state=collapsed]/sidebar:hidden">{label}</span>
+                    {badge && <Badge variant="secondary" className="ml-auto font-mono text-[10px] group-data-[state=collapsed]/sidebar:hidden">{badge}</Badge>}
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </nav>
+      </SidebarContent>
+
+      <SidebarFooter className="gap-3 border-t border-sidebar-border p-3 group-data-[state=collapsed]/sidebar:p-2">
+        <div className="max-h-96 origin-bottom overflow-hidden opacity-100 scale-100 translate-y-0 transition-[max-height,opacity,transform] duration-200 delay-150 ease-out group-data-[state=collapsed]/sidebar:invisible group-data-[state=collapsed]/sidebar:max-h-0 group-data-[state=collapsed]/sidebar:translate-y-2 group-data-[state=collapsed]/sidebar:scale-75 group-data-[state=collapsed]/sidebar:opacity-0 group-data-[state=collapsed]/sidebar:delay-0 group-data-[state=collapsed]/sidebar:ease-in">
+          <MonsterFusionCard />
+        </div>
+
+        <div className="flex max-h-0 origin-center scale-75 justify-center overflow-hidden opacity-0 transition-[max-height,opacity,transform] duration-150 ease-in pointer-events-none group-data-[state=collapsed]/sidebar:max-h-10 group-data-[state=collapsed]/sidebar:scale-100 group-data-[state=collapsed]/sidebar:opacity-100 group-data-[state=collapsed]/sidebar:delay-100 group-data-[state=collapsed]/sidebar:ease-out group-data-[state=collapsed]/sidebar:pointer-events-auto">
+          <Popover>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-10 text-primary hover:bg-primary/10 hover:text-primary" aria-label="Monster Fusion Program">
+                    <Flame className="size-5" />
+                  </Button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="right">Monster Fusion Program</TooltipContent>
+            </Tooltip>
+            <PopoverContent side="right" align="end" className="border-0 bg-transparent p-0 shadow-none">
+              <MonsterFusionCard />
+            </PopoverContent>
+          </Popover>
+        </div>
+
+        <ThemeToggle />
+
+        <div className="flex h-10 items-center gap-2.5 overflow-hidden rounded-md px-1 group-data-[state=collapsed]/sidebar:justify-center group-data-[state=collapsed]/sidebar:px-0">
+          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/15 text-primary transition-[width,height] duration-200 group-data-[state=collapsed]/sidebar:size-10"><User className="size-4 transition-[width,height] duration-200 group-data-[state=collapsed]/sidebar:size-5" /></span>
+          <span className="min-w-0 group-data-[state=collapsed]/sidebar:hidden"><strong className="block truncate text-sm font-normal">irina</strong><small className="block truncate font-mono text-[10px] text-muted-foreground">irina@openmined.org</small></span>
+        </div>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
   );
 }

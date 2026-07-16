@@ -1,4 +1,5 @@
 import { AppSidebar } from "@/components/app-sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 export default function StudioLayout({
   children,
@@ -6,11 +7,11 @@ export default function StudioLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <div className="app-shell">
+    <SidebarProvider>
       <AppSidebar />
-      <main className="workspace" aria-label="Workspace">
+      <SidebarInset aria-label="Workspace" className="h-svh overflow-hidden">
         {children}
-      </main>
-    </div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
