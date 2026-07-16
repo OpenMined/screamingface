@@ -17,7 +17,7 @@ def test_static_setup_panel_is_visible_and_side_effect_free() -> None:
 
     assert isinstance(panel, SetupPanel)
     assert panel.value is session
-    assert "SIMULATION" in panel._repr_html_()
+    assert "MOCK" in panel._repr_html_()
     assert "Connect providers" in panel._repr_html_()
 
 
@@ -38,7 +38,7 @@ def test_static_setup_panel_mime_bundle_remains_renderable_html() -> None:
     bundle = panel._repr_mimebundle_()
 
     assert bundle["text/plain"].startswith("SetupPanel")
-    assert "SIMULATION" in bundle["text/html"]
+    assert "MOCK" in bundle["text/html"]
 
 
 class LoginGateway:

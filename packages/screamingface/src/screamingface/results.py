@@ -63,7 +63,7 @@ class Run:
 def _run_html(run: Run) -> str:
     simulated = run.mode == "mock"
     mode_color = "#8a5a00" if simulated else "#137333"
-    mode_label = "SIMULATED · NO PROVIDER CLAIM" if simulated else "LIVE PROVIDER RUN"
+    mode_label = "MOCK · NO PROVIDER CLAIM" if simulated else "LIVE PROVIDER RUN"
     cost_value = "$0.000" if simulated else f"${run.cost_usd:.4f}"
     cost_label = "no provider spend" if simulated else "estimated cost"
     metrics = "".join(

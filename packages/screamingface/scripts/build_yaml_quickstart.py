@@ -16,22 +16,18 @@ def notebook() -> nbformat.NotebookNode:
             """# screamingface · YAML quickstart
 
 Keep a fusion lineup in a small, reviewable YAML file, load it without making model calls, and
-run the same URL4-backed evaluation flow as the main quickstart.
+run the same evaluation flow as the main quickstart.
 
-This checked-in execution is an explicit **SIMULATION**. It uses the bundled synthetic science
-fixture and deterministic local model answers, so it runs offline and makes no provider claims.
-For a live run, replace the setup call with `sf.setup()` and update `fusion.yaml` with exact model
-IDs returned by that live session's `sf.models.list()`, which lists models from your actively
-connected providers. The live prerequisites — a running AI Gateway, connected providers, and
-Hugging Face access for gated GPQA — are listed in
-[`00_quickstart.ipynb`](00_quickstart.ipynb).
+This committed copy runs in mock mode, fully offline. For a live run, replace the setup call with
+`sf.setup()` and put exact IDs from your live `sf.models.list()` into `fusion.yaml` — see the
+going-live checklist in [`00_quickstart.ipynb`](00_quickstart.ipynb).
 
-Model IDs are not aliases: `hf/...` is not silently expanded to `huggingface/...`, and an
-`open_router/...` model is valid only when the connected gateway reports that exact ID."""
+Model IDs are exact, never aliases: `hf/...` is not expanded to `huggingface/...`."""
         ),
         nbformat.v4.new_markdown_cell("## 1 · Start a reproducible session"),
         nbformat.v4.new_code_cell(
             "import screamingface as sf\n\n"
+            "# REMOVE mode and static_widgets to run live: sf.setup()\n"
             'session = sf.setup(mode="mock", static_widgets=True)\n'
             "session"
         ),
@@ -40,8 +36,7 @@ Model IDs are not aliases: `hf/...` is not silently expanded to `huggingface/...
         nbformat.v4.new_markdown_cell(
             f"""## 3 · Review `fusion.yaml`
 
-The YAML file sits beside this notebook. Loading it is local and safe: it does not execute the
-fusion, contact AI Gateway, or reveal the URL4 recipe.
+The file sits beside this notebook; loading it runs nothing.
 
 ```yaml
 {yaml_text.rstrip()}
@@ -53,11 +48,10 @@ fusion, contact AI Gateway, or reveal the URL4 recipe.
             "fusion  # rich lineup table; the URL4 stays hidden"
         ),
         nbformat.v4.new_markdown_cell(
-            """Loading and inspecting a fusion does not require connected providers. In live mode,
-`evaluate(...)` checks every required provider and model before loading benchmark data. If anything
-is missing, it raises one `FusionNotReady` error and makes no model calls.
+            """Loading a fusion needs no connected providers; live evaluation validates them up
+front and fails fast with `FusionNotReady` before any call.
 
-Ask for the canonical, shareable URL4 only when you need it:"""
+Ask for the shareable URL4 recipe when you need it:"""
         ),
         nbformat.v4.new_code_cell("fusion.url4"),
         nbformat.v4.new_markdown_cell(
@@ -76,8 +70,8 @@ Ask for the canonical, shareable URL4 only when you need it:"""
         nbformat.v4.new_markdown_cell("## 5 · Evaluate and read the result"),
         nbformat.v4.new_code_cell('run = fusion.evaluate("gpqa", first=20, seed=0)\nrun'),
         nbformat.v4.new_markdown_cell(
-            """The result card is explicitly simulated. For both simulated and live runs, read
-`gain` first: positive means the fusion beat its strongest member using the same panel answers."""
+            """Read `gain` first: positive means the fusion beat its strongest member on the same
+answers."""
         ),
         nbformat.v4.new_code_cell(
             "{\n"
@@ -88,8 +82,8 @@ Ask for the canonical, shareable URL4 only when you need it:"""
             "}"
         ),
         nbformat.v4.new_markdown_cell(
-            """**Next:** [`00_quickstart.ipynb`](00_quickstart.ipynb) walks the same flow with an
-inline Python lineup and explains how to switch this notebook to a live run."""
+            """**Next:** [`00_quickstart.ipynb`](00_quickstart.ipynb) — the same flow with an
+inline Python lineup."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

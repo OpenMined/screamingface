@@ -39,7 +39,7 @@ class Session:
     closed: bool = field(default=False, init=False)
 
     def _repr_html_(self) -> str:
-        label = "SIMULATION" if self.mode == "mock" else "LIVE"
+        label = "MOCK" if self.mode == "mock" else "LIVE"
         gateway = self.gateway_url or "deterministic local adapter"
         return (
             "<div><strong>ScreamingFace setup</strong> "

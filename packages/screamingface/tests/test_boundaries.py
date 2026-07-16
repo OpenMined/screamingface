@@ -143,7 +143,7 @@ def test_session_and_fusion_validation() -> None:
     with pytest.raises(ValueError, match="mode"):
         sf.setup(mode=cast(session_module.Mode, "invalid"))
     session = sf.setup(mode="mock")
-    assert "SIMULATION" in session._repr_html_()
+    assert "MOCK" in session._repr_html_()
     ids = sf.models.list()
     with pytest.raises(ValueError, match="empty"):
         sf.Fusion(" ", ids[:2])

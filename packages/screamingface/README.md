@@ -157,7 +157,7 @@ per-model so a provider outage after a successful preflight does not discard oth
 scores, token usage, estimated costs, dated pricing provenance, incomplete rows, and structured
 provider failures. Its notebook representation renders score, gain, best-member baseline, cost
 status, reducer/judge, per-model accuracy bars, failures, and provenance in one result card. Mock
-cards are prominently marked `SIMULATED · NO PROVIDER CLAIM`; live cards are marked
+cards are prominently marked `MOCK · NO PROVIDER CLAIM`; live cards are marked
 `LIVE PROVIDER RUN`. One provider failure does not discard successful panel answers.
 
 Live GPQA loading also requires `uv sync --extra datasets`, Hugging Face authentication, and prior

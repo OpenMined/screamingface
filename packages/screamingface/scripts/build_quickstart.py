@@ -15,46 +15,31 @@ def notebook() -> nbformat.NotebookNode:
             """# screamingface · Quickstart
 
 Compose several AI models into one **fusion**, run it on a benchmark sample, and see whether the
-panel beats its strongest member. Connect → pick → compose → run → compare, in five small cells.
+panel beats its strongest member. Connect → pick → compose → run → compare.
 
-This checked-in run is an explicit **SIMULATION**: it uses 20 synthetic, GPQA-shaped science
-questions and deterministic local model adapters, so GitHub can render a safe and reproducible
-example. It is not a provider benchmark and it does not use or reveal gated GPQA questions.
+This committed copy runs in mock mode — synthetic questions, deterministic local answers — so it
+renders reproducibly on GitHub. The scores demonstrate the flow, not provider quality.
 
-**Going live.** Replace the setup call below with `sf.setup()` and have three things ready:
+**Going live:** replace the setup call with `sf.setup()` and have three things ready:
 
-1. **A running AI Gateway.** From this repository:
+1. **AI Gateway** running:
    `cd apps/aigateway && uv sync && uv run uvicorn aigateway.main:app --port 9105`.
-   `sf.setup()` discovers `http://127.0.0.1:9105` automatically; for any other host, pass
-   `gateway="..."` or set `SCREAMINGFACE_GATEWAY_URL`.
-2. **Connected providers.** Gateway login unlocks your encrypted credential vault; the setup
-   panel then connects providers with OAuth or an API key. `sf.models.list()` shows models from
-   your actively connected providers only.
-3. **Hugging Face access for real GPQA.** Install the dataset extra (`uv sync --extra datasets`),
-   accept the gated terms at `huggingface.co/datasets/Idavidrein/gpqa`, and log in with
-   `huggingface-cli login` (or set `HF_TOKEN`). This HF login is separate from gateway login.
-
-Live mode never silently falls back to simulation.
-
-When running from a repository checkout, launch this notebook with
-`uv run --extra notebook jupyter lab examples/00_quickstart.ipynb`, or select the interpreter at
-`packages/screamingface/.venv/bin/python` in your editor."""
+   `sf.setup()` finds `http://127.0.0.1:9105`; for any other host, pass `gateway="..."` or set
+   `SCREAMINGFACE_GATEWAY_URL`.
+2. **Providers connected** in the setup panel, with OAuth or an API key. `sf.models.list()` shows
+   models from connected providers.
+3. **Hugging Face access** for the real GPQA benchmark: `uv sync --extra datasets`, accept the
+   terms at `huggingface.co/datasets/Idavidrein/gpqa`, then `huggingface-cli login`."""
         ),
         nbformat.v4.new_markdown_cell("## 1 · Connect"),
         nbformat.v4.new_code_cell(
-            "import sys\n\n"
             "import screamingface as sf\n\n"
-            'if not hasattr(sf, "setup"):\n'
-            "    raise RuntimeError(\n"
-            '        "Wrong notebook kernel: select packages/screamingface/.venv/bin/python "\n'
-            '        "or launch Jupyter with `uv run --extra notebook jupyter lab`. "\n'
-            '        f"Current Python: {sys.executable}"\n'
-            "    )\n\n"
+            "# REMOVE mode and static_widgets to run live: sf.setup()\n"
             'session = sf.setup(mode="mock", static_widgets=True)\n'
             "session"
         ),
         nbformat.v4.new_markdown_cell("## 2 · Pick models"),
-        nbformat.v4.new_code_cell("available = sf.models.list(max_price=20)\navailable"),
+        nbformat.v4.new_code_cell("available = sf.models.list()\navailable"),
         nbformat.v4.new_markdown_cell("## 3 · Compose a URL4-backed fusion"),
         nbformat.v4.new_code_cell(
             "fusion = sf.Fusion(\n"
@@ -65,20 +50,14 @@ When running from a repository checkout, launch this notebook with
             ")\n"
             "fusion"
         ),
-        nbformat.v4.new_markdown_cell(
-            "The normal display keeps the recipe readable. Ask for the canonical, shareable "
-            "URL4 explicitly:"
-        ),
+        nbformat.v4.new_markdown_cell("Ask for the shareable URL4 recipe when you need it:"),
         nbformat.v4.new_code_cell("fusion.url4"),
         nbformat.v4.new_markdown_cell(
             """## 4 · Run
 
-Each member answers each question exactly once through an embedded URL4 node — the `url4`
-package's node facade running inside this process, with no extra server to start. The fusion vote
-and best-member baseline reuse those same answers, so the comparison does not spend twice. In live
-mode, evaluation first checks that every required provider is connected and every model is
-available. A blocked run fails once with `FusionNotReady` before loading benchmark data or making
-model calls."""
+Each member answers every question once through an embedded URL4 node; the vote and the
+best-member baseline reuse the same answers, so nothing is asked twice. Live runs validate
+providers and models up front and fail fast with `FusionNotReady` before any call."""
         ),
         nbformat.v4.new_code_cell('run = fusion.evaluate("gpqa", first=20, seed=0)\nrun'),
         nbformat.v4.new_markdown_cell("## 5 · Compare"),
@@ -94,14 +73,11 @@ model calls."""
             "}"
         ),
         nbformat.v4.new_markdown_cell(
-            """> **Interpretation:** gain is the fusion score minus the strongest member score,
-using the same panel answers. The number above demonstrates the SDK flow only; because this
-checked-in execution is simulated, it is not evidence that these named providers achieve these
-scores on GPQA.
+            """> Gain = fusion score − best member, on the same answers. Positive means the panel
+beat its strongest member.
 
-**Next:** keep a lineup in a reviewable file with the YAML companion,
-[`yaml_quickstart.ipynb`](yaml_quickstart.ipynb) — or share this exact fusion by sending its
-`fusion.url4` recipe."""
+**Next:** [`yaml_quickstart.ipynb`](yaml_quickstart.ipynb) keeps the lineup in a file — or share
+this fusion by sending `fusion.url4`."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

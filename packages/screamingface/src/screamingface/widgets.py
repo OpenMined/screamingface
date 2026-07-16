@@ -48,7 +48,7 @@ class SetupPanel:
         mode = (
             "LOGIN REQUIRED"
             if self.value is None
-            else ("SIMULATION" if self.value.mode == "mock" else "LIVE")
+            else ("MOCK" if self.value.mode == "mock" else "LIVE")
         )
         return (
             "<div><strong>ScreamingFace setup</strong> "

@@ -43,7 +43,7 @@ def test_mock_quickstart_contract_runs_end_to_end() -> None:
     assert run.gain > 0
     assert run.cost_usd == 0
     html = run._repr_html_()
-    assert "SIMULATED · NO PROVIDER CLAIM" in html
+    assert "MOCK · NO PROVIDER CLAIM" in html
     assert "frontier-trio" not in html
     assert "fusion" in html
     assert "PER-MODEL ACCURACY" in html
