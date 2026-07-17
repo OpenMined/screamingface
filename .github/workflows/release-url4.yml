@@ -28,7 +28,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -55,13 +55,13 @@ jobs:
       run:
         working-directory: packages/url4
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.3.2
       - name: Build sdist + wheel
         run: uv build --out-dir dist
       - name: Validate metadata (twine check)
         run: uvx twine check --strict dist/*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: url4-dist
           path: packages/url4/dist/
@@ -76,7 +76,7 @@ jobs:
     permissions:
       id-token: write # OIDC token for PyPI Trusted Publishing
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: url4-dist
           path: dist/
