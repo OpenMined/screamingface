@@ -23,7 +23,11 @@ from pathlib import Path
 from url4 import __version__
 from url4.errors import Url4Error
 
-_LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost", ""})
+# INVARIANT: only genuine loopback addresses belong here — a host in this set skips
+# the exposure warnings. "" is NOT loopback: it binds 0.0.0.0 AND :: (every
+# interface). ServeConfig.validate() rejects it before we get here; this set must not
+# re-admit it.
+_LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 
 _SERVE_FIELDS = (
     "host",

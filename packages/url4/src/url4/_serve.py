@@ -61,6 +61,17 @@ class ServeConfig:
         _require(self.concurrency >= 1, f"concurrency must be >= 1, got {self.concurrency}")
         _require(self.max_inflight >= 1, f"max-inflight must be >= 1, got {self.max_inflight}")
         _require(self.timeout > 0, f"timeout must be > 0, got {self.timeout}")
+        # INVARIANT: an empty host is never a loopback bind — it binds 0.0.0.0 AND ::
+        # (every interface) while reading as "unset", and it would slip past the
+        # non-loopback exposure warnings that are v1's only control in front of the
+        # command routes (arbitrary local execution). `_pick` normalizes an empty
+        # URL4_HOST away; this covers the explicit `--host ""` flag, which it cannot.
+        _require(
+            bool(self.host),
+            "host cannot be empty — bind 127.0.0.1, or 0.0.0.0 for every interface",
+        )
+        # The eval path is a route like any other: it must be a path.
+        _require_paths({self.eval_path: None}, "eval")
         # WHY: the connector is gone — the operator owns every backend, so a
         # node with zero commands has nothing to dispatch to. Fail fast.
         _require(
@@ -148,8 +159,15 @@ def _pick(
     flag = overrides.get(name)
     if flag is not None:
         return flag
+    # WHY: an empty env var is an UNSET var, not an empty value — `URL4_HOST=` in a
+    # .env/compose file is an unresolved interpolation. Taking it literally let every
+    # string field silently adopt "", and host="" binds 0.0.0.0 AND :: (every
+    # interface) while reading as "default". Int fields already rejected "" loudly;
+    # this makes strings consistent with them by falling through to toml > default.
     from_env = env.get(f"URL4_{name.upper()}")
-    return from_env if from_env is not None else toml.get(name)
+    if from_env:
+        return from_env
+    return toml.get(name)
 
 
 def _pick_str(name, overrides, env, toml, default: str) -> str:
