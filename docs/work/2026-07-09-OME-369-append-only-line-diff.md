@@ -720,7 +720,8 @@ rounds. Two findings:
 - **Actual files:** `.claude/scripts/tests/test_run_gates.py` — 1 new pin
   test, 27 total. No production-code change (the fix itself shipped in
   round 9's commit; this round proved and pinned its bonus effect).
-- **Commits:** <fill after commit>
+- **Commits:** `da1cb6c` — test(repo): pin the exotic-linebreak false-negative
+  fix (Refs: OME-369).
 - **Gates:** 27/27 pass; new test confirmed to return the false-negative
   (True) on round-8 code and pass on current code. `py_compile`/`ruff` clean.
 - **Deviations:** none.
