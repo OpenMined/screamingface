@@ -23,7 +23,7 @@ def create_node() -> Url4Node:
 
 def _handler(model_id: str):
     async def handle(request: Request) -> str:
-        return answer(model_id, request.intent)
+        return answer(model_id, request.intent, request.context)
 
     return handle
 

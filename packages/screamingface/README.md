@@ -98,6 +98,30 @@ fusion = sf.Fusion(
 )
 ```
 
+Research benchmarks declare their model capabilities explicitly. For DRACO, `tools` applies to
+every panel model and is part of the shareable URL4 recipe; it does not silently apply to the
+reducer or judge:
+
+```python
+fusion = sf.Fusion(
+    "research-trio",
+    models=[
+        "codex/gpt-5.5",
+        "gemini-cli/gemini-2.5-pro",
+        "anthropic/claude-sonnet-4-6",
+    ],
+    tools=["web_search"],
+    reducer=sf.ModelReducer(
+        model="codex/gpt-5.5",
+        prompt="Synthesize $panel_answers for $question",
+    ),
+)
+```
+
+This compiles `tools=web_search` onto each panel model node. The URL4 engine owns translating that
+generic capability into the provider-specific tool configuration. `evaluate("draco")` rejects a
+fusion that does not declare web search rather than changing its recipe implicitly.
+
 `Reducer` is the extensible reducer contract. `MajorityVote` and `ModelReducer` are concrete
 mechanisms; synthesis, selection, ranking, and adjudication are behaviors expressed by a
 `ModelReducer` prompt rather than separate classes.
@@ -165,10 +189,12 @@ They invoke [`scripts/url4_mock_model.py`](scripts/url4_mock_model.py), which re
 URL4 intent and returns a deterministic GPQA answer, DRACO research response, synthesis, or rubric
 verdict. It never contacts AI Gateway. The URL4 package and engine source are not modified.
 
-The local command routes do not yet consume `Request.params`; those parameters are nevertheless
-part of the canonical URL4 recipe and are available to an in-process URL4 endpoint handler.
-Authentication, hosted deployment, real AI-Gateway-backed routes, research tools, streaming,
-usage/cost metadata, and final paper-level DRACO prompt parity are additive follow-up contracts.
+The DRACO grader sends the paper-aligned system prompt as URL4 intent, the criterion request as
+URL4 context, and `temperature=0.2`, `reasoning=low`, and `max_tokens=4096` as model parameters.
+The local command routes execute deterministic fixtures and do not consume request parameters.
+Production URL4 routes must preserve the judge request's intent/context as system/user messages,
+honor model parameters and `tools=web_search`, and contact AI Gateway internally. Authentication,
+hosted deployment, streaming, and usage/cost/tool telemetry remain engine-application contracts.
 
 ## Development
 

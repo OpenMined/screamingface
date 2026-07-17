@@ -77,6 +77,25 @@ def test_model_reducer_recipe_is_canonical_and_names_its_model() -> None:
     assert "reducer model" in fusion._repr_html_()
 
 
+def test_fusion_tools_are_first_class_panel_request_parameters() -> None:
+    ids = sf.models.list()[:2]
+    fusion = sf.Fusion(
+        "research",
+        ids,
+        tools=["web_search"],
+        reducer=sf.ModelReducer(
+            model=ids[0],
+            prompt="Synthesize $panel_answers",
+        ),
+    )
+
+    assert fusion.tools == ("web_search",)
+    assert fusion.url4.count("tools=web_search") == 2
+    assert "fusion_answer=" in fusion.url4
+    assert "Tools: web_search" in repr(fusion)
+    assert "Tools: <code>web_search</code>" in fusion._repr_html_()
+
+
 def test_model_dictionaries_have_stable_names_separate_from_models() -> None:
     model = sf.models.list()[0]
     fusion = sf.Fusion(
@@ -175,6 +194,7 @@ def test_fusion_loads_model_dictionaries_and_typed_reducer_from_yaml(tmp_path: P
             [
                 "name: configured-yaml",
                 "prompt: Shared panel prompt for $question",
+                "tools: [web_search]",
                 "models:",
                 f"  - {ids[0]}",
                 f"  - model: {ids[1]}",
@@ -197,6 +217,7 @@ def test_fusion_loads_model_dictionaries_and_typed_reducer_from_yaml(tmp_path: P
 
     assert fusion.model_ids == (ids[0], ids[1])
     assert fusion.prompt == "Shared panel prompt for $question"
+    assert fusion.tools == ("web_search",)
     assert fusion.models == (
         ids[0],
         {
@@ -219,6 +240,7 @@ def test_fusion_loads_model_dictionaries_and_typed_reducer_from_yaml(tmp_path: P
             fusion.models,
             reducer=fusion.reducer,
             prompt=fusion.prompt,
+            tools=fusion.tools,
         ).url4
         == fusion.url4
     )
@@ -233,6 +255,7 @@ def test_fusion_loads_model_dictionaries_and_typed_reducer_from_yaml(tmp_path: P
         ("name: [bad]\nmodels: [a, b]\n", "'name' must be a string"),
         ("name: bad\nmodels: not-a-list\n", "'models' must be a list"),
         ("name: bad\nprompt: [bad]\nmodels: [a, b]\n", "'prompt' must be a string"),
+        ("name: bad\ntools: web_search\nmodels: [a, b]\n", "'tools' must be a list"),
         ("name: bad\nmodels: [a, b]\nreduce: [bad]\n", "'reduce' must be a string"),
         ("name: bad\nmodels: [a, b]\ntie_breaker: [bad]\n", "'tie_breaker' must be"),
         ("name: bad\nmodels: [a, b]\nreducer: majority_vote\n", "must be a mapping"),

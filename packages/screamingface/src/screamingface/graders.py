@@ -10,8 +10,9 @@ from typing import TYPE_CHECKING
 
 from screamingface.compiler import render_model_request
 from screamingface.draco import (
+    _JUDGE_SYSTEM_PROMPT,
     _axis_score,
-    _criterion_judge_prompt,
+    _criterion_judge_user_prompt,
     _DracoCriterion,
     _normalized_score,
     _parse_criterion_verdict,
@@ -231,15 +232,16 @@ class _DracoRubricGrader(_Grader):
         engine: EnginePort,
         semaphore: asyncio.Semaphore,
     ) -> bool | None:
-        prompt = _criterion_judge_prompt(
+        user_prompt = _criterion_judge_user_prompt(
             question=case.prompt,
             answer=answer,
             criterion=criterion,
         )
         expression = render_model_request(
             model=self.judge_model,
-            prompt=prompt,
-            params={"temperature": 0.2, "max_tokens": 128},
+            intent=_JUDGE_SYSTEM_PROMPT,
+            context=user_prompt,
+            params={"temperature": 0.2, "reasoning": "low", "max_tokens": 4096},
         )
         async with semaphore:
             body = await engine.evaluate(expression)

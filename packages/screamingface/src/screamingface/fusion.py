@@ -37,12 +37,14 @@ class Fusion:
         reducer: Reducer | None = None,
         *,
         prompt: str = "$question",
+        tools: Sequence[str] = (),
     ) -> None:
         normalized = _normalize_fusion_name(name)
         raw_models = tuple(models)
         if len(raw_models) < 2:
             raise ValueError("a fusion requires at least two models")
         normalized_prompt = _normalize_fusion_prompt(prompt)
+        normalized_tools = _normalize_tools(tools)
         members = normalize_model_inputs(raw_models, default_prompt=normalized_prompt)
         for member in members:
             model_catalog.get(member.model)
@@ -55,11 +57,12 @@ class Fusion:
             model_catalog.get(reducer.model)
         self.name = normalized
         self.prompt = normalized_prompt
+        self.tools = normalized_tools
         self._members = members
         self.model_ids = tuple(member.model for member in members)
         self.orchestration = "parallel"
         self.reducer = reducer
-        self.expression = fusion_recipe(members, reducer)
+        self.expression = fusion_recipe(members, reducer, tools=normalized_tools)
         self._url4 = render(self.expression)
         # Kept for compatibility with the first OME-400 SDK draft. New code should
         # use ``url4`` so the value is only surfaced when explicitly requested.
@@ -84,7 +87,7 @@ class Fusion:
         if not isinstance(document, Mapping):
             raise ValueError("fusion YAML must contain a mapping")
 
-        allowed = {"name", "models", "prompt", "reducer", "reduce", "tie_breaker"}
+        allowed = {"name", "models", "prompt", "tools", "reducer", "reduce", "tie_breaker"}
         unknown = set(document) - allowed
         if unknown:
             fields = ", ".join(sorted(str(field) for field in unknown))
@@ -130,9 +133,10 @@ class Fusion:
             heading = f"{'ROLE':<{role_width}}  {'MODEL':<{model_width}}"
             divider = f"{'-' * role_width}  {'-' * model_width}"
             lineup = [f"{role:<{role_width}}  {model:<{model_width}}" for role, _, model in rows]
-        return "\n".join(
-            [f"Fusion: {self.name}", heading, divider, *lineup, f"Reducer: {self.reducer.name}"]
-        )
+        details = [f"Reducer: {self.reducer.name}"]
+        if self.tools:
+            details.append(f"Tools: {', '.join(self.tools)}")
+        return "\n".join([f"Fusion: {self.name}", heading, divider, *lineup, *details])
 
     def _repr_html_(self) -> str:
         show_names = self._shows_model_names()
@@ -146,12 +150,13 @@ class Fusion:
         )
         reducer_detail = self._reducer_detail_html()
         name_heading = "<th>Name</th>" if show_names else ""
+        tools = f"<p>Tools: <code>{escape(', '.join(self.tools))}</code></p>" if self.tools else ""
         return (
             f"<div><strong>Fusion · {escape(self.name)}</strong>"
             f"<table><thead><tr><th>Role</th>{name_heading}<th>Model</th></tr></thead>"
             f"<tbody>{rows}</tbody></table>"
             f"<p>Reducer: <code>{escape(self.reducer.name)}</code>"
-            f"{reducer_detail}</p></div>"
+            f"{reducer_detail}</p>{tools}</div>"
         )
 
     def _reducer_detail_html(self) -> str:
@@ -184,6 +189,7 @@ def _yaml_fusion_config(document: Mapping) -> dict[str, Any]:
     name = document["name"]
     model_inputs = document["models"]
     prompt = document.get("prompt", "$question")
+    tools = _yaml_tools(document.get("tools", []))
     if not isinstance(name, str):
         raise ValueError("fusion YAML field 'name' must be a string")
     if not isinstance(prompt, str):
@@ -208,7 +214,14 @@ def _yaml_fusion_config(document: Mapping) -> dict[str, Any]:
         "models": cast("list[str | ModelConfig]", model_inputs),
         "reducer": reducer,
         "prompt": prompt,
+        "tools": tools,
     }
+
+
+def _yaml_tools(value: object) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(tool, str) for tool in value):
+        raise ValueError("fusion YAML field 'tools' must be a list of tool names")
+    return value
 
 
 def _normalize_fusion_name(name: str) -> str:
@@ -221,6 +234,22 @@ def _normalize_fusion_prompt(prompt: str) -> str:
     if not isinstance(prompt, str) or not prompt.strip():
         raise ValueError("fusion prompt must not be empty")
     return prompt.strip()
+
+
+def _normalize_tools(tools: Sequence[str]) -> tuple[str, ...]:
+    if isinstance(tools, str) or not isinstance(tools, Sequence):
+        raise TypeError("fusion tools must be a sequence of tool names")
+    normalized: list[str] = []
+    for tool in tools:
+        if not isinstance(tool, str) or not tool.strip():
+            raise ValueError("fusion tool names must be non-empty strings")
+        name = tool.strip()
+        if "," in name:
+            raise ValueError("fusion tool names must not contain commas")
+        if name in normalized:
+            raise ValueError(f"duplicate fusion tool: {name}")
+        normalized.append(name)
+    return tuple(normalized)
 
 
 def _legacy_yaml_reducer(document: Mapping) -> Reducer:

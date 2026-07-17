@@ -20,10 +20,19 @@ _PANEL_RESULT_SCHEMA = "screamingface.panel-result.v2"
 _FUSION_RESULT_SCHEMA = "screamingface.fusion-result.v2"
 
 
-def fusion_recipe(members: Sequence[_FusionMember], reducer: Reducer) -> Expression:
+def fusion_recipe(
+    members: Sequence[_FusionMember],
+    reducer: Reducer,
+    *,
+    tools: Sequence[str] = (),
+) -> Expression:
     """Build the unbound URL4 recipe shared by ``Fusion.url4``."""
 
-    calls = tuple(_panel_call(index, member) for index, member in enumerate(members, 1))
+    panel_params = (("tools", ",".join(tools)),) if tools else ()
+    calls = tuple(
+        _panel_call(index, member, panel_params=panel_params)
+        for index, member in enumerate(members, 1)
+    )
     return expr(*calls, *_reducer_sources(reducer, tuple(members)))
 
 
@@ -48,18 +57,41 @@ def fusion_result_schema() -> str:
 def render_model_request(
     *,
     model: str,
-    prompt: str,
+    intent: str,
+    context: str | None = None,
     params: dict[str, ParameterValue] | None = None,
 ) -> str:
-    """Render one internal model call through the same URL4 path as a fusion."""
+    """Render one internal model call through the same URL4 path as a fusion.
+
+    When ``context`` is provided it is bound as URL4 data and passed separately
+    from the model intent. Model-route adapters can therefore preserve distinct
+    user/context and system/intent messages without ScreamingFace contacting a
+    provider directly.
+    """
 
     models.get(model)
-    call = _make_model_call(model=model, prompt=prompt, params=params)
-    return render(_url4_model_call(call))
+    call = _make_model_call(model=model, prompt=intent, params=params)
+    if context is None:
+        return render(_url4_model_call(call))
+    context_name = "model_context"
+    return render(
+        expr(
+            src(text(context), name=context_name),
+            _url4_model_call(call, context=f"${context_name}"),
+        )
+    )
 
 
-def _panel_call(index: int, member: _FusionMember):
-    return src(_url4_model_call(member.call), name=f"panel_{index}")
+def _panel_call(
+    index: int,
+    member: _FusionMember,
+    *,
+    panel_params: tuple[tuple[str, str], ...],
+):
+    return src(
+        _url4_model_call(member.call, additional_params=panel_params),
+        name=f"panel_{index}",
+    )
 
 
 @singledispatch
@@ -100,13 +132,18 @@ def _model_reducer_call(reducer: ModelReducer) -> RelExpr:
     return _url4_model_call(reducer._call)
 
 
-def _url4_model_call(call: _ModelCall) -> RelExpr:
+def _url4_model_call(
+    call: _ModelCall,
+    *,
+    context: str | None = None,
+    additional_params: tuple[tuple[str, str], ...] = (),
+) -> RelExpr:
     route = models.get(call.model).route
     return RelExpr(
         path=route,
-        context=None,
+        context=context,
         intent=text(call.prompt),
-        params=_url4_params(call.parameter_items),
+        params=(*additional_params, *_url4_params(call.parameter_items)),
     )
 
 

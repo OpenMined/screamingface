@@ -52,6 +52,7 @@ class _BenchmarkDefinition:
     primary_metric: str
     grader: _Grader
     _loader: _BenchmarkLoader = field(repr=False)
+    required_tools: tuple[str, ...] = ()
 
     def load(self, session: Session, first: int, seed: int) -> _LoadedBenchmark:
         return self._loader(session, first, seed)
@@ -138,6 +139,7 @@ _DRACO = _BenchmarkDefinition(
     version="perplexity-ai/draco-test-v1",
     primary_metric="normalized_score",
     grader=_DracoRubricGrader(),
+    required_tools=("web_search",),
     _loader=_load_draco,
 )
 

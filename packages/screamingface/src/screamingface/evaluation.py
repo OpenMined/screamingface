@@ -82,6 +82,7 @@ async def evaluate(
     """Evaluate via URL4, including benchmark-owned grader calls when required."""
     del preflight  # retained temporarily for call-site compatibility
     definition = _resolve_benchmark(benchmark)
+    _validate_required_tools(definition, fusion)
     loaded = definition.load(session, first, seed)
     cases = loaded.cases
     grader = definition.grader
@@ -109,6 +110,16 @@ async def evaluate(
     if progress is not None:
         progress(len(cases), len(cases), "Complete")
     return result
+
+
+def _validate_required_tools(definition, fusion) -> None:
+    missing = tuple(tool for tool in definition.required_tools if tool not in fusion.tools)
+    if missing:
+        names = ", ".join(missing)
+        raise ValueError(
+            f"{definition.name} requires these fusion tools: {names}; "
+            f"add tools={list(missing)!r} to sf.Fusion(...)"
+        )
 
 
 def _reduce_panel(panel: QuestionPanel, fusion) -> str:

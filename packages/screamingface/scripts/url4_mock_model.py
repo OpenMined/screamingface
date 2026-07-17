@@ -26,13 +26,14 @@ def _prompt(row: dict) -> str:
     return f"{row['question']}\n\n{choices}\n\nReply with only A, B, C, or D."
 
 
-def answer(model_id: str, prompt: str) -> str:
+def answer(model_id: str, intent: str, context: str = "") -> str:
     try:
         bucket = _BUCKETS[model_id]
     except KeyError as exc:
         raise ValueError(f"unknown mock model {model_id!r}") from exc
-    if "<criterion_type>" in prompt and "<response>" in prompt:
-        return _judge_criterion(prompt)
+    if "<criterion_type>" in context and "<response>" in context:
+        return _judge_criterion(context)
+    prompt = intent if not context else f"{intent}\n\n{context}"
     result = _fusion_answer(prompt) or _gpqa_answer(prompt, bucket) or _draco_answer(prompt, bucket)
     if result is None:
         raise ValueError("prompt is not part of the deterministic quickstart fixture")
@@ -99,9 +100,14 @@ def _judge_criterion(prompt: str) -> str:
 def main() -> None:
     if len(sys.argv) not in {2, 3}:
         raise SystemExit("usage: url4_mock_model.py MODEL_ID [PROMPT]")
-    prompt = sys.argv[2] if len(sys.argv) == 3 else sys.stdin.read()
+    if len(sys.argv) == 3:
+        intent = sys.argv[2]
+        context = sys.stdin.read()
+    else:
+        intent = sys.stdin.read()
+        context = ""
     try:
-        result = answer(sys.argv[1], prompt)
+        result = answer(sys.argv[1], intent, context)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc

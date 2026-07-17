@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
+from hashlib import sha256
 from types import SimpleNamespace
 from typing import Any
 
@@ -15,7 +16,10 @@ import screamingface.draco as draco_module
 import screamingface.evaluation as evaluation
 from screamingface.benchmarks import _EvaluationCase, _resolve_benchmark
 from screamingface.draco import (
+    _JUDGE_SYSTEM_PROMPT,
+    _criterion_judge_user_prompt,
     _draco_row,
+    _DracoCriterion,
     _normalized_score,
     _parse_criterion_verdict,
     _parse_draco_rubric,
@@ -144,6 +148,21 @@ def test_draco_judge_verdict_parser(raw: str, expected: bool | None) -> None:
     assert _parse_criterion_verdict(raw) is expected
 
 
+def test_draco_official_judge_prompt_contract_is_pinned() -> None:
+    assert sha256(_JUDGE_SYSTEM_PROMPT.encode()).hexdigest() == (
+        "dbc1ae32e32be6fbc47180b4a246b997d299bb0e25373a8cde87c6461cb2397b"
+    )
+    criterion = _DracoCriterion("criterion-1", -2.0, "Does not invent facts", "factual")
+    assert _criterion_judge_user_prompt(
+        question="Why?", answer="Because.", criterion=criterion
+    ) == (
+        "<criterion_type>\nnegative\n</criterion_type>\n\n"
+        "<criterion>\nDoes not invent facts\n</criterion>\n\n"
+        "<query>Why?</query>\n\n"
+        "<response>\nBecause.\n</response>"
+    )
+
+
 @pytest.mark.asyncio
 async def test_draco_grader_reports_empty_answers_and_invalid_judge_results() -> None:
     definition = _resolve_benchmark("draco")
@@ -165,6 +184,20 @@ async def test_draco_grader_reports_empty_answers_and_invalid_judge_results() ->
 
 
 @pytest.mark.asyncio
+async def test_draco_requires_web_search_on_the_fusion() -> None:
+    fusion = sf.Fusion("no-research", sf.models.list()[:2])
+
+    with pytest.raises(ValueError, match="DRACO requires.*web_search"):
+        await evaluation.evaluate(
+            session=sf.Session(mode="mock"),
+            fusion=fusion,
+            benchmark="draco",
+            first=1,
+            seed=0,
+        )
+
+
+@pytest.mark.asyncio
 async def test_draco_evaluation_runs_panel_synthesis_and_grading_through_url4() -> None:
     calls: Counter[str] = Counter()
     node = _draco_node(calls)
@@ -176,6 +209,7 @@ async def test_draco_evaluation_runs_panel_synthesis_and_grading_through_url4() 
             "draco-trio",
             sf.models.list()[:3],
             prompt="Research this question thoroughly: $question",
+            tools=["web_search"],
             reducer=sf.ModelReducer(
                 model="codex/gpt-5.5",
                 prompt=("Produce one unified research answer for $question from $panel_answers"),
@@ -208,13 +242,21 @@ def _draco_node(calls: Counter[str]) -> Url4Node:
     async def panel(request: Request, *, keyword: str) -> str:
         calls[keyword] += 1
         if "unified" in request.intent.lower():
+            assert "tools" not in request.params
             return "Unified research response: alpha, beta, gamma"
+        assert request.params["tools"] == "web_search"
         return f"Independent research response covering {keyword}."
 
     async def judge(request: Request) -> str:
         calls["judge"] += 1
-        criterion = _CRITERION.search(request.intent)
-        response = _RESPONSE.search(request.intent)
+        assert request.intent == _JUDGE_SYSTEM_PROMPT
+        assert request.params == {
+            "temperature": "0.2",
+            "reasoning": "low",
+            "max_tokens": "4096",
+        }
+        criterion = _CRITERION.search(request.context)
+        response = _RESPONSE.search(request.context)
         assert criterion is not None and response is not None
         keyword = _KEYWORD.search(criterion.group(1))
         assert keyword is not None

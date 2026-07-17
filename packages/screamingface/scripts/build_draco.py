@@ -17,15 +17,16 @@ def notebook() -> nbformat.NotebookNode:
 Build an open-ended research fusion, execute every model through URL4, and compare its weighted
 DRACO rubric score with the same panel members scored individually.
 
-The saved run uses two bundled DRACO-shaped cases and deterministic URL4 routes. Start the local
-engine from `packages/screamingface` before running:
+The saved run uses two bundled DRACO-shaped cases and deterministic URL4 routes. It validates the
+complete ScreamingFace request and response contract without making a provider-quality claim.
+Start the local engine from `packages/screamingface` before running:
 
 ```bash
 ./scripts/dev-url4.sh
 ```
 
-This notebook locks down the SDK workflow, not a publishable DRACO reproduction. The final section
-spells out what production evaluation additionally requires."""
+The final section identifies the remaining production boundary: the configured URL4 model routes
+must execute the capabilities and parameters that ScreamingFace emits."""
         ),
         nbformat.v4.new_markdown_cell("## 1 · Import and configure"),
         nbformat.v4.new_code_cell(
@@ -69,6 +70,7 @@ each case. The reducer additionally receives the labeled `$panel_answers` produc
             '        "anthropic/claude-sonnet-4-6",\n'
             "    ],\n"
             "    prompt=DRACO_PANEL_PROMPT,\n"
+            '    tools=["web_search"],\n'
             "    reducer=sf.ModelReducer(\n"
             '        model="codex/gpt-5.5",\n'
             "        prompt=DRACO_REDUCER_PROMPT,\n"
@@ -106,19 +108,24 @@ MET negative criteria subtract their weights, and the result is divided by total
 and clamped to 0–100. `gain` compares the synthesis with the best panel member on the same cases
 and judge protocol.
 
-## 6 · Moving from this repeatable example to a DRACO reproduction
+## 6 · What the production URL4 engine must handle
 
-Use `sf.config(mode="live")` to load the public `perplexity-ai/draco` test split (install the
-`datasets` extra first). A publishable run also needs:
+The bundled local URL4 node validates the request and response shapes deterministically. Replacing
+it with a production URL4 engine requires the engine to:
 
-- production URL4 model routes backed by the same AI Gateway configuration;
-- research tools and tool budgets comparable across every panel member;
-- the pinned production judge and five independent per-criterion judge passes;
-- final byte-level agreement on the paper's judge prompt and model parameters;
-- usage, cost, failure, and judge-coverage telemetry from the engine.
+- accept each complete expression at `GET /v1?q=<url4 expression>` and execute its dependency graph;
+- dispatch every `/provider/model` node to the corresponding production model route;
+- translate `tools=web_search` on panel nodes into each provider's native search capability;
+- preserve judge-request URL4 intent as the system message and context as the user message;
+- forward `temperature=0.2`, `reasoning=low`, and `max_tokens=4096` for judge calls;
+- run repeated judge expressions as independent samples rather than collapsing or caching them;
+- keep research tools disabled for judge calls, which only grade supplied responses;
+- contact AI Gateway internally—ScreamingFace never contacts it or a provider directly;
+- return panel/fusion outputs and raw judge JSON in the response shapes demonstrated above; and
+- eventually return usage, cost, failure, retry, search, and citation telemetry.
 
-The SDK-side shape remains the same: user-authored `Fusion` prompts plus
-`fusion.evaluate("draco", ...)`."""
+Until those production routes exist, the saved result demonstrates the complete HTTP contract but
+makes no claim about provider quality or production DRACO scores."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

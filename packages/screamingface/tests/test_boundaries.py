@@ -96,6 +96,14 @@ def test_fusion_and_reducer_validation() -> None:
             ids[:2],
             reducer=cast(Any, {"kind": "majority_vote"}),
         )
+    with pytest.raises(TypeError, match="sequence"):
+        sf.Fusion("bad-tools", ids[:2], tools=cast(Any, "web_search"))
+    with pytest.raises(ValueError, match="non-empty"):
+        sf.Fusion("empty-tool", ids[:2], tools=[""])
+    with pytest.raises(ValueError, match="commas"):
+        sf.Fusion("joined-tools", ids[:2], tools=["web_search,web_fetch"])
+    with pytest.raises(ValueError, match="duplicate"):
+        sf.Fusion("duplicate-tools", ids[:2], tools=["web_search", "web_search"])
 
 
 @pytest.mark.parametrize(
