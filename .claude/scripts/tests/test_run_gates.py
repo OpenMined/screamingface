@@ -441,6 +441,40 @@ class AppendOnlyCheckTests(unittest.TestCase):
             )
             self.assertFalse(self._check(root, base))
 
+    def test_binary_content_flags_without_crashing(self):
+        """Regression test (code-review finding): a test file rewritten with
+        undecodable binary content must produce a verdict (flagged, since the
+        protected lines differ), not crash the gate with UnicodeDecodeError."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(root / "test_a.py", "def test_one():\n    assert 1 == 1\n")
+            base = _commit_all(root, "base")
+            (root / "test_a.py").write_bytes(b"def test_one():\n\x00\xff\xfe binary junk")
+            self.assertFalse(self._check(root, base))
+
+    def test_verbatim_test_swap_is_flagged(self):
+        """Behavior pin (deliberate, conservative): swapping two tests' order
+        verbatim — zero text changes, pure relocation — IS flagged. Reordering
+        previously-committed tests is a structural change to prior tests, and
+        rule 5 says a prior-test change is a Confidence-Gate decision (STOP and
+        ask), so the conservative outcome is intended, not a false positive to
+        fix. This test pins that choice so a future change flipping it is a
+        conscious decision, not an accident."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "test_a.py",
+                "def test_one():\n    assert 1 == 1\n\n\ndef test_two():\n    assert 2 == 2\n",
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                "def test_two():\n    assert 2 == 2\n\n\ndef test_one():\n    assert 1 == 1\n",
+            )
+            self.assertFalse(self._check(root, base))
+
 
 if __name__ == "__main__":
     unittest.main()

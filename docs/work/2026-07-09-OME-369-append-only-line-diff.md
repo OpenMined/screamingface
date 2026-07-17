@@ -642,3 +642,51 @@ so none of those text-format artifacts can arise by construction. Net result:
   line-by-line agent was investigated and found to be entangled with the
   already-deferred shadowing limitation, not a distinct bug — documented in
   the narrative above rather than silently dropped.
+
+## Round 9 (2026-07-17) — fifth review pass on the SequenceMatcher rewrite
+
+The 8-agent review pass on round 8's fresh code was cut short by a session
+limit (2 of 8 completed: reuse — only the minor duplicate `git show` call
+between `_old_protected_ranges`/`_diff_positions`, judged not worth
+restructuring; removed-behavior — confirmed all 22 pre-rewrite tests pass
+unmodified against the new implementation). The remaining open questions were
+verified directly with a consolidated script instead of re-spawning agents:
+
+- **autojunk=False**: confirmed correct opcodes on repetitive test files (and
+  harmless either way for the constructed case — kept as the safe choice).
+- **replace-opcode math**: 3-old-lines→1-new-line correctly yields all three
+  old lines in `removed`, no spurious `inserted_after`.
+- **empty files**: empty-at-base + tests added → passes; truncated-to-empty →
+  flagged. Both correct.
+- **CRLF rewrite** (same logical content): not flagged — `splitlines()` on
+  both sides absorbs line-ending differences.
+- **performance**: SequenceMatcher on a 5000-line file = ~3ms; the
+  full-content-vs-diff-only concern is moot.
+- **nested stack root**: `(root / path).read_text()` resolution verified 2
+  levels deep.
+- **verbatim relocation** (two tests swapped, zero text changes): FLAGGED —
+  the conservative outcome. Judged intended (reordering prior tests is a
+  structural change to them; rule 5 says ask) and pinned with a dedicated
+  behavior-pin test so any future flip is a conscious decision.
+- **binary content — REAL CRASH FOUND**: a test-matched file rewritten with
+  undecodable bytes made `read_text()` raise UnicodeDecodeError — the gate
+  crashed with a traceback instead of producing a verdict. Fixed by comparing
+  BYTES on both sides (`git show` without text mode + `read_bytes()`;
+  SequenceMatcher diffs byte-lines identically for ordinary text, and binary
+  junk replacing a protected test differs line-wise → flagged, fail-closed).
+  `_old_protected_ranges`' own fetch hardened the same way (bytes +
+  `decode(errors="replace")` feeding the existing permissive SyntaxError
+  fallback, with ValueError also caught for null-byte source).
+
+## Outcome (round 9)
+
+- **Actual files:**
+  - `.claude/scripts/run_gates.py` — bytes-based comparison in
+    `_diff_positions`; hardened decode in `_old_protected_ranges`.
+  - `.claude/scripts/tests/test_run_gates.py` — 2 new tests
+    (binary-content no-crash+flag, verbatim-swap behavior pin), 26 total.
+- **Commits:** <fill after commit>
+- **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 26/26 pass.
+  Binary test confirmed to ERROR (UnicodeDecodeError) on round-8 code, pass on
+  round-9 code. `python3 -m py_compile` and `uvx ruff check` clean.
+- **Deviations:** none.

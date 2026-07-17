@@ -88,14 +88,17 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
     # returns `[]` (falls into the "didn't exist" branch) for every stack whose
     # root isn't the repo root, i.e. every real stack in `.claude/sdlc.local.md`.
     proc = subprocess.run(
-        ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True, text=True,
+        ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True,
     )
     if proc.returncode != 0:
         return []  # file didn't exist at base — nothing to protect
     try:
-        tree = ast.parse(proc.stdout)
-    except SyntaxError:
-        return []  # can't parse — fall through to the safe (permissive) side
+        # WHY: bytes + errors="replace", not text=True — a committed undecodable
+        # file must fall through to the permissive SyntaxError branch below, not
+        # crash the subprocess decode with UnicodeDecodeError.
+        tree = ast.parse(proc.stdout.decode("utf-8", errors="replace"))
+    except (SyntaxError, ValueError):
+        return []  # can't parse (incl. null bytes) — fall through to the safe (permissive) side
     ranges = []
     # INVARIANT: covers EVERY function, not just `test_*`-named ones — a
     # `conftest.py` fixture or a plain helper a test depends on is just as
@@ -170,8 +173,13 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
     # pure insertion can still silently neuter a prior test's assertions (e.g.
     # forcing a variable's value right before the check) with zero removed lines,
     # which `removed` alone can never see.
+    # WHY: compare BYTES on both sides, never decoded text — a working-tree file
+    # rewritten with undecodable/binary content would make a text-mode read raise
+    # UnicodeDecodeError and crash the gate with a traceback instead of a verdict.
+    # Byte lines diff identically for ordinary text, and binary junk replacing a
+    # protected test simply differs line-wise → flagged (fail-closed), no crash.
     old_proc = subprocess.run(
-        ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True, text=True,
+        ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True,
     )
     if old_proc.returncode != 0:
         return set(), set()  # file didn't exist at base — nothing to protect
@@ -179,9 +187,8 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
     # which are guaranteed to exist in the working tree — reading directly off
     # disk is the correct equivalent of `git diff base -- path`'s implicit
     # "against the working tree" comparison (no second ref given).
-    new_content = (root / path).read_text()
     old_lines = old_proc.stdout.splitlines()
-    new_lines = new_content.splitlines()
+    new_lines = (root / path).read_bytes().splitlines()
     matcher = difflib.SequenceMatcher(a=old_lines, b=new_lines, autojunk=False)
     removed: set[int] = set()
     inserted_after: set[int] = set()

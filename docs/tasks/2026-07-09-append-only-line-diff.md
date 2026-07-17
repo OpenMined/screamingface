@@ -82,3 +82,11 @@ across rounds 2, 5, and 7, all eliminated at once by construction rather than
 patched one variant at a time. 24/24 tests pass. See the ledger's Round 8
 section (including a correction: one review finding turned out to be the
 already-deferred shadowing limitation, not a distinct bug).
+
+**Round 9 (2026-07-17):** fifth review pass on the rewrite (agents partially
+cut short by a session limit; remaining questions verified directly). Found
+and fixed one real crash: undecodable/binary content in a test-matched file
+made the gate raise UnicodeDecodeError instead of producing a verdict — now
+compares bytes on both sides (flags binary junk fail-closed, no crash). Also
+pinned the verbatim-swap-is-flagged behavior as deliberate. 26/26 tests pass.
+See the ledger's Round 9 section.
