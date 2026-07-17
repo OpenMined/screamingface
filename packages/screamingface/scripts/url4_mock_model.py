@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 _BUCKETS = {
@@ -11,6 +13,7 @@ _BUCKETS = {
     "gemini-cli/gemini-2.5-pro": 1,
     "anthropic/claude-sonnet-4-6": 2,
 }
+_PANEL_ANSWER = re.compile(r"^Panel \d+ \[[^]]+\]:\s*\n\s*([A-D])\s*$", re.MULTILINE)
 
 
 def _prompt(row: dict) -> str:
@@ -23,6 +26,11 @@ def answer(model_id: str, prompt: str) -> str:
         bucket = _BUCKETS[model_id]
     except KeyError as exc:
         raise ValueError(f"unknown mock model {model_id!r}") from exc
+    panel_answers = _PANEL_ANSWER.findall(prompt)
+    if panel_answers:
+        counts = Counter(panel_answers)
+        highest = max(counts.values())
+        return sorted(answer for answer, count in counts.items() if count == highest)[0]
     fixture = (
         Path(__file__).parents[1] / "src" / "screamingface" / "_data" / "gpqa_shaped_synthetic.json"
     )

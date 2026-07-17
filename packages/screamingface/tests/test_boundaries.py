@@ -82,6 +82,23 @@ def test_fusion_and_reducer_validation() -> None:
         sf.Fusion("unknown", [ids[0], "vendor/missing"])
     with pytest.raises(ValueError, match="tie_breaker"):
         sf.Fusion("bad", ids[:2], reducer=sf.MajorityVote(tie_breaker=ids[2]))
+    with pytest.raises(ValueError, match="unknown"):
+        sf.Fusion("bad", ids[:2], reducer=sf.Synthesize(model="vendor/missing"))
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"model": ""}, "model"),
+        ({"model": "model", "temperature": -1}, "temperature"),
+        ({"model": "model", "temperature": float("inf")}, "temperature"),
+        ({"model": "model", "max_tokens": 0}, "max_tokens"),
+        ({"model": "model", "max_tokens": 1.5}, "max_tokens"),
+    ],
+)
+def test_synthesizer_validation(kwargs: dict, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        sf.Synthesize(**kwargs)
 
 
 def test_answer_normalization_and_vote_boundaries() -> None:

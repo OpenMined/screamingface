@@ -13,7 +13,7 @@ from url4 import render
 from screamingface.compiler import fusion_recipe, render_question
 from screamingface.evaluation import evaluate_sync
 from screamingface.models import models as model_catalog
-from screamingface.reducers import MajorityVote
+from screamingface.reducers import MajorityVote, Reducer, Synthesize
 from screamingface.session import require_session
 
 
@@ -22,7 +22,7 @@ class Fusion:
         self,
         name: str,
         models: Sequence[str],
-        reducer: MajorityVote | None = None,
+        reducer: Reducer | None = None,
     ) -> None:
         normalized = "-".join(name.strip().lower().split())
         if not normalized:
@@ -33,12 +33,18 @@ class Fusion:
         for model in members:
             model_catalog.get(model)
         reducer = reducer or MajorityVote()
-        if reducer.tie_breaker is not None and reducer.tie_breaker not in members:
+        if not isinstance(reducer, (MajorityVote, Synthesize)):
+            raise TypeError(f"unsupported reducer: {type(reducer).__name__}")
+        if isinstance(reducer, MajorityVote) and (
+            reducer.tie_breaker is not None and reducer.tie_breaker not in members
+        ):
             raise ValueError("tie_breaker must be a member of the fusion")
+        if isinstance(reducer, Synthesize):
+            model_catalog.get(reducer.model)
         self.name = normalized
         self.models = members
         self.reducer = reducer
-        self.expression = fusion_recipe(members)
+        self.expression = fusion_recipe(members, reducer)
         self._url4 = render(self.expression)
         # Kept for compatibility with the first OME-400 SDK draft. New code should
         # use ``url4`` so the value is only surfaced when explicitly requested.
@@ -85,10 +91,7 @@ class Fusion:
         return render_question(self.expression, prompt)
 
     def __repr__(self) -> str:
-        rows = [
-            ("TIE BREAKER" if model == self.reducer.tie_breaker else "MEMBER", model)
-            for model in self.models
-        ]
+        rows = [(_member_role(self.reducer, model).upper(), model) for model in self.models]
         role_width = max(len("ROLE"), *(len(role) for role, _ in rows))
         model_width = max(len("MODEL"), *(len(model) for _, model in rows))
         heading = f"{'ROLE':<{role_width}}  {'MODEL':<{model_width}}"
@@ -101,17 +104,24 @@ class Fusion:
     def _repr_html_(self) -> str:
         rows = "".join(
             "<tr>"
-            f"<td>{'Tie breaker' if model == self.reducer.tie_breaker else 'Member'}</td>"
+            f"<td>{_member_role(self.reducer, model)}</td>"
             f"<td><code>{escape(model)}</code></td>"
             "</tr>"
             for model in self.models
         )
+        reducer_detail = self._reducer_detail_html()
         return (
             f"<div><strong>Fusion · {escape(self.name)}</strong>"
             "<table><thead><tr><th>Role</th><th>Model</th></tr></thead>"
             f"<tbody>{rows}</tbody></table>"
-            f"<p>Reducer: <code>{escape(self.reducer.name)}</code></p></div>"
+            f"<p>Reducer: <code>{escape(self.reducer.name)}</code>"
+            f"{reducer_detail}</p></div>"
         )
+
+    def _reducer_detail_html(self) -> str:
+        if isinstance(self.reducer, Synthesize):
+            return f" · synthesizer <code>{escape(self.reducer.model)}</code>"
+        return ""
 
     def evaluate(
         self,
@@ -151,3 +161,9 @@ def _yaml_fusion_config(document: Mapping) -> dict[str, Any]:
         "models": model_ids,
         "reducer": MajorityVote(tie_breaker=tie_breaker),
     }
+
+
+def _member_role(reducer: Reducer, model: str) -> str:
+    if isinstance(reducer, MajorityVote) and model == reducer.tie_breaker:
+        return "Tie breaker"
+    return "Member"

@@ -17,6 +17,7 @@ def _clean_session() -> None:
 def test_public_surface_is_url4_engine_only() -> None:
     assert sf.__version__ == "0.2.0"
     assert "MajorityVote" in sf.__all__
+    assert "Synthesize" in sf.__all__
     assert "EngineError" in sf.__all__
     assert "config" in sf.__all__
     assert "setup" not in sf.__all__
@@ -43,6 +44,22 @@ def test_recipe_and_representations_are_explicit_and_secret_free() -> None:
     assert fusion.url4 not in repr(fusion)
     assert "TIE BREAKER" in repr(fusion)
     assert "Tie breaker" in fusion._repr_html_()
+
+
+def test_synthesis_recipe_is_canonical_and_names_its_synthesizer() -> None:
+    ids = sf.models.list()
+    fusion = sf.Fusion(
+        "synthesis",
+        ids,
+        reducer=sf.Synthesize(model=ids[0], temperature=0.2, max_tokens=512),
+    )
+
+    assert render(build(fusion.url4)) == fusion.url4
+    assert "fusion_answer=" in fusion.url4
+    assert "temperature=0.2&max_tokens=512" in fusion.url4
+    assert "screamingface.fusion-result.v1" in fusion.url4
+    assert "synthesizer_model" in fusion.url4
+    assert "synthesizer" in fusion._repr_html_()
 
 
 def test_fusion_loads_safe_legacy_yaml_into_new_reducer(tmp_path: Path) -> None:

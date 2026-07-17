@@ -8,7 +8,7 @@ from typing import Protocol
 
 import httpx
 
-from screamingface.compiler import result_schema
+from screamingface.compiler import fusion_result_schema, result_schema
 from screamingface.errors import EngineError, EngineUnavailable
 
 
@@ -53,7 +53,46 @@ class PanelResult:
     answers: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class FusionResult:
+    answers: tuple[str, ...]
+    answer: str
+
+
 def parse_panel_result(body: str, expected_models: tuple[str, ...]) -> PanelResult:
+    payload = _result_payload(body, result_schema())
+    return PanelResult(_panel_answers(payload, expected_models))
+
+
+def parse_fusion_result(
+    body: str,
+    expected_models: tuple[str, ...],
+    expected_synthesizer: str,
+) -> FusionResult:
+    payload = _result_payload(body, fusion_result_schema())
+    answers = _panel_answers(payload, expected_models)
+    if payload.get("reducer") != "synthesize":
+        raise EngineError(
+            "URL4 engine fusion result must identify reducer 'synthesize'",
+            code="invalid_result",
+        )
+    synthesizer = payload.get("synthesizer_model")
+    if synthesizer != expected_synthesizer:
+        raise EngineError(
+            f"URL4 engine fusion result identifies synthesizer {synthesizer!r}; "
+            f"expected {expected_synthesizer!r}",
+            code="invalid_result",
+        )
+    answer = payload.get("answer")
+    if not isinstance(answer, str):
+        raise EngineError(
+            "URL4 engine fusion result answer must be text",
+            code="invalid_result",
+        )
+    return FusionResult(answers, answer)
+
+
+def _result_payload(body: str, schema: str) -> dict:
     try:
         payload = json.loads(body)
     except json.JSONDecodeError as exc:
@@ -61,11 +100,15 @@ def parse_panel_result(body: str, expected_models: tuple[str, ...]) -> PanelResu
             "URL4 engine returned a non-JSON panel result",
             code="invalid_result",
         ) from exc
-    if not isinstance(payload, dict) or payload.get("schema") != result_schema():
+    if not isinstance(payload, dict) or payload.get("schema") != schema:
         raise EngineError(
-            f"URL4 engine result must use schema {result_schema()!r}",
+            f"URL4 engine result must use schema {schema!r}",
             code="invalid_result",
         )
+    return payload
+
+
+def _panel_answers(payload: dict, expected_models: tuple[str, ...]) -> tuple[str, ...]:
     answers: list[str] = []
     for index, expected_model in enumerate(expected_models, 1):
         model = payload.get(f"panel_{index}_model")
@@ -82,7 +125,7 @@ def parse_panel_result(body: str, expected_models: tuple[str, ...]) -> PanelResu
                 code="invalid_result",
             )
         answers.append(answer)
-    return PanelResult(tuple(answers))
+    return tuple(answers)
 
 
 def _error_details(response: httpx.Response) -> tuple[str, str]:

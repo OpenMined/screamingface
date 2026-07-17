@@ -9,7 +9,13 @@ from dataclasses import dataclass, field
 from html import escape
 
 from screamingface.data import Question, load_live_questions, load_mock_questions
-from screamingface.engine import EnginePort, Url4EngineClient, parse_panel_result
+from screamingface.engine import (
+    EnginePort,
+    Url4EngineClient,
+    parse_fusion_result,
+    parse_panel_result,
+)
+from screamingface.reducers import MajorityVote, Synthesize
 from screamingface.results import ModelResult, Run, RunFailure
 from screamingface.session import Session, _in_notebook
 
@@ -20,6 +26,7 @@ ProgressCallback = Callable[[int, int, str], None]
 @dataclass(frozen=True, slots=True)
 class QuestionPanel:
     answers: dict[str, str]
+    fusion_answer: str | None = None
 
 
 @dataclass
@@ -70,11 +77,7 @@ async def evaluate(
         if progress is not None:
             progress(index - 1, len(questions), f"Question {index}/{len(questions)} · URL4 engine")
         panel = await _run_question(question, engine, fusion)
-        final = majority_vote(
-            tuple(panel.answers[model] for model in fusion.models),
-            fusion.models,
-            fusion.reducer.tie_breaker,
-        )
+        final = _reduce_panel(panel, fusion)
         totals.add(question, final, panel)
         if progress is not None:
             progress(index, len(questions), f"Question {index}/{len(questions)} complete")
@@ -82,6 +85,18 @@ async def evaluate(
     if progress is not None:
         progress(len(questions), len(questions), "Complete")
     return result
+
+
+def _reduce_panel(panel: QuestionPanel, fusion) -> str:
+    if panel.fusion_answer is not None:
+        return normalize_answer(panel.fusion_answer)
+    if not isinstance(fusion.reducer, MajorityVote):  # pragma: no cover - closed by Fusion
+        raise TypeError(f"unsupported local reducer: {type(fusion.reducer).__name__}")
+    return majority_vote(
+        tuple(panel.answers[model] for model in fusion.models),
+        fusion.models,
+        fusion.reducer.tie_breaker,
+    )
 
 
 def _load_questions(session: Session, first: int, seed: int) -> tuple[Question, ...]:
@@ -93,12 +108,20 @@ def _load_questions(session: Session, first: int, seed: int) -> tuple[Question, 
 async def _run_question(question: Question, engine: EnginePort, fusion) -> QuestionPanel:
     expression = fusion.request_for(question.prompt())
     body = await engine.evaluate(expression)
-    result = parse_panel_result(body, fusion.models)
+    if isinstance(fusion.reducer, MajorityVote):
+        result = parse_panel_result(body, fusion.models)
+        fusion_answer = None
+    elif isinstance(fusion.reducer, Synthesize):
+        result = parse_fusion_result(body, fusion.models, fusion.reducer.model)
+        fusion_answer = result.answer
+    else:  # pragma: no cover - Fusion validates the closed reducer union
+        raise TypeError(f"unsupported reducer: {type(fusion.reducer).__name__}")
     return QuestionPanel(
         {
             model: normalize_answer(answer)
             for model, answer in zip(fusion.models, result.answers, strict=True)
-        }
+        },
+        fusion_answer=fusion_answer,
     )
 
 
@@ -176,7 +199,9 @@ def _build_run(
         cost_usd=0.0,
         fusion_name=fusion.name,
         reducer=fusion.reducer.name,
-        tie_breaker=fusion.reducer.tie_breaker,
+        tie_breaker=(
+            fusion.reducer.tie_breaker if isinstance(fusion.reducer, MajorityVote) else None
+        ),
         incomplete=totals.incomplete,
         pricing_source="engine response does not yet report usage",
         pricing_as_of="n/a",

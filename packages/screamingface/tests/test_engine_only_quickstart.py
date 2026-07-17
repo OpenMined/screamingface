@@ -10,7 +10,7 @@ from url4 import Request, Url4Node, build, render
 import screamingface as sf
 import screamingface.evaluation as evaluation
 from screamingface.data import load_mock_questions
-from screamingface.engine import Url4EngineClient, parse_panel_result
+from screamingface.engine import Url4EngineClient, parse_fusion_result, parse_panel_result
 
 
 @pytest.fixture(autouse=True)
@@ -93,6 +93,103 @@ def test_panel_result_requires_stable_model_slot_association() -> None:
 
     with pytest.raises(sf.EngineError, match="panel_1"):
         parse_panel_result(body, ids)
+
+
+def test_fusion_result_requires_stable_synthesizer_association() -> None:
+    ids = tuple(sf.models.list())
+    body = json.dumps(
+        {
+            "schema": "screamingface.fusion-result.v1",
+            "panel_1_model": ids[0],
+            "panel_1_answer": "A",
+            "panel_2_model": ids[1],
+            "panel_2_answer": "B",
+            "panel_3_model": ids[2],
+            "panel_3_answer": "C",
+            "reducer": "synthesize",
+            "synthesizer_model": ids[1],
+            "answer": "B",
+        }
+    )
+
+    with pytest.raises(sf.EngineError, match="synthesizer"):
+        parse_fusion_result(body, ids, ids[0])
+
+
+@pytest.mark.asyncio
+async def test_real_url4_http_app_runs_panel_then_synthesizer() -> None:
+    ids = tuple(sf.models.list())
+    question = load_mock_questions(1)[0]
+    calls: list[tuple[str, Request]] = []
+    node = Url4Node("synthesis-contract")
+
+    for index, model_id in enumerate(ids):
+        route = sf.models.get(model_id).route
+
+        async def answer(request: Request, *, model=model_id, choice=chr(65 + index)) -> str:
+            calls.append((model, request))
+            if request.intent.startswith("Synthesize"):
+                return "B"
+            return choice
+
+        node.endpoint(route)(answer)
+
+    fusion = sf.Fusion(
+        "synthesis",
+        ids,
+        reducer=sf.Synthesize(model=ids[0], temperature=0.2, max_tokens=512),
+    )
+    transport = httpx.ASGITransport(app=node.asgi())
+    async with httpx.AsyncClient(transport=transport, base_url="http://url4.test") as http:
+        client = Url4EngineClient("http://url4.test", client=http)
+        body = await client.evaluate(fusion.request_for(question.prompt()))
+
+    result = parse_fusion_result(body, ids, ids[0])
+    assert result.answers == ("A", "B", "C")
+    assert result.answer == "B"
+    assert len(calls) == 4
+    synthesis = calls[-1][1]
+    assert "Panel 1" in synthesis.context
+    assert "Panel 2" in synthesis.context
+    assert "Panel 3" in synthesis.context
+    assert synthesis.params == {"temperature": "0.2", "max_tokens": "512"}
+
+
+@pytest.mark.asyncio
+async def test_gpqa_evaluator_accepts_a_synthesized_fusion_answer() -> None:
+    ids = tuple(sf.models.list())
+    question = load_mock_questions(1)[0]
+    correct = chr(65 + question.answer)
+    node = Url4Node("synthesis-evaluation")
+
+    for model_id in ids:
+        route = sf.models.get(model_id).route
+
+        async def answer(request: Request, *, expected=correct) -> str:
+            return expected
+
+        node.endpoint(route)(answer)
+
+    transport = httpx.ASGITransport(app=node.asgi())
+    async with httpx.AsyncClient(transport=transport, base_url="http://url4.test") as http:
+        session = sf.Session(
+            mode="mock",
+            engine_url="http://url4.test",
+            engine=Url4EngineClient("http://url4.test", client=http),
+            dataset_source="synthetic-gpqa-shaped",
+        )
+        fusion = sf.Fusion("synthesis", ids, reducer=sf.Synthesize(model=ids[0]))
+        run = await evaluation.evaluate(
+            session=session,
+            fusion=fusion,
+            benchmark="gpqa",
+            first=1,
+            seed=0,
+        )
+
+    assert run.reducer == "synthesize"
+    assert run.tie_breaker is None
+    assert run.score == 100.0
 
 
 @pytest.mark.asyncio

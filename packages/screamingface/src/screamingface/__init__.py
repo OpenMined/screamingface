@@ -8,7 +8,7 @@ from screamingface.errors import (
 )
 from screamingface.fusion import Fusion
 from screamingface.models import models
-from screamingface.reducers import MajorityVote
+from screamingface.reducers import MajorityVote, Synthesize
 from screamingface.results import ModelResult, Run, RunFailure
 from screamingface.session import (
     Session,
@@ -29,6 +29,7 @@ __all__ = [
     "ModelResult",
     "Run",
     "RunFailure",
+    "Synthesize",
     "ScreamingFaceError",
     "Session",
     "__version__",
