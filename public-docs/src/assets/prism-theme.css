@@ -1,0 +1,110 @@
+/* Prism Code Syntax Highlighting Theme */
+.token.comment,
+.token.prolog,
+.token.cdata {
+  color: #6b7280; /* gray-500 */
+  font-style: italic;
+}
+
+.token.delimiter,
+.token.boolean,
+.token.keyword,
+.token.selector,
+.token.important,
+.token.atrule {
+  color: #ec4899; /* pink-500 */
+}
+
+.token.operator,
+.token.punctuation,
+.token.attr-name {
+  color: #e5e7eb; /* gray-200 */
+}
+
+.token.tag,
+.token.tag .punctuation,
+.token.doctype,
+.token.builtin {
+  color: #f59e0b; /* amber-500 */
+}
+
+.token.entity,
+.token.number,
+.token.symbol {
+  color: #8b5cf6; /* violet-500 */
+}
+
+.token.property,
+.token.constant,
+.token.variable {
+  color: #10b981; /* emerald-500 */
+}
+
+.token.string,
+.token.char {
+  color: #22d3ee; /* cyan-400 */
+}
+
+.token.attr-value,
+.token.attr-value .punctuation {
+  color: #22d3ee; /* cyan-400 */
+}
+
+.token.url {
+  color: #22d3ee; /* cyan-400 */
+  text-decoration: underline;
+}
+
+.token.function {
+  color: #fbbf24; /* amber-400 */
+}
+
+.token.regex {
+  background: #0f172a; /* slate-900 */
+  color: #22d3ee; /* cyan-400 */
+}
+
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+.token.inserted {
+  color: #10b981; /* emerald-500 */
+  background: #064e3b; /* emerald-900 */
+}
+
+.token.deleted {
+  color: #ef4444; /* red-500 */
+  background: #7f1d1d; /* red-900 */
+}
+
+/* Python-specific tokens */
+.token.decorator,
+.token.annotation {
+  color: #a855f7; /* purple-500 */
+}
+
+.token.triple-quoted-string {
+  color: #22d3ee; /* cyan-400 */
+}
+
+.token.class-name {
+  color: #f59e0b; /* amber-500 */
+}
+
+/* Line highlighting */
+.line-highlight {
+  background: rgba(255, 255, 255, 0.08);
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding: inherit 0;
+  margin-top: inherit;
+  pointer-events: none;
+  line-height: inherit;
+  white-space: pre;
+}
