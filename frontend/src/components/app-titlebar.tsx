@@ -61,7 +61,6 @@ export function AppTitlebar() {
             <TooltipContent side="bottom">{sidebarAction}</TooltipContent>
           </Tooltip>
         </div>
-        <div data-tauri-drag-region className="absolute left-1/2 -translate-x-1/2 text-xs font-semibold text-sidebar-foreground">ScreamingFace</div>
         <div className="pointer-events-auto"><TitlebarThemeToggle /></div>
       </div>
     </header>
