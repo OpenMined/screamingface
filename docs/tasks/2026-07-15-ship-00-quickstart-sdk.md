@@ -9,17 +9,29 @@ created: unknown
 closed:
 ---
 
-Ship `00_quickstart.ipynb` as the SDK-side mirror and executable specification of the
-connect → compose → run → compare loop. The notebook requires a real importable
-`screamingface` package surface: `sf.setup()`, `sf.models.list(max_price=20)`,
-`sf.Fusion(..., reduce="majority_vote", judge=<member>)`, a shareable URL4 recipe,
-`fusion.evaluate("gpqa", first=20, seed=0)`, and `score` / `baseline` / `gain` results.
+Ship the importable ScreamingFace Python SDK and its executable quickstart as a URL4-native
+compose → run → compare path.
 
-The committed notebook executes end to end without credentials in explicit deterministic mock
-mode, with static widgets and visibly simulated outputs. The production default is live mode:
-the same SDK surface authenticates to AI Gateway and runs real provider completions behind the
-completion port.
+Current public surface:
 
-Owner metadata sync still required: confirm the Linear priority/created date and add/register the
-new package landing label (`pkg/screamingface-sdk`) in Linear and
-`.claude/task-board.local.md`.
+- optional `sf.config(engine=..., mode=...)`, with independent engine/data selection;
+- `sf.models`, strict model dictionaries, and `sf.Fusion`/`Fusion.from_yaml`;
+- `sf.MajorityVote`, `sf.ModelReducer`, canonical `.url4`, and concrete `request_for(...)`;
+- `fusion.evaluate("gpqa" | "draco", first=..., seed=...)`; and
+- immutable `Run`/`ModelResult`/`RunFailure` provenance and comparison results.
+
+The zero-setup path runs complete expressions through a real in-process `Url4Node` and uses
+deterministic handlers only at registered model routes. It never calls AI Gateway or providers.
+An explicitly selected HTTP URL4 engine is strict and never falls back. Only a production URL4
+model-route adapter may call AI Gateway.
+
+Documentation deliverables are:
+
+- a deliberately small `00_quickstart.ipynb`;
+- a detailed `sf_url4_engine.ipynb` request/node/response walkthrough;
+- a DRACO panel/reducer/judge walkthrough;
+- a brand-aligned static HTML reference covering every exported API; and
+- reconciled README/spec/plan/task/work records that remove the superseded direct-gateway design.
+
+Owner metadata sync remains required: confirm Linear priority/created date and add/register the
+`pkg/screamingface-sdk` landing label in Linear and `.claude/task-board.local.md`.

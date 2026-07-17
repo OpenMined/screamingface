@@ -4,10 +4,8 @@ An AI ensemble system that routes coding CLI prompts through multiple models (Cl
 
 > **Repo re-foundation (July 2026).** The legacy desktop app and plugin server
 > were deprecated and removed; the full pre-teardown tree is preserved at the
-> git tag **`legacy-monorepo-2026-07-08`**. New, separately-lifecycled packages
-> (pure-Electron desktop app, Python CLI on PyPI, `url4` SDK) are being built —
-> names are being finalized. Until they land, this repo hosts the two services
-> below.
+> git tag **`legacy-monorepo-2026-07-08`**. Active services and Python packages
+> now have separate toolchains and CI lanes.
 
 ## Monorepo Layout
 
@@ -15,7 +13,9 @@ An AI ensemble system that routes coding CLI prompts through multiple models (Cl
 apps/
   aigateway/   LiteLLM-based AI Gateway — provider OAuth + encrypted credentials (Python, uv)
   scoreboard/  Public benchmark scoreboard service + demo portal (Python, uv)
-packages/      Shared libraries (reserved — url4-python-sdk lands here first)
+packages/
+  url4/        URL4 grammar, DAG, node, client, and server library
+  screamingface/ URL4-native fusion and benchmark SDK
 docs/          AI-agentic decision records (plans, specs)
 ```
 
@@ -34,7 +34,20 @@ cd screamingface
 git config core.hooksPath .githooks     # pre-commit guard (blocks commits to main)
 ```
 
-Run an app:
+Run the zero-setup SDK quickstart:
+
+```bash
+cd packages/screamingface
+uv sync --extra notebook
+uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
+```
+
+The notebook uses a real in-process URL4 node with deterministic model-route responses. It does
+not require AI Gateway, provider credentials, or a background server. See the
+[`ScreamingFace SDK API and execution guide`](packages/screamingface/docs/index.html) for the full
+boundary and wire contract.
+
+Run a service:
 
 ```bash
 # AI Gateway (port 9105)
@@ -44,10 +57,10 @@ cd apps/aigateway && uv sync && uv run uvicorn aigateway.main:app --port 9105 --
 cd apps/scoreboard && uv sync && uv run scoreboard
 ```
 
-Test an app (same pattern for both):
+Test a Python component:
 
 ```bash
-cd apps/<app>
+cd apps/<app>                    # or packages/<package>
 uv run ruff check && uv run pyright && uv run pytest
 ```
 
@@ -56,4 +69,7 @@ uv run ruff check && uv run pyright && uv run pytest
 - **Developing / git workflow** → [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - **Gateway internals** → [`apps/aigateway/README.md`](apps/aigateway/README.md)
 - **Scoreboard internals** → [`apps/scoreboard/README.md`](apps/scoreboard/README.md)
+- **ScreamingFace SDK** → [`packages/screamingface/README.md`](packages/screamingface/README.md)
+- **ScreamingFace SDK API** → [`packages/screamingface/docs/index.html`](packages/screamingface/docs/index.html)
+- **URL4 SDK examples** → [`packages/url4/examples/url4_examples.ipynb`](packages/url4/examples/url4_examples.ipynb)
 - **Legacy code** (desktop app, plugin server, url4 engine, marketing site, infra) → `git checkout legacy-monorepo-2026-07-08`

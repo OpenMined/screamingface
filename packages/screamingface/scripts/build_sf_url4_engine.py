@@ -17,6 +17,10 @@ def notebook() -> nbformat.NotebookNode:
 Combine three model routes into one URL4-backed fusion, run it on deterministic benchmark
 questions, and measure whether the majority beats the best individual model.
 
+**Path: architecture walkthrough.** This notebook deliberately exposes the recipe, concrete
+expression, approximate compiled node tree, and response contract. For the small public API path,
+start with [`00_quickstart.ipynb`](00_quickstart.ipynb).
+
 By default, this uses a real URL4 node in-process with deterministic model-route leaves, so the
 whole notebook runs without services or credentials. To exercise the same expressions over HTTP,
 start the optional development engine from `packages/screamingface`:
@@ -161,6 +165,32 @@ AI Gateway, or providers directly."""
             'run = fusion.evaluate("gpqa", first=20, seed=0)\n'
             "run"
         ),
+        nbformat.v4.new_markdown_cell(
+            """### What URL4 returns
+
+The engine returns the evaluated final struct as JSON text. The default deterministic node and an
+HTTP production node must use the same labeled envelope:
+
+```json
+{
+  "schema": "screamingface.panel-result.v2",
+  "panel_1_id": "codex/gpt-5.5",
+  "panel_1_model": "codex/gpt-5.5",
+  "panel_1_answer": "A",
+  "panel_2_id": "gemini-cli/gemini-2.5-pro",
+  "panel_2_model": "gemini-cli/gemini-2.5-pro",
+  "panel_2_answer": "B",
+  "panel_3_id": "anthropic/claude-sonnet-4-6",
+  "panel_3_model": "anthropic/claude-sonnet-4-6",
+  "panel_3_answer": "A"
+}
+```
+
+The letters vary by question. The slot IDs and models do not: ScreamingFace validates that
+association before voting and scoring. The mock is only in the route handlers that supplied these
+answers; URL4 still parsed the expression, resolved `$question`, executed the graph, and built this
+response."""
+        ),
         nbformat.v4.new_markdown_cell("## 5 · Compare"),
         nbformat.v4.new_code_cell(
             "{\n"
@@ -202,6 +232,12 @@ reducer receives it in its URL4 intent, with empty context."""
         ),
         nbformat.v4.new_code_cell(
             'model_run = model_reduced.evaluate("gpqa", first=3, seed=0)\nmodel_run'
+        ),
+        nbformat.v4.new_markdown_cell(
+            """A model-backed reducer changes the envelope to
+`screamingface.fusion-result.v2`. It retains every labeled panel answer and adds `reducer`,
+`reducer_model`, and the final `answer`. See the complete field-level reference in
+[`../docs/index.html`](../docs/index.html#wire)."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

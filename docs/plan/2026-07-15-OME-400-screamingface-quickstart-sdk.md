@@ -1,92 +1,121 @@
-# OME-400 — Production ScreamingFace quickstart SDK implementation plan
+# OME-400 — URL4-native ScreamingFace SDK implementation plan
 
 **Spec:** `docs/spec/2026-07-15-OME-400-screamingface-quickstart-sdk-spec.md`
 
 ## Scope decision
 
-Implement the production-capable OME-400 GPQA quickstart surface. Real mode uses AI Gateway by
-default; explicit mock mode exists for deterministic tests and committed notebook output. DRACO
-remains a follow-on.
+Build the SDK exclusively against URL4. ScreamingFace compiles complete expressions and submits
+them to an engine port; it never calls AI Gateway or model providers. The default engine is a real
+in-process `Url4Node` with deterministic model-route handlers. An explicitly configured HTTP
+engine is strict and never falls back.
 
-OME-400 does not change `apps/aigateway`. Until the gateway publishes provider authentication
-capabilities through its HTTP API, the SDK keeps a clearly marked compatibility map for the six
-current gateway providers. It still discovers which providers are loaded from `/v1/models` and
-will prefer server-reported `auth_methods` when a separate gateway change adds that contract.
+Authentication, hosted-engine discovery, and engine-owned scalable model discovery remain owner
+consultation gates. Do not restore the superseded `sf.setup()`/direct-gateway design.
 
-## Phase 1 — Register and scaffold
+## Phase 1 — Minimal repeatable GPQA path — complete
 
-1. Register a `screamingface` stack rooted at `packages/screamingface` with format, lint,
-   Pyright, Pytest, and 95% coverage gates.
-2. Add package skeleton, README, `pyproject.toml`, local URL4 dependency wiring, lockfile, and
-   examples/data directories.
-3. Add path-filtered CI, release-please, CODEOWNERS, and Dependabot entries using URL4's package
-   conventions.
-4. Preserve all pre-existing dirty URL4 files.
+1. Add package skeleton, public exports, catalog, Fusion, reducer, result, session, engine client,
+   and benchmark seams.
+2. Compile canonical unresolved recipes and concrete per-question expressions with URL4 builders.
+3. Execute through `EnginePort`, validate labeled panel results, reduce, and calculate
+   score/baseline/gain from the same answers.
+4. Provide a bundled 20-case GPQA-shaped fixture and optional gated live GPQA loading.
+5. Ship a generated bare quickstart with no model discovery or authentication dependency.
 
-## Phase 2 — Public API, session, and gateway client via TDD
+**Complete when:** zero configuration returns a repeatable 100/80/+20 mechanics demonstration and
+an explicit unavailable HTTP engine raises a typed error without fallback.
 
-1. RED: test public imports, zero-argument live defaults, explicit mock mode, discovery order,
-   and static-widget/execution-mode independence.
-2. GREEN: implement typed settings, in-memory Session registry, setup representations, and
-   errors.
-3. RED: contract-test gateway health, login/me, model discovery, temporary auth-capability
-   mapping, API-key
-   connection create/replace/remove, profile mapping, and chat against `httpx.MockTransport`—no
-   app internals imported.
-4. GREEN: implement the narrow `AIGatewayClient`, explicit OAuth and API-key onboarding APIs, and
-   a provider-card setup panel driven by loaded gateway providers plus the compatibility map.
-5. Add leak tests for passwords, JWTs, provider keys, OAuth tokens, reprs, logs, and errors.
+## Phase 2 — Reducer and model-call generalization — complete
 
-## Phase 3 — Catalog and Fusion via TDD
+1. Accept plain model IDs and strict per-model dictionaries with optional name, prompt, and URL4
+   parameters.
+2. Normalize panel and reducer calls through one internal model-call representation.
+3. Introduce `Reducer`, local `MajorityVote`, and engine-executed `ModelReducer`.
+4. Preserve repeated calls to one model with stable private call-slot identities.
+5. Add strict YAML parity with portable reducer mappings.
 
-1. RED: test live gateway-model intersection, versioned pricing provenance, unknown-price
-   handling, and `max_price` validation.
-2. GREEN: implement immutable model metadata/catalog and `sf.models.list`.
-3. RED: test Fusion validation, judge membership, active-catalog membership, credential-free
-   recipes, URL4 parse/render/compile round trips.
-4. GREEN: implement `Fusion` using URL4 builders and rendering.
+**Complete when:** Python and YAML compile identically; model-backed synthesis is part of the URL4
+graph; local voting remains deterministic and creates no extra model request.
 
-## Phase 4 — URL4-backed evaluation via TDD
+## Phase 3 — Benchmark and grader contracts — complete
 
-1. RED: test `CompletionPort`, deterministic mock adapter, and AI Gateway adapter request shape,
-   JWT/profile headers, timeouts, and typed errors.
-2. RED: add an execution spy proving every panel answer traverses URL4 exactly once and baseline
-   reuses those answers.
-3. RED: test GPQA answer extraction, invalid outputs, majority voting, judge tie-breaking,
-   incomplete rows, score/baseline/gain arithmetic, and provenance.
-4. GREEN: execute through the public `Url4Node` facade with a ScreamingFace outbound adapter,
-   then implement the evaluation service, immutable Run, and provenance accounting.
-6. Refactor into focused files below the repository's 450-line guidance while all tests stay
-   green.
+1. Normalize benchmark cases behind internal definitions rather than embedding data cleaning in
+   the public Fusion API.
+2. Keep experiment prompts/reducers in researcher code and benchmark grading in the adapter.
+3. Add DRACO-shaped fixture/live loading, rubric parsing, weighted scoring, and repeated URL4 judge
+   calls.
+4. Require `tools=["web_search"]` explicitly for DRACO panel members.
+5. Pin judge system/user semantics and request parameters.
 
-## Phase 5 — Dataset decision and notebook
+**Complete when:** the SDK can express the full DRACO panel → model reducer → independent rubric
+judge flow without hard-coding experiment prompts into the SDK.
 
-1. Do not bundle or render GPQA examples. Implement authorized gated GPQA Diamond loading for
-   live mode and a clearly labeled 20-question synthetic science fixture for mock/CI mode.
-2. Add a reviewable notebook source/generator and
-   `packages/screamingface/examples/00_quickstart.ipynb`.
-3. Execute from a clean environment using `sf.setup(mode="mock", static_widgets=True)`.
-4. Verify outputs show URL4, mode, provenance, score/baseline/gain, and simulated cost status,
-   with no secret or absolute path.
-5. Re-execute and compare semantic output for mock determinism.
+## Phase 4 — Zero-setup real-node mock — complete
 
-## Phase 6 — Live contract verification
+1. Centralize deterministic responses in route handlers shared by in-process and optional HTTP
+   execution.
+2. Make an in-process `Url4Node` the default engine and mock only model-route leaves.
+3. Keep engine selection independent from fixture/live dataset selection.
+4. Record both provenance axes in `Run` and its notebook representation.
+5. Keep `./scripts/dev-url4.sh` as an optional HTTP transport proof.
+6. Run all notebooks in CI without a server.
 
-1. Add opt-in tests controlled by explicit environment markers for a running AI Gateway.
-2. Verify login/session or supplied JWT, model listing, profile selection, and a minimal fusion
-   across at least two connected providers.
-3. Never run live/spending tests in default CI and never commit credentials or live output as a
-   stable benchmark claim.
+**Complete when:** GPQA, YAML, custom prompts, model reduction, and DRACO all traverse real URL4
+execution with deterministic leaf responses and no service setup.
 
-## Phase 7 — Quality and handoff
+## Phase 5 — Documentation and learning paths — in progress
 
-1. Run the new package's registered gate runner and the existing URL4 suite.
-2. Perform security, provenance, public-contract, simplicity, and confidence reviews.
-3. Fill the work ledger with exact files, tests, coverage, deviations, and live-test status.
-4. Commit conventionally on `OME-400-ship-quickstart-sdk` with `Refs: OME-400`.
-5. Hand off the Linear package-label registration, exact ticket metadata sync, and notebook
-   visual verification. Do not close without the required Linear comment/state transition.
+1. Keep `00_quickstart.ipynb` below 12 cells and defer graph/wire details.
+2. Teach recipe/request/node/response internals in `sf_url4_engine.ipynb`.
+3. Teach benchmark-owned judge requests and production route requirements in `draco.ipynb`.
+4. Add a brand-aligned package-local HTML page covering every public export, runtime topology,
+   configuration matrix, wire envelopes, benchmarks, and production boundary.
+5. Add append-only docs contract tests for API inventory, links, design constraints, notebook
+   learning levels, and execution-boundary language.
+6. Reconcile README, spec, task mirror, work ledger, and hidden local notes.
 
-## Approval gate
+**Complete when:** a new user can choose the correct learning path, cannot confuse deterministic
+routes with provider inference, and can inspect representative requests/responses without reading
+source code.
 
-Implementation begins only after owner approval of this revised spec and plan in plain words.
+## Phase 6 — Engine integration — owner dependent
+
+ScreamingFace side:
+
+1. retain the strict HTTP adapter and current request/response contract;
+2. add integration fixtures only when the engine contract changes; and
+3. never add a direct AI Gateway fallback.
+
+URL4 engine side:
+
+1. register production `/provider/model` routes;
+2. translate parameters and `tools=web_search` into backend semantics;
+3. preserve intent/context mapping;
+4. call AI Gateway internally when chosen by the engine owner; and
+5. later return usage, cost, failure, retry, tool, citation, and trace telemetry.
+
+Authentication, discovery, and hosted deployment require explicit owner agreement before SDK UX
+is implemented.
+
+## Phase 7 — Share/import and future orchestration — deferred
+
+1. OME-408: parse a teammate's URL4, preview it offline, copy it, and rebuild an editable Fusion.
+2. Design multi-round orchestration separately from reduction.
+3. Preserve URL4 portability and label arbitrary local Python as non-portable.
+4. Support suites, multi-source experiments, caching, statistics, and publication as separate
+   layers over benchmark/Fusion contracts.
+
+## Quality and handoff
+
+1. Run `uv run .claude/scripts/run_gates.py screamingface` from the repository root.
+2. Execute and deterministically regenerate all three notebooks.
+3. Validate the static HTML API inventory and every local link.
+4. Verify the optional HTTP mock engine end to end.
+5. Perform security, ownership-boundary, provenance, simplicity, visual, and confidence reviews.
+6. Update the active work ledger with actual files, counts, coverage, deviations, and commit.
+7. Preserve all pre-existing `packages/url4` changes and stage ScreamingFace/docs paths explicitly.
+
+## Approval record
+
+The owner explicitly approved implementing the zero-setup deterministic-leaf engine and, on
+2026-07-17, requested the notebook/API/documentation reconciliation in this phase.

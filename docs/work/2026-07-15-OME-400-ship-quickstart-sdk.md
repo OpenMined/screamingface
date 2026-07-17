@@ -222,3 +222,22 @@ outputs. The slice does not implement DRACO or every product-demo surface.
   `01_authentication.ipynb` is a simulated UX specification, not a missing gateway dependency.
   Linear MCP was unavailable, so exact priority/created metadata, `pkg/screamingface-sdk` label
   creation/UUID registration, comment, and state transition remain owner handoff items.
+
+## Supersession note — 2026-07-17
+
+This ledger is a historical record of the first OME-400 implementation and must not be read as the
+current runtime contract. Subsequent owner decisions replaced its direct SDK → AI Gateway,
+`sf.setup()`, authentication-widget, connected-only discovery, and explicit simulation-mode design.
+
+The current SDK sends complete expressions only to URL4. Its zero-setup default is a real
+in-process `Url4Node` with deterministic model-route handlers; an explicit HTTP engine is strict.
+Engine selection and fixture/live dataset selection are independent. GPQA and DRACO benchmark
+adapters, model-backed reduction, and URL4-routed DRACO judging now exist.
+
+Current sources of truth:
+
+- spec: `docs/spec/2026-07-15-OME-400-screamingface-quickstart-sdk-spec.md`;
+- plan: `docs/plan/2026-07-15-OME-400-screamingface-quickstart-sdk.md`;
+- documentation follow-up ledger:
+  `docs/work/2026-07-17-OME-400-document-url4-sdk.md`; and
+- public reference: `packages/screamingface/docs/index.html`.

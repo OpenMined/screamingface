@@ -3,6 +3,20 @@
 Compose model panels as URL4 recipes and measure whether their deterministic reduction beats the
 best individual model.
 
+## Documentation
+
+Choose the smallest useful entry point:
+
+| Guide | Use it for |
+|---|---|
+| [`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb) | Bare compose → run → compare loop |
+| [`examples/sf_url4_engine.ipynb`](examples/sf_url4_engine.ipynb) | URL4 recipe, concrete request, node tree, response, Python/YAML, and model reducer |
+| [`examples/draco.ipynb`](examples/draco.ipynb) | Open-ended panel, synthesis, rubric judging, and production-engine requirements |
+| [`docs/index.html`](docs/index.html) | Complete exported API, architecture, wire envelopes, benchmarks, and runtime modes |
+
+The notebooks are generated from `scripts/build_*.py`; edit their builders rather than the
+notebook JSON.
+
 ## Quickstart
 
 The quickstart is zero-setup. ScreamingFace defaults to a real URL4 node running in-process, with
@@ -87,8 +101,8 @@ ScreamingFace votes and scores locally
 ```
 
 The SDK does not call AI Gateway or model providers. The selected engine is visible in every run;
-the mock is never used as a fallback for an unavailable HTTP engine. Production model routes may contact
-AI Gateway internally, but that is owned by the URL4 engine application.
+the mock is never used as a fallback for an unavailable HTTP engine. Production model routes may
+contact AI Gateway internally, but that is owned by the URL4 engine application.
 
 ## Recipe versus request
 

@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ScreamingFace Python SDK API and URL4 execution guide">
+  <title>ScreamingFace SDK — API and execution guide</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #ffffff;
+      --surface: #f6f6f7;
+      --surface-2: #efeff1;
+      --ink: #16181d;
+      --ink-2: #585d67;
+      --ink-3: #8b909a;
+      --line: #e6e7ea;
+      --line-2: #d4d6db;
+      --gain: #0f7a3d;
+      --gain-bg: #e8f3ec;
+      --blind: #b23b3b;
+      --blind-bg: #f6e7e6;
+      --mark: #c9821f;
+      --f-display: "EB Garamond", Georgia, serif;
+      --f-sans: "IBM Plex Sans", Inter, system-ui, sans-serif;
+      --f-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+      --f-wordmark: Rubik, var(--f-sans);
+      --col: 760px;
+      --col-wide: 1000px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #0a0b0d;
+        --surface: #131519;
+        --surface-2: #1a1d22;
+        --ink: #e8eaed;
+        --ink-2: #9aa0aa;
+        --ink-3: #686e78;
+        --line: #20232a;
+        --line-2: #2c303a;
+        --gain: #35d07f;
+        --gain-bg: #11241b;
+        --blind: #f0726f;
+        --blind-bg: #2a1715;
+        --mark: #e0a23c;
+      }
+    }
+
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #ffffff;
+      --surface: #f6f6f7;
+      --surface-2: #efeff1;
+      --ink: #16181d;
+      --ink-2: #585d67;
+      --ink-3: #8b909a;
+      --line: #e6e7ea;
+      --line-2: #d4d6db;
+      --gain: #0f7a3d;
+      --gain-bg: #e8f3ec;
+      --blind: #b23b3b;
+      --blind-bg: #f6e7e6;
+      --mark: #c9821f;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0a0b0d;
+      --surface: #131519;
+      --surface-2: #1a1d22;
+      --ink: #e8eaed;
+      --ink-2: #9aa0aa;
+      --ink-3: #686e78;
+      --line: #20232a;
+      --line-2: #2c303a;
+      --gain: #35d07f;
+      --gain-bg: #11241b;
+      --blind: #f0726f;
+      --blind-bg: #2a1715;
+      --mark: #e0a23c;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.6 var(--f-sans);
+    }
+    a { color: inherit; text-decoration-color: var(--ink-3); text-underline-offset: 3px; }
+    a:hover { text-decoration-color: var(--gain); }
+    code, pre, .label, .rail, th, .signature { font-family: var(--f-mono); }
+    code { font-size: .9em; }
+    pre {
+      margin: 16px 0;
+      padding: 16px;
+      overflow: auto;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre;
+    }
+    .rail {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 20px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+    }
+    .wordmark { font-family: var(--f-wordmark); font-weight: 600; letter-spacing: -.01em; }
+    .mark { color: var(--mark); }
+    .rail nav { display: flex; gap: 16px; overflow: auto; white-space: nowrap; }
+    button {
+      padding: 5px 9px;
+      background: var(--ink);
+      color: var(--bg);
+      border: 1px solid var(--ink);
+      font: 12px var(--f-mono);
+      cursor: pointer;
+    }
+    main { max-width: var(--col-wide); margin: 0 auto; padding: 64px 28px 96px; }
+    .reading { max-width: var(--col); }
+    h1 {
+      max-width: 760px;
+      margin: 0 0 20px;
+      font: 400 42px/1.05 var(--f-display);
+      letter-spacing: -.02em;
+    }
+    h2 {
+      margin: 72px 0 20px;
+      padding-top: 16px;
+      border-top: 2px solid var(--line-2);
+      font: 600 12px/1.4 var(--f-mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    h3 { margin: 32px 0 8px; font: 600 16px/1.4 var(--f-mono); }
+    h4 { margin: 24px 0 8px; font: 600 13px/1.4 var(--f-mono); }
+    p { margin: 0 0 16px; }
+    .lead { max-width: 760px; color: var(--ink-2); font-size: 20px; line-height: 1.45; }
+    .label {
+      display: block;
+      margin-bottom: 12px;
+      color: var(--ink-3);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .note {
+      max-width: var(--col);
+      margin: 24px 0;
+      padding: 12px 16px;
+      background: var(--surface);
+      border-left: 2px solid var(--line-2);
+    }
+    .note.gain { background: var(--gain-bg); border-color: var(--gain); }
+    .note.warning { background: var(--blind-bg); border-color: var(--blind); }
+    .path-grid, .runtime-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-top: 1px solid var(--line-2);
+      border-left: 1px solid var(--line-2);
+    }
+    .path-grid > *, .runtime-grid > * {
+      min-width: 0;
+      padding: 16px;
+      border-right: 1px solid var(--line-2);
+      border-bottom: 1px solid var(--line-2);
+    }
+    .path-grid p, .runtime-grid p { color: var(--ink-2); font-size: 13px; }
+    .path-grid h3, .runtime-grid h3 { margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 13px; }
+    th, td { padding: 10px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th { color: var(--ink-3); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    .architecture { max-width: var(--col); }
+    .architecture .mock { color: var(--gain); }
+    .architecture .future { color: var(--ink-3); }
+    .api-index {
+      columns: 3 200px;
+      padding: 16px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      font: 13px/1.8 var(--f-mono);
+    }
+    .api-index a { display: block; break-inside: avoid; }
+    .api-group { max-width: var(--col); }
+    .api-item { padding: 22px 0; border-bottom: 1px solid var(--line); }
+    .api-item h3 { margin: 0 0 8px; }
+    .signature { margin: 8px 0 12px; color: var(--ink-2); font-size: 13px; overflow-wrap: anywhere; }
+    .contract { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .contract > div { min-width: 0; }
+    .small { color: var(--ink-3); font-size: 12px; }
+    footer {
+      max-width: var(--col-wide);
+      margin: 0 auto;
+      padding: 28px;
+      border-top: 1px solid var(--line);
+      color: var(--ink-3);
+      font: 12px/1.6 var(--f-mono);
+    }
+    @media (max-width: 760px) {
+      main { padding: 44px 18px 72px; }
+      .path-grid, .runtime-grid, .contract { grid-template-columns: 1fr; }
+      .api-index { columns: 2 150px; }
+      .rail nav { display: none; }
+      h1 { font-size: 36px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="rail">
+    <div class="wordmark"><span class="mark">😱</span> screamingface / python sdk</div>
+    <nav aria-label="Page sections">
+      <a href="#start">Start</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#wire">Wire contract</a>
+      <a href="#api">API</a>
+      <a href="#benchmarks">Benchmarks</a>
+    </nav>
+    <button id="theme" type="button" aria-label="Toggle light and dark theme">theme</button>
+  </header>
+
+  <main>
+    <span class="label">SDK reference · version 0.2.0</span>
+    <h1>ScreamingFace API and URL4 execution guide</h1>
+    <p class="lead">Compose model calls as one shareable URL4 recipe, execute the graph through
+      a URL4 node, then compare the fused answer with the same individual answers.</p>
+
+    <div class="note gain">
+      <span class="label">Current development state</span>
+      <strong>The orchestration path is real; the default model answers are deterministic.</strong>
+      The zero-setup engine is a real in-process <code>Url4Node</code>. It parses bindings,
+      schedules dependencies, dispatches routes, and builds the result. Its model routes currently
+      use deterministic model-route handlers instead of AI Gateway or providers, so teammates can
+      run every example without credentials. Those scores demonstrate mechanics, not model quality.
+    </div>
+
+    <section id="start">
+      <h2>Choose a learning path</h2>
+      <div class="path-grid">
+        <article>
+          <span class="label">01 · five minutes</span>
+          <h3><a href="../examples/00_quickstart.ipynb">Bare quickstart</a></h3>
+          <p>Compose, evaluate, and read score, baseline, and gain. No architecture knowledge
+            required.</p>
+        </article>
+        <article>
+          <span class="label">02 · wire and graph</span>
+          <h3><a href="../examples/sf_url4_engine.ipynb">URL4 walkthrough</a></h3>
+          <p>Inspect the recipe, concrete request, compiled node tree, response envelope, Python
+            and YAML composition, and model-backed reduction.</p>
+        </article>
+        <article>
+          <span class="label">03 · benchmark adapter</span>
+          <h3><a href="../examples/draco.ipynb">DRACO walkthrough</a></h3>
+          <p>See open-ended panel prompts, web-search capability declarations, synthesis, repeated
+            rubric judging, and the production-engine boundary.</p>
+        </article>
+      </div>
+
+      <h3>Smallest complete run</h3>
+      <pre><code>import screamingface as sf
+
+fusion = sf.Fusion(
+    "frontier-trio",
+    models=[
+        "codex/gpt-5.5",
+        "gemini-cli/gemini-2.5-pro",
+        "anthropic/claude-sonnet-4-6",
+    ],
+    reducer=sf.MajorityVote(tie_breaker="codex/gpt-5.5"),
+)
+
+run = fusion.evaluate("gpqa", first=20, seed=0)
+run.score, run.baseline, run.gain
+# (100.0, 80.0, 20.0) — deterministic demonstration, not provider evidence</code></pre>
+    </section>
+
+    <section id="architecture">
+      <h2>Execution architecture</h2>
+      <p class="reading">ScreamingFace owns experiment composition, benchmark adaptation,
+        deterministic reducers, grading, and comparison. URL4 owns expression parsing, binding
+        resolution, dependency execution, and route dispatch. ScreamingFace never calls AI Gateway directly;
+        only a production URL4 model-route adapter may do that.</p>
+
+      <pre class="architecture"><code>Notebook / script
+      │  sf.Fusion(...) + fusion.evaluate(...)
+      ▼
+ScreamingFace compiler
+      │  one concrete URL4 expression per benchmark case
+      ├─────────────────────────────────────────────────────┐
+      ▼                                                     ▼
+<span class="mock">default: in-process Url4Node</span>                 explicit: HTTP URL4 engine
+      │  deterministic model-route handlers                │  GET /v1?q=&lt;expression&gt;
+      │  no AI Gateway / provider calls                    │  No silent fallback
+      └───────────────────────┬─────────────────────────────┘
+                              ▼
+                    URL4 result envelope
+                              │
+                              ▼
+              local reducer/grader/comparison
+
+<span class="future">Production leaf only: URL4 route → AI Gateway → provider</span></code></pre>
+
+      <div class="runtime-grid">
+        <article>
+          <h3>No configuration</h3>
+          <p><code>engine="mock"</code>, synthetic benchmark fixture. Complete URL4 execution
+            happens in-process.</p>
+        </article>
+        <article>
+          <h3>Live data only</h3>
+          <p><code>sf.config(mode="live")</code> fetches the live dataset but keeps deterministic
+            model routes. Data provenance does not imply provider inference.</p>
+        </article>
+        <article>
+          <h3>HTTP engine</h3>
+          <p><code>sf.config("http://127.0.0.1:4404")</code> uses strict HTTP and the synthetic
+            fixture. Engine failures remain visible.</p>
+        </article>
+      </div>
+      <div class="note warning">
+        <span class="label">No silent fallback</span>
+        Selecting an HTTP engine never falls back to deterministic responses when the server is
+        unavailable. <code>EngineUnavailable</code> is raised instead.
+      </div>
+    </section>
+
+    <section id="wire">
+      <h2>Recipe, request, and response</h2>
+      <p class="reading"><code>fusion.url4</code> is an unresolved, shareable recipe. It is URL4
+        source text rather than an <code>https://</code> location. Evaluation binds one concrete
+        benchmark prompt, then gives the complete expression to the selected engine.</p>
+
+      <h3>1 · Shareable recipe</h3>
+      <pre><code>(
+  panel_1=/codex/gpt-5.5()!'$question',
+  panel_2=/gemini/2.5()!'$question',
+  panel_3=/claude/sonnet-4.6()!'$question',
+  {
+    schema: 'screamingface.panel-result.v2',
+    panel_1_id: 'codex/gpt-5.5',
+    panel_1_model: 'codex/gpt-5.5',
+    panel_1_answer: '$panel_1',
+    ...
+  }
+)</code></pre>
+
+      <h3>2 · Concrete expression</h3>
+      <pre><code>(
+  question='Which option is correct? ... Reply with only A, B, C, or D.',
+  panel_1=/codex/gpt-5.5()!'$question',
+  panel_2=/gemini/2.5()!'$question',
+  panel_3=/claude/sonnet-4.6()!'$question',
+  {schema: 'screamingface.panel-result.v2', ...}
+)</code></pre>
+
+      <h3>3 · HTTP transport when selected</h3>
+      <pre><code>GET /v1?q=&lt;percent-encoded concrete expression&gt;
+Host: 127.0.0.1:4404
+Accept: */*</code></pre>
+      <p class="small">The default in-process engine evaluates the same decoded expression without
+        creating this HTTP request.</p>
+
+      <h3>4 · Panel response</h3>
+      <pre><code>{
+  "schema": "screamingface.panel-result.v2",
+  "panel_1_id": "codex/gpt-5.5",
+  "panel_1_model": "codex/gpt-5.5",
+  "panel_1_answer": "A",
+  "panel_2_id": "gemini-cli/gemini-2.5-pro",
+  "panel_2_model": "gemini-cli/gemini-2.5-pro",
+  "panel_2_answer": "B",
+  "panel_3_id": "anthropic/claude-sonnet-4-6",
+  "panel_3_model": "anthropic/claude-sonnet-4-6",
+  "panel_3_answer": "A"
+}</code></pre>
+
+      <h3>5 · Model-reducer response</h3>
+      <pre><code>{
+  "schema": "screamingface.fusion-result.v2",
+  "panel_1_id": "codex/gpt-5.5",
+  "panel_1_model": "codex/gpt-5.5",
+  "panel_1_answer": "A",
+  "panel_2_id": "gemini-cli/gemini-2.5-pro",
+  "panel_2_model": "gemini-cli/gemini-2.5-pro",
+  "panel_2_answer": "B",
+  "reducer": "model",
+  "reducer_model": "codex/gpt-5.5",
+  "answer": "A"
+}</code></pre>
+      <p class="reading">Stable slot IDs keep repeated calls to the same underlying model distinct.
+        ScreamingFace validates model/slot association before reducing or grading the response.</p>
+
+      <h3>What is mocked today?</h3>
+      <p class="reading">The selected default engine is
+        <code>screamingface._mock_engine.MockUrl4Engine</code>. It passes the complete expression to
+        a real <code>Url4Node.evaluate()</code>. URL4 invokes deterministic handlers registered for
+        <code>/codex/gpt-5.5</code>, <code>/gemini/2.5</code>,
+        <code>/claude/sonnet-4.6</code>, and the DRACO judge route. The handlers return stable text
+        where production handlers would call AI Gateway. Parsing, graph execution, bindings,
+        response construction, SDK reduction, and grading are not replaced by canned Run objects.</p>
+    </section>
+
+    <section id="api">
+      <h2>Public API</h2>
+      <p class="reading">This inventory matches <code>screamingface.__all__</code>. Underscored
+        modules and helpers are implementation details and may change without a public deprecation.</p>
+      <nav class="api-index" aria-label="API index">
+        <a href="#api-config">config</a>
+        <a href="#api-session">Session</a>
+        <a href="#api-current-session">current_session</a>
+        <a href="#api-reset-session">reset_session</a>
+        <a href="#api-shutdown">shutdown</a>
+        <a href="#api-models">models</a>
+        <a href="#api-model-config">ModelConfig</a>
+        <a href="#api-fusion">Fusion</a>
+        <a href="#api-reducer">Reducer</a>
+        <a href="#api-majority-vote">MajorityVote</a>
+        <a href="#api-model-reducer">ModelReducer</a>
+        <a href="#api-run">Run</a>
+        <a href="#api-model-result">ModelResult</a>
+        <a href="#api-run-failure">RunFailure</a>
+        <a href="#api-error">ScreamingFaceError</a>
+        <a href="#api-engine-error">EngineError</a>
+        <a href="#api-engine-unavailable">EngineUnavailable</a>
+        <a href="#api-dataset-unavailable">DatasetUnavailable</a>
+        <a href="#api-version">__version__</a>
+      </nav>
+
+      <div class="api-group">
+        <h3>Configuration and lifecycle</h3>
+        <article class="api-item" id="api-config" data-api="config">
+          <h3><code>config</code></h3>
+          <div class="signature">config(engine=None, *, mode="mock", static_widgets=False,
+            engine_client=None) -&gt; Session</div>
+          <p>Replace the active process-local session. <code>engine</code> is <code>"mock"</code>
+            or an HTTP(S) base URL. <code>mode</code> independently chooses bundled fixture data or
+            live dataset loading. <code>engine_client</code> is an advanced injected engine port for
+            tests and adapters.</p>
+        </article>
+        <article class="api-item" id="api-session" data-api="Session">
+          <h3><code>Session</code></h3>
+          <div class="signature">Session(mode="mock", engine_url="mock", static_widgets=False,
+            dataset_source="synthetic-gpqa-shaped", engine=None)</div>
+          <p>Holds process-local engine and dataset selection. Most users let
+            <code>Fusion.evaluate()</code> create the default session or call <code>config()</code>.
+            <code>close()</code> marks a session unusable.</p>
+        </article>
+        <article class="api-item" id="api-current-session" data-api="current_session">
+          <h3><code>current_session</code></h3>
+          <div class="signature">current_session() -&gt; Session | None</div>
+          <p>Return the active session without creating one.</p>
+        </article>
+        <article class="api-item" id="api-reset-session" data-api="reset_session">
+          <h3><code>reset_session</code></h3>
+          <div class="signature">reset_session() -&gt; None</div>
+          <p>Close and remove the active session. The next evaluation recreates the zero-setup
+            default.</p>
+        </article>
+        <article class="api-item" id="api-shutdown" data-api="shutdown">
+          <h3><code>shutdown</code></h3>
+          <div class="signature">shutdown() -&gt; None</div>
+          <p>Close session state and the SDK's synchronous async worker. Useful in tests and
+            long-lived processes.</p>
+        </article>
+
+        <h3>Models and fusion composition</h3>
+        <article class="api-item" id="api-models" data-api="models">
+          <h3><code>models</code></h3>
+          <div class="signature">models.list(*, max_price=None) -&gt; list[str] ·
+            models.get(model_id) -&gt; Model</div>
+          <p>Access the SDK route catalog. The current listed catalog is intentionally small and
+            deterministic. <code>max_price</code> is optional metadata filtering; examples do not
+            depend on it.</p>
+        </article>
+        <article class="api-item" id="api-model-config" data-api="ModelConfig">
+          <h3><code>ModelConfig</code></h3>
+          <div class="signature">{"model": str, "name"?: str, "prompt"?: str,
+            "params"?: dict[str, str | int | float | bool]}</div>
+          <p>A strict typed dictionary for one configured panel call. A model ID string is shorthand
+            for <code>{"model": model_id}</code>. Use <code>name</code> to distinguish repeated calls
+            to the same model.</p>
+        </article>
+        <article class="api-item" id="api-fusion" data-api="Fusion">
+          <h3><code>Fusion</code></h3>
+          <div class="signature">Fusion(name, models, reducer=None, *, prompt="$question", tools=())</div>
+          <p>Validate and compile at least two model calls into canonical URL4. Important members:
+            <code>url4</code>, <code>models</code>, <code>model_ids</code>,
+            <code>request_for(prompt)</code>, <code>from_yaml(path)</code>, and
+            <code>evaluate(benchmark, first=20, seed=0, progress=None)</code>. Construction performs
+            no model or network work.</p>
+        </article>
+
+        <h3>Reduction</h3>
+        <article class="api-item" id="api-reducer" data-api="Reducer">
+          <h3><code>Reducer</code></h3>
+          <div class="signature">abstract base contract</div>
+          <p>The public type category for turning completed panel outputs into one answer. Use a
+            concrete built-in mechanism rather than constructing this class.</p>
+        </article>
+        <article class="api-item" id="api-majority-vote" data-api="MajorityVote">
+          <h3><code>MajorityVote</code></h3>
+          <div class="signature">MajorityVote(tie_breaker: str | None = None)</div>
+          <p>A local deterministic reducer. <code>tie_breaker</code> identifies an existing configured
+            call and never creates another model request.</p>
+        </article>
+        <article class="api-item" id="api-model-reducer" data-api="ModelReducer">
+          <h3><code>ModelReducer</code></h3>
+          <div class="signature">ModelReducer(*, model, prompt, params=None)</div>
+          <p>Add model-backed reduction to the URL4 graph. The prompt may synthesize, rank, select,
+            merge, or adjudicate; use <code>$question</code> and <code>$panel_answers</code> bindings.
+            Its <code>params</code> have the same URL4 semantics as panel-call parameters.</p>
+        </article>
+
+        <h3>Results</h3>
+        <article class="api-item" id="api-run" data-api="Run">
+          <h3><code>Run</code></h3>
+          <div class="signature">immutable benchmark result</div>
+          <p>Key values are <code>score</code>, <code>baseline</code>, <code>gain</code>,
+            <code>engine</code>, <code>mode</code>, <code>dataset_source</code>,
+            <code>model_results</code>, <code>failures</code>, <code>metrics</code>, and the exact
+            recipe in <code>url</code>. <code>engine</code> records execution provenance;
+            <code>mode</code> records dataset provenance.</p>
+        </article>
+        <article class="api-item" id="api-model-result" data-api="ModelResult">
+          <h3><code>ModelResult</code></h3>
+          <div class="signature">ModelResult(model, score, prompt_tokens, completion_tokens,
+            total_tokens, cost_usd, failures=0, name=None, metrics=())</div>
+          <p>Per-call-slot score and accounting summary. Usage remains zero until the selected
+            production engine reports it.</p>
+        </article>
+        <article class="api-item" id="api-run-failure" data-api="RunFailure">
+          <h3><code>RunFailure</code></h3>
+          <div class="signature">RunFailure(question_id, model, code, message, name=None)</div>
+          <p>Structured question/model failure retained on a <code>Run</code>.</p>
+        </article>
+
+        <h3>Errors and metadata</h3>
+        <article class="api-item" id="api-error" data-api="ScreamingFaceError">
+          <h3><code>ScreamingFaceError</code></h3>
+          <p>Base exception for typed SDK failures.</p>
+        </article>
+        <article class="api-item" id="api-engine-error" data-api="EngineError">
+          <h3><code>EngineError</code></h3>
+          <p>The engine rejected an expression or returned an invalid result. Carries
+            <code>code</code>, optional <code>status_code</code>, and optional
+            <code>request_expression</code>.</p>
+        </article>
+        <article class="api-item" id="api-engine-unavailable" data-api="EngineUnavailable">
+          <h3><code>EngineUnavailable</code></h3>
+          <p>The explicitly configured HTTP URL4 engine could not be reached.</p>
+        </article>
+        <article class="api-item" id="api-dataset-unavailable" data-api="DatasetUnavailable">
+          <h3><code>DatasetUnavailable</code></h3>
+          <p>A live or gated benchmark cannot be loaded in the current environment.</p>
+        </article>
+        <article class="api-item" id="api-version" data-api="__version__">
+          <h3><code>__version__</code></h3>
+          <p>The installed SDK version string. Current documentation targets <code>0.2.0</code>.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="benchmarks">
+      <h2>Benchmark contracts</h2>
+      <table>
+        <thead><tr><th>ID</th><th>Default data</th><th>Grader</th><th>Engine work</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>gpqa</code></td>
+            <td>20 bundled GPQA-shaped synthetic cases</td>
+            <td>Local exact A–D choice</td>
+            <td>One panel/fusion expression per question</td>
+          </tr>
+          <tr>
+            <td><code>draco</code></td>
+            <td>2 bundled DRACO-shaped research cases</td>
+            <td>URL4-routed rubric judge</td>
+            <td>Panel/reducer expression plus criterion judge requests</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="reading">For live GPQA or DRACO data, install the dataset extra, accept the
+        relevant Hugging Face dataset terms, authenticate to Hugging Face, and call
+        <code>sf.config(mode="live")</code>. That changes data loading only. Select an HTTP URL4
+        engine separately for production model routes.</p>
+
+      <h3>YAML parity</h3>
+      <pre><code>name: frontier-trio
+models:
+  - codex/gpt-5.5
+  - gemini-cli/gemini-2.5-pro
+  - anthropic/claude-sonnet-4-6
+reducer:
+  kind: majority_vote
+  tie_breaker: codex/gpt-5.5</code></pre>
+      <p class="reading"><code>Fusion.from_yaml()</code> uses safe parsing and validates the same
+        model, prompt, parameter, tool, and reducer contracts as Python construction.</p>
+    </section>
+
+    <section id="production">
+      <h2>Replacing deterministic leaves</h2>
+      <div class="contract">
+        <div>
+          <h3>ScreamingFace already does</h3>
+          <ul>
+            <li>compile shareable and concrete URL4 expressions;</li>
+            <li>send one complete expression through the engine port;</li>
+            <li>validate panel/fusion result envelopes;</li>
+            <li>reduce locally or represent a model reducer in URL4;</li>
+            <li>load benchmarks, grade answers, and calculate baseline/gain;</li>
+            <li>record engine and dataset provenance separately.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>A production URL4 engine must</h3>
+          <ul>
+            <li>accept <code>GET /v1?q=&lt;expression&gt;</code>;</li>
+            <li>register the required <code>/provider/model</code> routes;</li>
+            <li>translate generic parameters and tools for its provider adapter;</li>
+            <li>contact AI Gateway internally when that is its chosen backend;</li>
+            <li>preserve intent/context semantics and labeled result fields;</li>
+            <li>run repeated DRACO judge calls as independent samples;</li>
+            <li>accept real-size expressions over GET or agree a URL4-compatible size strategy;</li>
+            <li>eventually report usage, cost, failures, and tool telemetry.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="note">
+        The SDK does not need an AI Gateway URL, provider key, or gateway client. Switching from
+        deterministic leaves to production execution is an engine-configuration change:
+        <code>sf.config("https://your-url4-engine.example")</code>.
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="../README.md">Package README</a> ·
+    <a href="../src/screamingface/__init__.py">Public exports</a> ·
+    Documentation target: ScreamingFace 0.2.0 · deterministic examples make no provider-quality
+    claim.
+  </footer>
+
+  <script>
+    const root = document.documentElement;
+    const stored = localStorage.getItem("sf-docs-theme");
+    if (stored === "light" || stored === "dark") root.dataset.theme = stored;
+    document.getElementById("theme").addEventListener("click", () => {
+      const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const currentDark = root.dataset.theme ? root.dataset.theme === "dark" : systemDark;
+      const next = currentDark ? "light" : "dark";
+      root.dataset.theme = next;
+      localStorage.setItem("sf-docs-theme", next);
+    });
+  </script>
+</body>
+</html>

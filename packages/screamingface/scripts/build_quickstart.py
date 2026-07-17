@@ -17,6 +17,10 @@ def notebook() -> nbformat.NotebookNode:
 Compose three models, evaluate their majority vote, and check whether the fusion beats its best
 individual model.
 
+**Path: bare quickstart · No architecture knowledge required.** This notebook stays focused on
+the public compose → run → compare loop. The linked architecture notebook shows the URL4 request,
+node graph, and response envelope.
+
 This quickstart is zero-setup. By default, ScreamingFace runs a real URL4 node in-process and its
 model-route leaves return deterministic local answers. URL4 still parses and executes the complete
 fusion graph; no AI Gateway or provider is contacted.
@@ -59,7 +63,8 @@ HTTP URL4 engine explicitly."""
             """> Positive gain means the fusion outperformed its strongest individual model.
 
 For the exact URL4 HTTP request and compiled-node walkthrough, open
-[`sf_url4_engine.ipynb`](sf_url4_engine.ipynb)."""
+[`sf_url4_engine.ipynb`](sf_url4_engine.ipynb). The complete public API and execution guide is
+[`../docs/index.html`](../docs/index.html)."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

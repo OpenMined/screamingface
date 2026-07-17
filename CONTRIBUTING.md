@@ -3,8 +3,8 @@
 This guide covers running the repo's services from source and the git workflow.
 
 > The legacy desktop app and plugin server were removed in the July 2026
-> re-foundation (tag `legacy-monorepo-2026-07-08`). The apps below are the
-> active codebase; new desktop/CLI packages will arrive with their own guides.
+> re-foundation (tag `legacy-monorepo-2026-07-08`). Active apps and packages
+> are self-contained and carry their own guides and CI lanes.
 
 ## Prerequisites
 
@@ -23,8 +23,8 @@ git config core.hooksPath .githooks   # enables the pre-commit guard (blocks com
 
 ## Run from source
 
-Each app is self-contained under `apps/<name>` with its own `pyproject.toml`,
-lockfile, and README.
+Each Python component under `apps/<name>` or `packages/<name>` is self-contained with its own
+`pyproject.toml`, lockfile, package-local guides/examples, and registered gates.
 
 ```bash
 # AI Gateway — provider OAuth, encrypted credential store (port 9105)
@@ -37,14 +37,22 @@ curl -sf http://localhost:9105/healthz   # liveness check
 cd apps/scoreboard
 uv sync
 uv run scoreboard
+
+# ScreamingFace SDK — zero-setup deterministic URL4 quickstart
+cd ../../packages/screamingface
+uv sync --extra notebook
+uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
 ```
+
+The ScreamingFace quickstart needs no service. Run `./scripts/dev-url4.sh` only to test the
+optional HTTP transport, then select it with `sf.config("http://127.0.0.1:4404")`.
 
 ## Tests, lint, typecheck
 
-Run inside the app you're changing — the same gates CI runs:
+Run inside the component you're changing—the same categories CI runs:
 
 ```bash
-cd apps/<app>
+cd apps/<app>                    # or packages/<package>
 uv run ruff check          # lint
 uv run ruff format --check # formatting
 uv run pyright             # typecheck
@@ -90,6 +98,9 @@ Gateway-specific:
   key, migrations)
 - **Scoreboard internals:** `apps/scoreboard/README.md` (portal, public
   artifacts)
+- **ScreamingFace SDK:** `packages/screamingface/README.md` and
+  `packages/screamingface/docs/index.html`
+- **URL4 SDK examples:** `packages/url4/examples/url4_examples.ipynb`
 - **Repo routing (which app, which CI, who reviews):** the
   `working-in-this-repo` skill (`.claude/skills/working-in-this-repo/`)
 - **Legacy reference:** `git checkout legacy-monorepo-2026-07-08`

@@ -17,6 +17,10 @@ def notebook() -> nbformat.NotebookNode:
 Build an open-ended research fusion, execute every model through URL4, and compare its weighted
 DRACO rubric score with the same panel members scored individually.
 
+**Path: benchmark adapter.** This is the long-form example: experiment-owned prompts, a
+model-backed reducer, benchmark-owned rubric judging, and the production URL4 requirements are
+shown separately.
+
 The saved run uses two bundled DRACO-shaped cases and an in-process URL4 node with deterministic
 model routes. It validates the complete ScreamingFace request and response contract without setup,
 credentials, or a provider-quality claim.
@@ -100,12 +104,42 @@ answer × rubric criterion × judge pass. No SDK code calls AI Gateway or a prov
             "}"
         ),
         nbformat.v4.new_markdown_cell(
+            """## 6 · Judge request and response
+
+DRACO grading is engine work too. For every answer × criterion × judge pass, ScreamingFace sends a
+single-model URL4 expression shaped like this after decoding the HTTP `q` parameter:
+
+```url4
+/gemini/3.1-pro-preview
+  ?temperature=0.2
+  &reasoning=low
+  &max_tokens=4096
+  &q=(<criterion type, criterion, original query, and response>)
+  !'<paper-aligned judge system prompt>'
+```
+
+Here URL4 context (`q=(...)`) becomes the judge's user content and URL4 intent (`!...`) becomes its
+system instruction. The model route returns JSON text:
+
+```json
+{
+  "explanation": "The response satisfies the criterion because …",
+  "criterion_status": "MET"
+}
+```
+
+`UNMET` is the other valid status. The grader parses each independent verdict, applies positive and
+negative rubric weights, and records verdict coverage. The default deterministic route produces
+stable verdicts so this machinery is runnable; a production route must preserve the same request
+semantics and return contract."""
+        ),
+        nbformat.v4.new_markdown_cell(
             """`normalized_score` is DRACO's weighted score: positive criteria add their weights,
 MET negative criteria subtract their weights, and the result is divided by total positive weight
 and clamped to 0–100. `gain` compares the synthesis with the best panel member on the same cases
 and judge protocol.
 
-## 6 · What the production URL4 engine must handle
+## 7 · What the production URL4 engine must handle
 
 The bundled in-process URL4 node validates the request and response shapes deterministically.
 Replacing it with a production HTTP URL4 engine requires the engine to:
@@ -121,8 +155,9 @@ Replacing it with a production HTTP URL4 engine requires the engine to:
 - return panel/fusion outputs and raw judge JSON in the response shapes demonstrated above; and
 - eventually return usage, cost, failure, retry, search, and citation telemetry.
 
-Until those production routes exist, the saved result demonstrates the complete HTTP contract but
-makes no claim about provider quality or production DRACO scores."""
+Until those production routes exist, the saved result demonstrates the complete SDK ↔ URL4
+expression and response contract but makes no claim about provider quality or production DRACO
+scores."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):
