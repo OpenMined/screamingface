@@ -14,6 +14,7 @@ _BUCKETS = {
     "anthropic/claude-sonnet-4-6": 2,
 }
 _PANEL_ANSWER = re.compile(r"^Panel \d+ \[[^]]+\]:\s*\n\s*([A-D])\s*$", re.MULTILINE)
+_PANEL_STRUCT_ANSWER = re.compile(r'["\']?panel_\d+_answer["\']?:\s*["\']([A-D])')
 
 
 def _prompt(row: dict) -> str:
@@ -26,7 +27,7 @@ def answer(model_id: str, prompt: str) -> str:
         bucket = _BUCKETS[model_id]
     except KeyError as exc:
         raise ValueError(f"unknown mock model {model_id!r}") from exc
-    panel_answers = _PANEL_ANSWER.findall(prompt)
+    panel_answers = _PANEL_ANSWER.findall(prompt) or _PANEL_STRUCT_ANSWER.findall(prompt)
     if panel_answers:
         counts = Counter(panel_answers)
         highest = max(counts.values())
@@ -46,10 +47,11 @@ def answer(model_id: str, prompt: str) -> str:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: url4_mock_model.py MODEL_ID")
+    if len(sys.argv) not in {2, 3}:
+        raise SystemExit("usage: url4_mock_model.py MODEL_ID [PROMPT]")
+    prompt = sys.argv[2] if len(sys.argv) == 3 else sys.stdin.read()
     try:
-        result = answer(sys.argv[1], sys.stdin.read())
+        result = answer(sys.argv[1], prompt)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc

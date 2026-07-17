@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -83,22 +83,63 @@ def test_fusion_and_reducer_validation() -> None:
     with pytest.raises(ValueError, match="tie_breaker"):
         sf.Fusion("bad", ids[:2], reducer=sf.MajorityVote(tie_breaker=ids[2]))
     with pytest.raises(ValueError, match="unknown"):
-        sf.Fusion("bad", ids[:2], reducer=sf.Synthesize(model="vendor/missing"))
+        sf.Fusion(
+            "bad",
+            ids[:2],
+            reducer=sf.ModelReducer(model="vendor/missing", prompt="$panel_answers"),
+        )
+    with pytest.raises(TypeError, match="unsupported reducer"):
+        sf.Fusion(
+            "dict-reducer",
+            ids[:2],
+            reducer=cast(Any, {"kind": "majority_vote"}),
+        )
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "message"),
+    ("kwargs", "error", "message"),
     [
-        ({"model": ""}, "model"),
-        ({"model": "model", "temperature": -1}, "temperature"),
-        ({"model": "model", "temperature": float("inf")}, "temperature"),
-        ({"model": "model", "max_tokens": 0}, "max_tokens"),
-        ({"model": "model", "max_tokens": 1.5}, "max_tokens"),
+        ({"model": "", "prompt": "reduce"}, ValueError, "model"),
+        ({"model": "model", "prompt": ""}, ValueError, "prompt"),
+        (
+            {"model": "model", "prompt": "reduce", "params": {"temperature": float("inf")}},
+            ValueError,
+            "finite",
+        ),
+        (
+            {"model": "model", "prompt": "reduce", "params": {"tools": object()}},
+            TypeError,
+            "text, a number, or a boolean",
+        ),
     ],
 )
-def test_synthesizer_validation(kwargs: dict, message: str) -> None:
-    with pytest.raises(ValueError, match=message):
-        sf.Synthesize(**kwargs)
+def test_model_reducer_validation(kwargs: dict, error: type[Exception], message: str) -> None:
+    with pytest.raises(error, match=message):
+        sf.ModelReducer(**kwargs)
+
+
+def test_model_configuration_validation_and_ambiguous_tie_breaker() -> None:
+    model = sf.models.list()[0]
+    with pytest.raises(ValueError, match="missing required field"):
+        sf.Fusion("missing", cast(Any, [{"name": "sample-1"}, model]))
+    with pytest.raises(ValueError, match="unknown field"):
+        sf.Fusion(
+            "unknown-field",
+            cast(Any, [{"model": model, "typo": True}, model]),
+        )
+    with pytest.raises(ValueError, match="must not be empty"):
+        sf.Fusion("empty-name", [{"model": model, "name": ""}, model])
+    with pytest.raises(ValueError, match="unique"):
+        sf.Fusion(
+            "duplicates",
+            [{"model": model, "name": "same"}, {"model": model, "name": "same"}],
+        )
+    with pytest.raises(ValueError, match="ambiguous"):
+        sf.Fusion(
+            "sampled",
+            [{"model": model, "name": "one"}, {"model": model, "name": "two"}],
+            reducer=sf.MajorityVote(tie_breaker=model),
+        )
 
 
 def test_answer_normalization_and_vote_boundaries() -> None:

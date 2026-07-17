@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from html import escape
@@ -15,7 +14,8 @@ from screamingface.engine import (
     parse_fusion_result,
     parse_panel_result,
 )
-from screamingface.reducers import MajorityVote, Synthesize
+from screamingface.model_inputs import _FusionMember
+from screamingface.reducers import LocalReducer, MajorityVote, ModelReducer
 from screamingface.results import ModelResult, Run, RunFailure
 from screamingface.session import Session, _in_notebook
 
@@ -31,26 +31,32 @@ class QuestionPanel:
 
 @dataclass
 class RunAccumulator:
-    model_ids: tuple[str, ...]
+    members: tuple[_FusionMember, ...]
     fusion_correct: int = 0
     incomplete: int = 0
     failures: list[RunFailure] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        self.member_correct = {model: 0 for model in self.model_ids}
-        self.model_failures = {model: 0 for model in self.model_ids}
+        self.member_correct = {member.id: 0 for member in self.members}
+        self.model_failures = {member.id: 0 for member in self.members}
 
     def add(self, question: Question, fusion_answer: str, panel: QuestionPanel) -> None:
         expected = chr(65 + question.answer)
         self.fusion_correct += fusion_answer == expected
-        self.incomplete += any(not panel.answers[model] for model in self.model_ids)
-        for model in self.model_ids:
-            answer = panel.answers[model]
-            self.member_correct[model] += answer == expected
+        self.incomplete += any(not panel.answers[member.id] for member in self.members)
+        for member in self.members:
+            answer = panel.answers[member.id]
+            self.member_correct[member.id] += answer == expected
             if not answer:
-                self.model_failures[model] += 1
+                self.model_failures[member.id] += 1
                 self.failures.append(
-                    RunFailure(question.id, model, "invalid_answer", "Model did not return A-D")
+                    RunFailure(
+                        question.id,
+                        member.model,
+                        "invalid_answer",
+                        "Model did not return A-D",
+                        name=member.id if member.id != member.model else None,
+                    )
                 )
 
 
@@ -70,7 +76,7 @@ async def evaluate(
         raise ValueError("the MVP supports only the 'gpqa' benchmark")
     questions = _load_questions(session, first, seed)
     engine = session.engine or Url4EngineClient(session.engine_url)
-    totals = RunAccumulator(fusion.models)
+    totals = RunAccumulator(fusion._members)
     if progress is not None:
         progress(0, len(questions), "Loading GPQA sample")
     for index, question in enumerate(questions, 1):
@@ -90,12 +96,12 @@ async def evaluate(
 def _reduce_panel(panel: QuestionPanel, fusion) -> str:
     if panel.fusion_answer is not None:
         return normalize_answer(panel.fusion_answer)
-    if not isinstance(fusion.reducer, MajorityVote):  # pragma: no cover - closed by Fusion
+    if not isinstance(fusion.reducer, LocalReducer):  # pragma: no cover - closed by Fusion
         raise TypeError(f"unsupported local reducer: {type(fusion.reducer).__name__}")
-    return majority_vote(
-        tuple(panel.answers[model] for model in fusion.models),
-        fusion.models,
-        fusion.reducer.tie_breaker,
+    answers = tuple(normalize_answer(panel.answers[member.id]) for member in fusion._members)
+    return fusion.reducer.reduce(
+        answers,
+        tuple(member.id for member in fusion._members),
     )
 
 
@@ -108,18 +114,18 @@ def _load_questions(session: Session, first: int, seed: int) -> tuple[Question, 
 async def _run_question(question: Question, engine: EnginePort, fusion) -> QuestionPanel:
     expression = fusion.request_for(question.prompt())
     body = await engine.evaluate(expression)
-    if isinstance(fusion.reducer, MajorityVote):
-        result = parse_panel_result(body, fusion.models)
+    if isinstance(fusion.reducer, LocalReducer):
+        result = parse_panel_result(body, fusion._members)
         fusion_answer = None
-    elif isinstance(fusion.reducer, Synthesize):
-        result = parse_fusion_result(body, fusion.models, fusion.reducer.model)
+    elif isinstance(fusion.reducer, ModelReducer):
+        result = parse_fusion_result(body, fusion._members, fusion.reducer.model)
         fusion_answer = result.answer
     else:  # pragma: no cover - Fusion validates the closed reducer union
         raise TypeError(f"unsupported reducer: {type(fusion.reducer).__name__}")
     return QuestionPanel(
         {
-            model: normalize_answer(answer)
-            for model, answer in zip(fusion.models, result.answers, strict=True)
+            member.id: normalize_answer(answer)
+            for member, answer in zip(fusion._members, result.answers, strict=True)
         },
         fusion_answer=fusion_answer,
     )
@@ -131,17 +137,7 @@ def majority_vote(
     tie_breaker: str | None,
 ) -> str:
     normalized = tuple(normalize_answer(answer) for answer in answers)
-    counts = Counter(answer for answer in normalized if answer)
-    result = ""
-    if counts:
-        top = max(counts.values())
-        winners = {answer for answer, count in counts.items() if count == top}
-        result = next(iter(winners)) if len(winners) == 1 else sorted(winners)[0]
-        if len(winners) > 1 and tie_breaker is not None:
-            tied_answer = normalized[tuple(model_ids).index(tie_breaker)]
-            if tied_answer:
-                result = tied_answer
-    return result
+    return MajorityVote(tie_breaker=tie_breaker).reduce(normalized, model_ids)
 
 
 def _majority_processor(model_ids: tuple[str, ...], judge: str | None):
@@ -173,15 +169,16 @@ def _build_run(
     baseline = round(max(scores), 1)
     model_results = tuple(
         ModelResult(
-            model=model,
-            score=round(100 * totals.member_correct[model] / sample_size, 1),
+            model=member.model,
+            score=round(100 * totals.member_correct[member.id] / sample_size, 1),
             prompt_tokens=0,
             completion_tokens=0,
             total_tokens=0,
             cost_usd=0.0,
-            failures=totals.model_failures[model],
+            failures=totals.model_failures[member.id],
+            name=member.id if member.id != member.model else None,
         )
-        for model in fusion.models
+        for member in fusion._members
     )
     return Run(
         benchmark=(
@@ -189,7 +186,7 @@ def _build_run(
         ),
         dataset_source=session.dataset_source,
         mode=session.mode,
-        models=fusion.models,
+        models=fusion.model_ids,
         url=fusion.url4,
         sample_size=sample_size,
         seed=seed,

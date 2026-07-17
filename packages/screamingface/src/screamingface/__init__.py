@@ -7,8 +7,9 @@ from screamingface.errors import (
     ScreamingFaceError,
 )
 from screamingface.fusion import Fusion
+from screamingface.model_inputs import ModelConfig
 from screamingface.models import models
-from screamingface.reducers import MajorityVote, Synthesize
+from screamingface.reducers import MajorityVote, ModelReducer, Reducer
 from screamingface.results import ModelResult, Run, RunFailure
 from screamingface.session import (
     Session,
@@ -26,10 +27,12 @@ __all__ = [
     "EngineUnavailable",
     "Fusion",
     "MajorityVote",
+    "ModelConfig",
+    "ModelReducer",
     "ModelResult",
+    "Reducer",
     "Run",
     "RunFailure",
-    "Synthesize",
     "ScreamingFaceError",
     "Session",
     "__version__",

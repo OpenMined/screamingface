@@ -1,7 +1,7 @@
 # screamingface
 
 Compose model panels as URL4 recipes and measure whether their deterministic reduction beats the
-best individual member.
+best individual model.
 
 ## Quickstart
 
@@ -76,11 +76,58 @@ routes may contact AI Gateway internally, but that is owned by the URL4 engine a
 `fusion.url4` is the shareable recipe. Its `$question` binding is intentionally unresolved:
 
 ```url4
-(panel_1=/codex/gpt-5.5($question)!'Answer the multiple-choice question', ...)
+(panel_1=/codex/gpt-5.5()!'$question', ...)
 ```
 
 During evaluation, ScreamingFace adds a concrete `question='...'` binding and sends the resulting
-expression to `/v1`. Constructing or displaying a fusion never performs network I/O.
+expression to `/v1`. URL4 resolves `$question` into the model call's intent; its context is empty.
+Constructing or displaying a fusion never performs network I/O.
+
+Model-backed reduction uses the same mechanism:
+
+```python
+fusion = sf.Fusion(
+    "model-reduced",
+    models=["codex/gpt-5.5", "gemini-cli/gemini-2.5-pro"],
+    reducer=sf.ModelReducer(
+        model="anthropic/claude-sonnet-4-6",
+        prompt="Synthesize one final answer from $panel_answers for $question",
+        params={"temperature": 0.0, "max_tokens": 512},
+    ),
+)
+```
+
+`Reducer` is the extensible reducer contract. `MajorityVote` and `ModelReducer` are concrete
+mechanisms; synthesis, selection, ranking, and adjudication are behaviors expressed by a
+`ModelReducer` prompt rather than separate classes.
+
+Plain model IDs are the common case. Use a strict model dictionary only when one model needs its
+own name, prompt, or URL4 parameters:
+
+```python
+fusion = sf.Fusion(
+    "sampled-opus",
+    models=[
+        {
+            "model": "anthropic/claude-sonnet-4-6",
+            "name": "opus-sample-1",
+            "params": {"temperature": 0.7},
+        },
+        {
+            "model": "anthropic/claude-sonnet-4-6",
+            "name": "opus-sample-2",
+            "params": {"temperature": 0.7},
+        },
+    ],
+)
+```
+
+A string is shorthand for `{"model": "provider/model"}`. Dictionaries accept only `model`,
+`name`, `prompt`, and `params`; unknown fields fail at fusion construction. Private call-slot
+identities keep repeated models distinct. Reducers remain concrete objects in Python. YAML uses a
+strict `reducer: {kind: ...}` mapping which `Fusion.from_yaml()` converts into the corresponding
+object. `fusion.models` round-trips the canonical strings/dictionaries; `fusion.model_ids` is the
+flat tuple of underlying model IDs.
 
 ## MVP ownership
 
@@ -88,9 +135,10 @@ The URL4 engine owns parsing, dependency execution, model-route dispatch, concur
 evaluated result. ScreamingFace owns benchmark loading, request compilation, answer normalization,
 majority voting, answer-key scoring, best-member baseline, and gain.
 
-The current response schema is `screamingface.panel-result.v1`, with stable `panel_N_model` and
-`panel_N_answer` fields. Stable slots preserve association even when engine calls complete out of
-order and allow the same model to appear in more than one slot later.
+The current response schemas are `screamingface.panel-result.v2` and
+`screamingface.fusion-result.v2`, with stable `panel_N_id`, `panel_N_model`, and `panel_N_answer`
+fields. Private slot IDs identify calls separately from models, preserving association when calls
+complete out of order and allowing one model to appear in multiple sampled or role-specific slots.
 
 ## Local deterministic engine
 
@@ -102,13 +150,14 @@ order and allow the same model to appear in more than one slot later.
 /claude/sonnet-4.6
 ```
 
-They invoke [`scripts/url4_mock_model.py`](scripts/url4_mock_model.py), which reads the resolved
-question from stdin and returns one `A`–`D` answer. It never contacts AI Gateway. The URL4 package
-and engine source are not modified.
+They invoke [`scripts/url4_mock_model.py`](scripts/url4_mock_model.py), which receives the resolved
+URL4 intent and returns one `A`–`D` answer. It never contacts AI Gateway. The URL4 package and
+engine source are not modified.
 
-The MVP deliberately omits model parameters because the current generic URL4 command adapter does
-not forward `Request.params`. Authentication, hosted deployment, real AI-Gateway-backed routes,
-streaming, usage/cost metadata, synthesis, and DRACO are additive follow-up contracts.
+The local command routes do not yet consume `Request.params`; those parameters are nevertheless
+part of the canonical URL4 recipe and are available to an in-process URL4 endpoint handler.
+Authentication, hosted deployment, real AI-Gateway-backed routes, streaming, usage/cost metadata,
+and DRACO are additive follow-up contracts.
 
 ## Development
 

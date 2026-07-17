@@ -11,11 +11,16 @@ import screamingface as sf
 import screamingface.evaluation as evaluation
 from screamingface.data import load_mock_questions
 from screamingface.engine import Url4EngineClient, parse_fusion_result, parse_panel_result
+from screamingface.model_inputs import _FusionMember, normalize_model_inputs
 
 
 @pytest.fixture(autouse=True)
 def _clean_session() -> None:
     sf.reset_session()
+
+
+def _members(model_ids: tuple[str, ...]) -> tuple[_FusionMember, ...]:
+    return normalize_model_inputs(model_ids)
 
 
 def test_fusion_recipe_is_unbound_canonical_and_engine_routed() -> None:
@@ -38,7 +43,7 @@ def test_fusion_recipe_is_unbound_canonical_and_engine_routed() -> None:
     concrete = fusion.request_for("Which option?\n\nA. One\nB. Two\nC. Three\nD. Four")
     assert render(build(concrete)) == concrete
     assert concrete.startswith("(question=")
-    assert "screamingface.panel-result.v1" in concrete
+    assert "screamingface.panel-result.v2" in concrete
 
 
 @pytest.mark.asyncio
@@ -81,39 +86,84 @@ def test_panel_result_requires_stable_model_slot_association() -> None:
     ids = tuple(sf.models.list())
     body = json.dumps(
         {
-            "schema": "screamingface.panel-result.v1",
+            "schema": "screamingface.panel-result.v2",
+            "panel_1_id": ids[0],
             "panel_1_model": ids[1],
             "panel_1_answer": "A",
+            "panel_2_id": ids[1],
             "panel_2_model": ids[0],
             "panel_2_answer": "B",
+            "panel_3_id": ids[2],
             "panel_3_model": ids[2],
             "panel_3_answer": "C",
         }
     )
 
     with pytest.raises(sf.EngineError, match="panel_1"):
-        parse_panel_result(body, ids)
+        parse_panel_result(body, _members(ids))
 
 
 def test_fusion_result_requires_stable_synthesizer_association() -> None:
     ids = tuple(sf.models.list())
     body = json.dumps(
         {
-            "schema": "screamingface.fusion-result.v1",
+            "schema": "screamingface.fusion-result.v2",
+            "panel_1_id": ids[0],
             "panel_1_model": ids[0],
             "panel_1_answer": "A",
+            "panel_2_id": ids[1],
             "panel_2_model": ids[1],
             "panel_2_answer": "B",
+            "panel_3_id": ids[2],
             "panel_3_model": ids[2],
             "panel_3_answer": "C",
-            "reducer": "synthesize",
-            "synthesizer_model": ids[1],
+            "reducer": "model",
+            "reducer_model": ids[1],
             "answer": "B",
         }
     )
 
-    with pytest.raises(sf.EngineError, match="synthesizer"):
-        parse_fusion_result(body, ids, ids[0])
+    with pytest.raises(sf.EngineError, match="reducer model"):
+        parse_fusion_result(body, _members(ids), ids[0])
+
+
+@pytest.mark.asyncio
+async def test_model_dictionary_reaches_url4_as_named_prompted_parameterized_call() -> None:
+    ids = tuple(sf.models.list()[:2])
+    seen: dict[str, Request] = {}
+    node = Url4Node("configured-model-contract")
+
+    for model_id in ids:
+        route = sf.models.get(model_id).route
+
+        async def answer(request: Request, *, model=model_id) -> str:
+            seen[model] = request
+            return "A"
+
+        node.endpoint(route)(answer)
+
+    fusion = sf.Fusion(
+        "configured-model",
+        [
+            {
+                "model": ids[0],
+                "name": "careful-sample",
+                "prompt": "Answer carefully: $question",
+                "params": {"temperature": 0.7, "seed": 1},
+            },
+            ids[1],
+        ],
+    )
+    transport = httpx.ASGITransport(app=node.asgi())
+    async with httpx.AsyncClient(transport=transport, base_url="http://url4.test") as http:
+        client = Url4EngineClient("http://url4.test", client=http)
+        body = await client.evaluate(fusion.request_for("Which option?"))
+
+    result = parse_panel_result(body, fusion._members)
+    assert result.answers == ("A", "A")
+    assert seen[ids[0]].context == ""
+    assert seen[ids[0]].intent == "Answer carefully: Which option?"
+    assert seen[ids[0]].params == {"temperature": "0.7", "seed": "1"}
 
 
 @pytest.mark.asyncio
@@ -137,21 +187,27 @@ async def test_real_url4_http_app_runs_panel_then_synthesizer() -> None:
     fusion = sf.Fusion(
         "synthesis",
         ids,
-        reducer=sf.Synthesize(model=ids[0], temperature=0.2, max_tokens=512),
+        reducer=sf.ModelReducer(
+            model=ids[0],
+            prompt="Synthesize one answer from $panel_answers for $question",
+            params={"temperature": 0.2, "max_tokens": 512},
+        ),
     )
     transport = httpx.ASGITransport(app=node.asgi())
     async with httpx.AsyncClient(transport=transport, base_url="http://url4.test") as http:
         client = Url4EngineClient("http://url4.test", client=http)
         body = await client.evaluate(fusion.request_for(question.prompt()))
 
-    result = parse_fusion_result(body, ids, ids[0])
+    result = parse_fusion_result(body, fusion._members, ids[0])
     assert result.answers == ("A", "B", "C")
     assert result.answer == "B"
     assert len(calls) == 4
     synthesis = calls[-1][1]
-    assert "Panel 1" in synthesis.context
-    assert "Panel 2" in synthesis.context
-    assert "Panel 3" in synthesis.context
+    assert synthesis.context == ""
+    assert "panel_1_answer" in synthesis.intent
+    assert "panel_2_answer" in synthesis.intent
+    assert "panel_3_answer" in synthesis.intent
+    assert "$panel_answers" not in synthesis.intent
     assert synthesis.params == {"temperature": "0.2", "max_tokens": "512"}
 
 
@@ -178,7 +234,14 @@ async def test_gpqa_evaluator_accepts_a_synthesized_fusion_answer() -> None:
             engine=Url4EngineClient("http://url4.test", client=http),
             dataset_source="synthetic-gpqa-shaped",
         )
-        fusion = sf.Fusion("synthesis", ids, reducer=sf.Synthesize(model=ids[0]))
+        fusion = sf.Fusion(
+            "synthesis",
+            ids,
+            reducer=sf.ModelReducer(
+                model=ids[0],
+                prompt="Return the best answer from $panel_answers",
+            ),
+        )
         run = await evaluation.evaluate(
             session=session,
             fusion=fusion,
@@ -187,13 +250,13 @@ async def test_gpqa_evaluator_accepts_a_synthesized_fusion_answer() -> None:
             seed=0,
         )
 
-    assert run.reducer == "synthesize"
+    assert run.reducer == "model"
     assert run.tie_breaker is None
     assert run.score == 100.0
 
 
 @pytest.mark.asyncio
-async def test_real_url4_http_app_runs_the_complete_quickstart() -> None:
+async def test_real_url4_http_app_runs_the_complete_quickstart() -> None:  # noqa: PLR0915
     ids = tuple(sf.models.list(max_price=20)[:3])
     questions = load_mock_questions(20)
     prompt_index = {question.prompt(): index for index, question in enumerate(questions)}
@@ -206,7 +269,7 @@ async def test_real_url4_http_app_runs_the_complete_quickstart() -> None:
 
         async def answer(request: Request, *, model=model_id, error_bucket=bucket) -> str:
             calls[model].append(request)
-            index = prompt_index[request.context]
+            index = prompt_index[request.intent]
             correct = questions[index].answer
             wrong = index in range(error_bucket * 4, error_bucket * 4 + 4)
             choice = (correct + 1) % 4 if wrong else correct
@@ -240,11 +303,8 @@ async def test_real_url4_http_app_runs_the_complete_quickstart() -> None:
     assert run.gain == 20.0
     assert sum(map(len, calls.values())) == 60
     assert all(len(calls[model]) == 20 for model in ids)
-    assert all(
-        request.intent == "Answer the multiple-choice question"
-        for rows in calls.values()
-        for request in rows
-    )
+    assert all(request.context == "" for rows in calls.values() for request in rows)
+    assert all(request.intent in prompt_index for rows in calls.values() for request in rows)
     assert all(request.params == {} for rows in calls.values() for request in rows)
 
 

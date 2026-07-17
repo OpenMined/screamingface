@@ -15,7 +15,7 @@ def notebook() -> nbformat.NotebookNode:
             """# screamingface · Quickstart
 
 Compose three models, evaluate their majority vote, and check whether the fusion beats its best
-member.
+individual model.
 
 This quickstart uses deterministic model routes through the real local URL4 engine. Start it from
 `packages/screamingface`, then run the notebook:
@@ -54,10 +54,10 @@ engine must also expose production-backed model routes."""
         nbformat.v4.new_code_cell('run = fusion.evaluate("gpqa", first=20, seed=0)\nrun'),
         nbformat.v4.new_markdown_cell("## 3 · Compare"),
         nbformat.v4.new_code_cell(
-            "run.score, run.baseline, run.gain  # fusion, best member, improvement"
+            "run.score, run.baseline, run.gain  # fusion, best model, improvement"
         ),
         nbformat.v4.new_markdown_cell(
-            """> Positive gain means the fusion outperformed its strongest individual member.
+            """> Positive gain means the fusion outperformed its strongest individual model.
 
 For the exact URL4 HTTP request and compiled-node walkthrough, open
 [`sf_url4_engine.ipynb`](sf_url4_engine.ipynb)."""

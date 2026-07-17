@@ -10,6 +10,7 @@ import httpx
 
 from screamingface.compiler import fusion_result_schema, result_schema
 from screamingface.errors import EngineError, EngineUnavailable
+from screamingface.model_inputs import _FusionMember
 
 
 class EnginePort(Protocol):
@@ -59,28 +60,28 @@ class FusionResult:
     answer: str
 
 
-def parse_panel_result(body: str, expected_models: tuple[str, ...]) -> PanelResult:
+def parse_panel_result(body: str, expected_members: tuple[_FusionMember, ...]) -> PanelResult:
     payload = _result_payload(body, result_schema())
-    return PanelResult(_panel_answers(payload, expected_models))
+    return PanelResult(_panel_answers(payload, expected_members))
 
 
 def parse_fusion_result(
     body: str,
-    expected_models: tuple[str, ...],
-    expected_synthesizer: str,
+    expected_members: tuple[_FusionMember, ...],
+    expected_reducer_model: str,
 ) -> FusionResult:
     payload = _result_payload(body, fusion_result_schema())
-    answers = _panel_answers(payload, expected_models)
-    if payload.get("reducer") != "synthesize":
+    answers = _panel_answers(payload, expected_members)
+    if payload.get("reducer") != "model":
         raise EngineError(
-            "URL4 engine fusion result must identify reducer 'synthesize'",
+            "URL4 engine fusion result must identify reducer 'model'",
             code="invalid_result",
         )
-    synthesizer = payload.get("synthesizer_model")
-    if synthesizer != expected_synthesizer:
+    reducer_model = payload.get("reducer_model")
+    if reducer_model != expected_reducer_model:
         raise EngineError(
-            f"URL4 engine fusion result identifies synthesizer {synthesizer!r}; "
-            f"expected {expected_synthesizer!r}",
+            f"URL4 engine fusion result identifies reducer model {reducer_model!r}; "
+            f"expected {expected_reducer_model!r}",
             code="invalid_result",
         )
     answer = payload.get("answer")
@@ -108,15 +109,22 @@ def _result_payload(body: str, schema: str) -> dict:
     return payload
 
 
-def _panel_answers(payload: dict, expected_models: tuple[str, ...]) -> tuple[str, ...]:
+def _panel_answers(payload: dict, expected_members: tuple[_FusionMember, ...]) -> tuple[str, ...]:
     answers: list[str] = []
-    for index, expected_model in enumerate(expected_models, 1):
+    for index, expected_member in enumerate(expected_members, 1):
+        slot_id = payload.get(f"panel_{index}_id")
         model = payload.get(f"panel_{index}_model")
         answer = payload.get(f"panel_{index}_answer")
-        if model != expected_model:
+        if slot_id != expected_member.id:
+            raise EngineError(
+                f"URL4 engine result panel_{index} identifies slot {slot_id!r}; "
+                f"expected {expected_member.id!r}",
+                code="invalid_result",
+            )
+        if model != expected_member.model:
             raise EngineError(
                 f"URL4 engine result panel_{index} identifies {model!r}; "
-                f"expected {expected_model!r}",
+                f"expected {expected_member.model!r}",
                 code="invalid_result",
             )
         if not isinstance(answer, str):

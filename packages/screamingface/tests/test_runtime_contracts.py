@@ -15,6 +15,7 @@ import screamingface.results as results_module
 import screamingface.session as session_module
 from screamingface.data import load_mock_questions
 from screamingface.engine import Url4EngineClient, parse_panel_result
+from screamingface.model_inputs import normalize_model_inputs
 from screamingface.results import ModelResult, Run, RunFailure
 
 
@@ -35,8 +36,9 @@ def _fusion() -> sf.Fusion:
 
 
 def _panel_body(models: tuple[str, ...], answers: tuple[object, ...]) -> str:
-    payload: dict[str, object] = {"schema": "screamingface.panel-result.v1"}
+    payload: dict[str, object] = {"schema": "screamingface.panel-result.v2"}
     for index, (model, answer) in enumerate(zip(models, answers, strict=True), 1):
+        payload[f"panel_{index}_id"] = model
         payload[f"panel_{index}_model"] = model
         payload[f"panel_{index}_answer"] = answer
     return json.dumps(payload)
@@ -75,14 +77,17 @@ async def test_owned_engine_client_closes_after_transport_failure(
 )
 def test_panel_result_rejects_invalid_envelopes(body: str, message: str) -> None:
     with pytest.raises(sf.EngineError, match=message):
-        parse_panel_result(body, ("codex/gpt-5.5",))
+        parse_panel_result(
+            body,
+            normalize_model_inputs(("codex/gpt-5.5",)),
+        )
 
 
 def test_panel_result_requires_text_answers() -> None:
     with pytest.raises(sf.EngineError, match="must be text"):
         parse_panel_result(
             _panel_body(("codex/gpt-5.5",), (None,)),
-            ("codex/gpt-5.5",),
+            normalize_model_inputs(("codex/gpt-5.5",)),
         )
 
 
@@ -118,7 +123,7 @@ async def test_evaluation_reports_progress_and_incomplete_answers() -> None:
     fusion = _fusion()
     question = load_mock_questions(1)[0]
     correct = chr(65 + question.answer)
-    engine = _StaticEngine(_panel_body(fusion.models, ("no answer", correct, correct)))
+    engine = _StaticEngine(_panel_body(fusion.model_ids, ("no answer", correct, correct)))
     updates: list[tuple[int, int, str]] = []
     session = sf.Session(engine=engine)
 
@@ -134,7 +139,13 @@ async def test_evaluation_reports_progress_and_incomplete_answers() -> None:
     assert run.score == 100.0
     assert run.incomplete == 1
     assert run.failures == (
-        RunFailure(question.id, fusion.models[0], "invalid_answer", "Model did not return A-D"),
+        RunFailure(
+            question.id,
+            fusion.model_ids[0],
+            "invalid_answer",
+            "Model did not return A-D",
+            name=None,
+        ),
     )
     assert run.model_results[0].failures == 1
     assert updates[0] == (0, 1, "Loading GPQA sample")

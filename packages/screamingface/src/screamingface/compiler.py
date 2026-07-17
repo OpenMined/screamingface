@@ -3,29 +3,28 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from functools import singledispatch
 
 from url4 import Expression, RelExpr, expr, render, src, struct, text
 
+from screamingface.model_inputs import ParameterValue, _FusionMember
 from screamingface.models import models
-from screamingface.reducers import MajorityVote, Reducer, Synthesize
+from screamingface.reducers import MajorityVote, ModelReducer, Reducer
 
-_ANSWER_INTENT = "Answer the multiple-choice question"
-_SYNTHESIZE_INTENT = "Synthesize the panel answers into one final answer"
-_RESULT_SCHEMA = "screamingface.panel-result.v1"
-_FUSION_RESULT_SCHEMA = "screamingface.fusion-result.v1"
+_PANEL_RESULT_SCHEMA = "screamingface.panel-result.v2"
+_FUSION_RESULT_SCHEMA = "screamingface.fusion-result.v2"
 
 
-def fusion_recipe(model_ids: Sequence[str], reducer: Reducer) -> Expression:
+def fusion_recipe(members: Sequence[_FusionMember], reducer: Reducer) -> Expression:
     """Build the unbound URL4 recipe shared by ``Fusion.url4``."""
-    calls = tuple(_panel_call(index, model_id) for index, model_id in enumerate(model_ids, 1))
-    if isinstance(reducer, MajorityVote):
-        return expr(*calls, _panel_result_struct(model_ids))
-    synthesis = src(_synthesis_call(model_ids, reducer), name="fusion_answer")
-    return expr(*calls, synthesis, _fusion_result_struct(model_ids, reducer))
+
+    calls = tuple(_panel_call(index, member) for index, member in enumerate(members, 1))
+    return expr(*calls, *_reducer_sources(reducer, tuple(members)))
 
 
 def bind_question(recipe: Expression, prompt: str) -> Expression:
     """Bind one benchmark prompt without changing the reusable recipe."""
+
     return expr(src(text(prompt), name="question"), *recipe.sources)
 
 
@@ -34,61 +33,97 @@ def render_question(recipe: Expression, prompt: str) -> str:
 
 
 def result_schema() -> str:
-    return _RESULT_SCHEMA
+    return _PANEL_RESULT_SCHEMA
 
 
 def fusion_result_schema() -> str:
     return _FUSION_RESULT_SCHEMA
 
 
-def _panel_call(index: int, model_id: str):
-    route = models.get(model_id).route
-    call = RelExpr(path=route, context="$question", intent=text(_ANSWER_INTENT))
+def _panel_call(index: int, member: _FusionMember):
+    route = models.get(member.model).route
+    call = RelExpr(
+        path=route,
+        context=None,
+        intent=text(member.prompt),
+        params=_url4_params(member.parameter_items),
+    )
     return src(call, name=f"panel_{index}")
 
 
-def _panel_result_struct(model_ids: Sequence[str]):
-    fields: dict[str, str] = {"schema": _RESULT_SCHEMA}
-    fields.update(_panel_fields(model_ids))
+@singledispatch
+def _reducer_sources(reducer: Reducer, members: tuple[_FusionMember, ...]) -> tuple:
+    raise TypeError(f"unsupported reducer: {type(reducer).__name__}")
+
+
+@_reducer_sources.register
+def _(reducer: MajorityVote, members: tuple[_FusionMember, ...]) -> tuple:
+    del reducer
+    return (_panel_result_struct(members),)
+
+
+@_reducer_sources.register
+def _(reducer: ModelReducer, members: tuple[_FusionMember, ...]) -> tuple:
+    panel_answers = src(_panel_answers_struct(members), name="panel_answers")
+    answer = src(_model_reducer_call(reducer), name="fusion_answer")
+    result = _fusion_result_struct(members, reducer)
+    return panel_answers, answer, result
+
+
+def _panel_result_struct(members: Sequence[_FusionMember]):
+    fields: dict[str, str] = {"schema": _PANEL_RESULT_SCHEMA}
+    fields.update(_panel_fields(members))
     return struct(fields)
 
 
-def _synthesis_call(model_ids: Sequence[str], reducer: Synthesize) -> RelExpr:
+def _panel_answers_struct(members: Sequence[_FusionMember]):
+    fields: dict[str, str] = {}
+    for index, member in enumerate(members, 1):
+        fields[f"panel_{index}_id"] = member.id
+        fields[f"panel_{index}_model"] = member.model
+        fields[f"panel_{index}_answer"] = f"$panel_{index}"
+    return struct(fields)
+
+
+def _model_reducer_call(reducer: ModelReducer) -> RelExpr:
     route = models.get(reducer.model).route
-    context = "\n\n".join(
-        ["Question:\n$question"]
-        + [
-            f"Panel {index} [{model_id}]:\n$panel_{index}"
-            for index, model_id in enumerate(model_ids, 1)
-        ]
-    )
     return RelExpr(
         path=route,
-        context=context,
-        intent=text(_SYNTHESIZE_INTENT),
-        params=(
-            ("temperature", str(reducer.temperature)),
-            ("max_tokens", str(reducer.max_tokens)),
-        ),
+        context=None,
+        intent=text(reducer.prompt),
+        params=_url4_params(reducer.parameter_items),
     )
 
 
-def _fusion_result_struct(model_ids: Sequence[str], reducer: Synthesize):
+def _fusion_result_struct(members: Sequence[_FusionMember], reducer: ModelReducer):
     fields: dict[str, str] = {"schema": _FUSION_RESULT_SCHEMA}
-    fields.update(_panel_fields(model_ids))
+    fields.update(_panel_fields(members))
     fields.update(
         {
-            "reducer": reducer.name,
-            "synthesizer_model": reducer.model,
+            "reducer": reducer.kind,
+            "reducer_model": reducer.model,
             "answer": "$fusion_answer",
         }
     )
     return struct(fields)
 
 
-def _panel_fields(model_ids: Sequence[str]) -> dict[str, str]:
+def _panel_fields(members: Sequence[_FusionMember]) -> dict[str, str]:
     fields: dict[str, str] = {}
-    for index, model_id in enumerate(model_ids, 1):
-        fields[f"panel_{index}_model"] = model_id
+    for index, member in enumerate(members, 1):
+        fields[f"panel_{index}_id"] = member.id
+        fields[f"panel_{index}_model"] = member.model
         fields[f"panel_{index}_answer"] = f"$panel_{index}"
     return fields
+
+
+def _url4_params(
+    items: tuple[tuple[str, ParameterValue], ...],
+) -> tuple[tuple[str, str], ...]:
+    return tuple((key, _parameter_text(value)) for key, value in items)
+
+
+def _parameter_text(value: ParameterValue) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)

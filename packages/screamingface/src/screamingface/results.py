@@ -14,6 +14,7 @@ class RunFailure:
     model: str
     code: str
     message: str
+    name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class ModelResult:
     total_tokens: int
     cost_usd: float
     failures: int = 0
+    name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -145,8 +147,13 @@ def _metric(value: float | str, label: str, *, signed: bool = False) -> str:
 
 def _model_result_html(result: ModelResult, best: bool) -> str:
     width = min(100.0, max(0.0, result.score))
-    name = escape(_model_name(result.model))
-    provider = escape(_provider_name(result.model))
+    name = escape(result.name or _model_name(result.model))
+    model_detail = (
+        f"{_model_name(result.model)} · {_provider_name(result.model)}"
+        if result.name
+        else _provider_name(result.model)
+    )
+    provider = escape(model_detail)
     best_label = (
         " <span style='display:inline-block;padding:.08rem .32rem;border-radius:999px;"
         "background:#fef7e0;color:#8a5a00;font-size:.65rem'>best</span>"
