@@ -28,28 +28,52 @@ type ModelInput = str | ModelConfig
 
 
 @dataclass(frozen=True, slots=True)
-class _FusionMember:
-    """One normalized URL4 call slot; intentionally not part of the public API."""
+class _ModelCall:
+    """One normalized URL4 model call shared by panels and model reducers."""
 
-    id: str
     model: str
     prompt: str
     parameter_items: tuple[tuple[str, ParameterValue], ...] = field(repr=False)
-    has_explicit_name: bool = field(repr=False)
 
     @property
     def params(self) -> Mapping[str, ParameterValue]:
         return MappingProxyType(dict(self.parameter_items))
 
+
+@dataclass(frozen=True, slots=True)
+class _FusionMember:
+    """One normalized URL4 panel slot; intentionally not part of the public API."""
+
+    id: str
+    call: _ModelCall
+    has_explicit_name: bool = field(repr=False)
+    has_explicit_prompt: bool = field(repr=False)
+
+    @property
+    def model(self) -> str:
+        return self.call.model
+
+    @property
+    def prompt(self) -> str:
+        return self.call.prompt
+
+    @property
+    def parameter_items(self) -> tuple[tuple[str, ParameterValue], ...]:
+        return self.call.parameter_items
+
+    @property
+    def params(self) -> Mapping[str, ParameterValue]:
+        return self.call.params
+
     def to_model_input(self) -> ModelInput:
         """Return a fresh canonical public string/dictionary representation."""
 
-        if not self.has_explicit_name and self.prompt == "$question" and not self.parameter_items:
+        if not self.has_explicit_name and not self.has_explicit_prompt and not self.parameter_items:
             return self.model
         config: ModelConfig = {"model": self.model}
         if self.has_explicit_name:
             config["name"] = self.id
-        if self.prompt != "$question":
+        if self.has_explicit_prompt:
             config["prompt"] = self.prompt
         if self.parameter_items:
             config["params"] = dict(self.parameter_items)
@@ -62,12 +86,18 @@ class _ModelDraft:
     name: str | None
     prompt: str
     parameter_items: tuple[tuple[str, ParameterValue], ...]
+    has_explicit_prompt: bool
 
 
-def normalize_model_inputs(values: tuple[ModelInput, ...]) -> tuple[_FusionMember, ...]:
+def normalize_model_inputs(
+    values: tuple[ModelInput, ...],
+    *,
+    default_prompt: str = "$question",
+) -> tuple[_FusionMember, ...]:
     """Validate model inputs and assign stable private call-slot identities."""
 
-    drafts = tuple(_model_draft(value) for value in values)
+    normalized_default = _nonempty(default_prompt, "fusion prompt")
+    drafts = tuple(_model_draft(value, normalized_default) for value in values)
     model_counts = Counter(draft.model for draft in drafts)
     occurrences: Counter[str] = Counter()
     members: list[_FusionMember] = []
@@ -81,10 +111,13 @@ def normalize_model_inputs(values: tuple[ModelInput, ...]) -> tuple[_FusionMembe
         members.append(
             _FusionMember(
                 id=draft.name or generated_id,
-                model=draft.model,
-                prompt=draft.prompt,
-                parameter_items=draft.parameter_items,
+                call=_ModelCall(
+                    model=draft.model,
+                    prompt=draft.prompt,
+                    parameter_items=draft.parameter_items,
+                ),
                 has_explicit_name=draft.name is not None,
+                has_explicit_prompt=draft.has_explicit_prompt,
             )
         )
 
@@ -94,9 +127,9 @@ def normalize_model_inputs(values: tuple[ModelInput, ...]) -> tuple[_FusionMembe
     return tuple(members)
 
 
-def _model_draft(value: ModelInput) -> _ModelDraft:
+def _model_draft(value: ModelInput, default_prompt: str) -> _ModelDraft:
     if isinstance(value, str):
-        return _ModelDraft(_nonempty(value, "model id"), None, "$question", ())
+        return _ModelDraft(_nonempty(value, "model id"), None, default_prompt, (), False)
     if not isinstance(value, Mapping):
         value_type = type(value).__name__
         raise TypeError(f"fusion models must be model IDs or model dictionaries, got {value_type}")
@@ -112,11 +145,33 @@ def _model_draft(value: ModelInput) -> _ModelDraft:
     model = _nonempty(value["model"], "model configuration field 'model'")
     name_value = value.get("name")
     name = None if name_value is None else _nonempty(name_value, "model configuration field 'name'")
+    has_explicit_prompt = "prompt" in value
     prompt = _nonempty(
-        value.get("prompt", "$question"),
+        value.get("prompt", default_prompt),
         "model configuration field 'prompt'",
     )
-    return _ModelDraft(model, name, prompt, _parameter_items(value.get("params")))
+    return _ModelDraft(
+        model,
+        name,
+        prompt,
+        _parameter_items(value.get("params")),
+        has_explicit_prompt,
+    )
+
+
+def _make_model_call(
+    *,
+    model: str,
+    prompt: str,
+    params: Mapping[str, ParameterValue] | None = None,
+) -> _ModelCall:
+    """Normalize one model call for any URL4 graph position."""
+
+    return _ModelCall(
+        model=_nonempty(model, "model"),
+        prompt=_nonempty(prompt, "model prompt"),
+        parameter_items=_parameter_items(params),
+    )
 
 
 def _nonempty(value: object, label: str) -> str:

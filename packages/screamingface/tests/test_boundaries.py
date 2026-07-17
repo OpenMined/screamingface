@@ -78,6 +78,8 @@ def test_fusion_and_reducer_validation() -> None:
         sf.Fusion(" ", ids[:2])
     with pytest.raises(ValueError, match="at least two"):
         sf.Fusion("one", ids[:1])
+    with pytest.raises(ValueError, match="fusion prompt"):
+        sf.Fusion("empty-prompt", ids[:2], prompt=" ")
     with pytest.raises(ValueError, match="unknown"):
         sf.Fusion("unknown", [ids[0], "vendor/missing"])
     with pytest.raises(ValueError, match="tie_breaker"):

@@ -107,6 +107,7 @@ own name, prompt, or URL4 parameters:
 ```python
 fusion = sf.Fusion(
     "sampled-opus",
+    prompt="Answer the benchmark question carefully: $question",
     models=[
         {
             "model": "anthropic/claude-sonnet-4-6",
@@ -116,6 +117,7 @@ fusion = sf.Fusion(
         {
             "model": "anthropic/claude-sonnet-4-6",
             "name": "opus-sample-2",
+            "prompt": "Independently solve and check this question: $question",
             "params": {"temperature": 0.7},
         },
     ],
@@ -124,10 +126,17 @@ fusion = sf.Fusion(
 
 A string is shorthand for `{"model": "provider/model"}`. Dictionaries accept only `model`,
 `name`, `prompt`, and `params`; unknown fields fail at fusion construction. Private call-slot
-identities keep repeated models distinct. Reducers remain concrete objects in Python. YAML uses a
-strict `reducer: {kind: ...}` mapping which `Fusion.from_yaml()` converts into the corresponding
-object. `fusion.models` round-trips the canonical strings/dictionaries; `fusion.model_ids` is the
-flat tuple of underlying model IDs.
+identities keep repeated models distinct. `Fusion(prompt=...)` is the shared panel-prompt default;
+a model dictionary's `prompt` overrides it for that call, and the default is `$question` when the
+fusion prompt is omitted.
+
+Panel entries and `ModelReducer` deliberately have different public shapes: model lists are
+compact repeated data, while a reducer is typed executable behavior. Internally they share one
+validated model-call representation and compile with identical URL4 route, prompt, and parameter
+semantics. Reducers remain concrete objects in Python. YAML uses a strict
+`reducer: {kind: ...}` mapping which `Fusion.from_yaml()` converts into the corresponding object.
+`fusion.models` round-trips the canonical strings/dictionaries; `fusion.model_ids` is the flat
+tuple of underlying model IDs.
 
 ## MVP ownership
 

@@ -5,10 +5,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar, Literal, NotRequired, TypedDict, cast
 
-from screamingface.model_inputs import ParameterValue, _parameter_items
+from screamingface.model_inputs import ParameterValue, _make_model_call, _ModelCall
 
 ExecutionLocation = Literal["local", "engine"]
 
@@ -96,13 +96,11 @@ class MajorityVote(LocalReducer):
         return result
 
 
-@dataclass(frozen=True, slots=True, init=False)
+@dataclass(frozen=True, slots=True, init=False, repr=False)
 class ModelReducer(EngineReducer):
     """Use one model and one URL4-native prompt to reduce panel outputs."""
 
-    model: str
-    prompt: str
-    _params: tuple[tuple[str, ParameterValue], ...]
+    _call: _ModelCall = field(repr=False)
     kind: ClassVar[str] = "model"
 
     def __init__(
@@ -112,23 +110,30 @@ class ModelReducer(EngineReducer):
         prompt: str,
         params: Mapping[str, ParameterValue] | None = None,
     ) -> None:
-        if not isinstance(model, str) or not model.strip():
-            raise ValueError("model reducer model must not be empty")
-        if not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError("model reducer prompt must not be empty")
-        object.__setattr__(self, "model", model.strip())
-        object.__setattr__(self, "prompt", prompt.strip())
-        object.__setattr__(self, "_params", _parameter_items(params))
+        object.__setattr__(
+            self, "_call", _make_model_call(model=model, prompt=prompt, params=params)
+        )
+
+    @property
+    def model(self) -> str:
+        return self._call.model
+
+    @property
+    def prompt(self) -> str:
+        return self._call.prompt
 
     @property
     def params(self) -> dict[str, ParameterValue]:
         """Return a defensive copy of request-affecting model parameters."""
 
-        return dict(self._params)
+        return dict(self._call.params)
 
     @property
     def parameter_items(self) -> tuple[tuple[str, ParameterValue], ...]:
-        return self._params
+        return self._call.parameter_items
+
+    def __repr__(self) -> str:
+        return f"ModelReducer(model={self.model!r}, prompt={self.prompt!r}, params={self.params!r})"
 
 
 def reducer_from_config(config: Mapping[str, object]) -> Reducer:

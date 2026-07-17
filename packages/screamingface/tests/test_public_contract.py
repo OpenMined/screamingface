@@ -122,6 +122,20 @@ def test_plain_model_id_is_shorthand_for_minimal_model_dictionary() -> None:
     assert shorthand.url4 == explicit.url4
 
 
+def test_fusion_prompt_is_shared_default_with_per_model_override() -> None:
+    ids = sf.models.list()[:2]
+    fusion = sf.Fusion(
+        "prompted",
+        [ids[0], {"model": ids[1], "prompt": "Override: $question"}],
+        prompt="Shared: $question",
+    )
+
+    assert fusion.prompt == "Shared: $question"
+    assert "!'Shared: $question'" in fusion.url4
+    assert "!'Override: $question'" in fusion.url4
+    assert fusion.models == (ids[0], {"model": ids[1], "prompt": "Override: $question"})
+
+
 def test_duplicate_string_models_receive_automatic_private_slot_ids() -> None:
     model = sf.models.list()[0]
     fusion = sf.Fusion("self-consistency", [model, model])
@@ -160,6 +174,7 @@ def test_fusion_loads_model_dictionaries_and_typed_reducer_from_yaml(tmp_path: P
         "\n".join(
             [
                 "name: configured-yaml",
+                "prompt: Shared panel prompt for $question",
                 "models:",
                 f"  - {ids[0]}",
                 f"  - model: {ids[1]}",
@@ -181,6 +196,7 @@ def test_fusion_loads_model_dictionaries_and_typed_reducer_from_yaml(tmp_path: P
     fusion = sf.Fusion.from_yaml(config)
 
     assert fusion.model_ids == (ids[0], ids[1])
+    assert fusion.prompt == "Shared panel prompt for $question"
     assert fusion.models == (
         ids[0],
         {
@@ -197,7 +213,15 @@ def test_fusion_loads_model_dictionaries_and_typed_reducer_from_yaml(tmp_path: P
     )
     assert "panel_2_id: 'sampled-gemini'" in fusion.url4
     assert "temperature=0.7" in fusion.url4
-    assert sf.Fusion("rebuilt", fusion.models, reducer=fusion.reducer).url4 == fusion.url4
+    assert (
+        sf.Fusion(
+            "rebuilt",
+            fusion.models,
+            reducer=fusion.reducer,
+            prompt=fusion.prompt,
+        ).url4
+        == fusion.url4
+    )
 
 
 @pytest.mark.parametrize(
@@ -208,6 +232,7 @@ def test_fusion_loads_model_dictionaries_and_typed_reducer_from_yaml(tmp_path: P
         ("name: bad\nmodels: [a, b]\nextra: true\n", "unknown field"),
         ("name: [bad]\nmodels: [a, b]\n", "'name' must be a string"),
         ("name: bad\nmodels: not-a-list\n", "'models' must be a list"),
+        ("name: bad\nprompt: [bad]\nmodels: [a, b]\n", "'prompt' must be a string"),
         ("name: bad\nmodels: [a, b]\nreduce: [bad]\n", "'reduce' must be a string"),
         ("name: bad\nmodels: [a, b]\ntie_breaker: [bad]\n", "'tie_breaker' must be"),
         ("name: bad\nmodels: [a, b]\nreducer: majority_vote\n", "must be a mapping"),

@@ -153,6 +153,7 @@ async def test_model_dictionary_reaches_url4_as_named_prompted_parameterized_cal
             },
             ids[1],
         ],
+        prompt="Use the shared panel prompt: $question",
     )
     transport = httpx.ASGITransport(app=node.asgi())
     async with httpx.AsyncClient(transport=transport, base_url="http://url4.test") as http:
@@ -164,6 +165,7 @@ async def test_model_dictionary_reaches_url4_as_named_prompted_parameterized_cal
     assert seen[ids[0]].context == ""
     assert seen[ids[0]].intent == "Answer carefully: Which option?"
     assert seen[ids[0]].params == {"temperature": "0.7", "seed": "1"}
+    assert seen[ids[1]].intent == "Use the shared panel prompt: Which option?"
 
 
 @pytest.mark.asyncio

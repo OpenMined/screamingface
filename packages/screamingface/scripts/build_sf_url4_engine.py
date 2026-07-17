@@ -61,18 +61,26 @@ want a small configuration file to review or share."""
 dictionary only when one model needs its own `name`, `prompt`, or URL4 `params`:
 
 ```python
-models=[
-    "openai/gpt-5.5",
-    {
-        "model": "anthropic/claude-opus-4.8",
-        "name": "opus-sample-1",
-        "params": {"temperature": 0.7},
-    },
-]
+fusion = sf.Fusion(
+    "research-panel",
+    prompt="Answer the benchmark question carefully: $question",
+    models=[
+        "openai/gpt-5.5",
+        {
+            "model": "anthropic/claude-opus-4.8",
+            "name": "opus-sample-1",
+            "prompt": "Independently solve and check this question: $question",
+            "params": {"temperature": 0.7},
+        },
+    ],
+)
 ```
 
-ScreamingFace validates these dictionaries and assigns private call-slot identities. There is no
-public `Member` or `Source` wrapper."""
+`Fusion(prompt=...)` supplies the shared panel prompt. A model dictionary's `prompt` overrides it
+for that call; if neither is supplied, the prompt is `$question`. ScreamingFace validates these
+dictionaries and assigns private call-slot identities. There is no public `Member` or `Source`
+wrapper. Reducers use typed objects because they select executable behavior, but panel calls and
+model reducers share the same validated route, prompt, and parameter semantics internally."""
         ),
         nbformat.v4.new_markdown_cell(
             """### Option B · YAML

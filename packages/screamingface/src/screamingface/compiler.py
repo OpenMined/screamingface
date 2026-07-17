@@ -7,7 +7,7 @@ from functools import singledispatch
 
 from url4 import Expression, RelExpr, expr, render, src, struct, text
 
-from screamingface.model_inputs import ParameterValue, _FusionMember
+from screamingface.model_inputs import ParameterValue, _FusionMember, _ModelCall
 from screamingface.models import models
 from screamingface.reducers import MajorityVote, ModelReducer, Reducer
 
@@ -41,14 +41,7 @@ def fusion_result_schema() -> str:
 
 
 def _panel_call(index: int, member: _FusionMember):
-    route = models.get(member.model).route
-    call = RelExpr(
-        path=route,
-        context=None,
-        intent=text(member.prompt),
-        params=_url4_params(member.parameter_items),
-    )
-    return src(call, name=f"panel_{index}")
+    return src(_url4_model_call(member.call), name=f"panel_{index}")
 
 
 @singledispatch
@@ -86,12 +79,16 @@ def _panel_answers_struct(members: Sequence[_FusionMember]):
 
 
 def _model_reducer_call(reducer: ModelReducer) -> RelExpr:
-    route = models.get(reducer.model).route
+    return _url4_model_call(reducer._call)
+
+
+def _url4_model_call(call: _ModelCall) -> RelExpr:
+    route = models.get(call.model).route
     return RelExpr(
         path=route,
         context=None,
-        intent=text(reducer.prompt),
-        params=_url4_params(reducer.parameter_items),
+        intent=text(call.prompt),
+        params=_url4_params(call.parameter_items),
     )
 
 

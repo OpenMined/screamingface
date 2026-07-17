@@ -35,14 +35,15 @@ class Fusion:
         name: str,
         models: Sequence[ModelInput],
         reducer: Reducer | None = None,
+        *,
+        prompt: str = "$question",
     ) -> None:
-        normalized = "-".join(name.strip().lower().split())
-        if not normalized:
-            raise ValueError("fusion name must not be empty")
+        normalized = _normalize_fusion_name(name)
         raw_models = tuple(models)
         if len(raw_models) < 2:
             raise ValueError("a fusion requires at least two models")
-        members = normalize_model_inputs(raw_models)
+        normalized_prompt = _normalize_fusion_prompt(prompt)
+        members = normalize_model_inputs(raw_models, default_prompt=normalized_prompt)
         for member in members:
             model_catalog.get(member.model)
         reducer = reducer or MajorityVote()
@@ -53,6 +54,7 @@ class Fusion:
         if isinstance(reducer, ModelReducer):
             model_catalog.get(reducer.model)
         self.name = normalized
+        self.prompt = normalized_prompt
         self._members = members
         self.model_ids = tuple(member.model for member in members)
         self.orchestration = "parallel"
@@ -82,7 +84,7 @@ class Fusion:
         if not isinstance(document, Mapping):
             raise ValueError("fusion YAML must contain a mapping")
 
-        allowed = {"name", "models", "reducer", "reduce", "tie_breaker"}
+        allowed = {"name", "models", "prompt", "reducer", "reduce", "tie_breaker"}
         unknown = set(document) - allowed
         if unknown:
             fields = ", ".join(sorted(str(field) for field in unknown))
@@ -181,8 +183,11 @@ class Fusion:
 def _yaml_fusion_config(document: Mapping) -> dict[str, Any]:
     name = document["name"]
     model_inputs = document["models"]
+    prompt = document.get("prompt", "$question")
     if not isinstance(name, str):
         raise ValueError("fusion YAML field 'name' must be a string")
+    if not isinstance(prompt, str):
+        raise ValueError("fusion YAML field 'prompt' must be a string")
     if not isinstance(model_inputs, list) or not all(
         isinstance(model, (str, Mapping)) for model in model_inputs
     ):
@@ -202,7 +207,20 @@ def _yaml_fusion_config(document: Mapping) -> dict[str, Any]:
         "name": name,
         "models": cast("list[str | ModelConfig]", model_inputs),
         "reducer": reducer,
+        "prompt": prompt,
     }
+
+
+def _normalize_fusion_name(name: str) -> str:
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("fusion name must not be empty")
+    return "-".join(name.strip().lower().split())
+
+
+def _normalize_fusion_prompt(prompt: str) -> str:
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("fusion prompt must not be empty")
+    return prompt.strip()
 
 
 def _legacy_yaml_reducer(document: Mapping) -> Reducer:
