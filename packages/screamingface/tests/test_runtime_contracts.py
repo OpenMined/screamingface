@@ -9,6 +9,7 @@ import httpx
 import pytest
 
 import screamingface as sf
+import screamingface.benchmarks as benchmark_module
 import screamingface.engine as engine_module
 import screamingface.evaluation as evaluation
 import screamingface.results as results_module
@@ -158,7 +159,7 @@ async def test_evaluation_validates_benchmark_and_live_loader(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fusion = _fusion()
-    with pytest.raises(ValueError, match="only the 'gpqa'"):
+    with pytest.raises(ValueError, match="unknown benchmark 'other'"):
         await evaluation.evaluate(
             session=sf.Session(),
             fusion=fusion,
@@ -168,8 +169,12 @@ async def test_evaluation_validates_benchmark_and_live_loader(
         )
 
     expected = load_mock_questions(1)
-    monkeypatch.setattr(evaluation, "load_live_questions", lambda first, seed: expected)
-    assert evaluation._load_questions(sf.Session(mode="live"), 1, 4) == expected
+    monkeypatch.setattr(benchmark_module, "load_live_questions", lambda first, seed: expected)
+    loaded = benchmark_module._resolve_benchmark("gpqa").load(sf.Session(mode="live"), 1, 4)
+    assert loaded.display_name == "GPQA Diamond"
+    assert loaded.cases[0].id == expected[0].id
+    assert loaded.cases[0].prompt == expected[0].prompt()
+    assert loaded.cases[0].reference == chr(65 + expected[0].answer)
 
 
 @pytest.mark.asyncio

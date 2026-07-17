@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
-import re
+import asyncio
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from html import escape
 
-from screamingface.data import Question, load_live_questions, load_mock_questions
+from screamingface.benchmarks import _EvaluationCase, _LoadedBenchmark, _resolve_benchmark
 from screamingface.engine import (
     EnginePort,
     Url4EngineClient,
     parse_fusion_result,
     parse_panel_result,
 )
+from screamingface.graders import _ExactChoiceGrader, _Grade, _Grader
 from screamingface.model_inputs import _FusionMember
 from screamingface.reducers import LocalReducer, MajorityVote, ModelReducer
 from screamingface.results import ModelResult, Run, RunFailure
 from screamingface.session import Session, _in_notebook
 
-_ANSWER = re.compile(r"\b([A-D])\b", re.IGNORECASE)
 ProgressCallback = Callable[[int, int, str], None]
 
 
@@ -32,29 +32,33 @@ class QuestionPanel:
 @dataclass
 class RunAccumulator:
     members: tuple[_FusionMember, ...]
-    fusion_correct: int = 0
+    fusion_score: float = 0.0
     incomplete: int = 0
     failures: list[RunFailure] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        self.member_correct = {member.id: 0 for member in self.members}
+        self.member_scores = {member.id: 0.0 for member in self.members}
         self.model_failures = {member.id: 0 for member in self.members}
 
-    def add(self, question: Question, fusion_answer: str, panel: QuestionPanel) -> None:
-        expected = chr(65 + question.answer)
-        self.fusion_correct += fusion_answer == expected
-        self.incomplete += any(not panel.answers[member.id] for member in self.members)
+    def add(
+        self,
+        case: _EvaluationCase,
+        fusion_grade: _Grade,
+        member_grades: dict[str, _Grade],
+    ) -> None:
+        self.fusion_score += fusion_grade.score
+        self.incomplete += any(not member_grades[member.id].valid for member in self.members)
         for member in self.members:
-            answer = panel.answers[member.id]
-            self.member_correct[member.id] += answer == expected
-            if not answer:
+            grade = member_grades[member.id]
+            self.member_scores[member.id] += grade.score
+            if not grade.valid:
                 self.model_failures[member.id] += 1
                 self.failures.append(
                     RunFailure(
-                        question.id,
+                        case.id,
                         member.model,
-                        "invalid_answer",
-                        "Model did not return A-D",
+                        grade.failure_code or "invalid_answer",
+                        grade.failure_message or "Model returned an invalid answer",
                         name=member.id if member.id != member.model else None,
                     )
                 )
@@ -72,47 +76,55 @@ async def evaluate(
 ) -> Run:
     """Evaluate via one URL4 engine request per benchmark question."""
     del preflight  # retained temporarily for call-site compatibility
-    if benchmark != "gpqa":
-        raise ValueError("the MVP supports only the 'gpqa' benchmark")
-    questions = _load_questions(session, first, seed)
+    definition = _resolve_benchmark(benchmark)
+    loaded = definition.load(session, first, seed)
+    cases = loaded.cases
+    grader = definition.grader
     engine = session.engine or Url4EngineClient(session.engine_url)
     totals = RunAccumulator(fusion._members)
     if progress is not None:
-        progress(0, len(questions), "Loading GPQA sample")
-    for index, question in enumerate(questions, 1):
+        progress(0, len(cases), f"Loading {definition.id.upper()} sample")
+    for index, case in enumerate(cases, 1):
         if progress is not None:
-            progress(index - 1, len(questions), f"Question {index}/{len(questions)} · URL4 engine")
-        panel = await _run_question(question, engine, fusion)
+            progress(index - 1, len(cases), f"Question {index}/{len(cases)} · URL4 engine")
+        panel = await _run_question(case, engine, fusion, grader)
         final = _reduce_panel(panel, fusion)
-        totals.add(question, final, panel)
+        fusion_grade, member_grades = await _grade_question(
+            case,
+            final,
+            panel,
+            fusion._members,
+            grader,
+            engine,
+        )
+        totals.add(case, fusion_grade, member_grades)
         if progress is not None:
-            progress(index, len(questions), f"Question {index}/{len(questions)} complete")
-    result = _build_run(session, fusion, questions, totals, seed)
+            progress(index, len(cases), f"Question {index}/{len(cases)} complete")
+    result = _build_run(session, fusion, loaded, totals, seed)
     if progress is not None:
-        progress(len(questions), len(questions), "Complete")
+        progress(len(cases), len(cases), "Complete")
     return result
 
 
 def _reduce_panel(panel: QuestionPanel, fusion) -> str:
     if panel.fusion_answer is not None:
-        return normalize_answer(panel.fusion_answer)
+        return panel.fusion_answer
     if not isinstance(fusion.reducer, LocalReducer):  # pragma: no cover - closed by Fusion
         raise TypeError(f"unsupported local reducer: {type(fusion.reducer).__name__}")
-    answers = tuple(normalize_answer(panel.answers[member.id]) for member in fusion._members)
+    answers = tuple(panel.answers[member.id] for member in fusion._members)
     return fusion.reducer.reduce(
         answers,
         tuple(member.id for member in fusion._members),
     )
 
 
-def _load_questions(session: Session, first: int, seed: int) -> tuple[Question, ...]:
-    if session.mode == "mock":
-        return load_mock_questions(first)
-    return load_live_questions(first, seed)
-
-
-async def _run_question(question: Question, engine: EnginePort, fusion) -> QuestionPanel:
-    expression = fusion.request_for(question.prompt())
+async def _run_question(
+    case: _EvaluationCase,
+    engine: EnginePort,
+    fusion,
+    grader: _Grader,
+) -> QuestionPanel:
+    expression = fusion.request_for(case.prompt)
     body = await engine.evaluate(expression)
     if isinstance(fusion.reducer, LocalReducer):
         result = parse_panel_result(body, fusion._members)
@@ -124,11 +136,26 @@ async def _run_question(question: Question, engine: EnginePort, fusion) -> Quest
         raise TypeError(f"unsupported reducer: {type(fusion.reducer).__name__}")
     return QuestionPanel(
         {
-            member.id: normalize_answer(answer)
+            member.id: grader.parse_answer(answer)
             for member, answer in zip(fusion._members, result.answers, strict=True)
         },
-        fusion_answer=fusion_answer,
+        fusion_answer=(grader.parse_answer(fusion_answer) if fusion_answer is not None else None),
     )
+
+
+async def _grade_question(
+    case: _EvaluationCase,
+    fusion_answer: str,
+    panel: QuestionPanel,
+    members: tuple[_FusionMember, ...],
+    grader: _Grader,
+    engine: EnginePort,
+) -> tuple[_Grade, dict[str, _Grade]]:
+    grades = await asyncio.gather(
+        grader.grade(case, fusion_answer, engine=engine),
+        *(grader.grade(case, panel.answers[member.id], engine=engine) for member in members),
+    )
+    return grades[0], {member.id: grade for member, grade in zip(members, grades[1:], strict=True)}
 
 
 def majority_vote(
@@ -152,25 +179,26 @@ def _majority_processor(model_ids: tuple[str, ...], judge: str | None):
 
 
 def normalize_answer(text: str) -> str:
-    match = _ANSWER.search(text.strip())
-    return match.group(1).upper() if match else ""
+    """Compatibility helper for the MVP's exact-choice answer protocol."""
+
+    return _ExactChoiceGrader().parse_answer(text)
 
 
 def _build_run(
     session: Session,
     fusion,
-    questions: tuple[Question, ...],
+    loaded: _LoadedBenchmark,
     totals: RunAccumulator,
     seed: int,
 ) -> Run:
-    sample_size = len(questions)
-    scores = [100 * count / sample_size for count in totals.member_correct.values()]
-    score = round(100 * totals.fusion_correct / sample_size, 1)
+    sample_size = len(loaded.cases)
+    scores = [100 * score / sample_size for score in totals.member_scores.values()]
+    score = round(100 * totals.fusion_score / sample_size, 1)
     baseline = round(max(scores), 1)
     model_results = tuple(
         ModelResult(
             model=member.model,
-            score=round(100 * totals.member_correct[member.id] / sample_size, 1),
+            score=round(100 * totals.member_scores[member.id] / sample_size, 1),
             prompt_tokens=0,
             completion_tokens=0,
             total_tokens=0,
@@ -181,10 +209,8 @@ def _build_run(
         for member in fusion._members
     )
     return Run(
-        benchmark=(
-            "GPQA-shaped synthetic science fixture" if session.mode == "mock" else "GPQA Diamond"
-        ),
-        dataset_source=session.dataset_source,
+        benchmark=loaded.display_name,
+        dataset_source=loaded.dataset_source,
         mode=session.mode,
         models=fusion.model_ids,
         url=fusion.url4,
