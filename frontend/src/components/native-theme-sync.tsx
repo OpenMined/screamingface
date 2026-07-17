@@ -8,13 +8,15 @@ type TauriGlobal = {
 };
 
 export function NativeThemeSync() {
-  const { resolvedTheme } = useTheme();
+  const { theme, resolvedTheme } = useTheme();
 
   useEffect(() => {
     const tauri = (window as Window & { __TAURI__?: TauriGlobal }).__TAURI__;
-    if (!resolvedTheme || typeof tauri?.core?.invoke !== "function") return;
-    void tauri.core.invoke("update_theme", { isDark: resolvedTheme === "dark" });
-  }, [resolvedTheme]);
+    if (!theme || !resolvedTheme || typeof tauri?.core?.invoke !== "function") return;
+    void tauri.core.invoke("update_theme", {
+      theme: theme === "system" ? null : resolvedTheme,
+    });
+  }, [theme, resolvedTheme]);
 
   return null;
 }

@@ -7,9 +7,19 @@ use {
 };
 
 #[tauri::command]
-pub fn update_theme(app: AppHandle, is_dark: bool) {
+pub fn update_theme(app: AppHandle, theme: Option<String>) {
+  let native_theme = match theme.as_deref() {
+    None => None,
+    Some("dark") => Some(Theme::Dark),
+    Some("light") => Some(Theme::Light),
+    Some(theme) => {
+      log::error!("Ignoring unsupported native window theme: {theme}");
+      return;
+    }
+  };
+
   for (_, window) in app.webview_windows() {
-    if let Err(error) = window.set_theme(Some(if is_dark { Theme::Dark } else { Theme::Light })) {
+    if let Err(error) = window.set_theme(native_theme) {
       log::error!("Failed to update native window theme: {error}");
     }
   }
