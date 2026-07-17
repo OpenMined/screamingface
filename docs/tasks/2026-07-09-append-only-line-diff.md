@@ -62,3 +62,12 @@ unprotected) and one docs-process gap (Round 1's ledger placeholder never
 filled). A walrus-statement edge case documented as a known limitation rather
 than fixed (too exotic to warrant a special case). 21/21 tests pass. See the
 ledger's Round 6 section.
+
+**Round 7 (2026-07-17):** third structured review pass — 5 of 8 angles clean.
+Fixed a real, plausible false positive: appending content after a file that
+lacked a trailing newline produced a git-diff artifact (remove+add of an
+unchanged line) that falsely triggered the gate. Two more mutation-in-place
+examples (`_CASES.append(...)`, `del _CASES[1]`) turned out to be the same
+already-deferred shadowing/monkeypatching class, not new gaps — folded into
+existing documentation instead of new code. 22/22 tests pass. See the
+ledger's Round 7 section.

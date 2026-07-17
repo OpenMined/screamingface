@@ -127,6 +127,16 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
     # (3) a bare module-level walrus statement (`(_TOTAL := 10)`, parsed as an
     #     ast.Expr wrapping an ast.NamedExpr) isn't covered — an exotic enough
     #     pattern in real test code that it isn't worth a special-case check.
+    #     NOTE: unlike (4), adding `ast.NamedExpr` to `_MODULE_LEVEL_DATA` would
+    #     NOT fix this — `tree.body`'s direct child here is the outer `ast.Expr`
+    #     wrapper, never the inner `NamedExpr` itself, so that "just add the
+    #     type" pattern (used for AugAssign) silently does nothing for this case.
+    # (4) mutating a protected object in place (`_CASES.append(...)`,
+    #     `del _CASES[1]`, `_BASE_KW["x"] = 999`) rather than rebinding its name
+    #     isn't covered by ANY allowlist entry, by design — this is the same
+    #     structural name-shadowing/monkeypatching limitation tracked as its own
+    #     follow-up (line-diffing can't see what a statement's *effect* is, only
+    #     its position), not a gap this allowlist could ever close by growing.
     return ranges
 
 
@@ -156,6 +166,15 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
     # at column 0 (e.g. a bare `---` separator) renders as `----` in the diff,
     # which would false-match a content-based header check and silently vanish
     # from `removed` while desyncing `old_line` for every later line in the hunk.
+    #
+    # WHY: also track whether the most recent "-" line was immediately followed
+    # by "\ No newline at end of file" and, if so, whether the very next "+"
+    # line is byte-identical to it. git represents "content was appended after a
+    # file that didn't end in a newline" as a remove+add of that unchanged last
+    # line (its EOF status changed, not its text) — without this check, that
+    # renders as a false "removed/changed" hit on a protected range's last line
+    # for the ordinary, non-adversarial act of appending new content to a file
+    # that happened not to end in `\n`.
     proc = subprocess.run(
         ["git", "diff", "--relative", "--unified=0", base, "--", path],
         cwd=root, capture_output=True, text=True,
@@ -167,6 +186,7 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
     old_line = 0
     in_hunk = False
     pure_insert_hunk = False
+    last_removed: tuple[int, str, bool] | None = None  # (old_line, content, no_newline)
     for line in proc.stdout.splitlines():
         if line.startswith("@@"):
             m = _HUNK_HEADER.match(line)
@@ -183,20 +203,31 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
                 # between two functions falsely flags the second function).
                 pure_insert_hunk = old_count == 0
             in_hunk = True
+            last_removed = None
         elif not in_hunk:
             continue  # pre-hunk file header (diff --git / index / --- a/ / +++ b/)
         elif line.startswith("\\"):
-            continue  # "\ No newline at end of file" — never consumes a line number
+            # "\ No newline at end of file" describes the line just emitted —
+            # never consumes a line number, but mark it on a pending removal so
+            # a byte-identical "+" right after can be recognized as an EOF-status
+            # artifact, not a real edit.
+            if last_removed is not None:
+                last_removed = (last_removed[0], last_removed[1], True)
         elif line.startswith("-"):
             removed.add(old_line)
+            last_removed = (old_line, line[1:], False)
             old_line += 1
         elif line.startswith("+"):
-            if pure_insert_hunk:
+            if last_removed is not None and last_removed[2] and last_removed[1] == line[1:]:
+                removed.discard(last_removed[0])
+            elif pure_insert_hunk:
                 inserted_after.add(old_line)  # anchored right after the current old_line
             # else: part of a replace pair with a preceding "-" in THIS hunk —
             # already captured via `removed`; anchoring it too would double-count
             # and can mis-fire per the WHY note above.
+            last_removed = None
         else:
+            last_removed = None
             old_line += 1  # context line (present only if a non-zero unified context is used)
     return removed, inserted_after
 

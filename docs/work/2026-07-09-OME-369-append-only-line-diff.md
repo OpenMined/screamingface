@@ -470,3 +470,81 @@ real, low-severity items:
   New test confirmed to fail on round-5 code, pass on round-6 code.
   `python3 -m py_compile` and `uvx ruff check` clean.
 - **Deviations:** none from the round-6 plan.
+
+## Round 7 (2026-07-17) — third structured code-review pass
+
+Per the user's request to loop review rounds until one comes back clean. 5 of
+8 angles clean this round (cross-file, reuse, removed-behavior auditor,
+efficiency clean-except-one-polish-nit, simplification clean-except-one-doc-nit).
+Two angles found real things:
+
+- **Line-by-line** (verified by execution): a protected range's LAST line, if
+  it lacked a trailing newline at `base`, produces a git-diff artifact when new
+  content is appended after it — git represents the unchanged line as a
+  remove+add pair purely because its EOF status changed (a newline character
+  had to be added to make room for what follows), not because its text
+  changed. `_diff_positions` tracked only line *numbers*, so this false-matched
+  as a real edit — a plausible, non-adversarial trigger (any file lacking a
+  trailing newline, then having a normal new test appended), unlike the
+  already-deferred shadowing class. Fixed: track whether a removed line was
+  marked `\ No newline at end of file` and, if the immediately-following `+`
+  line is byte-identical, treat it as a no-op rather than a real change.
+- **Altitude** (verified by execution): found two more concrete instances of
+  mutating a protected object in place rather than rebinding its name —
+  `_CASES.append(...)` (an `ast.Expr` wrapping a `Call`) and `del _CASES[1]`
+  (`ast.Delete`) both bypass the gate. On reflection these are NOT new
+  independent allowlist gaps — they're the SAME structural
+  name-shadowing/monkeypatching limitation already identified and deferred
+  (mutating shared state in place instead of rebinding a name; adding
+  `Expr`/`Delete` to the allowlist wouldn't close this class either, and
+  broadly allowlisting `ast.Expr` would reopen the round-5 docstring false
+  positive). Folded into the existing "known gaps" AIDEV-NOTE as bullet (4)
+  with these two concrete examples, rather than treated as new code to write.
+
+Also applied, from **simplification**: a doc-only addition warning that the
+"just add the type to `_MODULE_LEVEL_DATA`" fix pattern (used for `AugAssign`)
+would NOT work for the walrus-statement gap, since `tree.body`'s direct child
+there is the outer `ast.Expr`, never the inner `NamedExpr` — prevents a future
+contributor from shipping a no-op "fix."
+
+Deliberately NOT acted on: efficiency's suggestion to fold 3 `git config`
+subprocess calls into `-c` flags on the commit call in the test suite (pure
+speed polish, zero correctness impact).
+
+## Planned changes (round 7)
+
+- `.claude/scripts/run_gates.py`: `_diff_positions` tracks `last_removed`
+  (old_line, content, no_newline_flag) so a `-`/no-newline-marker/byte-identical
+  `+` sequence is recognized as an EOF-status artifact and excluded from
+  `removed`. "Known gaps" AIDEV-NOTE gains bullet (4) (mutation-in-place
+  examples) and a warning note on bullet (3) (walrus fix-pattern doesn't work).
+- `.claude/scripts/tests/test_run_gates.py`: 1 new test —
+  `test_append_after_file_without_trailing_newline_passes`.
+
+## Test plan (round 7)
+
+- Same discipline as every prior round: the new test confirmed to fail against
+  a snapshot of round-6 code (reproduced the exact real `git diff` shape:
+  `-content` / `\ No newline at end of file` / `+content` / more `+` lines),
+  pass on round-7 code.
+- Full 22-test matrix (21 from rounds 1-6 + 1 new) passes.
+
+## Acceptance (round 7)
+
+- EOF-newline-artifact false positive fixed; 22/22 tests pass.
+- No regression: all 21 prior tests still pass unmodified.
+- Documentation gaps (walrus fix-pattern warning, mutation-in-place examples)
+  added without any corresponding code change, since both are correctly
+  out-of-scope for this allowlist mechanism.
+
+## Outcome (round 7, fill at the end — required before COMMIT)
+
+- **Actual files:**
+  - `.claude/scripts/run_gates.py` — `_diff_positions`'s `last_removed`
+    tracking for the EOF-newline-artifact fix; AIDEV-NOTE additions.
+  - `.claude/scripts/tests/test_run_gates.py` — 1 new test, 22 total.
+- **Commits:** <fill after commit>
+- **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 22/22 pass.
+  New test confirmed to fail on round-6 code, pass on round-7 code.
+  `python3 -m py_compile` and `uvx ruff check` clean.
+- **Deviations:** none from the round-7 plan.

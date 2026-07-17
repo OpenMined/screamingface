@@ -384,6 +384,23 @@ class AppendOnlyCheckTests(unittest.TestCase):
             )
             self.assertFalse(self._check(root, base))
 
+    def test_append_after_file_without_trailing_newline_passes(self):
+        """Regression test (code-review finding): appending new content after a
+        protected range's last line, when that file didn't end in a newline at
+        base, must stay legitimate — git represents the unchanged last line as
+        a remove+add pair purely because its EOF status changed, not its text."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            with open(root / "test_a.py", "w", newline="\n") as f:
+                f.write("def test_one():\n    assert 1 == 1")  # no trailing newline
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                "def test_one():\n    assert 1 == 1\n\n\ndef test_two():\n    assert 2 == 2\n",
+            )
+            self.assertTrue(self._check(root, base))
+
 
 if __name__ == "__main__":
     unittest.main()
