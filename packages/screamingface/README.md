@@ -5,15 +5,8 @@ best individual model.
 
 ## Quickstart
 
-The committed quickstart uses deterministic routes through the real URL4 HTTP engine. Start its
-model routes in one terminal:
-
-```bash
-cd packages/screamingface
-./scripts/dev-url4.sh
-```
-
-Then run the SDK:
+The quickstart is zero-setup. ScreamingFace defaults to a real URL4 node running in-process, with
+deterministic model-route handlers that never contact AI Gateway or a provider:
 
 ```python
 import screamingface as sf
@@ -33,10 +26,33 @@ run = fusion.evaluate("gpqa", first=20, seed=0)
 print(run.score, run.baseline, run.gain)
 ```
 
-`sf.config()` is not required. By default, GPQA evaluation sends one complete URL4 expression per
-question to `http://127.0.0.1:4404/v1`. Engine-graded benchmarks such as DRACO send additional
-judge expressions through the same endpoint. Set `SCREAMINGFACE_ENGINE_URL` or call
-`sf.config("http://host:port")` to use another engine address.
+`sf.config()` is not required. The default mock engine still parses and executes every complete
+expression with `Url4Node`; only its leaf model responses are local fixtures. Engine-graded
+benchmarks such as DRACO send their judge expressions through the same in-process node.
+
+Execution and dataset selection are independent:
+
+| Configuration | URL4 execution | Benchmark data |
+|---|---|---|
+| no configuration | in-process deterministic node | bundled fixture |
+| `sf.config(mode="live")` | in-process deterministic node | live dataset |
+| `sf.config("http://127.0.0.1:4404")` | HTTP URL4 engine | bundled fixture |
+| `sf.config("https://url4.example", mode="live")` | HTTP URL4 engine | live dataset |
+
+`SCREAMINGFACE_ENGINE_URL` selects an HTTP engine without changing notebook code. An explicitly
+selected HTTP engine never falls back to the mock if it is unavailable.
+
+The same switch is available explicitly in code:
+
+```python
+sf.config(engine="mock")                 # deterministic in-process URL4 node
+sf.config("http://127.0.0.1:4404")       # strict HTTP; errors stay visible
+```
+
+Every completed `Run` records these independent choices as `run.engine` (`"mock"` or the HTTP
+URL) and `run.mode` (`"mock"` fixture data or `"live"` dataset data). The result card displays
+both, preventing a live dataset run against deterministic routes from being mistaken for provider
+inference.
 
 The deterministic routes return complementary answers, producing a repeatable result:
 
@@ -50,14 +66,15 @@ These values demonstrate the ensemble workflow, not real provider quality.
 
 ## Execution boundary
 
-ScreamingFace exclusively contacts the URL4 engine for model execution:
+ScreamingFace delegates all model execution to the selected URL4 engine:
 
 ```text
 ScreamingFace SDK
     builds one concrete URL4 expression
              │
-             ▼
-GET URL4_ENGINE/v1?q=<expression>
+             ├── default ──► in-process Url4Node
+             │
+             └── HTTP ─────► GET URL4_ENGINE/v1?q=<expression>
              │
              ▼
 URL4 engine dispatches /provider/model routes
@@ -69,8 +86,9 @@ engine returns one labeled panel-result struct
 ScreamingFace votes and scores locally
 ```
 
-The SDK does not call AI Gateway or model providers, and it has no inference fallback. Real model
-routes may contact AI Gateway internally, but that is owned by the URL4 engine application.
+The SDK does not call AI Gateway or model providers. The selected engine is visible in every run;
+the mock is never used as a fallback for an unavailable HTTP engine. Production model routes may contact
+AI Gateway internally, but that is owned by the URL4 engine application.
 
 ## Recipe versus request
 
@@ -174,7 +192,23 @@ The current response schemas are `screamingface.panel-result.v2` and
 fields. Private slot IDs identify calls separately from models, preserving association when calls
 complete out of order and allowing one model to appear in multiple sampled or role-specific slots.
 
-## Local deterministic engine
+## Deterministic URL4 engine
+
+The default engine is implemented by a real in-process `Url4Node`. It receives the complete URL4
+expression, resolves bindings and dependencies, invokes deterministic model endpoints, and returns
+the same result schemas expected from an HTTP engine. This lets Python, YAML, reducer, benchmark,
+and DRACO examples run without a background process while still exercising URL4 itself.
+
+The deterministic handlers preserve the curated GPQA and DRACO fixtures and provide stable
+fallback responses for custom prompts. Their outputs test orchestration mechanics only; scores are
+not provider-quality measurements.
+
+To exercise the identical routes over actual HTTP, run:
+
+```bash
+cd packages/screamingface
+./scripts/dev-url4.sh
+```
 
 [`url4.dev.toml`](url4.dev.toml) registers the three panel routes and the DRACO judge route:
 
@@ -185,13 +219,13 @@ complete out of order and allowing one model to appear in multiple sampled or ro
 /gemini/3.1-pro-preview
 ```
 
-They invoke [`scripts/url4_mock_model.py`](scripts/url4_mock_model.py), which receives the resolved
-URL4 intent and returns a deterministic GPQA answer, DRACO research response, synthesis, or rubric
-verdict. It never contacts AI Gateway. The URL4 package and engine source are not modified.
+The in-process node and optional command server share the same deterministic handlers. They return
+GPQA answers, DRACO research responses, synthesis, and rubric verdicts without contacting
+AI Gateway. The URL4 package and engine source are not modified.
 
 The DRACO grader sends the paper-aligned system prompt as URL4 intent, the criterion request as
 URL4 context, and `temperature=0.2`, `reasoning=low`, and `max_tokens=4096` as model parameters.
-The local command routes execute deterministic fixtures and do not consume request parameters.
+The deterministic routes do not execute provider capabilities or consume request parameters.
 Production URL4 routes must preserve the judge request's intent/context as system/user messages,
 honor model parameters and `tools=web_search`, and contact AI Gateway internally. Authentication,
 hosted deployment, streaming, and usage/cost/tool telemetry remain engine-application contracts.
@@ -201,12 +235,6 @@ hosted deployment, streaming, and usage/cost/tool telemetry remain engine-applic
 ```bash
 cd packages/screamingface
 uv sync --extra notebook
-./scripts/dev-url4.sh
-```
-
-In another terminal:
-
-```bash
 uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
 # Detailed URL4 request and node walkthrough:
 uv run --extra notebook jupyter lab examples/sf_url4_engine.ipynb
@@ -216,3 +244,6 @@ uv run pytest
 uv run ruff check .
 uv run pyright
 ```
+
+No server is required for the notebooks. Run `./scripts/dev-url4.sh` only when testing the optional
+HTTP transport, then select it with `sf.config("http://127.0.0.1:4404")`.

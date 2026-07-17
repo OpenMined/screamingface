@@ -17,8 +17,9 @@ def notebook() -> nbformat.NotebookNode:
 Combine three model routes into one URL4-backed fusion, run it on deterministic benchmark
 questions, and measure whether the majority beats the best individual model.
 
-This uses deterministic model routes through the **real URL4 HTTP engine**. Before running the
-notebook, start them from `packages/screamingface`:
+By default, this uses a real URL4 node in-process with deterministic model-route leaves, so the
+whole notebook runs without services or credentials. To exercise the same expressions over HTTP,
+start the optional development engine from `packages/screamingface`:
 
 ```bash
 ./scripts/dev-url4.sh
@@ -26,7 +27,7 @@ notebook, start them from `packages/screamingface`:
 
 To fetch GPQA Diamond instead of the bundled fixture, first accept its gated dataset terms and be
 logged in to Hugging Face, then select the live dataset with `sf.config(mode="live")`. Your URL4
-engine must also expose production-backed model routes.
+engine only needs production-backed routes when you explicitly select an HTTP engine.
 
 The saved run uses deterministic routes, so its result is reproducible and makes no
 provider-quality claim."""
@@ -34,7 +35,8 @@ provider-quality claim."""
         nbformat.v4.new_markdown_cell("## 1 · Import the SDK"),
         nbformat.v4.new_code_cell(
             "import screamingface as sf\n\n"
-            "# Optional: point the SDK at a hosted engine instead of the localhost default.\n"
+            "# Optional: send the same expressions over HTTP instead of running URL4 in-process.\n"
+            '# sf.config("http://127.0.0.1:4404")  # first run ./scripts/dev-url4.sh\n'
             '# sf.config("https://url4.example")'
         ),
         nbformat.v4.new_markdown_cell(
@@ -112,12 +114,14 @@ sends nothing. Evaluation binds each concrete question later."""
         nbformat.v4.new_markdown_cell(
             """## 4 · Run through the URL4 engine
 
-For each question, ScreamingFace sends one complete expression to
-`http://127.0.0.1:4404/v1`. The engine executes all three model routes and returns their labeled
-answers. ScreamingFace never calls those routes, AI Gateway, or providers directly."""
+The default in-process URL4 node parses the complete expression, executes all three deterministic
+model routes, and returns their labeled answers without network I/O. When an HTTP engine is
+selected, ScreamingFace sends that same expression to `/v1`; it never calls model routes,
+AI Gateway, or providers directly."""
         ),
         nbformat.v4.new_code_cell(
-            "# For each question: GET http://127.0.0.1:4404/v1?q=<URL-encoded fusion expression>\n"
+            "# HTTP-engine equivalent:\n"
+            "# GET http://127.0.0.1:4404/v1?q=<URL-encoded fusion expression>\n"
             "# Decoded q expression:\n"
             "# (question='<resolved GPQA prompt>',\n"
             "#  panel_1=/codex/gpt-5.5()!'$question',\n"

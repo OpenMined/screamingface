@@ -243,6 +243,7 @@ def _build_run(
         baseline=baseline,
         gain=round(score - baseline, 1),
         cost_usd=0.0,
+        engine=session.engine_url,
         fusion_name=fusion.name,
         reducer=fusion.reducer.name,
         tie_breaker=(

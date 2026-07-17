@@ -43,6 +43,7 @@ class Run:
     baseline: float
     gain: float
     cost_usd: float
+    engine: str = "mock"
     fusion_name: str = "fusion"
     reducer: str = "majority_vote"
     tie_breaker: str | None = None
@@ -66,10 +67,12 @@ class Run:
 
 
 def _run_html(run: Run) -> str:
-    simulated = run.mode == "mock"
-    mode_note = "no provider-quality claim" if simulated else "provider responses"
-    cost_value = "$0.000" if simulated else f"${run.cost_usd:.4f}"
-    cost_label = "no provider spend" if simulated else "estimated cost"
+    mock_engine = run.engine == "mock"
+    engine_note = (
+        "local URL4 mock · no provider-quality claim" if mock_engine else "HTTP URL4 engine"
+    )
+    cost_value = "$0.000" if mock_engine else f"${run.cost_usd:.4f}"
+    cost_label = "no provider spend" if mock_engine else "estimated cost"
     metrics = "".join(
         [
             _metric(run.score, f"fusion {_metric_label(run.primary_metric)}"),
@@ -117,14 +120,23 @@ def _run_html(run: Run) -> str:
         "<div style='display:grid;grid-template-columns:repeat(4,minmax(105px,1fr));"
         f"gap:.5rem;margin:1rem 0 .75rem'>{metrics}</div>"
         "<div style='padding:.55rem .7rem;background:#f8f9fa;border:1px solid #eceff1;"
-        f"border-radius:7px;font-size:.78rem;color:#3c4043'>{recipe} · {mode_note}</div>"
+        f"border-radius:7px;font-size:.78rem;color:#3c4043'>{recipe} · {engine_note}</div>"
         f"{models}{incomplete}"
         "<div style='margin-top:.8rem;padding-top:.65rem;border-top:1px solid #eceff1;"
         "font-size:.72rem;color:#70757a'>"
-        f"Dataset: {dataset} · {escape(run.pricing_source)}{pricing_date} · "
+        f"Dataset: {dataset} ({escape(run.mode)}) · Engine: {escape(_engine_label(run.engine))} · "
+        f"{escape(run.pricing_source)}{pricing_date} · "
         f"{run.total_tokens:,} tokens"
         "</div></div>"
     )
+
+
+def _engine_label(engine: str) -> str:
+    if engine == "mock":
+        return "in-process deterministic URL4 node"
+    if engine == "custom":
+        return "custom URL4 client"
+    return engine
 
 
 def _metric(value: float | str, label: str, *, signed: bool = False) -> str:

@@ -1,9 +1,10 @@
-# Local-only URL4 server configuration for the deterministic SDK quickstart.
-# These commands simulate model routes; they never contact AI Gateway.
+# Optional HTTP version of ScreamingFace's deterministic in-process URL4 node.
+# Each command enters the ScreamingFace project environment and calls the same
+# leaf handler used in-process. These routes never contact AI Gateway.
 default_route = "/codex/gpt-5.5"
 
 [commands]
-"/codex/gpt-5.5" = ["python3", "../screamingface/scripts/url4_mock_model.py", "codex/gpt-5.5", "{intent}"]
-"/gemini/2.5" = ["python3", "../screamingface/scripts/url4_mock_model.py", "gemini-cli/gemini-2.5-pro", "{intent}"]
-"/claude/sonnet-4.6" = ["python3", "../screamingface/scripts/url4_mock_model.py", "anthropic/claude-sonnet-4-6", "{intent}"]
-"/gemini/3.1-pro-preview" = ["python3", "../screamingface/scripts/url4_mock_model.py", "google/gemini-3.1-pro-preview", "{intent}"]
+"/codex/gpt-5.5" = ["uv", "run", "--project", "../screamingface", "python", "../screamingface/scripts/url4_mock_model.py", "codex/gpt-5.5", "{intent}"]
+"/gemini/2.5" = ["uv", "run", "--project", "../screamingface", "python", "../screamingface/scripts/url4_mock_model.py", "gemini-cli/gemini-2.5-pro", "{intent}"]
+"/claude/sonnet-4.6" = ["uv", "run", "--project", "../screamingface", "python", "../screamingface/scripts/url4_mock_model.py", "anthropic/claude-sonnet-4-6", "{intent}"]
+"/gemini/3.1-pro-preview" = ["uv", "run", "--project", "../screamingface", "python", "../screamingface/scripts/url4_mock_model.py", "google/gemini-3.1-pro-preview", "{intent}"]

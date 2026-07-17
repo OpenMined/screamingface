@@ -236,7 +236,7 @@ def test_session_replacement_lifecycle_and_sync_worker() -> None:
 
     assert first.closed
     assert second.dataset_source.startswith("gated:")
-    assert "LIVE DATASET" in second._repr_html_()
+    assert "live dataset" in second._repr_html_()
     assert session_module._run(asyncio.sleep(0, result="done")) == "done"
 
     second.close()
@@ -279,6 +279,7 @@ def test_result_card_covers_mock_live_failure_and_name_variants() -> None:
     assert "safe&lt;script&gt;" in html
     assert "2 questions" in html
     assert "no provider-quality claim" in html
+    assert "in-process deterministic URL4 node" in html
     assert "1 incomplete question rows" in html
     assert "OpenAI Codex" in html
     assert "Custom Provider" in html
@@ -287,6 +288,7 @@ def test_result_card_covers_mock_live_failure_and_name_variants() -> None:
     live = replace(
         mock,
         mode="live",
+        engine="https://url4.example",
         gain=-2.0,
         cost_usd=1.23456,
         incomplete=0,
@@ -296,7 +298,8 @@ def test_result_card_covers_mock_live_failure_and_name_variants() -> None:
     )
     live_html = live._repr_html_()
     assert "$1.2346" in live_html
-    assert "provider responses" in live_html
+    assert "HTTP URL4 engine" in live_html
+    assert "https://url4.example" in live_html
     assert "as of 2026-07-16" in live_html
     assert "#b3261e" in live_html
 

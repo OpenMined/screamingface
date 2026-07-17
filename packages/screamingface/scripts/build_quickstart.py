@@ -17,20 +17,19 @@ def notebook() -> nbformat.NotebookNode:
 Compose three models, evaluate their majority vote, and check whether the fusion beats its best
 individual model.
 
-This quickstart uses deterministic model routes through the real local URL4 engine. Start it from
-`packages/screamingface`, then run the notebook:
-
-```bash
-./scripts/dev-url4.sh
-```
+This quickstart is zero-setup. By default, ScreamingFace runs a real URL4 node in-process and its
+model-route leaves return deterministic local answers. URL4 still parses and executes the complete
+fusion graph; no AI Gateway or provider is contacted.
 
 To fetch GPQA Diamond instead of the bundled fixture, first accept its gated dataset terms and be
-logged in to Hugging Face, then select the live dataset with `sf.config(mode="live")`. Your URL4
-engine must also expose production-backed model routes."""
+logged in to Hugging Face, then select the live dataset with `sf.config(mode="live")`. Dataset mode
+and engine mode are independent, so this still uses the local mock engine unless you select an
+HTTP URL4 engine explicitly."""
         ),
         nbformat.v4.new_code_cell(
             "import screamingface as sf\n\n"
-            "# Optional: point the SDK at a hosted engine instead of the localhost default.\n"
+            "# Optional: replace the default in-process mock with an HTTP URL4 engine.\n"
+            '# sf.config("http://127.0.0.1:4404")  # first run ./scripts/dev-url4.sh\n'
             '# sf.config("https://url4.example")'
         ),
         nbformat.v4.new_markdown_cell("## 1 · Compose"),

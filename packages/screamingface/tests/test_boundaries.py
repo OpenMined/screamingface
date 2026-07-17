@@ -9,6 +9,7 @@ import screamingface as sf
 import screamingface.data as data
 import screamingface.evaluation as evaluation
 import screamingface.session as session_module
+from screamingface.engine import EnginePort
 from screamingface.errors import DatasetUnavailable
 
 
@@ -63,6 +64,31 @@ def test_setup_is_optional_and_only_configures_url4_engine(
     assert "URL4 engine" in session._repr_html_()
 
 
+def test_zero_configuration_uses_in_process_url4_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SCREAMINGFACE_ENGINE_URL", raising=False)
+
+    session = session_module.require_session()
+
+    assert session.engine_url == "mock"
+    assert session.engine is not None
+    assert "local URL4 mock" in session._repr_html_()
+
+
+def test_custom_engine_client_has_distinct_provenance() -> None:
+    class CustomEngine:
+        async def evaluate(self, expression: str) -> str:
+            return expression
+
+    engine: EnginePort = CustomEngine()
+    session = sf.config(engine_client=engine)
+
+    assert session.engine_url == "custom"
+    assert session.engine is engine
+    assert "custom URL4 client" in session._repr_html_()
+
+
 def test_explicit_setup_overrides_engine_and_validates_mode() -> None:
     session = sf.config("http://other.test:9000")
 
@@ -70,6 +96,10 @@ def test_explicit_setup_overrides_engine_and_validates_mode() -> None:
     assert sf.current_session() is session
     with pytest.raises(ValueError, match="mode"):
         sf.config(mode=cast(session_module.Mode, "invalid"))
+    with pytest.raises(ValueError, match="non-empty URL"):
+        sf.config(" ")
+    with pytest.raises(ValueError, match=r"http\(s\) URL"):
+        sf.config("not-a-url")
 
 
 def test_fusion_and_reducer_validation() -> None:

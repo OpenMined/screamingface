@@ -17,13 +17,9 @@ def notebook() -> nbformat.NotebookNode:
 Build an open-ended research fusion, execute every model through URL4, and compare its weighted
 DRACO rubric score with the same panel members scored individually.
 
-The saved run uses two bundled DRACO-shaped cases and deterministic URL4 routes. It validates the
-complete ScreamingFace request and response contract without making a provider-quality claim.
-Start the local engine from `packages/screamingface` before running:
-
-```bash
-./scripts/dev-url4.sh
-```
+The saved run uses two bundled DRACO-shaped cases and an in-process URL4 node with deterministic
+model routes. It validates the complete ScreamingFace request and response contract without setup,
+credentials, or a provider-quality claim.
 
 The final section identifies the remaining production boundary: the configured URL4 model routes
 must execute the capabilities and parameters that ScreamingFace emits."""
@@ -31,7 +27,8 @@ must execute the capabilities and parameters that ScreamingFace emits."""
         nbformat.v4.new_markdown_cell("## 1 · Import and configure"),
         nbformat.v4.new_code_cell(
             "import screamingface as sf\n\n"
-            "# Optional: point every model and judge call at another URL4 engine.\n"
+            "# Optional: send every model and judge call to an HTTP URL4 engine.\n"
+            '# sf.config("http://127.0.0.1:4404")  # first run ./scripts/dev-url4.sh\n'
             '# sf.config("https://url4.example")'
         ),
         nbformat.v4.new_markdown_cell(
@@ -110,8 +107,8 @@ and judge protocol.
 
 ## 6 · What the production URL4 engine must handle
 
-The bundled local URL4 node validates the request and response shapes deterministically. Replacing
-it with a production URL4 engine requires the engine to:
+The bundled in-process URL4 node validates the request and response shapes deterministically.
+Replacing it with a production HTTP URL4 engine requires the engine to:
 
 - accept each complete expression at `GET /v1?q=<url4 expression>` and execute its dependency graph;
 - dispatch every `/provider/model` node to the corresponding production model route;

@@ -13,23 +13,38 @@ if TYPE_CHECKING:
     from screamingface.engine import EnginePort
 
 Mode = Literal["live", "mock"]
-_LOCAL_ENGINE = "http://127.0.0.1:4404"
+_MOCK_ENGINE = "mock"
 
 
 @dataclass
 class Session:
     mode: Mode = "mock"
-    engine_url: str = _LOCAL_ENGINE
+    engine_url: str = _MOCK_ENGINE
     static_widgets: bool = False
     dataset_source: str = "synthetic-gpqa-shaped"
     engine: EnginePort | None = field(default=None, repr=False, compare=False)
     closed: bool = field(default=False, init=False)
 
+    def __post_init__(self) -> None:
+        from screamingface._mock_engine import MockUrl4Engine
+
+        if self.engine is None and self.engine_url == _MOCK_ENGINE:
+            self.engine = MockUrl4Engine()
+        elif self.engine is not None and self.engine_url == _MOCK_ENGINE:
+            if not isinstance(self.engine, MockUrl4Engine):
+                self.engine_url = "custom"
+
     def _repr_html_(self) -> str:
-        label = "SIMULATED" if self.mode == "mock" else "LIVE DATASET"
+        dataset = "synthetic fixture" if self.mode == "mock" else "live dataset"
+        if self.engine_url == _MOCK_ENGINE:
+            engine = "local URL4 mock"
+        elif self.engine_url == "custom":
+            engine = "custom URL4 client"
+        else:
+            engine = self.engine_url
         return (
-            "<div><strong>ScreamingFace</strong> "
-            f"<code>{label}</code><br>URL4 engine: {self.engine_url}</div>"
+            "<div><strong>ScreamingFace</strong><br>"
+            f"Dataset: {dataset}<br>URL4 engine: {engine}</div>"
         )
 
     def close(self) -> None:
@@ -48,15 +63,27 @@ def config(
     static_widgets: bool = False,
     engine_client: EnginePort | None = None,
 ) -> Session:
-    """Configure the URL4 engine and dataset mode; calling this is optional."""
+    """Configure execution and dataset modes; calling this is optional.
+
+    ``engine="mock"`` selects the deterministic in-process URL4 node. A URL
+    selects strict HTTP execution with no fallback if that engine is unavailable.
+    """
     if mode not in ("live", "mock"):
         raise ValueError("mode must be 'live' or 'mock'")
     dataset_source = (
         "synthetic-gpqa-shaped" if mode == "mock" else "gated:Idavidrein/gpqa:gpqa_diamond"
     )
+    selected_engine = (
+        engine if engine is not None else os.getenv("SCREAMINGFACE_ENGINE_URL") or _MOCK_ENGINE
+    )
+    if not isinstance(selected_engine, str) or not selected_engine.strip():
+        raise ValueError("engine must be 'mock' or a non-empty URL")
+    selected_engine = selected_engine.strip()
+    if selected_engine != _MOCK_ENGINE and not selected_engine.startswith(("http://", "https://")):
+        raise ValueError("engine must be 'mock' or an http(s) URL")
     session = Session(
         mode=mode,
-        engine_url=engine or os.getenv("SCREAMINGFACE_ENGINE_URL") or _LOCAL_ENGINE,
+        engine_url=selected_engine,
         static_widgets=static_widgets,
         dataset_source=dataset_source,
         engine=engine_client,
