@@ -70,10 +70,22 @@ def load_card(path: pathlib.Path) -> dict:
 _HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@")
 
 
-def _old_test_ranges(root: pathlib.Path, base: str, path: str) -> list[tuple[int, int]]:
-    """Line ranges (1-indexed, inclusive) of every test function body in `path` at `base`."""
+def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tuple[int, int]]:
+    """Line ranges (1-indexed, inclusive) of every function body in `path` at `base`.
+
+    AIDEV-NOTE: `path` is cwd-relative (it comes from `git diff --relative`), but
+    `git show rev:path` resolves a bare path relative to the REPO ROOT, not cwd —
+    the `./` prefix is what makes it cwd-relative. Without it, this silently returns
+    `[]` (falls into the "didn't exist" branch) for every stack whose root isn't the
+    repo root, i.e. every real stack in `.claude/sdlc.local.md`.
+
+    INVARIANT: covers EVERY function, not just `test_*`-named ones — a `conftest.py`
+    fixture or a plain helper a test depends on is just as protected as the test
+    itself. Rule 5 doesn't only mean "don't rewrite a `def test_...`" — it means
+    don't silently change what a previously-committed test actually exercises.
+    """
     proc = subprocess.run(
-        ["git", "show", f"{base}:{path}"], cwd=root, capture_output=True, text=True,
+        ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True, text=True,
     )
     if proc.returncode != 0:
         return []  # file didn't exist at base — nothing to protect
@@ -83,13 +95,40 @@ def _old_test_ranges(root: pathlib.Path, base: str, path: str) -> list[tuple[int
         return []  # can't parse — fall through to the safe (permissive) side
     ranges = []
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
-            ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # INVARIANT: a decorator (e.g. @pytest.mark.parametrize(...), @pytest.fixture)
+            # is part of the protected body — node.lineno points at `def`, not the
+            # decorator line(s) above it.
+            start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
+            ranges.append((start, getattr(node, "end_lineno", node.lineno)))
     return ranges
 
 
-def _removed_old_lines(root: pathlib.Path, base: str, path: str) -> set[int]:
-    """Old-file line numbers that a removal/change touches, per the diff for `path` vs `base`."""
+def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int], set[int]]:
+    """Old-file positions the diff for `path` vs `base` touches, in two forms:
+
+    - `removed`: an old line number itself changed/removed (a `-` line) — checked
+      against a protected range INCLUSIVE on both ends (`lo <= ln <= hi`).
+    - `inserted_after`: an old line number that NEW content was inserted directly
+      after, with no old line consumed for it — checked EXCLUSIVE at the upper end
+      (`lo <= n < hi`). AIDEV-NOTE: the exclusive bound is load-bearing. A pure
+      insertion (e.g. a whole new test function typed directly after an existing
+      one, zero blank lines between them) anchors at `n == hi` of the PRECEDING
+      function — that must stay unflagged, or this reopens the exact false-positive
+      OME-369 exists to fix (pure additions rejected as violations). Inserting as a
+      new first/middle statement anchors at `lo <= n < hi` and must be caught: a
+      pure `+`-only diff can still silently neuter a prior test's assertions (e.g.
+      forcing a variable's value right before the check) with zero `-` lines, which
+      `removed` alone can never see.
+
+    AIDEV-NOTE: file-level header lines (`diff --git`, `index`, `--- a/...`,
+    `+++ b/...`) only ever appear BEFORE the first `@@` hunk line — track that
+    boundary structurally (`in_hunk`) instead of prefix-matching `---`/`+++` against
+    line content. A *removed* line whose actual content starts with `--` at column 0
+    (e.g. a bare `---` separator) renders as `----` in the diff, which would
+    false-match a content-based header check and silently vanish from `removed`
+    while desyncing `old_line` for every later line in the same hunk.
+    """
     proc = subprocess.run(
         ["git", "diff", "--relative", "--unified=0", base, "--", path],
         cwd=root, capture_output=True, text=True,
@@ -97,30 +136,37 @@ def _removed_old_lines(root: pathlib.Path, base: str, path: str) -> set[int]:
     if proc.returncode != 0:
         fail_config(f"git diff failed in {root}: {proc.stderr.strip()}")
     removed: set[int] = set()
+    inserted_after: set[int] = set()
     old_line = 0
+    in_hunk = False
     for line in proc.stdout.splitlines():
         if line.startswith("@@"):
             m = _HUNK_HEADER.match(line)
             old_line = int(m.group(1)) if m else old_line
-        elif line.startswith(("---", "+++", "\\")):
-            continue
+            in_hunk = True
+        elif not in_hunk:
+            continue  # pre-hunk file header (diff --git / index / --- a/ / +++ b/)
+        elif line.startswith("\\"):
+            continue  # "\ No newline at end of file" — never consumes a line number
         elif line.startswith("-"):
             removed.add(old_line)
             old_line += 1
         elif line.startswith("+"):
-            continue  # inserted line — doesn't consume an old line number
+            inserted_after.add(old_line)  # anchored right after the current old_line
         else:
             old_line += 1  # context line (present only if a non-zero unified context is used)
-    return removed
+    return removed, inserted_after
 
 
 def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
-    """True when no previously committed *test* was modified/deleted (rule 5).
+    """True when no previously committed test/fixture was modified/deleted (rule 5).
 
-    Pure additions to a test file (new test functions, new imports for them) are
-    always fine — only a removed/changed line that falls INSIDE a test function body
-    that already existed at `base` counts as a violation. Deleting or renaming a
-    whole test file is always a violation regardless of content.
+    Pure additions (new test functions, new fixtures/helpers, new imports for them,
+    even a whole new function typed directly next to an existing one) are always
+    fine — a violation is either a removed/changed line, OR new content inserted,
+    that falls INSIDE a function body (test, fixture, or helper) that already
+    existed at `base`. Deleting or renaming a whole test file is always a violation
+    regardless of content.
     """
     proc = subprocess.run(
         ["git", "diff", "--relative", "--name-status", base],
@@ -145,13 +191,17 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
         if status[:1] != "M":
             offenders.append(f"  {status}\t{p}")
             continue
-        test_ranges = _old_test_ranges(root, base, p)
-        bad_lines = sorted(
-            ln for ln in _removed_old_lines(root, base, p)
-            if any(lo <= ln <= hi for lo, hi in test_ranges)
-        )
-        if bad_lines:
-            offenders.append(f"  M\t{p}  (removed/changed inside an existing test, old line(s) {bad_lines})")
+        ranges = _old_protected_ranges(root, base, p)
+        removed, inserted_after = _diff_positions(root, base, p)
+        bad_removed = sorted(ln for ln in removed if any(lo <= ln <= hi for lo, hi in ranges))
+        bad_inserted = sorted(n for n in inserted_after if any(lo <= n < hi for lo, hi in ranges))
+        if bad_removed or bad_inserted:
+            detail = []
+            if bad_removed:
+                detail.append(f"removed/changed old line(s) {bad_removed}")
+            if bad_inserted:
+                detail.append(f"new content inserted after old line(s) {bad_inserted}")
+            offenders.append(f"  M\t{p}  ({'; '.join(detail)} — inside an existing test/fixture)")
     if offenders:
         print(
             f"{RED} append-only test check — prior tests were modified/deleted (vs {base}):"
