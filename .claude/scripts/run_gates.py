@@ -67,43 +67,27 @@ def load_card(path: pathlib.Path) -> dict:
     return data
 
 
-_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@")
+_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@")
 
 
-_EXEMPT_TOP_LEVEL = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+# WHY: an ALLOWLIST of data-holding node types, not a denylist of "everything
+# except X". A denylist means every statement type nobody thought to exclude
+# (a docstring, an `if __name__ == "__main__":` block, an import nested inside
+# a version-guard) silently becomes a false positive the next time someone
+# edits one. Only Assign/AnnAssign hold the kind of shared test data (e.g. a
+# `_BASE_KW = {...}` dict several tests build on) rule 5 needs to protect.
+_MODULE_LEVEL_DATA = (ast.Assign, ast.AnnAssign)
 
 
 def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tuple[int, int]]:
     """Line ranges (1-indexed, inclusive) of every protected node in `path` at `base`:
-    every function body, plus every module-level statement except imports.
-
-    AIDEV-NOTE: `path` is cwd-relative (it comes from `git diff --relative`), but
-    `git show rev:path` resolves a bare path relative to the REPO ROOT, not cwd —
-    the `./` prefix is what makes it cwd-relative. Without it, this silently returns
-    `[]` (falls into the "didn't exist" branch) for every stack whose root isn't the
-    repo root, i.e. every real stack in `.claude/sdlc.local.md`.
-
-    INVARIANT: covers EVERY function, not just `test_*`-named ones — a `conftest.py`
-    fixture or a plain helper a test depends on is just as protected as the test
-    itself. Rule 5 doesn't only mean "don't rewrite a `def test_...`" — it means
-    don't silently change what a previously-committed test actually exercises.
-
-    INVARIANT: also covers module-level test data (e.g. a shared `_BASE_KW = {...}`
-    dict several tests build on) — a `-` line there is invisible to the
-    function-only pass, exactly like an unprotected fixture. Imports are the one
-    deliberate exemption: round 1 decided "an existing import line changed to
-    support a new test" must stay legitimate, so `Import`/`ImportFrom` never get a
-    protected range even when edited.
-
-    AIDEV-NOTE: class-level attributes (e.g. a shared constant on a
-    `unittest.TestCase` subclass) are NOT covered by this pass — same shape of gap
-    as module-level data, deliberately deferred rather than silently left unnoted.
-    A naive "protect the whole class body as one range" would itself reintroduce
-    OME-369's original false positive (inserting a new method between two existing
-    ones in the same class would anchor inside the class's overall span even
-    though it's outside any individual method's), so it needs the same
-    per-statement treatment as this function does for module scope, not a shortcut.
+    every function body, plus every direct module-level Assign/AnnAssign statement.
     """
+    # AIDEV-NOTE: `path` is cwd-relative (it comes from `git diff --relative`), but
+    # `git show rev:path` resolves a bare path relative to the REPO ROOT, not cwd —
+    # the `./` prefix is what makes it cwd-relative. Without it, this silently
+    # returns `[]` (falls into the "didn't exist" branch) for every stack whose
+    # root isn't the repo root, i.e. every real stack in `.claude/sdlc.local.md`.
     proc = subprocess.run(
         ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True, text=True,
     )
@@ -114,6 +98,9 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
     except SyntaxError:
         return []  # can't parse — fall through to the safe (permissive) side
     ranges = []
+    # INVARIANT: covers EVERY function, not just `test_*`-named ones — a
+    # `conftest.py` fixture or a plain helper a test depends on is just as
+    # protected as the test itself.
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             # INVARIANT: a decorator (e.g. @pytest.mark.parametrize(...), @pytest.fixture)
@@ -121,10 +108,20 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
             # decorator line(s) above it.
             start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
             ranges.append((start, getattr(node, "end_lineno", node.lineno)))
-    for node in tree.body:  # module-level (non-recursive) — data, not imports/defs
-        if isinstance(node, _EXEMPT_TOP_LEVEL):
-            continue
-        ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
+    # INVARIANT: module-level test data is just as protected as a fixture — a
+    # `-` line there is invisible to the function-only pass above.
+    for node in tree.body:  # direct top-level children only — see AIDEV-NOTE below
+        if isinstance(node, _MODULE_LEVEL_DATA):
+            ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
+    # AIDEV-NOTE: known, deliberate gaps — tracked as follow-ups, not chased here:
+    # (1) class-level attributes (e.g. a shared constant on a unittest.TestCase
+    #     subclass) aren't covered — would need the same per-statement treatment
+    #     inside class bodies, not a whole-class-span shortcut (that would
+    #     reopen "insert a new method between two existing ones" as a false
+    #     positive, the same way OME-369's original bug worked).
+    # (2) an Assign/AnnAssign nested inside a module-level If/Try/With (e.g. a
+    #     version-guarded conditional constant) isn't covered either, since
+    #     this loop only walks direct `tree.body` children, not recursively.
     return ranges
 
 
@@ -135,24 +132,25 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
       against a protected range INCLUSIVE on both ends (`lo <= ln <= hi`).
     - `inserted_after`: an old line number that NEW content was inserted directly
       after, with no old line consumed for it — checked EXCLUSIVE at the upper end
-      (`lo <= n < hi`). AIDEV-NOTE: the exclusive bound is load-bearing. A pure
-      insertion (e.g. a whole new test function typed directly after an existing
-      one, zero blank lines between them) anchors at `n == hi` of the PRECEDING
-      function — that must stay unflagged, or this reopens the exact false-positive
-      OME-369 exists to fix (pure additions rejected as violations). Inserting as a
-      new first/middle statement anchors at `lo <= n < hi` and must be caught: a
-      pure `+`-only diff can still silently neuter a prior test's assertions (e.g.
-      forcing a variable's value right before the check) with zero `-` lines, which
-      `removed` alone can never see.
-
-    AIDEV-NOTE: file-level header lines (`diff --git`, `index`, `--- a/...`,
-    `+++ b/...`) only ever appear BEFORE the first `@@` hunk line — track that
-    boundary structurally (`in_hunk`) instead of prefix-matching `---`/`+++` against
-    line content. A *removed* line whose actual content starts with `--` at column 0
-    (e.g. a bare `---` separator) renders as `----` in the diff, which would
-    false-match a content-based header check and silently vanish from `removed`
-    while desyncing `old_line` for every later line in the same hunk.
+      (`lo <= n < hi`).
     """
+    # AIDEV-NOTE: the exclusive bound on `inserted_after` is load-bearing. A pure
+    # insertion (e.g. a whole new test function typed directly after an existing
+    # one, zero blank lines between them) anchors at `n == hi` of the PRECEDING
+    # function — that must stay unflagged, or this reopens the exact false-positive
+    # OME-369 exists to fix (pure additions rejected as violations). Inserting as a
+    # new first/middle statement anchors at `lo <= n < hi` and must be caught: a
+    # pure `+`-only diff can still silently neuter a prior test's assertions (e.g.
+    # forcing a variable's value right before the check) with zero `-` lines, which
+    # `removed` alone can never see.
+    #
+    # AIDEV-NOTE: file-level header lines (`diff --git`, `index`, `--- a/...`,
+    # `+++ b/...`) only ever appear BEFORE the first `@@` hunk line — track that
+    # boundary structurally (`in_hunk`) instead of prefix-matching `---`/`+++`
+    # against line content. A *removed* line whose actual content starts with `--`
+    # at column 0 (e.g. a bare `---` separator) renders as `----` in the diff,
+    # which would false-match a content-based header check and silently vanish
+    # from `removed` while desyncing `old_line` for every later line in the hunk.
     proc = subprocess.run(
         ["git", "diff", "--relative", "--unified=0", base, "--", path],
         cwd=root, capture_output=True, text=True,
@@ -163,10 +161,22 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
     inserted_after: set[int] = set()
     old_line = 0
     in_hunk = False
+    pure_insert_hunk = False
     for line in proc.stdout.splitlines():
         if line.startswith("@@"):
             m = _HUNK_HEADER.match(line)
-            old_line = int(m.group(1)) if m else old_line
+            if m:
+                old_line = int(m.group(1))
+                old_count = int(m.group(2)) if m.group(2) is not None else 1
+                # WHY: a hunk whose header declares old-count 0 is UNAMBIGUOUSLY a
+                # pure insertion straight from the header. Inferring "pure insert"
+                # by pairing "-"/"+" lines line-by-line instead would mis-anchor a
+                # replace pair (a "-" immediately followed by a "+") one line later
+                # than the line it actually replaces — which can land exactly on
+                # the start of the NEXT protected range and false-positive an edit
+                # that never touched it (e.g. replacing the blank separator line
+                # between two functions falsely flags the second function).
+                pure_insert_hunk = old_count == 0
             in_hunk = True
         elif not in_hunk:
             continue  # pre-hunk file header (diff --git / index / --- a/ / +++ b/)
@@ -176,21 +186,27 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
             removed.add(old_line)
             old_line += 1
         elif line.startswith("+"):
-            inserted_after.add(old_line)  # anchored right after the current old_line
+            if pure_insert_hunk:
+                inserted_after.add(old_line)  # anchored right after the current old_line
+            # else: part of a replace pair with a preceding "-" in THIS hunk —
+            # already captured via `removed`; anchoring it too would double-count
+            # and can mis-fire per the WHY note above.
         else:
             old_line += 1  # context line (present only if a non-zero unified context is used)
     return removed, inserted_after
 
 
 def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
-    """True when no previously committed test/fixture was modified/deleted (rule 5).
+    """True when no previously committed test/fixture/data was modified/deleted
+    (rule 5).
 
-    Pure additions (new test functions, new fixtures/helpers, new imports for them,
-    even a whole new function typed directly next to an existing one) are always
-    fine — a violation is either a removed/changed line, OR new content inserted,
-    that falls INSIDE a function body (test, fixture, or helper) that already
-    existed at `base`. Deleting or renaming a whole test file is always a violation
-    regardless of content.
+    Pure additions (new test functions, new fixtures/helpers, new module-level
+    data, new imports for them, even a whole new function typed directly next to
+    an existing one) are always fine — a violation is either a removed/changed
+    line, OR new content inserted, that falls INSIDE a protected range (a
+    function body — test, fixture, or helper — or a module-level Assign/AnnAssign
+    statement) that already existed at `base`. Deleting or renaming a whole test
+    file is always a violation regardless of content.
     """
     proc = subprocess.run(
         ["git", "diff", "--relative", "--name-status", base],

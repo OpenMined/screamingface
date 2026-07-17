@@ -292,6 +292,80 @@ class AppendOnlyCheckTests(unittest.TestCase):
             _write(root / "test_a.py", "_A = 1\n_B = 2\ndef test_one():\n    assert _A == 1\n")
             self.assertTrue(self._check(root, base))
 
+    def test_module_docstring_edit_passes(self):
+        """Regression test (code-review finding): a bare module docstring is an
+        ast.Expr, not Assign/AnnAssign — editing it must stay legitimate, with
+        zero test logic touched."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(root / "test_a.py", '"""Old docstring."""\n\n\ndef test_one():\n    assert 1 == 1\n')
+            base = _commit_all(root, "base")
+            _write(root / "test_a.py", '"""New docstring."""\n\n\ndef test_one():\n    assert 1 == 1\n')
+            self.assertTrue(self._check(root, base))
+
+    def test_if_main_block_edit_passes(self):
+        """Regression test (code-review finding): the near-universal
+        `if __name__ == "__main__":` runner block is an ast.If, not
+        Assign/AnnAssign — editing it (e.g. switching runners) must stay
+        legitimate."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "test_a.py",
+                'def test_one():\n    assert 1 == 1\n\n\nif __name__ == "__main__":\n    pass\n',
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                'def test_one():\n    assert 1 == 1\n\n\nif __name__ == "__main__":\n'
+                "    import unittest\n\n    unittest.main()\n",
+            )
+            self.assertTrue(self._check(root, base))
+
+    def test_import_nested_in_conditional_edit_passes(self):
+        """Regression test (code-review finding): an import nested inside a
+        module-level version-guard (if/else) must stay legitimate to edit — the
+        whole `if` block is an ast.If, not Assign/AnnAssign, so it isn't swept
+        into a protected range that would incorrectly cover the nested import."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "test_a.py",
+                "import sys\n\nif sys.version_info >= (3, 10):\n    from typing import ParamSpec\n"
+                "else:\n    from typing_extensions import ParamSpec\n\n\n"
+                "def test_one():\n    assert ParamSpec\n",
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                "import sys\n\nif sys.version_info >= (3, 10):\n    from typing import ParamSpec\n"
+                "else:\n    from typing_extensions import ParamSpec as ParamSpec\n\n\n"
+                "def test_one():\n    assert ParamSpec\n",
+            )
+            self.assertTrue(self._check(root, base))
+
+    def test_replace_blank_separator_line_passes(self):
+        """Regression test (code-review finding): replacing the blank separator
+        line between two functions with a comment must stay legitimate — the
+        replacement's insertion anchor must not be mis-computed as landing on
+        the START of the second function's protected range."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "test_a.py",
+                "def test_one():\n    assert 1 == 1\n\ndef test_two():\n    assert 2 == 2\n",
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                "def test_one():\n    assert 1 == 1\n# note\ndef test_two():\n    assert 2 == 2\n",
+            )
+            self.assertTrue(self._check(root, base))
+
 
 if __name__ == "__main__":
     unittest.main()

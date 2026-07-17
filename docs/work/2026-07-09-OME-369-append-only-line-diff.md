@@ -306,10 +306,102 @@ simply not being run (also tracked separately, as a distinct infra unit).
   - `.claude/scripts/run_gates.py` — `_EXEMPT_TOP_LEVEL` tuple + `_old_protected_ranges`'s
     second pass over `tree.body`.
   - `.claude/scripts/tests/test_run_gates.py` — 4 new tests, 16 total.
-- **Commits:** <fill after commit>
+- **Commits:** `ad9394e` — fix(repo): protect module-level test data in
+  append-only gate (Refs: OME-369).
 - **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 16/16 pass.
   `test_module_level_test_data_edit_detected` confirmed to fail on round-3 code,
   pass on round-4 code. `python3 -m py_compile` and `uvx ruff check` clean.
 - **Deviations:** none from the round-4 plan.
-- **Follow-ups filed:** <fill with Linear ticket IDs for concern A,
-  shadowing/monkeypatching, and the CI-enforcement-gap>.
+- **Follow-ups filed:** pending (concern A, shadowing/monkeypatching, and the
+  CI-enforcement-gap — filed as separate tickets right after this commit).
+
+## Round 5 (2026-07-17) — structured code-review pass on the already-pushed PR
+
+Per the user's request, ran a multi-angle `code-review` pass (8 finder agents:
+3 correctness, 3 cleanup, altitude, conventions) against the full pushed diff
+before requesting re-review. Correctness findings were verified by direct
+execution against the actual code (not just read), same standard as every prior
+round. Two findings meant round 4's fix, as pushed, had its own bugs:
+
+1. **Round 4's `_EXEMPT_TOP_LEVEL` was a denylist — the wrong shape.** Proved
+   two concrete false positives it produces: editing a bare module docstring
+   (an `ast.Expr`, not in the denylist) and editing the near-universal
+   `if __name__ == "__main__":` runner block (an `ast.If`, also not in the
+   denylist) both got flagged as rule-5 violations with ZERO test logic
+   touched — reopening the exact class of false-positive OME-369 exists to
+   eliminate. A third case, an import nested inside a module-level version-guard
+   (`if sys.version_info >= (3, 10): ... else: ...`), was also swept into the
+   `If` block's coarse protected range, contradicting round 1's own "editing an
+   import stays legitimate" invariant.
+2. **A separate bug in `_diff_positions`'s insertion-anchor tracking.**
+   Replacing the blank separator line between two functions with a comment
+   (touching neither function's body) got flagged, because the paired `+`
+   line's anchor was computed AFTER `old_line` advanced past the removed line,
+   landing exactly on the next function's range start. Verified: `removed={3}`
+   (correctly outside any range), but `inserted_after={4}` (the next function's
+   `lo`) — a false positive from anchor drift on replace pairs specifically.
+
+Fixed both at the root rather than patching each symptom:
+
+- Inverted `_EXEMPT_TOP_LEVEL` (denylist) to `_MODULE_LEVEL_DATA = (ast.Assign,
+  ast.AnnAssign)` (allowlist) — only the node types that actually hold shared
+  test data get a protected range. This single change resolves all three
+  denylist-shaped false positives (docstring, `if __main__`, nested import) at
+  once, since none of those node types are `Assign`/`AnnAssign`.
+- Changed `inserted_after` tracking to key off the diff hunk header's declared
+  OLD-LINE-COUNT (`old_count == 0` ⇒ unambiguously a pure-insertion hunk),
+  instead of inferring "pure insert" from `-`/`+` line pairing. Removes the
+  ambiguity entirely rather than trying to special-case replace-pair adjacency.
+- Also fixed, from the same review pass's conventions angle: several
+  `AIDEV-NOTE`/`INVARIANT` anchors were written as bare docstring prose instead
+  of `#`-prefixed comments (`.claude/skills/sdlc-python/SKILL.md`'s "Anchor
+  syntax: `#`" rule) — moved all of them to proper inline `#` comments.
+
+Deliberately NOT acted on from the same review pass (reported, not fixed, to
+avoid re-drifting): Reuse's test-boilerplate-duplication and
+FunctionDef-tuple-naming suggestions, Simplification's docstring-length and
+duplicate-comprehension suggestions, Efficiency's git-subprocess-batching
+suggestions, and Altitude's "this is a reactive patch stack" observations (all
+of which restate concern A / the class-attribute gap already tracked
+separately, not new scope).
+
+## Planned changes (round 5)
+
+- `.claude/scripts/run_gates.py`: `_EXEMPT_TOP_LEVEL` → `_MODULE_LEVEL_DATA`
+  allowlist; `_HUNK_HEADER` regex now captures the old-line count;
+  `_diff_positions` computes `pure_insert_hunk` from that count per-hunk;
+  anchor comments moved from docstring prose to `#`-prefixed inline comments.
+- `.claude/scripts/tests/test_run_gates.py`: 4 new tests —
+  `test_module_docstring_edit_passes`, `test_if_main_block_edit_passes`,
+  `test_import_nested_in_conditional_edit_passes`,
+  `test_replace_blank_separator_line_passes`.
+
+## Test plan (round 5)
+
+- Same discipline as every prior round: all 4 new tests confirmed to **fail**
+  against a snapshot of the round-4 (already-pushed) code, then pass once the
+  round-5 fix is restored.
+- Full 20-test matrix (16 from rounds 1-4 + 4 new) passes on the fixed code.
+- Real-file sanity check unchanged: `_old_protected_ranges` against
+  `apps/aigateway/tests/unit/test_request_cache_keys.py` still finds 22
+  protected ranges including `_BASE_KW`'s own span.
+
+## Acceptance (round 5)
+
+- Both code-review-discovered bugs fixed; 20/20 tests pass.
+- No regression: all 16 prior tests (rounds 1-4) still pass unmodified.
+- Anchor-syntax convention violation fixed (all `WHY:`/`INVARIANT:`/`AIDEV-NOTE:`
+  now `#`-prefixed).
+
+## Outcome (round 5, fill at the end — required before COMMIT)
+
+- **Actual files:**
+  - `.claude/scripts/run_gates.py` — `_MODULE_LEVEL_DATA` allowlist (replaces
+    `_EXEMPT_TOP_LEVEL`), `_HUNK_HEADER`/`_diff_positions` old-count-based
+    `pure_insert_hunk` fix, anchor comments moved to `#`-prefixed form.
+  - `.claude/scripts/tests/test_run_gates.py` — 4 new tests, 20 total.
+- **Commits:** <fill after commit>
+- **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 20/20 pass.
+  All 4 new tests confirmed to fail on round-4 code, pass on round-5 code.
+  `python3 -m py_compile` and `uvx ruff check` clean.
+- **Deviations:** none from the round-5 plan.

@@ -44,3 +44,14 @@ tickets instead: decorator-stacking (concern A) and name-shadowing/monkeypatchin
 (a structural line-diffing limitation). A third, non-code finding (no CI/hook
 independently enforces this check at all) filed as its own distinct ticket. See
 the ledger's Round 4 section for full detail and ticket links.
+
+**Round 5 (2026-07-17):** a structured multi-angle code-review pass on the
+pushed PR found round 4's own fix was too broad (a denylist, not an allowlist)
+— editing a module docstring, an `if __name__ == "__main__":` block, or an
+import nested in a version-guard all got falsely flagged, reopening OME-369's
+original false-positive problem. Also found a separate anchor-computation bug:
+replacing the blank line between two functions falsely flagged the second one.
+Fixed both at the root (switched to an `_MODULE_LEVEL_DATA` allowlist; anchor
+tracking now keyed off the diff hunk's declared old-line count) plus an
+anchor-syntax convention fix. 20/20 tests pass. See the ledger's Round 5
+section.
