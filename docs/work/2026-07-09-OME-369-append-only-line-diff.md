@@ -1,9 +1,9 @@
 ---
 ticket: OME-369
 stack: repo
-status: in_progress
+status: done
 started: 2026-07-09
-finished:
+finished: 2026-07-17
 ---
 
 # OME-369 — Fix append-only check false positive on pure test additions
@@ -137,8 +137,9 @@ throwaway repo before touching the fix):
   - `.claude/scripts/tests/test_run_gates.py` — new, 8 tests (the 4 round-1 manual
     scenarios made permanent + 4 more: nested stack root, decorator edit,
     dash-prefixed content, whole-file delete).
-- **Commits:** pending — not yet committed, holding for the user's go-ahead before
-  pushing to the open PR (#383).
+- **Commits:** `39f1483` — fix(repo): protect nested stacks, decorators, and
+  fixtures in append-only gate (Refs: OME-369) — combined rounds 2+3 in one commit,
+  not pushed yet per user instruction.
 - **Gates:** no dedicated stack/tests wired for `.claude/scripts/` in
   `.claude/sdlc.local.md` (unchanged from round 1). Verified instead:
   - `uv run .claude/scripts/tests/test_run_gates.py -v` → 8/8 pass on the fixed code.
@@ -215,7 +216,8 @@ empirically (not just reasoned about) before touching code:
     dropped), `_diff_positions` (renamed, now returns removed + inserted_after),
     `append_only_check` updated to check both with their respective bounds.
   - `.claude/scripts/tests/test_run_gates.py` — 4 new tests, 12 total.
-- **Commits:** pending — holding for the user's go-ahead before pushing to PR #383.
+- **Commits:** `39f1483` (same commit as round 2 — both rounds landed together
+  before the first push of this fix cycle). Not pushed yet per user instruction.
 - **Gates:** same as round 2 (no wired stack for this directory). Verified:
   - `uv run .claude/scripts/tests/test_run_gates.py -v` → 12/12 pass on round-3 code.
   - `test_insertion_neuters_existing_test_fails` and `test_fixture_edit_detected`
