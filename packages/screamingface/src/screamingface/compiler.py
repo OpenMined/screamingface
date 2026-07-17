@@ -7,7 +7,12 @@ from functools import singledispatch
 
 from url4 import Expression, RelExpr, expr, render, src, struct, text
 
-from screamingface.model_inputs import ParameterValue, _FusionMember, _ModelCall
+from screamingface.model_inputs import (
+    ParameterValue,
+    _FusionMember,
+    _make_model_call,
+    _ModelCall,
+)
 from screamingface.models import models
 from screamingface.reducers import MajorityVote, ModelReducer, Reducer
 
@@ -38,6 +43,19 @@ def result_schema() -> str:
 
 def fusion_result_schema() -> str:
     return _FUSION_RESULT_SCHEMA
+
+
+def render_model_request(
+    *,
+    model: str,
+    prompt: str,
+    params: dict[str, ParameterValue] | None = None,
+) -> str:
+    """Render one internal model call through the same URL4 path as a fusion."""
+
+    models.get(model)
+    call = _make_model_call(model=model, prompt=prompt, params=params)
+    return render(_url4_model_call(call))
 
 
 def _panel_call(index: int, member: _FusionMember):

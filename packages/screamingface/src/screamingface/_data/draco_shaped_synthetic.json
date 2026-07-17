@@ -1,0 +1,42 @@
+[
+  {
+    "id": "synthetic-draco-001",
+    "domain": "Technology",
+    "problem": "Compare three hypothetical research systems—Alpha, Beta, and Gamma—and explain what distinct evidence each contributes to a reliable evaluation.",
+    "answer": {
+      "id": "synthetic-system-comparison",
+      "sections": [
+        {
+          "id": "factual-accuracy",
+          "title": "Factual Accuracy",
+          "criteria": [
+            {"id": "alpha", "weight": 10, "requirement": "Includes the Alpha finding. [mock-keyword:alpha]"},
+            {"id": "beta", "weight": 10, "requirement": "Includes the Beta finding. [mock-keyword:beta]"},
+            {"id": "gamma", "weight": 10, "requirement": "Includes the Gamma finding. [mock-keyword:gamma]"},
+            {"id": "unsafe", "weight": -10, "requirement": "Introduces the unsupported unsafe claim. [mock-keyword:unsafe]"}
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "id": "synthetic-draco-002",
+    "domain": "Academic",
+    "problem": "Synthesize a hypothetical literature review in which Alpha, Beta, and Gamma represent complementary methodological findings.",
+    "answer": {
+      "id": "synthetic-literature-review",
+      "sections": [
+        {
+          "id": "factual-accuracy",
+          "title": "Factual Accuracy",
+          "criteria": [
+            {"id": "alpha", "weight": 10, "requirement": "Includes the Alpha finding. [mock-keyword:alpha]"},
+            {"id": "beta", "weight": 10, "requirement": "Includes the Beta finding. [mock-keyword:beta]"},
+            {"id": "gamma", "weight": 10, "requirement": "Includes the Gamma finding. [mock-keyword:gamma]"},
+            {"id": "unsafe", "weight": -10, "requirement": "Introduces the unsupported unsafe claim. [mock-keyword:unsafe]"}
+          ]
+        }
+      ]
+    }
+  }
+]

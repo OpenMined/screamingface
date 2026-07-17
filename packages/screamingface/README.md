@@ -5,7 +5,7 @@ best individual model.
 
 ## Quickstart
 
-The committed quickstart is simulated but uses the real URL4 HTTP engine. Start its deterministic
+The committed quickstart uses deterministic routes through the real URL4 HTTP engine. Start its
 model routes in one terminal:
 
 ```bash
@@ -33,8 +33,9 @@ run = fusion.evaluate("gpqa", first=20, seed=0)
 print(run.score, run.baseline, run.gain)
 ```
 
-`sf.config()` is not required. By default, evaluation sends one complete URL4 expression per
-question to `http://127.0.0.1:4404/v1`. Set `SCREAMINGFACE_ENGINE_URL` or call
+`sf.config()` is not required. By default, GPQA evaluation sends one complete URL4 expression per
+question to `http://127.0.0.1:4404/v1`. Engine-graded benchmarks such as DRACO send additional
+judge expressions through the same endpoint. Set `SCREAMINGFACE_ENGINE_URL` or call
 `sf.config("http://host:port")` to use another engine address.
 
 The deterministic routes return complementary answers, producing a repeatable result:
@@ -151,22 +152,23 @@ complete out of order and allowing one model to appear in multiple sampled or ro
 
 ## Local deterministic engine
 
-[`url4.dev.toml`](url4.dev.toml) registers three command routes:
+[`url4.dev.toml`](url4.dev.toml) registers the three panel routes and the DRACO judge route:
 
 ```text
 /codex/gpt-5.5
 /gemini/2.5
 /claude/sonnet-4.6
+/gemini/3.1-pro-preview
 ```
 
 They invoke [`scripts/url4_mock_model.py`](scripts/url4_mock_model.py), which receives the resolved
-URL4 intent and returns one `A`–`D` answer. It never contacts AI Gateway. The URL4 package and
-engine source are not modified.
+URL4 intent and returns a deterministic GPQA answer, DRACO research response, synthesis, or rubric
+verdict. It never contacts AI Gateway. The URL4 package and engine source are not modified.
 
 The local command routes do not yet consume `Request.params`; those parameters are nevertheless
 part of the canonical URL4 recipe and are available to an in-process URL4 endpoint handler.
-Authentication, hosted deployment, real AI-Gateway-backed routes, streaming, usage/cost metadata,
-and DRACO are additive follow-up contracts.
+Authentication, hosted deployment, real AI-Gateway-backed routes, research tools, streaming,
+usage/cost metadata, and final paper-level DRACO prompt parity are additive follow-up contracts.
 
 ## Development
 
@@ -182,6 +184,8 @@ In another terminal:
 uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
 # Detailed URL4 request and node walkthrough:
 uv run --extra notebook jupyter lab examples/sf_url4_engine.ipynb
+# DRACO adapter, synthesis, URL4 judge, and weighted comparison:
+uv run --extra notebook jupyter lab examples/draco.ipynb
 uv run pytest
 uv run ruff check .
 uv run pyright

@@ -164,4 +164,4 @@ def test_notebook_progress_describes_engine_requests(monkeypatch: pytest.MonkeyP
     assert displayed
     assert progress._bar.description == "Questions"
     assert progress._bar.value == 1
-    assert "one URL4 engine request" in progress._status.value
+    assert "Fusion and grader work run through URL4" in progress._status.value

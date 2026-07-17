@@ -17,6 +17,7 @@ class Model:
     pricing_as_of: date
     route: str
     pricing_basis: str = "blended_tokens"
+    listed: bool = True
 
 
 _CATALOG = (
@@ -47,6 +48,16 @@ _CATALOG = (
         date(2026, 7, 16),
         "/claude/sonnet-4.6",
     ),
+    Model(
+        "google/gemini-3.1-pro-preview",
+        "Gemini 3.1 Pro Preview",
+        None,
+        0,
+        "engine-provided",
+        date(2026, 7, 17),
+        "/gemini/3.1-pro-preview",
+        listed=False,
+    ),
 )
 
 _BY_ID = {model.id: model for model in _CATALOG}
@@ -59,7 +70,8 @@ class Models:
         return [
             model.id
             for model in _CATALOG
-            if (
+            if model.listed
+            and (
                 max_price is None
                 or (model.price_per_million is not None and model.price_per_million <= max_price)
             )

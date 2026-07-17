@@ -27,6 +27,7 @@ class ModelResult:
     cost_usd: float
     failures: int = 0
     name: str | None = None
+    metrics: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,8 @@ class Run:
     total_tokens: int = 0
     model_results: tuple[ModelResult, ...] = ()
     failures: tuple[RunFailure, ...] = ()
+    primary_metric: str = "accuracy"
+    metrics: tuple[tuple[str, float], ...] = ()
     created_at: datetime = field(
         default_factory=lambda: datetime.now(UTC), compare=False, repr=False
     )
@@ -69,7 +72,7 @@ def _run_html(run: Run) -> str:
     cost_label = "no provider spend" if simulated else "estimated cost"
     metrics = "".join(
         [
-            _metric(run.score, "fusion accuracy"),
+            _metric(run.score, f"fusion {_metric_label(run.primary_metric)}"),
             _metric(run.gain, "gain over best", signed=True),
             _metric(run.baseline, "best single"),
             _metric(cost_value, cost_label),
@@ -98,7 +101,7 @@ def _run_html(run: Run) -> str:
             "<div style='border-top:1px solid #e0e3e7;margin-top:.9rem;padding-top:.8rem'>"
             "<div style='font-size:.72rem;font-weight:700;letter-spacing:.04em;"
             "color:#5f6368;margin-bottom:.3rem'>"
-            "PER-MODEL ACCURACY</div>"
+            f"PER-MODEL {escape(_metric_label(run.primary_metric).upper())}</div>"
             f"{model_rows}</div>"
         )
     )
@@ -143,6 +146,10 @@ def _metric(value: float | str, label: str, *, signed: bool = False) -> str:
         f"<div style='margin-top:.15rem;font-size:.72rem;color:#5f6368'>{escape(label)}</div>"
         "</div>"
     )
+
+
+def _metric_label(metric: str) -> str:
+    return metric.replace("_", " ")
 
 
 def _model_result_html(result: ModelResult, best: bool) -> str:

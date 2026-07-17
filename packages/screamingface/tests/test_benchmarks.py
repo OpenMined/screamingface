@@ -39,9 +39,9 @@ def test_benchmark_resolution_requires_a_registered_string(
 def test_benchmark_resolution_reports_available_ids() -> None:
     with pytest.raises(
         ValueError,
-        match="unknown benchmark 'draco'; available benchmarks: gpqa",
+        match="unknown benchmark 'missing'; available benchmarks: draco, gpqa",
     ):
-        _resolve_benchmark("draco")
+        _resolve_benchmark("missing")
 
 
 @pytest.mark.asyncio

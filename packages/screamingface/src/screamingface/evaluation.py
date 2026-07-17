@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from html import escape
@@ -38,6 +37,10 @@ class RunAccumulator:
 
     def __post_init__(self) -> None:
         self.member_scores = {member.id: 0.0 for member in self.members}
+        self.fusion_metrics: dict[str, float] = {}
+        self.member_metrics: dict[str, dict[str, float]] = {
+            member.id: {} for member in self.members
+        }
         self.model_failures = {member.id: 0 for member in self.members}
 
     def add(
@@ -47,10 +50,12 @@ class RunAccumulator:
         member_grades: dict[str, _Grade],
     ) -> None:
         self.fusion_score += fusion_grade.score
+        _accumulate_metrics(self.fusion_metrics, fusion_grade.metrics)
         self.incomplete += any(not member_grades[member.id].valid for member in self.members)
         for member in self.members:
             grade = member_grades[member.id]
             self.member_scores[member.id] += grade.score
+            _accumulate_metrics(self.member_metrics[member.id], grade.metrics)
             if not grade.valid:
                 self.model_failures[member.id] += 1
                 self.failures.append(
@@ -74,7 +79,7 @@ async def evaluate(
     progress: ProgressCallback | None = None,
     preflight: bool = True,
 ) -> Run:
-    """Evaluate via one URL4 engine request per benchmark question."""
+    """Evaluate via URL4, including benchmark-owned grader calls when required."""
     del preflight  # retained temporarily for call-site compatibility
     definition = _resolve_benchmark(benchmark)
     loaded = definition.load(session, first, seed)
@@ -151,9 +156,10 @@ async def _grade_question(
     grader: _Grader,
     engine: EnginePort,
 ) -> tuple[_Grade, dict[str, _Grade]]:
-    grades = await asyncio.gather(
-        grader.grade(case, fusion_answer, engine=engine),
-        *(grader.grade(case, panel.answers[member.id], engine=engine) for member in members),
+    grades = await grader.grade_many(
+        case,
+        (fusion_answer, *(panel.answers[member.id] for member in members)),
+        engine=engine,
     )
     return grades[0], {member.id: grade for member, grade in zip(members, grades[1:], strict=True)}
 
@@ -184,6 +190,11 @@ def normalize_answer(text: str) -> str:
     return _ExactChoiceGrader().parse_answer(text)
 
 
+def _accumulate_metrics(totals: dict[str, float], metrics: tuple[tuple[str, float], ...]) -> None:
+    for name, value in metrics:
+        totals[name] = totals.get(name, 0.0) + value
+
+
 def _build_run(
     session: Session,
     fusion,
@@ -205,6 +216,7 @@ def _build_run(
             cost_usd=0.0,
             failures=totals.model_failures[member.id],
             name=member.id if member.id != member.model else None,
+            metrics=_mean_metrics(totals.member_metrics[member.id], sample_size),
         )
         for member in fusion._members
     )
@@ -230,6 +242,14 @@ def _build_run(
         pricing_as_of="n/a",
         model_results=model_results,
         failures=tuple(totals.failures),
+        primary_metric=loaded.definition.primary_metric,
+        metrics=_mean_metrics(totals.fusion_metrics, sample_size),
+    )
+
+
+def _mean_metrics(totals: dict[str, float], sample_size: int) -> tuple[tuple[str, float], ...]:
+    return tuple(
+        (name, round(100 * value / sample_size, 1)) for name, value in sorted(totals.items())
     )
 
 
@@ -273,7 +293,7 @@ class _NotebookProgress:
         self._bar.value = completed
         self._status.value = (
             f"<strong>{completed}/{total}</strong> · {escape(message)}"
-            "<br><span style='color:#70757a'>Each question is one URL4 engine request.</span>"
+            "<br><span style='color:#70757a'>Fusion and grader work run through URL4.</span>"
         )
 
 

@@ -6,3 +6,4 @@ default_route = "/codex/gpt-5.5"
 "/codex/gpt-5.5" = ["python3", "../screamingface/scripts/url4_mock_model.py", "codex/gpt-5.5", "{intent}"]
 "/gemini/2.5" = ["python3", "../screamingface/scripts/url4_mock_model.py", "gemini-cli/gemini-2.5-pro", "{intent}"]
 "/claude/sonnet-4.6" = ["python3", "../screamingface/scripts/url4_mock_model.py", "anthropic/claude-sonnet-4-6", "{intent}"]
+"/gemini/3.1-pro-preview" = ["python3", "../screamingface/scripts/url4_mock_model.py", "google/gemini-3.1-pro-preview", "{intent}"]

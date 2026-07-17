@@ -8,7 +8,8 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from screamingface.data import load_live_questions, load_mock_questions
-from screamingface.graders import _ExactChoiceGrader, _Grader
+from screamingface.draco import _load_live_draco_rows, _load_mock_draco_rows
+from screamingface.graders import _DracoRubricGrader, _ExactChoiceGrader, _Grader
 
 if TYPE_CHECKING:
     from screamingface.session import Session
@@ -94,6 +95,34 @@ def _load_gpqa(session: Session, first: int, seed: int) -> _LoadedBenchmark:
     )
 
 
+def _load_draco(session: Session, first: int, seed: int) -> _LoadedBenchmark:
+    if session.mode == "mock":
+        rows = _load_mock_draco_rows(first, seed)
+        display_name = "DRACO-shaped synthetic research fixture"
+        dataset_source = "synthetic-draco-shaped"
+        judge_runs = 1
+    else:
+        rows = _load_live_draco_rows(first, seed)
+        display_name = "DRACO"
+        dataset_source = "huggingface:perplexity-ai/draco:test"
+        judge_runs = 5
+    cases = tuple(
+        _EvaluationCase(
+            id=row.id,
+            prompt=row.problem,
+            reference=row.criteria,
+            metadata_items=(("domain", row.domain), ("judge_runs", judge_runs)),
+        )
+        for row in rows
+    )
+    return _LoadedBenchmark(
+        definition=_DRACO,
+        cases=cases,
+        display_name=display_name,
+        dataset_source=dataset_source,
+    )
+
+
 _GPQA = _BenchmarkDefinition(
     id="gpqa",
     name="GPQA Diamond",
@@ -103,7 +132,16 @@ _GPQA = _BenchmarkDefinition(
     _loader=_load_gpqa,
 )
 
-_BENCHMARKS = _BenchmarkRegistry((_GPQA,))
+_DRACO = _BenchmarkDefinition(
+    id="draco",
+    name="DRACO",
+    version="perplexity-ai/draco-test-v1",
+    primary_metric="normalized_score",
+    grader=_DracoRubricGrader(),
+    _loader=_load_draco,
+)
+
+_BENCHMARKS = _BenchmarkRegistry((_DRACO, _GPQA))
 
 
 def _resolve_benchmark(benchmark_id: str) -> _BenchmarkDefinition:

@@ -9,6 +9,7 @@ _ROUTES = {
     "/codex/gpt-5.5": "codex/gpt-5.5",
     "/gemini/2.5": "gemini-cli/gemini-2.5-pro",
     "/claude/sonnet-4.6": "anthropic/claude-sonnet-4-6",
+    "/gemini/3.1-pro-preview": "google/gemini-3.1-pro-preview",
 }
 
 
