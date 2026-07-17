@@ -231,6 +231,67 @@ class AppendOnlyCheckTests(unittest.TestCase):
             )
             self.assertTrue(self._check(root, base))
 
+    def test_module_level_test_data_edit_detected(self):
+        """Regression test (review concern): shared module-level test data (e.g.
+        `_BASE_KW = {...}`, the real pattern in
+        apps/aigateway/tests/unit/test_request_cache_keys.py) is invisible to a
+        function-only pass — a `-` line there must still be caught."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "test_a.py",
+                '_BASE_KW = {\n    "x": 1,\n}\n\n\ndef test_uses_base_kw():\n    assert _BASE_KW["x"] == 1\n',
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                '_BASE_KW = {\n    "x": 999,\n}\n\n\ndef test_uses_base_kw():\n    assert _BASE_KW["x"] == 1\n',
+            )
+            self.assertFalse(self._check(root, base))
+
+    def test_existing_import_line_changed_still_passes_with_data_protection(self):
+        """Regression guard: protecting module-level data must not reverse round 1's
+        explicit decision that editing an existing import line is legitimate."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "test_a.py",
+                'import os\n\n_BASE_KW = {\n    "x": 1,\n}\n\n\ndef test_one():\n    assert _BASE_KW["x"] == 1\n',
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                'import os, sys\n\n_BASE_KW = {\n    "x": 1,\n}\n\n\ndef test_one():\n    assert _BASE_KW["x"] == 1\n',
+            )
+            self.assertTrue(self._check(root, base))
+
+    def test_new_module_level_constant_addition_passes(self):
+        """Pure addition of a brand new module-level constant must stay legitimate."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(root / "test_a.py", "def test_one():\n    assert 1 == 1\n")
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                '_NEW_CONST = 5\n\n\ndef test_one():\n    assert 1 == 1\n',
+            )
+            self.assertTrue(self._check(root, base))
+
+    def test_append_new_constant_immediately_after_existing_passes(self):
+        """Boundary case at module-data scope, mirroring the function-scope one:
+        a new constant typed directly after an existing one, zero blank lines,
+        must stay unflagged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(root / "test_a.py", "_A = 1\ndef test_one():\n    assert _A == 1\n")
+            base = _commit_all(root, "base")
+            _write(root / "test_a.py", "_A = 1\n_B = 2\ndef test_one():\n    assert _A == 1\n")
+            self.assertTrue(self._check(root, base))
+
 
 if __name__ == "__main__":
     unittest.main()

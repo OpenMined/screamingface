@@ -36,3 +36,11 @@ assertion undetected, and fixtures/helpers (e.g. `conftest.py`, real in both
 (not just tests) and adding insertion-position detection with an exclusive upper
 bound (so appending a new function directly after an existing one stays legitimate).
 12/12 tests pass. See the ledger's Round 3 section.
+
+**Round 4 (2026-07-17):** fixed the reviewer's last P2 (module-level test data,
+e.g. `_BASE_KW`, wasn't protected). 16/16 tests pass. Two further findings from
+deeper probing deliberately NOT fixed here, tracked as separate follow-up
+tickets instead: decorator-stacking (concern A) and name-shadowing/monkeypatching
+(a structural line-diffing limitation). A third, non-code finding (no CI/hook
+independently enforces this check at all) filed as its own distinct ticket. See
+the ledger's Round 4 section for full detail and ticket links.

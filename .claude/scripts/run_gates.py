@@ -70,8 +70,12 @@ def load_card(path: pathlib.Path) -> dict:
 _HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,\d+)? \+\d+(?:,\d+)? @@")
 
 
+_EXEMPT_TOP_LEVEL = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+
 def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tuple[int, int]]:
-    """Line ranges (1-indexed, inclusive) of every function body in `path` at `base`.
+    """Line ranges (1-indexed, inclusive) of every protected node in `path` at `base`:
+    every function body, plus every module-level statement except imports.
 
     AIDEV-NOTE: `path` is cwd-relative (it comes from `git diff --relative`), but
     `git show rev:path` resolves a bare path relative to the REPO ROOT, not cwd —
@@ -83,6 +87,22 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
     fixture or a plain helper a test depends on is just as protected as the test
     itself. Rule 5 doesn't only mean "don't rewrite a `def test_...`" — it means
     don't silently change what a previously-committed test actually exercises.
+
+    INVARIANT: also covers module-level test data (e.g. a shared `_BASE_KW = {...}`
+    dict several tests build on) — a `-` line there is invisible to the
+    function-only pass, exactly like an unprotected fixture. Imports are the one
+    deliberate exemption: round 1 decided "an existing import line changed to
+    support a new test" must stay legitimate, so `Import`/`ImportFrom` never get a
+    protected range even when edited.
+
+    AIDEV-NOTE: class-level attributes (e.g. a shared constant on a
+    `unittest.TestCase` subclass) are NOT covered by this pass — same shape of gap
+    as module-level data, deliberately deferred rather than silently left unnoted.
+    A naive "protect the whole class body as one range" would itself reintroduce
+    OME-369's original false positive (inserting a new method between two existing
+    ones in the same class would anchor inside the class's overall span even
+    though it's outside any individual method's), so it needs the same
+    per-statement treatment as this function does for module scope, not a shortcut.
     """
     proc = subprocess.run(
         ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True, text=True,
@@ -101,6 +121,10 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
             # decorator line(s) above it.
             start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
             ranges.append((start, getattr(node, "end_lineno", node.lineno)))
+    for node in tree.body:  # module-level (non-recursive) — data, not imports/defs
+        if isinstance(node, _EXEMPT_TOP_LEVEL):
+            continue
+        ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
     return ranges
 
 

@@ -225,3 +225,91 @@ empirically (not just reasoned about) before touching code:
     once round-3 changes are restored.
   - `python3 -m py_compile` and `uvx ruff check` clean on both files.
 - **Deviations:** none from the round-3 plan.
+
+## Round 4 (2026-07-17) — the reviewer's last P2 concern, plus a deeper sweep
+
+Same review thread's second remaining P2: module-level test data (e.g. `_BASE_KW`
+in `apps/aigateway/tests/unit/test_request_cache_keys.py`, real and confirmed, not
+hypothetical) is invisible to a function-only pass. Confirmed empirically, fixed.
+
+At the user's request I then probed further, beyond what the reviewer asked, and
+found two more things — both deliberately **not fixed here**, tracked as separate
+follow-ups instead (see below) to avoid scope drift on this PR:
+
+1. **Decorator-stacking** ("concern A", the reviewer's OTHER remaining P2):
+   confirmed valid and reproducible, but needs old-vs-new AST identity matching —
+   a different, larger mechanism than this PR's line-position diffing. Deferred.
+2. **Name-shadowing / monkeypatching** (found via my own probing, not a reviewer
+   comment): redefining, reassigning, `del`-ing, or mutating shared state anywhere
+   later in a file — even far from what it affects — silently neuters prior
+   tests/fixtures/data while looking like an ordinary append. Proved with 4
+   variants (class redefinition, plain reassignment, `del`, monkeypatch appended
+   at file end unrelated to either test it affects). This is a structural
+   limitation of any pure line-diff gate, not a finite list of bugs — closing it
+   for real needs semantic/data-flow analysis or execution-based verification.
+3. Also found (not a code bug, a process/infra gap): **no independent
+   enforcement** of this check exists anywhere — no CI workflow references
+   `run_gates.py`, no pre-push hook, and every documented invocation omits
+   `--base` (defaults to `HEAD`, i.e. only the uncommitted delta vs the last local
+   commit, never the cumulative diff vs `origin/main`). Tracked as its own ticket,
+   separate from OME-369, since it's a different kind of unit of work entirely.
+
+## Planned changes (round 4)
+
+- `.claude/scripts/run_gates.py`: `_old_protected_ranges` also walks `tree.body`
+  (module-level, non-recursive) for every statement except
+  `Import`/`ImportFrom`/`FunctionDef`/`AsyncFunctionDef`/`ClassDef` — imports stay
+  exempt (preserves round 1's explicit decision); functions already covered by the
+  separate `ast.walk` pass; class-level attributes noted as a related, deliberately
+  out-of-scope gap (same shape of problem, would need per-statement treatment
+  inside class bodies too, not a whole-class-span shortcut — that would reopen the
+  "insert a new method between two existing ones" false positive).
+- `.claude/scripts/tests/test_run_gates.py`: 4 new tests —
+  `test_module_level_test_data_edit_detected` (the confirmed-bug regression),
+  `test_existing_import_line_changed_still_passes_with_data_protection` (guards
+  round 1's decision isn't reversed), `test_new_module_level_constant_addition_passes`
+  and `test_append_new_constant_immediately_after_existing_passes` (boundary cases
+  at data scope, mirroring the function-scope ones from round 3).
+
+## Test plan (round 4)
+
+- Same discipline as rounds 2-3: `test_module_level_test_data_edit_detected`
+  confirmed to **fail** against a snapshot of round-3-only code, pass on round-4
+  code. The three "must still pass" tests confirmed passing on both (expected,
+  since round 3 never inspected module-level statements at all — the meaningful
+  check is that they still pass under the NEW data-protection logic).
+- Sanity check against the real repo: parsed
+  `apps/aigateway/tests/unit/test_request_cache_keys.py` directly —
+  `_old_protected_ranges` finds 22 protected ranges including `_BASE_KW`'s own
+  span, no crash.
+
+## Acceptance (round 4)
+
+- Confirmed bug fixed; full matrix (16 tests: 12 from rounds 1-3 + 4 new) passes.
+- No regression: round 1's "existing import line changed" decision still holds
+  under the broadened protection.
+
+## Known limitations (documented, not fixed — see follow-up tickets)
+
+This gate catches accidental/naive test-weakening well after rounds 1-4 (line
+rewrites, insertions, decorator edits on existing decorators, fixtures, module
+data). It does **not**, and structurally cannot via line-diffing alone, catch
+determined bypass via name-shadowing/monkeypatching (tracked as a follow-up
+ticket, see Outcome below), or a new outermost decorator stacked onto a
+previously-undecorated (or already-decorated) test (concern A, tracked
+separately). It also has no independent enforcement — nothing stops it from
+simply not being run (also tracked separately, as a distinct infra unit).
+
+## Outcome (round 4, fill at the end — required before COMMIT)
+
+- **Actual files:**
+  - `.claude/scripts/run_gates.py` — `_EXEMPT_TOP_LEVEL` tuple + `_old_protected_ranges`'s
+    second pass over `tree.body`.
+  - `.claude/scripts/tests/test_run_gates.py` — 4 new tests, 16 total.
+- **Commits:** <fill after commit>
+- **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 16/16 pass.
+  `test_module_level_test_data_edit_detected` confirmed to fail on round-3 code,
+  pass on round-4 code. `python3 -m py_compile` and `uvx ruff check` clean.
+- **Deviations:** none from the round-4 plan.
+- **Follow-ups filed:** <fill with Linear ticket IDs for concern A,
+  shadowing/monkeypatching, and the CI-enforcement-gap>.
