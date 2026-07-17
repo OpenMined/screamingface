@@ -633,7 +633,8 @@ so none of those text-format artifacts can arise by construction. Net result:
     `difflib.SequenceMatcher`; `_HUNK_HEADER`/`import re` removed;
     `import difflib` added.
   - `.claude/scripts/tests/test_run_gates.py` — 2 new tests, 24 total.
-- **Commits:** <fill after commit>
+- **Commits:** `b3e0d77` — refactor(repo): diff line content via
+  SequenceMatcher, not diff text (Refs: OME-369).
 - **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 24/24 pass.
   Mirror-image test confirmed to fail on round-7 code, pass on round-8 code.
   `python3 -m py_compile` and `uvx ruff check` clean.
