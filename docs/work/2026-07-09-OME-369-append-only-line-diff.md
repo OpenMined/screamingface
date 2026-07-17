@@ -549,3 +549,95 @@ speed polish, zero correctness impact).
   New test confirmed to fail on round-6 code, pass on round-7 code.
   `python3 -m py_compile` and `uvx ruff check` clean.
 - **Deviations:** none from the round-7 plan.
+
+## Round 8 (2026-07-17) — architectural rewrite: SequenceMatcher over diff-text parsing
+
+Fourth structured code-review pass, on round 7's own fix. Two agents (reuse,
+line-by-line) independently found round 7's `last_removed` state machine only
+correctly pairs a hunk's LAST removed line with its FIRST added line — wrong
+whenever a hunk has more than one removed line. Concretely proved:
+
+1. **Mirror-image false positive** (clean, discriminating repro): an existing
+   protected line LOSING its trailing newline, with zero other change, still
+   got falsely flagged — round 7 only recognized the "gained a newline"
+   direction. Confirmed: fails on round-7 code, passes after the fix.
+2. **A "false negative" claim that turned out to be the shadowing gap, not a
+   distinct bug.** I attempted to build a clean repro of "a real assertion
+   rewrite gets masked by coincidental adjacent-line pairing," independent of
+   name-shadowing. Every construction either (a) still got caught anyway via
+   the OTHER removed line in the same hunk independently intersecting a
+   protected range, or (b) required the exact shadowing technique (redefining
+   a test with the same name right after the "moved" original) to work at
+   all — and running that exact repro against BOTH round-7 and the new
+   SequenceMatcher code returns the same result (`True`, pass) in both, proving
+   it's the already-accepted, already-deferred shadowing/monkeypatching
+   limitation wearing an EOF-newline costume, not a new independent gap this
+   fix does or should close. Corrected the test's docstring accordingly rather
+   than ship an inaccurate "this proves a security fix" claim.
+
+Rather than patch a third variant into the same state machine (attempted by
+hand first — the "which `+` line pairs with which `-` line" problem for
+multi-line hunks is genuinely not solvable by more special-casing, since it's
+exactly the LCS-alignment problem `difflib` exists to solve), rewrote
+`_diff_positions` to diff actual line CONTENT (old via `git show`, new read
+directly off the working-tree file) with `difflib.SequenceMatcher`, instead of
+hand-parsing `git diff`'s unified-diff TEXT. This is the same root cause behind
+THREE separate bugs across rounds 2, 5, and 7 (dash-prefixed content
+false-matching a text header check; the replace-pair insertion-anchor
+off-by-one; the EOF-newline artifact) — all are quirks of unified-diff's TEXT
+REPRESENTATION that have nothing to do with whether a line's content actually
+changed. SequenceMatcher's opcodes are computed directly from line sequences,
+so none of those text-format artifacts can arise by construction. Net result:
+~40 lines of state-tracking replaced by ~15 lines using a stdlib algorithm;
+`_HUNK_HEADER` and the `re` import are now dead code, removed.
+
+## Planned changes (round 8)
+
+- `.claude/scripts/run_gates.py`: `_diff_positions` fully rewritten to use
+  `difflib.SequenceMatcher(a=old_lines, b=new_lines)` and its `get_opcodes()`
+  — `delete`/`replace` opcodes populate `removed` (1-indexed old line range),
+  `insert` opcodes populate `inserted_after` (anchored at the old line
+  immediately preceding the insertion point). `_HUNK_HEADER` regex and
+  `import re` removed (dead code after the rewrite); `import difflib` added.
+- `.claude/scripts/tests/test_run_gates.py`: 2 new tests —
+  `test_losing_trailing_newline_with_no_other_change_passes` (the clean,
+  discriminating mirror-image repro) and
+  `test_real_edit_adjacent_to_eof_artifact_still_detected` (a coverage guard
+  for multi-line-hunk correctness in general, not a specific-bug regression).
+
+## Test plan (round 8)
+
+- All 22 prior tests re-run against the rewrite with ZERO changes to their
+  code — confirms the new mechanism preserves every previously-fixed behavior
+  (dash-content, insertion boundaries, decorator/fixture/module-data
+  protection, the round-7 EOF fix's original direction) despite being a
+  completely different implementation.
+- The new mirror-image test confirmed to fail on round-7 code, pass on
+  round-8 code — a real, clean discriminator.
+- The multi-line-hunk coverage test passes on both round-7 and round-8 code
+  (by design — it's a general correctness guard, not a discriminator; see the
+  round-8 narrative above for why a clean discriminator for the pairing bug
+  specifically wasn't constructible without invoking shadowing).
+
+## Acceptance (round 8)
+
+- 24/24 tests pass (22 prior + 2 new).
+- The mirror-image EOF false positive is fixed and proven.
+- `_HUNK_HEADER`/`import re` dead code removed; `import difflib` added.
+- No regression: every prior round's fix still holds under the new mechanism.
+
+## Outcome (round 8, fill at the end — required before COMMIT)
+
+- **Actual files:**
+  - `.claude/scripts/run_gates.py` — `_diff_positions` rewritten around
+    `difflib.SequenceMatcher`; `_HUNK_HEADER`/`import re` removed;
+    `import difflib` added.
+  - `.claude/scripts/tests/test_run_gates.py` — 2 new tests, 24 total.
+- **Commits:** <fill after commit>
+- **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 24/24 pass.
+  Mirror-image test confirmed to fail on round-7 code, pass on round-8 code.
+  `python3 -m py_compile` and `uvx ruff check` clean.
+- **Deviations:** the "severe false negative" finding from review round 4's
+  line-by-line agent was investigated and found to be entangled with the
+  already-deferred shadowing limitation, not a distinct bug — documented in
+  the narrative above rather than silently dropped.

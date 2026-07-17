@@ -18,9 +18,9 @@ Exit codes: 0 all green · 1 a gate or the append-only check failed · 2 config 
 
 import argparse
 import ast
+import difflib
 import fnmatch
 import pathlib
-import re
 import subprocess
 import sys
 from typing import NoReturn
@@ -65,9 +65,6 @@ def load_card(path: pathlib.Path) -> dict:
     if not isinstance(data.get("stacks"), list):
         fail_config(f"{path} frontmatter must define a `stacks:` list")
     return data
-
-
-_HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@")
 
 
 # WHY: an ALLOWLIST of data-holding node types, not a denylist of "everything
@@ -141,94 +138,64 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
 
 
 def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int], set[int]]:
-    """Old-file positions the diff for `path` vs `base` touches, in two forms:
+    """Old-file positions where `path`'s content differs between `base` and the
+    working tree, in two forms:
 
-    - `removed`: an old line number itself changed/removed (a `-` line) — checked
-      against a protected range INCLUSIVE on both ends (`lo <= ln <= hi`).
+    - `removed`: an old line number itself changed/removed — checked against a
+      protected range INCLUSIVE on both ends (`lo <= ln <= hi`).
     - `inserted_after`: an old line number that NEW content was inserted directly
       after, with no old line consumed for it — checked EXCLUSIVE at the upper end
       (`lo <= n < hi`).
     """
+    # WHY: diff actual line CONTENT (old file via `git show`, new file read
+    # straight off disk) with difflib.SequenceMatcher, rather than hand-parsing
+    # `git diff`'s unified-diff TEXT. Three separate rounds of bugs (a removed
+    # line starting with `--` false-matching a text-based header check; a
+    # replace pair's insertion anchor landing one line later than it should;
+    # an EOF-newline-only change rendering as a remove+add of unchanged text,
+    # in a way that couldn't be fixed correctly for multi-line hunks without
+    # LCS-style pairing) all stemmed from the same root cause: unified-diff TEXT
+    # has representational quirks (headers, no-newline markers, replace-pair
+    # ambiguity) that have nothing to do with whether a line's CONTENT actually
+    # changed. SequenceMatcher's opcodes are computed directly from line
+    # sequences, so a line byte-identical between old and new is always
+    # "equal" — none of those text-format artifacts can arise by construction.
+    #
     # AIDEV-NOTE: the exclusive bound on `inserted_after` is load-bearing. A pure
     # insertion (e.g. a whole new test function typed directly after an existing
     # one, zero blank lines between them) anchors at `n == hi` of the PRECEDING
     # function — that must stay unflagged, or this reopens the exact false-positive
     # OME-369 exists to fix (pure additions rejected as violations). Inserting as a
     # new first/middle statement anchors at `lo <= n < hi` and must be caught: a
-    # pure `+`-only diff can still silently neuter a prior test's assertions (e.g.
-    # forcing a variable's value right before the check) with zero `-` lines, which
-    # `removed` alone can never see.
-    #
-    # AIDEV-NOTE: file-level header lines (`diff --git`, `index`, `--- a/...`,
-    # `+++ b/...`) only ever appear BEFORE the first `@@` hunk line — track that
-    # boundary structurally (`in_hunk`) instead of prefix-matching `---`/`+++`
-    # against line content. A *removed* line whose actual content starts with `--`
-    # at column 0 (e.g. a bare `---` separator) renders as `----` in the diff,
-    # which would false-match a content-based header check and silently vanish
-    # from `removed` while desyncing `old_line` for every later line in the hunk.
-    #
-    # WHY: also track whether the most recent "-" line was immediately followed
-    # by "\ No newline at end of file" and, if so, whether the very next "+"
-    # line is byte-identical to it. git represents "content was appended after a
-    # file that didn't end in a newline" as a remove+add of that unchanged last
-    # line (its EOF status changed, not its text) — without this check, that
-    # renders as a false "removed/changed" hit on a protected range's last line
-    # for the ordinary, non-adversarial act of appending new content to a file
-    # that happened not to end in `\n`.
-    proc = subprocess.run(
-        ["git", "diff", "--relative", "--unified=0", base, "--", path],
-        cwd=root, capture_output=True, text=True,
+    # pure insertion can still silently neuter a prior test's assertions (e.g.
+    # forcing a variable's value right before the check) with zero removed lines,
+    # which `removed` alone can never see.
+    old_proc = subprocess.run(
+        ["git", "show", f"{base}:./{path}"], cwd=root, capture_output=True, text=True,
     )
-    if proc.returncode != 0:
-        fail_config(f"git diff failed in {root}: {proc.stderr.strip()}")
+    if old_proc.returncode != 0:
+        return set(), set()  # file didn't exist at base — nothing to protect
+    # AIDEV-NOTE: `append_only_check` only ever calls this for status "M" files,
+    # which are guaranteed to exist in the working tree — reading directly off
+    # disk is the correct equivalent of `git diff base -- path`'s implicit
+    # "against the working tree" comparison (no second ref given).
+    new_content = (root / path).read_text()
+    old_lines = old_proc.stdout.splitlines()
+    new_lines = new_content.splitlines()
+    matcher = difflib.SequenceMatcher(a=old_lines, b=new_lines, autojunk=False)
     removed: set[int] = set()
     inserted_after: set[int] = set()
-    old_line = 0
-    in_hunk = False
-    pure_insert_hunk = False
-    last_removed: tuple[int, str, bool] | None = None  # (old_line, content, no_newline)
-    for line in proc.stdout.splitlines():
-        if line.startswith("@@"):
-            m = _HUNK_HEADER.match(line)
-            if m:
-                old_line = int(m.group(1))
-                old_count = int(m.group(2)) if m.group(2) is not None else 1
-                # WHY: a hunk whose header declares old-count 0 is UNAMBIGUOUSLY a
-                # pure insertion straight from the header. Inferring "pure insert"
-                # by pairing "-"/"+" lines line-by-line instead would mis-anchor a
-                # replace pair (a "-" immediately followed by a "+") one line later
-                # than the line it actually replaces — which can land exactly on
-                # the start of the NEXT protected range and false-positive an edit
-                # that never touched it (e.g. replacing the blank separator line
-                # between two functions falsely flags the second function).
-                pure_insert_hunk = old_count == 0
-            in_hunk = True
-            last_removed = None
-        elif not in_hunk:
-            continue  # pre-hunk file header (diff --git / index / --- a/ / +++ b/)
-        elif line.startswith("\\"):
-            # "\ No newline at end of file" describes the line just emitted —
-            # never consumes a line number, but mark it on a pending removal so
-            # a byte-identical "+" right after can be recognized as an EOF-status
-            # artifact, not a real edit.
-            if last_removed is not None:
-                last_removed = (last_removed[0], last_removed[1], True)
-        elif line.startswith("-"):
-            removed.add(old_line)
-            last_removed = (old_line, line[1:], False)
-            old_line += 1
-        elif line.startswith("+"):
-            if last_removed is not None and last_removed[2] and last_removed[1] == line[1:]:
-                removed.discard(last_removed[0])
-            elif pure_insert_hunk:
-                inserted_after.add(old_line)  # anchored right after the current old_line
-            # else: part of a replace pair with a preceding "-" in THIS hunk —
-            # already captured via `removed`; anchoring it too would double-count
-            # and can mis-fire per the WHY note above.
-            last_removed = None
-        else:
-            last_removed = None
-            old_line += 1  # context line (present only if a non-zero unified context is used)
+    for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if tag in ("delete", "replace"):
+            removed.update(range(i1 + 1, i2 + 1))  # old_lines is 0-indexed, ranges are 1-indexed
+        if tag == "insert":
+            inserted_after.add(i1)  # anchored right after old 1-indexed line i1
+        # "replace" deliberately does NOT also populate inserted_after — the
+        # removed lines already comprehensively signal the violation if inside
+        # a range, and anchoring the replacement's added lines too would
+        # double-count without adding coverage.
     return removed, inserted_after
 
 

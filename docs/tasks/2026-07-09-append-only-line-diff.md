@@ -71,3 +71,14 @@ examples (`_CASES.append(...)`, `del _CASES[1]`) turned out to be the same
 already-deferred shadowing/monkeypatching class, not new gaps — folded into
 existing documentation instead of new code. 22/22 tests pass. See the
 ledger's Round 7 section.
+
+**Round 8 (2026-07-17):** fourth structured review pass found round 7's fix
+itself only handled the EOF-newline artifact in one direction, and its
+pairing logic couldn't be correctly extended to multi-line hunks by more
+special-casing (tried and failed by hand first). Rewrote `_diff_positions` to
+diff actual line content via `difflib.SequenceMatcher` instead of hand-parsing
+git's diff text — this is the same root cause behind three separate bugs
+across rounds 2, 5, and 7, all eliminated at once by construction rather than
+patched one variant at a time. 24/24 tests pass. See the ledger's Round 8
+section (including a correction: one review finding turned out to be the
+already-deferred shadowing limitation, not a distinct bug).

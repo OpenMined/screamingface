@@ -401,6 +401,46 @@ class AppendOnlyCheckTests(unittest.TestCase):
             )
             self.assertTrue(self._check(root, base))
 
+    def test_losing_trailing_newline_with_no_other_change_passes(self):
+        """Regression test (code-review finding, mirror image of the previous
+        test): a protected range's last line LOSING its trailing newline, with
+        zero other change, must also stay legitimate — the SequenceMatcher
+        rewrite handles this by construction (splitlines() ignores trailing-
+        newline presence on either side), unlike the old text-parsing approach
+        which only recognized the "gained a newline" direction."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(root / "test_a.py", "def test_one():\n    assert 1 == 1\n")
+            base = _commit_all(root, "base")
+            with open(root / "test_a.py", "w", newline="\n") as f:
+                f.write("def test_one():\n    assert 1 == 1")  # lost trailing newline
+            self.assertTrue(self._check(root, base))
+
+    def test_real_edit_adjacent_to_eof_artifact_still_detected(self):
+        """Coverage guard: a real rewrite of one protected assertion, sharing a
+        hunk with an unrelated EOF-newline-only change to an adjacent protected
+        line, must still be caught. SequenceMatcher's LCS-based opcodes handle
+        multi-line hunks correctly by construction (each line is matched by
+        content, not by naive "first added line after last removed line"
+        position-pairing) — this guards that property, not any specific old
+        bug (a clean discriminating repro for the old pairing bug turns out to
+        require the shadowing technique, which is a separate, already-deferred
+        limitation, not something this fix does or should close)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            with open(root / "test_a.py", "w", newline="\n") as f:
+                f.write(
+                    "def test_one():\n    assert 1 == 1\ndef test_two():\n    assert 2 == 2"
+                )  # no trailing newline
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                "def test_one():\n    assert 1 == 999\ndef test_two():\n    assert 2 == 2\n",
+            )
+            self.assertFalse(self._check(root, base))
+
 
 if __name__ == "__main__":
     unittest.main()
