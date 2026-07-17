@@ -400,7 +400,8 @@ separately, not new scope).
     `_EXEMPT_TOP_LEVEL`), `_HUNK_HEADER`/`_diff_positions` old-count-based
     `pure_insert_hunk` fix, anchor comments moved to `#`-prefixed form.
   - `.claude/scripts/tests/test_run_gates.py` — 4 new tests, 20 total.
-- **Commits:** <fill after commit>
+- **Commits:** `eee239e` — fix(repo): replace denylist with allowlist for
+  module-data protection (Refs: OME-369).
 - **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 20/20 pass.
   All 4 new tests confirmed to fail on round-4 code, pass on round-5 code.
   `python3 -m py_compile` and `uvx ruff check` clean.
