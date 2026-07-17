@@ -1,0 +1,33 @@
+[project]
+name = "draco-eval-demo"
+version = "0.1.0"
+description = "Runnable environment for the DRACO / eval demo notebooks (UX contract + works-today cells)"
+requires-python = ">=3.12"
+dependencies = [
+    # the SDK under design + notebook kernel extras
+    "screamingface[notebook]",
+    # the validated rubric grader (benchmarking/graders/rubric.py) needs pydantic
+    "pydantic>=2",
+    # the by_model.csv compare cells
+    "pandas>=2",
+    # pretty [stub · …] log lines from sf_stubs.py
+    "loguru>=0.7",
+    # `uv run jupyter lab` from this folder
+    "jupyterlab>=4",
+]
+
+# Pinned to a commit so this folder works as a standalone zip, outside the monorepo.
+# url4 must be pinned alongside: screamingface depends on it via an in-repo path that
+# only exists inside the monorepo checkout.
+[tool.uv.sources]
+screamingface = { git = "https://github.com/OpenMined/screamingface", subdirectory = "packages/screamingface", rev = "a6fda5f032d7b7f3571773bafa04fc0a20e93594" }
+url4 = { git = "https://github.com/OpenMined/screamingface", subdirectory = "packages/url4", rev = "a6fda5f032d7b7f3571773bafa04fc0a20e93594" }
+
+# Working inside the monorepo on the SDK itself? Swap the sources above for the
+# editable local paths so your edits are picked up without reinstalling:
+# [tool.uv.sources]
+# screamingface = { path = "../..", editable = true }
+
+# This folder is an environment, not a distributable package.
+[tool.uv]
+package = false
