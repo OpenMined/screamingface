@@ -685,7 +685,8 @@ verified directly with a consolidated script instead of re-spawning agents:
     `_diff_positions`; hardened decode in `_old_protected_ranges`.
   - `.claude/scripts/tests/test_run_gates.py` — 2 new tests
     (binary-content no-crash+flag, verbatim-swap behavior pin), 26 total.
-- **Commits:** <fill after commit>
+- **Commits:** `914640d` — fix(repo): compare bytes so binary content yields a
+  verdict, not a crash (Refs: OME-369).
 - **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 26/26 pass.
   Binary test confirmed to ERROR (UnicodeDecodeError) on round-8 code, pass on
   round-9 code. `python3 -m py_compile` and `uvx ruff check` clean.
