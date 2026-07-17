@@ -543,7 +543,8 @@ speed polish, zero correctness impact).
   - `.claude/scripts/run_gates.py` — `_diff_positions`'s `last_removed`
     tracking for the EOF-newline-artifact fix; AIDEV-NOTE additions.
   - `.claude/scripts/tests/test_run_gates.py` — 1 new test, 22 total.
-- **Commits:** <fill after commit>
+- **Commits:** `ddf8371` — fix(repo): recognize EOF-newline artifacts as
+  non-edits (Refs: OME-369).
 - **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 22/22 pass.
   New test confirmed to fail on round-6 code, pass on round-7 code.
   `python3 -m py_compile` and `uvx ruff check` clean.
