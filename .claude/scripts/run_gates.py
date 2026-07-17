@@ -74,14 +74,16 @@ _HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@")
 # except X". A denylist means every statement type nobody thought to exclude
 # (a docstring, an `if __name__ == "__main__":` block, an import nested inside
 # a version-guard) silently becomes a false positive the next time someone
-# edits one. Only Assign/AnnAssign hold the kind of shared test data (e.g. a
-# `_BASE_KW = {...}` dict several tests build on) rule 5 needs to protect.
-_MODULE_LEVEL_DATA = (ast.Assign, ast.AnnAssign)
+# edits one. Assign/AnnAssign/AugAssign hold the kind of shared test data (e.g.
+# a `_BASE_KW = {...}` dict, or a `_CASES += [...]` accumulator) rule 5 needs
+# to protect.
+_MODULE_LEVEL_DATA = (ast.Assign, ast.AnnAssign, ast.AugAssign)
 
 
 def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tuple[int, int]]:
     """Line ranges (1-indexed, inclusive) of every protected node in `path` at `base`:
-    every function body, plus every direct module-level Assign/AnnAssign statement.
+    every function body, plus every direct module-level Assign/AnnAssign/AugAssign
+    statement.
     """
     # AIDEV-NOTE: `path` is cwd-relative (it comes from `git diff --relative`), but
     # `git show rev:path` resolves a bare path relative to the REPO ROOT, not cwd —
@@ -119,9 +121,12 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
     #     inside class bodies, not a whole-class-span shortcut (that would
     #     reopen "insert a new method between two existing ones" as a false
     #     positive, the same way OME-369's original bug worked).
-    # (2) an Assign/AnnAssign nested inside a module-level If/Try/With (e.g. a
-    #     version-guarded conditional constant) isn't covered either, since
-    #     this loop only walks direct `tree.body` children, not recursively.
+    # (2) an Assign/AnnAssign/AugAssign nested inside a module-level If/Try/With
+    #     (e.g. a version-guarded conditional constant) isn't covered either,
+    #     since this loop only walks direct `tree.body` children, not recursively.
+    # (3) a bare module-level walrus statement (`(_TOTAL := 10)`, parsed as an
+    #     ast.Expr wrapping an ast.NamedExpr) isn't covered — an exotic enough
+    #     pattern in real test code that it isn't worth a special-case check.
     return ranges
 
 

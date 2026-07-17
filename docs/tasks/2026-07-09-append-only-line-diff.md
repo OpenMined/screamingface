@@ -55,3 +55,10 @@ Fixed both at the root (switched to an `_MODULE_LEVEL_DATA` allowlist; anchor
 tracking now keyed off the diff hunk's declared old-line count) plus an
 anchor-syntax convention fix. 20/20 tests pass. See the ledger's Round 5
 section.
+
+**Round 6 (2026-07-17):** second structured review pass — 5 of 8 angles clean.
+Fixed one more real gap (`ast.AugAssign` module-level accumulators were
+unprotected) and one docs-process gap (Round 1's ledger placeholder never
+filled). A walrus-statement edge case documented as a known limitation rather
+than fixed (too exotic to warrant a special case). 21/21 tests pass. See the
+ledger's Round 6 section.

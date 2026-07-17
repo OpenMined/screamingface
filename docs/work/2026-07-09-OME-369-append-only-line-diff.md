@@ -44,7 +44,8 @@ quick manual check instead of adding permanent test infra:
 
 - **Actual files:** as planned — `.claude/scripts/run_gates.py` only (`append_only_check`
   rewritten; new `_old_test_ranges`/`_removed_old_lines` helpers; `ast`/`re` imports added).
-- **Commits:** <fill after commit below>
+- **Commits:** `ee8addd` — fix(repo): append-only gate checks line-level diffs,
+  not file status (Refs: OME-369).
 - **Gates:** no dedicated stack/tests for `.claude/scripts/` (confirmed with owner).
   Verified manually with 4 scratch-repo scenarios instead:
   1. Pure addition (new test function) → pass.
@@ -406,3 +407,65 @@ separately, not new scope).
   All 4 new tests confirmed to fail on round-4 code, pass on round-5 code.
   `python3 -m py_compile` and `uvx ruff check` clean.
 - **Deviations:** none from the round-5 plan.
+
+## Round 6 (2026-07-17) — second structured code-review pass
+
+Ran the same 8-angle `code-review` pass again on the now-pushed round-5 state,
+per the user's request for another round before filing follow-up tickets.
+5 of 8 angles came back clean (line-by-line, removed-behavior, cross-file,
+efficiency — all re-verified the fixes hold and found nothing new). 3 found
+real, low-severity items:
+
+- **Altitude** (verified by execution): `_MODULE_LEVEL_DATA = (Assign,
+  AnnAssign)` missed `ast.AugAssign` — a module-level accumulator statement
+  like `_CASES += [4, 5]` was unprotected. Fixed: added `ast.AugAssign` to the
+  allowlist (trivial, safe — same shape as the existing types). Also found a
+  bare module-level walrus statement (`(_TOTAL := 10)`) is unprotected too, but
+  judged too exotic a pattern in real test code to special-case — documented
+  as a third known limitation alongside the class-attribute and
+  nested-conditional-Assign gaps already in the code's AIDEV-NOTE.
+- **Conventions**: Round 1's ledger Outcome section still had the literal
+  placeholder `<fill after commit below>`, never filled in across all 5 prior
+  rounds. Fixed — filled with the real sha (`ee8addd`).
+- **Reuse** and **Simplification** each found one low-severity polish item
+  (a duplicated git-error-handling block between `_diff_positions` and
+  `append_only_check`; collapsing `old_count` into a direct string comparison).
+  Deliberately NOT acted on — pure style, no correctness impact, and the
+  Reuse finding itself warns that naively unifying the git-helper would risk
+  breaking `_old_protected_ranges`'s deliberately-different permissive-on-404
+  behavior.
+
+## Planned changes (round 6)
+
+- `.claude/scripts/run_gates.py`: `_MODULE_LEVEL_DATA` gains `ast.AugAssign`;
+  AIDEV-NOTE gains a third known-gap entry (walrus statements).
+- `.claude/scripts/tests/test_run_gates.py`: 1 new test —
+  `test_module_level_augassign_edit_detected`.
+- `docs/work/2026-07-09-OME-369-append-only-line-diff.md`: Round 1's Outcome
+  Commits field filled in (`ee8addd`).
+
+## Test plan (round 6)
+
+- Same discipline as every prior round: the new test confirmed to fail against
+  a snapshot of round-5 code, pass on round-6 code.
+- Full 21-test matrix (20 from rounds 1-5 + 1 new) passes.
+
+## Acceptance (round 6)
+
+- `AugAssign` gap fixed; 21/21 tests pass.
+- No regression: all 20 prior tests still pass unmodified.
+- Ledger placeholder gap fixed.
+
+## Outcome (round 6, fill at the end — required before COMMIT)
+
+- **Actual files:**
+  - `.claude/scripts/run_gates.py` — `_MODULE_LEVEL_DATA` gains `ast.AugAssign`;
+    AIDEV-NOTE gains the walrus-statement known-gap entry.
+  - `.claude/scripts/tests/test_run_gates.py` — 1 new test, 21 total.
+  - `docs/work/2026-07-09-OME-369-append-only-line-diff.md` — Round 1's
+    Commits placeholder filled.
+- **Commits:** <fill after commit>
+- **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 21/21 pass.
+  New test confirmed to fail on round-5 code, pass on round-6 code.
+  `python3 -m py_compile` and `uvx ruff check` clean.
+- **Deviations:** none from the round-6 plan.

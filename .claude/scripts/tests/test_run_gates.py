@@ -366,6 +366,24 @@ class AppendOnlyCheckTests(unittest.TestCase):
             )
             self.assertTrue(self._check(root, base))
 
+    def test_module_level_augassign_edit_detected(self):
+        """Regression test (code-review finding): a module-level accumulator
+        statement (e.g. `_CASES += [...]`) is an ast.AugAssign, not covered by
+        Assign/AnnAssign alone — editing it must still be caught."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "test_a.py",
+                "_CASES = [1, 2, 3]\n_CASES += [4, 5]\n\n\ndef test_uses_cases():\n    assert len(_CASES) == 5\n",
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                "_CASES = [1, 2, 3]\n_CASES += [4, 5, 999]\n\n\ndef test_uses_cases():\n    assert len(_CASES) == 5\n",
+            )
+            self.assertFalse(self._check(root, base))
+
 
 if __name__ == "__main__":
     unittest.main()
