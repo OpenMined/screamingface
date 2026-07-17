@@ -90,3 +90,12 @@ made the gate raise UnicodeDecodeError instead of producing a verdict — now
 compares bytes on both sides (flags binary junk fail-closed, no crash). Also
 pinned the verbatim-swap-is-flagged behavior as deliberate. 26/26 tests pass.
 See the ledger's Round 9 section.
+
+**Round 10 (2026-07-17):** sixth review pass. Discovered the round-9 bytes
+change had also fixed a latent FALSE NEGATIVE: `str.splitlines()` splits on
+`\f`/` ` (which Python's tokenizer doesn't), desyncing diff numbering
+from ast ranges — a rewrite of a test after such a character went silently
+undetected on round-8 code. Proven and pinned with a discriminating test
+(27/27 pass). Also surfaced: the test file is now 480 lines (over the
+≤450 guideline) — splitting it means relocating prior tests, itself a rule-5
+STOP-and-ask decision, left to the owner. See the ledger's Round 10 section.

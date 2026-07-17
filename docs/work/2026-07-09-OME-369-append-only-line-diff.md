@@ -691,3 +691,36 @@ verified directly with a consolidated script instead of re-spawning agents:
   Binary test confirmed to ERROR (UnicodeDecodeError) on round-8 code, pass on
   round-9 code. `python3 -m py_compile` and `uvx ruff check` clean.
 - **Deviations:** none.
+
+## Round 10 (2026-07-17) — sixth review pass; bonus false-negative discovered fixed
+
+Mechanical conventions checks re-run directly: anchors all `#`-prefixed, no
+bare excepts, test history 480 added / 0 deleted across every commit of all
+rounds. Two findings:
+
+- **The round-9 bytes change fixed a latent FALSE NEGATIVE nobody had spotted.**
+  `str.splitlines()` (the round-8 code) splits on `\f`, `\x85`, ` ` etc.,
+  which Python's tokenizer does NOT count as line boundaries — so a test file
+  containing e.g. a form feed inside any string literal had `_diff_positions`'
+  numbering desynced (+N) from `_old_protected_ranges`' ast-based ranges for
+  everything after it. Proven with a discriminating repro: on round-8 code, a
+  rewrite of `test_two`'s assertion positioned after a `\f`/` ` string
+  returned `True` (silently missed — the dangerous direction); on round-9's
+  bytes comparison (`bytes.splitlines()` splits only on `\r`/`\n`, matching
+  the tokenizer) it is correctly flagged. Pinned with
+  `test_rewrite_after_exotic_linebreak_chars_detected` (27 tests total).
+- **`test_run_gates.py` is now 480 lines**, over the sdlc-python skill's
+  ≤450-line REFACTOR guideline. Deliberately NOT split here: relocating prior
+  tests to a new file is itself a rule-5 prior-test change (a STOP-and-ask
+  decision — the gate would flag its own test-file split), so this is
+  surfaced to the owner as a decision, not acted on unilaterally.
+
+## Outcome (round 10)
+
+- **Actual files:** `.claude/scripts/tests/test_run_gates.py` — 1 new pin
+  test, 27 total. No production-code change (the fix itself shipped in
+  round 9's commit; this round proved and pinned its bonus effect).
+- **Commits:** <fill after commit>
+- **Gates:** 27/27 pass; new test confirmed to return the false-negative
+  (True) on round-8 code and pass on current code. `py_compile`/`ruff` clean.
+- **Deviations:** none.

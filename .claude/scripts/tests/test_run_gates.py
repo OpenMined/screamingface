@@ -475,6 +475,26 @@ class AppendOnlyCheckTests(unittest.TestCase):
             )
             self.assertFalse(self._check(root, base))
 
+    def test_rewrite_after_exotic_linebreak_chars_detected(self):
+        """Regression test (code-review finding, false-NEGATIVE direction): a
+        string containing \\f or \\u2028 earlier in the file must not desync
+        diff line numbering from ast's. str.splitlines() splits on those
+        characters (+2 lines here) while Python's tokenizer does not, so the
+        old str-based comparison shifted every later position out of its
+        protected range — a rewrite of a later test went silently undetected.
+        bytes.splitlines() splits only on \\r/\\n, matching the tokenizer."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            base_src = (
+                'def test_one():\n    s = "a\fb c"\n    assert s\n\n\n'
+                "def test_two():\n    assert 2 == 2\n"
+            )
+            _write(root / "test_a.py", base_src)
+            base = _commit_all(root, "base")
+            _write(root / "test_a.py", base_src.replace("assert 2 == 2", "assert 2 == 999"))
+            self.assertFalse(self._check(root, base))
+
 
 if __name__ == "__main__":
     unittest.main()
