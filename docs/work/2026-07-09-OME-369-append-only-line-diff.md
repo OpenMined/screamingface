@@ -464,7 +464,8 @@ real, low-severity items:
   - `.claude/scripts/tests/test_run_gates.py` — 1 new test, 21 total.
   - `docs/work/2026-07-09-OME-369-append-only-line-diff.md` — Round 1's
     Commits placeholder filled.
-- **Commits:** <fill after commit>
+- **Commits:** `249e462` — fix(repo): protect module-level augmented-assignment
+  test data (Refs: OME-369).
 - **Gates:** `uv run .claude/scripts/tests/test_run_gates.py -v` → 21/21 pass.
   New test confirmed to fail on round-5 code, pass on round-6 code.
   `python3 -m py_compile` and `uvx ruff check` clean.
