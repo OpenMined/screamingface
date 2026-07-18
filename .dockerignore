@@ -10,4 +10,10 @@ release/
 .DS_Store
 .env*
 .venv
+**/.venv
+.pytest_cache
+**/.pytest_cache
+.ruff_cache
+**/.ruff_cache
 __pycache__
+**/__pycache__

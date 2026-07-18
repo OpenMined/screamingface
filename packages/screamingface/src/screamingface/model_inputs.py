@@ -1,25 +1,17 @@
-"""Public model-input data shape and private normalized fusion slots."""
+"""Fusion model-input normalization shared by members and model reducers."""
 
 from __future__ import annotations
 
 import math
-from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import NotRequired, TypedDict
 
 type ParameterValue = str | int | float | bool
 
 
 class ModelConfig(TypedDict):
-    """Optional per-model configuration accepted by :class:`Fusion`.
-
-    A plain model ID is shorthand for ``{"model": model_id}``.
-    """
-
     model: str
-    name: NotRequired[str]
     prompt: NotRequired[str]
     params: NotRequired[dict[str, ParameterValue]]
 
@@ -29,148 +21,77 @@ type ModelInput = str | ModelConfig
 
 @dataclass(frozen=True, slots=True)
 class _ModelCall:
-    """One normalized URL4 model call shared by panels and model reducers."""
-
     model: str
     prompt: str
     parameter_items: tuple[tuple[str, ParameterValue], ...] = field(repr=False)
 
     @property
-    def params(self) -> Mapping[str, ParameterValue]:
-        return MappingProxyType(dict(self.parameter_items))
+    def params(self) -> dict[str, ParameterValue]:
+        return dict(self.parameter_items)
 
 
 @dataclass(frozen=True, slots=True)
 class _FusionMember:
-    """One normalized URL4 panel slot; intentionally not part of the public API."""
-
     id: str
     call: _ModelCall
-    has_explicit_name: bool = field(repr=False)
-    has_explicit_prompt: bool = field(repr=False)
+    explicit: bool = field(repr=False)
 
     @property
     def model(self) -> str:
         return self.call.model
 
-    @property
-    def prompt(self) -> str:
-        return self.call.prompt
-
-    @property
-    def parameter_items(self) -> tuple[tuple[str, ParameterValue], ...]:
-        return self.call.parameter_items
-
-    @property
-    def params(self) -> Mapping[str, ParameterValue]:
-        return self.call.params
-
     def to_model_input(self) -> ModelInput:
-        """Return a fresh canonical public string/dictionary representation."""
-
-        if not self.has_explicit_name and not self.has_explicit_prompt and not self.parameter_items:
+        if not self.explicit:
             return self.model
         config: ModelConfig = {"model": self.model}
-        if self.has_explicit_name:
-            config["name"] = self.id
-        if self.has_explicit_prompt:
-            config["prompt"] = self.prompt
-        if self.parameter_items:
-            config["params"] = dict(self.parameter_items)
+        if self.call.prompt:
+            config["prompt"] = self.call.prompt
+        if self.call.parameter_items:
+            config["params"] = self.call.params
         return config
 
 
-@dataclass(frozen=True, slots=True)
-class _ModelDraft:
-    model: str
-    name: str | None
-    prompt: str
-    parameter_items: tuple[tuple[str, ParameterValue], ...]
-    has_explicit_prompt: bool
-
-
 def normalize_model_inputs(
-    values: tuple[ModelInput, ...],
-    *,
-    default_prompt: str = "$question",
+    values: Sequence[ModelInput], *, default_prompt: str
 ) -> tuple[_FusionMember, ...]:
-    """Validate model inputs and assign stable private call-slot identities."""
-
-    normalized_default = _nonempty(default_prompt, "fusion prompt")
-    drafts = tuple(_model_draft(value, normalized_default) for value in values)
-    model_counts = Counter(draft.model for draft in drafts)
-    occurrences: Counter[str] = Counter()
-    members: list[_FusionMember] = []
-    for draft in drafts:
-        occurrences[draft.model] += 1
-        generated_id = (
-            draft.model
-            if model_counts[draft.model] == 1
-            else f"{draft.model}#{occurrences[draft.model]}"
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        raise TypeError("fusion models must be a sequence")
+    prompt = _nonempty(default_prompt, "fusion prompt")
+    return tuple(
+        _FusionMember(
+            id=f"panel_{index}",
+            call=_model_call(value, prompt),
+            explicit=not isinstance(value, str),
         )
-        members.append(
-            _FusionMember(
-                id=draft.name or generated_id,
-                call=_ModelCall(
-                    model=draft.model,
-                    prompt=draft.prompt,
-                    parameter_items=draft.parameter_items,
-                ),
-                has_explicit_name=draft.name is not None,
-                has_explicit_prompt=draft.has_explicit_prompt,
-            )
-        )
-
-    ids = [member.id for member in members]
-    if len(ids) != len(set(ids)):
-        raise ValueError("fusion model names must be unique")
-    return tuple(members)
+        for index, value in enumerate(values, 1)
+    )
 
 
-def _model_draft(value: ModelInput, default_prompt: str) -> _ModelDraft:
+def make_model_call(
+    *, model: str, prompt: str, params: Mapping[str, ParameterValue] | None = None
+) -> _ModelCall:
+    return _ModelCall(
+        model=_nonempty(model, "model"),
+        prompt=_nonempty(prompt, "model prompt"),
+        parameter_items=_parameter_items(params),
+    )
+
+
+def _model_call(value: ModelInput, default_prompt: str) -> _ModelCall:
     if isinstance(value, str):
-        return _ModelDraft(_nonempty(value, "model id"), None, default_prompt, (), False)
+        return make_model_call(model=value, prompt=default_prompt)
     if not isinstance(value, Mapping):
-        value_type = type(value).__name__
-        raise TypeError(f"fusion models must be model IDs or model dictionaries, got {value_type}")
-
-    allowed = {"model", "name", "prompt", "params"}
-    unknown = set(value) - allowed
+        raise TypeError("fusion models must be model IDs or mappings")
+    unknown = set(value) - {"model", "prompt", "params"}
     if unknown:
         fields = ", ".join(sorted(str(field) for field in unknown))
         raise ValueError(f"model configuration contains unknown field(s): {fields}")
     if "model" not in value:
         raise ValueError("model configuration is missing required field: model")
-
-    model = _nonempty(value["model"], "model configuration field 'model'")
-    name_value = value.get("name")
-    name = None if name_value is None else _nonempty(name_value, "model configuration field 'name'")
-    has_explicit_prompt = "prompt" in value
-    prompt = _nonempty(
-        value.get("prompt", default_prompt),
-        "model configuration field 'prompt'",
-    )
-    return _ModelDraft(
-        model,
-        name,
-        prompt,
-        _parameter_items(value.get("params")),
-        has_explicit_prompt,
-    )
-
-
-def _make_model_call(
-    *,
-    model: str,
-    prompt: str,
-    params: Mapping[str, ParameterValue] | None = None,
-) -> _ModelCall:
-    """Normalize one model call for any URL4 graph position."""
-
-    return _ModelCall(
-        model=_nonempty(model, "model"),
-        prompt=_nonempty(prompt, "model prompt"),
-        parameter_items=_parameter_items(params),
+    return make_model_call(
+        model=value["model"],
+        prompt=value.get("prompt", default_prompt),
+        params=value.get("params"),
     )
 
 
@@ -189,12 +110,10 @@ def _parameter_items(
         raise TypeError("model params must be a mapping")
     items: list[tuple[str, ParameterValue]] = []
     for key, value in params.items():
-        normalized_key = _nonempty(key, "model parameter name")
+        name = _nonempty(key, "model parameter name")
         if not isinstance(value, (str, int, float, bool)):
-            raise TypeError(
-                f"model parameter {normalized_key!r} must be text, a number, or a boolean"
-            )
+            raise TypeError(f"model parameter {name!r} must be a JSON scalar")
         if isinstance(value, float) and not math.isfinite(value):
-            raise ValueError(f"model parameter {normalized_key!r} must be finite")
-        items.append((normalized_key, value))
+            raise ValueError(f"model parameter {name!r} must be finite")
+        items.append((name, value))
     return tuple(items)

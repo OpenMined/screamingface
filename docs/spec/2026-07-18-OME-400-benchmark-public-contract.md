@@ -174,11 +174,13 @@ It is not part of generic URL4 core. The MVP shape is:
   "benchmarks": [
     {
       "id": "draco@1",
-      "manifest": "/sf/benchmarks/draco@1"
+      "manifest": "/sf/benchmarks/draco@1",
+      "tools": ["web_search"]
     },
     {
       "id": "gpqa@1",
-      "manifest": "/sf/benchmarks/gpqa@1"
+      "manifest": "/sf/benchmarks/gpqa@1",
+      "tools": []
     }
   ]
 }

@@ -1,30 +1,37 @@
-"""Typed public errors for actionable notebook failures."""
+"""Typed public failures at the ScreamingFace/engine boundary."""
 
 
 class ScreamingFaceError(Exception):
-    """Base class for SDK failures."""
+    """Base class for ScreamingFace failures."""
 
 
-class EngineError(ScreamingFaceError):
-    """The URL4 engine rejected a request or returned an invalid result."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str = "engine_error",
-        status_code: int | None = None,
-        request_expression: str | None = None,
-    ) -> None:
-        self.code = code
-        self.status_code = status_code
-        self.request_expression = request_expression
-        super().__init__(message)
+class EngineConnectionError(ScreamingFaceError):
+    """The configured URL4 engine could not be reached."""
 
 
-class EngineUnavailable(EngineError):
-    """No URL4 engine could be reached at the configured address."""
+class EngineProtocolError(ScreamingFaceError):
+    """The engine violated the expected HTTP transport contract."""
 
 
-class DatasetUnavailable(ScreamingFaceError):
-    """A gated benchmark cannot be loaded in the current environment."""
+class EngineProfileError(EngineProtocolError):
+    """The ScreamingFace registry is missing, malformed, or incompatible."""
+
+
+class UnknownBenchmarkError(ScreamingFaceError):
+    """The configured engine does not advertise a requested benchmark."""
+
+
+class UnknownModelError(ScreamingFaceError):
+    """The configured engine does not advertise a requested model."""
+
+
+class UnsupportedToolError(ScreamingFaceError):
+    """A selected model cannot provide a benchmark-required tool."""
+
+
+class UnsupportedReducerError(ScreamingFaceError):
+    """The configured engine does not advertise a selected reducer."""
+
+
+class InvalidBenchmarkError(ScreamingFaceError):
+    """A benchmark manifest or normalized case stream is invalid."""

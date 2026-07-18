@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 0 contract approved; implementation not started  
+**Status:** Phase 1 implemented; Phase 2 requires owner review
 **Date:** 2026-07-18  
 **Normative contract:**
 [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
@@ -41,8 +41,8 @@ Rules:
 - The SDK does not ship a mock or in-process execution fallback.
 - Until a hosted deployment exists, the default engine URL is `http://127.0.0.1:4404`.
   `sf.config(engine=...)` overrides it.
-- The current `.docs/spikes/sf-url4-engine` stack is local development infrastructure. It is not
-  the final application location and is not part of the public SDK contract.
+- The tracked `packages/screamingface/apps/sf-url4-engine` stack is temporary local development
+  infrastructure. It is not part of the Python wheel or the final application boundary.
 
 Do not modify `packages/url4` or `apps/aigateway` to implement ScreamingFace behavior. The engine
 profile composes their public capabilities.
@@ -164,6 +164,10 @@ Complete when the Phase 0 fixtures construct against the real public types and t
 and load the profile's benchmarks over HTTP. Invalid and incompatible manifests must fail before
 model calls.
 
+The owner approved one development-only Phase 1 engine-profile walkthrough after implementation.
+It documents and smoke-tests this boundary without introducing model execution. Regenerating the
+public quickstart, architecture, and DRACO tutorial series remains Phase 5.
+
 ### Phase 2 — Fusion compiler and run stage
 
 Implement:
@@ -237,9 +241,9 @@ architecture/deep-dive material, not in the shortest quickstart.
 Complete when notebooks run top to bottom against the configured Docker stack and contain no
 mock-mode or in-process fallback.
 
-Before promoting the hidden spike, agree the engine profile's final location and ownership. If
-it moves to `apps/sf-url4-engine`, preserve the same external contract rather than its temporary
-filesystem layout.
+Before promoting the temporary package-development app, agree the engine profile's final
+location and ownership. If it moves to `apps/sf-url4-engine`, preserve the same external
+contract rather than its temporary filesystem layout.
 
 ### Future phases — explicitly deferred
 
@@ -330,8 +334,10 @@ packages/screamingface/src/screamingface/
 packages/screamingface/tests/
   unit and HTTP contract tests
 
-apps/sf-url4-engine/                 # proposed final owner/location
+packages/screamingface/apps/sf-url4-engine/  # temporary package-development location
   URL4 profile, manifests, routes, Docker wiring
+
+apps/sf-url4-engine/                 # proposed final owner/location after approval
 
 packages/screamingface/examples/
   quickstarts, architecture, GPQA, DRACO
@@ -342,6 +348,7 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-After Phase 0 is committed, review Phase 1 with the owner before coding. The first implementation
-slice should be value types plus registry/manifest contract tests. It must not also introduce
-authentication, persistence, notebooks, or engine-profile deployment.
+Review the Phase 2 Fusion compiler and run contract with the owner before coding. In particular,
+lock the exact URL4 expression shape, plaintext result validation, model/reducer route adapters,
+and partial-failure behavior. Do not pull grading, authentication, persistence, or public tutorial
+regeneration forward into that phase.

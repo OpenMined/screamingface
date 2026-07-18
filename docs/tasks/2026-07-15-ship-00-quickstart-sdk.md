@@ -20,9 +20,11 @@ Superseded implementation state (not a compatibility target):
 - `fusion.evaluate("gpqa" | "draco", first=...)`; and
 - immutable `Run`/`ModelResult`/`RunFailure` execution identity and comparison results.
 
-The existing in-process `Url4Node`, deterministic model responses, and mock/live mode are slated
-for removal. The target SDK always calls the effective HTTP URL4 engine; local development uses
-the Dockerized `.docs/spikes/sf-url4-engine` stack, and only that engine reaches AI Gateway.
+The existing in-process `Url4Node`, deterministic model responses, and mock/live mode have been
+removed from the Phase 1 SDK. The target SDK always calls the effective HTTP URL4 engine; local
+development uses the temporary Dockerized
+`packages/screamingface/apps/sf-url4-engine` profile, and only that engine will reach AI Gateway
+once model execution is implemented.
 
 Documentation deliverables are:
 
@@ -47,3 +49,18 @@ recorded in:
 Phase 0 locks universal cases, plain-Python benchmark recipes, and immutable in-memory
 `Run` → `Grades` → `Report` artifacts before production implementation. Persistence and budget
 enforcement are later additive contracts once their engine and storage requirements exist.
+
+## Phase 1 implementation — 2026-07-18
+
+Implemented the network-free public value layer and strict remote discovery/loading boundary:
+
+- `sf.config`, immutable `Case`, `Benchmark`, and `Fusion` authoring;
+- namespaced reducers, graders, and aggregators;
+- strict `models.list`, `benchmarks.list`, and eager `benchmarks.load`;
+- typed registry, transport, manifest, and case-stream failures; and
+- a real Dockerized `Url4Node` profile in the temporary package-development app location.
+
+Phase 1 intentionally does not implement model execution, Fusion evaluation, grading,
+aggregation, or authentication. A development-only Phase 1 engine-profile walkthrough documents
+the implemented boundary; public quickstart and DRACO notebook regeneration remain in their
+reviewed later phase.

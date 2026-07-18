@@ -1,44 +1,44 @@
 """ScreamingFace — URL4-native model fusions and benchmark comparison."""
 
+from screamingface import aggregators, benchmarks, graders, models, reducers
+from screamingface._config import config
+from screamingface.aggregators import Aggregator
+from screamingface.benchmark import Benchmark, Case
 from screamingface.errors import (
-    DatasetUnavailable,
-    EngineError,
-    EngineUnavailable,
+    EngineConnectionError,
+    EngineProfileError,
+    EngineProtocolError,
+    InvalidBenchmarkError,
     ScreamingFaceError,
+    UnknownBenchmarkError,
+    UnknownModelError,
+    UnsupportedReducerError,
+    UnsupportedToolError,
 )
 from screamingface.fusion import Fusion
-from screamingface.model_inputs import ModelConfig
-from screamingface.models import models
-from screamingface.reducers import MajorityVote, ModelReducer, Reducer
-from screamingface.results import ModelResult, Run, RunFailure
-from screamingface.session import (
-    Session,
-    config,
-    current_session,
-    reset_session,
-    shutdown,
-)
-
-__version__ = "0.2.0"
+from screamingface.graders import Grader
+from screamingface.reducers import Reducer
 
 __all__ = [
-    "DatasetUnavailable",
-    "EngineError",
-    "EngineUnavailable",
+    "Aggregator",
+    "Benchmark",
+    "Case",
+    "EngineConnectionError",
+    "EngineProfileError",
+    "EngineProtocolError",
     "Fusion",
-    "MajorityVote",
-    "ModelConfig",
-    "ModelReducer",
-    "ModelResult",
+    "Grader",
+    "InvalidBenchmarkError",
     "Reducer",
-    "Run",
-    "RunFailure",
     "ScreamingFaceError",
-    "Session",
-    "__version__",
-    "current_session",
-    "models",
-    "reset_session",
+    "UnknownBenchmarkError",
+    "UnknownModelError",
+    "UnsupportedReducerError",
+    "UnsupportedToolError",
+    "aggregators",
+    "benchmarks",
     "config",
-    "shutdown",
+    "graders",
+    "models",
+    "reducers",
 ]

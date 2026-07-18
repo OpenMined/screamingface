@@ -1,87 +1,54 @@
-"""Model metadata and URL4 route catalog."""
+"""Model discovery from the configured sf-url4-engine profile."""
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass
-from datetime import date
+import builtins
+from collections.abc import Sequence
+
+from screamingface._profile import load_registry
 
 
-@dataclass(frozen=True)
-class Model:
-    id: str
-    display_name: str
-    price_per_million: float | None
-    mock_error_bucket: int
-    pricing_source: str
-    pricing_as_of: date
-    route: str
-    pricing_basis: str = "blended_tokens"
-    listed: bool = True
+def list(
+    *, query: str | None = None, tools: Sequence[str] = (), limit: int | None = None
+) -> builtins.list[str]:
+    """Return advertised model IDs, optionally filtered in registry order."""
+
+    requested_tools = _filters(tools)
+    needle = _query(query)
+    if limit is not None:
+        _limit(limit, 0)
+    records = load_registry().models
+    values = [
+        record.id
+        for record in records
+        if (needle is None or needle in record.id.casefold())
+        and requested_tools.issubset(record.supported_tools)
+    ]
+    return values[: _limit(limit, len(values))]
 
 
-_CATALOG = (
-    Model(
-        "codex/gpt-5.5",
-        "GPT-5.5",
-        12.0,
-        0,
-        "estimate:SDK catalog",
-        date(2026, 7, 16),
-        "/codex/gpt-5.5",
-    ),
-    Model(
-        "gemini-cli/gemini-2.5-pro",
-        "Gemini 2.5 Pro",
-        10.0,
-        1,
-        "estimate:SDK catalog",
-        date(2026, 7, 16),
-        "/gemini/2.5",
-    ),
-    Model(
-        "anthropic/claude-sonnet-4-6",
-        "Claude Sonnet 4.6",
-        15.0,
-        2,
-        "estimate:SDK catalog",
-        date(2026, 7, 16),
-        "/claude/sonnet-4.6",
-    ),
-    Model(
-        "google/gemini-3.1-pro-preview",
-        "Gemini 3.1 Pro Preview",
-        None,
-        0,
-        "engine-provided",
-        date(2026, 7, 17),
-        "/gemini/3.1-pro-preview",
-        listed=False,
-    ),
-)
-
-_BY_ID = {model.id: model for model in _CATALOG}
+def _query(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("query must be a non-empty string")
+    return value.strip().casefold()
 
 
-class Models:
-    def list(self, *, max_price: float | None = None) -> list[str]:
-        if max_price is not None and (not math.isfinite(max_price) or max_price < 0):
-            raise ValueError("max_price must be a non-negative finite number")
-        return [
-            model.id
-            for model in _CATALOG
-            if model.listed
-            and (
-                max_price is None
-                or (model.price_per_million is not None and model.price_per_million <= max_price)
-            )
-        ]
-
-    def get(self, model_id: str) -> Model:
-        try:
-            return _BY_ID[model_id]
-        except KeyError as exc:
-            raise ValueError(f"unknown model: {model_id}") from exc
+def _filters(values: Sequence[str]) -> set[str]:
+    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
+        raise TypeError("tools must be a sequence")
+    result = set()
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("tools must contain non-empty strings")
+        result.add(value.strip())
+    return result
 
 
-models = Models()
+def _limit(value: int | None, total: int) -> int:
+    if value is None:
+        return total
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError("limit must be a positive integer")
+    return value

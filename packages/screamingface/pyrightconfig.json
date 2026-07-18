@@ -1,5 +1,11 @@
 {
-  "include": ["src", "tests"],
+  "include": [
+    "src",
+    "tests",
+    "apps/sf-url4-engine/src",
+    "apps/sf-url4-engine/tests"
+  ],
+  "extraPaths": ["apps/sf-url4-engine/src"],
   "venvPath": ".",
   "venv": ".venv",
   "pythonVersion": "3.12",
