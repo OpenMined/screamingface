@@ -1,4 +1,4 @@
-# sf-url4-engine — temporary package development app
+# screamingface-engine — temporary package development app
 
 This application is **temporarily located under `packages/screamingface/apps/`** so the
 ScreamingFace SDK and its URL4 engine profile can be developed and tested together under the
@@ -9,7 +9,7 @@ deployment boundary. Once application ownership, CI, and release responsibilitie
 promote it without changing its HTTP contract to:
 
 ```text
-apps/sf-url4-engine/
+apps/screamingface-engine/
 ```
 
 ## Phase 1 responsibilities
@@ -77,7 +77,7 @@ docker compose down
 
 ```bash
 uv sync
-uv run sf-url4-engine
+uv run screamingface-engine
 ```
 
 ## Validation
@@ -86,10 +86,10 @@ The app is currently covered by the parent ScreamingFace package gates. From thi
 
 ```bash
 cd ../..
-uv run ruff check src tests apps/sf-url4-engine/src apps/sf-url4-engine/tests
-uv run ruff format --check src tests apps/sf-url4-engine/src apps/sf-url4-engine/tests
+uv run ruff check src tests apps/screamingface-engine/src apps/screamingface-engine/tests
+uv run ruff format --check src tests apps/screamingface-engine/src apps/screamingface-engine/tests
 uv run pyright
 uv run pytest --cov=screamingface --cov-fail-under=95 -q
-PYTHONPATH=apps/sf-url4-engine/src uv run pytest apps/sf-url4-engine/tests \
-  --cov=sf_url4_engine --cov-fail-under=95 -q
+PYTHONPATH=apps/screamingface-engine/src uv run pytest apps/screamingface-engine/tests \
+  --cov=screamingface_engine --cov-fail-under=95 -q
 ```

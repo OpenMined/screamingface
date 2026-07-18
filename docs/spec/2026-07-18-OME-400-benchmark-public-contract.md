@@ -119,15 +119,25 @@ The architecture is:
 
 ```text
 ScreamingFace SDK
-  -> sf-url4-engine       GET /v1?q=<URL4 expression>
-     -> URL4 evaluator
-     -> SF model/RDS routes
+  -> screamingface-engine       GET /v1?q=<URL4 expression>
+     -> one persistent Url4Node evaluator
+     -> startup-registered, in-process SF model/RDS handlers
         -> AI Gateway     POST /v1/chat/completions
            -> provider
 ```
 
-Only sf-url4-engine contacts AI Gateway. Generic `packages/url4` remains unaware of
+Only screamingface-engine contacts AI Gateway. Generic `packages/url4` remains unaware of
 ScreamingFace benchmarks, reducers, registries, or gateway details.
+
+`screamingface-engine` is one long-running Python/ASGI process. It constructs a `Url4Node`,
+registers its data and endpoint handlers once at startup, and serves `node.asgi()` with Uvicorn.
+It does not use the native `url4 serve` TOML `[commands]` adapter for model or reducer routes, and
+it never launches the `screamingface-engine` executable again while evaluating a request.
+
+This keeps the complete URL4 protocol surface: parsing, parameters, bindings, structs,
+collections, iteration, broadcast, quorum, holdings, identities, outbound resolution, error
+mapping, and `GET /v1?q=...` all remain owned by the same public `Url4Node`. FastAPI and Hono are
+not part of the engine core.
 
 The SDK and engine profile mirror only remotely executable vocabulary. This is an execution
 profile, not one HTTP endpoint per SDK class:
@@ -143,7 +153,7 @@ profile, not one HTTP endpoint per SDK class:
 
 ## 4. SF engine discovery
 
-sf-url4-engine exposes an application-owned discovery document:
+screamingface-engine exposes an application-owned discovery document:
 
 ```http
 GET /.well-known/screamingface
@@ -168,18 +178,18 @@ It is not part of generic URL4 core. The MVP shape is:
   "reducers": [
     {
       "id": "majority_vote",
-      "route": "/sf/reducers/majority-vote"
+      "route": "/reducers/majority-vote"
     }
   ],
   "benchmarks": [
     {
       "id": "draco@1",
-      "manifest": "/sf/benchmarks/draco@1",
+      "manifest": "/benchmarks/draco@1",
       "tools": ["web_search"]
     },
     {
       "id": "gpqa@1",
-      "manifest": "/sf/benchmarks/gpqa@1",
+      "manifest": "/benchmarks/gpqa@1",
       "tools": []
     }
   ]
@@ -224,8 +234,90 @@ The engine privately maps these routes to AI Gateway identifiers. For example,
 `/gemini/2.5` may map to `gemini-cli/gemini-2.5-pro`. That provider mapping never appears in a
 Fusion recipe or result.
 
+One canonical engine catalog owns the public ID, relative route, supported tools, and private AI
+Gateway model ID. The engine derives both startup route registration and
+`/.well-known/screamingface` from that catalog so an advertised model cannot drift from its
+handler.
+
 Making the public ID equal to the route identity allows local Fusion construction and URL4
 rendering without registry I/O. Evaluation still performs registry preflight.
+
+### 5.1 Persistent model endpoint contract
+
+Every advertised model route is registered once on the persistent node with
+`node.endpoint(route)(handler)`. The decorator form and the explicit registration form are the
+same public URL4 API; the engine uses explicit registration so the catalog can support many models
+without handwritten decorators.
+
+The handler receives URL4's decoded request:
+
+```python
+Request(
+    path="/codex/gpt-5.5",
+    context="<resolved question>",
+    intent="<model instructions>",
+    params={
+        "temperature": "0.2",
+        "max_tokens": "512",
+        "reasoning": "low",
+        "tools": "web_search",
+    },
+)
+```
+
+The engine translates it to AI Gateway's existing chat-completions contract:
+
+```json
+{
+  "model": "<private gateway model ID>",
+  "messages": [
+    {"role": "system", "content": "<request.intent>"},
+    {"role": "user", "content": "<request.context>"}
+  ],
+  "temperature": 0.2,
+  "max_tokens": 512,
+  "reasoning_effort": "low",
+  "tools": "<engine-resolved Gateway tool payload>"
+}
+```
+
+The mapping is deliberately typed and allowlisted:
+
+- `temperature` parses as a finite float;
+- `max_tokens` parses as a positive integer;
+- `reasoning` maps to AI Gateway's `reasoning_effort` field;
+- `tools=web_search` names an engine-owned capability adapter rather than being forwarded as an
+  arbitrary provider payload; and
+- unknown parameters, malformed values, and unsupported tools fail before Gateway traffic.
+
+The registry may advertise `web_search` for a model only when that route has a working named-tool
+adapter. Otherwise SDK preflight must reject a benchmark that requires it.
+
+For a successful non-streaming response, the handler validates
+`choices[0].message.content`, requires string content, and returns that string only. URL4 therefore
+sees an ordinary plaintext endpoint result. AI Gateway transport errors, non-success statuses, and
+malformed success envelopes become transient URL4 `ResolutionError`s and surface through the
+engine's normal URL4 error-to-HTTP mapping.
+
+The process owns one reusable asynchronous AI Gateway client. Route handlers do not construct a
+new client, launch a subprocess, or start another server. The application closes the Gateway
+client and node resources during ASGI shutdown.
+
+### 5.2 Application-owned ASGI lifecycle
+
+The engine serves a thin application-owned wrapper around `node.asgi()`. The wrapper owns only
+deployment lifecycle concerns that `Url4Node` deliberately does not:
+
+- create one reusable AI Gateway client during startup;
+- reject work above the configured global in-flight limit with HTTP 503;
+- bound one complete `/v1` evaluation with a configured deadline and return HTTP 504 on expiry;
+- close the Gateway client and call `node.aclose()` during graceful shutdown; and
+- delegate every accepted request to the unchanged URL4 ASGI application.
+
+It contains no route matching, URL4 parsing, expression execution, model mapping, benchmark
+behavior, or response reshaping. It does not use FastAPI, Hono, or URL4's private `_serve` module.
+This preserves one URL4 dispatch path while giving the production application explicit resource
+ownership.
 
 ## 6. Benchmark loading and manifests
 
@@ -248,7 +340,7 @@ Example manifest:
   "title": "DRACO",
   "tools": ["web_search"],
   "cases": {
-    "url": "/sf/benchmarks/draco@1/cases",
+    "url": "/benchmarks/draco@1/cases",
     "format": "ndjson"
   },
   "grader": {
@@ -382,11 +474,11 @@ stable panel order.
 
 Everything that contributes to producing the fusion answer belongs in the URL4 graph.
 
-A model reducer is another model node. Deterministic majority vote uses the sf-url4-engine RDS
-route:
+A model reducer is another model node. Deterministic majority vote uses the screamingface-engine
+RDS route:
 
 ```text
-/sf/reducers/majority-vote
+/reducers/majority-vote
 ```
 
 It receives a resolved panel-answer object, makes no AI Gateway call, and returns only the winning
@@ -413,7 +505,7 @@ fan-out, reducer, and final result structure. Conceptually:
     panel_2: '$panel_2'
   },
 
-  fusion_answer=/sf/reducers/majority-vote($panel_answers),
+  fusion_answer=/reducers/majority-vote($panel_answers),
 
   {
     schema: 'screamingface.fusion-result.v1',
@@ -534,6 +626,31 @@ failed results.
 Required panel/reducer failures invalidate the whole case. The SDK does not construct a partial
 fusion answer. URL4-native optional/quorum behavior can be added explicitly later.
 
+One case request is atomic but the selected benchmark run is not fail-fast. A failed case remains
+at its original selected position while unrelated cases continue under the bounded concurrency
+policy. Stable input order, not completion order, determines `run.results`.
+
+An internal immutable failure record distinguishes:
+
+```text
+connection  the configured engine could not be reached
+timeout     the complete case evaluation exceeded its deadline
+http        the engine returned an unrecognized non-success HTTP response
+url4        the engine returned a structured URL4 execution error
+protocol    a successful response was not valid plaintext Fusion-result JSON
+```
+
+The record preserves a safe message and, when available, the HTTP status and URL4 error code. It
+does not expose credentials, provider payloads, or a mutable exception object as public state.
+
+Phase 2 performs no automatic SDK retry. This avoids silently duplicating paid model calls when a
+connection is interrupted after the engine or provider has already accepted work. A future retry
+policy must be explicit and idempotency-aware.
+
+Failed cases have `answer=None`, empty member answers, and no grading work. They are never repaired
+with an empty string, converted to a zero score, or included in a partial success envelope.
+`run.complete` is true only when every selected case succeeds.
+
 ## 13. Grading
 
 `run.grade()` grades the fusion and every member by default:
@@ -623,8 +740,8 @@ URL4 intent  -> system message
 ```
 
 It must forward the configured model parameters and ensure repeated passes are independent rather
-than serving a cached completion. The current gitignored engine spike does not yet satisfy these
-requirements; that is an sf-url4-engine connector limitation, not a URL4 grammar change.
+than serving a cached completion. The current Phase 1 engine profile does not yet implement model
+handlers; that is a Phase 2 application gap, not a URL4 grammar change.
 
 ## 14. Rubric scoring
 

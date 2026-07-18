@@ -66,7 +66,7 @@ execution with deterministic leaf responses and no service setup.
 ## Phase 5 — Documentation and learning paths — in progress
 
 1. Keep `00_quickstart.ipynb` below 12 cells and defer graph/wire details.
-2. Teach recipe/request/node/response internals in `sf_url4_engine.ipynb`.
+2. Teach recipe/request/node/response internals in `screamingface-engine.ipynb`.
 3. Teach benchmark-owned judge requests and production route requirements in `draco.ipynb`.
 4. Add a brand-aligned package-local HTML page covering every public export, runtime topology,
    configuration matrix, wire envelopes, benchmarks, and production boundary.

@@ -23,13 +23,13 @@ Superseded implementation state (not a compatibility target):
 The existing in-process `Url4Node`, deterministic model responses, and mock/live mode have been
 removed from the Phase 1 SDK. The target SDK always calls the effective HTTP URL4 engine; local
 development uses the temporary Dockerized
-`packages/screamingface/apps/sf-url4-engine` profile, and only that engine will reach AI Gateway
+`packages/screamingface/apps/screamingface-engine` profile, and only that engine will reach AI Gateway
 once model execution is implemented.
 
 Documentation deliverables are:
 
 - a deliberately small `00_quickstart.ipynb`;
-- a detailed `sf_url4_engine.ipynb` request/node/response walkthrough;
+- a detailed `screamingface-engine.ipynb` request/node/response walkthrough;
 - a DRACO panel/reducer/judge walkthrough;
 - a brand-aligned static HTML reference covering every exported API; and
 - reconciled README/spec/plan/task/work records that remove the superseded direct-gateway design.

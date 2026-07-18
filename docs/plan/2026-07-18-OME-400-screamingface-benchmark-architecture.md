@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 1 implemented; Phase 2 requires owner review
+**Status:** Phase 1 implemented; Phase 2 persistent-engine contract approved
 **Date:** 2026-07-18  
 **Normative contract:**
 [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
@@ -23,8 +23,8 @@ Researcher Python
              |
              | GET /v1?q=<complete URL4 expression>
              v
-  sf-url4-engine profile
-    registry, benchmark data, deterministic reducer routes, model routes
+  screamingface-engine (one persistent Python/ASGI process)
+    Url4Node evaluator, registry, benchmark data, in-process reducer/model handlers
              |
              | POST /v1/chat/completions (engine-owned adapter only)
              v
@@ -34,14 +34,18 @@ Researcher Python
 Rules:
 
 - ScreamingFace contacts only the configured URL4 engine over HTTP.
-- Only the sf-url4-engine model-route adapter contacts AI Gateway.
+- Only the screamingface-engine model-route adapter contacts AI Gateway.
+- `screamingface-engine` constructs one `Url4Node` at startup and serves its ASGI application with
+  Uvicorn. Model and reducer handlers execute inside that persistent process.
+- Phase 2 uses the public `Url4Node` registration API, not the `url4 serve` TOML `[commands]`
+  subprocess adapter. The engine executable is never launched recursively to handle a route.
 - URL4 remains a generic expression engine; ScreamingFace-specific routes and manifests live in
-  the sf-url4-engine profile.
+  the screamingface-engine profile.
 - Importing ScreamingFace and constructing local definitions are network-free.
 - The SDK does not ship a mock or in-process execution fallback.
 - Until a hosted deployment exists, the default engine URL is `http://127.0.0.1:4404`.
   `sf.config(engine=...)` overrides it.
-- The tracked `packages/screamingface/apps/sf-url4-engine` stack is temporary local development
+- The tracked `packages/screamingface/apps/screamingface-engine` stack is temporary local development
   infrastructure. It is not part of the Python wheel or the final application boundary.
 
 Do not modify `packages/url4` or `apps/aigateway` to implement ScreamingFace behavior. The engine
@@ -113,14 +117,17 @@ deterministic and local.
 
 ### Engine-profile responsibilities
 
-The sf-url4-engine profile owns:
+The screamingface-engine profile owns:
 
 - the discovery registry;
-- model routes and their private AI Gateway mappings;
+- one canonical model catalog that owns route registration, public discovery fields, and private
+  AI Gateway mappings;
+- persistent model handlers registered with `node.endpoint(...)` at process startup;
 - versioned benchmark manifests and NDJSON case routes;
-- deterministic RDS reducer routes such as `/sf/reducers/majority-vote`;
+- deterministic RDS reducer routes such as `/reducers/majority-vote`;
 - `context -> user` and `intent -> system` mapping for model calls;
-- forwarding declared model parameters and tools; and
+- typed, allowlisted forwarding of declared model parameters and named tools;
+- extraction of the first AI Gateway assistant text as the URL4 endpoint result; and
 - plaintext success responses and consistent URL4 error responses.
 
 The profile does not need separate grader or aggregator registry entries. Exact grading and
@@ -153,12 +160,14 @@ SDK:
 - manifest retrieval and conversion into a `Benchmark`; and
 - preflight validation of models, tools, reducer route, cases, and response schema.
 
-sf-url4-engine profile:
+screamingface-engine profile:
 
 - `/.well-known/screamingface`;
 - canonical public model IDs and supported-tool declarations;
 - versioned GPQA and DRACO manifests and normalized NDJSON case routes; and
-- an advertised `/sf/reducers/majority-vote` route identity.
+- an advertised deterministic reducer route identity. Phase 2 replaces Phase 1's provisional
+  namespaced route with `/reducers/majority-vote` before it becomes executable. No compatibility
+  alias is retained because the SDK is unreleased.
 
 Complete when the Phase 0 fixtures construct against the real public types and the SDK can list
 and load the profile's benchmarks over HTTP. Invalid and incompatible manifests must fail before
@@ -170,7 +179,7 @@ public quickstart, architecture, and DRACO tutorial series remains Phase 5.
 
 ### Phase 2 — Fusion compiler and run stage
 
-Implement:
+SDK:
 
 - URL4 compilation from string and mapping model specifications;
 - stable `panel_1`, `panel_2`, ... identities;
@@ -181,12 +190,54 @@ Implement:
 - bounded case concurrency (initial policy: four); and
 - immutable in-memory `Run` results and failures.
 
-The sf-url4-engine profile implements the model route mappings and deterministic majority-vote
-RDS route needed by those expressions. The model adapter is the only component that contacts AI
-Gateway.
+Each case evaluation is atomic. Any required panel or reducer failure invalidates that case; the
+engine returns a non-success URL4 response rather than a partial Fusion envelope. The SDK records
+the failure at the case's original position and continues other selected cases. It never converts
+missing work to an empty answer or zero score, never grades a failed run case, and performs no
+automatic Phase 2 retry that could duplicate paid model calls.
+
+Persistent screamingface-engine:
+
+- construct one `Url4Node("screamingface-engine", eval_path="/v1")` per process;
+- construct one reusable asynchronous AI Gateway client per process;
+- replace the provisional Phase 1 resource namespace with `/benchmarks/<id>`,
+  `/benchmarks/<id>/cases`, and `/reducers/majority-vote` before execution ships;
+- register every advertised model route in-process from the canonical model catalog;
+- register `/reducers/majority-vote` as an in-process deterministic endpoint;
+- serve registry, manifest, case, and health reads through the same node;
+- wrap `node.asgi()` with a thin application-owned lifecycle/admission layer that starts and closes
+  the Gateway client, limits global in-flight evaluations, applies a whole-evaluation timeout, and
+  closes node-owned resources during graceful shutdown; and
+- remain framework-free beyond URL4's ASGI application and Uvicorn server.
+
+One model endpoint receives URL4's decoded `Request(path, context, intent, params)` and performs:
+
+```text
+public route        -> private AI Gateway model ID
+context             -> user message content
+intent              -> system message content
+temperature         -> validated float
+max_tokens          -> validated positive integer
+reasoning           -> validated AI Gateway reasoning_effort
+tools=web_search    -> engine-owned named-tool translation
+```
+
+Unknown parameters, malformed values, and unsupported tools fail before an AI Gateway request.
+The adapter sends `POST /v1/chat/completions`, validates the response envelope, returns only the
+first assistant message's text to URL4, and turns upstream transport/status/schema failures into a
+transient URL4 `ResolutionError`. It never returns an AI Gateway JSON envelope to the SDK.
+
+The native `url4 serve` TOML wrapper remains useful for subprocess-backed deployments, but it is
+not the composition root for this application. Phase 2 must not import URL4's private `_serve`
+module merely to reuse its CLI-only command or ASGI helpers. The application wrapper contains no
+routes, URL4 parsing, or expression logic: it delegates every accepted HTTP request to
+`node.asgi()`, returns 503 when its in-flight limit is full, and returns 504 when the configured
+whole-evaluation deadline expires.
 
 Complete when real HTTP contract tests cover model and deterministic reducers, malformed
-plaintext, partial failures, stable result ordering, and no direct gateway traffic from the SDK.
+plaintext, partial failures, stable result ordering, parameter translation, and no direct gateway
+traffic from the SDK. One Docker integration test must prove the complete
+SDK -> persistent engine -> AI Gateway path without a route-handler subprocess.
 
 ### Phase 3 — grading and aggregation
 
@@ -201,7 +252,7 @@ Implement:
 - paired-case `Mean` aggregation; and
 - `Report.score`, `baseline`, `gain`, member scores, and coverage on a `0..1` scale.
 
-The sf-url4-engine model adapter must map URL4 context to the user message and intent to the
+The screamingface-engine model adapter must map URL4 context to the user message and intent to the
 system message, forward judge parameters, and allow independent repeated calls. No separate
 grader or aggregator engine routes are introduced.
 
@@ -242,7 +293,7 @@ Complete when notebooks run top to bottom against the configured Docker stack an
 mock-mode or in-process fallback.
 
 Before promoting the temporary package-development app, agree the engine profile's final
-location and ownership. If it moves to `apps/sf-url4-engine`, preserve the same external
+location and ownership. If it moves to `apps/screamingface-engine`, preserve the same external
 contract rather than its temporary filesystem layout.
 
 ### Future phases — explicitly deferred
@@ -261,13 +312,13 @@ These are additive concerns, not hidden MVP requirements.
 
 ## 4. Cross-side completion matrix
 
-| Capability | ScreamingFace SDK | sf-url4-engine profile |
+| Capability | ScreamingFace SDK | screamingface-engine profile |
 |---|---|---|
 | Configure engine | Store/resolve one base URL | Bind and publish the service |
 | Discover models | Parse/filter registry | Advertise route IDs and tools |
 | Load benchmark | Fetch/validate manifest and cases | Serve manifest and NDJSON cases |
-| Run Fusion | Compile and send complete URL4 | Evaluate expression and model/reducer routes |
-| Model execution | Never call Gateway | Map route to AI Gateway and return plaintext |
+| Run Fusion | Compile and send complete URL4 | Evaluate it in one persistent `Url4Node` process |
+| Model execution | Never call Gateway | Run in-process handler, call AI Gateway, return text |
 | Majority vote | Compile RDS call | Execute deterministic route without Gateway |
 | ExactChoice grade | Execute locally | No responsibility |
 | Rubric grade | Schedule criterion/pass requests | Preserve model-call semantics and parameters |
@@ -298,8 +349,14 @@ These are additive concerns, not hidden MVP requirements.
 - stable panel mapping and nested member result structure;
 - arrays are not emitted inside URL4 inline structs;
 - model and deterministic reducer paths;
+- one startup registration per advertised model route, with no per-call engine subprocess;
+- context/user, intent/system, typed parameter, and named-tool translation;
+- application-owned ASGI admission, timeout, and shutdown behavior without FastAPI, Hono, or a
+  private URL4 import;
 - plaintext JSON parsing and schema rejection; and
-- timeout, transport, HTTP, parse, and execution errors remain distinguishable.
+- timeout, transport, HTTP, parse, and execution errors remain distinguishable; and
+- one failed case does not cancel unrelated cases, change result order, produce a partial
+  envelope, become a zero, or trigger an SDK retry.
 
 ### Grading and aggregation tests
 
@@ -334,10 +391,10 @@ packages/screamingface/src/screamingface/
 packages/screamingface/tests/
   unit and HTTP contract tests
 
-packages/screamingface/apps/sf-url4-engine/  # temporary package-development location
-  URL4 profile, manifests, routes, Docker wiring
+packages/screamingface/apps/screamingface-engine/  # temporary package-development location
+  persistent Url4Node app, model/Gateway adapter, manifests, routes, Docker wiring
 
-apps/sf-url4-engine/                 # proposed final owner/location after approval
+apps/screamingface-engine/                 # proposed final owner/location after approval
 
 packages/screamingface/examples/
   quickstarts, architecture, GPQA, DRACO
@@ -348,7 +405,6 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review the Phase 2 Fusion compiler and run contract with the owner before coding. In particular,
-lock the exact URL4 expression shape, plaintext result validation, model/reducer route adapters,
-and partial-failure behavior. Do not pull grading, authentication, persistence, or public tutorial
-regeneration forward into that phase.
+Implement Phase 2 in reviewed vertical slices: persistent engine/Gateway model routes first,
+deterministic reducer and Docker proof second, then SDK compilation and `Run` orchestration. Keep
+grading, authentication, persistence, and public tutorial regeneration in their later phases.

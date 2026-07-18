@@ -59,9 +59,9 @@ jobs:
 
       - name: Test engine-profile app coverage
         run: |
-          PYTHONPATH=apps/sf-url4-engine/src uv run pytest \
-            apps/sf-url4-engine/tests \
-            --cov=sf_url4_engine \
+          PYTHONPATH=apps/screamingface-engine/src uv run pytest \
+            apps/screamingface-engine/tests \
+            --cov=screamingface_engine \
             --cov-fail-under=95 \
             -q
 

@@ -4,7 +4,7 @@ ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never
 
-WORKDIR /workspace/packages/screamingface/apps/sf-url4-engine
+WORKDIR /workspace/packages/screamingface/apps/screamingface-engine
 
 COPY packages/url4 /workspace/packages/url4
 COPY packages/screamingface /workspace/packages/screamingface
@@ -21,11 +21,11 @@ LABEL org.opencontainers.image.source="https://github.com/openmined/screamingfac
 
 ENV URL4_HOST=0.0.0.0 \
     URL4_PORT=4404 \
-    PATH="/workspace/packages/screamingface/apps/sf-url4-engine/.venv/bin:$PATH" \
+    PATH="/workspace/packages/screamingface/apps/screamingface-engine/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-WORKDIR /workspace/packages/screamingface/apps/sf-url4-engine
+WORKDIR /workspace/packages/screamingface/apps/screamingface-engine
 
 RUN useradd --system --uid 1000 --create-home app
 
@@ -38,4 +38,4 @@ EXPOSE 4404
 HEALTHCHECK --interval=30s --timeout=5s --retries=12 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4404/healthz', timeout=3).read()" || exit 1
 
-ENTRYPOINT ["sf-url4-engine"]
+ENTRYPOINT ["screamingface-engine"]

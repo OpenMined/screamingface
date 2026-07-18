@@ -47,8 +47,8 @@ max-returns = 3
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
-testpaths = ["tests", "apps/sf-url4-engine/tests"]
-pythonpath = ["apps/sf-url4-engine/src"]
+testpaths = ["tests", "apps/screamingface-engine/tests"]
+pythonpath = ["apps/screamingface-engine/src"]
 markers = ["live: opt-in tests that can call providers and spend money"]
 filterwarnings = [
     "error::DeprecationWarning:screamingface",

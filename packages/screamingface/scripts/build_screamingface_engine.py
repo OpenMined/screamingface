@@ -260,7 +260,7 @@ def main() -> None:
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    target = args.output or Path(__file__).parents[1] / "examples" / "sf_url4_engine.ipynb"
+    target = args.output or Path(__file__).parents[1] / "examples" / "screamingface-engine.ipynb"
     document = notebook()
     if args.execute:
         document = NotebookClient(

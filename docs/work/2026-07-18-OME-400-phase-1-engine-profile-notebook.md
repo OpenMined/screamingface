@@ -11,7 +11,7 @@ finished: 2026-07-18
 ## Intent
 
 Add an executable development walkthrough for the implemented Phase 1 SDK and temporary
-sf-url4-engine profile. It must teach setup, discovery, remote benchmark loading, local value
+screamingface-engine profile. It must teach setup, discovery, remote benchmark loading, local value
 authoring, and Fusion authoring without implying that Phase 2 execution already exists.
 
 ## Planned changes

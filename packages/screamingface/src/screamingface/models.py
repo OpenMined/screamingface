@@ -1,4 +1,4 @@
-"""Model discovery from the configured sf-url4-engine profile."""
+"""Model discovery from the configured screamingface-engine profile."""
 
 from __future__ import annotations
 

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from screamingface import Case, Grader
 
-from sf_url4_engine import catalog, cli
+from screamingface_engine import catalog, cli
 
 
 def test_gpqa_loader_normalizes_and_stably_shuffles_options(

@@ -63,8 +63,8 @@ HTTP URL4 engine explicitly."""
             """> Positive gain means the fusion outperformed its strongest individual model.
 
 For the exact URL4 HTTP request and compiled-node walkthrough, open
-[`sf_url4_engine.ipynb`](sf_url4_engine.ipynb). The complete public API and execution guide is
-[`../docs/index.html`](../docs/index.html)."""
+[`screamingface-engine.ipynb`](screamingface-engine.ipynb). The complete public API and execution
+guide is [`../docs/index.html`](../docs/index.html)."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

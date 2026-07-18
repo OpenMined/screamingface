@@ -6,7 +6,7 @@ import httpx
 import pytest
 from screamingface import Case
 
-from sf_url4_engine.app import create_app
+from screamingface_engine.app import create_app
 
 
 @pytest.mark.asyncio

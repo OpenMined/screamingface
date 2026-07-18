@@ -13,7 +13,7 @@ finished: 2026-07-18
 Implement the approved Phase 1 foundation inside the ScreamingFace package stack: immutable
 benchmark definitions, engine configuration, remote model/benchmark discovery, strict manifest
 and case loading, and a real URL4 profile used for package development. The profile lives
-temporarily under `packages/screamingface/apps/sf-url4-engine` until ownership approves promotion
+temporarily under `packages/screamingface/apps/screamingface-engine` until ownership approves promotion
 to the repository-level `apps/` directory.
 
 ## Planned changes
@@ -21,7 +21,7 @@ to the repository-level `apps/` directory.
 - Replace the unreleased mock/session/catalog benchmark surface with the approved greenfield
   configuration, public values, strategies, namespaces, registry client, and typed errors.
 - Add Phase 1 contract tests before production implementation.
-- Add `packages/screamingface/apps/sf-url4-engine` as a tracked Dockerized development profile
+- Add `packages/screamingface/apps/screamingface-engine` as a tracked Dockerized development profile
   built on `Url4Node`, with registry, manifest, normalized-case, health, and advertised route data.
 - Add a prominent README explaining the profile's temporary location and development purpose.
 - Align Phase 1 documentation with the temporary tracked location and final registry shape.
@@ -36,7 +36,7 @@ to the repository-level `apps/` directory.
 - Validate eager benchmark manifest/case loading, JSON/NDJSON parsing, and sealed references.
 - Cover connection, HTTP, malformed registry, unknown benchmark, invalid manifest/case,
   unsupported tool, and unsupported reducer/schema failures.
-- Exercise the actual sf-url4-engine ASGI app over HTTP without invoking model routes or AI
+- Exercise the actual screamingface-engine ASGI app over HTTP without invoking model routes or AI
   Gateway.
 - Run the complete ScreamingFace format, lint, typecheck, and 95%-coverage gates.
 
@@ -55,7 +55,7 @@ to the repository-level `apps/` directory.
 
 - **Actual files:** replaced the unreleased mock/session execution surface with Phase 1 values,
   namespaces, configuration, discovery/loading, strict wire decoders, and tests under
-  `packages/screamingface`; added the temporary `packages/screamingface/apps/sf-url4-engine`
+  `packages/screamingface`; added the temporary `packages/screamingface/apps/screamingface-engine`
   package, Docker/Compose stack, registry/catalog routes, canonical dataset loaders, README,
   lockfile, and app tests; updated the OME-400 plan/spec/task, CI contract-fixture gate, and
   Docker context exclusions.

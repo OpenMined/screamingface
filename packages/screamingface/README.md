@@ -26,11 +26,11 @@ and are not current API documentation. They will be regenerated in the planned n
 
 ## Start the development engine
 
-The sf-url4-engine app is temporarily kept under this package while its deployment ownership is
+The screamingface-engine app is temporarily kept under this package while its deployment ownership is
 resolved:
 
 ```bash
-cd packages/screamingface/apps/sf-url4-engine
+cd packages/screamingface/apps/screamingface-engine
 ./dev.sh
 ```
 
@@ -94,10 +94,10 @@ Construction is network-free. Discovery and loading contact only the configured 
 ## Validation
 
 ```bash
-uv run ruff check src tests apps/sf-url4-engine/src apps/sf-url4-engine/tests scripts
-uv run ruff format --check src tests apps/sf-url4-engine/src apps/sf-url4-engine/tests scripts
+uv run ruff check src tests apps/screamingface-engine/src apps/screamingface-engine/tests scripts
+uv run ruff format --check src tests apps/screamingface-engine/src apps/screamingface-engine/tests scripts
 uv run pyright
 uv run pytest --cov=screamingface --cov-fail-under=95 -q
-PYTHONPATH=apps/sf-url4-engine/src uv run pytest apps/sf-url4-engine/tests \
-  --cov=sf_url4_engine --cov-fail-under=95 -q
+PYTHONPATH=apps/screamingface-engine/src uv run pytest apps/screamingface-engine/tests \
+  --cov=screamingface_engine --cov-fail-under=95 -q
 ```

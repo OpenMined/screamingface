@@ -7,7 +7,7 @@ from collections.abc import Mapping
 
 from url4 import Url4Node
 
-from sf_url4_engine.catalog import (
+from screamingface_engine.catalog import (
     CaseLoader,
     cases_document,
     manifest_document,
@@ -20,7 +20,7 @@ def create_node(*, case_loaders: Mapping[str, CaseLoader] | None = None) -> Url4
     """Create the real URL4 node with ScreamingFace profile data routes."""
 
     publications = published_benchmarks(case_loaders)
-    node = Url4Node("sf-url4-engine", eval_path="/v1")
+    node = Url4Node("screamingface-engine", eval_path="/v1")
     node.data("/healthz", "ok")
     node.data(
         "/.well-known/screamingface",

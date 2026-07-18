@@ -1114,6 +1114,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "ipykernel", marker = "extra == 'notebook'", specifier = ">=6.29" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },
+    { name = "jupyterlab", marker = "extra == 'notebook'", specifier = ">=4.2" },
     { name = "nbclient", marker = "extra == 'notebook'", specifier = ">=0.10" },
     { name = "nbformat", marker = "extra == 'notebook'", specifier = ">=5.10" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -1131,7 +1132,7 @@ dev = [
 ]
 
 [[package]]
-name = "sf-url4-engine"
+name = "screamingface-engine"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

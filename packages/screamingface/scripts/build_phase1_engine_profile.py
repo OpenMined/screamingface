@@ -14,7 +14,7 @@ def notebook() -> nbformat.NotebookNode:
         nbformat.v4.new_markdown_cell(
             """# ScreamingFace Phase 1 · discover, load, author
 
-Connect the SDK to the temporary `sf-url4-engine` development profile, inspect what the engine
+Connect the SDK to the temporary `screamingface-engine` development profile, inspect what the engine
 advertises, and construct the immutable values used by later execution phases.
 
 **This is a Phase 1 development walkthrough—not the product quickstart.** It covers engine
@@ -26,7 +26,7 @@ and Fusion authoring. It does not call models or evaluate a Fusion; those arrive
 From the repository root, start the tracked local stack:
 
 ```bash
-cd packages/screamingface/apps/sf-url4-engine
+cd packages/screamingface/apps/screamingface-engine
 ./dev.sh
 ```
 

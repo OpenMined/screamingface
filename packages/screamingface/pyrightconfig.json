@@ -2,10 +2,10 @@
   "include": [
     "src",
     "tests",
-    "apps/sf-url4-engine/src",
-    "apps/sf-url4-engine/tests"
+    "apps/screamingface-engine/src",
+    "apps/screamingface-engine/tests"
   ],
-  "extraPaths": ["apps/sf-url4-engine/src"],
+  "extraPaths": ["apps/screamingface-engine/src"],
   "venvPath": ".",
   "venv": ".venv",
   "pythonVersion": "3.12",

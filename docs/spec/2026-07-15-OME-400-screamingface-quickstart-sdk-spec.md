@@ -355,7 +355,7 @@ spend` without using a generic simulation badge that could obscure which layer i
 The documentation has three deliberate levels:
 
 1. `examples/00_quickstart.ipynb`: no architecture detail; compose → run → compare only.
-2. `examples/sf_url4_engine.ipynb`: Python/YAML composition, recipe, concrete expression,
+2. `examples/screamingface-engine.ipynb`: Python/YAML composition, recipe, concrete expression,
    approximate node tree, response envelopes, and model-backed reduction.
 3. `examples/draco.ipynb`: benchmark adapter, experiment prompts, tools, model reduction, judge
    request/response, scoring, and production route requirements.

@@ -22,7 +22,7 @@ execution boundary.
 - Add append-only documentation contract tests covering the public API inventory, engine/data
   provenance, and the documented URL4 request/response boundary.
 - Refine the three notebook generators and regenerate `00_quickstart.ipynb`,
-  `sf_url4_engine.ipynb`, and `draco.ipynb` from clean kernels.
+  `screamingface-engine.ipynb`, and `draco.ipynb` from clean kernels.
 - Update `packages/screamingface/README.md` with a concise documentation map and accurate runtime
   boundary.
 - Reconcile the OME-400 spec, plan, task mirror, and this ledger with the current `sf.config`,
@@ -67,10 +67,10 @@ execution boundary.
   append-only test check, Ruff, format, Pyright, and 95% coverage gate. Full suite: 108 passed,
   1 skipped, 96.39% coverage. Documentation contract: 10 passed. Wheel and sdist build green.
   Clean-kernel notebook execution and byte-deterministic regeneration green at SHA-256:
-  `7b5d1c318fe4ee6976f7bcc45c5e2f8a607890d8dd74da88e5e254dc61ee96f7`
+  `a427c5e7f443a0ebeafec5bc3c517511966f94f1444366e9f5253057cb8ed1d8`
   (`00_quickstart.ipynb`),
-  `313ea425dd2ba724cb172bc94ddf485981e3a0ad7ae1fa20fea1828486a1403f`
-  (`sf_url4_engine.ipynb`), and
+  `236ee3651082e3e000a60bfc1b8fb3b2b990bcd774a9ed14cb288d8e2163448a`
+  (`screamingface-engine.ipynb`), and
   `4c37be97e6aab6ee9294ac200f0012d70d9d131b98f253a91f668db9b955094f`
   (`draco.ipynb`). `git diff --check` is clean.
 - **Deviations:** the in-app browser was unavailable, so the HTML page could not receive a

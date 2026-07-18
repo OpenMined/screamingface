@@ -1,4 +1,4 @@
-name: sf-url4-engine-dev
+name: screamingface-engine-dev
 
 services:
   aigateway:
@@ -28,10 +28,10 @@ services:
       timeout: 5s
       retries: 12
 
-  sf-url4-engine:
+  screamingface-engine:
     build:
       context: ../../../..
-      dockerfile: packages/screamingface/apps/sf-url4-engine/Dockerfile
+      dockerfile: packages/screamingface/apps/screamingface-engine/Dockerfile
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
       URL4_HOST: 0.0.0.0
