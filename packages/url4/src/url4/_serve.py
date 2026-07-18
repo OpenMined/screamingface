@@ -3,11 +3,20 @@
 This is the transport-adapter layer behind the CLI (:mod:`url4.cli`). It builds a
 :class:`~url4.server.Url4Node` from a :class:`ServeConfig` — registering one
 intent-processor endpoint per configured ``[commands]`` route (a local
-subprocess, doctrine N4; there is no other backend kind — a user's LLM backend
-is their own gateway script mounted as a command) — and wraps the node's
+subprocess, doctrine N4; there is no other intent-processor kind — a user's LLM
+backend is their own gateway script mounted as a command) — and wraps the node's
 framework-free ``asgi()`` with the run-level concerns the node does not own:
 bounded in-flight admission (503), a per-request timeout (504), and graceful
 node shutdown.
+
+Beside the processor routes, the config wires the node's READ-side registries
+(spec §5.4.2 relative data, §5.6 ``@``/``@name`` holdings): ``[data]`` maps a
+path to a plain data read, ``[holdings]`` declares the node's own ``@``
+shelves, and ``[identities.<name>]`` declares principals for ``@name``. All
+three share one provider shape — an inline string, or a table with exactly one
+of ``value`` / ``file`` / ``command`` — so a read backend follows the same
+operator-owned model as a command route (a ``command`` provider IS doctrine N4
+applied to reads).
 
 # INVARIANT: this module imports no web framework and no HTTP client. Serving is
 # the existing ``Url4Node.asgi()`` (raw ASGI) run under uvicorn (the
@@ -26,15 +35,40 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from url4.errors import ResolutionError
-from url4.server import Request, Url4Node
+from url4.server import _IDENTITY_NAME_RE, Request, Url4Node
 
 _HEALTH_PATH = "/healthz"
+# The TOML spelling of the unqualified shelf (`@` / `@name` with no collection
+# path). TOML has no null key, so this reserved key normalizes to ``None`` at
+# parse time — a collection literally named "default" cannot be declared, which
+# mirrors how the node itself treats ``None`` as the fallback shelf.
+_DEFAULT_COLLECTION = "default"
 
 EndpointHandler = Callable[[Request], Awaitable[str]]
+HoldingsHandler = Callable[[str | None], Awaitable[str]]
+DataCallable = Callable[[], Awaitable[str]]
 
 
 class ConfigError(ValueError):
     """A serve configuration is invalid — raised before bind (fail-fast)."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderSpec:
+    """One declared read backend: exactly one of ``value``/``file``/``command``.
+
+    ``value`` serves inline text, ``file`` reads a file per request (live —
+    edits need no restart, mirroring how commands run per request), ``command``
+    runs an argv template (no shell, empty stdin; ``{collection}`` substitutes
+    the requested holdings collection). ``media_type`` declares a data route's
+    Content-Type so collections served there parse by type, not by sniffing
+    (spec §5.3.7) — it is meaningless for holdings, which carry no type channel.
+    """
+
+    value: str | None = None
+    file: str | None = None
+    command: tuple[str, ...] | None = None
+    media_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +89,12 @@ class ServeConfig:
     max_inflight: int = 16
     timeout: float = 120.0
     commands: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    # Read-side registries (url4.toml only, like commands — never flags/env).
+    # Holdings/identity collection keys are ``None`` for the default shelf
+    # ("default" in TOML, normalized at parse time).
+    data: Mapping[str, ProviderSpec] = field(default_factory=dict)
+    holdings: Mapping[str | None, ProviderSpec] = field(default_factory=dict)
+    identities: Mapping[str, Mapping[str | None, ProviderSpec]] = field(default_factory=dict)
 
     def validate(self) -> None:
         """Raise :class:`ConfigError` for any unusable setting, before bind."""
@@ -83,6 +123,22 @@ class ServeConfig:
         _require_argv(self.commands)
         reserved = {self.eval_path, _HEALTH_PATH} & set(self.commands)
         _require(not reserved, f"command paths clash with reserved {sorted(reserved)}")
+        # Data routes share the node's path namespace with commands and the
+        # reserved routes — a clash would surface as an uncaught ValueError at
+        # build time (`Url4Node._check_routable`); reject it pre-bind instead.
+        _require_paths(self.data, "data")
+        data_reserved = {self.eval_path, _HEALTH_PATH} & set(self.data)
+        _require(not data_reserved, f"data paths clash with reserved {sorted(data_reserved)}")
+        overlap = set(self.data) & set(self.commands)
+        _require(not overlap, f"data paths clash with command routes {sorted(overlap)}")
+        # INVARIANT: identity names must satisfy the node's own registration
+        # rule (`Url4Node.identity`) — checking it here keeps the failure a
+        # clean pre-bind ConfigError instead of a build-time ValueError.
+        for name in self.identities:
+            _require(
+                bool(_IDENTITY_NAME_RE.fullmatch(name)),
+                f"identity name {name!r} must match {_IDENTITY_NAME_RE.pattern!r}",
+            )
         # The node registers /healthz as a data route; an eval path equal to it
         # would collide at build time (an uncaught ValueError) — reject it here so
         # the misconfiguration fails fast with a clean config error before bind.
@@ -150,6 +206,9 @@ def resolve(
         max_inflight=_pick_int("max_inflight", overrides, env, toml, 16),
         timeout=_pick_float("timeout", overrides, env, toml, 120.0),
         commands=_toml_command_map(toml.get("commands")),
+        data=_toml_data_map(toml.get("data")),
+        holdings=_toml_shelf_map(toml.get("holdings"), "holdings"),
+        identities=_toml_identity_map(toml.get("identities")),
     )
 
 
@@ -217,6 +276,68 @@ def _as_argv(value: object) -> tuple[str, ...]:
     raise ConfigError(f"command must be a string or list, got {value!r}")
 
 
+def _toml_data_map(value: object) -> dict[str, ProviderSpec]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"[data] must be a table, got {value!r}")
+    return {
+        str(path): _as_provider(spec, f"data route {path!r}", allow_media_type=True)
+        for path, spec in value.items()
+    }
+
+
+def _toml_shelf_map(value: object, label: str) -> dict[str | None, ProviderSpec]:
+    """Parse a collection→provider table, normalizing "default" to ``None``."""
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"[{label}] must be a table, got {value!r}")
+    shelves: dict[str | None, ProviderSpec] = {}
+    for key, spec in value.items():
+        collection = str(key)
+        _require(bool(collection), f"[{label}] collection name cannot be empty")
+        normalized = None if collection == _DEFAULT_COLLECTION else collection
+        shelves[normalized] = _as_provider(spec, f"{label} collection {collection!r}")
+    return shelves
+
+
+def _toml_identity_map(value: object) -> dict[str, dict[str | None, ProviderSpec]]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"[identities] must be a table, got {value!r}")
+    return {
+        str(name): _toml_shelf_map(shelves, f"identities.{name}") for name, shelves in value.items()
+    }
+
+
+def _as_provider(value: object, label: str, *, allow_media_type: bool = False) -> ProviderSpec:
+    """Normalize one provider declaration — an inline string or a one-source table."""
+    if isinstance(value, str):
+        return ProviderSpec(value=value)
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"{label} must be a string or a table, got {value!r}")
+    known = {"value", "file", "command"} | ({"media_type"} if allow_media_type else set())
+    unknown = set(map(str, value)) - known
+    _require(not unknown, f"{label} has unknown keys {sorted(unknown)} (expected {sorted(known)})")
+    sources = [key for key in ("value", "file", "command") if value.get(key) is not None]
+    _require(
+        len(sources) == 1,
+        f"{label} must declare exactly one of value/file/command, got {sources or 'none'}",
+    )
+    media_type = value.get("media_type")
+    spec = ProviderSpec(
+        value=None if "value" not in sources else str(value["value"]),
+        file=None if "file" not in sources else str(value["file"]),
+        command=None if "command" not in sources else _as_argv(value["command"]),
+        media_type=None if media_type is None else str(media_type),
+    )
+    if spec.command is not None:
+        _require(bool(spec.command), f"{label} has an empty command argv")
+    return spec
+
+
 # --- backend handlers ------------------------------------------------------------
 
 
@@ -266,11 +387,84 @@ async def _run_command(command: list[str], stdin_text: str, timeout: float) -> s
     return out.decode(errors="replace")
 
 
+# --- read-side providers ----------------------------------------------------------
+
+
+async def _provide(spec: ProviderSpec, timeout: float, collection: str | None = None) -> str:
+    """Serve one read from its declared source (value, file, or command).
+
+    File reads happen per request in a worker thread (never on the loop) so
+    operators can edit the backing file without a restart — the same liveness
+    a command provider gets by running per request. A missing/unreadable file
+    is the source's failure, not the node's: ResolutionError, like a failing
+    command.
+    """
+    if spec.value is not None:
+        return spec.value
+    if spec.file is not None:
+        try:
+            return await asyncio.to_thread(Path(spec.file).read_text, encoding="utf-8")
+        except OSError as exc:
+            raise ResolutionError(f"data file {spec.file!r} cannot be read: {exc}") from exc
+    if spec.command is not None:
+        argv = [token.replace("{collection}", collection or "") for token in spec.command]
+        return await _run_command(argv, "", timeout)
+    # Unreachable: _as_provider guarantees exactly one source is set.
+    raise ResolutionError("provider declares no source")  # pragma: no cover
+
+
+def make_data_provider(spec: ProviderSpec, timeout: float) -> DataCallable:
+    """A ``Url4Node.data`` provider backed by a :class:`ProviderSpec`."""
+
+    async def provider() -> str:
+        return await _provide(spec, timeout)
+
+    return provider
+
+
+def make_shelf_handler(spec: ProviderSpec, timeout: float) -> HoldingsHandler:
+    """A ``Url4Node.holdings`` handler for one declared ``@`` shelf.
+
+    The handler receives the *requested* collection (the node falls back to the
+    default shelf for undeclared collections), so a default-shelf ``command``
+    provider can branch on it via the ``{collection}`` argv substitution.
+    """
+
+    async def handler(collection: str | None) -> str:
+        return await _provide(spec, timeout, collection)
+
+    return handler
+
+
+def make_identity_handler(
+    name: str, shelves: Mapping[str | None, ProviderSpec], timeout: float
+) -> HoldingsHandler:
+    """A ``Url4Node.identity`` handler dispatching over a principal's shelves.
+
+    The node keeps ONE handler per identity (it has no per-collection registry
+    for principals), so the exact-collection-then-default fallback lives here —
+    deliberately mirroring ``Url4Node.fetch_holdings``'s self-holdings lookup
+    so ``@`` and ``@name`` resolve collections identically.
+    """
+
+    async def handler(collection: str | None) -> str:
+        spec = shelves.get(collection)
+        if spec is None:
+            spec = shelves.get(None)
+        if spec is None:
+            raise ResolutionError(
+                f"identity {name!r} serves no holdings for collection {collection!r}"
+            )
+        return await _provide(spec, timeout, collection)
+
+    return handler
+
+
 # --- node + ASGI assembly --------------------------------------------------------
 
 
 def build_node(config: ServeConfig) -> Url4Node:
-    """Assemble a :class:`Url4Node` with one endpoint per configured command."""
+    """Assemble a :class:`Url4Node`: endpoints per command, plus the read registries."""
     node = Url4Node(
         "url4-serve",
         eval_path=config.eval_path,
@@ -280,6 +474,12 @@ def build_node(config: ServeConfig) -> Url4Node:
     node.data(_HEALTH_PATH, "ok")
     for path, argv in config.commands.items():
         node.endpoint(path)(make_command_handler(argv, config.timeout))
+    for path, spec in config.data.items():
+        node.data(path, make_data_provider(spec, config.timeout), media_type=spec.media_type)
+    for collection, spec in config.holdings.items():
+        node.holdings(collection)(make_shelf_handler(spec, config.timeout))
+    for name, shelves in config.identities.items():
+        node.identity(name)(make_identity_handler(name, shelves, config.timeout))
     return node
 
 
@@ -362,10 +562,16 @@ async def _lifespan(receive: Callable, send: Callable, node: Url4Node) -> None:
 
 __all__ = [
     "ConfigError",
+    "DataCallable",
     "EndpointHandler",
+    "HoldingsHandler",
+    "ProviderSpec",
     "ServeConfig",
     "build_asgi_app",
     "build_node",
     "make_command_handler",
+    "make_data_provider",
+    "make_identity_handler",
+    "make_shelf_handler",
     "resolve",
 ]
