@@ -3,7 +3,7 @@ ticket: OME-369
 stack: repo
 status: done
 started: 2026-07-09
-finished: 2026-07-17
+finished: 2026-07-18
 ---
 
 # OME-369 — Fix append-only check false positive on pure test additions
