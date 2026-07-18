@@ -90,12 +90,19 @@ notes   = { file = "emily/notes.md" }
 - The key `default` means the unqualified shelf, so a collection can't be *named*
   `"default"`.
 
-> **Note.** `@name/collection` works today. A scoped shelf on *your own* node does not
-> yet: per the URL4 spec a bare `@` takes no collection suffix (`@/science` is a parse
-> error by design) — the collection is selected by a **path qualifier** after the
-> endpoint, e.g. `/v1/science?q=(@)!'…'`. That dispatch isn't implemented here yet, so
-> `@` always resolves your `default` shelf and other `[holdings]` entries are reachable
-> only from the SDK via `fetch_holdings`.
+**Addressing a shelf.** A bare `@` is your `default` shelf. To pick another, qualify
+the eval path — per the URL4 spec a bare `@` takes no collection suffix (`@/science`
+is a parse error), so the collection travels in the path:
+
+```bash
+curl 'http://127.0.0.1:4404/v1?q=(@)!%27%27'              # default shelf
+curl 'http://127.0.0.1:4404/v1/science?q=(@)!%27%27'      # the "science" shelf
+curl 'http://127.0.0.1:4404/v1/drafts/2026?q=(@)!%27%27'  # segments join with "/"
+```
+
+An unknown qualifier falls back to `default`. The qualifier scopes *your* shelves
+only — `@emily/notes` keeps its own collection either way. Because `{eval_path}/…` is
+reserved for this, declaring a command or data route under it is a config error.
 
 ## Run
 

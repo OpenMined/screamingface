@@ -276,25 +276,40 @@ so `@` and `@name` resolve collections identically. An identity with no matching
 shelf raises `ResolutionError`; an *undeclared* identity keeps the node's own `unknown_identity`
 (404), untouched.
 
-> **Known limitation — a scoped SELF shelf is not addressable on a served node yet.** Per URL4
-> spec §5.6.2 the grammar is `self-ref = "@"`: a bare `@` takes **no** collection suffix, and
-> `@/science` is a parse error *by design* (parsing rule 12). Collection selection for `@` is
-> done by the **request path** instead — §5.6.1 `url4://node/thepost/science?q=(@)!'…'`, and
-> §5.6.3.1: *"A path qualifier after the endpoint selects which collection `@` refers to."* The
-> envelope field `self_ref_collection` (§5.6.8) reports it.
+**Addressing a scoped shelf — the path qualifier (§5.6.1/§5.6.3.1).** A bare `@` selects the
+`default` shelf. To scope it, qualify the eval path:
+
+```
+GET /v1?q=(@)!'…'                 -> the default shelf
+GET /v1/science?q=(@)!'…'         -> the "science" shelf
+GET /v1/drafts/2026?q=(@)!'…'     -> the "drafts/2026" shelf (segments join with "/")
+```
+
+An undeclared qualifier falls back to the default shelf (the node's own semantics). The
+qualifier scopes the **node** context only: an identity reference keeps its own collection, so
+`(@, @emily/notes)` under `/v1/science` resolves the science shelf *and* emily's notes (§5.6.2).
+
+`{eval_path}/…` is therefore a **reserved namespace** — `validate()` rejects command and data
+routes declared under it (§5.3), because endpoints match first in dispatch and such a route
+would silently shadow every qualifier below that path.
+
+> **The grammar is deliberately not involved.** URL4 §5.6.2 fixes `self-ref = "@"`: a bare `@`
+> takes **no** collection suffix, and `@/science` is a parse error *by design* (parsing rule 12).
+> `identity-ref` is the only form carrying `[ identity-collection ]`.
 >
-> `packages/url4`'s parser is therefore **correct**. What is missing is the path qualifier:
-> `Url4Node._dispatch` matches `path == eval_path` exactly, so `{eval_path}/science` does not
-> route, and `HoldingsNode` receives `collection=None` for every `@`. Consequently the
-> non-`default` `[holdings]` shelves this config can declare are **not reachable from any
-> expression** — they are SDK-only via `fetch_holdings(None, collection)`.
->
-> # AIDEV-NOTE: an earlier revision of this section called it a "grammar gap" and proposed
-> # teaching the parser `@/collection`. That would have put this implementation in violation
-> # of §5.6.2. Recorded because the failure mode is instructive: the SDK's lower layers
-> # (`node.holdings(collection)`, `HoldingsNode(identity, collection)`) all accept a collection,
-> # which made the parser look like the odd one out. It is not — the spec routes that argument
-> # through the path, not the token.
+> # AIDEV-NOTE: an earlier revision of this section called this a "grammar gap" and proposed
+> # teaching the parser `@/collection`. That would have put this implementation in violation of
+> # §5.6.2 — divergence in a wire protocol, which breaks other implementations, not just this
+> # one. The mistake is instructive: the SDK's lower layers (`node.holdings(collection)`,
+> # `HoldingsNode(identity, collection)`) all accept a collection, which made the parser look
+> # like the odd one out. It was not — the spec routes that argument through the path, not the
+> # token, because `@` is the node's own data and needs no principal to scope it.
+> `tests/unit/test_self_collection.py::test_bare_at_takes_no_collection_suffix` guards this.
+
+**Implementation.** The qualifier rides on `ExecutionContext.self_collection`, **not** on the
+node: a `Url4Node` serves concurrent requests, so a "current collection" attribute on the node
+would be a data race between overlapping evaluations. `HoldingsNode.resolve` substitutes it only
+when `identity is None and collection is None`.
 
 ### 5.3 Startup validation (fail-fast, before bind)
 
@@ -477,13 +492,11 @@ hardened in later layers. v1 minimum bar:
   `readme = "README.md"` in `pyproject.toml`, and carries a package-level header (what url4 is,
   install, the framework-free core) ahead of the serve walkthrough. Verified in the built wheel:
   `Description-Content-Type: text/markdown` with the README as the long description.
-- **Path-qualified `@` is unimplemented** (§5.2) — **not** a grammar gap. URL4 spec §5.6.2 fixes
-  `self-ref = "@"`; §5.6.3.1 selects the self-holdings collection via a path qualifier after the
-  endpoint. `Url4Node._dispatch` matches `eval_path` exactly, so `{eval_path}/science` 404s and
-  `@` always resolves the default shelf. Implementing it means threading a per-request
-  self-collection (an `ExecutionContext` field, not node state — the node is shared across
-  concurrent requests) from `_dispatch` into `HoldingsNode.resolve`. Until then the non-`default`
-  `[holdings]` collections stay SDK-only. Needs a spec decision; follow-up ticket, not blocking.
+- ~~**Path-qualified `@` is unimplemented**~~ **RESOLVED 2026-07-18** (§5.2). Implemented per
+  §5.6.1/§5.6.3.1: `{eval_path}/<qualifier>` scopes `@` to that shelf, threaded per request via
+  `ExecutionContext.self_collection`. **It was never a grammar gap** — the parser was
+  spec-correct all along and is unchanged; only dispatch and context plumbing moved. Verified on
+  a live node in addition to the tests.
 - ~~**`_serve.py` imports `_IDENTITY_NAME_RE` from `url4.server`**~~ **RESOLVED 2026-07-18.**
   It now imports from `url4.grammar` — the owning module — like `render.py` and `server.py` do.
   The earlier note here proposed adding a *public* predicate to `grammar.py`; that was wrong for
