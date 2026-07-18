@@ -313,12 +313,11 @@ simply not being run (also tracked separately, as a distinct infra unit).
   `test_module_level_test_data_edit_detected` confirmed to fail on round-3 code,
   pass on round-4 code. `python3 -m py_compile` and `uvx ruff check` clean.
 - **Deviations:** none from the round-4 plan.
-- **Follow-ups filed:** NOT yet filed — drafts prepared, but filing is
-  deliberately queued behind the PR re-review, per explicit owner instruction
-  (2026-07-17: tickets one by one, only after the review loop finishes). The
-  three pending drafts: concern A (decorator-stacking), the
-  shadowing/monkeypatching structural limitation, and the CI-enforcement gap.
-  Record the OME-N identifiers here when filed.
+- **Follow-ups filed (2026-07-18, after the review loop closed, per owner
+  go-ahead):** `OME-475` (decorator-stacking, deferred), `OME-476`
+  (shadowing/monkeypatching limitation, design-session), `OME-477`
+  (CI enforcement of rule 5 against the real merge-base, design-session).
+  Mirrors in `docs/tasks/2026-07-18-append-only-gate-*.md`.
 
 ## Round 5 (2026-07-17) — structured code-review pass on the already-pushed PR
 
@@ -809,3 +808,14 @@ editor stripping a file's BOM with zero other changes is conservatively
 flagged (same deliberate fail-closed category as the verbatim-swap pin).
 Per the owner's instruction to loop until a round returns all-good: this is
 that round. 32/32 tests, CI green, PR #383 awaiting re-review.
+
+## Post-loop wrap-up (2026-07-18)
+
+- **Owner decision — test-file length:** keep `test_run_gates.py` as is (586
+  lines, over the ≤450 guideline). No split; relocating prior tests would
+  itself be a rule-5 prior-test change, and the owner explicitly chose to
+  leave the file intact.
+- **Follow-up tickets filed** (one by one, per owner go-ahead): `OME-475`
+  (decorator-stacking), `OME-476` (shadowing/monkeypatching design fork),
+  `OME-477` (CI enforcement of rule 5). Linear issue OME-369 updated with the
+  full round summary; reviewer re-ping posted on PR #383.
