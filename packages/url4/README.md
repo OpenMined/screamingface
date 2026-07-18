@@ -90,10 +90,12 @@ notes   = { file = "emily/notes.md" }
 - The key `default` means the unqualified shelf, so a collection can't be *named*
   `"default"`.
 
-> **Note.** `@name/collection` works in an expression, but a scoped shelf on *your own*
-> node has no syntax yet — `@` always means the default shelf and `@/science` is a parse
-> error. Non-`default` `[holdings]` entries are reachable from the SDK, not from an
-> expression.
+> **Note.** `@name/collection` works today. A scoped shelf on *your own* node does not
+> yet: per the URL4 spec a bare `@` takes no collection suffix (`@/science` is a parse
+> error by design) — the collection is selected by a **path qualifier** after the
+> endpoint, e.g. `/v1/science?q=(@)!'…'`. That dispatch isn't implemented here yet, so
+> `@` always resolves your `default` shelf and other `[holdings]` entries are reachable
+> only from the SDK via `fetch_holdings`.
 
 ## Run
 

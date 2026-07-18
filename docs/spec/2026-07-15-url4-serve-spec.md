@@ -276,12 +276,25 @@ so `@` and `@name` resolve collections identically. An identity with no matching
 shelf raises `ResolutionError`; an *undeclared* identity keeps the node's own `unknown_identity`
 (404), untouched.
 
-> **Known limitation — a scoped SELF shelf has no expression syntax.** `HoldingsNode` carries
-> `(identity, collection)`, and `fetch_holdings(None, "science")` works, but the grammar parses
-> a bare `@` as `SelfRef()` with **no collection** (`grammar.py:619`); `@/science` is a parse
-> error. Non-`default` `[holdings]` collections are therefore reachable only through the SDK
-> surface today, not from an expression. `@name/collection` is unaffected. Declared here as a
-> *grammar* gap, not a serve-layer one — closing it is a spec/grammar change, out of scope.
+> **Known limitation — a scoped SELF shelf is not addressable on a served node yet.** Per URL4
+> spec §5.6.2 the grammar is `self-ref = "@"`: a bare `@` takes **no** collection suffix, and
+> `@/science` is a parse error *by design* (parsing rule 12). Collection selection for `@` is
+> done by the **request path** instead — §5.6.1 `url4://node/thepost/science?q=(@)!'…'`, and
+> §5.6.3.1: *"A path qualifier after the endpoint selects which collection `@` refers to."* The
+> envelope field `self_ref_collection` (§5.6.8) reports it.
+>
+> `packages/url4`'s parser is therefore **correct**. What is missing is the path qualifier:
+> `Url4Node._dispatch` matches `path == eval_path` exactly, so `{eval_path}/science` does not
+> route, and `HoldingsNode` receives `collection=None` for every `@`. Consequently the
+> non-`default` `[holdings]` shelves this config can declare are **not reachable from any
+> expression** — they are SDK-only via `fetch_holdings(None, collection)`.
+>
+> # AIDEV-NOTE: an earlier revision of this section called it a "grammar gap" and proposed
+> # teaching the parser `@/collection`. That would have put this implementation in violation
+> # of §5.6.2. Recorded because the failure mode is instructive: the SDK's lower layers
+> # (`node.holdings(collection)`, `HoldingsNode(identity, collection)`) all accept a collection,
+> # which made the parser look like the odd one out. It is not — the spec routes that argument
+> # through the path, not the token.
 
 ### 5.3 Startup validation (fail-fast, before bind)
 
@@ -464,10 +477,19 @@ hardened in later layers. v1 minimum bar:
   `readme = "README.md"` in `pyproject.toml`, and carries a package-level header (what url4 is,
   install, the framework-free core) ahead of the serve walkthrough. Verified in the built wheel:
   `Description-Content-Type: text/markdown` with the README as the long description.
-- **Scoped self shelf unreachable from an expression** (§5.2) — a grammar gap, not a serve gap.
-  Either the grammar gains a syntax (`@/collection` is currently a parse error) or non-`default`
+- **Path-qualified `@` is unimplemented** (§5.2) — **not** a grammar gap. URL4 spec §5.6.2 fixes
+  `self-ref = "@"`; §5.6.3.1 selects the self-holdings collection via a path qualifier after the
+  endpoint. `Url4Node._dispatch` matches `eval_path` exactly, so `{eval_path}/science` 404s and
+  `@` always resolves the default shelf. Implementing it means threading a per-request
+  self-collection (an `ExecutionContext` field, not node state — the node is shared across
+  concurrent requests) from `_dispatch` into `HoldingsNode.resolve`. Until then the non-`default`
   `[holdings]` collections stay SDK-only. Needs a spec decision; follow-up ticket, not blocking.
-- **`_serve.py` imports `_IDENTITY_NAME_RE` from `url4.server`**, which itself re-exports it
-  from `url4.grammar`. Private-name reuse across two hops. It buys a real guarantee (config
-  validation cannot drift from the node's own registration rule), but the honest fix is for the
-  grammar to export the identity-name predicate publicly. Follow-up, not blocking.
+- ~~**`_serve.py` imports `_IDENTITY_NAME_RE` from `url4.server`**~~ **RESOLVED 2026-07-18.**
+  It now imports from `url4.grammar` — the owning module — like `render.py` and `server.py` do.
+  The earlier note here proposed adding a *public* predicate to `grammar.py`; that was wrong for
+  this codebase. Importing grammar's private character classes is an established, deliberate
+  pattern with a stated rationale (`render.py`: *"these regexes ARE the grammar's character
+  classes; re-declaring them here would let the two modules drift. Private-name import is
+  deliberate."*). The defect was never the privacy — it was the **hop**: reaching the name
+  through `url4.server`, which never promised it (`_IDENTITY_NAME_RE` is absent from server's
+  `__all__`), so a tidy-up there would have broken config validation with no signal.
