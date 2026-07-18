@@ -38,13 +38,20 @@ what it can **read** (`[data]`, `[holdings]`, `[identities]`).
 host = "127.0.0.1"
 port = 4404
 eval_path = "/v1"          # GET-only eval endpoint
-default_route = "/upper"   # reduce route for fan-out; defaults to first command
+default_route = "/model"   # reduce route for fan-out; defaults to first command
 
 [commands]
 "/upper" = ["tr", "a-z", "A-Z"]
 "/bash"  = "bash -lc {intent}"   # arbitrary local exec — 127.0.0.1 only
 "/model" = "python gateway.py --temp {param:temperature}"   # your own LLM backend
 ```
+
+> **Picking `default_route`.** A fan-out `(a, b)!'pick'` reduces by calling this
+> route with the per-source results **merged into its `{intent}`, and empty stdin**.
+> So a reduce backend must consume `{intent}` — a stdin-only command like
+> `["tr", "a-z", "A-Z"]` reads nothing and returns an empty `200`. Unset,
+> `default_route` is the first declared command, which is only a sensible reduce
+> backend by coincidence; name one deliberately.
 
 ### Commands — what the node can do
 
@@ -143,7 +150,7 @@ curl http://127.0.0.1:4404/healthz
 # eval — dispatch to the /upper command
 curl 'http://127.0.0.1:4404/v1?q=(/upper(hello world)!%27go%27)'
 
-# fan-out + reduce via default_route
+# fan-out + reduce — both results reach default_route as its {intent}
 curl 'http://127.0.0.1:4404/v1?q=(/upper(a)!%27go%27,+/upper(b)!%27go%27)!%27choose+the+best%27'
 
 # read a [data] route as a bare relative URI

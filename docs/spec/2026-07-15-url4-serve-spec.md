@@ -231,6 +231,14 @@ processor, so the reduce step is just another command call. `default_route` must
 a declared command (enforced at startup); unset, it resolves to the **first declared** command
 (TOML declaration order — the tie-breaker the operator controls).
 
+> **The reduce call's shape differs from a leaf call, and it is easy to get wrong.** A reduce
+> hands the merged per-source results to the route as its **`{intent}`**, with **empty stdin** —
+> not as context. A stdin-only backend therefore reads nothing and returns an empty `200`, with
+> no error anywhere. Found by the CI serve smoke test on this repo's own `README.md` example,
+> which paired `default_route = "/upper"` with `["tr", "a-z", "A-Z"]`; documented in the README
+> and asserted in CI (the smoke test checks both per-source results *and* the instruction reach
+> the reduce route).
+
 ### 5.2 Read side — data routes, holdings, identities
 
 Without these, a served node has **no sources**: a bare relative URI (spec §5.4.2) has nothing
