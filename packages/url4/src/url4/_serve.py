@@ -36,7 +36,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from url4.errors import ResolutionError
-from url4.server import _IDENTITY_NAME_RE, Request, Url4Node
+
+# WHY: the principal-name production belongs to the grammar, so config validation
+# reads it from there — the same deliberate private-name import render.py and
+# server.py make, for the same reason (re-declaring it would let the two drift).
+# Importing it via url4.server instead would lean on a re-export server never
+# promised: it is absent from server's __all__, so a tidy-up there would break
+# config validation with no signal.
+from url4.grammar import _IDENTITY_NAME_RE
+from url4.server import Request, Url4Node
 
 _HEALTH_PATH = "/healthz"
 # The TOML spelling of the unqualified shelf (`@` / `@name` with no collection
