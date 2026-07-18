@@ -117,3 +117,9 @@ items (outdated PR body rewritten; in-code gap list gained decorator-stacking;
 AugAssign docstring omission; follow-up tickets accurately described as
 drafted-not-yet-filed pending owner go-ahead; stale line-count figures).
 32/32 tests pass. See the ledger's Round 11 section.
+
+**Round 12 (2026-07-18):** eighth review pass returned CLEAN — zero findings
+across the consistency sweep and nine adversarial execution probes of the
+round-11 changes. Review loop closed per owner instruction; PR #383 awaits
+re-review. Next: file the three drafted follow-up tickets one by one on
+owner go-ahead.

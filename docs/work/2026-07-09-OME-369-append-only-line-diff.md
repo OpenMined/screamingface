@@ -794,3 +794,18 @@ with measurement context; 586 as of this round).
   round-10 code and pass on round-11 code; the boundary guard passes on both.
   `py_compile`/`ruff` clean.
 - **Deviations:** none.
+
+## Round 12 (2026-07-18) — CLEAN round; review loop closed
+
+Eighth review pass on HEAD after round 11: the consistency sweep (anchors,
+BOM-escape source hygiene, shas, line counts, test-history purity, PR-body
+accuracy) returned zero findings, and all nine adversarial execution probes
+of the round-11 changes passed — tab-indented body extension flagged /
+tab-indented sibling method legitimate; indented junk after a protected dict
+flagged; BOM intact + append passes / + rewrite flagged; nested ranges
+sharing an end line handled on both sides of the boundary; NFD-normalized
+unicode filenames (macOS) flagged correctly. One recorded non-finding: an
+editor stripping a file's BOM with zero other changes is conservatively
+flagged (same deliberate fail-closed category as the verbatim-swap pin).
+Per the owner's instruction to loop until a round returns all-good: this is
+that round. 32/32 tests, CI green, PR #383 awaiting re-review.
