@@ -313,8 +313,12 @@ simply not being run (also tracked separately, as a distinct infra unit).
   `test_module_level_test_data_edit_detected` confirmed to fail on round-3 code,
   pass on round-4 code. `python3 -m py_compile` and `uvx ruff check` clean.
 - **Deviations:** none from the round-4 plan.
-- **Follow-ups filed:** pending (concern A, shadowing/monkeypatching, and the
-  CI-enforcement-gap — filed as separate tickets right after this commit).
+- **Follow-ups filed:** NOT yet filed — drafts prepared, but filing is
+  deliberately queued behind the PR re-review, per explicit owner instruction
+  (2026-07-17: tickets one by one, only after the review loop finishes). The
+  three pending drafts: concern A (decorator-stacking), the
+  shadowing/monkeypatching structural limitation, and the CI-enforcement gap.
+  Record the OME-N identifiers here when filed.
 
 ## Round 5 (2026-07-17) — structured code-review pass on the already-pushed PR
 
@@ -709,11 +713,13 @@ rounds. Two findings:
   bytes comparison (`bytes.splitlines()` splits only on `\r`/`\n`, matching
   the tokenizer) it is correctly flagged. Pinned with
   `test_rewrite_after_exotic_linebreak_chars_detected` (27 tests total).
-- **`test_run_gates.py` is now 480 lines**, over the sdlc-python skill's
-  ≤450-line REFACTOR guideline. Deliberately NOT split here: relocating prior
-  tests to a new file is itself a rule-5 prior-test change (a STOP-and-ask
-  decision — the gate would flag its own test-file split), so this is
-  surfaced to the owner as a decision, not acted on unilaterally.
+- **`test_run_gates.py` is now over the sdlc-python skill's ≤450-line
+  REFACTOR guideline** (480 lines when measured this round, before this
+  round's own pin test and round 11's additions — 586 as of round 11).
+  Deliberately NOT split: relocating prior tests to a new file is itself a
+  rule-5 prior-test change (a STOP-and-ask decision — the gate would flag its
+  own test-file split), so this is surfaced to the owner as a decision, not
+  acted on unilaterally.
 
 ## Outcome (round 10)
 
@@ -724,4 +730,66 @@ rounds. Two findings:
   fix (Refs: OME-369).
 - **Gates:** 27/27 pass; new test confirmed to return the false-negative
   (True) on round-8 code and pass on current code. `py_compile`/`ruff` clean.
+- **Deviations:** none.
+
+## Round 11 (2026-07-17/18) — seventh review pass: plumbing fail-opens + docs drift
+
+Two agents on the final state (fresh-eyes correctness with execution-verified
+findings; docs-consistency), plus direct checks (self-check against the
+branch's own history → True; 27/27; CI green). The correctness agent found
+FOUR verified fail-open bugs — three in the M/D/R + decode + glob plumbing,
+one genuinely new positional bypass:
+
+1. **UTF-8 BOM stripped ALL protection** (false negative): the bytes decode
+   fine, but `ast.parse` of a str starting with U+FEFF raises SyntaxError, so
+   a BOM'd (perfectly valid, runnable) test file fell into the permissive
+   branch — a rewrite inside it went undetected. Fixed: `lstrip("\ufeff")`
+   after decode.
+2. **Typechange status `T` silently skipped** (false negative): replacing a
+   committed test file with a symlink is `T`, not M/D/R — it fell into the
+   "A/C are fine" bucket. Fixed: `T` joins the offender statuses (fail-closed,
+   like D/R).
+3. **Non-ASCII filenames escaped glob matching** (false negative, both M and
+   D): git's default `core.quotepath` emits e.g. `test_ä.py` as an
+   octal-escaped quoted C-string, which matches no glob — rewrites AND
+   deletions of such files were skipped entirely. Fixed:
+   `-c core.quotepath=off` on the name-status call.
+4. **Indented append extends a final test's body** (false negative, and a NEW
+   positional class distinct from every deferred gap): appending
+   `        break` after the file's last test line lands at anchor `n == hi`
+   (the exclusive bound's legitimate-append exemption) yet lives INSIDE the
+   old function — e.g. flips a failing loop-based test green with zero old
+   lines touched. Fixed at the mechanism level: protected ranges now carry
+   the node's column offset, insertion anchors now carry the first non-blank
+   inserted line's indent, and an insertion at `n == hi` with indent deeper
+   than the range's definition column is a violation. The critical boundary
+   stays correct: a new sibling def (col 0) or a new method after an existing
+   method in a class (same column as the def, not deeper) still passes —
+   pinned with a dedicated boundary-guard test.
+
+The docs-consistency agent found 5 drift items, all fixed: PR body still
+described the round-1 implementation (rewritten via `gh pr edit`); the
+in-code gap list omitted decorator-stacking (added as gap (5), and the
+decorator INVARIANT comment clarified to say EXISTING decorators);
+`append_only_check`'s docstring said Assign/AnnAssign omitting AugAssign
+(fixed, typechange also added); the ledger/mirror/code all overclaimed
+follow-up tickets as "filed/tracked" when they are drafts queued behind
+re-review per owner instruction (wording corrected in all three places);
+round 10's 480-line figure was measured before its own pin test (corrected
+with measurement context; 586 as of this round).
+
+## Outcome (round 11)
+
+- **Actual files:**
+  - `.claude/scripts/run_gates.py` — BOM strip; `T` status; quotepath=off;
+    ranges as (lo, hi, col) triples; `inserted_after` as anchor→indent dict;
+    the `n == hi and indent > col` body-extension rule; docstring/gap-list
+    corrections.
+  - `.claude/scripts/tests/test_run_gates.py` — 5 new tests (4 discriminating
+    + 1 boundary guard), 32 total.
+  - Ledger + mirror drift corrections; PR body rewritten.
+- **Commits:** <fill after commit>
+- **Gates:** 32/32 pass. All 4 discriminating tests confirmed to fail on
+  round-10 code and pass on round-11 code; the boundary guard passes on both.
+  `py_compile`/`ruff` clean.
 - **Deviations:** none.

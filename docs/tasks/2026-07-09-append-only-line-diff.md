@@ -39,11 +39,13 @@ bound (so appending a new function directly after an existing one stays legitima
 
 **Round 4 (2026-07-17):** fixed the reviewer's last P2 (module-level test data,
 e.g. `_BASE_KW`, wasn't protected). 16/16 tests pass. Two further findings from
-deeper probing deliberately NOT fixed here, tracked as separate follow-up
-tickets instead: decorator-stacking (concern A) and name-shadowing/monkeypatching
-(a structural line-diffing limitation). A third, non-code finding (no CI/hook
-independently enforces this check at all) filed as its own distinct ticket. See
-the ledger's Round 4 section for full detail and ticket links.
+deeper probing deliberately NOT fixed here, deferred as follow-ups instead:
+decorator-stacking (concern A) and name-shadowing/monkeypatching (a structural
+line-diffing limitation). A third, non-code finding (no CI/hook independently
+enforces this check at all) also deferred as its own distinct unit. Ticket
+drafts are prepared but NOT yet filed — filing is queued behind the PR
+re-review per explicit owner instruction; IDs will be recorded in the ledger
+when filed. See the ledger's Round 4 section.
 
 **Round 5 (2026-07-17):** a structured multi-angle code-review pass on the
 pushed PR found round 4's own fix was too broad (a denylist, not an allowlist)
@@ -96,6 +98,22 @@ change had also fixed a latent FALSE NEGATIVE: `str.splitlines()` splits on
 `\f`/` ` (which Python's tokenizer doesn't), desyncing diff numbering
 from ast ranges — a rewrite of a test after such a character went silently
 undetected on round-8 code. Proven and pinned with a discriminating test
-(27/27 pass). Also surfaced: the test file is now 480 lines (over the
-≤450 guideline) — splitting it means relocating prior tests, itself a rule-5
-STOP-and-ask decision, left to the owner. See the ledger's Round 10 section.
+(27/27 pass). Also surfaced: the test file is over the ≤450-line guideline
+(480 at measurement, 586 after rounds 10-11's own tests) — splitting it means
+relocating prior tests, itself a rule-5 STOP-and-ask decision, left to the
+owner. See the ledger's Round 10 section.
+
+**Round 11 (2026-07-17/18):** seventh review pass found and fixed four more
+execution-verified fail-open bugs: a UTF-8 BOM at base stripped ALL protection
+from a file (ast.parse of a str BOM raises SyntaxError → permissive branch);
+typechange status `T` (test file replaced by a symlink) was silently skipped;
+non-ASCII filenames escaped glob matching under git's default path quoting;
+and an indented line appended after the file's final test extended its body
+undetected (e.g. appending `break` inside its loop flips a failing test
+green) — fixed by carrying each protected range's definition column and each
+insertion anchor's first-non-blank indent, flagging `n == hi` insertions
+indented deeper than the definition. Also corrected 5 documentation-drift
+items (outdated PR body rewritten; in-code gap list gained decorator-stacking;
+AugAssign docstring omission; follow-up tickets accurately described as
+drafted-not-yet-filed pending owner go-ahead; stale line-count figures).
+32/32 tests pass. See the ledger's Round 11 section.

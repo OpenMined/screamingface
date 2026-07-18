@@ -495,6 +495,92 @@ class AppendOnlyCheckTests(unittest.TestCase):
             _write(root / "test_a.py", base_src.replace("assert 2 == 2", "assert 2 == 999"))
             self.assertFalse(self._check(root, base))
 
+    def test_bom_file_rewrite_detected(self):
+        """Regression test (code-review finding, false-negative direction): a
+        UTF-8 BOM at base must not strip protection. CPython's tokenizer skips
+        a BOM when reading source BYTES, but ast.parse of a STR starting with
+        U+FEFF raises SyntaxError — without stripping it, a BOM'd (valid,
+        runnable) test file fell into the permissive branch and lost ALL
+        protection."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            (root / "test_a.py").write_bytes(
+                b"\xef\xbb\xbfdef test_one():\n    assert 1 == 1\n"
+            )
+            base = _commit_all(root, "base")
+            (root / "test_a.py").write_bytes(
+                b"\xef\xbb\xbfdef test_one():\n    assert 1 == 2\n"
+            )
+            self.assertFalse(self._check(root, base))
+
+    def test_typechange_to_symlink_flagged(self):
+        """Regression test (code-review finding, false-negative direction):
+        replacing a committed test file with a symlink is git status T
+        (typechange), not M/D — it must be flagged like a delete, not silently
+        skipped as 'not in MDR'."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(root / "test_a.py", "def test_one():\n    assert 1 == 1\n")
+            _write(root / "junk.txt", "not a test\n")
+            base = _commit_all(root, "base")
+            (root / "test_a.py").unlink()
+            (root / "test_a.py").symlink_to("junk.txt")
+            self.assertFalse(self._check(root, base))
+
+    def test_non_ascii_filename_rewrite_detected(self):
+        """Regression test (code-review finding, false-negative direction): with
+        git's default core.quotepath, a non-ASCII filename is emitted as an
+        octal-escaped quoted C-string that matches no glob — rewrites (and
+        deletions) of such files were silently skipped."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(root / "test_ä.py", "def test_one():\n    assert 1 == 1\n")
+            base = _commit_all(root, "base")
+            _write(root / "test_ä.py", "def test_one():\n    assert 1 == 2\n")
+            self.assertFalse(self._check(root, base))
+
+    def test_indented_append_extending_final_test_body_detected(self):
+        """Regression test (code-review finding, false-negative direction): an
+        INDENTED line appended directly after the file's final test extends
+        that test's body — e.g. appending `break` inside its loop flips a
+        failing test green with zero old lines touched. An insertion anchored
+        at a range's end whose first non-blank line is indented deeper than the
+        range's own definition column is a violation."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            base_src = (
+                "CASES = [1, 2, 3]\n\n\ndef test_all_cases():\n"
+                "    for c in CASES:\n        assert c < 3\n"
+            )
+            _write(root / "test_a.py", base_src)
+            base = _commit_all(root, "base")
+            _write(root / "test_a.py", base_src + "        break\n")
+            self.assertFalse(self._check(root, base))
+
+    def test_new_method_after_existing_method_in_class_passes(self):
+        """Boundary guard for the indented-append rule: a new test METHOD typed
+        directly after an existing method inside a class shares the anchor
+        `n == hi` and IS indented — but at the same column as the existing
+        method's `def`, not deeper, so it must stay legitimate."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _write(
+                root / "test_a.py",
+                "class TestThings:\n    def test_one(self):\n        assert 1 == 1\n",
+            )
+            base = _commit_all(root, "base")
+            _write(
+                root / "test_a.py",
+                "class TestThings:\n    def test_one(self):\n        assert 1 == 1\n\n"
+                "    def test_two(self):\n        assert 2 == 2\n",
+            )
+            self.assertTrue(self._check(root, base))
+
 
 if __name__ == "__main__":
     unittest.main()

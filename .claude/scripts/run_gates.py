@@ -77,10 +77,12 @@ def load_card(path: pathlib.Path) -> dict:
 _MODULE_LEVEL_DATA = (ast.Assign, ast.AnnAssign, ast.AugAssign)
 
 
-def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tuple[int, int]]:
-    """Line ranges (1-indexed, inclusive) of every protected node in `path` at `base`:
-    every function body, plus every direct module-level Assign/AnnAssign/AugAssign
-    statement.
+def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tuple[int, int, int]]:
+    """(start_line, end_line, def_column) triples — lines 1-indexed inclusive — for
+    every protected node in `path` at `base`: every function body, plus every direct
+    module-level Assign/AnnAssign/AugAssign statement. `def_column` is the node's
+    own column offset, used to tell "new sibling appended after this body" apart
+    from "new line appended INTO this body" (see append_only_check).
     """
     # AIDEV-NOTE: `path` is cwd-relative (it comes from `git diff --relative`), but
     # `git show rev:path` resolves a bare path relative to the REPO ROOT, not cwd —
@@ -95,8 +97,12 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
     try:
         # WHY: bytes + errors="replace", not text=True — a committed undecodable
         # file must fall through to the permissive SyntaxError branch below, not
-        # crash the subprocess decode with UnicodeDecodeError.
-        tree = ast.parse(proc.stdout.decode("utf-8", errors="replace"))
+        # crash the subprocess decode with UnicodeDecodeError. The BOM strip is
+        # load-bearing too: CPython's tokenizer skips a UTF-8 BOM when reading
+        # source BYTES, but ast.parse of a STR starting with U+FEFF raises
+        # SyntaxError — without the strip, a BOM'd (perfectly valid, runnable)
+        # test file would fall into the permissive branch and lose ALL protection.
+        tree = ast.parse(proc.stdout.decode("utf-8", errors="replace").lstrip("\ufeff"))
     except (SyntaxError, ValueError):
         return []  # can't parse (incl. null bytes) — fall through to the safe (permissive) side
     ranges = []
@@ -105,17 +111,19 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
     # protected as the test itself.
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # INVARIANT: a decorator (e.g. @pytest.mark.parametrize(...), @pytest.fixture)
-            # is part of the protected body — node.lineno points at `def`, not the
-            # decorator line(s) above it.
+            # INVARIANT: an EXISTING decorator (e.g. @pytest.mark.parametrize(...),
+            # @pytest.fixture) is part of the protected body — node.lineno points
+            # at `def`, not the decorator line(s) above it. Stacking a brand-NEW
+            # outermost decorator onto an old function is NOT caught — see gap (5).
             start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
-            ranges.append((start, getattr(node, "end_lineno", node.lineno)))
+            ranges.append((start, getattr(node, "end_lineno", node.lineno), node.col_offset))
     # INVARIANT: module-level test data is just as protected as a fixture — a
     # `-` line there is invisible to the function-only pass above.
     for node in tree.body:  # direct top-level children only — see AIDEV-NOTE below
         if isinstance(node, _MODULE_LEVEL_DATA):
-            ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno)))
-    # AIDEV-NOTE: known, deliberate gaps — tracked as follow-ups, not chased here:
+            ranges.append((node.lineno, getattr(node, "end_lineno", node.lineno), node.col_offset))
+    # AIDEV-NOTE: known, deliberate gaps — deferred follow-ups (ticket filing
+    # queued behind the PR re-review, per owner instruction), not chased here:
     # (1) class-level attributes (e.g. a shared constant on a unittest.TestCase
     #     subclass) aren't covered — would need the same per-statement treatment
     #     inside class bodies, not a whole-class-span shortcut (that would
@@ -137,18 +145,27 @@ def _old_protected_ranges(root: pathlib.Path, base: str, path: str) -> list[tupl
     #     structural name-shadowing/monkeypatching limitation tracked as its own
     #     follow-up (line-diffing can't see what a statement's *effect* is, only
     #     its position), not a gap this allowlist could ever close by growing.
+    # (5) stacking a brand-NEW outermost decorator (e.g. @pytest.mark.skip) onto
+    #     a previously-existing function isn't caught — it anchors at the same
+    #     diff position as legitimately inserting a new function directly above,
+    #     which line positions can't distinguish. Needs old-vs-new AST identity
+    #     matching (compare each function's decorator list across versions) —
+    #     a separate deferred follow-up, same status as (4).
     return ranges
 
 
-def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int], set[int]]:
+def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int], dict[int, int]]:
     """Old-file positions where `path`'s content differs between `base` and the
     working tree, in two forms:
 
     - `removed`: an old line number itself changed/removed — checked against a
       protected range INCLUSIVE on both ends (`lo <= ln <= hi`).
-    - `inserted_after`: an old line number that NEW content was inserted directly
-      after, with no old line consumed for it — checked EXCLUSIVE at the upper end
-      (`lo <= n < hi`).
+    - `inserted_after`: maps each old line number that NEW content was inserted
+      directly after (no old line consumed) to the INDENT (leading spaces/tabs)
+      of the first non-blank inserted line — checked EXCLUSIVE at the upper end
+      (`lo <= n < hi`), except that an insertion anchored exactly at a range's
+      end (`n == hi`) whose indent is deeper than the range's own definition
+      column extends that body and is a violation too (see append_only_check).
     """
     # WHY: diff actual line CONTENT (old file via `git show`, new file read
     # straight off disk) with difflib.SequenceMatcher, rather than hand-parsing
@@ -191,14 +208,21 @@ def _diff_positions(root: pathlib.Path, base: str, path: str) -> tuple[set[int],
     new_lines = (root / path).read_bytes().splitlines()
     matcher = difflib.SequenceMatcher(a=old_lines, b=new_lines, autojunk=False)
     removed: set[int] = set()
-    inserted_after: set[int] = set()
-    for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
+    inserted_after: dict[int, int] = {}
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             continue
         if tag in ("delete", "replace"):
             removed.update(range(i1 + 1, i2 + 1))  # old_lines is 0-indexed, ranges are 1-indexed
         if tag == "insert":
-            inserted_after.add(i1)  # anchored right after old 1-indexed line i1
+            # Indent of the first non-blank inserted line; 0 when all blank
+            # (blank lines can never extend a body's logic).
+            indent = 0
+            for line in new_lines[j1:j2]:
+                if line.strip():
+                    indent = len(line) - len(line.lstrip(b" \t"))
+                    break
+            inserted_after[i1] = indent  # anchored right after old 1-indexed line i1
         # "replace" deliberately does NOT also populate inserted_after — the
         # removed lines already comprehensively signal the violation if inside
         # a range, and anchoring the replacement's added lines too would
@@ -214,15 +238,18 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
     data, new imports for them, even a whole new function typed directly next to
     an existing one) are always fine — a violation is either a removed/changed
     line, OR new content inserted, that falls INSIDE a protected range (a
-    function body — test, fixture, or helper — or a module-level Assign/AnnAssign
-    statement) that already existed at `base`. Deleting or renaming a whole test
-    file is always a violation regardless of content.
+    function body — test, fixture, or helper — or a module-level
+    Assign/AnnAssign/AugAssign statement) that already existed at `base`.
+    Deleting, renaming, or type-changing (e.g. replacing with a symlink) a whole
+    test file is always a violation regardless of content.
     """
+    # WHY: core.quotepath=off — with the default quoting, a non-ASCII filename
+    # (e.g. test_ä.py) is emitted as an octal-escaped C-string in double quotes,
+    # which never matches any glob → deletions AND rewrites of such files were
+    # silently skipped (fail-open). Off = raw UTF-8 paths that match normally.
     proc = subprocess.run(
-        ["git", "diff", "--relative", "--name-status", base],
-        cwd=root,
-        capture_output=True,
-        text=True,
+        ["git", "-c", "core.quotepath=off", "diff", "--relative", "--name-status", base],
+        cwd=root, capture_output=True, text=True,
     )
     if proc.returncode != 0:
         fail_config(f"git diff failed in {root}: {proc.stderr.strip()}")
@@ -230,9 +257,10 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
     for line in proc.stdout.splitlines():
         parts = line.split("\t")
         status, paths = parts[0], parts[1:]
-        if (
-            status[:1] not in "MDR"
-        ):  # A(dded)/C(opied) etc. are fine — adding tests is always fine
+        # WHY: T(ypechange) is in the offender set — replacing a committed test
+        # file with a symlink wholesale swaps its effective content, exactly like
+        # a delete+recreate. A(dded)/C(opied) stay fine: adding tests is always fine.
+        if status[:1] not in "MDRT":
             continue
         matched = [p for p in paths if any(fnmatch.fnmatch(p, g) for g in globs)]
         if not matched:
@@ -243,8 +271,18 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
             continue
         ranges = _old_protected_ranges(root, base, p)
         removed, inserted_after = _diff_positions(root, base, p)
-        bad_removed = sorted(ln for ln in removed if any(lo <= ln <= hi for lo, hi in ranges))
-        bad_inserted = sorted(n for n in inserted_after if any(lo <= n < hi for lo, hi in ranges))
+        bad_removed = sorted(ln for ln in removed if any(lo <= ln <= hi for lo, hi, _ in ranges))
+        # INVARIANT: two distinct insertion violations — (a) anchored strictly
+        # inside a range (`lo <= n < hi`), and (b) anchored exactly at a range's
+        # end (`n == hi`) with the first non-blank inserted line indented DEEPER
+        # than the range's own definition column: that extends the old body
+        # (e.g. appending `break` inside a final test's loop flips it green with
+        # zero old lines touched), whereas a new sibling def/decorator at the
+        # same anchor starts at the same-or-shallower column and stays legitimate.
+        bad_inserted = sorted(
+            n for n, indent in inserted_after.items()
+            if any(lo <= n < hi or (n == hi and indent > col) for lo, hi, col in ranges)
+        )
         if bad_removed or bad_inserted:
             detail = []
             if bad_removed:
