@@ -296,10 +296,9 @@ class Url4Node:
         path, sep, query = target.partition("?")
         params, q = extract_expression_params(query) if sep else ({}, None)
         if q is not None:
-            if path in self._endpoints:
-                return await self._call_endpoint(path, q, params)
-            if path == self._eval_path:
-                return await self._run_text(_reassemble(q, params))
+            expression_result = await self._dispatch_expression(path, q, params)
+            if expression_result is not None:
+                return expression_result
         # Exact-target first, then the bare path — membership, not `.get(...,
         # .get(...))`, so a hit avoids the second lookup and a legitimately
         # falsy provider (e.g. "") is still served rather than skipped.
@@ -317,18 +316,48 @@ class Url4Node:
             permanent=True,
         )
 
+    async def _dispatch_expression(
+        self, path: str, q: str, params: Mapping[str, str]
+    ) -> str | None:
+        """Route an expression-bearing request, or ``None`` if ``path`` bears none.
+
+        Returning ``None`` (rather than raising) lets :meth:`_dispatch` fall
+        through to the data routes, so a data path carrying its own ``?q=…``
+        query is still served as data.
+        """
+        if path in self._endpoints:
+            return await self._call_endpoint(path, q, params)
+        # Spec §5.6.1/§5.6.3.1 — `{eval_path}/<qualifier>` evaluates the
+        # expression with `@` scoped to that self-holdings collection:
+        # `GET /v1/science?q=(@)!'…'`. Multi-segment qualifiers join with "/"
+        # (`/v1/a/b` -> "a/b"), matching how an identity-collection is carried
+        # (§5.6.2); the bare eval path yields "" -> None, the default shelf.
+        # Endpoints are matched first, so a command route still wins its exact
+        # path; `_check_routable` keeps the two from overlapping.
+        if path == self._eval_path or path.startswith(f"{self._eval_path}/"):
+            collection = path[len(self._eval_path) + 1 :]
+            return await self._run_text(_reassemble(q, params), self_collection=collection or None)
+        return None
+
     async def _call_endpoint(self, path: str, q: str, params: Mapping[str, str]) -> str:
         context, intent = decode_subrequest_http(q)
         request = Request(path=path, context=context, intent=intent, params=params)
         return await _text(self._endpoints[path](request))
 
-    async def _run_text(self, text: str, env: Mapping[str, object] | None = None) -> str:
+    async def _run_text(
+        self,
+        text: str,
+        env: Mapping[str, object] | None = None,
+        *,
+        self_collection: str | None = None,
+    ) -> str:
         ctx = ExecutionContext(
             self,
             processor=self._processor,
             process=self._process,
             scope=Context(bindings=dict(env)) if env else None,
             strict_fields=self._strict_fields,
+            self_collection=self_collection,
         )
         return await run(text, ctx=ctx, concurrency=self._concurrency)
 

@@ -140,6 +140,18 @@ class ServeConfig:
         _require(not data_reserved, f"data paths clash with reserved {sorted(data_reserved)}")
         overlap = set(self.data) & set(self.commands)
         _require(not overlap, f"data paths clash with command routes {sorted(overlap)}")
+        # INVARIANT: `{eval_path}/…` is the self-holdings qualifier namespace
+        # (spec §5.6.3.1) — `GET /v1/science?q=(@)!'…'` scopes `@` to the
+        # "science" shelf. A command or data route declared under it would
+        # shadow every qualifier below that path (endpoints match first in
+        # `_dispatch`), so reject it here rather than let one silently win.
+        prefix = f"{self.eval_path}/"
+        shadowed = sorted(p for p in (*self.commands, *self.data) if p.startswith(prefix))
+        _require(
+            not shadowed,
+            f"routes {shadowed} live under the eval path {self.eval_path!r}, which is "
+            f"reserved for self-holdings qualifiers (@ collections) — mount them elsewhere",
+        )
         # INVARIANT: identity names must satisfy the node's own registration
         # rule (`Url4Node.identity`) — checking it here keeps the failure a
         # clean pre-bind ConfigError instead of a build-time ValueError.

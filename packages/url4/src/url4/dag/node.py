@@ -190,10 +190,16 @@ class ExecutionContext:
         scope: Context | None = None,
         spawn: SpawnFn | None = None,
         strict_fields: bool = False,
+        self_collection: str | None = None,
         execute_node: ExecuteNodeFn | None = None,
         _tally: _ErrorTally | None = None,
     ) -> None:
         self.io = io
+        # The self-holdings collection for THIS run — spec §5.6.3.1: "a path
+        # qualifier after the endpoint selects which collection `@` refers to".
+        # It lives here, not on the node, because a node serves concurrent
+        # requests: per-request state on a shared node would race.
+        self.self_collection = self_collection
         # WHY: no hardcoded processor route in the core — unset resolves to the
         # io world's first declared route (SupportsDefaultRoute), or stays None
         # (a fan-out reduce then fails with a clear error naming the fix).
@@ -224,6 +230,7 @@ class ExecutionContext:
             scope=scope,
             spawn=self.spawn,
             strict_fields=self.strict_fields,
+            self_collection=self.self_collection,
             execute_node=self.execute_node,
             _tally=self._tally,
         )

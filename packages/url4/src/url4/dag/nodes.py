@@ -324,7 +324,14 @@ class HoldingsNode:
                 code=code,
                 permanent=True,
             )
-        return await ctx.io.fetch_holdings(self.identity, self.collection)
+        # A bare `@` carries no collection (spec §5.6.2: `self-ref = "@"`); the
+        # run's path qualifier supplies it (§5.6.3.1). An identity-ref keeps its
+        # own `@name/collection` — the qualifier scopes the NODE context, the
+        # identity-collection scopes within the principal's holdings (§5.6.2).
+        collection = self.collection
+        if self.identity is None and collection is None:
+            collection = ctx.self_collection
+        return await ctx.io.fetch_holdings(self.identity, collection)
 
 
 @dataclass(eq=False)
