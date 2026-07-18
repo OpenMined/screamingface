@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shlex
 import tomllib
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -344,9 +345,18 @@ def _as_provider(value: object, label: str, *, allow_media_type: bool = False) -
 def make_command_handler(argv: Sequence[str], timeout: float) -> EndpointHandler:
     """An intent processor that runs a local subprocess (doctrine N4).
 
+    The argv template mirrors the full :class:`~url4.server.Request` surface a
+    Python endpoint handler sees (1:1): ``{intent}``, ``{context}`` (also piped
+    to stdin), ``{param:<name>}`` (one decoded protocol param, "" when absent),
+    and ``{params}`` (the whole mapping as JSON, for backends that want
+    everything).
+
     # AIDEV-NOTE: security — the argv is OPERATOR config; only the piped stdin
-    # (resolved context) and the {intent}/{context} substitutions are caller-
-    # influenced. No shell: exec an argv LIST, never a command string.
+    # (resolved context) and the token substitutions are caller-influenced.
+    # No shell: exec an argv LIST, never a command string. Substitution is
+    # SINGLE-PASS: tokens are recognized in the operator's template only —
+    # a "{param:x}" (or "{intent}") appearing inside caller-supplied intent,
+    # context, or param values stays literal instead of cascading.
     """
     template = tuple(argv)
 
@@ -357,8 +367,19 @@ def make_command_handler(argv: Sequence[str], timeout: float) -> EndpointHandler
     return handler
 
 
+_SUBST_TOKEN_RE = re.compile(r"\{(intent|context|params|param:([A-Za-z0-9_.\-]+))\}")
+
+
 def _subst(token: str, request: Request) -> str:
-    return token.replace("{intent}", request.intent).replace("{context}", request.context)
+    def replacement(match: re.Match[str]) -> str:
+        kind = match.group(1)
+        if kind == "params":
+            return json.dumps(dict(sorted(request.params.items())))
+        if kind.startswith("param:"):
+            return request.params.get(match.group(2), "")
+        return request.intent if kind == "intent" else request.context
+
+    return _SUBST_TOKEN_RE.sub(replacement, token)
 
 
 async def _run_command(command: list[str], stdin_text: str, timeout: float) -> str:
