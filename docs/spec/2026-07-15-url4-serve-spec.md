@@ -398,12 +398,11 @@ hardened in later layers. v1 minimum bar:
       keys (`media_type` on holdings), empty command argv, empty collection name, data paths
       that are relative or clash with a command/reserved route, invalid identity names, and a
       registry declared as a scalar.
-- [x] `ruff check` + `ruff format --check` + `pyright` clean; append-only check clean with no
-      `--skip-append-only`; `pytest --cov=url4 --cov-fail-under=95` at 97% (`_serve.py` 100%).
-      **Caveat, tracked below:** in a dev venv that *has* the `[server]` extra installed, two
-      prior tests fail (they assert the missing-uvicorn branch by calling the real seam). They
-      fail identically at `HEAD` with this work stashed, so they are not a regression; CI
-      installs no extra and is green.
+- [x] `ruff check` + `ruff format --check` + `pyright` clean; `pytest --cov=url4
+      --cov-fail-under=95` at 97% (`_serve.py` 100%). **796 passed, 0 failed, with the
+      `[server]` extra installed** — the suite no longer depends on the ambient environment
+      (§10). The append-only check was run with `--skip-append-only` for the two prior tests
+      fixed under that item, an explicit owner decision; every other test in this unit is new.
 
 > **On ticking these boxes.** Every box above was re-verified against the code at head on
 > 2026-07-18, not carried forward on trust. Two — the empty-host and `eval_path` criteria —
@@ -446,10 +445,21 @@ hardened in later layers. v1 minimum bar:
 - **Process drift:** the card mandates "Linear via MCP only; API tokens forbidden", but the MCP
   has been inactive and the owner has twice supplied an API key for the `linear` CLI. The card
   and the practice disagree — owner reconcile (tracked in the ledger).
-- **Test fragility (follow-up ticket):** `test_cli.py::test_serve_forever_without_uvicorn_prints_hint`
-  and `test_server.py::test_serve_requires_uvicorn` both assume the `[server]` extra is absent
-  from the dev venv; with it installed the former calls the real `uvicorn.run()` and binds
-  4404. CI is green because CI has no extra. Both are prior tests — out of scope here.
+- ~~**Test fragility:**~~ **RESOLVED 2026-07-18** — and it was never "fragility". Diagnosed:
+  `test_cli.py::test_serve_forever_without_uvicorn_prints_hint` and
+  `test_server.py::test_serve_requires_uvicorn` asserted the *missing*-uvicorn branch while
+  relying on the ambient venv to lack the `[server]` extra — neither test created the condition
+  it asserted. With uvicorn installed, `_serve_forever` fell through to the real `uvicorn.run()`,
+  bound `127.0.0.1:4404` and **served forever: the suite hung, with no failure and no timeout**
+  (verified by killing `pytest` at 25s). It had appeared to fail fast only because an unrelated
+  `url4 serve` process happened to hold 4404, turning the hang into `errno 98` — so the symptom
+  depended on an unrelated process, which is why it went misdiagnosed for three rounds.
+  Fixed by a `hide_uvicorn` fixture (`tests/conftest.py`) that makes only `uvicorn` unimportable,
+  so both tests now create their own precondition and pass with or without the extra. An autouse
+  `_no_real_listen` guard turns any future `socket.listen` in a unit test into an immediate,
+  actionable failure rather than a hang. Suite: **796 passed**, all gates green with the extra
+  installed. Editing two prior tests was a rule-5 confidence-gate decision, taken explicitly by
+  the owner.
 - ~~**No README:**~~ **RESOLVED 2026-07-18.** `QUICKSTART.md` is now `README.md`, wired via
   `readme = "README.md"` in `pyproject.toml`, and carries a package-level header (what url4 is,
   install, the framework-free core) ahead of the serve walkthrough. Verified in the built wheel:
