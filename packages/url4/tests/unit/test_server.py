@@ -257,7 +257,10 @@ async def test_registration_validation(node):
         node.endpoint("/claude")  # duplicate
 
 
-async def test_serve_requires_uvicorn(node):
+async def test_serve_requires_uvicorn(node, hide_uvicorn):
+    # `hide_uvicorn` creates the missing-extra condition; without it this test
+    # depended on the ambient venv and, with uvicorn installed, called the real
+    # uvicorn.run().
     with pytest.raises(RuntimeError, match=r"url4\[server\]"):
         node.serve()
 

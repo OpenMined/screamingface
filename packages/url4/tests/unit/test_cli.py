@@ -115,8 +115,8 @@ def test_serve_warns_on_non_loopback_bind_with_commands(monkeypatch, tmp_path, c
     assert "command routes are enabled" in err
 
 
-def test_serve_forever_without_uvicorn_prints_hint(capsys) -> None:
-    # The dev env has no uvicorn (the optional [server] extra) — the real missing
-    # branch, exercised directly.
+def test_serve_forever_without_uvicorn_prints_hint(capsys, hide_uvicorn) -> None:
+    # The `hide_uvicorn` fixture makes the extra absent for this test, so the
+    # branch runs whether or not the dev venv has uvicorn installed.
     assert cli._serve_forever(object(), "127.0.0.1", 4404) == 2
     assert "url4[server]" in capsys.readouterr().err
