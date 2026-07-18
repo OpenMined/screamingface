@@ -788,7 +788,8 @@ with measurement context; 586 as of this round).
   - `.claude/scripts/tests/test_run_gates.py` — 5 new tests (4 discriminating
     + 1 boundary guard), 32 total.
   - Ledger + mirror drift corrections; PR body rewritten.
-- **Commits:** <fill after commit>
+- **Commits:** `ea5d1f6` — fix(repo): close four fail-open plumbing gaps in
+  the append-only gate (Refs: OME-369).
 - **Gates:** 32/32 pass. All 4 discriminating tests confirmed to fail on
   round-10 code and pass on round-11 code; the boundary guard passes on both.
   `py_compile`/`ruff` clean.
