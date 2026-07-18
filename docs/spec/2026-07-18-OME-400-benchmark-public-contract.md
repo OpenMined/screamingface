@@ -1,0 +1,795 @@
+---
+title: ScreamingFace benchmark public contract
+ticket: OME-400
+status: approved
+date: 2026-07-18
+---
+
+# ScreamingFace benchmark public contract
+
+## 1. Decision
+
+ScreamingFace is an unreleased SDK with no compatibility requirement. This document is the
+approved greenfield contract for its first benchmark implementation. Existing SDK code and
+notebooks are implementation material, not a public surface to preserve.
+
+The short path is:
+
+```python
+import screamingface as sf
+
+fusion = sf.Fusion(
+    "frontier-trio",
+    models=[
+        "codex/gpt-5.5",
+        "gemini/2.5",
+        "claude/sonnet-4.6",
+    ],
+    reducer=sf.reducers.MajorityVote(),
+)
+
+report = fusion.evaluate("gpqa@1", first=20)
+```
+
+The research form exposes the same four stages:
+
+```python
+benchmark = sf.benchmarks.load("draco@1")
+run = fusion.run(benchmark, first=5)
+grades = run.grade()
+report = grades.aggregate()
+```
+
+The semantic seams are:
+
+```text
+LOAD -> RUN -> GRADE -> AGGREGATE
+```
+
+`Fusion.evaluate()` is exactly the one-call facade over those stages. Both `run()` and
+`evaluate()` accept `str | Benchmark`; passing a string calls `sf.benchmarks.load(...)`
+internally.
+
+## 2. Public surface
+
+Phase 0 establishes:
+
+```python
+sf.config
+sf.Fusion
+sf.Benchmark
+sf.Case
+sf.Reducer
+sf.Grader
+sf.Aggregator
+sf.Run
+sf.Grades
+sf.Report
+sf.models
+sf.benchmarks
+sf.reducers
+sf.graders
+sf.aggregators
+```
+
+Abstract extension interfaces remain top-level. Concrete strategies live only in plural
+namespaces:
+
+```python
+sf.reducers.Model(...)
+sf.reducers.MajorityVote()
+sf.graders.ExactChoice()
+sf.graders.Rubric(...)
+sf.aggregators.Mean()
+```
+
+There are no duplicate aliases such as `sf.ModelReducer`, `sf.MajorityVote`, or
+`sf.RubricJudge`. There is no public `sf.judges` namespace.
+
+Low-level records such as member answers and individual grades are immutable values surfaced
+through `Run` and `Grades`; Phase 0 does not add top-level constructors for them.
+
+Not included in the MVP:
+
+- a public `Engine`, `Client`, `Runner`, `Loader`, `Row`, or `Task`;
+- an ETL, dataset-mapping, or benchmark-building DSL;
+- `fork()`, `with_changes()`, automatic Python-path execution, or a benchmark CLI;
+- `sf.runs`, persistence, resume, cost, budgets, hashes, or publication;
+- `primary_metric`, a public `Score` wrapper, or a benchmark-level generation seed;
+- an in-process URL4 engine, simulated responses, or mock runtime mode;
+- authentication/provider-key UX; or
+- direct SDK access to AI Gateway or a model provider.
+
+## 3. Engine configuration and boundary
+
+The SDK has one effective URL4 engine:
+
+```python
+# Temporary default while no hosted deployment exists.
+# http://127.0.0.1:4404
+
+sf.config(engine="https://url4.example.org")
+```
+
+Importing ScreamingFace and directly constructing a `Fusion`, `Case`, or `Benchmark` perform no
+network request. Registry discovery, named benchmark loading, fusion execution, and model-backed
+grading use the configured HTTP engine.
+
+The architecture is:
+
+```text
+ScreamingFace SDK
+  -> sf-url4-engine       GET /v1?q=<URL4 expression>
+     -> URL4 evaluator
+     -> SF model/RDS routes
+        -> AI Gateway     POST /v1/chat/completions
+           -> provider
+```
+
+Only sf-url4-engine contacts AI Gateway. Generic `packages/url4` remains unaware of
+ScreamingFace benchmarks, reducers, registries, or gateway details.
+
+The SDK and engine profile mirror only remotely executable vocabulary. This is an execution
+profile, not one HTTP endpoint per SDK class:
+
+| SDK concept | Engine counterpart |
+|---|---|
+| model ID | model route |
+| `reducers.MajorityVote()` | deterministic RDS reducer route |
+| `benchmarks.list/load` | SF discovery, manifest, and cases resources |
+| `graders.Rubric(model=...)` | ordinary calls to the advertised judge-model route |
+| `graders.ExactChoice()` | none; deterministic SDK computation |
+| `aggregators.Mean()` | none; deterministic SDK computation |
+
+## 4. SF engine discovery
+
+sf-url4-engine exposes an application-owned discovery document:
+
+```http
+GET /.well-known/screamingface
+```
+
+It is not part of generic URL4 core. The MVP shape is:
+
+```json
+{
+  "schema": "screamingface.registry.v1",
+  "response_schemas": ["screamingface.fusion-result.v1"],
+  "models": [
+    {
+      "id": "codex/gpt-5.5",
+      "supported_tools": ["web_search"]
+    },
+    {
+      "id": "gemini/3.1-pro-preview",
+      "supported_tools": []
+    }
+  ],
+  "reducers": [
+    {
+      "id": "majority_vote",
+      "route": "/sf/reducers/majority-vote"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "draco@1",
+      "manifest": "/sf/benchmarks/draco@1"
+    },
+    {
+      "id": "gpqa@1",
+      "manifest": "/sf/benchmarks/gpqa@1"
+    }
+  ]
+}
+```
+
+The registry advertises addressable engine resources, not every SDK abstraction. Graders and
+aggregators are serialized in benchmark manifests but do not get separate registry entries when
+the ordinary client workflow executes them locally.
+
+Public discovery returns IDs only:
+
+```python
+sf.models.list()
+sf.models.list(query="gemini", tools=["web_search"], limit=10)
+
+sf.benchmarks.list()
+sf.benchmarks.list(query="draco", tools=["web_search"], limit=10)
+```
+
+Both return `list[str]`. Filters are arguments to `list()`; there is no separate `search()` in
+the MVP. The SDK does not expose internal registry summary objects.
+
+## 5. Model identity
+
+The invariant is:
+
+```text
+public model ID = URL4 relative route without its leading slash
+```
+
+Examples:
+
+```text
+codex/gpt-5.5          -> /codex/gpt-5.5
+gemini/2.5             -> /gemini/2.5
+claude/sonnet-4.6      -> /claude/sonnet-4.6
+gemini/3.1-pro-preview -> /gemini/3.1-pro-preview
+```
+
+The engine privately maps these routes to AI Gateway identifiers. For example,
+`/gemini/2.5` may map to `gemini-cli/gemini-2.5-pro`. That provider mapping never appears in a
+Fusion recipe or result.
+
+Making the public ID equal to the route identity allows local Fusion construction and URL4
+rendering without registry I/O. Evaluation still performs registry preflight.
+
+## 6. Benchmark loading and manifests
+
+Benchmark identities such as `draco@1` and `gpqa@1` are opaque versioned strings. Phase 0 does
+not define semantic-version ranges, `latest`, or a separate `version=` field.
+
+```python
+benchmark = sf.benchmarks.load("draco@1")
+```
+
+`load()` resolves the registry record and fetches its manifest. It does not look for a matching
+benchmark implementation installed locally and does not download or execute Python.
+
+Example manifest:
+
+```json
+{
+  "schema": "screamingface.benchmark.v1",
+  "id": "draco@1",
+  "title": "DRACO",
+  "tools": ["web_search"],
+  "cases": {
+    "url": "/sf/benchmarks/draco@1/cases",
+    "format": "ndjson"
+  },
+  "grader": {
+    "type": "rubric",
+    "model": "gemini/3.1-pro-preview",
+    "prompt": "<pinned official judge prompt>",
+    "passes": 5,
+    "params": {
+      "temperature": 0.2,
+      "reasoning": "low",
+      "max_tokens": 4096
+    }
+  },
+  "aggregator": {
+    "type": "mean"
+  }
+}
+```
+
+The case resource contains already-normalized NDJSON:
+
+```json
+{"id":"q1","input":"<research question>","reference":{"sections":[...]},"metadata":{"domain":"Finance"}}
+{"id":"q2","input":"<research question>","reference":{"sections":[...]},"metadata":{"domain":"Medicine"}}
+```
+
+This wire schema is not ETL. Engine-side benchmark authors fetch, clean, and normalize source
+datasets in ordinary Python before publishing canonical `Case` records.
+
+All discovery, manifest, cases, execution, and judge bodies are read through `response.text` and
+then parsed/validated by the SDK.
+
+## 7. Universal `Case` and `Benchmark`
+
+Every benchmark uses:
+
+```python
+sf.Case(
+    id: str,
+    input: str,
+    reference: JsonValue = None,
+    metadata: Mapping[str, JsonValue] = {},
+)
+```
+
+Rules:
+
+- `input` is the only case content available to workers.
+- `reference` is sealed from every worker and reducer expression and is available only to the
+  grader.
+- `metadata` supports slicing/reporting and is never silently inserted into a prompt.
+- duplicate case IDs and malformed references fail preflight before paid calls.
+- `input` is string-only in the MVP; richer multimodal inputs can be added deliberately later.
+
+Direct benchmark authoring is ordinary Python:
+
+```python
+sf.Benchmark(
+    "draco@1",
+    title="DRACO",
+    cases=load_cases,
+    grader=sf.graders.Rubric(...),
+    aggregator=sf.aggregators.Mean(),
+    tools=("web_search",),
+)
+```
+
+Constructor contract:
+
+```python
+Benchmark(
+    id: str,
+    *,
+    cases: Sequence[Case] | Callable[[], Iterable[Case]],
+    grader: Grader,
+    title: str | None = None,
+    aggregator: Aggregator = aggregators.Mean(),
+    tools: tuple[str, ...] = (),
+)
+```
+
+`cases=` is a private authoring seam. `Benchmark` does not expose dataset browsing,
+`iter_cases()`, indexing, source-column mappings, or transformation hooks. A local custom
+Benchmark is network-free to construct, but running it still requires the configured engine for
+model work.
+
+Benchmark `tools` are concrete model-usable actions. They are added only to answer-producing
+panel routes. Reducers and graders do not inherit them.
+
+## 8. Fusion authoring
+
+The final model-input shape is:
+
+```python
+fusion = sf.Fusion(
+    "frontier-trio",
+    models=[
+        "codex/gpt-5.5",
+        "gemini/2.5",
+        {
+            "model": "claude/sonnet-4.6",
+            "prompt": CLAUDE_PROMPT,
+            "params": {"temperature": 0.3},
+        },
+    ],
+    prompt=DEFAULT_PANEL_PROMPT,
+    reducer=sf.reducers.Model(
+        model="codex/gpt-5.5",
+        prompt=SYNTHESIS_PROMPT,
+        params={"temperature": 0.0},
+    ),
+)
+```
+
+Rules:
+
+- a string is the common member shorthand;
+- a mapping configures only that member's model, prompt, or model parameters;
+- `Fusion.prompt` is the default panel intent and a member prompt overrides it;
+- omitted prompts use a minimal SDK default;
+- repeated models remain distinct ordered execution slots (`panel_1`, `panel_2`, ...);
+- model parameters become query parameters on that model route;
+- reducers are explicit strategy objects; and
+- a DRACO reproduction pins its research-answer prompt in the Fusion.
+
+`reducers.Model` uses the same conceptual `model`, `prompt`, and `params` fields as a configured
+member. `reducers.MajorityVote()` performs deterministic exact-string voting and breaks ties by
+stable panel order.
+
+## 9. Reducer execution
+
+Everything that contributes to producing the fusion answer belongs in the URL4 graph.
+
+A model reducer is another model node. Deterministic majority vote uses the sf-url4-engine RDS
+route:
+
+```text
+/sf/reducers/majority-vote
+```
+
+It receives a resolved panel-answer object, makes no AI Gateway call, and returns only the winning
+answer as text. The implementation should reuse the same ScreamingFace reducer logic rather than
+reimplementing it independently in the engine app.
+
+This route is legitimate SF execution behavior. It is distinct from adding an SF-specific output
+packager merely to reshape JSON.
+
+## 10. One URL4 request per case
+
+One selected case produces one complete URL4 expression containing the question binding, panel
+fan-out, reducer, and final result structure. Conceptually:
+
+```url4
+(
+  question='<resolved case input>',
+
+  panel_1=/codex/gpt-5.5($question)!'Answer the question',
+  panel_2=/gemini/2.5($question)!'Answer the question',
+
+  panel_answers={
+    panel_1: '$panel_1',
+    panel_2: '$panel_2'
+  },
+
+  fusion_answer=/sf/reducers/majority-vote($panel_answers),
+
+  {
+    schema: 'screamingface.fusion-result.v1',
+    members: {
+      panel_1: {
+        model: 'codex/gpt-5.5',
+        answer: '$panel_1'
+      },
+      panel_2: {
+        model: 'gemini/2.5',
+        answer: '$panel_2'
+      }
+    },
+    answer: '$fusion_answer'
+  }
+)
+```
+
+The SDK sends:
+
+```http
+GET <engine>/v1?q=<percent-encoded-complete-expression>
+```
+
+The engine evaluates internal nodes and returns canonical JSON text:
+
+```json
+{
+  "schema": "screamingface.fusion-result.v1",
+  "members": {
+    "panel_1": {
+      "model": "codex/gpt-5.5",
+      "answer": "<response>"
+    },
+    "panel_2": {
+      "model": "gemini/2.5",
+      "answer": "<response>"
+    }
+  },
+  "answer": "<reduced fusion response>"
+}
+```
+
+The `panel_n` object keys are the member/call-slot IDs, so an inner `id` field would be redundant.
+
+Current URL4 structured-object fields support strings, bare scalars, and nested objects, but not
+embedded arrays. The nested `members` object is therefore the native representation. An array
+would require a separate SF result-packaging operation or future response-envelope functionality,
+neither of which is needed.
+
+The HTTP success body is consumed as text:
+
+```python
+payload = json.loads(response.text)
+```
+
+The SDK validates the schema, expected member slots, model IDs, member answers, and final answer.
+It never guesses or repairs an invalid engine result.
+
+## 11. Preflight
+
+Before any answer or judge call, evaluation:
+
+1. fetches and validates `/.well-known/screamingface`;
+2. resolves the benchmark manifest;
+3. loads and validates the selected canonical cases;
+4. validates every selected reference;
+5. confirms every panel, reducer, and judge model exists;
+6. confirms every panel model supports all benchmark tools;
+7. confirms required deterministic reducer routes are advertised; and
+8. confirms the fusion response schema is supported.
+
+Representative typed failures are:
+
+```python
+sf.UnknownBenchmarkError
+sf.UnknownModelError
+sf.UnsupportedToolError
+sf.UnsupportedReducerError
+sf.InvalidBenchmarkError
+sf.EngineProfileError
+sf.EngineConnectionError
+sf.EngineProtocolError
+```
+
+For the MVP, a model advertised by the registry is one the engine claims is available. User- or
+credential-specific availability belongs to a future engine authentication contract.
+
+## 12. `Run`
+
+`Fusion.run()` executes the selected cases and returns an immutable, serializable, in-memory
+artifact:
+
+```python
+run = fusion.run("draco@1", first=5)
+
+run.benchmark_id
+run.fusion_url4
+run.case_ids
+run.results
+run.failures
+run.complete
+```
+
+Each result preserves its selected case position:
+
+```python
+result.case_id
+result.member_answers
+result.answer
+result.failure
+```
+
+A successful result has complete member answers and a final answer. A failed result has
+`answer=None`, empty member answers, and a failure. `run.failures` is a convenience view over
+failed results.
+
+Required panel/reducer failures invalidate the whole case. The SDK does not construct a partial
+fusion answer. URL4-native optional/quorum behavior can be added explicitly later.
+
+## 13. Grading
+
+`run.grade()` grades the fusion and every member by default:
+
+```python
+grades = run.grade()
+
+grades.benchmark_id
+grades.items
+grades.failures
+grades.complete
+```
+
+Each grade exposes:
+
+```python
+grade.case_id
+grade.target       # "fusion", "panel_1", ...
+grade.score        # float in [0, 1] or None
+grade.metrics
+grade.coverage
+grade.verdicts
+grade.failure
+```
+
+Failed run cases are not sent to a grader. Missing or invalid grading evidence never becomes a
+zero or an `UNMET` verdict.
+
+### 13.1 Exact choice
+
+`sf.graders.ExactChoice()` parses the answer choice, compares it with `Case.reference`, produces
+`0.0` or `1.0`, and makes no engine request.
+
+### 13.2 Rubric
+
+The official DRACO configuration is:
+
+```python
+sf.graders.Rubric(
+    model="gemini/3.1-pro-preview",
+    prompt=DRACO_JUDGE_PROMPT,
+    passes=5,
+    params={
+        "temperature": 0.2,
+        "reasoning": "low",
+        "max_tokens": 4096,
+    },
+)
+```
+
+For official DRACO mode, one criterion and one pass produce one model expression:
+
+```url4
+(
+  /gemini/3.1-pro-preview
+    ?temperature=0.2
+    &reasoning=low
+    &max_tokens=4096
+    &q=(
+      <criterion_type>positive</criterion_type>
+      <criterion>...</criterion>
+      <query>...</query>
+      <response>...</response>
+    )!
+    '<pinned official DRACO judge prompt>'
+)
+```
+
+The judge returns its model output directly as response text:
+
+```json
+{
+  "explanation": "The response contains the required fact.",
+  "criterion_status": "MET"
+}
+```
+
+The SDK already knows the case, target, criterion, weight, and pass and attaches that metadata
+locally. A 40-criterion rubric with five passes means 200 independent judge model calls per
+answer. Those calls may execute concurrently under the SDK's bounded execution policy.
+
+The SF model adapter must preserve:
+
+```text
+URL4 context -> user message
+URL4 intent  -> system message
+```
+
+It must forward the configured model parameters and ensure repeated passes are independent rather
+than serving a cached completion. The current gitignored engine spike does not yet satisfy these
+requirements; that is an sf-url4-engine connector limitation, not a URL4 grammar change.
+
+## 14. Rubric scoring
+
+After judge responses return, scoring is deterministic SDK computation. For each pass:
+
+```text
+numerator   = sum(weight for every MET criterion)
+denominator = sum(all positive criterion weights)
+pass score  = clamp(numerator / denominator, 0, 1)
+```
+
+Positive MET criteria add reward. Negative MET criteria subtract because their weights are
+negative. Negative UNMET criteria add no penalty.
+
+The final grade score is the mean of the configured pass scores. `pass_rate` is the unweighted
+fraction handled correctly: positive+MET and negative+UNMET.
+
+The strict MVP requires full verdict coverage for a valid rubric grade:
+
+```text
+coverage = successful verdicts / expected verdicts
+score is valid only when coverage == 1.0
+```
+
+This is stricter than partial-score behavior in some executable DRACO reference paths, but it is
+identical on successful publishable runs and prevents missing negative criteria from inflating a
+score. Raw verdicts and failures remain inspectable.
+
+`Grade.metrics` is narrowly defined as additional case-level scores that are valid to average:
+
+```python
+{
+    "pass_rate": 0.84,
+    "factual_accuracy": 0.91,
+    "breadth_and_depth": 0.78,
+    "presentation_quality": 0.88,
+    "citation_quality": 0.72,
+}
+```
+
+Arbitrary metadata, counts, cost, latency, coverage, and raw responses do not belong in
+`metrics`.
+
+## 15. Aggregation and `Report`
+
+`sf.aggregators.Mean()` performs deterministic local aggregation and makes no engine call.
+
+It uses the common paired case set where the fusion and every member have valid grades:
+
+```text
+fusion score = mean(fusion grades)
+member score = mean(that member's grades)
+baseline     = maximum member score
+gain         = fusion score - baseline
+coverage     = common valid cases / selected cases
+```
+
+If one member is missing a grade for a case, that case is excluded from the fusion and every
+member headline score. If no common valid cases remain, `score`, `baseline`, and `gain` are
+`None`.
+
+```python
+report = grades.aggregate()
+
+report.benchmark_id
+report.fusion_url4
+report.n_cases
+report.n_scored
+report.coverage
+report.score
+report.baseline
+report.gain
+report.members
+report.metrics
+report.failures
+report.complete
+```
+
+All SDK scores use `0.0-1.0`. Widgets render them as percentages. Gain is displayed in percentage
+points:
+
+```text
+report.score == 0.80    -> 80.0%
+report.baseline == 0.70 -> 70.0%
+report.gain == 0.10     -> +10.0 pp
+```
+
+`Mean` averages only the explicitly meanable numeric values in `Grade.metrics`, over the same
+common case set. A metric is included in `Report.metrics` only when every included fusion grade
+defines it. Member summaries expose their corresponding metrics.
+
+Standard deviations, confidence intervals, and bootstrap aggregators are deferred.
+
+## 16. Failure behavior
+
+The general rule is:
+
+```text
+Cannot begin or cannot trust the protocol -> raise
+One case failed during valid engine execution -> record and continue
+```
+
+Preflight, engine-connection, and response-schema failures raise. A non-success engine response
+for one valid case becomes a case failure carrying `case_id`, engine `code`, message, and optional
+HTTP status. The SDK does not infer a failing panel unless the engine reports one.
+
+Current URL4 errors logically use:
+
+```json
+{
+  "error": {
+    "code": "resolution_failed",
+    "message": "<engine explanation>"
+  }
+}
+```
+
+Malformed judge-model output is a grading failure for that criterion/pass. A malformed rubric or
+zero-criterion reference aborts grading before judge spend.
+
+## 17. Concurrency and retries
+
+Concurrency is execution policy, not strategy configuration. MVP defaults are internal:
+
+- at most four benchmark cases in flight;
+- at most 32 rubric-judge requests in flight;
+- stable returned ordering regardless of completion order; and
+- cancellation of remaining work only for systemic engine/protocol failures.
+
+Retry policy is conservative:
+
+- retry an engine `503` with `Retry-After` because it was rejected before execution;
+- do not automatically retry a whole fusion after timeout/upstream failure because paid model
+  calls may already have completed;
+- rubric validation retries repeat only the individual criterion call with the identical pinned
+  prompt; and
+- never append corrective instructions to an official judge prompt.
+
+Future execution methods may accept `concurrency=...`; strategy constructors must not.
+
+## 18. Verification boundary
+
+Client-orchestrated results are reproducible research results, not verified official results. The
+client can inspect downloaded references and can modify local computation.
+
+A future verified workflow must execute case selection, sealed-reference handling, model calls,
+grading, aggregation, and attestation inside a trusted engine-hosted workflow. It may import the
+same ScreamingFace grader and aggregator implementations, but it needs an explicit server-side
+contract and must not be selected implicitly because a benchmark was passed as a string.
+
+## 19. Implementation acceptance
+
+The first implementation is accepted when:
+
+1. GPQA, DRACO, and an in-memory example use the same `Case` and `Benchmark` contracts.
+2. `Fusion.evaluate()` equals `run -> grade -> aggregate`.
+3. model IDs map mechanically to URL4 routes.
+4. named benchmark loading uses the SF engine registry, manifests, and normalized case resources.
+5. every selected case is one complete URL4 Fusion expression.
+6. majority vote executes through the advertised SF RDS route.
+7. references never appear in worker or reducer expressions.
+8. official DRACO grading uses one URL4 model request per criterion/pass.
+9. success bodies are parsed from text and validated strictly.
+10. missing work never becomes a zero score.
+11. headline comparisons use a common paired case set.
+12. no runtime mock, in-process engine, direct gateway client, compatibility alias, persistence,
+    budget, authentication, or ETL framework is introduced.
+
+The next unit after this document is implementation planning and contract tests; this Phase 0
+unit changes documentation and syntax fixtures only.

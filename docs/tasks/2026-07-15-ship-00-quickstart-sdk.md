@@ -12,18 +12,17 @@ closed:
 Ship the importable ScreamingFace Python SDK and its executable quickstart as a URL4-native
 compose → run → compare path.
 
-Current public surface:
+Superseded implementation state (not a compatibility target):
 
 - optional `sf.config(engine=..., mode=...)`, with independent engine/data selection;
 - `sf.models`, strict model dictionaries, and `sf.Fusion`/`Fusion.from_yaml`;
 - `sf.MajorityVote`, `sf.ModelReducer`, canonical `.url4`, and concrete `request_for(...)`;
-- `fusion.evaluate("gpqa" | "draco", first=..., seed=...)`; and
-- immutable `Run`/`ModelResult`/`RunFailure` provenance and comparison results.
+- `fusion.evaluate("gpqa" | "draco", first=...)`; and
+- immutable `Run`/`ModelResult`/`RunFailure` execution identity and comparison results.
 
-The zero-setup path runs complete expressions through a real in-process `Url4Node` and uses
-deterministic handlers only at registered model routes. It never calls AI Gateway or providers.
-An explicitly selected HTTP URL4 engine is strict and never falls back. Only a production URL4
-model-route adapter may call AI Gateway.
+The existing in-process `Url4Node`, deterministic model responses, and mock/live mode are slated
+for removal. The target SDK always calls the effective HTTP URL4 engine; local development uses
+the Dockerized `.docs/spikes/sf-url4-engine` stack, and only that engine reaches AI Gateway.
 
 Documentation deliverables are:
 
@@ -35,3 +34,16 @@ Documentation deliverables are:
 
 Owner metadata sync remains required: confirm Linear priority/created date and add/register the
 `pkg/screamingface-sdk` landing label in Linear and `.claude/task-board.local.md`.
+
+## Greenfield benchmark architecture — 2026-07-18
+
+The owner confirmed that the SDK and notebooks have no external users and authorized replacing
+the current public evaluation surface without compatibility wrappers. The approved direction is
+recorded in:
+
+- `docs/plan/2026-07-18-OME-400-screamingface-benchmark-architecture.md`; and
+- `docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`.
+
+Phase 0 locks universal cases, plain-Python benchmark recipes, and immutable in-memory
+`Run` → `Grades` → `Report` artifacts before production implementation. Persistence and budget
+enforcement are later additive contracts once their engine and storage requirements exist.
