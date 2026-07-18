@@ -1,16 +1,17 @@
-"""Development server entrypoint for the ScreamingFace URL4 profile."""
+"""Development server entrypoint for the persistent ScreamingFace engine."""
 
 from __future__ import annotations
 
-import os
+import importlib
 
-from screamingface_engine.app import create_node
+from screamingface_engine.app import create_app
+from screamingface_engine.settings import Settings
 
 
 def main() -> None:
-    host = os.environ.get("URL4_HOST", "127.0.0.1")
-    port = int(os.environ.get("URL4_PORT", "4404"))
-    create_node().serve(host=host, port=port)
+    settings = Settings.from_env()
+    uvicorn = importlib.import_module("uvicorn")
+    uvicorn.run(create_app(settings=settings), host=settings.host, port=settings.port)
 
 
 if __name__ == "__main__":  # pragma: no cover - console entrypoint

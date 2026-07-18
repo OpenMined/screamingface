@@ -12,25 +12,37 @@ promote it without changing its HTTP contract to:
 apps/screamingface-engine/
 ```
 
-## Phase 1 responsibilities
+## Implemented responsibilities
 
 This tracked development profile composes the generic `Url4Node` with ScreamingFace-owned data:
 
 ```text
 GET /healthz
 GET /.well-known/screamingface
-GET /sf/benchmarks/gpqa@1
-GET /sf/benchmarks/gpqa@1/cases
-GET /sf/benchmarks/draco@1
-GET /sf/benchmarks/draco@1/cases
+GET /benchmarks/gpqa@1
+GET /benchmarks/gpqa@1/cases
+GET /benchmarks/draco@1
+GET /benchmarks/draco@1/cases
+GET /codex/gpt-5.5?[params&]q=(context)!intent
+GET /gemini/2.5?[params&]q=(context)!intent
+GET /claude/sonnet-4.6?[params&]q=(context)!intent
+GET /v1?q=<complete URL4 expression>
 ```
 
-All bodies are plaintext. Registry and manifest bodies contain JSON text; case routes contain
-normalized NDJSON. The SDK parses and validates those bodies on the client.
+All successful bodies are plaintext. Registry and manifest bodies contain JSON text; case routes
+contain normalized NDJSON. Model routes return only the first AI Gateway assistant message text.
+The SDK parses and validates structured plaintext on the client.
 
-Phase 1 does not execute Fusion expressions or judge requests. Model and reducer identities are
-advertised now so the wire contract is stable; their executable endpoint adapters arrive in the
-corresponding execution phases.
+The application is one persistent `Url4Node` process. Its model handlers call AI Gateway
+in-process through one shared asynchronous HTTP client; they do not launch route subprocesses or
+another engine. The thin ASGI wrapper owns only client lifecycle, global admission control, and a
+whole-evaluation timeout.
+
+Phase 2A intentionally supports tool-free model requests only. The registry does not claim
+`web_search`, and `gemini/3.1-pro-preview` is not advertised because AI Gateway does not currently
+register that model identifier. DRACO remains discoverable and declares its unmet requirements;
+it becomes runnable only after those real capabilities exist. The deterministic majority-vote
+route is advertised for the approved contract but becomes executable in Phase 2B.
 
 ## Dataset access
 
@@ -56,15 +68,18 @@ From this directory:
 ./dev.sh
 ```
 
-This builds the profile and AI Gateway containers. AI Gateway is included for the later model
-execution phases, but Phase 1 discovery and benchmark loading do not contact it.
+This builds the engine and AI Gateway containers. Discovery and benchmark loading do not contact
+AI Gateway; model routes do.
 
 Verify:
 
 ```bash
 curl -s http://127.0.0.1:4404/healthz
 curl -s http://127.0.0.1:4404/.well-known/screamingface | python -m json.tool
-curl -s http://127.0.0.1:4404/sf/benchmarks/draco@1 | python -m json.tool
+curl -s http://127.0.0.1:4404/benchmarks/draco@1 | python -m json.tool
+
+curl -G http://127.0.0.1:4404/codex/gpt-5.5 \
+  --data-urlencode "q=(What is 2 + 2?)!Answer briefly"
 ```
 
 Stop the stack:

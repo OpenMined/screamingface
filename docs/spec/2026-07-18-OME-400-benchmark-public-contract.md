@@ -168,10 +168,14 @@ It is not part of generic URL4 core. The MVP shape is:
   "models": [
     {
       "id": "codex/gpt-5.5",
-      "supported_tools": ["web_search"]
+      "supported_tools": []
     },
     {
-      "id": "gemini/3.1-pro-preview",
+      "id": "gemini/2.5",
+      "supported_tools": []
+    },
+    {
+      "id": "claude/sonnet-4.6",
       "supported_tools": []
     }
   ],
@@ -183,14 +187,14 @@ It is not part of generic URL4 core. The MVP shape is:
   ],
   "benchmarks": [
     {
-      "id": "draco@1",
-      "manifest": "/benchmarks/draco@1",
-      "tools": ["web_search"]
-    },
-    {
       "id": "gpqa@1",
       "manifest": "/benchmarks/gpqa@1",
       "tools": []
+    },
+    {
+      "id": "draco@1",
+      "manifest": "/benchmarks/draco@1",
+      "tools": ["web_search"]
     }
   ]
 }
@@ -227,7 +231,6 @@ Examples:
 codex/gpt-5.5          -> /codex/gpt-5.5
 gemini/2.5             -> /gemini/2.5
 claude/sonnet-4.6      -> /claude/sonnet-4.6
-gemini/3.1-pro-preview -> /gemini/3.1-pro-preview
 ```
 
 The engine privately maps these routes to AI Gateway identifiers. For example,
@@ -260,7 +263,6 @@ Request(
         "temperature": "0.2",
         "max_tokens": "512",
         "reasoning": "low",
-        "tools": "web_search",
     },
 )
 ```
@@ -276,8 +278,7 @@ The engine translates it to AI Gateway's existing chat-completions contract:
   ],
   "temperature": 0.2,
   "max_tokens": 512,
-  "reasoning_effort": "low",
-  "tools": "<engine-resolved Gateway tool payload>"
+  "reasoning_effort": "low"
 }
 ```
 
@@ -292,6 +293,11 @@ The mapping is deliberately typed and allowlisted:
 
 The registry may advertise `web_search` for a model only when that route has a working named-tool
 adapter. Otherwise SDK preflight must reject a benchmark that requires it.
+
+Phase 2A therefore advertises no tools. The DRACO manifest remains discoverable and truthfully
+declares `web_search`; loading or running it must fail SDK preflight until a tested named-tool
+adapter and its compatible model routes are published. Its `gemini/3.1-pro-preview` judge route is
+likewise not advertised until AI Gateway registers an exact private model mapping.
 
 For a successful non-streaming response, the handler validates
 `choices[0].message.content`, requires string content, and returns that string only. URL4 therefore

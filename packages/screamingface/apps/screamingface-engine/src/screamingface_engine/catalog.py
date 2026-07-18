@@ -15,6 +15,26 @@ type CaseLoader = Callable[[], Iterable[Case]]
 
 
 @dataclass(frozen=True, slots=True)
+class ModelRoute:
+    """One public URL4 model route and its private AI Gateway model id."""
+
+    id: str
+    gateway_model: str
+    supported_tools: tuple[str, ...] = ()
+
+    @property
+    def route(self) -> str:
+        return f"/{self.id}"
+
+
+MODEL_ROUTES = (
+    ModelRoute("codex/gpt-5.5", "codex/gpt-5.5"),
+    ModelRoute("gemini/2.5", "gemini-cli/gemini-2.5-pro"),
+    ModelRoute("claude/sonnet-4.6", "anthropic/claude-sonnet-4-6"),
+)
+
+
+@dataclass(frozen=True, slots=True)
 class PublishedBenchmark:
     benchmark: Benchmark
     cases_path: str
@@ -99,8 +119,8 @@ def published_benchmarks(
         tools=("web_search",),
     )
     return (
-        PublishedBenchmark(gpqa, "/sf/benchmarks/gpqa@1/cases", loaders["gpqa@1"]),
-        PublishedBenchmark(draco, "/sf/benchmarks/draco@1/cases", loaders["draco@1"]),
+        PublishedBenchmark(gpqa, "/benchmarks/gpqa@1/cases", loaders["gpqa@1"]),
+        PublishedBenchmark(draco, "/benchmarks/draco@1/cases", loaders["draco@1"]),
     )
 
 
@@ -109,16 +129,14 @@ def registry_document(publications: tuple[PublishedBenchmark, ...]) -> dict[str,
         "schema": "screamingface.registry.v1",
         "response_schemas": ["screamingface.fusion-result.v1"],
         "models": [
-            {"id": "codex/gpt-5.5", "supported_tools": ["web_search"]},
-            {"id": "gemini/2.5", "supported_tools": ["web_search"]},
-            {"id": "claude/sonnet-4.6", "supported_tools": ["web_search"]},
-            {"id": "gemini/3.1-pro-preview", "supported_tools": []},
+            {"id": model.id, "supported_tools": list(model.supported_tools)}
+            for model in MODEL_ROUTES
         ],
-        "reducers": [{"id": "majority_vote", "route": "/sf/reducers/majority-vote"}],
+        "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
         "benchmarks": [
             {
                 "id": publication.benchmark.id,
-                "manifest": f"/sf/benchmarks/{publication.benchmark.id}",
+                "manifest": f"/benchmarks/{publication.benchmark.id}",
                 "tools": list(publication.benchmark.tools),
             }
             for publication in publications

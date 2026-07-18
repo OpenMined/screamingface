@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 1 implemented; Phase 2 persistent-engine contract approved
+**Status:** Phase 2A model/Gateway engine implemented; Phase 2B next
 **Date:** 2026-07-18  
 **Normative contract:**
 [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
@@ -178,6 +178,13 @@ It documents and smoke-tests this boundary without introducing model execution. 
 public quickstart, architecture, and DRACO tutorial series remains Phase 5.
 
 ### Phase 2 — Fusion compiler and run stage
+
+Implementation is split into reviewed vertical slices. Phase 2A now implements the persistent
+engine lifecycle, canonical model route registration, typed parameter translation, shared AI
+Gateway client, plaintext extraction, unprefixed benchmark resources, admission control, and
+whole-evaluation timeout. Its registry is intentionally tool-free and excludes the unavailable
+`gemini/3.1-pro-preview` route. Phase 2B adds the deterministic reducer and Docker proof; Phase 2C
+adds SDK compilation and `Run` orchestration.
 
 SDK:
 
@@ -405,6 +412,7 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Implement Phase 2 in reviewed vertical slices: persistent engine/Gateway model routes first,
-deterministic reducer and Docker proof second, then SDK compilation and `Run` orchestration. Keep
-grading, authentication, persistence, and public tutorial regeneration in their later phases.
+Implement Phase 2B next: add the in-process deterministic majority-vote reducer and the Docker
+SDK -> engine -> AI Gateway proof. Then implement Phase 2C SDK compilation and `Run`
+orchestration. Keep grading, authentication, persistence, named tools, and public tutorial
+regeneration in their later reviewed phases.

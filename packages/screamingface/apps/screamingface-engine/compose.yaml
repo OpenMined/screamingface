@@ -33,7 +33,11 @@ services:
       context: ../../../..
       dockerfile: packages/screamingface/apps/screamingface-engine/Dockerfile
     environment:
+      AIGATEWAY_TIMEOUT: "120"
+      AIGATEWAY_URL: http://aigateway:9105
       HF_TOKEN: ${HF_TOKEN:-}
+      SCREAMINGFACE_ENGINE_MAX_INFLIGHT: "16"
+      SCREAMINGFACE_ENGINE_TIMEOUT: "120"
       URL4_HOST: 0.0.0.0
       URL4_PORT: "4404"
     init: true

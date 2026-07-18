@@ -64,3 +64,17 @@ Phase 1 intentionally does not implement model execution, Fusion evaluation, gra
 aggregation, or authentication. A development-only Phase 1 engine-profile walkthrough documents
 the implemented boundary; public quickstart and DRACO notebook regeneration remain in their
 reviewed later phase.
+
+## Phase 2A implementation — 2026-07-18
+
+Implemented the persistent engine-to-Gateway model execution boundary:
+
+- one long-running `Url4Node` with three startup-registered model routes;
+- one reusable asynchronous AI Gateway client and typed request translation;
+- plaintext assistant response extraction and URL4-native failure mapping;
+- unprefixed benchmark and reducer resource identities;
+- application-owned lifecycle, global admission, timeout, and graceful cleanup; and
+- an honest tool-free model registry while `web_search` and the DRACO judge route are unavailable.
+
+Phase 2A does not add the deterministic reducer, SDK Fusion execution, grading, aggregation,
+authentication, automatic retries, or mock fallbacks.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from screamingface import Case, Grader
@@ -98,6 +99,19 @@ def test_publications_reject_unknown_loader_and_serialize_both_graders() -> None
     assert catalog.cases_document(publications[0]).endswith("\n")
 
 
+def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> None:
+    publications = catalog.published_benchmarks({"gpqa@1": lambda: (), "draco@1": lambda: ()})
+    registry = catalog.registry_document(publications)
+
+    assert len({model.id for model in catalog.MODEL_ROUTES}) == len(catalog.MODEL_ROUTES)
+    assert len({model.route for model in catalog.MODEL_ROUTES}) == len(catalog.MODEL_ROUTES)
+    assert all(model.gateway_model for model in catalog.MODEL_ROUTES)
+    assert registry["models"] == [
+        {"id": model.id, "supported_tools": []} for model in catalog.MODEL_ROUTES
+    ]
+    assert registry["reducers"] == [{"id": "majority_vote", "route": "/reducers/majority-vote"}]
+
+
 def test_catalog_rejects_an_unserializable_grader() -> None:
     class OtherGrader(Grader):
         kind = "other"
@@ -115,16 +129,14 @@ def test_metadata_json_object_is_lenient(value: object, expected: dict[str, obje
 
 
 def test_cli_serves_configured_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[str, int]] = []
-
-    class Node:
-        def serve(self, *, host: str, port: int) -> None:
-            calls.append((host, port))
-
-    monkeypatch.setattr(cli, "create_node", Node)
+    calls: list[tuple[object, str, int]] = []
+    app = object()
+    run = Mock(side_effect=lambda value, *, host, port: calls.append((value, host, port)))
+    monkeypatch.setattr(cli, "create_app", lambda *, settings: app)
+    monkeypatch.setattr(cli.importlib, "import_module", lambda _name: SimpleNamespace(run=run))
     monkeypatch.setenv("URL4_HOST", "0.0.0.0")
     monkeypatch.setenv("URL4_PORT", "4500")
 
     cli.main()
 
-    assert calls == [("0.0.0.0", 4500)]
+    assert calls == [(app, "0.0.0.0", 4500)]

@@ -17,9 +17,10 @@ def notebook() -> nbformat.NotebookNode:
 Connect the SDK to the temporary `screamingface-engine` development profile, inspect what the engine
 advertises, and construct the immutable values used by later execution phases.
 
-**This is a Phase 1 development walkthrough—not the product quickstart.** It covers engine
+**This is the Phase 1 discovery walkthrough—not the product quickstart.** It covers engine
 configuration, model and benchmark discovery, benchmark loading, local benchmark definitions,
-and Fusion authoring. It does not call models or evaluate a Fusion; those arrive in Phase 2.
+and Fusion authoring. It deliberately does not call the Phase 2A model routes. SDK Fusion
+execution arrives in Phase 2C.
 
 ## Before you run it
 
@@ -31,9 +32,9 @@ cd packages/screamingface/apps/screamingface-engine
 ```
 
 This starts the URL4 engine at `http://127.0.0.1:4404` and AI Gateway at
-`http://127.0.0.1:9105`. Phase 1 discovery and benchmark loading use only the URL4 engine; they do
-not contact AI Gateway. Only one development stack can own those ports, so stop any earlier URL4
-or AI Gateway containers before running `./dev.sh`.
+`http://127.0.0.1:9105`. Discovery and benchmark loading use only the URL4 engine; only an
+executable model route contacts AI Gateway. Only one development stack can own those ports, so
+stop any earlier URL4 or AI Gateway containers before running `./dev.sh`.
 
 The published GPQA and DRACO case routes read their canonical Hugging Face datasets. Before
 loading one, accept any dataset terms and expose your token to Compose:
@@ -94,7 +95,11 @@ identities and supported tools. Benchmark entries point to versioned manifests a
         nbformat.v4.new_markdown_cell(
             """Discovery returns canonical IDs in registry order. It does not return a static
 catalog bundled in the SDK, and it does not infer provider access or authentication. The
-configured engine is the source of truth."""
+configured engine is the source of truth.
+
+Phase 2A intentionally advertises no `web_search` models until a real named-tool adapter exists,
+so `web_search_models` is empty. DRACO remains discoverable through `research_benchmarks` because
+its manifest truthfully declares that still-unmet execution requirement."""
         ),
         nbformat.v4.new_markdown_cell(
             "## 4 · Load a published benchmark when dataset access is ready"
@@ -102,14 +107,14 @@ configured engine is the source of truth."""
         nbformat.v4.new_code_cell(
             "# Change this after the engine container has access to your Hugging Face token.\n"
             "LOAD_REMOTE_BENCHMARK = False\n\n"
-            'benchmark = sf.benchmarks.load("draco@1") if LOAD_REMOTE_BENCHMARK else None\n\n'
+            'benchmark = sf.benchmarks.load("gpqa@1") if LOAD_REMOTE_BENCHMARK else None\n\n'
             "benchmark or (\n"
-            '    "Set LOAD_REMOTE_BENCHMARK = True to fetch, parse, and validate the DRACO "\n'
+            '    "Set LOAD_REMOTE_BENCHMARK = True to fetch, parse, and validate the GPQA "\n'
             '    "manifest and case stream."\n'
             ")"
         ),
         nbformat.v4.new_markdown_cell(
-            """`sf.benchmarks.load("draco@1")` is eager:
+            """`sf.benchmarks.load("gpqa@1")` is eager:
 
 1. fetch and validate the engine registry;
 2. resolve the benchmark's same-engine manifest route;
@@ -188,10 +193,11 @@ You have now exercised everything Phase 1 promises:
 - define a local benchmark with the same public types; and
 - author an immutable Fusion.
 
-Phase 1 deliberately stops before `fusion.run(...)` and `fusion.evaluate(...)`. Phase 2 will add
-URL4 compilation, model and reducer routes, `GET /v1?q=...`, plaintext result validation, and
-in-memory run results. The SDK will continue to contact only the URL4 engine; only the engine's
-model adapter may contact AI Gateway."""
+This walkthrough deliberately stops before `fusion.run(...)` and `fusion.evaluate(...)`. Phase 2A
+now supplies persistent tool-free model routes and `GET /v1?q=...`; Phase 2B adds the deterministic
+reducer and Phase 2C adds URL4 compilation, plaintext result validation, and in-memory run results.
+The SDK will continue to contact only the URL4 engine; only the engine's model adapter may contact
+AI Gateway."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 1
+## Current implementation: Phase 2A
 
 The SDK currently supports:
 
@@ -12,8 +12,13 @@ The SDK currently supports:
 - `sf.models.list(...)` and `sf.benchmarks.list(...)` against the engine registry; and
 - eager, validated `sf.benchmarks.load(...)` from engine manifests and NDJSON case routes.
 
-Phase 1 does not execute models or expose `fusion.run(...)`/`fusion.evaluate(...)`. Those are
-Phase 2. There is no mock, simulated, or in-process engine fallback.
+The development `screamingface-engine` additionally runs three tool-free model routes through one
+persistent `Url4Node` and a shared AI Gateway client. It accepts direct endpoint requests and
+complete expressions through `GET /v1?q=...`, with no subprocess route adapter.
+
+The SDK does not yet expose `fusion.run(...)`/`fusion.evaluate(...)`; compiler and `Run`
+orchestration are Phase 2C. The deterministic majority-vote route and Docker end-to-end proof are
+Phase 2B. There is no mock, simulated, or in-process engine fallback.
 
 ## Phase 1 walkthrough
 
@@ -44,9 +49,9 @@ URL4 engine  http://127.0.0.1:4404
 AI Gateway   http://127.0.0.1:9105
 ```
 
-Phase 1 discovery and benchmark loading do not contact AI Gateway. Published benchmark routes
-load real Hugging Face datasets. Authenticate before requesting gated datasets and expose the
-token to Compose:
+Discovery and benchmark loading do not contact AI Gateway. Model routes contact AI Gateway only
+through `screamingface-engine`. Published benchmark routes load real Hugging Face datasets.
+Authenticate before requesting gated datasets and expose the token to Compose:
 
 ```bash
 huggingface-cli login
@@ -75,7 +80,7 @@ import screamingface as sf
 # Optional locally: this URL is currently the default.
 sf.config(engine="http://127.0.0.1:4404")
 
-models = sf.models.list(tools=["web_search"])
+models = sf.models.list()
 benchmarks = sf.benchmarks.list()
 
 fusion = sf.Fusion(
@@ -90,6 +95,8 @@ fusion = sf.Fusion(
 ```
 
 Construction is network-free. Discovery and loading contact only the configured URL4 engine.
+The current model registry deliberately advertises no tools: `web_search` returns only after a
+real named-tool adapter exists and has been tested.
 
 ## Validation
 
