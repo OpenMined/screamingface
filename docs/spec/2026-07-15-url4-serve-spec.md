@@ -13,6 +13,7 @@
 | 2026-07-15 | **Pivot 1 (owner-approved).** The released v1 SDK already ships `url4.Url4Node` — a node that *is* an `IOLayer`, with `endpoint()`/`data()`/`holdings()` registries, in-process `evaluate()`, a framework-free raw-ASGI `asgi()`, GET-only dispatch, and `Url4Error → HTTP` mapping. The CLI is therefore built **on top of `Url4Node`**, not as a from-scratch Starlette app. No Starlette, no `GatewayIOLayer`, no `url4/server/` package. |
 | 2026-07-16 | **Pivot 2 (owner-directed).** The aigateway connector is deleted; `[commands]` is the only backend kind. Serve-layer `processor` → `default_route`. Core keeps the `processor` name but loses the hardcoded `/claude` default. |
 | 2026-07-17 | **Review round 2 (PR #402).** Body rewritten to describe the system as built. |
+| 2026-07-18 | **Scope extension 3 (owner-directed).** The served node gains its READ surface: `[data]`, `[holdings]`, `[identities.<name>]` in `url4.toml` (§5.2), and command backends receive the caller's protocol params (§5.1). Folded into OME-466 rather than split off, because a node that cannot resolve `@` or a bare relative URI is not yet "the engine as an HTTP node" — the goal in §1. |
 
 > **AIDEV-NOTE — why this history is a table and not a stack of banners.** Both pivots were
 > originally recorded as revision *banners* prepended to an unchanged body. Readers (and the
@@ -29,6 +30,10 @@
 runnable **url4 node**, using the existing optional `url4[server]` extra on `packages/url4`.
 Running `url4 serve` stands up an HTTP endpoint that evaluates url4 expressions and dispatches
 every leaf to an operator-declared local command. `url4 eval` is the network-free companion.
+
+A served node must be able to resolve **both halves** of an expression: the *write* half
+(intent processors — `[commands]`, §5.1) and the *read* half (data routes and holdings —
+§5.2). An operator declares the whole surface in one `url4.toml`, under one provider model.
 
 **Non-goals (v1, explicitly deferred).**
 - WebSocket / SSE streaming and the three-signal telemetry (`logs`/spans/`cost.usage`),
@@ -167,12 +172,26 @@ application/json`. A failing command surfaces as `ResolutionError` ⇒ 502.
 
 ---
 
-## 5. Backends — command routes as node endpoints
+## 5. Backends — the node's declared surface
 
-**`[commands]` is the only backend kind.** There is no LLM/aigateway connector, no route→model
-map, and no `httpx` in the serve layer. An operator who wants an LLM backend writes their own
-gateway script and mounts it as a command; the SDK/CLI ships no such script. Routes and
-commands are the same thing at the SDK core — an endpoint — so the serve layer keeps one
+An expression touches the node in two ways, and `url4.toml` declares both:
+
+| Half | Registry | Node port | Resolves |
+|---|---|---|---|
+| **write** (intent processing) | `[commands]` | `endpoint()` | `/route(ctx)!'intent'`, fan-out reduce |
+| **read** (sources) | `[data]` | `data()` | bare relative URIs — `(/rubrics/42)` |
+| **read** (holdings) | `[holdings]` | `holdings()` | `@` — the node's own shelves |
+| **read** (holdings) | `[identities.<name>]` | `identity()` | `@name[/collection]` |
+
+Everything is **operator-declared, TOML-only**. Argv templates and file paths are operator
+config, never flags or env vars — there is no `--route`/`--command`/`--data` flag.
+
+### 5.1 Write side — command routes as node endpoints
+
+**`[commands]` is the only intent-processor kind.** There is no LLM/aigateway connector, no
+route→model map, and no `httpx` in the serve layer. An operator who wants an LLM backend writes
+their own gateway script and mounts it as a command; the SDK/CLI ships no such script. Routes
+and commands are the same thing at the SDK core — an endpoint — so the serve layer keeps one
 concept (N5: the core defines the port, the operator supplies the adapter).
 
 `url4.toml`:
@@ -186,8 +205,21 @@ concept (N5: the core defines the port, the operator supplies the adapter).
 `_serve.build_node(config)` assembles a `Url4Node` and registers, per declared command, one
 intent-processor endpoint (`make_command_handler`) plus the `/healthz` data route.
 
-**Command handler** (doctrine N4 — subprocess leaf):
-- `{intent}` / `{context}` are substituted per argv **token**, never re-split.
+**Command handler** (doctrine N4 — subprocess leaf). The argv template exposes the **whole
+`Request` surface a Python endpoint handler sees, 1:1** — a command is a first-class backend,
+not a degraded one:
+
+| Token | Substituted with |
+|---|---|
+| `{intent}` | the resolved intent |
+| `{context}` | the resolved context (also piped to stdin) |
+| `{param:<name>}` | one decoded protocol param (`/model?temperature=0.7`); `""` when absent |
+| `{params}` | the full param mapping as JSON, key-sorted for stable output |
+
+- Substitution is per argv **token**, never re-split, and **single-pass**: tokens are recognized
+  in the *operator's template only*. Token-shaped text arriving in caller-controlled intent,
+  context, or param values is never re-scanned, so a caller cannot smuggle `{param:x}` into an
+  intent and have it expand on a second round (§7).
 - The resolved context is piped to the command's **stdin**; **stdout** is the result.
 - Non-zero exit or timeout → `ResolutionError` (with a stderr tail) ⇒ 502.
 - stdout/stderr are decoded with `errors="replace"` — a command emitting non-UTF-8 bytes must
@@ -199,7 +231,59 @@ processor, so the reduce step is just another command call. `default_route` must
 a declared command (enforced at startup); unset, it resolves to the **first declared** command
 (TOML declaration order — the tie-breaker the operator controls).
 
-### 5.1 Startup validation (fail-fast, before bind)
+### 5.2 Read side — data routes, holdings, identities
+
+Without these, a served node has **no sources**: a bare relative URI (spec §5.4.2) has nothing
+to resolve against, and `@` / `@name` (spec §5.6) fail with "serves no holdings". The three
+registries close that gap.
+
+```toml
+[data]                                   # bare relative URIs
+"/rubrics/42" = "score 1-5 on clarity"           # inline string
+"/corpus"     = { file = "corpus.md" }           # re-read per request
+"/rows"       = { command = ["./rows.sh"], media_type = "application/json" }
+
+[holdings]                               # `@` — the node's own shelves
+default = "my working notes"                     # the unqualified shelf
+science = { file = "shelves/science.md" }
+
+[identities.emily]                       # `@emily[/collection]`
+default = "Emily's default holdings"
+notes   = { file = "emily/notes.md" }
+```
+
+**One provider shape for all three** — an inline string, or a table with **exactly one** of:
+
+| Source | Behavior |
+|---|---|
+| `value` | serves the inline text |
+| `file` | re-read **per request**, in a worker thread (never on the loop) — operators edit the backing file with no restart, the same liveness a command gets by running per request. Missing/unreadable → `ResolutionError` (the *source's* failure, like a failing command), not a node error |
+| `command` | an argv template — **doctrine N4 applied to reads**: no shell, argv list, empty stdin, stdout is the result. `{collection}` substitutes the requested holdings collection |
+
+`media_type` is accepted on **`[data]` only**, and declares the route's Content-Type so a
+collection served there parses **by declared type rather than by sniffing** (spec §5.3.7) — a
+one-line JSON array served as `text/plain` would line-split into a single element. Holdings
+carry no type channel, so `media_type` there is a config error rather than a silent no-op.
+
+**Collection keys.** TOML has no null key, so the reserved key `default` normalizes to `None` —
+the node's fallback shelf. A collection literally named `"default"` is therefore not
+declarable; this mirrors how the node itself treats `None`.
+
+**Identity fallback.** The node keeps **one handler per identity** (it has no per-collection
+registry for principals), so `make_identity_handler` resolves exact-collection-then-default
+*inside* the handler — deliberately mirroring `Url4Node.fetch_holdings`'s self-holdings lookup,
+so `@` and `@name` resolve collections identically. An identity with no matching and no default
+shelf raises `ResolutionError`; an *undeclared* identity keeps the node's own `unknown_identity`
+(404), untouched.
+
+> **Known limitation — a scoped SELF shelf has no expression syntax.** `HoldingsNode` carries
+> `(identity, collection)`, and `fetch_holdings(None, "science")` works, but the grammar parses
+> a bare `@` as `SelfRef()` with **no collection** (`grammar.py:619`); `@/science` is a parse
+> error. Non-`default` `[holdings]` collections are therefore reachable only through the SDK
+> surface today, not from an expression. `@name/collection` is unaffected. Declared here as a
+> *grammar* gap, not a serve-layer one — closing it is a spec/grammar change, out of scope.
+
+### 5.3 Startup validation (fail-fast, before bind)
 
 All raise `ConfigError` ⇒ exit 2, never a mid-request failure or a traceback:
 - `concurrency` ≥ 1; `max_inflight` ≥ 1; `timeout` > 0.
@@ -211,6 +295,14 @@ All raise `ConfigError` ⇒ exit 2, never a mid-request failure or a traceback:
 - Each command path starts with `/`, has a non-empty argv, and does not collide with
   `eval_path` or `/healthz`.
 - An explicit `default_route` is a declared command.
+- **Data paths** start with `/` and clash with neither a command route nor `eval_path`/
+  `/healthz`. All three share the node's one path namespace; a clash would otherwise surface as
+  an uncaught `ValueError` from `Url4Node._check_routable` at build time.
+- **Identity names** satisfy the node's own registration rule (`_IDENTITY_NAME_RE`), keeping the
+  failure a clean pre-bind `ConfigError` instead of a build-time `ValueError`.
+- **Every provider** declares exactly one of `value`/`file`/`command`, carries no unknown key
+  (`media_type` outside `[data]` is unknown), and has a non-empty argv if it is a command.
+- A registry written as a **scalar instead of a table** (`data = "x"`) is rejected by name.
 
 ---
 
@@ -250,8 +342,19 @@ hardened in later layers. v1 minimum bar:
   an explicit `--host ""` flag.
 - **Operator-controlled command vs caller-controlled payload.** The *command* (argv list) is
   server config; the HTTP caller supplies only stdin/substituted text. No `shell=True`; argv is
-  a list; `{context}`/`{intent}` are substituted as single argv tokens, never re-split.
-- **Per-command timeout**; process killed on overrun.
+  a list; `{context}`/`{intent}`/`{param:…}`/`{params}` are substituted as single argv tokens,
+  never re-split.
+- **Single-pass substitution.** Widening the token set from two to four made a second-order
+  question real: could a caller put `{param:x}` *inside* an intent and have it expand? No — the
+  regex scans the operator's template once, and substituted values are never re-scanned. Chained
+  `str.replace` would have had exactly this cascade, which is why substitution moved to one
+  regex pass rather than two more `.replace()` calls.
+- **Read providers are operator config too.** A `command` provider is the same N4 model (argv
+  list, no shell, empty stdin); a `file` provider reads an operator-declared path — the caller
+  never supplies or influences it, so a data route cannot be turned into arbitrary file read.
+  `{collection}` is the one caller-influenced substitution on the read side, and it lands as a
+  single argv token like every other.
+- **Per-command timeout** (shared by read-side command providers); process killed on overrun.
 - **SSRF acknowledgment.** Absolute-URL fetches in an expression are unrestricted in v1
   (documented risk); an allowlist is a later layer. The localhost default contains blast radius.
 - No secrets in the serve layer at all — the connector that needed a token is gone.
@@ -269,18 +372,45 @@ hardened in later layers. v1 minimum bar:
       `default_route`; a non-GET returns 405.
 - [x] A command route runs a subprocess and returns stdout; `{intent}`/`{context}` substitute
       per token; non-zero exit, timeout, and non-UTF-8 output all surface as `ResolutionError`.
-- [x] Startup validation per §5.1 fails fast with exit 2 and an actionable message: empty
+- [x] **A command receives the caller's protocol params:** `{param:<name>}` substitutes a
+      decoded param (`""` when absent, dotted names accepted), `{params}` the key-sorted JSON
+      mapping, end-to-end through node dispatch; substitution is single-pass, so token-shaped
+      text in caller-supplied values stays literal.
+- [x] Startup validation per §5.3 fails fast with exit 2 and an actionable message: empty
       `[commands]`, undeclared `default_route`, bad `concurrency`/`max-inflight`/`timeout`,
       reserved-path collisions, `eval_path == /healthz`.
 - [x] Over `--max-inflight` → 503 + `Retry-After`; exceeding `--timeout` → 504; lifespan
       shutdown closes the node.
 - [x] Error→status mapping covered for §4.1; stdout/stderr discipline; exit codes 0/1/2.
-- [ ] **An empty host cannot bind every interface:** `URL4_HOST=` falls through to
+- [x] **An empty host cannot bind every interface:** `URL4_HOST=` falls through to
       `127.0.0.1`; an explicit `--host ""` exits 2; a non-loopback bind still emits both
       warnings. Empty `URL4_PORT`/`URL4_EVAL_PATH`/`URL4_DEFAULT_ROUTE` likewise fall through.
-- [ ] **`eval_path` is validated:** a relative (`"v1"`) or empty eval path exits 2.
-- [x] `ruff check` + `ruff format --check` + `pyright` clean; `pytest --cov=url4
-      --cov-fail-under=95` green.
+- [x] **`eval_path` is validated:** a relative (`"v1"`) or empty eval path exits 2.
+- [x] **A `[data]` route resolves a bare relative URI** in an expression; a `file` provider
+      re-reads live (edit between two requests → new content, no restart); a missing file is a
+      `ResolutionError`; a declared `media_type` makes a JSON route parse as a collection of
+      three rather than one.
+- [x] **`@` and `@name/collection` resolve through expressions** against `[holdings]` /
+      `[identities.<name>]`; an undeclared collection falls back to the default shelf for both;
+      an identity with no default shelf raises `ResolutionError`; an undeclared identity still
+      returns the node's own `unknown_identity`. A `command` provider receives `{collection}`.
+- [x] **Read-registry declarations fail before bind:** zero-or-multi-source providers, unknown
+      keys (`media_type` on holdings), empty command argv, empty collection name, data paths
+      that are relative or clash with a command/reserved route, invalid identity names, and a
+      registry declared as a scalar.
+- [x] `ruff check` + `ruff format --check` + `pyright` clean; append-only check clean with no
+      `--skip-append-only`; `pytest --cov=url4 --cov-fail-under=95` at 97% (`_serve.py` 100%).
+      **Caveat, tracked below:** in a dev venv that *has* the `[server]` extra installed, two
+      prior tests fail (they assert the missing-uvicorn branch by calling the real seam). They
+      fail identically at `HEAD` with this work stashed, so they are not a regression; CI
+      installs no extra and is green.
+
+> **On ticking these boxes.** Every box above was re-verified against the code at head on
+> 2026-07-18, not carried forward on trust. Two — the empty-host and `eval_path` criteria —
+> had been left `[ ]` since review round 2 even though that round shipped, tested, and
+> probe-verified both, and Linear's copy of the checklist had them ticked. That is the same
+> document-drift this spec's history note warns about, in the one section where it is most
+> load-bearing: an unticked box on shipped work is indistinguishable from unfinished work.
 
 ---
 
@@ -288,11 +418,17 @@ hardened in later layers. v1 minimum bar:
 
 - **Packaging/isolation:** importing `url4` + `url4.dag` leaves `starlette`/`uvicorn` absent
   from `sys.modules`.
-- **Config:** precedence (flag > env > toml > default) per field; every §5.1 validation
+- **Config:** precedence (flag > env > toml > default) per field; every §5.3 validation
   failure; empty-env fall-through per field (and fall-through to *toml*, not straight to the
   default, when toml declares the key).
 - **Backends:** command handler stdin piping, `{intent}`/`{context}` substitution, timeout,
   non-zero exit, non-UTF-8 output; the LLM handler is absent from the module surface.
+- **Protocol params** (`test_serve_params.py`): `{param:<name>}` present/absent/dotted,
+  `{params}` JSON, the no-cascade guarantee, and one end-to-end pass through node dispatch.
+- **Read registries** (`test_serve_reads.py`): each provider form parses; `default` normalizes
+  to `None`; every declaration error; data route resolving a bare relative URI; live file
+  re-read; missing file; `media_type`-driven collection parsing; self-holdings and identity
+  fallback; `{collection}` substitution; `@` + `@name/collection` end-to-end in an expression.
 - **App:** GET happy path; error→status rows; 503 backpressure (max-inflight=1, two concurrent
   slow runs); 504 timeout; `/healthz` runs no engine; lifespan closes the node.
 - **CLI:** `eval` arg + stdin; `--version`; usage error → 2; removed connector flags rejected
@@ -314,5 +450,14 @@ hardened in later layers. v1 minimum bar:
   and `test_server.py::test_serve_requires_uvicorn` both assume the `[server]` extra is absent
   from the dev venv; with it installed the former calls the real `uvicorn.run()` and binds
   4404. CI is green because CI has no extra. Both are prior tests — out of scope here.
-- **No README:** `packages/url4` has no README and no `readme` field in `pyproject.toml` — a
-  published PyPI package with no long description. `QUICKSTART.md` covers the CLI. Follow-up.
+- ~~**No README:**~~ **RESOLVED 2026-07-18.** `QUICKSTART.md` is now `README.md`, wired via
+  `readme = "README.md"` in `pyproject.toml`, and carries a package-level header (what url4 is,
+  install, the framework-free core) ahead of the serve walkthrough. Verified in the built wheel:
+  `Description-Content-Type: text/markdown` with the README as the long description.
+- **Scoped self shelf unreachable from an expression** (§5.2) — a grammar gap, not a serve gap.
+  Either the grammar gains a syntax (`@/collection` is currently a parse error) or non-`default`
+  `[holdings]` collections stay SDK-only. Needs a spec decision; follow-up ticket, not blocking.
+- **`_serve.py` imports `_IDENTITY_NAME_RE` from `url4.server`**, which itself re-exports it
+  from `url4.grammar`. Private-name reuse across two hops. It buys a real guarantee (config
+  validation cannot drift from the node's own registration rule), but the honest fix is for the
+  grammar to export the identity-name predicate publicly. Follow-up, not blocking.
