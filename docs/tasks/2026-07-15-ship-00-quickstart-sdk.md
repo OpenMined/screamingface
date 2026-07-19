@@ -437,3 +437,37 @@ Implemented the approved generated bare-bones quickstart:
 - added append-only notebook contract tests and CI regeneration enforcement.
 
 No SDK runtime, engine, URL4, AI Gateway, authentication, persistence, or budget behavior changed.
+
+## Phase 5C contract approval — 2026-07-19
+
+Approved replacing the Phase 1 development walkthrough with a focused public architecture guide:
+
+- configure one ScreamingFace engine and show the localhost/hosted-deployment boundary;
+- inspect raw registry plaintext and the validated `sf.models.list()` view;
+- distinguish parameterized `fusion.url4` identity from a concrete encoded transaction;
+- build one canonical URL4 expression through public URL4 builders and execute it through
+  `GET /v1?q=...` against the deterministic majority-vote route;
+- explain SDK-local benchmark/reference/grading/aggregation ownership and engine-owned
+  model/Gateway/tool execution; and
+- require only the Docker stack, with no benchmark source or provider credentials.
+
+The explicitly superseded Phase 1 notebook/generator and CI step are removed in the same unit.
+No compatibility copy is retained because the SDK has no external users.
+
+## Phase 5C implementation — 2026-07-19
+
+Implemented the approved generated configuration and architecture guide:
+
+- replaced `phase_1_engine_profile.ipynb` and its builder with `01_architecture.ipynb` and
+  `build_architecture.py`;
+- documented the SDK, persistent URL4 engine, AI Gateway, provider, and SearXNG ownership
+  boundaries;
+- exposed raw registry plaintext beside validated `sf.models.list()` discovery;
+- distinguished parameterized `fusion.url4` identity from a concrete encoded request;
+- built the deterministic reducer expression solely through public URL4 builders and executed it
+  through the real engine with no model/provider call; and
+- replaced README and CI references and added append-only notebook contract tests.
+
+A temporary notebook copy ran top-to-bottom against the tracked Docker stack on isolated ports and
+returned the exact expected plaintext result. The isolated stack was removed afterwards without
+touching the owner's older containers. No SDK runtime, engine, URL4, or AI Gateway behavior changed.

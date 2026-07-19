@@ -68,10 +68,10 @@ jobs:
       - name: Construct Phase 0 contract fixtures
         run: uv run python scripts/check_phase1_fixtures.py
 
-      - name: Regenerate Phase 1 walkthrough
+      - name: Regenerate Phase 5C architecture walkthrough
         run: |
-          uv run --extra notebook python scripts/build_phase1_engine_profile.py
-          git diff --exit-code -- examples/phase_1_engine_profile.ipynb
+          uv run --extra notebook python scripts/build_architecture.py
+          git diff --exit-code -- examples/01_architecture.ipynb
 
       - name: Regenerate Phase 5B quickstart
         run: |

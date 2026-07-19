@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 5B bare-bones quickstart implemented; architecture tutorial review next
+**Status:** Phase 5C architecture notebook implemented; discovery tutorial review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -468,6 +468,18 @@ The five-case example implies 15 provider-backed member calls and no model-backe
 reduction. Until enforceable budgets exist, the one live `evaluate(...)` call defaults off and
 creates no substitute report. The quickstart still documents the local Docker stack, caller-owned
 Hugging Face access, and external provider-credential prerequisite.
+
+**Phase 5C is implemented:** `examples/01_architecture.ipynb` replaces the broad development-only
+Phase 1 walkthrough. It explains engine configuration, the SDK/engine/Gateway/tool ownership
+boundary, raw registry plaintext and validated model discovery, `fusion.url4` recipe identity, and
+one concrete encoded transactional GET. The executed expression uses URL4's public builders to
+call only the deterministic majority-vote route with literal answers, so the notebook runs against
+the Docker stack without dataset or provider access.
+
+The old `phase_1_engine_profile.ipynb`, its generator, and its CI regeneration step are removed
+rather than retaining overlapping public documentation. The replacement must not load a
+benchmark, execute a model-backed Fusion, import a private compiler or engine implementation, or
+contact AI Gateway directly.
 
 Before promoting the temporary package-development app, agree the engine profile's final
 location and ownership. If it moves to `apps/screamingface-engine`, preserve the same external
