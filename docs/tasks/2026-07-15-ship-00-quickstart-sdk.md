@@ -378,3 +378,35 @@ Implemented the reviewed DRACO judge route entirely inside the temporary
 
 No URL4 or AI Gateway file changed. Provider-backed success depends on the AI Gateway owner
 registering the assumed model ID and on ordinary provider authentication.
+
+## Phase 5A contract approval — 2026-07-19
+
+Approved the first public DRACO tutorial as an SDK walkthrough rather than a full reproduction:
+
+- use the canonical SDK-local `draco@1` definition and real configured HTTP URL4 engine;
+- compose the currently compatible Gemini 2.5 and Claude Sonnet 4.6 research panel with a Codex
+  model reducer;
+- teach explicit `run -> grade -> aggregate` stages and show `evaluate()` only as their shorthand;
+- keep all paid work behind a default-off `RUN_LIVE` switch without fabricating a result;
+- explain the roughly 354 average judge calls for one case of this two-member Fusion; and
+- reserve a reproduction claim for the complete benchmark pipeline's seven standalone models and
+  nine named fusions.
+
+The generated artifact must contain no direct Gateway path, runtime fallback, private compiler
+import, or hidden second evaluation.
+
+## Phase 5A implementation — 2026-07-19
+
+Implemented the approved generated DRACO SDK walkthrough:
+
+- added `examples/05_draco.ipynb` and its deterministic builder;
+- documented the local Docker, Hugging Face, AI Gateway registration, and provider prerequisites;
+- showed the public parameterized URL4 recipe and HTTP engine boundary without importing the
+  private concrete compiler;
+- separated `run`, `grade`, and `aggregate`, with `evaluate()` shown only as non-executed shorthand;
+- defaulted all model and judge work off and displayed the average one-case call scale before the
+  live cell; and
+- added append-only contract tests plus CI notebook regeneration enforcement.
+
+The artifact is output-free and makes no full-reproduction claim. No SDK runtime, engine, URL4,
+AI Gateway, authentication, persistence, or budget behavior changed.

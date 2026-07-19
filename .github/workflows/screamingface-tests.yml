@@ -73,6 +73,11 @@ jobs:
           uv run --extra notebook python scripts/build_phase1_engine_profile.py
           git diff --exit-code -- examples/phase_1_engine_profile.ipynb
 
+      - name: Regenerate Phase 5A DRACO walkthrough
+        run: |
+          uv run --extra notebook python scripts/build_draco_walkthrough.py
+          git diff --exit-code -- examples/05_draco.ipynb
+
       - name: Build distributions
         run: uv build
 

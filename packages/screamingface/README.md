@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 4E1
+## Current implementation: Phase 5A
 
 The SDK currently supports:
 
@@ -59,15 +59,21 @@ parentheses, quotes, backslashes, newlines, or dollar signs remain data rather t
 The development profile allows 61440-byte request targets and independently returns HTTP 414 to
 direct callers that exceed it.
 
-## Phase 1 walkthrough
+## Walkthrough notebooks
 
-[`examples/phase_1_engine_profile.ipynb`](examples/phase_1_engine_profile.ipynb) is the current
-executable setup and API guide. It shows the registry plaintext, the separate model and benchmark
+[`examples/phase_1_engine_profile.ipynb`](examples/phase_1_engine_profile.ipynb) is the executable
+setup and discovery guide. It shows the registry plaintext, the separate model and benchmark
 catalogs, local canonical benchmark loading, local benchmark construction, and network-free
 Fusion authoring.
 
-The public quickstart, architecture guide, and DRACO tutorial will be generated from the reviewed
-contract in the planned notebook phase; no superseded notebook is retained as API documentation.
+[`examples/05_draco.ipynb`](examples/05_draco.ipynb) is the real-engine DRACO SDK walkthrough. It
+uses the pinned `draco@1` definition, shows a compatible web-research Fusion, and separates
+`run -> grade -> aggregate`. Paid execution is explicitly disabled by default because one case can
+require hundreds of judge calls. It is not presented as the benchmark pipeline's full model-lineup
+reproduction.
+
+The public quickstart and architecture guide remain later Phase 5 artifacts; no superseded
+notebook is retained as API documentation.
 
 ## Start the development engine
 
@@ -120,10 +126,12 @@ From `packages/screamingface` in another terminal:
 ```bash
 uv sync --extra notebook
 uv run --extra notebook jupyter lab examples/phase_1_engine_profile.ipynb
+# or
+uv run --extra notebook jupyter lab examples/05_draco.ipynb
 ```
 
-The notebook is generated from `scripts/build_phase1_engine_profile.py`; edit the generator rather
-than the notebook JSON.
+The notebooks are generated from `scripts/build_phase1_engine_profile.py` and
+`scripts/build_draco_walkthrough.py`; edit the generators rather than notebook JSON.
 
 ## Current API example
 

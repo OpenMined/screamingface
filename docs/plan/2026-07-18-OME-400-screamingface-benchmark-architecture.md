@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 4E1 DRACO judge route implemented; full notebook/readiness review next
+**Status:** Phase 5A DRACO SDK walkthrough implemented; remaining tutorial review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -432,7 +432,9 @@ the current notebooks. Cover:
 - Fusion construction in Python;
 - explicit stage inspection;
 - custom local benchmark definitions; and
-- a clearly labeled DRACO reproduction.
+- a clearly labeled DRACO SDK walkthrough; and
+- later, a full DRACO reproduction only after the complete benchmark-pipeline model lineup is
+  executable.
 
 Every executable notebook must use the HTTP URL4 engine. Document the local Docker prerequisite
 and Hugging Face access where applicable. Show raw URL4 requests and plaintext responses only in
@@ -440,6 +442,21 @@ architecture/deep-dive material, not in the shortest quickstart.
 
 Complete when notebooks run top to bottom against the configured Docker stack and contain no
 mock-mode or in-process fallback.
+
+**Phase 5A is implemented:** `examples/05_draco.ipynb` uses the canonical `draco@1` definition with
+an available Gemini 2.5 and Claude Sonnet 4.6 web-research panel plus a Codex model reducer. It
+teaches explicit `run -> grade -> aggregate` stages and documents `Fusion.evaluate(...)` only as
+their exact convenience equivalent, so researchers do not accidentally execute the paid workflow
+twice. The parameterized public `fusion.url4` and HTTP `GET /v1?q=...` boundary are shown; the
+notebook does not import private compiler functions merely to expose a concrete case expression.
+
+Live execution defaults off and produces no substitute result. The notebook explains that a
+two-member Fusion creates three answer targets and that DRACO's 3,934 criteria across 100 cases,
+three judge passes, and Fusion-plus-member grading imply roughly 354 judge calls for an average
+single case. The walkthrough is a valid evaluation of that named Fusion, not a reproduction of
+the benchmark pipeline's seven standalone models and nine named fusions. Full reproduction remains
+gated on the complete registered panel/synthesizer lineup plus separately reviewed persistence and
+cost assumptions.
 
 Before promoting the temporary package-development app, agree the engine profile's final
 location and ownership. If it moves to `apps/screamingface-engine`, preserve the same external
