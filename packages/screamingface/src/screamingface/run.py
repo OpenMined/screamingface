@@ -5,9 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from screamingface.benchmark import Benchmark
+
+if TYPE_CHECKING:
+    from screamingface.grades import Grades
 
 type FailureKind = Literal["connection", "timeout", "http", "url4", "protocol"]
 _FAILURE_KINDS = frozenset({"connection", "timeout", "http", "url4", "protocol"})
@@ -163,6 +166,13 @@ class Run:
             "failures": [failure._to_wire() for failure in self.failures],
             "complete": self.complete,
         }
+
+    def grade(self) -> Grades:
+        """Grade the captured Fusion and member answers without rerunning them."""
+
+        from screamingface._grading import grade_run
+
+        return grade_run(self)
 
 
 def _member_items(items: tuple[tuple[str, MemberResult], ...]) -> None:

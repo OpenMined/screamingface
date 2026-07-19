@@ -164,3 +164,47 @@ Implemented the reviewed grading-value and ExactChoice foundation:
 As approved, Phase 3B does not add `Run.grade()`, Rubric judge traffic, aggregation,
 `Fusion.evaluate()`, or any engine-profile change. Phase 3C will add public grading dispatch only
 after both supported grader strategies work.
+
+## Phase 3C contract approval — 2026-07-19
+
+Approved the complete grading-execution slice without changing runtime code:
+
+- `Run.grade()` has no policy arguments, dispatches ExactChoice locally, and grades Rubric answers
+  through the configured URL4 engine without rerunning captured panel or reducer work;
+- Rubric preflight validates every selected reference together, including stable section metrics,
+  globally unique criteria, non-zero weights, and a positive criterion in every section;
+- every Fusion/member target, rubric criterion, and pass produces one ordinary URL4 judge-model
+  request whose context is the official judge user text and whose intent is the pinned system
+  prompt;
+- passes and invalid-output retries are byte-identical, transport failures are never retried, and
+  unresolved verdicts preserve evidence while preventing partial score publication;
+- judge work is bounded at 16 concurrent requests to match the current engine admission limit,
+  with results and failures restored to stable semantic order; and
+- the SDK validates generic URL4 parameters while the engine owns model-specific compatibility
+  and rejects invalid parameters before AI Gateway spend.
+
+Phase 3C excludes aggregation, reports, `Fusion.evaluate()`, engine-profile changes,
+authentication, persistence, and notebook regeneration. Canonical DRACO remains blocked on the
+engine profile advertising `gemini/3.1-pro-preview` and working `web_search` support.
+
+## Phase 3C implementation — 2026-07-19
+
+Implemented the approved complete grading execution slice:
+
+- added public synchronous `Run.grade()` dispatch without policy parameters or captured-model
+  reruns;
+- added complete ExactChoice grading for Fusion/member answers and preservation of failed Run
+  cases;
+- added strict all-reference Rubric preflight, deterministic section metric keys, and advertised
+  judge-model preflight;
+- compiled literal URL4 judge expressions through the URL4 SDK, with the official criterion type,
+  requirement, query, response, and pinned intent mapping;
+- added 16-way bounded judge traffic, byte-identical invalid-output retries, no transport retries,
+  safe typed failures, stable evidence ordering, and strict plaintext judge-schema parsing;
+- added DRACO weighted overall/section scoring, pass rate, complete-coverage enforcement, and
+  retained successful/failed verdict evidence; and
+- extracted shared engine HTTP error/JSON decoding so run and grade use one boundary contract.
+
+Verification passes with 270 repository tests at 97.6% ScreamingFace coverage, 49 engine-profile
+tests at 98.1% coverage, lint, formatting, typing, fixture regeneration, notebook regeneration,
+and package builds. Phase 3D contract review is next.

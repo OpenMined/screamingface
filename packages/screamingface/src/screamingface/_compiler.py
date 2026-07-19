@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from url4 import Expression, RelExpr, Text, render, src, struct, text
@@ -61,6 +62,26 @@ def compile_fusion(fusion: Fusion, *, question: str | None = None) -> str:
     return render(Expression(sources=tuple(sources)))
 
 
+def compile_model_expression(
+    *,
+    model: str,
+    context: str,
+    intent: str,
+    params: Mapping[str, ParameterValue] | None = None,
+) -> str:
+    """Render one literal-context model request for the configured URL4 engine."""
+
+    items = () if params is None else tuple(params.items())
+    return render(
+        RelExpr(
+            path=_model_route(model),
+            context=_literal(context),
+            intent=Text(_literal(intent)),
+            params=_params(items),
+        )
+    )
+
+
 def _panel_source(member: _FusionMember):
     return src(
         RelExpr(
@@ -102,4 +123,4 @@ def _literal(value: str) -> str:
     return value.replace("$", "$$")
 
 
-__all__ = ["MAJORITY_VOTE_ROUTE", "compile_fusion"]
+__all__ = ["MAJORITY_VOTE_ROUTE", "compile_fusion", "compile_model_expression"]

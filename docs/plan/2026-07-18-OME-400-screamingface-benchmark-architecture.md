@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 3B implemented; Phase 3C contract review next
+**Status:** Phase 3C implemented; Phase 3D contract review next
 **Date:** 2026-07-18  
 **Normative contract:**
 [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
@@ -280,7 +280,8 @@ Phase 3A is the completed review-only contract unit. The approved behavior is:
   to the user message and the pinned prompt to the system message, and never uses a separate
   grader route;
 - every rubric selected for a grading call is validated before judge spend;
-- judge requests have a 32-request internal concurrency bound and stable evidence order;
+- judge requests have a 16-request internal concurrency bound, matching the current engine's
+  admission limit, and stable evidence order;
 - transport failures are never retried by the SDK; invalid judge output alone receives up to two
   byte-identical retries;
 - official DRACO uses five byte-identical independent passes, positive/negative criterion
@@ -304,8 +305,9 @@ the paid model-backed path:
 - **Phase 3B (implemented):** immutable grading values/failures, exact-choice normalization and
   reference validation, plus focused contract tests. It deliberately does not expose
   `Run.grade()` while Rubric remains unimplemented;
-- **Phase 3C:** rubric preflight, URL4 judge orchestration, response validation/retries, strict
-  coverage, and evidence retention; and
+- **Phase 3C (implemented):** complete `Run.grade()` dispatch, rubric preflight,
+  URL4 judge orchestration, response validation/retries, strict coverage/scoring, and evidence
+  retention; and
 - **Phase 3D:** paired Mean aggregation, immutable reports, and the exact `Fusion.evaluate()`
   facade over `run -> grade -> aggregate`.
 
@@ -463,8 +465,11 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review Phase 3C's Rubric execution contract before changing runtime code: all-reference preflight,
-ordinary URL4 judge-model calls, structured response parsing, validation-only retries, strict
-coverage/scoring, and the final `Run.grade()` dispatch for both ExactChoice and Rubric. Keep
-aggregation, `evaluate()`, engine-profile changes, authentication, persistence, and notebook
-regeneration out of that slice.
+Review Phase 3D before changing runtime code: strict paired Mean aggregation, immutable
+`Report`/`MemberReport` values, failure/completeness propagation, and exact
+`Fusion.evaluate(...) == run -> grade -> aggregate` parity. Keep engine-profile changes,
+authentication, persistence, budgets, and notebook regeneration out of that slice.
+
+The current local engine profile still cannot execute canonical DRACO: it does not advertise the
+`gemini/3.1-pro-preview` judge route, and its panel routes do not advertise `web_search`. Those are
+explicit engine-profile follow-ups rather than Phase 3C SDK work.

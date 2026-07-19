@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 3B
+## Current implementation: Phase 3C
 
 The SDK currently supports:
 
@@ -16,7 +16,8 @@ The SDK currently supports:
   in-memory result records;
 - immutable grading record types (`Grades`, `CaseGrades`, `Grade`, `CriterionVerdict`, and
   `GradeFailure`); and
-- deterministic ExactChoice reference validation and answer normalization in the SDK.
+- `run.grade()` with deterministic local ExactChoice grading and URL4-backed Rubric judging,
+  strict evidence coverage, validation-only retries, and weighted DRACO-compatible scoring.
 
 The development `screamingface-engine` additionally runs three tool-free model routes through one
 persistent `Url4Node` and a shared AI Gateway client. It accepts direct endpoint requests and
@@ -28,10 +29,11 @@ Each selected benchmark case becomes one complete URL4 expression sent as
 `GET /v1?q=<expression>`. Successful plaintext JSON is validated strictly as
 `screamingface.fusion-result.v1`; connection, timeout, HTTP, URL4, and protocol failures are
 recorded atomically at the case's original position. Execution performs no retries and never calls
-AI Gateway directly. Phase 3B establishes grading values and the ExactChoice core but deliberately
-does not expose a partially implemented `Run.grade()`; that method arrives in Phase 3C when both
-ExactChoice and Rubric work. Aggregation and `fusion.evaluate(...)` follow in Phase 3D. There is no
-mock, simulated, or in-process engine fallback.
+AI Gateway directly. `run.grade()` grades those captured Fusion/member answers without rerunning
+them. ExactChoice stays local; Rubric sends one ordinary URL4 judge-model expression per target,
+criterion, and pass, with at most 16 requests in flight. Aggregation and
+`fusion.evaluate(...)` follow in Phase 3D. There is no mock, simulated, or in-process engine
+fallback.
 
 ## Phase 1 walkthrough
 
@@ -133,12 +135,21 @@ run.results[0].members["panel_1"].answer
 run.results[0].answer
 run.failures
 run.to_dict()
+
+grades = run.grade()
+grades.results[0].fusion.score
+grades.results[0].members["panel_1"].score
+grades.failures
+grades.to_dict()
 ```
 
 Construction and `fusion.url4` are network-free. Discovery, loading, and execution contact only
 the configured URL4 engine. `fusion.run("gpqa@1", first=20)` is the named-benchmark shorthand for
 loading and running a stable prefix. The current model registry deliberately advertises no tools:
 `web_search` returns only after a real named-tool adapter exists and has been tested.
+Canonical DRACO grading additionally requires the engine profile to advertise its configured
+`gemini/3.1-pro-preview` judge route; until then, the SDK's Rubric implementation is complete but
+the published DRACO profile correctly fails preflight.
 
 ## Validation
 

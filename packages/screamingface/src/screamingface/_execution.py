@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 
 import httpx
 
 from screamingface._compiler import MAJORITY_VOTE_ROUTE, compile_fusion
 from screamingface._config import current_engine_url
+from screamingface._engine_http import (
+    engine_error,
+    exact_fields,
+    nonblank,
+    object_value,
+    unique_json_object,
+)
 from screamingface._exact_choice import validate_exact_reference
 from screamingface._profile import (
     FUSION_RESULT_SCHEMA,
@@ -92,7 +97,7 @@ def _response_result(case_id: str, fusion: Fusion, response: httpx.Response) -> 
 
 
 def _error_result(case_id: str, response: httpx.Response) -> CaseResult:
-    error = _engine_error(response)
+    error = engine_error(response)
     if error is None:
         return _failed(
             case_id,
@@ -117,7 +122,7 @@ def _success_result(case_id: str, fusion: Fusion, response: httpx.Response) -> C
     if content_type.split(";", 1)[0].strip().lower() != "text/plain":
         return _protocol(case_id, "engine success must be plaintext", response.status_code)
     try:
-        payload = _unique_json_object(response.text)
+        payload = unique_json_object(response.text)
         members, answer = _fusion_result(payload, fusion)
     except (KeyError, TypeError, ValueError) as exc:
         return _protocol(case_id, f"invalid fusion result: {exc}", response.status_code)
@@ -127,18 +132,18 @@ def _success_result(case_id: str, fusion: Fusion, response: httpx.Response) -> C
 def _fusion_result(
     payload: dict[str, object], fusion: Fusion
 ) -> tuple[tuple[tuple[str, MemberResult], ...], str]:
-    _exact_fields(payload, {"schema", "members", "answer"}, "fusion result")
+    exact_fields(payload, {"schema", "members", "answer"}, "fusion result")
     if payload["schema"] != FUSION_RESULT_SCHEMA:
         raise ValueError(f"expected schema {FUSION_RESULT_SCHEMA!r}")
-    wire_members = _object(payload["members"], "fusion members")
+    wire_members = object_value(payload["members"], "fusion members")
     expected_ids = tuple(member.id for member in fusion._members)
     if set(wire_members) != set(expected_ids):
         raise ValueError("member slots do not match the Fusion")
 
     members: list[tuple[str, MemberResult]] = []
     for expected in fusion._members:
-        item = _object(wire_members[expected.id], f"member {expected.id!r}")
-        _exact_fields(item, {"model", "answer"}, f"member {expected.id!r}")
+        item = object_value(wire_members[expected.id], f"member {expected.id!r}")
+        exact_fields(item, {"model", "answer"}, f"member {expected.id!r}")
         if item["model"] != expected.model:
             raise ValueError(f"member {expected.id!r} model does not match the Fusion")
         members.append(
@@ -146,42 +151,11 @@ def _fusion_result(
                 expected.id,
                 MemberResult(
                     model=expected.model,
-                    answer=_nonblank(item["answer"], f"member {expected.id!r} answer"),
+                    answer=nonblank(item["answer"], f"member {expected.id!r} answer"),
                 ),
             )
         )
-    return tuple(members), _nonblank(payload["answer"], "fusion answer")
-
-
-def _engine_error(response: httpx.Response) -> tuple[str, str] | None:
-    try:
-        payload = _unique_json_object(response.text)
-        _exact_fields(payload, {"error"}, "engine error")
-        error = _object(payload["error"], "engine error")
-        _exact_fields(error, {"code", "message"}, "engine error")
-        return _nonblank(error["code"], "engine error code"), _nonblank(
-            error["message"], "engine error message"
-        )
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
-def _unique_json_object(body: str) -> dict[str, object]:
-    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"duplicate JSON field {key!r}")
-            result[key] = value
-        return result
-
-    try:
-        payload = json.loads(body, object_pairs_hook=unique)
-    except json.JSONDecodeError as exc:
-        raise ValueError("response is not JSON") from exc
-    if not isinstance(payload, dict):
-        raise TypeError("expected a JSON object")
-    return payload
+    return tuple(members), nonblank(payload["answer"], "fusion answer")
 
 
 def _preflight(fusion: Fusion, benchmark: Benchmark, registry: Registry) -> None:
@@ -260,27 +234,6 @@ def _failed(
 
 def _protocol(case_id: str, message: str, status: int) -> CaseResult:
     return _failed(case_id, "protocol", message, status=status)
-
-
-def _object(value: object, label: str) -> dict[str, object]:
-    if not isinstance(value, dict):
-        raise TypeError(f"{label} must be an object")
-    return value
-
-
-def _exact_fields(payload: Mapping[str, object], expected: set[str], label: str) -> None:
-    missing = expected - set(payload)
-    unknown = set(payload) - expected
-    if missing:
-        raise ValueError(f"{label} is missing field(s): {', '.join(sorted(missing))}")
-    if unknown:
-        raise ValueError(f"{label} has unknown field(s): {', '.join(sorted(unknown))}")
-
-
-def _nonblank(value: object, label: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{label} must be a non-blank string")
-    return value
 
 
 __all__ = ["run_fusion"]

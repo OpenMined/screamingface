@@ -53,8 +53,9 @@ deterministic exact grading and mean aggregation remain local.
 - Once valid grading begins, a target/criterion failure is recorded and unrelated work continues.
 - There is no SDK transport retry. Invalid judge-output schema alone permits two validation
   retries, for three total byte-identical attempts.
-- At most 32 judge requests run concurrently. Returned cases, targets, criteria, passes, and
-  failures retain stable semantic order.
+- Phase 3A originally selected a 32-request judge bound. Phase 3C operational review supersedes
+  that value with 16 because the current engine rejects requests above its 16-request admission
+  limit. Returned cases, targets, criteria, passes, and failures retain stable semantic order.
 - `Grades.complete` and `Report.complete` describe all selected work, so a valid partial paired
   report can still be incomplete.
 

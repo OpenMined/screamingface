@@ -903,11 +903,13 @@ malformed outputs, that criterion/pass remains unresolved.
 
 ## 14. Rubric scoring
 
-Before any judge request, the SDK validates every selected rubric reference together. Every
-rubric must have at least one section and criterion, globally unique non-blank criterion IDs,
-non-blank requirements, finite non-zero numeric weights, at least one positive weight, and stable
-non-blank section identities suitable for metric keys. Any malformed selected rubric aborts the
-whole grading stage before judge spend.
+Before any judge request, the SDK validates every selected rubric reference together, including
+references for cases whose captured run failed. Every rubric must have at least one section;
+every section must have at least one criterion and one positive-weight criterion. Section
+identities must be non-blank, stable, and unique after conversion to metric keys, and must not
+collide with the reserved `pass_rate` metric. Criterion IDs must be globally unique and non-blank;
+requirements must be non-blank; and weights must be finite, non-zero numeric values. Any malformed
+selected rubric aborts the whole grading stage before judge spend.
 
 After judge responses return, scoring is deterministic SDK computation. For each pass:
 
@@ -969,6 +971,10 @@ with any unresolved verdict retains all successful evidence but has `valid=False
 
 Arbitrary metadata, counts, cost, latency, coverage, and raw responses do not belong in
 `metrics`.
+
+Section metric keys are derived deterministically from section identities by lowercasing and
+replacing non-alphanumeric runs with underscores. A collision after normalization is malformed
+rubric data rather than an invitation to rename metrics silently.
 
 Rubric scores are continuous. The SDK does not impose an `is_correct` field, pass threshold, or
 binary interpretation.
@@ -1050,9 +1056,11 @@ Individual work failed after valid execution began -> record and continue
 ```
 
 Malformed benchmark/rubric configuration, unsupported grader or aggregator strategies,
-unknown/unadvertised judge models, incompatible model parameters, or inability to complete engine
-preflight raise before judge spend. Once valid grading work begins, an individual target failure
-is recorded and unrelated work continues.
+unknown/unadvertised judge models, or inability to complete engine preflight raise before judge
+spend. The SDK validates the generic URL4 parameter representation; the configured engine owns
+model-specific parameter compatibility and must reject invalid parameters before contacting AI
+Gateway. Once valid grading work begins, an individual target failure is recorded and unrelated
+work continues.
 
 A grading failure exposes:
 
@@ -1099,7 +1107,7 @@ before judge spend. An exact-choice response that is merely wrong or unparseable
 Concurrency is execution policy, not strategy configuration. MVP defaults are internal:
 
 - at most four benchmark cases in flight;
-- at most 32 rubric-judge requests in flight;
+- at most 16 rubric-judge requests in flight, matching the current engine admission limit;
 - stable returned ordering regardless of completion order; and
 - no execution-time cancellation of unrelated selected cases.
 
@@ -1172,5 +1180,9 @@ The first implementation is accepted when:
     budget, authentication, or ETL framework is introduced.
 
 The grading and aggregation behavior in §§13–17 was approved as the review-only Phase 3A unit.
-Phase 3B implements the public grading values and deterministic ExactChoice core. `Run.grade()`
-is deliberately introduced only in Phase 3C, when both advertised grader strategies work.
+Phase 3B implements the public grading values and deterministic ExactChoice core. Phase 3C
+implements complete `Run.grade()` dispatch, Rubric preflight/orchestration, strict judge parsing,
+validation-only retries, coverage, scoring, and retained evidence. The current engine profile
+must separately advertise `gemini/3.1-pro-preview` and working `web_search` support before
+canonical DRACO can execute end to end. Phase 3D remains aggregation, reports, and the exact
+`Fusion.evaluate()` facade.
