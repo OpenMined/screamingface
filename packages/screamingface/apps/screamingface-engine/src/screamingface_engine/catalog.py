@@ -11,6 +11,8 @@ from typing import Any, cast
 from screamingface import Benchmark, Case, aggregators, graders
 from screamingface.draco import _JUDGE_SYSTEM_PROMPT
 
+from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE
+
 type CaseLoader = Callable[[], Iterable[Case]]
 
 
@@ -132,7 +134,7 @@ def registry_document(publications: tuple[PublishedBenchmark, ...]) -> dict[str,
             {"id": model.id, "supported_tools": list(model.supported_tools)}
             for model in MODEL_ROUTES
         ],
-        "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
+        "reducers": [{"id": "majority_vote", "route": MAJORITY_VOTE_ROUTE}],
         "benchmarks": [
             {
                 "id": publication.benchmark.id,

@@ -17,6 +17,7 @@ from screamingface_engine.catalog import (
     registry_document,
 )
 from screamingface_engine.gateway import GatewayClient
+from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE, majority_vote
 from screamingface_engine.settings import Settings
 
 
@@ -31,6 +32,7 @@ def create_node(
     node = Url4Node("screamingface-engine", eval_path="/v1")
     for model in MODEL_ROUTES:
         node.endpoint(model.route)(gateway.handler(model))
+    node.endpoint(MAJORITY_VOTE_ROUTE)(majority_vote)
     node.data("/healthz", "ok")
     node.data(
         "/.well-known/screamingface",

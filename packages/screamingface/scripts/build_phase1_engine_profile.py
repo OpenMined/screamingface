@@ -193,9 +193,10 @@ You have now exercised everything Phase 1 promises:
 - define a local benchmark with the same public types; and
 - author an immutable Fusion.
 
-This walkthrough deliberately stops before `fusion.run(...)` and `fusion.evaluate(...)`. Phase 2A
-now supplies persistent tool-free model routes and `GET /v1?q=...`; Phase 2B adds the deterministic
-reducer and Phase 2C adds URL4 compilation, plaintext result validation, and in-memory run results.
+This walkthrough deliberately stops before `fusion.run(...)` and `fusion.evaluate(...)`. Phase 2B
+now supplies persistent tool-free model routes, the deterministic majority-vote route, and
+`GET /v1?q=...`; Phase 2C adds SDK URL4 compilation, plaintext result validation, and in-memory run
+results.
 The SDK will continue to contact only the URL4 engine; only the engine's model adapter may contact
 AI Gateway."""
         ),

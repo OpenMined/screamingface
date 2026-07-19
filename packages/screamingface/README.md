@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 2A
+## Current implementation: Phase 2B
 
 The SDK currently supports:
 
@@ -14,11 +14,12 @@ The SDK currently supports:
 
 The development `screamingface-engine` additionally runs three tool-free model routes through one
 persistent `Url4Node` and a shared AI Gateway client. It accepts direct endpoint requests and
-complete expressions through `GET /v1?q=...`, with no subprocess route adapter.
+complete expressions through `GET /v1?q=...`, with no subprocess route adapter. Its
+`/reducers/majority-vote` endpoint executes the same SDK-owned exact-string selection logic,
+without contacting AI Gateway.
 
 The SDK does not yet expose `fusion.run(...)`/`fusion.evaluate(...)`; compiler and `Run`
-orchestration are Phase 2C. The deterministic majority-vote route and Docker end-to-end proof are
-Phase 2B. There is no mock, simulated, or in-process engine fallback.
+orchestration are Phase 2C. There is no mock, simulated, or in-process engine fallback.
 
 ## Phase 1 walkthrough
 
@@ -59,6 +60,16 @@ export HF_TOKEN=hf_...
 ```
 
 No synthetic dataset fallback exists.
+
+The deterministic reducer can be smoke-tested without provider credentials:
+
+```bash
+uv run python apps/screamingface-engine/scripts/smoke_phase2b.py
+```
+
+Run that command from `packages/screamingface` while the Compose stack is running. It evaluates a
+complete literal URL4 expression and verifies the engine-to-Gateway topology separately. A
+credential-free AI Gateway error is expected and accepted for the model-route half.
 
 ## Run the walkthrough
 

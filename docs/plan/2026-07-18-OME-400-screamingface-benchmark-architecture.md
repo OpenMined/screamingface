@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 2A model/Gateway engine implemented; Phase 2B next
+**Status:** Phase 2B deterministic reducer implemented; Phase 2C next
 **Date:** 2026-07-18  
 **Normative contract:**
 [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
@@ -183,8 +183,9 @@ Implementation is split into reviewed vertical slices. Phase 2A now implements t
 engine lifecycle, canonical model route registration, typed parameter translation, shared AI
 Gateway client, plaintext extraction, unprefixed benchmark resources, admission control, and
 whole-evaluation timeout. Its registry is intentionally tool-free and excludes the unavailable
-`gemini/3.1-pro-preview` route. Phase 2B adds the deterministic reducer and Docker proof; Phase 2C
-adds SDK compilation and `Run` orchestration.
+`gemini/3.1-pro-preview` route. Phase 2B now adds the SDK-owned exact-string majority selector,
+its in-process `/reducers/majority-vote` adapter, complete-expression coverage, and no-mock Docker
+topology proof. Phase 2C adds SDK compilation and `Run` orchestration.
 
 SDK:
 
@@ -241,10 +242,16 @@ routes, URL4 parsing, or expression logic: it delegates every accepted HTTP requ
 `node.asgi()`, returns 503 when its in-flight limit is full, and returns 504 when the configured
 whole-evaluation deadline expires.
 
-Complete when real HTTP contract tests cover model and deterministic reducers, malformed
-plaintext, partial failures, stable result ordering, parameter translation, and no direct gateway
-traffic from the SDK. One Docker integration test must prove the complete
-SDK -> persistent engine -> AI Gateway path without a route-handler subprocess.
+Phase 2B's Docker smoke proves a complete literal URL4 reducer expression through the real
+persistent container and proves that a model route reaches the real AI Gateway service (a
+credential-free Gateway error is an acceptable topology result). No runtime mock or route-handler
+subprocess participates. The full SDK -> persistent engine -> AI Gateway success path remains a
+Phase 2C completion gate because Phase 2B intentionally exposes no SDK compiler yet.
+
+Phase 2 is complete when real HTTP contract tests cover model and deterministic reducers,
+malformed plaintext, partial failures, stable result ordering, parameter translation, and no
+direct gateway traffic from the SDK. One Docker integration test must prove the complete SDK ->
+persistent engine -> AI Gateway path without a route-handler subprocess.
 
 ### Phase 3 — grading and aggregation
 
@@ -412,7 +419,8 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Implement Phase 2B next: add the in-process deterministic majority-vote reducer and the Docker
-SDK -> engine -> AI Gateway proof. Then implement Phase 2C SDK compilation and `Run`
-orchestration. Keep grading, authentication, persistence, named tools, and public tutorial
-regeneration in their later reviewed phases.
+Review Phase 2C, then implement SDK URL4 compilation, strict plaintext result validation, bounded
+case orchestration, and immutable `Run` values. Its Docker completion gate extends the Phase 2B
+engine/Gateway topology proof into the full SDK -> engine -> AI Gateway path. Keep grading,
+authentication, persistence, named tools, and public tutorial regeneration in their later reviewed
+phases.

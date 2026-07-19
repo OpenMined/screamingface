@@ -78,3 +78,17 @@ Implemented the persistent engine-to-Gateway model execution boundary:
 
 Phase 2A does not add the deterministic reducer, SDK Fusion execution, grading, aggregation,
 authentication, automatic retries, or mock fallbacks.
+
+## Phase 2B implementation — 2026-07-19
+
+Implemented deterministic Fusion reduction through the persistent engine:
+
+- one private SDK-owned exact-string majority selector with stable panel-order tie breaking;
+- one startup-registered `/reducers/majority-vote` URL4 endpoint;
+- strict resolved-context validation and permanent URL4 `malformed_source` failures;
+- literal and model-backed complete-expression coverage, including proof that the reducer makes no
+  additional AI Gateway request; and
+- a reproducible no-mock Docker smoke for reducer execution and engine-to-Gateway topology.
+
+Phase 2B does not add SDK URL4 compilation, `Run`, grading, aggregation, tools, authentication,
+automatic retries, or runtime mocks. Those boundaries remain in their reviewed later phases.

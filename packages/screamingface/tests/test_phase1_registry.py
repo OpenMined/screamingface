@@ -20,7 +20,7 @@ def _registry() -> dict[str, object]:
             {"id": "gemini/2.5", "supported_tools": []},
             {"id": "gemini/3.1-pro-preview", "supported_tools": []},
         ],
-        "reducers": [{"id": "majority_vote", "route": "/sf/reducers/majority-vote"}],
+        "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
         "benchmarks": [
             {
                 "id": "gpqa@1",

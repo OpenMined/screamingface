@@ -26,6 +26,7 @@ GET /benchmarks/draco@1/cases
 GET /codex/gpt-5.5?[params&]q=(context)!intent
 GET /gemini/2.5?[params&]q=(context)!intent
 GET /claude/sonnet-4.6?[params&]q=(context)!intent
+GET /reducers/majority-vote?q=(resolved-panel-object)
 GET /v1?q=<complete URL4 expression>
 ```
 
@@ -38,11 +39,16 @@ in-process through one shared asynchronous HTTP client; they do not launch route
 another engine. The thin ASGI wrapper owns only client lifecycle, global admission control, and a
 whole-evaluation timeout.
 
+The majority-vote handler is also registered once in that process. It accepts a resolved JSON
+object with contiguous `panel_1` through `panel_n` string values, applies exact-string voting, and
+breaks ties by numeric panel position. It returns only the winning text and never contacts AI
+Gateway. Nonempty intent, parameters, missing panels, non-string values, and blank answers are
+permanent URL4 `malformed_source` errors.
+
 Phase 2A intentionally supports tool-free model requests only. The registry does not claim
 `web_search`, and `gemini/3.1-pro-preview` is not advertised because AI Gateway does not currently
 register that model identifier. DRACO remains discoverable and declares its unmet requirements;
-it becomes runnable only after those real capabilities exist. The deterministic majority-vote
-route is advertised for the approved contract but becomes executable in Phase 2B.
+it becomes runnable only after those real capabilities exist.
 
 ## Dataset access
 
@@ -68,6 +74,13 @@ From this directory:
 ./dev.sh
 ```
 
+If another local stack owns the default host ports, select isolated host ports while preserving
+the containers' internal topology:
+
+```bash
+AIGATEWAY_HOST_PORT=19105 SCREAMINGFACE_ENGINE_HOST_PORT=14404 ./dev.sh
+```
+
 This builds the engine and AI Gateway containers. Discovery and benchmark loading do not contact
 AI Gateway; model routes do.
 
@@ -80,7 +93,16 @@ curl -s http://127.0.0.1:4404/benchmarks/draco@1 | python -m json.tool
 
 curl -G http://127.0.0.1:4404/codex/gpt-5.5 \
   --data-urlencode "q=(What is 2 + 2?)!Answer briefly"
+
+cd ../..
+uv run python apps/screamingface-engine/scripts/smoke_phase2b.py
 ```
+
+The Phase 2B smoke uses no mocked runtime component. Set `SCREAMINGFACE_ENGINE_URL` when the stack
+uses an overridden host port. Its literal Fusion expression requires no
+provider credentials. Its separate model-route check accepts either a real provider response or
+the engine's propagated credential-free AI Gateway error, proving the container topology without
+claiming an authorized provider call.
 
 Stop the stack:
 

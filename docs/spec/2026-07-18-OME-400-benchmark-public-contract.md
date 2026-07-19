@@ -491,6 +491,22 @@ It receives a resolved panel-answer object, makes no AI Gateway call, and return
 answer as text. The implementation should reuse the same ScreamingFace reducer logic rather than
 reimplementing it independently in the engine app.
 
+The Phase 2B request contract is deliberately narrow:
+
+- context is a JSON object with exactly contiguous `panel_1` through `panel_n` keys, where
+  `n >= 2`;
+- each value is a non-blank string;
+- object insertion order is irrelevant because stable order is the numeric `panel_n` order;
+- votes use exact raw-string equality, so `A`, `a`, and `A\n` are distinct answers;
+- an exact tie selects the lowest numeric panel position;
+- intent and query parameters are rejected; and
+- malformed input raises a permanent URL4 `malformed_source` error, invalidating the whole
+  expression rather than returning a partial Fusion object.
+
+The route's successful body is the winning answer's raw text. URL4 substitutes that resolved text
+into the outer expression's final `screamingface.fusion-result.v1` structure; the reducer does not
+return a result envelope or a rewritten URL4 expression.
+
 This route is legitimate SF execution behavior. It is distinct from adding an SF-specific output
 packager merely to reshape JSON.
 
@@ -907,7 +923,8 @@ The first implementation is accepted when:
 3. model IDs map mechanically to URL4 routes.
 4. named benchmark loading uses the SF engine registry, manifests, and normalized case resources.
 5. every selected case is one complete URL4 Fusion expression.
-6. majority vote executes through the advertised SF RDS route.
+6. majority vote executes through the advertised SF RDS route using exact-string voting and
+   stable numeric panel-order tie breaking.
 7. references never appear in worker or reducer expressions.
 8. official DRACO grading uses one URL4 model request per criterion/pass.
 9. success bodies are parsed from text and validated strictly.

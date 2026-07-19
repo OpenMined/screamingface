@@ -17,7 +17,7 @@ services:
       AIGATEWAY_DATABASE_URL: sqlite:///tmp/aigateway.sqlite3
     init: true
     ports:
-      - "9105:9105"
+      - "${AIGATEWAY_HOST_PORT:-9105}:9105"
     healthcheck:
       test:
         - CMD
@@ -45,7 +45,7 @@ services:
       aigateway:
         condition: service_healthy
     ports:
-      - "4404:4404"
+      - "${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}:4404"
     healthcheck:
       test:
         - CMD
