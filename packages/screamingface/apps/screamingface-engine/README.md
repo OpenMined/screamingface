@@ -33,8 +33,8 @@ plaintext on the client.
 
 The application is one persistent `Url4Node` process. Its model handlers call AI Gateway
 in-process through one shared asynchronous HTTP client; they do not launch route subprocesses or
-another engine. The thin ASGI wrapper owns only client lifecycle, global admission control, and a
-whole-evaluation timeout.
+another engine. The thin ASGI wrapper owns only client lifecycle, global admission control, a
+whole-evaluation timeout, and the advertised encoded request-target limit.
 
 The Compose profile also configures an internal SearXNG service. Gemini and Claude then advertise
 the named `web_search` capability; Codex remains tool-free. A capable model may call the engine's
@@ -55,6 +55,14 @@ Registry claims are configuration-dependent: without `SCREAMINGFACE_SEARXNG_URL`
 `web_search`; with it, only the compatible Gemini and Claude routes do. The
 `gemini/3.1-pro-preview` judge is not advertised because AI Gateway does not currently register
 that model identifier.
+
+The registry also advertises `limits.max_request_target_bytes`. It defaults to 61440 bytes and
+is configurable with `SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES`. This is the exact encoded
+HTTP request target—path, `?`, and query string—not the decoded URL4 expression length. The ASGI
+wrapper returns HTTP 414 with `request_target_too_large` before URL4 evaluation when the limit is
+exceeded. The maximum is deliberately 60 KiB: `httpx` limits absolute URLs to 64 KiB, leaving
+roughly 4 KiB for the configured HTTP(S) origin. Uvicorn/h11 receives 128 KiB for parser and header
+headroom; the SDK still preflights the stricter advertised value before model or judge spend.
 
 ## Benchmark boundary
 

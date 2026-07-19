@@ -10,6 +10,7 @@ from typing import Any
 from url4 import Url4Node
 
 from screamingface_engine.gateway import GatewayClient
+from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES
 from screamingface_engine.web_research import WebResearchClient
 
 type Message = MutableMapping[str, Any]
@@ -29,6 +30,7 @@ class EngineASGI:
         research: WebResearchClient | None = None,
         max_inflight: int,
         timeout: float,
+        max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES,
     ) -> None:
         self.node = node
         self.gateway = gateway
@@ -36,6 +38,7 @@ class EngineASGI:
         self._base: AsgiApp = node.asgi()
         self._max_inflight = max_inflight
         self._timeout = timeout
+        self._max_request_target_bytes = max_request_target_bytes
         self._inflight = 0
 
     async def __call__(self, scope: Mapping[str, Any], receive: Receive, send: Send) -> None:
@@ -47,6 +50,14 @@ class EngineASGI:
             await self._base(scope, receive, send)
 
     async def _serve_http(self, scope: Mapping[str, Any], receive: Receive, send: Send) -> None:
+        if _request_target_bytes(scope) > self._max_request_target_bytes:
+            await _send_error(
+                send,
+                414,
+                "request_target_too_large",
+                f"request target exceeds {self._max_request_target_bytes} bytes",
+            )
+            return
         if self._inflight >= self._max_inflight:
             await _send_error(
                 send,
@@ -105,6 +116,16 @@ class _StartGuard:
         if message["type"] == "http.response.start":
             self.started = True
         await self._send(message)
+
+
+def _request_target_bytes(scope: Mapping[str, Any]) -> int:
+    raw_path = scope.get("raw_path")
+    if not isinstance(raw_path, bytes):
+        raw_path = str(scope.get("path", "")).encode("utf-8")
+    query = scope.get("query_string", b"")
+    if not isinstance(query, bytes):
+        query = bytes(query)
+    return len(raw_path) + (1 + len(query) if query else 0)
 
 
 async def _send_error(

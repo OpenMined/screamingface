@@ -30,6 +30,7 @@ def _registry(
         if reducers is not None
         else (ReducerRecord("majority_vote", "/reducers/majority-vote"),),
         response_schemas=("screamingface.fusion-result.v1",),
+        max_request_target_bytes=61440,
     )
 
 

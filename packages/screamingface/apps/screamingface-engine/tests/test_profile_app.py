@@ -29,7 +29,8 @@ async def test_profile_serves_only_executable_capability_discovery() -> None:
         {"id": "gemini/2.5", "supported_tools": []},
         {"id": "claude/sonnet-4.6", "supported_tools": []},
     ]
-    assert set(registry) == {"schema", "response_schemas", "models", "reducers"}
+    assert registry["limits"] == {"max_request_target_bytes": 61440}
+    assert set(registry) == {"schema", "response_schemas", "limits", "models", "reducers"}
     assert gpqa_response.status_code == 404
     assert draco_response.status_code == 404
     assert registry_response.headers["content-type"].startswith("text/plain")

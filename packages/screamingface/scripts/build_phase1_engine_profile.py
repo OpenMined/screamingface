@@ -79,8 +79,10 @@ sf.config(engine="https://url4.example")
         nbformat.v4.new_markdown_cell(
             """The URL4 node returns plaintext. The SDK parses that text and validates the complete
 `screamingface.registry.v1` shape before exposing IDs. Model entries describe executable route
-identities and supported tools; reducer entries describe executable composition routes.
-Benchmarks are absent because their definitions and data remain local to the SDK."""
+identities and supported tools; reducer entries describe executable composition routes. The
+required `limits.max_request_target_bytes` value tells the SDK how large a fully encoded
+`/v1?q=...` request target this deployment accepts. Benchmarks are absent because their
+definitions and data remain local to the SDK."""
         ),
         nbformat.v4.new_markdown_cell("## 3 · Discover available models and benchmarks"),
         nbformat.v4.new_code_cell(
@@ -98,9 +100,10 @@ Benchmarks are absent because their definitions and data remain local to the SDK
 - `sf.models.list()` asks the configured engine what it can execute.
 - `sf.benchmarks.list()` asks the installed SDK which canonical definitions it can load.
 
-Neither list infers provider authentication. The current engine intentionally advertises no
-`web_search` models, so `web_search_models` is empty. The SDK currently installs GPQA only, so the
-benchmark list contains `gpqa@1` and the research filter is empty."""
+Neither list infers provider authentication. The current Compose profile advertises `web_search`
+for Gemini and Claude because its private SearXNG adapter is configured; Codex remains tool-free.
+The installed SDK catalog contains `gpqa@1` and `draco@1`, and the research filter selects DRACO
+because that benchmark requires `web_search`."""
         ),
         nbformat.v4.new_markdown_cell(
             "## 4 · Load a canonical benchmark when dataset access is ready"
@@ -194,10 +197,10 @@ You have now exercised everything Phase 1 promises:
 - define a local benchmark with the same public types; and
 - author an immutable Fusion.
 
-This walkthrough deliberately stops before `fusion.run(...)`. Phase 2B supplies persistent
-tool-free model routes, the deterministic majority-vote route, and `GET /v1?q=...`; Phase 2C now
-supplies SDK URL4 compilation, plaintext result validation, and in-memory run results. Grading,
-aggregation, and `fusion.evaluate(...)` remain Phase 3.
+This walkthrough deliberately stops before `fusion.run(...)`. The implemented runtime supplies
+persistent model routes, the deterministic majority-vote route, `GET /v1?q=...`, SDK URL4
+compilation, plaintext result validation, in-memory runs, grading, aggregation, and
+`fusion.evaluate(...)`; those later stages remain outside this discovery-focused notebook.
 All model-backed SDK work continues to contact only the URL4 engine; only the engine's model
 adapter may contact AI Gateway."""
         ),

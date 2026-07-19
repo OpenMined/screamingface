@@ -17,15 +17,22 @@ def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> Non
     assert registry == {
         "schema": "screamingface.registry.v1",
         "response_schemas": ["screamingface.fusion-result.v1"],
+        "limits": {"max_request_target_bytes": 61440},
         "models": [{"id": model.id, "supported_tools": []} for model in catalog.MODEL_ROUTES],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
     }
 
 
-def test_cli_serves_configured_host_and_port(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[object, str, int]] = []
+def test_cli_serves_configured_host_port_and_h11_headroom(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[object, str, int, int]] = []
     app = object()
-    run = Mock(side_effect=lambda value, *, host, port: calls.append((value, host, port)))
+
+    def capture(value, *, host, port, h11_max_incomplete_event_size) -> None:
+        calls.append((value, host, port, h11_max_incomplete_event_size))
+
+    run = Mock(side_effect=capture)
     monkeypatch.setattr(cli, "create_app", lambda *, settings: app)
     monkeypatch.setattr(cli.importlib, "import_module", lambda _name: SimpleNamespace(run=run))
     monkeypatch.setenv("URL4_HOST", "0.0.0.0")
@@ -33,4 +40,4 @@ def test_cli_serves_configured_host_and_port(monkeypatch: pytest.MonkeyPatch) ->
 
     cli.main()
 
-    assert calls == [(app, "0.0.0.0", 4500)]
+    assert calls == [(app, "0.0.0.0", 4500, 131072)]

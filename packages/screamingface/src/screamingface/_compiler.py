@@ -76,15 +76,20 @@ def compile_model_expression(
     intent: str,
     params: Mapping[str, ParameterValue] | None = None,
 ) -> str:
-    """Render one literal-context model request for the configured URL4 engine."""
+    """Render one model request with arbitrary context held in a URL4 binding."""
 
     items = () if params is None else tuple(params.items())
     return render(
-        RelExpr(
-            path=_model_route(model),
-            context=_literal(context),
-            intent=Text(_literal(intent)),
-            params=_params(items),
+        Expression(
+            sources=(
+                RelExpr(
+                    path=_model_route(model),
+                    context="$model_context",
+                    intent=Text(_literal(intent)),
+                    params=_params(items),
+                ),
+                src(text(_literal(context)), name="model_context"),
+            )
         )
     )
 

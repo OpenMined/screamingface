@@ -8,6 +8,29 @@ from typing import Any
 
 import httpx
 
+from screamingface.errors import EngineRequestTooLargeError
+
+EVAL_PATH = "/v1"
+
+
+def eval_request_target_bytes(expression: str) -> int:
+    """Return the exact encoded ``/v1?q=...`` HTTP request-target size."""
+
+    encoded_query = str(httpx.QueryParams({"q": expression})).encode("ascii")
+    return len(EVAL_PATH.encode("ascii")) + 1 + len(encoded_query)
+
+
+def require_eval_request_target(expression: str, allowed_bytes: int, label: str) -> None:
+    """Reject an evaluation that exceeds the engine's advertised request-target limit."""
+
+    actual_bytes = eval_request_target_bytes(expression)
+    if actual_bytes > allowed_bytes:
+        raise EngineRequestTooLargeError(
+            label,
+            actual_bytes=actual_bytes,
+            allowed_bytes=allowed_bytes,
+        )
+
 
 def engine_error(response: httpx.Response) -> tuple[str, str] | None:
     """Decode the safe URL4 error envelope, returning None for unknown bodies."""
@@ -69,10 +92,13 @@ def nonblank(value: object, label: str) -> str:
 
 
 __all__ = [
+    "EVAL_PATH",
     "engine_error",
+    "eval_request_target_bytes",
     "exact_fields",
     "nonblank",
     "object_value",
+    "require_eval_request_target",
     "unique_json_object",
     "unique_object",
 ]

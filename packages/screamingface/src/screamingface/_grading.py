@@ -14,7 +14,14 @@ import httpx
 
 from screamingface._compiler import compile_model_expression
 from screamingface._config import current_engine_url
-from screamingface._engine_http import engine_error, exact_fields, nonblank, unique_object
+from screamingface._engine_http import (
+    EVAL_PATH,
+    engine_error,
+    exact_fields,
+    nonblank,
+    require_eval_request_target,
+    unique_object,
+)
 from screamingface._exact_choice import exact_choice_score, validate_exact_reference
 from screamingface._profile import load_registry
 from screamingface.benchmark import Case
@@ -110,6 +117,15 @@ def _grade_rubric(run: Run, cases: tuple[Case, ...], grader: Rubric) -> Grades:
         raise UnknownModelError(f"unknown rubric judge model {grader.model!r}")
 
     tasks = _judge_tasks(run, cases, references, grader)
+    for task in tasks:
+        require_eval_request_target(
+            task.expression,
+            registry.max_request_target_bytes,
+            (
+                f"case {task.case_id!r} {task.target} criterion "
+                f"{task.criterion.id!r} pass {task.pass_number}"
+            ),
+        )
     verdicts = _execute_tasks(tasks)
     grouped = _group_verdicts(tasks, verdicts)
     results = tuple(
@@ -306,7 +322,7 @@ def _execute_task(client: httpx.Client, task: _JudgeTask) -> CriterionVerdict:
 
 def _judge_request(client: httpx.Client, task: _JudgeTask) -> httpx.Response | CriterionVerdict:
     try:
-        return client.get("/v1", params={"q": task.expression})
+        return client.get(EVAL_PATH, params={"q": task.expression})
     except httpx.TimeoutException:
         return _failed_verdict(task, "timeout", "rubric judge request timed out")
     except (httpx.RequestError, httpx.InvalidURL):

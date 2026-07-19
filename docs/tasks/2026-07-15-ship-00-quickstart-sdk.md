@@ -334,7 +334,29 @@ URL4, or AI Gateway:
   remains tool-free; and
 - retained plaintext URL4 model responses and unchanged tool-free request behavior.
 
-Phase 4D makes compatible DRACO research members executable. Full DRACO evaluation remains out of
-scope until the separately reviewed `gemini/3.1-pro-preview` judge route and long
-judge-expression transport are implemented. Authentication, budgets, persistence, telemetry,
-notebook regeneration, and AI Gateway changes remain deferred.
+Phase 4D makes compatible DRACO research members executable. At that phase boundary, full DRACO
+evaluation remained out of scope pending the separately reviewed `gemini/3.1-pro-preview` judge
+route and long judge-expression transport. Authentication, budgets, persistence, telemetry,
+notebook regeneration, and AI Gateway changes remained deferred.
+
+## Phase 4E0 implementation — 2026-07-19
+
+Implemented the safe transactional-GET boundary without changing URL4 or AI Gateway:
+
+- changed standalone model/judge expressions to carry arbitrary context in a quoted native URL4
+  binding, preserving model plaintext as the sole evaluation result;
+- made `limits.max_request_target_bytes` a required strict engine-registry field;
+- added exact encoded `/v1?q=...` preflight for all selected Fusion cases and all rubric judge
+  tasks before either HTTP client—and therefore before model or judge spend;
+- exposed `sf.EngineRequestTooLargeError` with actual and allowed byte sizes;
+- set the development profile to advertise and enforce 61440 bytes with HTTP 414 and
+  `request_target_too_large`; and
+- configured 131072 bytes of Uvicorn/h11 parser headroom.
+
+The 60 KiB application boundary leaves 4 KiB for the configured origin under `httpx`'s 64 KiB
+absolute-URL ceiling. The real-socket verification caught this client constraint before release;
+engine configuration may lower the boundary but cannot raise it.
+
+The URL4 transaction remains GET-only. There is no truncation, POST fallback, hidden compression,
+partial grading, or paid retry. The next reviewed capability slice is the missing
+`gemini/3.1-pro-preview` judge route.

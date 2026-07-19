@@ -180,6 +180,9 @@ It is not part of generic URL4 core. The MVP shape is:
 {
   "schema": "screamingface.registry.v1",
   "response_schemas": ["screamingface.fusion-result.v1"],
+  "limits": {
+    "max_request_target_bytes": 61440
+  },
   "models": [
     {
       "id": "codex/gpt-5.5",
@@ -209,6 +212,25 @@ an empty `supported_tools` array. Compatible records gain `"web_search"` only wh
 adapter is configured; Codex remains tool-free. The judge model is added separately when it is
 executable. Benchmarks never appear here because their definitions, sources, graders, and
 aggregators remain local to the SDK.
+
+`limits.max_request_target_bytes` is required and is a positive integer. It measures the complete
+encoded HTTP request target for `GET /v1?q=...`, including the path, separator, query-key syntax,
+and percent-encoded expression. The SDK compiles and measures every selected case expression
+before opening its execution client, and every rubric judge expression before opening its judge
+client. An oversize expression raises `EngineRequestTooLargeError` with actual and allowed byte
+sizes; no partial run, truncation, alternate method, compression, or paid retry occurs. The engine
+independently enforces the same boundary with HTTP 414 and
+`request_target_too_large`.
+
+The development profile fixes this maximum at 61440 bytes (60 KiB). The SDK uses `httpx`, whose
+absolute URL ceiling is 65536 bytes; the remaining 4096 bytes accommodate the required HTTP(S)
+origin. Engine configuration may lower this deployment limit but may not raise it. Uvicorn/h11 is
+configured for 131072 bytes so parsing and headers retain headroom above the application boundary.
+
+Arbitrary model context is transported as quoted URL4 binding data and referenced by the model
+route. Parentheses, quotes, backslashes, multiline text, and literal dollar signs in captured
+answers therefore do not become expression structure. A standalone model-expression evaluation
+still has one non-binding source and returns only the model's plaintext result.
 
 The registry advertises addressable engine resources, not every SDK abstraction. Benchmarks,
 graders, and aggregators do not get registry entries when the ordinary client workflow executes

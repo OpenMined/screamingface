@@ -10,10 +10,12 @@ import httpx
 from screamingface._compiler import MAJORITY_VOTE_ROUTE, compile_fusion
 from screamingface._config import current_engine_url
 from screamingface._engine_http import (
+    EVAL_PATH,
     engine_error,
     exact_fields,
     nonblank,
     object_value,
+    require_eval_request_target,
     unique_json_object,
 )
 from screamingface._exact_choice import validate_exact_reference
@@ -61,6 +63,12 @@ def run_fusion(
         )
         for case in selected
     )
+    for case, expression in expressions:
+        require_eval_request_target(
+            expression,
+            registry.max_request_target_bytes,
+            f"case {case.id!r}",
+        )
     base_url = current_engine_url()
     with httpx.Client(base_url=base_url, timeout=_RUN_TIMEOUT) as client:
         with ThreadPoolExecutor(max_workers=min(_CASE_CONCURRENCY, len(expressions))) as pool:
@@ -87,7 +95,7 @@ def _execute_case(
     expression: str,
 ) -> CaseResult:
     try:
-        response = client.get("/v1", params={"q": expression})
+        response = client.get(EVAL_PATH, params={"q": expression})
     except httpx.TimeoutException:
         return _failed(case.id, "timeout", "URL4 engine evaluation timed out")
     except (httpx.RequestError, httpx.InvalidURL):

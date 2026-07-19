@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE
+from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,11 +28,16 @@ MODEL_ROUTES = (
 )
 
 
-def registry_document(*, enabled_tools: tuple[str, ...] = ()) -> dict[str, object]:
+def registry_document(
+    *,
+    enabled_tools: tuple[str, ...] = (),
+    max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES,
+) -> dict[str, object]:
     enabled = frozenset(enabled_tools)
     return {
         "schema": "screamingface.registry.v1",
         "response_schemas": ["screamingface.fusion-result.v1"],
+        "limits": {"max_request_target_bytes": max_request_target_bytes},
         "models": [
             {
                 "id": model.id,

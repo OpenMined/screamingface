@@ -11,7 +11,7 @@ from screamingface_engine.catalog import MODEL_ROUTES, registry_document
 from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE, majority_vote
-from screamingface_engine.settings import Settings
+from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES, Settings
 from screamingface_engine.web_research import WebResearchClient
 
 
@@ -19,6 +19,7 @@ def create_node(
     executor: ModelExecutor,
     *,
     enabled_tools: tuple[str, ...] = (),
+    max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES,
 ) -> Url4Node:
     """Register executable routes plus health and capability metadata."""
 
@@ -29,7 +30,13 @@ def create_node(
     node.data("/healthz", "ok")
     node.data(
         "/.well-known/screamingface",
-        json.dumps(registry_document(enabled_tools=enabled_tools), separators=(",", ":")),
+        json.dumps(
+            registry_document(
+                enabled_tools=enabled_tools,
+                max_request_target_bytes=max_request_target_bytes,
+            ),
+            separators=(",", ":"),
+        ),
     )
     return node
 
@@ -62,11 +69,16 @@ def create_app(
         max_tool_calls=resolved.web_max_tool_calls,
     )
     enabled_tools = ("web_search",) if research_adapter is not None else ()
-    node = create_node(executor, enabled_tools=enabled_tools)
+    node = create_node(
+        executor,
+        enabled_tools=enabled_tools,
+        max_request_target_bytes=resolved.max_request_target_bytes,
+    )
     return EngineASGI(
         node,
         adapter,
         research=research_adapter,
         max_inflight=resolved.max_inflight,
         timeout=resolved.evaluation_timeout,
+        max_request_target_bytes=resolved.max_request_target_bytes,
     )

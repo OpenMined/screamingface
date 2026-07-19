@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 4D
+## Current implementation: Phase 4E0
 
 The SDK currently supports:
 
@@ -49,6 +49,15 @@ them. ExactChoice stays local; Rubric sends one ordinary URL4 judge-model expres
 criterion, and pass, with at most 16 requests in flight. Aggregation and
 `fusion.evaluate(...)` remain ordinary local SDK stages after model-backed work. There is no mock,
 simulated, or in-process engine fallback.
+
+The registry advertises the engine's exact encoded request-target limit. Before opening an HTTP
+client, the SDK measures every selected `/v1?q=...` target using the same percent encoding as the
+request library. An oversize case or rubric-judge expression raises
+`sf.EngineRequestTooLargeError` with its actual and allowed byte sizes, before any model or judge
+spend. Literal judge context is carried in a quoted URL4 binding, so model answers containing
+parentheses, quotes, backslashes, newlines, or dollar signs remain data rather than URL4 syntax.
+The development profile allows 61440-byte request targets and independently returns HTTP 414 to
+direct callers that exceed it.
 
 ## Phase 1 walkthrough
 

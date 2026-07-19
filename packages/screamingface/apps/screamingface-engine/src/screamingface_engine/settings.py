@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from math import isfinite
 from urllib.parse import urlsplit
 
+MAX_REQUEST_TARGET_BYTES = 61_440
+H11_MAX_INCOMPLETE_EVENT_SIZE = 131_072
+
 
 class SettingsError(ValueError):
     """The engine process configuration is invalid."""
@@ -21,6 +24,7 @@ class Settings:
     gateway_timeout: float = 120.0
     evaluation_timeout: float = 120.0
     max_inflight: int = 16
+    max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES
     searxng_url: str | None = None
     web_timeout: float = 20.0
     web_max_results: int = 5
@@ -51,6 +55,15 @@ class Settings:
             raise SettingsError(
                 f"SCREAMINGFACE_ENGINE_MAX_INFLIGHT must be at least 1, got {self.max_inflight}"
             )
+        _at_least_one(
+            self.max_request_target_bytes,
+            "SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES",
+        )
+        if self.max_request_target_bytes > MAX_REQUEST_TARGET_BYTES:
+            raise SettingsError(
+                "SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES must not exceed "
+                f"{MAX_REQUEST_TARGET_BYTES}, got {self.max_request_target_bytes}"
+            )
         if self.searxng_url is not None:
             _absolute_url(self.searxng_url, "SCREAMINGFACE_SEARXNG_URL")
         if not isfinite(self.web_timeout) or self.web_timeout <= 0:
@@ -73,6 +86,11 @@ class Settings:
             gateway_timeout=_number(values, "AIGATEWAY_TIMEOUT", 120.0),
             evaluation_timeout=_number(values, "SCREAMINGFACE_ENGINE_TIMEOUT", 120.0),
             max_inflight=_integer(values, "SCREAMINGFACE_ENGINE_MAX_INFLIGHT", 16),
+            max_request_target_bytes=_integer(
+                values,
+                "SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES",
+                MAX_REQUEST_TARGET_BYTES,
+            ),
             searxng_url=_optional_url(values, "SCREAMINGFACE_SEARXNG_URL"),
             web_timeout=_number(values, "SCREAMINGFACE_WEB_TIMEOUT", 20.0),
             web_max_results=_integer(values, "SCREAMINGFACE_WEB_MAX_RESULTS", 5),
@@ -120,4 +138,9 @@ def _at_least_one(value: int, name: str) -> None:
         raise SettingsError(f"{name} must be at least 1, got {value}")
 
 
-__all__ = ["Settings", "SettingsError"]
+__all__ = [
+    "H11_MAX_INCOMPLETE_EVENT_SIZE",
+    "MAX_REQUEST_TARGET_BYTES",
+    "Settings",
+    "SettingsError",
+]

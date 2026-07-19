@@ -18,6 +18,7 @@ def _registry() -> dict[str, object]:
     return {
         "schema": "screamingface.registry.v1",
         "response_schemas": ["screamingface.fusion-result.v1"],
+        "limits": {"max_request_target_bytes": 61440},
         "models": [
             {"id": "codex/gpt-5.5", "supported_tools": ["web_search"]},
             {"id": "gemini/2.5", "supported_tools": []},
@@ -93,6 +94,15 @@ def test_benchmark_discovery_does_not_contact_the_engine(
         (lambda value: value.update(models={}), "models must be a list"),
         (lambda value: value.update(reducers={}), "reducers must be a list"),
         (lambda value: value.update(response_schemas=[]), "missing response schema"),
+        (lambda value: value.pop("limits"), "missing field.*limits"),
+        (
+            lambda value: value.update(limits={"max_request_target_bytes": 0}),
+            "max_request_target_bytes must be a positive integer",
+        ),
+        (
+            lambda value: value.update(limits={"max_request_target_bytes": 61440, "extra": True}),
+            "engine limits has unknown field.*extra",
+        ),
         (
             lambda value: value["models"].append(value["models"][0]),  # type: ignore[union-attr]
             "duplicate model ID",

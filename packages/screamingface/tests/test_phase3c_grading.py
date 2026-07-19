@@ -21,6 +21,7 @@ def _registry(*models: str) -> Registry:
         models=tuple(ModelRecord(model, ()) for model in selected),
         reducers=(),
         response_schemas=("screamingface.fusion-result.v1",),
+        max_request_target_bytes=61440,
     )
 
 

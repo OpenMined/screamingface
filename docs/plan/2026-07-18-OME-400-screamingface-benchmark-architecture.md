@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 4D engine-owned SearXNG web research implemented; judge-route review next
+**Status:** Phase 4E0 safe URL4 judge transport implemented; judge-route review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -393,6 +393,16 @@ stronger Phase 5 reproduction gate additionally requires the complete benchmark-
 lineup. Success bodies remain plaintext URL4 results; tool/cost telemetry, budgets, provider
 selection, tool profiles, and verified server-side scoring remain deferred.
 
+**Phase 4E0 is implemented:** generic model and rubric-judge context is held as native quoted
+URL4 binding data rather than inserted into expression structure. The engine registry requires an
+exact encoded request-target limit; the SDK validates every selected run expression before model
+spend and every rubric task before judge spend. The development profile advertises and enforces
+61440 bytes with HTTP 414, while Uvicorn/h11 receives 131072 bytes of parsing headroom. The 60 KiB
+application limit leaves 4 KiB for the configured origin under `httpx`'s 64 KiB absolute-URL
+ceiling. GET
+remains the only transactional URL4 transport. There is no truncation, POST fallback, compression,
+partial grading, or change to URL4 or AI Gateway.
+
 Complete when:
 
 - `sf.benchmarks.load("gpqa@1")` and `load("draco@1")` recreate equivalent typed definitions;
@@ -545,6 +555,6 @@ runtime slices.
 
 The current local engine profile can execute compatible DRACO research-member requests with
 `web_search`, but cannot complete DRACO grading because it lacks the
-`gemini/3.1-pro-preview` judge route. The separate Phase 4E0 review must also settle transport for
-the longest judge expressions before the full reproduction notebook. The dataset remains
-SDK-local.
+`gemini/3.1-pro-preview` judge route. Phase 4E0 has settled safe context transport and the
+development GET-size boundary; the next reviewed engine slice is the judge route. The dataset
+remains SDK-local.

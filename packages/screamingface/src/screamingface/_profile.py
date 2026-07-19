@@ -34,6 +34,7 @@ class Registry:
     models: tuple[ModelRecord, ...]
     reducers: tuple[ReducerRecord, ...]
     response_schemas: tuple[str, ...]
+    max_request_target_bytes: int
 
 
 def load_registry() -> Registry:
@@ -41,7 +42,7 @@ def load_registry() -> Registry:
     try:
         _exact_fields(
             payload,
-            {"schema", "response_schemas", "models", "reducers"},
+            {"schema", "response_schemas", "limits", "models", "reducers"},
             "engine registry",
         )
         if payload["schema"] != REGISTRY_SCHEMA:
@@ -51,13 +52,14 @@ def load_registry() -> Registry:
         reducers = tuple(
             _reducer_record(item) for item in _object_list(payload["reducers"], "reducers")
         )
+        limits = _limits(payload["limits"])
         _unique((record.id for record in models), "model")
         _unique((record.id for record in reducers), "reducer")
         if FUSION_RESULT_SCHEMA not in response_schemas:
             raise ValueError(f"missing response schema {FUSION_RESULT_SCHEMA!r}")
     except (KeyError, TypeError, ValueError) as exc:
         raise EngineProfileError(f"invalid engine registry: {exc}") from exc
-    return Registry(models, reducers, response_schemas)
+    return Registry(models, reducers, response_schemas, limits)
 
 
 def _get_text(path: str) -> str:
@@ -96,6 +98,16 @@ def _reducer_record(payload: dict[str, object]) -> ReducerRecord:
         _nonempty(payload["id"], "reducer ID"),
         _relative_path(payload["route"], "reducer route"),
     )
+
+
+def _limits(value: object) -> int:
+    if not isinstance(value, dict):
+        raise TypeError("engine limits must be an object")
+    _exact_fields(value, {"max_request_target_bytes"}, "engine limits")
+    limit = value["max_request_target_bytes"]
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("max_request_target_bytes must be a positive integer")
+    return limit
 
 
 def _exact_fields(payload: Mapping[str, object], expected: set[str], label: str) -> None:
