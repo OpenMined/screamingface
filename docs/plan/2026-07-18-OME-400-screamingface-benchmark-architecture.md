@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 4C member-only benchmark-tool compilation implemented; engine capability review next
+**Status:** Phase 4D engine-owned SearXNG web research implemented; judge-route review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -27,10 +27,10 @@ Researcher Python
              v
   screamingface-engine (one persistent Python/ASGI process)
     Url4Node evaluator, executable registry, in-process reducer/model handlers
-             |
-             | POST /v1/chat/completions (engine-owned adapter only)
-             v
-  AI Gateway
+      |                              |
+      | model turns                  | search / bounded public-page reads
+      v                              v
+  AI Gateway                     internal SearXNG
 ```
 
 Rules:
@@ -375,12 +375,20 @@ and result sources through this capability.
 capabilities only on member calls. One tool renders as `tools=web_search`; multiple tools use the
 canonical URL-query form `tools=web_search+code_execution`. The benchmark-independent
 `fusion.url4` template and `run.fusion_url4` remain unchanged. URL4 transports and decodes the
-parameter generically, while the current engine still rejects it because no named-tool adapter is
-advertised or installed.
+parameter generically.
+
+**Phase 4D is implemented:** the development engine owns a bounded standard model-tool loop,
+translates the single public `web_search` capability into internal `web_search` and `web_fetch`
+functions, uses a pinned keyless SearXNG container for discovery, safely reads bounded public
+HTML/plaintext pages, and returns only the final assistant plaintext. Every model turn still goes
+through the unchanged AI Gateway chat-completions endpoint. Unsafe targets and malformed calls
+fail closed; a transient failure reading one page is returned as tool output so the model can use
+other evidence. Gemini and Claude advertise the capability only when SearXNG is configured;
+Codex remains tool-free.
 
 The engine registry remains minimal and advertises only executable models and reducers. DRACO is
-present in the SDK catalog now that its local definition is complete; evaluating it additionally
-requires the judge route and at least one complete compatible web-search Fusion end to end. The
+present in the SDK catalog now that its local definition is complete. Phase 4D makes compatible
+web-search Fusion members executable; complete evaluation still requires the judge route. The
 stronger Phase 5 reproduction gate additionally requires the complete benchmark-pipeline model
 lineup. Success bodies remain plaintext URL4 results; tool/cost telemetry, budgets, provider
 selection, tool profiles, and verified server-side scoring remain deferred.
@@ -531,10 +539,12 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review the next engine-capability slice before adding the named `web_search` adapter,
-`gemini/3.1-pro-preview` route, or registry claims. Keep authentication, persistence, budgets,
-telemetry, and notebook regeneration out of these runtime slices.
+Review the next engine-capability slice before adding the `gemini/3.1-pro-preview` judge route.
+Keep authentication, persistence, budgets, telemetry, and notebook regeneration out of these
+runtime slices.
 
-The current local engine profile cannot execute DRACO: it lacks the
-`gemini/3.1-pro-preview` judge route, and its model routes do not advertise `web_search`. Adding
-those executable capabilities is later Phase 4 engine-profile work; its dataset remains SDK-local.
+The current local engine profile can execute compatible DRACO research-member requests with
+`web_search`, but cannot complete DRACO grading because it lacks the
+`gemini/3.1-pro-preview` judge route. The separate Phase 4E0 review must also settle transport for
+the longest judge expressions before the full reproduction notebook. The dataset remains
+SDK-local.

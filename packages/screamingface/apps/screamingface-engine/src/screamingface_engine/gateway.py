@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import math
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, NoReturn
 
 import httpx
@@ -14,6 +15,33 @@ from screamingface_engine.catalog import ModelRoute
 
 _ALLOWED_PARAMS = frozenset({"temperature", "max_tokens", "reasoning"})
 _REASONING_VALUES = frozenset({"low", "medium", "high"})
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: str
+
+    def to_message(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "type": "function",
+            "function": {"name": self.name, "arguments": self.arguments},
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AssistantTurn:
+    content: str | None
+    tool_calls: tuple[ToolCall, ...]
+
+    def to_message(self) -> dict[str, object]:
+        return {
+            "role": "assistant",
+            "content": self.content,
+            "tool_calls": [tool_call.to_message() for tool_call in self.tool_calls],
+        }
 
 
 class GatewayClient:
@@ -42,14 +70,26 @@ class GatewayClient:
         if client is not None:
             await client.aclose()
 
-    def handler(self, model: ModelRoute) -> Callable[[Request], Awaitable[str]]:
-        async def execute(request: Request) -> str:
-            return await self.complete(model, request)
-
-        return execute
-
     async def complete(self, model: ModelRoute, request: Request) -> str:
-        body = _request_body(model, request)
+        turn = await self.turn(
+            model,
+            messages=_request_messages(request),
+            params=request.params,
+            tools=(),
+        )
+        if turn.content is None:
+            raise ResolutionError(f"AI Gateway response has no text content for {model.id!r}")
+        return turn.content
+
+    async def turn(
+        self,
+        model: ModelRoute,
+        *,
+        messages: list[dict[str, object]],
+        params: Mapping[str, str],
+        tools: tuple[dict[str, object], ...],
+    ) -> AssistantTurn:
+        body = _turn_body(model, messages=messages, params=params, tools=tools)
         client = await self._get_client()
         try:
             response = await client.post("/v1/chat/completions", json=body)
@@ -62,7 +102,7 @@ class GatewayClient:
             ) from exc
         except httpx.RequestError as exc:
             raise ResolutionError(f"AI Gateway request failed for {model.id!r}: {exc}") from exc
-        return _response_text(response, model)
+        return _response_turn(response, model)
 
     async def _get_client(self) -> httpx.AsyncClient:
         async with self._client_lock:
@@ -75,23 +115,34 @@ class GatewayClient:
             return self._client
 
 
-def _request_body(model: ModelRoute, request: Request) -> dict[str, object]:
-    unknown = set(request.params) - _ALLOWED_PARAMS
-    if unknown:
-        _invalid(f"unsupported model parameter(s): {sorted(unknown)}")
-
-    messages: list[dict[str, str]] = []
+def _request_messages(request: Request) -> list[dict[str, object]]:
+    messages: list[dict[str, object]] = []
     if request.intent:
         messages.append({"role": "system", "content": request.intent})
     messages.append({"role": "user", "content": request.context})
+    return messages
+
+
+def _turn_body(
+    model: ModelRoute,
+    *,
+    messages: list[dict[str, object]],
+    params: Mapping[str, str],
+    tools: tuple[dict[str, object], ...],
+) -> dict[str, object]:
+    unknown = set(params) - _ALLOWED_PARAMS
+    if unknown:
+        _invalid(f"unsupported model parameter(s): {sorted(unknown)}")
 
     body: dict[str, object] = {"model": model.gateway_model, "messages": messages}
-    if "temperature" in request.params:
-        body["temperature"] = _temperature(request.params["temperature"])
-    if "max_tokens" in request.params:
-        body["max_tokens"] = _max_tokens(request.params["max_tokens"])
-    if "reasoning" in request.params:
-        body["reasoning_effort"] = _reasoning(request.params["reasoning"])
+    if "temperature" in params:
+        body["temperature"] = _temperature(params["temperature"])
+    if "max_tokens" in params:
+        body["max_tokens"] = _max_tokens(params["max_tokens"])
+    if "reasoning" in params:
+        body["reasoning_effort"] = _reasoning(params["reasoning"])
+    if tools:
+        body["tools"] = list(tools)
     return body
 
 
@@ -121,7 +172,7 @@ def _reasoning(value: str) -> str:
     return value
 
 
-def _response_text(response: httpx.Response, model: ModelRoute) -> str:
+def _response_turn(response: httpx.Response, model: ModelRoute) -> AssistantTurn:
     try:
         payload: Any = response.json()
     except ValueError as exc:
@@ -132,13 +183,41 @@ def _response_text(response: httpx.Response, model: ModelRoute) -> str:
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], Mapping):
         raise ResolutionError(f"AI Gateway response has no first choice for {model.id!r}")
     message = choices[0].get("message")
-    if not isinstance(message, Mapping) or not isinstance(message.get("content"), str):
+    if not isinstance(message, Mapping):
         raise ResolutionError(f"AI Gateway response has no text content for {model.id!r}")
-    return message["content"]
+    content = message.get("content")
+    if content is not None and not isinstance(content, str):
+        raise ResolutionError(f"AI Gateway response has invalid text content for {model.id!r}")
+    raw_calls = message.get("tool_calls", [])
+    if raw_calls is None:
+        raw_calls = []
+    if not isinstance(raw_calls, list):
+        raise ResolutionError(f"AI Gateway response has invalid tool calls for {model.id!r}")
+    tool_calls = tuple(_tool_call(value, model) for value in raw_calls)
+    if content is None and not tool_calls:
+        raise ResolutionError(
+            f"AI Gateway response has no text content; assistant has neither text nor tool calls "
+            f"for {model.id!r}"
+        )
+    return AssistantTurn(content, tool_calls)
+
+
+def _tool_call(value: object, model: ModelRoute) -> ToolCall:
+    if not isinstance(value, Mapping) or value.get("type") != "function":
+        raise ResolutionError(f"AI Gateway response has an invalid tool call for {model.id!r}")
+    call_id = value.get("id")
+    function = value.get("function")
+    if not isinstance(call_id, str) or not call_id or not isinstance(function, Mapping):
+        raise ResolutionError(f"AI Gateway response has an invalid tool call for {model.id!r}")
+    name = function.get("name")
+    arguments = function.get("arguments")
+    if not isinstance(name, str) or not name or not isinstance(arguments, str):
+        raise ResolutionError(f"AI Gateway response has an invalid tool call for {model.id!r}")
+    return ToolCall(call_id, name, arguments)
 
 
 def _invalid(message: str) -> NoReturn:
     raise ResolutionError(message, code="malformed_source", permanent=True)
 
 
-__all__ = ["GatewayClient"]
+__all__ = ["AssistantTurn", "GatewayClient", "ToolCall"]

@@ -36,15 +36,25 @@ in-process through one shared asynchronous HTTP client; they do not launch route
 another engine. The thin ASGI wrapper owns only client lifecycle, global admission control, and a
 whole-evaluation timeout.
 
+The Compose profile also configures an internal SearXNG service. Gemini and Claude then advertise
+the named `web_search` capability; Codex remains tool-free. A capable model may call the engine's
+standard `web_search` and `web_fetch` functions multiple times within a bounded loop. SearXNG
+returns candidate titles, URLs, and snippets; the engine can read bounded public HTML/plaintext
+pages after rejecting credentials, non-HTTP(S) URLs, private/non-global targets, unsafe redirects,
+oversized responses, unsupported media, and known DRACO-contaminating sources. Every assistant
+turn still uses AI Gateway's existing `POST /v1/chat/completions` contract, and the URL4 endpoint
+returns only the final assistant plaintext.
+
 The majority-vote handler is also registered once in that process. It accepts a resolved JSON
 object with contiguous `member_1` through `member_n` string values, applies exact-string voting, and
 breaks ties by numeric member position. It returns only the winning text and never contacts AI
 Gateway. Nonempty intent, parameters, missing members, non-string values, and blank answers are
 permanent URL4 `malformed_source` errors.
 
-The current development profile intentionally supports tool-free model requests only. The
-registry does not claim `web_search`, and `gemini/3.1-pro-preview` is not advertised because AI
-Gateway does not currently register that model identifier.
+Registry claims are configuration-dependent: without `SCREAMINGFACE_SEARXNG_URL`, no route claims
+`web_search`; with it, only the compatible Gemini and Claude routes do. The
+`gemini/3.1-pro-preview` judge is not advertised because AI Gateway does not currently register
+that model identifier.
 
 ## Benchmark boundary
 
@@ -77,8 +87,10 @@ the containers' internal topology:
 AIGATEWAY_HOST_PORT=19105 SCREAMINGFACE_ENGINE_HOST_PORT=14404 ./dev.sh
 ```
 
-This builds the engine and AI Gateway containers. SDK-local benchmark loading does not contact
-either service; model routes do.
+This builds the engine, AI Gateway, and internal SearXNG containers. SearXNG has no host port and
+requires no researcher API key. It still uses public upstream search engines, so research requests
+need outbound network access. SDK-local benchmark loading does not contact any of these services;
+model routes do.
 
 Verify:
 

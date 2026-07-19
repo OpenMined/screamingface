@@ -28,6 +28,21 @@ services:
       timeout: 5s
       retries: 12
 
+  searxng:
+    image: docker.io/searxng/searxng@sha256:b8ca38ba06eea544d7555e88321e212ddc0d5c3c7de055419cfb2e5c6bf30812
+    environment:
+      SEARXNG_SETTINGS_PATH: /etc/searxng/settings.yml
+    init: true
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget --spider -q http://127.0.0.1:8080/ || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 12
+
   screamingface-engine:
     build:
       context: ../../../..
@@ -36,12 +51,15 @@ services:
       AIGATEWAY_TIMEOUT: "120"
       AIGATEWAY_URL: http://aigateway:9105
       SCREAMINGFACE_ENGINE_MAX_INFLIGHT: "16"
+      SCREAMINGFACE_SEARXNG_URL: http://searxng:8080
       SCREAMINGFACE_ENGINE_TIMEOUT: "120"
       URL4_HOST: 0.0.0.0
       URL4_PORT: "4404"
     init: true
     depends_on:
       aigateway:
+        condition: service_healthy
+      searxng:
         condition: service_healthy
     ports:
       - "127.0.0.1:${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}:4404"

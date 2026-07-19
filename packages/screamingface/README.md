@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 4C
+## Current implementation: Phase 4D
 
 The SDK currently supports:
 
@@ -22,11 +22,18 @@ The SDK currently supports:
   strict evidence coverage, validation-only retries, and weighted DRACO-compatible scoring; and
 - strict paired `sf.aggregators.Mean()` reports plus the exact `fusion.evaluate(...)` facade.
 
-The development `screamingface-engine` runs three tool-free model routes through one
-persistent `Url4Node` and a shared AI Gateway client. It accepts direct endpoint requests and
-complete expressions through `GET /v1?q=...`, with no subprocess route adapter. Its
+The development `screamingface-engine` runs three model routes through one persistent `Url4Node`
+and a shared AI Gateway client. It accepts direct endpoint requests and complete expressions
+through `GET /v1?q=...`, with no subprocess route adapter. Its
 `/reducers/majority-vote` endpoint executes the same SDK-owned exact-string selection logic,
 without contacting AI Gateway.
+
+When the engine is configured with its internal SearXNG service, the Gemini and Claude routes
+advertise `web_search`. The engine translates that named capability into a bounded standard
+model-tool loop: search and public-page reads happen inside the engine, while every model turn
+still goes through AI Gateway. Codex remains tool-free. SearXNG is keyless and private to the
+Compose network; it is not an offline search index and still queries its configured public search
+engines.
 
 Benchmark definitions, source loading, references, grading, and aggregation are SDK concerns.
 The engine does not publish benchmark manifests or cases and never needs the researcher's
@@ -71,6 +78,7 @@ This starts:
 ```text
 URL4 engine  http://127.0.0.1:4404
 AI Gateway   http://127.0.0.1:9105
+SearXNG      internal Compose service only
 ```
 
 Model routes contact AI Gateway only through `screamingface-engine`. Loading GPQA happens in the
@@ -167,11 +175,11 @@ Construction and `fusion.url4` are network-free. Model discovery and execution c
 configured URL4 engine. Benchmark discovery is package-local; loading `gpqa@1` uses the caller's
 Hugging Face session and returns ordinary immutable SDK values. `fusion.run("gpqa@1", first=20)`
 is shorthand for local load followed by engine execution over a stable prefix. The SDK now
-installs both `gpqa@1` and `draco@1`; DRACO can be loaded and inspected locally. The current engine
-registry deliberately advertises no tools, so it cannot yet execute DRACO. Execution requires a
-tested `web_search` adapter and configured judge route. The SDK's generic Rubric implementation
-is already complete. URL4 can transport the SDK's `tools=web_search` member parameter, but the
-development engine intentionally rejects it until its real named-tool adapter is implemented.
+installs both `gpqa@1` and `draco@1`; DRACO can be loaded and inspected locally. The development
+engine can execute `tools=web_search` members through its internal SearXNG adapter on the
+compatible Gemini and Claude routes. A complete DRACO evaluation is still blocked by the missing
+`gemini/3.1-pro-preview` judge route and the separately tracked long judge-expression transport
+review. The SDK's generic Rubric implementation is already complete.
 
 ## Validation
 

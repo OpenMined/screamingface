@@ -1,0 +1,18 @@
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: ScreamingFace development search
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: development-only-internal-searxng
+  limiter: false
+  image_proxy: false

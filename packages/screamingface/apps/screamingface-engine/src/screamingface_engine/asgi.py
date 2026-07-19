@@ -10,6 +10,7 @@ from typing import Any
 from url4 import Url4Node
 
 from screamingface_engine.gateway import GatewayClient
+from screamingface_engine.web_research import WebResearchClient
 
 type Message = MutableMapping[str, Any]
 type Receive = Callable[[], Awaitable[Message]]
@@ -25,11 +26,13 @@ class EngineASGI:
         node: Url4Node,
         gateway: GatewayClient,
         *,
+        research: WebResearchClient | None = None,
         max_inflight: int,
         timeout: float,
     ) -> None:
         self.node = node
         self.gateway = gateway
+        self.research = research
         self._base: AsgiApp = node.asgi()
         self._max_inflight = max_inflight
         self._timeout = timeout
@@ -75,11 +78,18 @@ class EngineASGI:
             if message["type"] == "lifespan.startup":
                 try:
                     await self.gateway.start()
+                    if self.research is not None:
+                        await self.research.start()
                 except Exception as exc:
+                    if self.research is not None:
+                        await self.research.aclose()
+                    await self.gateway.aclose()
                     await send({"type": "lifespan.startup.failed", "message": str(exc)})
                 else:
                     await send({"type": "lifespan.startup.complete"})
             elif message["type"] == "lifespan.shutdown":
+                if self.research is not None:
+                    await self.research.aclose()
                 await self.gateway.aclose()
                 await self.node.aclose()
                 await send({"type": "lifespan.shutdown.complete"})

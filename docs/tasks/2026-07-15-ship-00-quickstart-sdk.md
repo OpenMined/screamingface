@@ -318,3 +318,23 @@ Implemented the approved SDK-only benchmark capability overlay:
 Phase 4C changes no engine, AI Gateway, URL4 package, authentication, concurrency, or notebook
 behavior. The current engine still advertises no tools and rejects `tools`; the named
 `web_search` adapter and Gemini 3.1 judge route require separate engine-phase review.
+
+## Phase 4D implementation — 2026-07-19
+
+Implemented the approved engine-owned web-research capability without changing the public SDK,
+URL4, or AI Gateway:
+
+- added a bounded standard model/tool loop to the temporary `screamingface-engine` profile;
+- translated public `tools=web_search` into internal `web_search` and `web_fetch` functions while
+  preserving every model turn through AI Gateway's existing chat-completions endpoint;
+- added a pinned keyless SearXNG service on the private Compose network;
+- limited and normalized search results, bounded public HTML/plaintext reads, rejected private
+  targets and unsafe redirects, and filtered known DRACO-contaminating source prefixes;
+- made Gemini and Claude advertise `web_search` only when the adapter is configured while Codex
+  remains tool-free; and
+- retained plaintext URL4 model responses and unchanged tool-free request behavior.
+
+Phase 4D makes compatible DRACO research members executable. Full DRACO evaluation remains out of
+scope until the separately reviewed `gemini/3.1-pro-preview` judge route and long
+judge-expression transport are implemented. Authentication, budgets, persistence, telemetry,
+notebook regeneration, and AI Gateway changes remain deferred.

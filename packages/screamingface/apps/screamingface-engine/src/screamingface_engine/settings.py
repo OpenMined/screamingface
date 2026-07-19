@@ -21,6 +21,12 @@ class Settings:
     gateway_timeout: float = 120.0
     evaluation_timeout: float = 120.0
     max_inflight: int = 16
+    searxng_url: str | None = None
+    web_timeout: float = 20.0
+    web_max_results: int = 5
+    web_max_tool_calls: int = 12
+    web_max_content_chars: int = 20_000
+    web_max_fetch_bytes: int = 2_000_000
 
     def __post_init__(self) -> None:
         if not self.host:
@@ -45,6 +51,17 @@ class Settings:
             raise SettingsError(
                 f"SCREAMINGFACE_ENGINE_MAX_INFLIGHT must be at least 1, got {self.max_inflight}"
             )
+        if self.searxng_url is not None:
+            _absolute_url(self.searxng_url, "SCREAMINGFACE_SEARXNG_URL")
+        if not isfinite(self.web_timeout) or self.web_timeout <= 0:
+            raise SettingsError(
+                "SCREAMINGFACE_WEB_TIMEOUT must be a positive finite number, "
+                f"got {self.web_timeout}"
+            )
+        _at_least_one(self.web_max_results, "SCREAMINGFACE_WEB_MAX_RESULTS")
+        _at_least_one(self.web_max_tool_calls, "SCREAMINGFACE_WEB_MAX_TOOL_CALLS")
+        _at_least_one(self.web_max_content_chars, "SCREAMINGFACE_WEB_MAX_CONTENT_CHARS")
+        _at_least_one(self.web_max_fetch_bytes, "SCREAMINGFACE_WEB_MAX_FETCH_BYTES")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -56,6 +73,12 @@ class Settings:
             gateway_timeout=_number(values, "AIGATEWAY_TIMEOUT", 120.0),
             evaluation_timeout=_number(values, "SCREAMINGFACE_ENGINE_TIMEOUT", 120.0),
             max_inflight=_integer(values, "SCREAMINGFACE_ENGINE_MAX_INFLIGHT", 16),
+            searxng_url=_optional_url(values, "SCREAMINGFACE_SEARXNG_URL"),
+            web_timeout=_number(values, "SCREAMINGFACE_WEB_TIMEOUT", 20.0),
+            web_max_results=_integer(values, "SCREAMINGFACE_WEB_MAX_RESULTS", 5),
+            web_max_tool_calls=_integer(values, "SCREAMINGFACE_WEB_MAX_TOOL_CALLS", 12),
+            web_max_content_chars=_integer(values, "SCREAMINGFACE_WEB_MAX_CONTENT_CHARS", 20_000),
+            web_max_fetch_bytes=_integer(values, "SCREAMINGFACE_WEB_MAX_FETCH_BYTES", 2_000_000),
         )
 
 
@@ -77,6 +100,24 @@ def _number(env: Mapping[str, str], name: str, default: float) -> float:
         return float(value)
     except ValueError:
         raise SettingsError(f"{name} must be a number, got {value!r}") from None
+
+
+def _optional_url(env: Mapping[str, str], name: str) -> str | None:
+    value = env.get(name)
+    if value is None or not value.strip():
+        return None
+    return value.rstrip("/")
+
+
+def _absolute_url(value: str, name: str) -> None:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise SettingsError(f"{name} must be an absolute http(s) URL, got {value!r}")
+
+
+def _at_least_one(value: int, name: str) -> None:
+    if value < 1:
+        raise SettingsError(f"{name} must be at least 1, got {value}")
 
 
 __all__ = ["Settings", "SettingsError"]

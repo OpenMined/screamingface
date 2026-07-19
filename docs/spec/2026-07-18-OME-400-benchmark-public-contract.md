@@ -138,6 +138,7 @@ ScreamingFace SDK
      -> startup-registered, in-process SF model/RDS handlers
         -> AI Gateway     POST /v1/chat/completions
            -> provider
+        -> internal SearXNG + bounded public-page reads (`web_search` only)
 ```
 
 Only screamingface-engine contacts AI Gateway. Generic `packages/url4` remains unaware of
@@ -186,11 +187,11 @@ It is not part of generic URL4 core. The MVP shape is:
     },
     {
       "id": "gemini/2.5",
-      "supported_tools": []
+      "supported_tools": ["web_search"]
     },
     {
       "id": "claude/sonnet-4.6",
-      "supported_tools": []
+      "supported_tools": ["web_search"]
     }
   ],
   "reducers": [
@@ -202,9 +203,11 @@ It is not part of generic URL4 core. The MVP shape is:
 }
 ```
 
-This registry contains remotely executable capabilities only. Once the engine can execute the
-DRACO flow, compatible model records gain `"web_search"` in `supported_tools` and the judge model
-is added. Benchmarks never appear here because their definitions, sources, graders, and
+This registry contains remotely executable capabilities only. The example is the development
+Compose profile with SearXNG configured. Without `SCREAMINGFACE_SEARXNG_URL`, every model reports
+an empty `supported_tools` array. Compatible records gain `"web_search"` only while that engine
+adapter is configured; Codex remains tool-free. The judge model is added separately when it is
+executable. Benchmarks never appear here because their definitions, sources, graders, and
 aggregators remain local to the SDK.
 
 The registry advertises addressable engine resources, not every SDK abstraction. Benchmarks,
@@ -303,9 +306,10 @@ The mapping is deliberately typed and allowlisted:
 The registry may advertise `web_search` for a model only when that route has a working named-tool
 adapter. Otherwise SDK preflight must reject a benchmark that requires it.
 
-The current profile advertises no tools and therefore cannot execute DRACO. The SDK may install
-the local DRACO definition independently, but evaluation preflight fails until a tested named-tool
-adapter, compatible worker routes, and the `gemini/3.1-pro-preview` judge route are all published.
+The development Compose profile configures SearXNG and advertises `web_search` only on compatible
+Gemini and Claude worker routes. The SDK may install the local DRACO definition independently, but
+complete evaluation preflight still fails until the `gemini/3.1-pro-preview` judge route is
+published.
 
 For a successful non-streaming response, the handler validates
 `choices[0].message.content`, requires string content, and returns that string only. URL4 therefore
@@ -316,6 +320,16 @@ engine's normal URL4 error-to-HTTP mapping.
 The process owns one reusable asynchronous AI Gateway client. Route handlers do not construct a
 new client, launch a subprocess, or start another server. The application closes the Gateway
 client and node resources during ASGI shutdown.
+
+For `tools=web_search`, the engine sends standard `web_search` and `web_fetch` function schemas to
+AI Gateway and preserves standard assistant tool calls and tool-result messages between turns.
+Search discovery uses an internal, pinned SearXNG service; page reads accept only bounded public
+HTTP(S) HTML/plaintext after validating every redirect and rejecting credentials, private or
+non-global addresses, unsupported media, oversized responses, and benchmark-contaminating source
+prefixes. The loop has a configured total call limit. Malformed/unsafe calls fail permanently;
+transient failure to read one page becomes structured tool output so the model may continue with
+other evidence. SearXNG requires no API key but is not an offline index and may contact its public
+upstream search engines.
 
 ### 5.2 Application-owned ASGI lifecycle
 
@@ -1213,9 +1227,10 @@ The first implementation is accepted when:
 The grading and aggregation behavior in §§13–17 was approved as Phase 3A and implemented through
 Phase 3D: public grading values, deterministic ExactChoice, complete `Run.grade()` Rubric
 orchestration, strict judge parsing, validation-only retries, retained evidence, paired Mean
-aggregation, immutable reports, and the exact `Fusion.evaluate()` facade. The current engine
-profile cannot execute DRACO. Phase 4A implemented the canonical pinned SDK-local GPQA definition
+aggregation, immutable reports, and the exact `Fusion.evaluate()` facade. Phase 4A implemented the
+canonical pinned SDK-local GPQA definition
 on 2026-07-19. Phase 4B added the canonical SDK-local DRACO definition and catalog exposure on
 2026-07-19. Phase 4C added member-only benchmark-tool compilation and reserved capability
-validation on 2026-07-19. The remaining Phase 4 engine slices must add
-`gemini/3.1-pro-preview` and working `web_search` capabilities.
+validation on 2026-07-19. Phase 4D added the engine-owned bounded SearXNG web-research capability
+on compatible worker routes. Complete DRACO execution still requires the
+`gemini/3.1-pro-preview` judge route and the reviewed long judge-expression transport.
