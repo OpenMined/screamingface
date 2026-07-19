@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 5E
+## Current implementation: Phase 5F
 
 The SDK currently supports:
 
@@ -78,6 +78,10 @@ discovery from SDK-local benchmark discovery. It demonstrates the shared `query`
 guide. It covers concise model IDs, per-member prompt and parameter overrides, repeated models,
 deterministic majority voting, model-backed synthesis, and public `.url4` inspection.
 
+[`examples/04_custom_benchmarks.ipynb`](examples/04_custom_benchmarks.ipynb) constructs a local
+benchmark from ordinary `sf.Case` values. It explains sealed references, researcher-owned loading,
+grader and aggregator selection, benchmark tools, and an optional default-off live evaluation.
+
 [`examples/05_draco.ipynb`](examples/05_draco.ipynb) is the real-engine DRACO SDK walkthrough. It
 uses the pinned `draco@1` definition, shows a compatible web-research Fusion, and separates
 `run -> grade -> aggregate`. Paid execution is explicitly disabled by default because one case can
@@ -143,11 +147,13 @@ uv run --extra notebook jupyter lab examples/01_architecture.ipynb
 uv run --extra notebook jupyter lab examples/02_discovery.ipynb
 # or
 uv run --extra notebook jupyter lab examples/03_fusions.ipynb
+# or
+uv run --extra notebook jupyter lab examples/04_custom_benchmarks.ipynb
 ```
 
 The notebooks are generated from `scripts/build_quickstart.py`, `scripts/build_architecture.py`,
-`scripts/build_discovery.py`, `scripts/build_fusions.py`, and `scripts/build_draco_walkthrough.py`;
-edit the generators rather than notebook JSON.
+`scripts/build_discovery.py`, `scripts/build_fusions.py`, `scripts/build_custom_benchmarks.py`, and
+`scripts/build_draco_walkthrough.py`; edit the generators rather than notebook JSON.
 
 ## Current API example
 

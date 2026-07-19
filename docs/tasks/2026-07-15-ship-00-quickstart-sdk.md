@@ -536,3 +536,34 @@ Implemented the approved generated Fusion construction guide:
 The notebook ran top-to-bottom in a fresh kernel without an engine, credentials, or network access;
 all three Fusions and their URL4 recipes compiled successfully. No SDK runtime, engine, URL4, AI
 Gateway, authentication, or dataset behavior changed.
+
+## Phase 5F contract approval — 2026-07-19
+
+Approved one generated custom local benchmark notebook:
+
+- create three real `sf.Case` values with stable IDs, exact inputs, sealed references, and metadata;
+- assemble them into a versioned `sf.Benchmark` using `ExactChoice` and `Mean`;
+- inspect only the public benchmark definition and the researcher's own case list;
+- show a loader shape in markdown while keeping all source access and cleaning researcher-owned;
+- explain benchmark-owned `tools` and that references never enter model requests; and
+- include one three-member, three-case live evaluation path that defaults off, makes nine provider
+  calls when enabled, and creates no substitute report.
+
+The default notebook needs no Docker, provider, Hugging Face, or network access. The phase adds no
+runtime API, ETL DSL, case iterator, mock, private API, YAML, or custom grader framework.
+
+## Phase 5F implementation — 2026-07-19
+
+Implemented the approved generated custom-benchmark guide:
+
+- added `examples/04_custom_benchmarks.ipynb` and its deterministic builder;
+- created three real local cases with stable IDs, exact inputs, sealed references, and metadata;
+- assembled the cases into a versioned benchmark with `ExactChoice` and `Mean`;
+- kept case inspection on the researcher's own list and source loading/cleaning outside the SDK;
+- documented benchmark-owned tools and the model-request reference boundary;
+- included an honest default-off three-case evaluation path with its nine provider calls; and
+- added append-only contract tests, README navigation, and CI regeneration enforcement.
+
+The notebook ran top-to-bottom in a fresh kernel, created the expected immutable benchmark, and
+left the report unset without touching an engine or network. No SDK runtime, engine, URL4, AI
+Gateway, authentication, or dataset behavior changed.

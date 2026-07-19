@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 5E Fusion construction notebook implemented; custom benchmark review next
+**Status:** Phase 5 notebook suite implemented; release-readiness review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -503,6 +503,19 @@ The notebook inspects only the public `models`, `model_ids`, `reducer`, and `url
 explains that `tools` is benchmark-owned and reserved from ordinary model parameters, while route
 availability and provider authentication are execution-time concerns. It performs no engine
 configuration, discovery, benchmark loading, execution, YAML parsing, HTTP, or private compilation.
+
+**Phase 5F is implemented:** `examples/04_custom_benchmarks.ipynb` builds a real local benchmark from
+three ordinary `sf.Case` values, then selects `sf.graders.ExactChoice()` and
+`sf.aggregators.Mean()`. It explains stable unique case IDs, exact model inputs, researcher-visible
+but model-sealed references, optional metadata, versioned benchmark IDs, and the public benchmark
+definition fields without adding case iteration or another dataset API.
+
+The primary example uses an in-memory case list. A markdown-only loader pattern makes source access
+and cleaning explicitly researcher-owned: ScreamingFace begins at validated `sf.Case` values rather
+than becoming an ETL DSL. Benchmark `tools` are explained as requirements applied consistently to
+answer-producing members. One optional three-member evaluation defaults off, states its nine model
+calls, and creates no substitute report; enabling it requires Docker and working provider access,
+but never Hugging Face because the cases are local.
 
 Before promoting the temporary package-development app, agree the engine profile's final
 location and ownership. If it moves to `apps/screamingface-engine`, preserve the same external
