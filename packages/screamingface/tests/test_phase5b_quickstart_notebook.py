@@ -61,14 +61,15 @@ def test_quickstart_is_the_minimal_public_compose_evaluate_compare_flow() -> Non
     assert '"claude/sonnet-4.6"' in code
     assert code.count("sf.reducers.MajorityVote()") == 1
     assert code.count('fusion.evaluate("gpqa@1", first=5)') == 1
+    assert "# Equivalent staged API:" in code
+    assert '# benchmark = sf.benchmarks.load("gpqa@1")' in code
+    assert "# run = fusion.run(benchmark, first=5)" in code
+    assert "# grades = run.grade()" in code
+    assert "# report = grades.aggregate()" in code
     assert code.rstrip().endswith("report")
 
     # INVARIANT: Deep execution and discovery APIs do not leak into the shortest path.
     assert "sf.models.list" not in code
-    assert "sf.benchmarks.load" not in code
-    assert "fusion.run(" not in code
-    assert ".grade(" not in code
-    assert ".aggregate(" not in code
     assert "fusion.url4" not in code
     assert "_compiler" not in code
     assert "httpx" not in code

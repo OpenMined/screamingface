@@ -66,7 +66,14 @@ most common exact answer and breaks a tie by stable member order. Fusion constru
 does not call a model."""
         ),
         nbformat.v4.new_markdown_cell("## 2 · Evaluate"),
-        nbformat.v4.new_code_cell('report = fusion.evaluate("gpqa@1", first=5)'),
+        nbformat.v4.new_code_cell(
+            'report = fusion.evaluate("gpqa@1", first=5)\n\n'
+            "# Equivalent staged API:\n"
+            '# benchmark = sf.benchmarks.load("gpqa@1")\n'
+            "# run = fusion.run(benchmark, first=5)\n"
+            "# grades = run.grade()\n"
+            "# report = grades.aggregate()"
+        ),
         nbformat.v4.new_markdown_cell(
             """`evaluate(...)` loads the pinned GPQA Diamond definition through this process,
 executes the three-member Fusion for the first five canonical cases, checks the answers against the
