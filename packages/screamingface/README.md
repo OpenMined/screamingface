@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 2B
+## Current implementation: Phase 2C
 
 The SDK currently supports:
 
@@ -10,7 +10,10 @@ The SDK currently supports:
 - immutable `sf.Case`, `sf.Benchmark`, and `sf.Fusion` authoring;
 - namespaced reducers, graders, and aggregators;
 - `sf.models.list(...)` and `sf.benchmarks.list(...)` against the engine registry; and
-- eager, validated `sf.benchmarks.load(...)` from engine manifests and NDJSON case routes.
+- eager, validated `sf.benchmarks.load(...)` from engine manifests and NDJSON case routes;
+- canonical, shareable `fusion.url4` recipe compilation; and
+- synchronous `fusion.run(...)` through only the configured URL4 engine, returning immutable
+  in-memory result records.
 
 The development `screamingface-engine` additionally runs three tool-free model routes through one
 persistent `Url4Node` and a shared AI Gateway client. It accepts direct endpoint requests and
@@ -18,8 +21,12 @@ complete expressions through `GET /v1?q=...`, with no subprocess route adapter. 
 `/reducers/majority-vote` endpoint executes the same SDK-owned exact-string selection logic,
 without contacting AI Gateway.
 
-The SDK does not yet expose `fusion.run(...)`/`fusion.evaluate(...)`; compiler and `Run`
-orchestration are Phase 2C. There is no mock, simulated, or in-process engine fallback.
+Each selected benchmark case becomes one complete URL4 expression sent as
+`GET /v1?q=<expression>`. Successful plaintext JSON is validated strictly as
+`screamingface.fusion-result.v1`; connection, timeout, HTTP, URL4, and protocol failures are
+recorded atomically at the case's original position. Phase 2C performs no retries and never calls
+AI Gateway directly. Grading, aggregation, and the `fusion.evaluate(...)` facade arrive in Phase
+3. There is no mock, simulated, or in-process engine fallback.
 
 ## Phase 1 walkthrough
 
@@ -61,15 +68,18 @@ export HF_TOKEN=hf_...
 
 No synthetic dataset fallback exists.
 
-The deterministic reducer can be smoke-tested without provider credentials:
+The deterministic reducer and SDK run path can be smoke-tested without provider credentials:
 
 ```bash
 uv run python apps/screamingface-engine/scripts/smoke_phase2b.py
+uv run python apps/screamingface-engine/scripts/smoke_phase2c.py
 ```
 
-Run that command from `packages/screamingface` while the Compose stack is running. It evaluates a
-complete literal URL4 expression and verifies the engine-to-Gateway topology separately. A
-credential-free AI Gateway error is expected and accepted for the model-route half.
+Run those commands from `packages/screamingface` while the Compose stack is running. The Phase 2B
+smoke evaluates a complete literal reducer expression. The Phase 2C smoke uses the public SDK to
+compile and submit a complete model-backed Fusion expression. A provider-backed success is
+validated when credentials exist; otherwise the expected atomic URL4 failure proves the
+engine-to-Gateway topology without pretending a provider answered.
 
 ## Run the walkthrough
 
@@ -83,7 +93,7 @@ uv run --extra notebook jupyter lab examples/phase_1_engine_profile.ipynb
 The notebook is generated from `scripts/build_phase1_engine_profile.py`; edit the generator rather
 than the notebook JSON.
 
-## Phase 1 API example
+## Current API example
 
 ```python
 import screamingface as sf
@@ -103,11 +113,27 @@ fusion = sf.Fusion(
     ],
     reducer=sf.reducers.MajorityVote(),
 )
+
+# Canonical recipe template: contains $question, but no case or answer key.
+fusion.url4
+
+benchmark = sf.Benchmark(
+    "arithmetic@1",
+    cases=[sf.Case("addition", "What is 2 + 2?", reference="4")],
+    grader=sf.graders.ExactChoice(),
+)
+
+run = fusion.run(benchmark)
+run.results[0].members["panel_1"].answer
+run.results[0].answer
+run.failures
+run.to_dict()
 ```
 
-Construction is network-free. Discovery and loading contact only the configured URL4 engine.
-The current model registry deliberately advertises no tools: `web_search` returns only after a
-real named-tool adapter exists and has been tested.
+Construction and `fusion.url4` are network-free. Discovery, loading, and execution contact only
+the configured URL4 engine. `fusion.run("gpqa@1", first=20)` is the named-benchmark shorthand for
+loading and running a stable prefix. The current model registry deliberately advertises no tools:
+`web_search` returns only after a real named-tool adapter exists and has been tested.
 
 ## Validation
 

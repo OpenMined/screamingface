@@ -1,13 +1,12 @@
 """Phase 0 contract example: quickstart and explicit-stage benchmark UX."""
 
+from __future__ import annotations
+
 import screamingface as sf
 
 RESEARCH_PROMPT = """\
 Answer the research question thoroughly. Preserve specific facts and sources, and use
 clear prose.
-
-Research question:
-$question
 """
 
 # Uses the SDK's default URL4 engine. Temporarily, that default is the local Docker
@@ -47,6 +46,22 @@ def research_workflow():
     grades = run.grade()
     report = grades.aggregate()
     return report
+
+
+def inspect_run(run: sf.Run):
+    """Phase 2C result inspection without re-running paid work."""
+    first_result = run.results[0]
+    first_member = first_result.members["panel_1"]
+    return {
+        "recipe": run.fusion_url4,
+        "case_ids": run.case_ids,
+        "first_member_model": first_member.model,
+        "first_member_answer": first_member.answer,
+        "fusion_answer": first_result.answer,
+        "failure": first_result.failure,
+        "complete": run.complete,
+        "json_compatible": run.to_dict(),
+    }
 
 
 # Choose one workflow. Running both would create two paid evaluations.

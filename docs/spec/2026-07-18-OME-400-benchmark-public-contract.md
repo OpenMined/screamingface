@@ -63,6 +63,9 @@ sf.Reducer
 sf.Grader
 sf.Aggregator
 sf.Run
+sf.CaseResult
+sf.MemberResult
+sf.RunFailure
 sf.Grades
 sf.Report
 sf.models
@@ -86,8 +89,9 @@ sf.aggregators.Mean()
 There are no duplicate aliases such as `sf.ModelReducer`, `sf.MajorityVote`, or
 `sf.RubricJudge`. There is no public `sf.judges` namespace.
 
-Low-level records such as member answers and individual grades are immutable values surfaced
-through `Run` and `Grades`; Phase 0 does not add top-level constructors for them.
+Low-level result records are immutable values surfaced through `Run` and `Grades`. `CaseResult`,
+`MemberResult`, and `RunFailure` are exported for inspection and type checking, but users receive
+them from `Fusion.run()` rather than constructing them as configuration.
 
 Not included in the MVP:
 
@@ -466,7 +470,7 @@ Rules:
 - a string is the common member shorthand;
 - a mapping configures only that member's model, prompt, or model parameters;
 - `Fusion.prompt` is the default panel intent and a member prompt overrides it;
-- omitted prompts use a minimal SDK default;
+- omitted prompts use the minimal SDK default `"Answer the question."`;
 - repeated models remain distinct ordered execution slots (`panel_1`, `panel_2`, ...);
 - model parameters become query parameters on that model route;
 - reducers are explicit strategy objects; and
@@ -475,6 +479,30 @@ Rules:
 `reducers.Model` uses the same conceptual `model`, `prompt`, and `params` fields as a configured
 member. `reducers.MajorityVote()` performs deterministic exact-string voting and breaks ties by
 stable panel order.
+
+URL4 interpolates embedded references in prompt templates. Researchers may therefore reference
+`$question` deliberately, but they do not need to repeat the question in the prompt: every panel
+route already receives it as URL4 context. The prompt is normally just the model's system-level
+instruction.
+
+For `reducers.Model`, the compiler—not the researcher—constructs the reducer's user context from
+the resolved question and every labeled panel answer:
+
+```text
+Question:
+<resolved question>
+
+Panel answers:
+Panel 1 [codex/gpt-5.5]:
+<resolved answer>
+
+Panel 2 [gemini/2.5]:
+<resolved answer>
+```
+
+`reducers.Model.prompt` is the synthesis instruction sent as the model route's intent. It may
+still contain URL4 references when a researcher intentionally wants a custom template, but a
+simple instruction such as `"Synthesize the panel answers into one final answer."` is complete.
 
 ## 9. Reducer execution
 
@@ -511,6 +539,16 @@ This route is legitimate SF execution behavior. It is distinct from adding an SF
 packager merely to reshape JSON.
 
 ## 10. One URL4 request per case
+
+`fusion.url4` is the canonical, shareable URL4 recipe template. It contains stable `panel_n`
+slots and an intentionally unbound `$question`, but no benchmark case or answer key. The compiler
+constructs this template with URL4's public builder/AST facade and renders it with URL4's
+certified renderer; it does not concatenate ad-hoc URL4 strings. `run.fusion_url4` preserves this
+same template.
+
+For execution, the SDK adds one literal `question` binding to the template. Dollar signs in case
+input are escaped as URL4 literal data; dollar references in researcher-authored prompt templates
+remain active. The resulting concrete expression is still one request.
 
 One selected case produces one complete URL4 expression containing the question binding, panel
 fan-out, reducer, and final result structure. Conceptually:
@@ -585,7 +623,15 @@ payload = json.loads(response.text)
 ```
 
 The SDK validates the schema, expected member slots, model IDs, member answers, and final answer.
-It never guesses or repairs an invalid engine result.
+It rejects missing or additional fields, missing or unexpected slots, wrong model IDs, and blank
+member/final answers. It reconstructs member order from the expected numeric panel slots rather
+than trusting JSON object insertion order. It preserves accepted answer text exactly and never
+guesses or repairs an invalid engine result.
+
+A model reducer compiles to another ordinary model route. Its context contains the resolved
+question and labeled panel answers in the stable format defined in §8; its intent is
+`reducers.Model.prompt`, and its declared model parameters become route query parameters. The
+final response structure is identical for model and deterministic reducers.
 
 ## 11. Preflight
 
@@ -632,46 +678,72 @@ run.failures
 run.complete
 ```
 
+Both forms are supported:
+
+```python
+fusion.run("gpqa@1", first=20)  # loads the advertised benchmark
+fusion.run(benchmark, first=20) # uses an existing local/loaded definition
+```
+
+`first` is either `None` (all cases) or a positive integer selecting the canonical prefix. It does
+not reshuffle cases, and values larger than the benchmark simply select all available cases. There
+is no generation seed in the MVP.
+
 Each result preserves its selected case position:
 
 ```python
 result.case_id
-result.member_answers
+result.members["panel_1"].model
+result.members["panel_1"].answer
 result.answer
 result.failure
 ```
 
-A successful result has complete member answers and a final answer. A failed result has
-`answer=None`, empty member answers, and a failure. `run.failures` is a convenience view over
-failed results.
+`result.members` is an immutable mapping keyed by the `panel_n` call-slot ID. The key is the ID, so
+`MemberResult` contains only `model` and `answer`; it does not repeat an `id` field. A successful
+`CaseResult` has the complete expected member mapping, a non-blank final answer, and
+`failure=None`. A failed result has `answer=None`, an empty member mapping, and one `RunFailure`.
+
+`run.failures` is the stable tuple of those `RunFailure` values. Each exposes:
+
+```python
+failure.case_id
+failure.kind       # connection | timeout | http | url4 | protocol
+failure.message
+failure.status     # int | None
+failure.code       # str | None
+```
+
+`connection` means that the configured engine could not be reached. `timeout` includes a client
+deadline or the engine's structured 504 timeout. `url4` means a recognized structured execution
+error. `http` is an otherwise unrecognized non-success response. `protocol` means that a 200 body
+was not the exact plaintext `screamingface.fusion-result.v1` contract.
 
 Required panel/reducer failures invalidate the whole case. The SDK does not construct a partial
 fusion answer. URL4-native optional/quorum behavior can be added explicitly later.
 
 One case request is atomic but the selected benchmark run is not fail-fast. A failed case remains
-at its original selected position while unrelated cases continue under the bounded concurrency
-policy. Stable input order, not completion order, determines `run.results`.
-
-An internal immutable failure record distinguishes:
-
-```text
-connection  the configured engine could not be reached
-timeout     the complete case evaluation exceeded its deadline
-http        the engine returned an unrecognized non-success HTTP response
-url4        the engine returned a structured URL4 execution error
-protocol    a successful response was not valid plaintext Fusion-result JSON
-```
-
-The record preserves a safe message and, when available, the HTTP status and URL4 error code. It
-does not expose credentials, provider payloads, or a mutable exception object as public state.
+at its original selected position while every unrelated selected case is allowed to finish under
+the bounded concurrency policy. Stable input order, not completion order, determines
+`run.results`. Failures preserve safe messages and, when available, the HTTP status and URL4 error
+code; they never retain credentials, provider payloads, or mutable exception objects.
 
 Phase 2 performs no automatic SDK retry. This avoids silently duplicating paid model calls when a
 connection is interrupted after the engine or provider has already accepted work. A future retry
 policy must be explicit and idempotency-aware.
 
-Failed cases have `answer=None`, empty member answers, and no grading work. They are never repaired
+Failed cases have `answer=None`, an empty member mapping, and no grading work. They are never repaired
 with an empty string, converted to a zero score, or included in a partial success envelope.
 `run.complete` is true only when every selected case succeeds.
+
+`run.to_dict()` returns a JSON-compatible snapshot of the public run identity, ordered results,
+members, and failures. It excludes private benchmark references and live Python exceptions. The
+MVP does not add `save`, `load`, persistence, or resume behavior.
+
+`Fusion.run()` is synchronous and safe to call from a normal script or a notebook with an active
+event loop; bounded execution is an internal concern. Phase 2C does not implement
+`Fusion.evaluate()`, `Run.grade()`, or aggregation. Those arrive together in Phase 3 so
+`evaluate()` never temporarily means “run only.”
 
 ## 13. Grading
 
@@ -891,16 +963,16 @@ Concurrency is execution policy, not strategy configuration. MVP defaults are in
 - at most four benchmark cases in flight;
 - at most 32 rubric-judge requests in flight;
 - stable returned ordering regardless of completion order; and
-- cancellation of remaining work only for systemic engine/protocol failures.
+- no execution-time cancellation of unrelated selected cases.
 
-Retry policy is conservative:
+The Phase 2 run-stage retry policy is deliberately empty:
 
-- retry an engine `503` with `Retry-After` because it was rejected before execution;
-- do not automatically retry a whole fusion after timeout/upstream failure because paid model
-  calls may already have completed;
-- rubric validation retries repeat only the individual criterion call with the identical pinned
-  prompt; and
-- never append corrective instructions to an official judge prompt.
+- do not retry 503, timeout, connection, upstream, URL4, or protocol failures automatically; and
+- record the one observed failure at its original case position.
+
+This avoids silently duplicating paid work and keeps Phase 2 behavior predictable. Any future
+retry policy must be explicit and idempotency-aware. Rubric-judge retry behavior is reviewed with
+Phase 3 rather than being implied by the run stage.
 
 Future execution methods may accept `concurrency=...`; strategy constructors must not.
 

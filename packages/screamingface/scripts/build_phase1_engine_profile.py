@@ -19,8 +19,8 @@ advertises, and construct the immutable values used by later execution phases.
 
 **This is the Phase 1 discovery walkthrough—not the product quickstart.** It covers engine
 configuration, model and benchmark discovery, benchmark loading, local benchmark definitions,
-and Fusion authoring. It deliberately does not call the Phase 2A model routes. SDK Fusion
-execution arrives in Phase 2C.
+and Fusion authoring. It deliberately does not call the model routes. SDK Fusion execution now
+exists in Phase 2C, but remains outside this discovery-focused walkthrough.
 
 ## Before you run it
 
@@ -193,10 +193,10 @@ You have now exercised everything Phase 1 promises:
 - define a local benchmark with the same public types; and
 - author an immutable Fusion.
 
-This walkthrough deliberately stops before `fusion.run(...)` and `fusion.evaluate(...)`. Phase 2B
-now supplies persistent tool-free model routes, the deterministic majority-vote route, and
-`GET /v1?q=...`; Phase 2C adds SDK URL4 compilation, plaintext result validation, and in-memory run
-results.
+This walkthrough deliberately stops before `fusion.run(...)`. Phase 2B supplies persistent
+tool-free model routes, the deterministic majority-vote route, and `GET /v1?q=...`; Phase 2C now
+supplies SDK URL4 compilation, plaintext result validation, and in-memory run results. Grading,
+aggregation, and `fusion.evaluate(...)` remain Phase 3.
 The SDK will continue to contact only the URL4 engine; only the engine's model adapter may contact
 AI Gateway."""
         ),

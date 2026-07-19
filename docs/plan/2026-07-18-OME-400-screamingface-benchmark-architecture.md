@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 2B deterministic reducer implemented; Phase 2C next
+**Status:** Phase 2C implemented; Phase 3 contract review next
 **Date:** 2026-07-18  
 **Normative contract:**
 [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
@@ -185,24 +185,34 @@ Gateway client, plaintext extraction, unprefixed benchmark resources, admission 
 whole-evaluation timeout. Its registry is intentionally tool-free and excludes the unavailable
 `gemini/3.1-pro-preview` route. Phase 2B now adds the SDK-owned exact-string majority selector,
 its in-process `/reducers/majority-vote` adapter, complete-expression coverage, and no-mock Docker
-topology proof. Phase 2C adds SDK compilation and `Run` orchestration.
+topology proof. Phase 2C now implements the approved compiler and in-memory `Run` stage.
 
 SDK:
 
-- URL4 compilation from string and mapping model specifications;
+- canonical `fusion.url4` template compilation from string and mapping model specifications using
+  URL4's public builder/AST facade and certified renderer;
 - stable `panel_1`, `panel_2`, ... identities;
+- the question as member context and the member prompt as intent, with the minimal default
+  `"Answer the question."`;
+- automatic labeled question/panel context for model reducers;
 - one complete Fusion expression per case;
 - HTTP evaluation through only `GET /v1?q=...`;
 - plaintext JSON parsing and strict `screamingface.fusion-result.v1` validation;
 - deterministic reducer routing and model-reducer compilation;
 - bounded case concurrency (initial policy: four); and
-- immutable in-memory `Run` results and failures.
+- immutable in-memory `Run`, `CaseResult`, `MemberResult`, and `RunFailure` values with
+  JSON-compatible `run.to_dict()`.
 
 Each case evaluation is atomic. Any required panel or reducer failure invalidates that case; the
 engine returns a non-success URL4 response rather than a partial Fusion envelope. The SDK records
 the failure at the case's original position and continues other selected cases. It never converts
 missing work to an empty answer or zero score, never grades a failed run case, and performs no
-automatic Phase 2 retry that could duplicate paid model calls.
+automatic Phase 2 retry—including 503—that could duplicate paid model calls. Once execution
+begins, it does not cancel unrelated selected cases.
+
+`Fusion.run(str | Benchmark, first=...)` is synchronous and notebook-safe. `first` selects only a
+stable canonical prefix; there is no seed. Phase 2C deliberately does not add `evaluate()`,
+grading, aggregation, persistence, resume, public concurrency controls, or retry controls.
 
 Persistent screamingface-engine:
 
@@ -245,8 +255,10 @@ whole-evaluation deadline expires.
 Phase 2B's Docker smoke proves a complete literal URL4 reducer expression through the real
 persistent container and proves that a model route reaches the real AI Gateway service (a
 credential-free Gateway error is an acceptable topology result). No runtime mock or route-handler
-subprocess participates. The full SDK -> persistent engine -> AI Gateway success path remains a
-Phase 2C completion gate because Phase 2B intentionally exposes no SDK compiler yet.
+subprocess participates. Phase 2C extends that smoke through public `Fusion.run()`: it proves the
+SDK -> persistent engine -> AI Gateway topology and either validates a provider-backed result or
+the expected atomic credential-free failure. Successful provider-backed expression evaluation is
+also covered at the real persistent-node boundary with a controlled Gateway transport.
 
 Phase 2 is complete when real HTTP contract tests cover model and deterministic reducers,
 malformed plaintext, partial failures, stable result ordering, parameter translation, and no
@@ -419,8 +431,6 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review Phase 2C, then implement SDK URL4 compilation, strict plaintext result validation, bounded
-case orchestration, and immutable `Run` values. Its Docker completion gate extends the Phase 2B
-engine/Gateway topology proof into the full SDK -> engine -> AI Gateway path. Keep grading,
-authentication, persistence, named tools, and public tutorial regeneration in their later reviewed
-phases.
+Review and lock the Phase 3 grading and aggregation contract before changing runtime code. Keep
+authentication, persistence, named tools, and public tutorial regeneration in their later
+reviewed phases.

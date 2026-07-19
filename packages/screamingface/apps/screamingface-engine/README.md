@@ -45,7 +45,7 @@ breaks ties by numeric panel position. It returns only the winning text and neve
 Gateway. Nonempty intent, parameters, missing panels, non-string values, and blank answers are
 permanent URL4 `malformed_source` errors.
 
-Phase 2A intentionally supports tool-free model requests only. The registry does not claim
+The current development profile intentionally supports tool-free model requests only. The registry does not claim
 `web_search`, and `gemini/3.1-pro-preview` is not advertised because AI Gateway does not currently
 register that model identifier. DRACO remains discoverable and declares its unmet requirements;
 it becomes runnable only after those real capabilities exist.
@@ -96,13 +96,15 @@ curl -G http://127.0.0.1:4404/codex/gpt-5.5 \
 
 cd ../..
 uv run python apps/screamingface-engine/scripts/smoke_phase2b.py
+uv run python apps/screamingface-engine/scripts/smoke_phase2c.py
 ```
 
-The Phase 2B smoke uses no mocked runtime component. Set `SCREAMINGFACE_ENGINE_URL` when the stack
-uses an overridden host port. Its literal Fusion expression requires no
-provider credentials. Its separate model-route check accepts either a real provider response or
-the engine's propagated credential-free AI Gateway error, proving the container topology without
-claiming an authorized provider call.
+Neither smoke uses a mocked runtime component. Set `SCREAMINGFACE_ENGINE_URL` when the stack uses
+an overridden host port. Phase 2B sends a literal reducer expression. Phase 2C constructs the
+public SDK values, compiles the canonical recipe and concrete case expression, then invokes
+`Fusion.run()`. It accepts either a validated provider-backed result or the engine's propagated
+credential-free AI Gateway failure, proving the container topology without claiming an authorized
+provider call.
 
 Stop the stack:
 

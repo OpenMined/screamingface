@@ -87,6 +87,13 @@ def load_registry() -> Registry:
 def load_benchmark(benchmark_id: str) -> Benchmark:
     requested = _nonempty(benchmark_id, "benchmark ID")
     registry = load_registry()
+    return load_benchmark_from_registry(requested, registry)
+
+
+def load_benchmark_from_registry(benchmark_id: str, registry: Registry) -> Benchmark:
+    """Load one benchmark using an already validated registry snapshot."""
+
+    requested = _nonempty(benchmark_id, "benchmark ID")
     record = next((item for item in registry.benchmarks if item.id == requested), None)
     if record is None:
         raise UnknownBenchmarkError(f"unknown benchmark {requested!r}")

@@ -92,3 +92,36 @@ Implemented deterministic Fusion reduction through the persistent engine:
 
 Phase 2B does not add SDK URL4 compilation, `Run`, grading, aggregation, tools, authentication,
 automatic retries, or runtime mocks. Those boundaries remain in their reviewed later phases.
+
+## Phase 2C contract approval — 2026-07-19
+
+Approved the greenfield compiler and run-stage contract before runtime implementation:
+
+- `fusion.url4` is a canonical parameterized recipe built and rendered through URL4's public SDK
+  facade;
+- member questions are context, member prompts are intent, and model reducers automatically
+  receive a stable labeled question/panel context;
+- `fusion.run(str | Benchmark, first=...)` returns typed immutable `Run`, `CaseResult`,
+  `MemberResult`, and `RunFailure` values;
+- strict plaintext result validation never repairs partial or malformed engine output;
+- four cases may run concurrently while results retain canonical order;
+- Phase 2C performs no retries or execution-time cancellation of unrelated cases; and
+- grading, `evaluate()`, persistence, budgets, authentication, tools, and public execution-policy
+  controls remain deferred.
+
+## Phase 2C implementation — 2026-07-19
+
+Implemented the approved SDK run boundary:
+
+- canonical parameterized `fusion.url4` recipes and concrete per-case expressions built through
+  URL4's public AST/builder facade and renderer;
+- stable member slots, automatic model-reducer context, and exact majority-vote routing;
+- registry, model, reducer, tool, case, reference, and response-schema preflight;
+- one `GET /v1?q=...` request per selected case with four-way bounded concurrency, stable result
+  order, and no retries;
+- strict plaintext `screamingface.fusion-result.v1` decoding with atomic typed failures; and
+- immutable `Run`, `CaseResult`, `MemberResult`, and `RunFailure` records plus `run.to_dict()`.
+
+The no-runtime-mock Docker smoke now exercises public `Fusion.run()` through the persistent URL4
+node and AI Gateway topology. Grading, aggregation, `evaluate()`, tools, authentication,
+persistence, and public execution-policy controls remain deferred.

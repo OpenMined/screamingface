@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import httpx
 import pytest
+import screamingface as sf
 from screamingface import Case
+from screamingface._compiler import compile_fusion
 from url4 import Request, ResolutionError
 
 from screamingface_engine.app import create_app
@@ -107,7 +110,7 @@ async def test_reducer_route_and_complete_literal_expression_return_plaintext() 
 
 @pytest.mark.asyncio
 async def test_complete_model_and_reducer_expression_makes_only_panel_gateway_calls() -> None:
-    requests: list[dict[str, object]] = []
+    requests: list[dict[str, Any]] = []
     answers = {
         "codex/gpt-5.5": "A",
         "gemini-cli/gemini-2.5-pro": "B",
@@ -152,6 +155,98 @@ async def test_complete_model_and_reducer_expression_makes_only_panel_gateway_ca
         "gemini-cli/gemini-2.5-pro",
         "anthropic/claude-sonnet-4-6",
     ]
+
+
+@pytest.mark.asyncio
+async def test_sdk_compiler_expression_executes_on_the_persistent_node() -> None:
+    answers = {
+        "codex/gpt-5.5": "A",
+        "gemini-cli/gemini-2.5-pro": "B",
+        "anthropic/claude-sonnet-4-6": "A",
+    }
+
+    async def gateway_handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": answers[payload["model"]]}}]},
+        )
+
+    fusion = sf.Fusion(
+        "compiled",
+        ["codex/gpt-5.5", "gemini/2.5", "claude/sonnet-4.6"],
+        reducer=sf.reducers.MajorityVote(),
+    )
+    expression = compile_fusion(fusion, question="Choose A or B")
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(gateway_handler),
+    )
+    transport = httpx.ASGITransport(app=_app(gateway))
+    async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
+        response = await client.get("/v1", params={"q": expression})
+    await gateway.aclose()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "schema": "screamingface.fusion-result.v1",
+        "members": {
+            "panel_1": {"model": "codex/gpt-5.5", "answer": "A"},
+            "panel_2": {"model": "gemini/2.5", "answer": "B"},
+            "panel_3": {"model": "claude/sonnet-4.6", "answer": "A"},
+        },
+        "answer": "A",
+    }
+
+
+@pytest.mark.asyncio
+async def test_sdk_model_reducer_receives_resolved_question_and_labeled_answers() -> None:
+    requests: list[dict[str, Any]] = []
+
+    async def gateway_handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload)
+        system = payload["messages"][0]["content"]
+        if system == "Synthesize the panel answers.":
+            answer = "combined"
+        elif payload["model"] == "codex/gpt-5.5":
+            answer = "alpha"
+        else:
+            answer = "beta"
+        return httpx.Response(200, json={"choices": [{"message": {"content": answer}}]})
+
+    fusion = sf.Fusion(
+        "compiled-model-reducer",
+        ["codex/gpt-5.5", "gemini/2.5"],
+        reducer=sf.reducers.Model(
+            model="codex/gpt-5.5",
+            prompt="Synthesize the panel answers.",
+        ),
+    )
+    expression = compile_fusion(fusion, question="Research question")
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(gateway_handler),
+    )
+    transport = httpx.ASGITransport(app=_app(gateway))
+    async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
+        response = await client.get("/v1", params={"q": expression})
+    await gateway.aclose()
+
+    reducer_request = next(
+        request
+        for request in requests
+        if request["messages"][0]["content"] == "Synthesize the panel answers."
+    )
+    assert reducer_request["messages"][1]["content"] == (
+        "Question:\nResearch question\n\nPanel answers:\n"
+        "Panel 1 [codex/gpt-5.5]:\nalpha\n\n"
+        "Panel 2 [gemini/2.5]:\nbeta"
+    )
+    assert response.status_code == 200
+    assert response.json()["answer"] == "combined"
 
 
 @pytest.mark.asyncio

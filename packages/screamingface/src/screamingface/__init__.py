@@ -18,18 +18,23 @@ from screamingface.errors import (
 from screamingface.fusion import Fusion
 from screamingface.graders import Grader
 from screamingface.reducers import Reducer
+from screamingface.run import CaseResult, MemberResult, Run, RunFailure
 
 __all__ = [
     "Aggregator",
     "Benchmark",
     "Case",
+    "CaseResult",
     "EngineConnectionError",
     "EngineProfileError",
     "EngineProtocolError",
     "Fusion",
     "Grader",
     "InvalidBenchmarkError",
+    "MemberResult",
     "Reducer",
+    "Run",
+    "RunFailure",
     "ScreamingFaceError",
     "UnknownBenchmarkError",
     "UnknownModelError",

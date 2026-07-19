@@ -1,12 +1,17 @@
-"""Network-free Fusion authoring; URL4 compilation arrives in Phase 2."""
+"""Network-free Fusion authoring plus URL4-backed run orchestration."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from screamingface.model_inputs import ModelInput, _FusionMember, normalize_model_inputs
 from screamingface.reducers import Reducer
+
+if TYPE_CHECKING:
+    from screamingface.benchmark import Benchmark
+    from screamingface.run import Run
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -25,7 +30,7 @@ class Fusion:
         models: Sequence[ModelInput],
         reducer: Reducer,
         *,
-        prompt: str = "$question",
+        prompt: str = "Answer the question.",
     ) -> None:
         if not isinstance(name, str) or not name.strip():
             raise ValueError("fusion name must not be empty")
@@ -43,3 +48,23 @@ class Fusion:
     @property
     def models(self) -> tuple[ModelInput, ...]:
         return tuple(member.to_model_input() for member in self._members)
+
+    @property
+    def url4(self) -> str:
+        """Canonical parameterized URL4 recipe with an unbound ``$question``."""
+
+        from screamingface._compiler import compile_fusion
+
+        return compile_fusion(self)
+
+    def run(
+        self,
+        benchmark: str | Benchmark,
+        *,
+        first: int | None = None,
+    ) -> Run:
+        """Run selected benchmark cases through only the configured URL4 engine."""
+
+        from screamingface._execution import run_fusion
+
+        return run_fusion(self, benchmark, first=first)
