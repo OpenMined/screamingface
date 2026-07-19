@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 5A DRACO SDK walkthrough implemented; remaining tutorial review next
+**Status:** Phase 5B bare-bones quickstart implemented; architecture tutorial review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -431,7 +431,7 @@ the current notebooks. Cover:
 - model and benchmark discovery;
 - Fusion construction in Python;
 - explicit stage inspection;
-- custom local benchmark definitions; and
+- custom local benchmark definitions;
 - a clearly labeled DRACO SDK walkthrough; and
 - later, a full DRACO reproduction only after the complete benchmark-pipeline model lineup is
   executable.
@@ -457,6 +457,17 @@ single case. The walkthrough is a valid evaluation of that named Fusion, not a r
 the benchmark pipeline's seven standalone models and nine named fusions. Full reproduction remains
 gated on the complete registered panel/synthesizer lineup plus separately reviewed persistence and
 cost assumptions.
+
+**Phase 5B is implemented:** `examples/00_quickstart.ipynb` is the shortest supported product path.
+It configures one engine, constructs one three-member Fusion with `MajorityVote`, evaluates five
+canonical `gpqa@1` cases, and reads `score`, `baseline`, and `gain`. It does not show model or
+benchmark discovery, raw URL4, registry/response schemas, explicit execution stages, custom
+benchmarks, or private APIs; those belong in deeper walkthroughs.
+
+The five-case example implies 15 provider-backed member calls and no model-backed grading or
+reduction. Until enforceable budgets exist, the one live `evaluate(...)` call defaults off and
+creates no substitute report. The quickstart still documents the local Docker stack, caller-owned
+Hugging Face access, and external provider-credential prerequisite.
 
 Before promoting the temporary package-development app, agree the engine profile's final
 location and ownership. If it moves to `apps/screamingface-engine`, preserve the same external

@@ -410,3 +410,30 @@ Implemented the approved generated DRACO SDK walkthrough:
 
 The artifact is output-free and makes no full-reproduction claim. No SDK runtime, engine, URL4,
 AI Gateway, authentication, persistence, or budget behavior changed.
+
+## Phase 5B contract approval — 2026-07-19
+
+Approved the public quickstart as one concise configure → compose → evaluate → compare path:
+
+- use the current three executable model routes with `sf.reducers.MajorityVote()`;
+- evaluate five canonical `gpqa@1` cases through one `fusion.evaluate(...)` call;
+- teach only `score`, `baseline`, and `gain` after evaluation;
+- document the Docker, Hugging Face, provider-access, and 15-model-call prerequisites;
+- keep the live call disabled initially without constructing a substitute report; and
+- omit discovery, raw URL4, response schemas, manual stages, custom benchmarks, and private APIs.
+
+The notebook is a generated, output-free artifact and introduces no SDK runtime or engine change.
+
+## Phase 5B implementation — 2026-07-19
+
+Implemented the approved generated bare-bones quickstart:
+
+- added `examples/00_quickstart.ipynb` and its deterministic builder;
+- reduced the product path to engine configuration, one three-member majority-vote Fusion, one
+  five-case GPQA evaluation, and one `score`/`baseline`/`gain` comparison;
+- kept the 15 model calls behind a default-off live switch without a substitute report;
+- documented only the Docker, Hugging Face, and provider-access prerequisites needed to run it;
+- excluded discovery, raw URL4, response schemas, manual stages, and private APIs; and
+- added append-only notebook contract tests and CI regeneration enforcement.
+
+No SDK runtime, engine, URL4, AI Gateway, authentication, persistence, or budget behavior changed.

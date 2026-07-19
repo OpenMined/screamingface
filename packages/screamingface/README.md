@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 5A
+## Current implementation: Phase 5B
 
 The SDK currently supports:
 
@@ -61,6 +61,11 @@ direct callers that exceed it.
 
 ## Walkthrough notebooks
 
+[`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb) is the shortest public path. It
+configures the engine, constructs one three-member majority-vote Fusion, evaluates five canonical
+GPQA cases, and compares `score`, `baseline`, and `gain`. Its provider-backed cell defaults off
+until the researcher confirms the documented 15-call example.
+
 [`examples/phase_1_engine_profile.ipynb`](examples/phase_1_engine_profile.ipynb) is the executable
 setup and discovery guide. It shows the registry plaintext, the separate model and benchmark
 catalogs, local canonical benchmark loading, local benchmark construction, and network-free
@@ -72,8 +77,8 @@ uses the pinned `draco@1` definition, shows a compatible web-research Fusion, an
 require hundreds of judge calls. It is not presented as the benchmark pipeline's full model-lineup
 reproduction.
 
-The public quickstart and architecture guide remain later Phase 5 artifacts; no superseded
-notebook is retained as API documentation.
+The architecture guide remains a later Phase 5 artifact; no superseded notebook is retained as
+API documentation.
 
 ## Start the development engine
 
@@ -125,13 +130,14 @@ From `packages/screamingface` in another terminal:
 
 ```bash
 uv sync --extra notebook
-uv run --extra notebook jupyter lab examples/phase_1_engine_profile.ipynb
+uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
 # or
-uv run --extra notebook jupyter lab examples/05_draco.ipynb
+uv run --extra notebook jupyter lab examples/phase_1_engine_profile.ipynb
 ```
 
-The notebooks are generated from `scripts/build_phase1_engine_profile.py` and
-`scripts/build_draco_walkthrough.py`; edit the generators rather than notebook JSON.
+The notebooks are generated from `scripts/build_quickstart.py`,
+`scripts/build_phase1_engine_profile.py`, and `scripts/build_draco_walkthrough.py`; edit the
+generators rather than notebook JSON.
 
 ## Current API example
 
