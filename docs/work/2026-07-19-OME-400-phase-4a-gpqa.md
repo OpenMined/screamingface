@@ -47,6 +47,5 @@ The live verification returned 198 cases, beginning with `rec06pnAkLOr2t2mp` and
 - the ScreamingFace sdist and wheel built successfully.
 
 The engine no longer publishes benchmark manifests or case routes and does not receive
-`HF_TOKEN`. Phase 4B is the review-first hidden canonical DRACO source slice. DRACO remains absent
-from the SDK catalog until its local definition is complete; later tool and judge work determines
-whether the configured engine can execute it.
+`HF_TOKEN`. Phase 4B subsequently added the canonical DRACO source definition to the SDK catalog;
+later tool and judge work determines whether the configured engine can execute it.

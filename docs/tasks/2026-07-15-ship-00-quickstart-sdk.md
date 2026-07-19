@@ -235,8 +235,8 @@ the live README and CI instructions to describe only the Dockerized HTTP engine 
 The runtime now requires an origin-only engine configuration, uses strict duplicate-key JSON at
 every engine boundary, and captures each Run's exact selected cases so grading cannot reload
 changed references. The engine registry now advertises only executable models and reducers;
-benchmark definitions and data are SDK-local. DRACO remains absent from the SDK catalog until
-Phase 4 supplies its canonical definition, while execution also requires its real judge route and
+benchmark definitions and data are SDK-local. DRACO entered the SDK catalog in Phase 4B after
+its canonical definition passed, while execution still requires its real judge route and
 `web_search` adapter. Historical task/work ledgers remain explicitly labelled audit evidence, and the
 untracked `packages/screamingface/examples/draco-eval-demo/` reference remains untouched.
 
@@ -248,16 +248,17 @@ Approved the canonical GPQA/DRACO publication contract without changing runtime 
   SHA-256 option permutations, exact MCQ formatting, and source domain metadata;
 - DRACO pins the dataset revision and raw digest, preserves its 100-case source order, and
   validates its full 3,934-criterion rubric corpus before publication;
-- `draco@1` follows the executable benchmark pipeline with three passes, the exact Appendix F.5
-  prompt, Gemini 3.1 public route, temperature/reasoning/token parameters, and 32-way judge work;
+- `draco@1` follows the executable benchmark pipeline with three passes, the byte-pinned Appendix
+  C.5 prompt, Gemini 3.1 public route, and temperature/reasoning/token parameters;
 - incomplete verdict coverage remains invalid under the SDK's stricter no-missing-work contract;
 - `web_search` is injected only onto answer-producing members and represents engine-owned search
   plus source fetching, with benchmark-source leakage blocked; and
-- DRACO remains absent from discovery until its judge, named tool, at least one complete Fusion,
-  and real SDK -> engine -> Gateway -> provider path all pass acceptance tests.
+- DRACO enters SDK-local discovery once its canonical definition is valid; evaluation remains
+  blocked until its judge, named tool, at least one complete Fusion, and real SDK -> engine ->
+  Gateway -> provider path pass acceptance tests.
 
-The reviewed implementation is split into canonical GPQA, hidden canonical DRACO, tools, judge,
-and conditional-advertisement slices. Each still requires owner approval before runtime changes.
+The reviewed implementation is split into canonical GPQA, canonical DRACO, tools, and judge
+slices. Each still requires owner approval before runtime changes.
 See `docs/work/2026-07-19-OME-400-phase-4-contract.md` for the complete decision and gap record.
 
 ## Phase 4A implementation — 2026-07-19
@@ -278,4 +279,25 @@ Implemented the approved canonical SDK-local GPQA slice:
   is preserved without compromising the tagged correct-answer reference.
 
 The engine no longer needs the researcher's Hugging Face token or serves answer-bearing case
-routes. DRACO remains hidden. Phase 4B contract review is next after the revised gates pass.
+routes. Phase 4B subsequently added DRACO locally; engine execution remains blocked.
+
+## Phase 4B implementation — 2026-07-19
+
+Implemented the approved canonical SDK-local DRACO definition:
+
+- pinned `perplexity-ai/draco` test split at revision
+  `ce076749809027649ebd331bcb70f42bf720d387` and cached one successful normalized tuple per
+  researcher process;
+- validates all 100 source-order UUID rows, the exact ten-domain set, 400 four-per-case sections,
+  and 3,934 criteria before returning the Benchmark;
+- parses rubric JSON with recursive duplicate-key rejection and validates exact root, section, and
+  criterion fields, local identities, nonblank text, and finite nonzero signed weights;
+- maps `problem` to `Case.input`, the complete parsed rubric to the sealed reference, and `domain`
+  to metadata without exposing any source through the engine;
+- embeds and byte-pins the official 5,196-byte Appendix C.5 per-criterion prompt;
+- configures the pipeline-aligned Gemini 3.1 judge, three passes, and approved parameters;
+- exposes `draco@1` from the SDK catalog with `tools=("web_search",)`; and
+- proves the current engine fails capability preflight without sending an evaluation request.
+
+Phase 4B makes no engine, compiler, tool-injection, concurrency, notebook, URL4, or AI Gateway
+change. Phase 4C member-only tool compilation review is next.

@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 4A
+## Current implementation: Phase 4B
 
 The SDK currently supports:
 
@@ -165,10 +165,11 @@ report = fusion.evaluate(benchmark)
 Construction and `fusion.url4` are network-free. Model discovery and execution contact only the
 configured URL4 engine. Benchmark discovery is package-local; loading `gpqa@1` uses the caller's
 Hugging Face session and returns ordinary immutable SDK values. `fusion.run("gpqa@1", first=20)`
-is shorthand for local load followed by engine execution over a stable prefix. The current engine
-registry deliberately advertises no tools. DRACO remains unavailable as a canonical built-in
-until its local source definition is pinned and the engine supplies a tested `web_search` adapter
-and configured judge route. The SDK's generic Rubric implementation is already complete.
+is shorthand for local load followed by engine execution over a stable prefix. The SDK now
+installs both `gpqa@1` and `draco@1`; DRACO can be loaded and inspected locally. The current engine
+registry deliberately advertises no tools, so it cannot yet execute DRACO. Execution requires a
+tested `web_search` adapter and configured judge route. The SDK's generic Rubric implementation
+is already complete.
 
 ## Validation
 

@@ -851,7 +851,7 @@ For `draco@1`, one criterion and one pass produce one model expression:
       <query>...</query>
       <response>...</response>
     )!
-    '<exact DRACO Appendix F.5 judge prompt>'
+    '<official DRACO Appendix C.5 per-criterion judge prompt>'
 )
 ```
 
@@ -870,8 +870,8 @@ answer. Because the Fusion and all three members are graded, a three-member DRAC
 means 480 judge calls. Those calls may execute concurrently under the SDK's bounded execution
 policy.
 
-The system prompt is the paper's Appendix F.5 text, not Appendix C.5. Its pinned UTF-8 bytes are
-5,196 bytes with SHA-256
+The system prompt is the official per-criterion text identified as Appendix C.5 by the executable
+pipeline and open-source harness. Its pinned UTF-8 bytes are 5,196 bytes with SHA-256
 `dbc1ae32e32be6fbc47180b4a246b997d299bb0e25373a8cde87c6461cb2397b`. `draco@1`
 deliberately matches the executable benchmark/OpenRouter pipeline's three-pass protocol while
 using the public `gemini/3.1-pro-preview` engine identity. The paper's five-pass Gemini 3 run is a
@@ -1117,7 +1117,7 @@ before judge spend. An exact-choice response that is merely wrong or unparseable
 Concurrency is execution policy, not strategy configuration. MVP defaults are internal:
 
 - at most four benchmark cases in flight;
-- at most 32 rubric-judge requests in flight for the pipeline-aligned DRACO publication;
+- at most 16 rubric-judge requests in flight under the current SDK and engine admission policy;
 - stable returned ordering regardless of completion order; and
 - no execution-time cancellation of unrelated selected cases.
 
@@ -1191,7 +1191,7 @@ The first implementation is accepted when:
 10. `web_search` demonstrably searches and opens/fetches source content through an allowlisted
     engine adapter.
 11. `draco@1` grading uses one URL4 model request per criterion/pass with the pinned three-pass
-   Appendix F.5 configuration.
+   official per-criterion configuration.
 12. success bodies are parsed from text and validated strictly.
 13. missing work never becomes a zero score.
 14. headline comparisons use a common paired case set.
@@ -1206,5 +1206,6 @@ Phase 3D: public grading values, deterministic ExactChoice, complete `Run.grade(
 orchestration, strict judge parsing, validation-only retries, retained evidence, paired Mean
 aggregation, immutable reports, and the exact `Fusion.evaluate()` facade. The current engine
 profile cannot execute DRACO. Phase 4A implemented the canonical pinned SDK-local GPQA definition
-on 2026-07-19. The remaining Phase 4 slices must add the hidden canonical DRACO definition,
-`gemini/3.1-pro-preview`, working `web_search`, and SDK catalog exposure.
+on 2026-07-19. Phase 4B added the canonical SDK-local DRACO definition and catalog exposure on
+2026-07-19. The remaining Phase 4 slices must add member-only tool compilation,
+`gemini/3.1-pro-preview`, and working `web_search` engine capabilities.

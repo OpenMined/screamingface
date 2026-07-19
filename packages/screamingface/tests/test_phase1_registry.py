@@ -65,9 +65,9 @@ def test_engine_model_discovery_and_sdk_benchmark_discovery_are_separate() -> No
         assert sf.models.list() == ["codex/gpt-5.5", "gemini/2.5"]
         assert sf.models.list(query="GEMINI", limit=1) == ["gemini/2.5"]
         assert sf.models.list(tools=["web_search"]) == ["codex/gpt-5.5"]
-        assert sf.benchmarks.list() == ["gpqa@1"]
+        assert sf.benchmarks.list() == ["gpqa@1", "draco@1"]
         assert sf.benchmarks.list(query="GPQA") == ["gpqa@1"]
-        assert sf.benchmarks.list(tools=["web_search"]) == []
+        assert sf.benchmarks.list(tools=["web_search"]) == ["draco@1"]
 
 
 def test_benchmark_discovery_does_not_contact_the_engine(
@@ -79,7 +79,7 @@ def test_benchmark_discovery_does_not_contact_the_engine(
         lambda *_args, **_kwargs: pytest.fail("benchmark discovery contacted the engine"),
     )
 
-    assert sf.benchmarks.list() == ["gpqa@1"]
+    assert sf.benchmarks.list() == ["gpqa@1", "draco@1"]
     with pytest.raises(sf.UnknownBenchmarkError, match="missing@1"):
         sf.benchmarks.load("missing@1")
 

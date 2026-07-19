@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 4A canonical GPQA implemented; Phase 4B review next
+**Status:** Phase 4B canonical DRACO definition implemented; Phase 4C review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -356,11 +356,11 @@ answer and a distractor.
 
 `draco@1` follows the executable benchmark pipeline contract rather than claiming literal paper
 parity: judge route `gemini/3.1-pro-preview`, three passes, temperature `0.2`, reasoning `low`,
-`max_tokens=4096`, and the exact Appendix F.5 judge system prompt. The prompt is pinned by
+`max_tokens=4096`, and the official Appendix C.5 per-criterion judge system prompt. The prompt is pinned by
 SHA-256 `dbc1ae32e32be6fbc47180b4a246b997d299bb0e25373a8cde87c6461cb2397b` (5,196
 UTF-8 bytes). Every Fusion/member target receives one independent request per criterion per pass;
-invalid judge output alone gets up to two byte-identical retries. DRACO judge concurrency becomes
-32 to match the benchmark pipeline. The SDK retains its stricter publication rule: incomplete
+invalid judge output alone gets up to two byte-identical retries. Judge concurrency remains the
+SDK's internal 16-request bound until engine capacity is reviewed separately. The SDK retains its stricter publication rule: incomplete
 verdict coverage keeps the evidence but produces `score=None`.
 
 The DRACO benchmark declares `tools=("web_search",)`. The compiler adds that named capability
@@ -371,7 +371,7 @@ than forwarding the string blindly. The profile blocks access to benchmark rubri
 and result sources through this capability.
 
 The engine registry remains minimal and advertises only executable models and reducers. DRACO is
-absent from the SDK catalog until its local definition is complete; evaluating it additionally
+present in the SDK catalog now that its local definition is complete; evaluating it additionally
 requires the judge route and at least one complete compatible web-search Fusion end to end. The
 stronger Phase 5 reproduction gate additionally requires the complete benchmark-pipeline model
 lineup. Success bodies remain plaintext URL4 results; tool/cost telemetry, budgets, provider
@@ -523,9 +523,9 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review Phase 4B's hidden canonical DRACO SDK definition before changing runtime code. Later
-slices add named `web_search` and the judge route, then expose DRACO from the SDK catalog only
-after the local definition is complete. Keep authentication, persistence, budgets, telemetry, and notebook
+Review Phase 4C's member-only `web_search` compilation contract before changing runtime code.
+Later slices add the engine named-tool adapter and judge route. Keep authentication, persistence,
+budgets, telemetry, and notebook
 regeneration out of these runtime slices.
 
 The current local engine profile cannot execute DRACO: it lacks the

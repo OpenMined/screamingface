@@ -16,7 +16,7 @@ is implemented by this review.
 The DRACO behavior is based on the executable pipeline in
 `../screamingface-benchmarks/notebooks/pipeline_walkthrough.ipynb`, its canonical
 `benchmarks_config/draco.yaml`, and the code those entry points invoke. The paper is used to pin
-the Appendix F.5 judge prompt and explain the scoring method, but the `draco@1` identity does not
+the official Appendix C.5 per-criterion judge prompt and explain the scoring method, but the `draco@1` identity does not
 claim literal reproduction of the paper's five-pass Gemini 3 run.
 
 One inconsistency was resolved explicitly: the walkthrough notebook's inline configuration omits
@@ -65,7 +65,7 @@ The SDK-local benchmark definition declares:
 {
   "type": "rubric",
   "model": "gemini/3.1-pro-preview",
-  "prompt": "<exact Appendix F.5 text>",
+  "prompt": "<official Appendix C.5 per-criterion text>",
   "passes": 3,
   "params": {
     "temperature": 0.2,
@@ -81,8 +81,9 @@ engine ID is `gemini/3.1-pro-preview`; any Gateway/provider ID remains engine-pr
 
 Each captured Fusion or member answer produces one ordinary judge-model URL4 request for every
 criterion and pass. Context is the judge user text containing criterion type, requirement, query,
-and response. Intent is the exact Appendix F.5 system prompt. Criterion weights remain hidden.
-The SDK allows up to 32 judge requests concurrently for this publication.
+and response. Intent is the byte-pinned Appendix C.5 system prompt. Criterion weights remain hidden.
+The SDK retains its internal 16-request judge bound. Any increase must be reviewed with engine
+admission capacity and remains outside the benchmark definition.
 
 Invalid model output alone receives up to two byte-identical retries. Transport, HTTP, timeout,
 URL4, and engine-protocol failures are not retried by the SDK. Gateway/provider transient retries
@@ -116,8 +117,8 @@ The engine registry remains restricted to executable response schemas, models wi
 installed benchmark catalog owns IDs and local definitions; those definitions select grader,
 aggregator, and required tools.
 
-`draco@1` remains absent from the SDK catalog until its canonical local definition passes its
-invariants. It is runnable only when all of these are true:
+`draco@1` enters the SDK catalog once its canonical local definition passes its invariants. It is
+runnable only when all of these are true:
 
 1. the canonical local cases and benchmark definition pass their invariants;
 2. `gemini/3.1-pro-preview` is registered and works through AI Gateway;
@@ -136,9 +137,9 @@ complete seven-solo/nine-fusion lineup and should not be conflated with local ca
 - the current engine Gateway adapter rejects `tools`;
 - the current profile does not register `gemini/3.1-pro-preview` or advertise any tool support;
 - the current AI Gateway model registry does not expose the required Gemini 3.1 route;
-- the current SDK judge bound is 16 rather than the approved pipeline-aligned 32; and
-- the current DRACO reference text in normative material used five passes/Appendix C.5 and is
-  corrected by this review to three passes/Appendix F.5.
+- judge concurrency remains an internal 16-request execution policy rather than benchmark data;
+- the executable DRACO profile uses three passes and the byte-pinned Appendix C.5 prompt; this is
+  pipeline-aligned but does not claim literal paper parity with its five-pass judge setup.
 
 No URL4-core modification is authorized or required by this contract. Provider and Gateway gaps
 must be resolved through their owners or through the screamingface-engine's public integration
@@ -149,9 +150,9 @@ seams, not by patching `packages/url4`.
 Implementation still requires explicit owner approval for each slice:
 
 1. canonical pinned GPQA SDK definition and contract tests;
-2. hidden canonical DRACO SDK definition and contract tests;
+2. canonical DRACO SDK definition and contract tests;
 3. compiler member-only tool injection plus engine named-tool adapter and leakage tests;
-4. Gemini 3.1 judge route, three-pass/32-way integration, and plaintext parsing tests; and
-5. SDK catalog exposure plus complete Docker/provider-backed acceptance proof.
+4. Gemini 3.1 judge route, three-pass integration, and plaintext parsing tests; and
+5. complete Docker/provider-backed acceptance proof.
 
 Notebook regeneration and the full DRACO reproduction remain Phase 5.

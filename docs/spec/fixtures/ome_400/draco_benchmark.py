@@ -15,9 +15,9 @@ EXPECTED_DOMAINS = 10
 EXPECTED_SECTIONS_PER_CASE = 4
 EXPECTED_CRITERIA = 3_934
 
-# The publisher embeds the exact 5,196-byte Appendix F.5 prompt. The abbreviated
+# The definition embeds the official 5,196-byte Appendix C.5 prompt. The abbreviated
 # marker keeps this syntax fixture readable; the hash is the normative byte identity.
-DRACO_JUDGE_PROMPT = "<exact DRACO Appendix F.5 judge prompt>"
+DRACO_JUDGE_PROMPT = "<official DRACO Appendix C.5 per-criterion judge prompt>"
 DRACO_JUDGE_PROMPT_SHA256 = "dbc1ae32e32be6fbc47180b4a246b997d299bb0e25373a8cde87c6461cb2397b"
 
 
