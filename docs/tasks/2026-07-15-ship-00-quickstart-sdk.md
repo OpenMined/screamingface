@@ -471,3 +471,36 @@ Implemented the approved generated configuration and architecture guide:
 A temporary notebook copy ran top-to-bottom against the tracked Docker stack on isolated ports and
 returned the exact expected plaintext result. The isolated stack was removed afterwards without
 touching the owner's older containers. No SDK runtime, engine, URL4, or AI Gateway behavior changed.
+
+## Phase 5D contract approval — 2026-07-19
+
+Approved one generated discovery notebook with deliberately separate model and benchmark sources:
+
+- configure the ScreamingFace engine and list only its executable model IDs;
+- demonstrate the existing `query`, `tools`, and `limit` filters;
+- list only the canonical benchmark IDs installed in the SDK, without consulting the engine;
+- explain that benchmark loading materializes a typed definition and can fetch the source through
+  the researcher's ordinary Hugging Face access;
+- keep the GPQA load visible but disabled by default so Docker is the only runtime prerequisite;
+  and
+- exclude raw registry parsing, Fusion execution, provider calls, authentication UX, mocks, and
+  private APIs.
+
+The phase adds no runtime contract or summary/metadata API.
+
+## Phase 5D implementation — 2026-07-19
+
+Implemented the approved generated discovery guide:
+
+- added `examples/02_discovery.ipynb` and its deterministic builder;
+- showed engine-backed executable model IDs and SDK-local canonical benchmark IDs separately;
+- demonstrated `query`, `tools`, and `limit` against both list APIs without adding metadata;
+- documented that provider availability is not established by model discovery;
+- kept the real GPQA materialization call visible but disabled, with the researcher-owned Hugging
+  Face access boundary explained; and
+- added append-only contract tests, README navigation, and CI regeneration enforcement.
+
+The notebook ran top-to-bottom against the tracked Docker stack on isolated ports and returned the
+expected model and benchmark filter results without calling a provider or dataset. The isolated
+stack was removed afterwards without touching the owner's existing spike containers. No SDK
+runtime, engine, URL4, AI Gateway, authentication, or dataset behavior changed.

@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 5C
+## Current implementation: Phase 5D
 
 The SDK currently supports:
 
@@ -70,6 +70,10 @@ until the researcher confirms the documented 15-call example.
 and architecture guide. It shows the SDK/engine boundary, raw registry plaintext, validated model
 discovery, `fusion.url4` recipe semantics, and one real provider-free deterministic URL4 request.
 
+[`examples/02_discovery.ipynb`](examples/02_discovery.ipynb) separates engine-backed model
+discovery from SDK-local benchmark discovery. It demonstrates the shared `query`, `tools`, and
+`limit` filters, returns only IDs, and keeps the Hugging Face-backed GPQA load disabled by default.
+
 [`examples/05_draco.ipynb`](examples/05_draco.ipynb) is the real-engine DRACO SDK walkthrough. It
 uses the pinned `draco@1` definition, shows a compatible web-research Fusion, and separates
 `run -> grade -> aggregate`. Paid execution is explicitly disabled by default because one case can
@@ -131,10 +135,13 @@ uv sync --extra notebook
 uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
 # or
 uv run --extra notebook jupyter lab examples/01_architecture.ipynb
+# or
+uv run --extra notebook jupyter lab examples/02_discovery.ipynb
 ```
 
 The notebooks are generated from `scripts/build_quickstart.py`, `scripts/build_architecture.py`,
-and `scripts/build_draco_walkthrough.py`; edit the generators rather than notebook JSON.
+`scripts/build_discovery.py`, and `scripts/build_draco_walkthrough.py`; edit the generators rather
+than notebook JSON.
 
 ## Current API example
 

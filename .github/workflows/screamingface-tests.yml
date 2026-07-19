@@ -73,6 +73,11 @@ jobs:
           uv run --extra notebook python scripts/build_architecture.py
           git diff --exit-code -- examples/01_architecture.ipynb
 
+      - name: Regenerate Phase 5D discovery walkthrough
+        run: |
+          uv run --extra notebook python scripts/build_discovery.py
+          git diff --exit-code -- examples/02_discovery.ipynb
+
       - name: Regenerate Phase 5B quickstart
         run: |
           uv run --extra notebook python scripts/build_quickstart.py

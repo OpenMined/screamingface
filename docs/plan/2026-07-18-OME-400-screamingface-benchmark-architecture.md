@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 5C architecture notebook implemented; discovery tutorial review next
+**Status:** Phase 5D discovery notebook implemented; Fusion tutorial review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -480,6 +480,18 @@ The old `phase_1_engine_profile.ipynb`, its generator, and its CI regeneration s
 rather than retaining overlapping public documentation. The replacement must not load a
 benchmark, execute a model-backed Fusion, import a private compiler or engine implementation, or
 contact AI Gateway directly.
+
+**Phase 5D is implemented:** `examples/02_discovery.ipynb` teaches the two discovery boundaries without
+mixing in execution. Model IDs come from `sf.models.list(...)` against the configured engine and
+demonstrate the existing `query`, `tools`, and `limit` filters. Benchmark IDs come from the
+installed SDK through `sf.benchmarks.list(...)` with the same filters; listings remain plain IDs,
+not a new summary or metadata contract.
+
+The notebook explains that `sf.benchmarks.load("gpqa@1")` materializes the canonical typed
+definition and may fetch its source with the researcher's ordinary Hugging Face access. That load
+is visible but defaults off, so the generated notebook runs top-to-bottom with only the Docker
+stack. Raw registry inspection remains in the architecture notebook, and Fusion construction,
+evaluation, provider calls, authentication UX, mocks, and private APIs remain out of scope.
 
 Before promoting the temporary package-development app, agree the engine profile's final
 location and ownership. If it moves to `apps/screamingface-engine`, preserve the same external
