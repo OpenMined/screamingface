@@ -11,6 +11,7 @@ import httpx
 
 from screamingface._compiler import MAJORITY_VOTE_ROUTE, compile_fusion
 from screamingface._config import current_engine_url
+from screamingface._exact_choice import validate_exact_reference
 from screamingface._profile import (
     FUSION_RESULT_SCHEMA,
     Registry,
@@ -224,12 +225,11 @@ def _references(cases: Sequence[Case], benchmark: Benchmark) -> None:
         reference = case.reference
         if reference is None:
             raise InvalidBenchmarkError(f"case {case.id!r} has no grading reference")
-        if isinstance(benchmark.grader, ExactChoice) and (
-            not isinstance(reference, str) or not reference.strip()
-        ):
-            raise InvalidBenchmarkError(
-                f"case {case.id!r} exact-choice reference must be a non-empty string"
-            )
+        if isinstance(benchmark.grader, ExactChoice):
+            try:
+                validate_exact_reference(reference)
+            except (TypeError, ValueError) as exc:
+                raise InvalidBenchmarkError(f"case {case.id!r} {exc}") from exc
 
 
 def _first(value: int | None) -> int | None:

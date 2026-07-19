@@ -17,6 +17,7 @@ from screamingface.errors import (
 )
 from screamingface.fusion import Fusion
 from screamingface.graders import Grader
+from screamingface.grades import CaseGrades, CriterionVerdict, Grade, GradeFailure, Grades
 from screamingface.reducers import Reducer
 from screamingface.run import CaseResult, MemberResult, Run, RunFailure
 
@@ -24,12 +25,17 @@ __all__ = [
     "Aggregator",
     "Benchmark",
     "Case",
+    "CaseGrades",
     "CaseResult",
+    "CriterionVerdict",
     "EngineConnectionError",
     "EngineProfileError",
     "EngineProtocolError",
     "Fusion",
+    "Grade",
+    "GradeFailure",
     "Grader",
+    "Grades",
     "InvalidBenchmarkError",
     "MemberResult",
     "Reducer",

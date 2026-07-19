@@ -67,7 +67,12 @@ sf.CaseResult
 sf.MemberResult
 sf.RunFailure
 sf.Grades
+sf.CaseGrades
+sf.Grade
+sf.CriterionVerdict
+sf.GradeFailure
 sf.Report
+sf.MemberReport
 sf.models
 sf.benchmarks
 sf.reducers
@@ -753,30 +758,70 @@ event loop; bounded execution is an internal concern. Phase 2C does not implemen
 grades = run.grade()
 
 grades.benchmark_id
-grades.items
+grades.fusion_url4
+grades.grader
+grades.case_ids
+grades.results
 grades.failures
 grades.complete
+grades.to_dict()
 ```
 
-Each grade exposes:
+`grades.results` is a stable tuple in selected-case order. Each entry separates the Fusion grade
+from the grades for its ordered member slots:
 
 ```python
-grade.case_id
-grade.target       # "fusion", "panel_1", ...
-grade.score        # float in [0, 1] or None
+case = grades.results[0]
+
+case.case_id
+case.fusion             # sf.Grade | None
+case.members            # Mapping[str, sf.Grade]
+case.run_failure        # sf.RunFailure | None
+
+grade = case.fusion
+grade.score             # float in [0, 1] | None
 grade.metrics
 grade.coverage
 grade.verdicts
-grade.failure
+grade.failure           # sf.GradeFailure | None
+grade.valid
 ```
 
-Failed run cases are not sent to a grader. Missing or invalid grading evidence never becomes a
-zero or an `UNMET` verdict.
+The public inspection types are `sf.Grades`, `sf.CaseGrades`, `sf.Grade`,
+`sf.CriterionVerdict`, and `sf.GradeFailure`. They are immutable. Their mappings and tuples are
+immutable and preserve stable case, member, criterion, and pass ordering. `to_dict()` returns a
+JSON-compatible snapshot.
+
+A successful run case always contains a Fusion `Grade` and one `Grade` for every captured member,
+including invalid grades whose `score` is `None`. A failed run case has `fusion=None`, an empty
+member mapping, and its original `RunFailure`; it receives no grading work. `Grades.complete` is
+true only when every selected run case succeeded and every Fusion/member grade is valid.
+
+There is no public `targets=` option in the MVP. Grading every member is required for the paired
+comparison contract in §15. Grading uses the already-captured answers and never reruns a panel or
+reducer model.
 
 ### 13.1 Exact choice
 
-`sf.graders.ExactChoice()` parses the answer choice, compares it with `Case.reference`, produces
-`0.0` or `1.0`, and makes no engine request.
+`sf.graders.ExactChoice()` ports the proven MCQ answer-normalization behavior from the DRACO/GPQA
+benchmark harness into ScreamingFace; the SDK does not depend on that repository at runtime. It:
+
+- supports choice labels `A` through `J`, case-insensitively;
+- accepts common punctuation, wrappers, and Markdown;
+- recognizes explicit `answer`, `final answer`, `choice`, and `option` markers;
+- uses the last explicit conclusion when a response contains multiple candidates;
+- avoids false matches from the article `a`, the pronoun `I`, and text such as `E. coli`;
+- accepts numeric-string reference indices `"0"` through `"9"`; and
+- falls back to normalized full-text equality when neither side is a choice label.
+
+A literal integer reference is rejected rather than silently guessing whether it is zero- or
+one-based; benchmark publishers normalize references to strings. A non-blank but unparseable
+model response is a valid incorrect answer, not a protocol failure. An exact grade therefore has
+`score` equal to `0.0` or `1.0`, `coverage=1.0`, empty `metrics`, empty `verdicts`,
+`failure=None`, and `valid=True`. A non-string, blank, or otherwise unusable reference is malformed
+benchmark data and raises during preflight before model or judge spend.
+
+Exact-choice grading is deterministic local computation and makes no engine request.
 
 ### 13.2 Rubric
 
@@ -824,7 +869,9 @@ The judge returns its model output directly as response text:
 
 The SDK already knows the case, target, criterion, weight, and pass and attaches that metadata
 locally. A 40-criterion rubric with five passes means 200 independent judge model calls per
-answer. Those calls may execute concurrently under the SDK's bounded execution policy.
+answer. Because the Fusion and all three members are graded, a three-member DRACO case ordinarily
+means 800 judge calls. Those calls may execute concurrently under the SDK's bounded execution
+policy.
 
 The SF model adapter must preserve:
 
@@ -834,10 +881,33 @@ URL4 intent  -> system message
 ```
 
 It must forward the configured model parameters and ensure repeated passes are independent rather
-than serving a cached completion. The current Phase 1 engine profile does not yet implement model
-handlers; that is a Phase 2 application gap, not a URL4 grammar change.
+than serving a cached completion. The AI Gateway response cache is opt-in, and the engine must not
+enable it for judge requests.
+
+Each criterion/pass is an ordinary call to the advertised judge-model route through
+`GET /v1?q=<expression>`. There is no separate grader HTTP route. The URL4 model context is the
+judge user text containing `<criterion_type>`, `<criterion>`, conditional `<query>`, and
+`<response>` blocks; the route intent is the pinned judge system prompt. Criterion weights are
+not shown to the judge. Only the positive/negative criterion type is shown.
+
+Every configured pass sends byte-identical context, intent, and parameters. No random salt,
+pass marker, or hidden prompt mutation is added. Independence is provided by the model sampling
+configuration (`temperature=0.2` for official DRACO) and by disabling response caching.
+
+The SDK accepts a JSON object with exactly the judge fields `explanation` and
+`criterion_status`, where the status is `MET` or `UNMET`. It may remove a Markdown code fence or
+short preamble by extracting the first JSON object, then validates the exact schema. On invalid
+judge output only, it retries the same byte-identical request up to two times, for three attempts
+total. It does not retry connection, timeout, HTTP, URL4, or engine-protocol failures. After three
+malformed outputs, that criterion/pass remains unresolved.
 
 ## 14. Rubric scoring
+
+Before any judge request, the SDK validates every selected rubric reference together. Every
+rubric must have at least one section and criterion, globally unique non-blank criterion IDs,
+non-blank requirements, finite non-zero numeric weights, at least one positive weight, and stable
+non-blank section identities suitable for metric keys. Any malformed selected rubric aborts the
+whole grading stage before judge spend.
 
 After judge responses return, scoring is deterministic SDK computation. For each pass:
 
@@ -862,7 +932,28 @@ score is valid only when coverage == 1.0
 
 This is stricter than partial-score behavior in some executable DRACO reference paths, but it is
 identical on successful publishable runs and prevents missing negative criteria from inflating a
-score. Raw verdicts and failures remain inspectable.
+score. For example, 199 successful verdicts out of 200 produces `coverage=0.995`, `score=None`,
+and an `incomplete_verdicts` summary failure. Missing work is never converted to `UNMET`, and the
+SDK does not publish a diagnostic partial score in the MVP. Successful verdicts, explanations,
+and raw responses remain inspectable.
+
+Each verdict exposes:
+
+```python
+verdict.criterion_id
+verdict.section
+verdict.requirement
+verdict.weight
+verdict.pass_number       # one-based
+verdict.status            # "MET" | "UNMET" | None
+verdict.explanation
+verdict.raw_response
+verdict.failure           # sf.GradeFailure | None
+```
+
+One failed criterion does not cancel unrelated criterion, pass, target, or case work. A target
+with any unresolved verdict retains all successful evidence but has `valid=False` and
+`score=None`.
 
 `Grade.metrics` is narrowly defined as additional case-level scores that are valid to average:
 
@@ -878,6 +969,9 @@ score. Raw verdicts and failures remain inspectable.
 
 Arbitrary metadata, counts, cost, latency, coverage, and raw responses do not belong in
 `metrics`.
+
+Rubric scores are continuous. The SDK does not impose an `is_correct` field, pass threshold, or
+binary interpretation.
 
 ## 15. Aggregation and `Report`
 
@@ -912,7 +1006,17 @@ report.members
 report.metrics
 report.failures
 report.complete
+report.to_dict()
+
+member = report.members["panel_1"]
+member.model
+member.score
+member.metrics
 ```
+
+`sf.Report` and `sf.MemberReport` are immutable values. Repeated uses of the same model remain
+distinct `panel_n` member reports. If multiple members tie for the best score, `baseline` is still
+that numeric maximum; no public tie-breaker is needed.
 
 All SDK scores use `0.0-1.0`. Widgets render them as percentages. Gain is displayed in percentage
 points:
@@ -925,7 +1029,14 @@ report.gain == 0.10     -> +10.0 pp
 
 `Mean` averages only the explicitly meanable numeric values in `Grade.metrics`, over the same
 common case set. A metric is included in `Report.metrics` only when every included fusion grade
-defines it. Member summaries expose their corresponding metrics.
+defines it. Member summaries expose their corresponding metrics, also only when every paired
+grade for that member defines the value. Exact-choice reports have empty metrics because their
+headline score is already accuracy.
+
+`report.failures` preserves the run and grading failures that explain excluded work. A report may
+contain a valid partial paired comparison while `complete=False`; completeness describes all
+selected work, not merely whether at least one pair was scorable. If no paired case remains,
+`score`, `baseline`, `gain`, and every member score are `None`.
 
 Standard deviations, confidence intervals, and bootstrap aggregators are deferred.
 
@@ -934,13 +1045,38 @@ Standard deviations, confidence intervals, and bootstrap aggregators are deferre
 The general rule is:
 
 ```text
-Cannot begin or cannot trust the protocol -> raise
-One case failed during valid engine execution -> record and continue
+Cannot safely begin -> raise
+Individual work failed after valid execution began -> record and continue
 ```
 
-Preflight, engine-connection, and response-schema failures raise. A non-success engine response
-for one valid case becomes a case failure carrying `case_id`, engine `code`, message, and optional
-HTTP status. The SDK does not infer a failing panel unless the engine reports one.
+Malformed benchmark/rubric configuration, unsupported grader or aggregator strategies,
+unknown/unadvertised judge models, incompatible model parameters, or inability to complete engine
+preflight raise before judge spend. Once valid grading work begins, an individual target failure
+is recorded and unrelated work continues.
+
+A grading failure exposes:
+
+```python
+failure.case_id
+failure.target
+failure.kind
+failure.message
+failure.criterion_id   # str | None
+failure.pass_number    # int | None
+failure.status         # int | None
+failure.code           # str | None
+```
+
+The grading failure kinds are `connection`, `timeout`, `http`, `url4`, `protocol`,
+`invalid_judge_output`, and `incomplete_verdicts`. Detailed criterion failures attach to their
+`CriterionVerdict`; the target also receives one `incomplete_verdicts` summary failure.
+`grades.failures` exposes run and grading failures in stable case/target order. Failure messages
+are safe strings and never retain credentials, provider bodies, arbitrary exception objects, or
+mutable state.
+
+A non-success engine response for one valid case becomes a case failure carrying `case_id`,
+engine `code`, message, and optional HTTP status. The SDK does not infer a failing panel unless
+the engine reports one.
 
 Current URL4 errors logically use:
 
@@ -953,8 +1089,10 @@ Current URL4 errors logically use:
 }
 ```
 
-Malformed judge-model output is a grading failure for that criterion/pass. A malformed rubric or
-zero-criterion reference aborts grading before judge spend.
+Malformed judge-model output is a grading failure for that criterion/pass after the validation
+retry allowance is exhausted. A malformed rubric reference aborts the complete grading stage
+before judge spend. An exact-choice response that is merely wrong or unparseable remains a valid
+`0.0` grade rather than a failure.
 
 ## 17. Concurrency and retries
 
@@ -970,11 +1108,39 @@ The Phase 2 run-stage retry policy is deliberately empty:
 - do not retry 503, timeout, connection, upstream, URL4, or protocol failures automatically; and
 - record the one observed failure at its original case position.
 
-This avoids silently duplicating paid work and keeps Phase 2 behavior predictable. Any future
-retry policy must be explicit and idempotency-aware. Rubric-judge retry behavior is reviewed with
-Phase 3 rather than being implied by the run stage.
+Rubric grading follows the same no-transport-retry rule. Its only SDK retry is up to two
+byte-identical repeat requests after a successful model response whose judge output fails schema
+validation. This avoids silently duplicating paid work after ambiguous transport failures while
+allowing a model two opportunities to repair malformed structured output.
 
 Future execution methods may accept `concurrency=...`; strategy constructors must not.
+
+## 17.1 `Fusion.evaluate()`
+
+`evaluate` is the standard public name because the operation executes a benchmark and returns its
+comparison report. It is exactly this facade:
+
+```python
+def evaluate(
+    self,
+    benchmark: str | Benchmark,
+    *,
+    first: int | None = None,
+) -> Report:
+    return self.run(benchmark, first=first).grade().aggregate()
+```
+
+It is synchronous and notebook-safe like `run()`. It accepts only the benchmark and `first` in
+the MVP. The benchmark owns its grader and aggregator; there are no facade parameters for a
+grader, aggregator, seed, budget, retry policy, or concurrency, and there is no top-level
+`sf.evaluate` function.
+
+Passing an ID does not select a different execution mode. `sf.benchmarks.load("draco@1")` eagerly
+fetches the engine registry, manifest, and complete normalized NDJSON case resource and builds an
+in-memory `Benchmark`. Consequently `fusion.evaluate("draco@1")` means load, run, grade, and
+aggregate. Passing an existing `Benchmark` skips only the named-benchmark loading step. Panel,
+reducer, and rubric-judge model calls still go through the configured URL4 engine; only exact
+grading and mean aggregation are local deterministic computations.
 
 ## 18. Verification boundary
 
@@ -1005,5 +1171,6 @@ The first implementation is accepted when:
 12. no runtime mock, in-process engine, direct gateway client, compatibility alias, persistence,
     budget, authentication, or ETL framework is introduced.
 
-The next unit after this document is implementation planning and contract tests; this Phase 0
-unit changes documentation and syntax fixtures only.
+The grading and aggregation behavior in §§13–17 was approved as the review-only Phase 3A unit.
+Phase 3B implements the public grading values and deterministic ExactChoice core. `Run.grade()`
+is deliberately introduced only in Phase 3C, when both advertised grader strategies work.

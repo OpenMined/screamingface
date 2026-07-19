@@ -64,4 +64,51 @@ def inspect_run(run: sf.Run):
     }
 
 
+def inspect_grades(grades: sf.Grades):
+    """Phase 3A nested grading evidence without rerunning captured answers."""
+    first_case = next(case for case in grades.results if case.fusion is not None)
+    fusion_grade = first_case.fusion
+    assert fusion_grade is not None
+    first_member_grade = first_case.members["panel_1"]
+    first_verdict = fusion_grade.verdicts[0] if fusion_grade.verdicts else None
+    return {
+        "benchmark": grades.benchmark_id,
+        "recipe": grades.fusion_url4,
+        "grader": grades.grader,
+        "case_ids": grades.case_ids,
+        "fusion_score": fusion_grade.score,
+        "fusion_metrics": fusion_grade.metrics,
+        "fusion_coverage": fusion_grade.coverage,
+        "fusion_valid": fusion_grade.valid,
+        "member_score": first_member_grade.score,
+        "first_verdict": first_verdict,
+        "run_failure": first_case.run_failure,
+        "failures": grades.failures,
+        "complete": grades.complete,
+        "json_compatible": grades.to_dict(),
+    }
+
+
+def inspect_report(report: sf.Report):
+    """Phase 3A paired Fusion-versus-member comparison."""
+    first_member = report.members["panel_1"]
+    return {
+        "benchmark": report.benchmark_id,
+        "recipe": report.fusion_url4,
+        "n_cases": report.n_cases,
+        "n_scored": report.n_scored,
+        "coverage": report.coverage,
+        "score": report.score,
+        "baseline": report.baseline,
+        "gain": report.gain,
+        "fusion_metrics": report.metrics,
+        "first_member_model": first_member.model,
+        "first_member_score": first_member.score,
+        "first_member_metrics": first_member.metrics,
+        "failures": report.failures,
+        "complete": report.complete,
+        "json_compatible": report.to_dict(),
+    }
+
+
 # Choose one workflow. Running both would create two paid evaluations.

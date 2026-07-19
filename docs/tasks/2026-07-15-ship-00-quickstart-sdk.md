@@ -125,3 +125,42 @@ Implemented the approved SDK run boundary:
 The no-runtime-mock Docker smoke now exercises public `Fusion.run()` through the persistent URL4
 node and AI Gateway topology. Grading, aggregation, `evaluate()`, tools, authentication,
 persistence, and public execution-policy controls remain deferred.
+
+## Phase 3A grading and aggregation contract approval — 2026-07-19
+
+Approved the grading, aggregation, and facade contract without changing runtime code:
+
+- `run.grade()` grades the captured Fusion answer and every member, returning nested immutable
+  `Grades`, `CaseGrades`, `Grade`, `CriterionVerdict`, and `GradeFailure` values;
+- `ExactChoice` is deterministic local A–J/index/full-text grading, while malformed references
+  fail preflight and unparseable non-blank model answers remain valid zero scores;
+- `Rubric` validates all references before spend, sends one ordinary URL4 judge-model request per
+  target/criterion/pass, and requires complete verdict coverage for a valid score;
+- judge transport failures are not retried; invalid structured judge output alone receives up to
+  two byte-identical retries, and successful evidence is retained after partial failure;
+- `Mean` uses one strict common paired case set for Fusion, baseline, gain, member scores, and
+  metrics; and
+- `Fusion.evaluate(benchmark, first=...)` is exactly `run -> grade -> aggregate`, while
+  `benchmarks.load()` remains an eager engine-backed manifest/case load rather than an alternate
+  execution mode.
+
+Implementation is intentionally deferred to separately reviewed Phase 3B–3D slices. Phase 3B is
+limited to public grading values/failures and deterministic `ExactChoice` behavior.
+
+## Phase 3B implementation — 2026-07-19
+
+Implemented the reviewed grading-value and ExactChoice foundation:
+
+- immutable exported `Grades`, `CaseGrades`, `Grade`, `CriterionVerdict`, and `GradeFailure`
+  values with strict state validation and JSON-compatible snapshots;
+- nested Fusion/member grades, stable failure flattening, completeness, and preservation of the
+  originating immutable `Run` for later aggregation;
+- the proven A–J, explicit-marker, decorated-choice, numeric-string, and normalized-full-text
+  ExactChoice parser with article/pronoun/medical-abbreviation guards;
+- shared exact-reference validation in run preflight, requiring publisher-normalized non-empty
+  strings and rejecting literal integers rather than guessing index conventions; and
+- focused value/parser tests plus full SDK lint, format, type, and coverage verification.
+
+As approved, Phase 3B does not add `Run.grade()`, Rubric judge traffic, aggregation,
+`Fusion.evaluate()`, or any engine-profile change. Phase 3C will add public grading dispatch only
+after both supported grader strategies work.

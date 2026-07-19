@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 2C implemented; Phase 3 contract review next
+**Status:** Phase 3B implemented; Phase 3C contract review next
 **Date:** 2026-07-18  
 **Normative contract:**
 [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
@@ -65,7 +65,9 @@ The complete contract is normative; this is the implementation checklist.
   - `sf.reducers.Model`, `sf.reducers.MajorityVote`
   - `sf.graders.ExactChoice`, `sf.graders.Rubric`
   - `sf.aggregators.Mean`
-- immutable, serializable, in-memory `sf.Run`, `sf.Grades`, and `sf.Report`
+- immutable, serializable, in-memory `sf.Run`, `sf.Grades`, and `sf.Report`, including their
+  exported inspection records (`CaseGrades`, `Grade`, `CriterionVerdict`, `GradeFailure`, and
+  `MemberReport`)
 
 There are no top-level concrete-strategy aliases and no `sf.judges` namespace.
 
@@ -267,20 +269,47 @@ persistent engine -> AI Gateway path without a route-handler subprocess.
 
 ### Phase 3 — grading and aggregation
 
-Implement:
+Phase 3A is the completed review-only contract unit. The approved behavior is:
 
-- `ExactChoice` grading without engine calls;
-- `Rubric` grading with one URL4 judge request per criterion per pass;
-- official DRACO positive/negative criterion semantics and weighted scoring;
-- five independent DRACO passes and strict coverage requirements;
-- bounded judge concurrency (initial policy: 32);
-- immutable `Grades` with scores, metrics, verdicts, coverage, and failures;
-- paired-case `Mean` aggregation; and
-- `Report.score`, `baseline`, `gain`, member scores, and coverage on a `0..1` scale.
+- `run.grade()` grades the captured Fusion answer and every captured member without rerunning
+  worker models; failed run cases receive no grading work;
+- `ExactChoice` ports the proven A–J/numeric-string/full-text normalization behavior and makes no
+  engine call; an unparseable non-blank answer is a valid incorrect answer, while benchmark
+  publishers must normalize references to strings;
+- `Rubric` makes one ordinary URL4 judge-model request per criterion per pass, maps judge context
+  to the user message and the pinned prompt to the system message, and never uses a separate
+  grader route;
+- every rubric selected for a grading call is validated before judge spend;
+- judge requests have a 32-request internal concurrency bound and stable evidence order;
+- transport failures are never retried by the SDK; invalid judge output alone receives up to two
+  byte-identical retries;
+- official DRACO uses five byte-identical independent passes, positive/negative criterion
+  semantics, weighted section/overall scores, and a local unweighted `pass_rate` metric;
+- rubric grades require 100% verdict coverage; missing work produces `score=None`, not a zero,
+  inferred `UNMET`, or partial diagnostic score;
+- immutable nested `Grades -> CaseGrades -> Grade -> CriterionVerdict` values preserve complete
+  evidence and typed failures;
+- `Mean` uses one strict common paired case set for the Fusion and every member; and
+- immutable `Report`/`MemberReport` values expose score, baseline, gain, coverage, metrics, and
+  failures on a `0..1` scale.
 
 The screamingface-engine model adapter must map URL4 context to the user message and intent to the
-system message, forward judge parameters, and allow independent repeated calls. No separate
-grader or aggregator engine routes are introduced.
+system message, forward judge parameters, allow independent repeated calls, and keep AI Gateway
+response caching disabled for judge work. No separate grader or aggregator engine routes are
+introduced. `ExactChoice` and `Mean` remain deterministic SDK computations.
+
+Implementation is split so the public values and deterministic behavior can be reviewed before
+the paid model-backed path:
+
+- **Phase 3B (implemented):** immutable grading values/failures, exact-choice normalization and
+  reference validation, plus focused contract tests. It deliberately does not expose
+  `Run.grade()` while Rubric remains unimplemented;
+- **Phase 3C:** rubric preflight, URL4 judge orchestration, response validation/retries, strict
+  coverage, and evidence retention; and
+- **Phase 3D:** paired Mean aggregation, immutable reports, and the exact `Fusion.evaluate()`
+  facade over `run -> grade -> aggregate`.
+
+Each implementation slice requires owner review before runtime changes begin.
 
 Complete when `fusion.evaluate(...)` equals `run -> grade -> aggregate`, GPQA and DRACO use the
 same framework objects, and failed/unresolved work never becomes a zero score.
@@ -386,11 +415,14 @@ These are additive concerns, not hidden MVP requirements.
 
 ### Grading and aggregation tests
 
-- ExactChoice normalization;
-- one DRACO call per criterion per pass;
-- positive/negative criterion scoring and five-pass averaging;
-- incomplete judge coverage produces a missing score, not zero;
-- Fusion and every member use the same selected cases; and
+- ExactChoice A–J/index/explicit-marker/full-text normalization and false-positive guards;
+- malformed exact references fail preflight while unparseable model answers score zero;
+- one DRACO call per target, criterion, and pass through the advertised model route;
+- invalid judge output alone receives two byte-identical retries; transport failures do not;
+- positive/negative criterion scoring, section metrics, pass rate, and five-pass averaging;
+- incomplete judge coverage produces a missing score and retained evidence, not zero;
+- Fusion and every member use the same strict paired cases;
+- nested immutable values and stable JSON-compatible serialization; and
 - `evaluate()` has exact stage parity with explicit orchestration.
 
 ### Docker integration tests
@@ -431,6 +463,8 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review and lock the Phase 3 grading and aggregation contract before changing runtime code. Keep
-authentication, persistence, named tools, and public tutorial regeneration in their later
-reviewed phases.
+Review Phase 3C's Rubric execution contract before changing runtime code: all-reference preflight,
+ordinary URL4 judge-model calls, structured response parsing, validation-only retries, strict
+coverage/scoring, and the final `Run.grade()` dispatch for both ExactChoice and Rubric. Keep
+aggregation, `evaluate()`, engine-profile changes, authentication, persistence, and notebook
+regeneration out of that slice.

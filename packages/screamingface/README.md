@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 2C
+## Current implementation: Phase 3B
 
 The SDK currently supports:
 
@@ -13,7 +13,10 @@ The SDK currently supports:
 - eager, validated `sf.benchmarks.load(...)` from engine manifests and NDJSON case routes;
 - canonical, shareable `fusion.url4` recipe compilation; and
 - synchronous `fusion.run(...)` through only the configured URL4 engine, returning immutable
-  in-memory result records.
+  in-memory result records;
+- immutable grading record types (`Grades`, `CaseGrades`, `Grade`, `CriterionVerdict`, and
+  `GradeFailure`); and
+- deterministic ExactChoice reference validation and answer normalization in the SDK.
 
 The development `screamingface-engine` additionally runs three tool-free model routes through one
 persistent `Url4Node` and a shared AI Gateway client. It accepts direct endpoint requests and
@@ -24,9 +27,11 @@ without contacting AI Gateway.
 Each selected benchmark case becomes one complete URL4 expression sent as
 `GET /v1?q=<expression>`. Successful plaintext JSON is validated strictly as
 `screamingface.fusion-result.v1`; connection, timeout, HTTP, URL4, and protocol failures are
-recorded atomically at the case's original position. Phase 2C performs no retries and never calls
-AI Gateway directly. Grading, aggregation, and the `fusion.evaluate(...)` facade arrive in Phase
-3. There is no mock, simulated, or in-process engine fallback.
+recorded atomically at the case's original position. Execution performs no retries and never calls
+AI Gateway directly. Phase 3B establishes grading values and the ExactChoice core but deliberately
+does not expose a partially implemented `Run.grade()`; that method arrives in Phase 3C when both
+ExactChoice and Rubric work. Aggregation and `fusion.evaluate(...)` follow in Phase 3D. There is no
+mock, simulated, or in-process engine fallback.
 
 ## Phase 1 walkthrough
 
