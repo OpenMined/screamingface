@@ -9,6 +9,7 @@ import httpx
 
 from screamingface._config import current_engine_url
 from screamingface._engine_http import unique_json_object
+from screamingface._tooling import tool_ids
 from screamingface.errors import EngineConnectionError, EngineProfileError, EngineProtocolError
 
 REGISTRY_PATH = "/.well-known/screamingface"
@@ -82,7 +83,10 @@ def _model_record(payload: dict[str, object]) -> ModelRecord:
     _exact_fields(payload, {"id", "supported_tools"}, "model record")
     return ModelRecord(
         _nonempty(payload["id"], "model ID"),
-        _string_list(payload["supported_tools"], "model supported_tools"),
+        tool_ids(
+            _string_list(payload["supported_tools"], "model supported_tools"),
+            label="model supported_tools",
+        ),
     )
 
 

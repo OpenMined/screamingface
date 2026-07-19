@@ -301,3 +301,20 @@ Implemented the approved canonical SDK-local DRACO definition:
 
 Phase 4B makes no engine, compiler, tool-injection, concurrency, notebook, URL4, or AI Gateway
 change. Phase 4C member-only tool compilation review is next.
+
+## Phase 4C implementation — 2026-07-19
+
+Implemented the approved SDK-only benchmark capability overlay:
+
+- validates ordered, unique lowercase tool IDs and applies the same contract to engine registry
+  capability declarations and discovery filters;
+- reserves `tools` from generic member, model-reducer, and rubric-grader parameters;
+- compiles benchmark tools only onto concrete answer-producing member calls;
+- preserves the benchmark-independent `fusion.url4` and `run.fusion_url4` recipes;
+- leaves deterministic reducers, model synthesizers, and rubric judges tool-free; and
+- proves single/multiple capability rendering and decoded `Url4Node` request parameters without
+  introducing an in-process runtime fallback.
+
+Phase 4C changes no engine, AI Gateway, URL4 package, authentication, concurrency, or notebook
+behavior. The current engine still advertises no tools and rejects `tools`; the named
+`web_search` adapter and Gemini 3.1 judge route require separate engine-phase review.

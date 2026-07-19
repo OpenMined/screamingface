@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from screamingface._tooling import tool_ids
 from screamingface.aggregators import Aggregator, Mean
 from screamingface.graders import Grader
 
@@ -118,12 +119,7 @@ def _validate_cases(values: Sequence[Case]) -> tuple[Case, ...]:
 
 
 def _tools(values: Sequence[str]) -> tuple[str, ...]:
-    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
-        raise TypeError("benchmark tools must be a sequence")
-    result = tuple(_nonempty(value, "tool") for value in values)
-    if len(result) != len(set(result)):
-        raise ValueError("benchmark tools must be unique")
-    return result
+    return tool_ids(values, label="benchmark tools")
 
 
 def _nonempty(value: object, label: str, *, strip: bool = True) -> str:

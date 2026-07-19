@@ -7,6 +7,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import NotRequired, TypedDict
 
+from screamingface._tooling import TOOL_PARAMETER
+
 type ParameterValue = str | int | float | bool
 
 
@@ -111,6 +113,10 @@ def _parameter_items(
     items: list[tuple[str, ParameterValue]] = []
     for key, value in params.items():
         name = _nonempty(key, "model parameter name")
+        if name == TOOL_PARAMETER:
+            raise ValueError(
+                "model parameter 'tools' is reserved; declare required capabilities on sf.Benchmark"
+            )
         if not isinstance(value, (str, int, float, bool)):
             raise TypeError(f"model parameter {name!r} must be a JSON scalar")
         if isinstance(value, float) and not math.isfinite(value):

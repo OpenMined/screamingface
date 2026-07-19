@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 4B canonical DRACO definition implemented; Phase 4C review next
+**Status:** Phase 4C member-only benchmark-tool compilation implemented; engine capability review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -370,6 +370,14 @@ to search and open/fetch sources; its provider-specific payload is allowlisted a
 than forwarding the string blindly. The profile blocks access to benchmark rubrics, references,
 and result sources through this capability.
 
+**Phase 4C is implemented:** tool identifiers are ordered, unique lowercase capability names;
+`tools` is reserved from generic model parameters; and concrete case expressions encode benchmark
+capabilities only on member calls. One tool renders as `tools=web_search`; multiple tools use the
+canonical URL-query form `tools=web_search+code_execution`. The benchmark-independent
+`fusion.url4` template and `run.fusion_url4` remain unchanged. URL4 transports and decodes the
+parameter generically, while the current engine still rejects it because no named-tool adapter is
+advertised or installed.
+
 The engine registry remains minimal and advertises only executable models and reducers. DRACO is
 present in the SDK catalog now that its local definition is complete; evaluating it additionally
 requires the judge route and at least one complete compatible web-search Fusion end to end. The
@@ -523,10 +531,9 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review Phase 4C's member-only `web_search` compilation contract before changing runtime code.
-Later slices add the engine named-tool adapter and judge route. Keep authentication, persistence,
-budgets, telemetry, and notebook
-regeneration out of these runtime slices.
+Review the next engine-capability slice before adding the named `web_search` adapter,
+`gemini/3.1-pro-preview` route, or registry claims. Keep authentication, persistence, budgets,
+telemetry, and notebook regeneration out of these runtime slices.
 
 The current local engine profile cannot execute DRACO: it lacks the
 `gemini/3.1-pro-preview` judge route, and its model routes do not advertise `web_search`. Adding

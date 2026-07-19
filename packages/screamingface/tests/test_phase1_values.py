@@ -171,6 +171,15 @@ def test_concrete_strategies_exist_only_in_namespaces() -> None:
             ),
             "unique",
         ),
+        (
+            lambda: sf.Benchmark(
+                "b",
+                cases=[sf.Case("q", "input")],
+                grader=sf.graders.ExactChoice(),
+                tools=["Web-Search"],
+            ),
+            "lowercase",
+        ),
     ],
 )
 def test_case_and_benchmark_validation(factory: Callable[[], object], message: str) -> None:
@@ -275,6 +284,31 @@ def test_strategy_parameters_are_defensive_and_validated() -> None:
     assert rubric.params == {"reasoning": "low"}
     with pytest.raises(ValueError, match="positive integer"):
         sf.graders.Rubric(model="judge", prompt="grade", passes=0)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: sf.Fusion(
+            "reserved",
+            [{"model": "one", "params": {"tools": "web_search"}}, "two"],
+            reducer=sf.reducers.MajorityVote(),
+        ),
+        lambda: sf.reducers.Model(
+            model="judge",
+            prompt="reduce",
+            params={"tools": "web_search"},
+        ),
+        lambda: sf.graders.Rubric(
+            model="judge",
+            prompt="grade",
+            params={"tools": "web_search"},
+        ),
+    ],
+)
+def test_tools_are_not_generic_model_parameters(factory: Callable[[], object]) -> None:
+    with pytest.raises(ValueError, match="reserved.*sf.Benchmark"):
+        factory()
 
 
 def test_fusion_repr_is_compact_and_does_not_contact_the_engine() -> None:

@@ -54,7 +54,13 @@ def run_fusion(
     registry = load_registry()
     _preflight(fusion, resolved, registry)
 
-    expressions = tuple((case, compile_fusion(fusion, question=case.input)) for case in selected)
+    expressions = tuple(
+        (
+            case,
+            compile_fusion(fusion, question=case.input, tools=resolved.tools),
+        )
+        for case in selected
+    )
     base_url = current_engine_url()
     with httpx.Client(base_url=base_url, timeout=_RUN_TIMEOUT) as client:
         with ThreadPoolExecutor(max_workers=min(_CASE_CONCURRENCY, len(expressions))) as pool:

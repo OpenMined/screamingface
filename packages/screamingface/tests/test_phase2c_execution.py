@@ -114,7 +114,7 @@ def _install(
 ) -> FakeClient:
     monkeypatch.setattr(_execution, "load_registry", _registry)
     responses = {
-        compile_fusion(fusion, question=case.input): (
+        compile_fusion(fusion, question=case.input, tools=benchmark.tools): (
             lambda case_id=case.id: response(case_id) if response else _success(fusion, case_id)
         )
         for case in benchmark._materialize_cases()
@@ -122,6 +122,30 @@ def _install(
     client = FakeClient(responses, delay=delay)
     monkeypatch.setattr(_execution.httpx, "Client", lambda **_kwargs: client)
     return client
+
+
+def test_supported_benchmark_tools_are_sent_only_in_concrete_member_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fusion = _fusion()
+    benchmark = _benchmark(tools=("web_search",))
+    supported = (
+        ModelRecord("codex/gpt-5.5", ("web_search",)),
+        ModelRecord("gemini/2.5", ("web_search",)),
+        ModelRecord("judge/model", ()),
+    )
+    monkeypatch.setattr(_execution, "load_registry", lambda: _registry(models=supported))
+    client = _install(monkeypatch, fusion, benchmark)
+    monkeypatch.setattr(_execution, "load_registry", lambda: _registry(models=supported))
+
+    run = fusion.run(benchmark)
+
+    assert len(client.calls) == 1
+    expression = client.calls[0]
+    assert expression.count("?tools=web_search&q=($question)") == 2
+    assert "fusion_answer=/reducers/majority-vote($member_answers)" in expression
+    assert run.fusion_url4 == fusion.url4
+    assert "tools=" not in run.fusion_url4
 
 
 def test_run_executes_one_request_per_case_with_bounded_stable_order(

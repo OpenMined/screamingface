@@ -133,7 +133,7 @@ complete seven-solo/nine-fusion lineup and should not be conflated with local ca
 ## Implementation gaps recorded at approval time
 
 - GPQA was unpinned, used generated row IDs, and used Python `random` (resolved in Phase 4A);
-- the current compiler validates benchmark tools but does not add them to member routes;
+- the compiler did not add validated benchmark tools to member routes (resolved in Phase 4C);
 - the current engine Gateway adapter rejects `tools`;
 - the current profile does not register `gemini/3.1-pro-preview` or advertise any tool support;
 - the current AI Gateway model registry does not expose the required Gemini 3.1 route;
@@ -151,8 +151,9 @@ Implementation still requires explicit owner approval for each slice:
 
 1. canonical pinned GPQA SDK definition and contract tests;
 2. canonical DRACO SDK definition and contract tests;
-3. compiler member-only tool injection plus engine named-tool adapter and leakage tests;
-4. Gemini 3.1 judge route, three-pass integration, and plaintext parsing tests; and
+3. compiler member-only tool injection and leakage tests;
+4. engine named-tool adapter and capability tests;
+5. Gemini 3.1 judge route, three-pass integration, and plaintext parsing tests; and
 5. complete Docker/provider-backed acceptance proof.
 
 Notebook regeneration and the full DRACO reproduction remain Phase 5.

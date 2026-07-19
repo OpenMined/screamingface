@@ -6,6 +6,7 @@ import builtins
 from collections.abc import Sequence
 
 from screamingface._profile import load_registry
+from screamingface._tooling import tool_ids
 
 
 def list(
@@ -36,14 +37,7 @@ def _query(value: str | None) -> str | None:
 
 
 def _filters(values: Sequence[str]) -> set[str]:
-    if isinstance(values, (str, bytes)) or not isinstance(values, Sequence):
-        raise TypeError("tools must be a sequence")
-    result = set()
-    for value in values:
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("tools must contain non-empty strings")
-        result.add(value.strip())
-    return result
+    return set(tool_ids(values))
 
 
 def _limit(value: int | None, total: int) -> int:

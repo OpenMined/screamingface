@@ -117,6 +117,7 @@ def test_registry_document_is_strict(monkeypatch, mutate, message: str) -> None:
     [
         ({"id": "model"}, "missing field.*supported_tools"),
         ({"id": "model", "supported_tools": ["x", "x"]}, "must not contain duplicates"),
+        ({"id": "model", "supported_tools": ["Web-Search"]}, "lowercase"),
         ({"id": "", "supported_tools": []}, "model ID"),
     ],
 )
@@ -154,6 +155,7 @@ def test_registry_transport_and_json_failures_are_typed(monkeypatch: pytest.Monk
     [
         (lambda: sf.benchmarks.list(query=""), "query"),
         (lambda: sf.benchmarks.list(tools="web_search"), "tools"),
+        (lambda: sf.models.list(tools=["Web-Search"]), "lowercase"),
         (lambda: sf.benchmarks.list(limit=0), "limit"),
         (lambda: sf.benchmarks.load(""), "benchmark ID"),
     ],

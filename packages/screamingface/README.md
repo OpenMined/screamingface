@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 4B
+## Current implementation: Phase 4C
 
 The SDK currently supports:
 
@@ -13,6 +13,7 @@ The SDK currently supports:
 - `sf.benchmarks.list(...)` against the SDK's installed canonical benchmark catalog;
 - eager, validated `sf.benchmarks.load(...)` through the researcher's ordinary dataset access;
 - canonical, shareable `fusion.url4` recipe compilation; and
+- automatic benchmark-tool compilation onto concrete answer-producing member requests only;
 - synchronous `fusion.run(...)` through only the configured URL4 engine, returning immutable
   in-memory result records;
 - immutable grading record types (`Grades`, `CaseGrades`, `Grade`, `CriterionVerdict`, and
@@ -169,7 +170,8 @@ is shorthand for local load followed by engine execution over a stable prefix. T
 installs both `gpqa@1` and `draco@1`; DRACO can be loaded and inspected locally. The current engine
 registry deliberately advertises no tools, so it cannot yet execute DRACO. Execution requires a
 tested `web_search` adapter and configured judge route. The SDK's generic Rubric implementation
-is already complete.
+is already complete. URL4 can transport the SDK's `tools=web_search` member parameter, but the
+development engine intentionally rejects it until its real named-tool adapter is implemented.
 
 ## Validation
 

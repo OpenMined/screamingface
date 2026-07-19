@@ -424,6 +424,11 @@ model work.
 Benchmark `tools` are concrete model-usable actions. They are added only to answer-producing
 Fusion member routes. Reducers, model synthesizers, and graders do not inherit them.
 
+Tool IDs are ordered, unique lowercase identifiers matching `[a-z][a-z0-9_]*`. They are a
+first-class benchmark capability contract: the `tools` key is reserved from generic member,
+model-reducer, and rubric-grader `params`. A future member-specific capability API must remain
+first-class rather than hiding tools in arbitrary model parameters.
+
 For `draco@1`, `web_search` names the engine-owned research capability needed to search and then
 open/fetch source content. It subsumes the benchmark pipeline's separate `web_search` and
 `web_fetch` tools at the public SDK boundary. The engine translates that capability through a
@@ -543,7 +548,11 @@ same template.
 
 For execution, the SDK adds one literal `question` binding to the template. Dollar signs in case
 input are escaped as URL4 literal data; dollar references in researcher-authored prompt templates
-remain active. The resulting concrete expression is still one request.
+remain active. It also adds the selected Benchmark's tools only to each answer-producing member.
+One capability renders as `tools=web_search`; ordered multiple capabilities render through the
+standard query representation `tools=web_search+code_execution` and arrive decoded at the node as
+one space-separated scalar. The resulting concrete expression is still one request. Neither the
+benchmark-independent stored recipe nor any reducer or judge call inherits this execution overlay.
 
 One selected case produces one complete URL4 expression containing the question binding, panel
 fan-out, reducer, and final result structure. Conceptually:
@@ -552,8 +561,8 @@ fan-out, reducer, and final result structure. Conceptually:
 (
   question='<resolved case input>',
 
-  member_1=/codex/gpt-5.5($question)!'Answer the question',
-  member_2=/gemini/2.5($question)!'Answer the question',
+  member_1=/codex/gpt-5.5?tools=web_search&q=($question)!'Answer the question',
+  member_2=/gemini/2.5?tools=web_search&q=($question)!'Answer the question',
 
   member_answers={
     member_1: '$member_1',
@@ -1207,5 +1216,6 @@ orchestration, strict judge parsing, validation-only retries, retained evidence,
 aggregation, immutable reports, and the exact `Fusion.evaluate()` facade. The current engine
 profile cannot execute DRACO. Phase 4A implemented the canonical pinned SDK-local GPQA definition
 on 2026-07-19. Phase 4B added the canonical SDK-local DRACO definition and catalog exposure on
-2026-07-19. The remaining Phase 4 slices must add member-only tool compilation,
-`gemini/3.1-pro-preview`, and working `web_search` engine capabilities.
+2026-07-19. Phase 4C added member-only benchmark-tool compilation and reserved capability
+validation on 2026-07-19. The remaining Phase 4 engine slices must add
+`gemini/3.1-pro-preview` and working `web_search` capabilities.

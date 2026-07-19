@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from url4 import Expression, RelExpr, Text, render, src, struct, text
 
 from screamingface._profile import FUSION_RESULT_SCHEMA
+from screamingface._tooling import TOOL_PARAMETER, encoded_tools
 from screamingface.errors import UnsupportedReducerError
 from screamingface.model_inputs import ParameterValue, _FusionMember
 from screamingface.reducers import MajorityVote, Model
@@ -18,13 +19,19 @@ if TYPE_CHECKING:
 MAJORITY_VOTE_ROUTE = "/reducers/majority-vote"
 
 
-def compile_fusion(fusion: Fusion, *, question: str | None = None) -> str:
+def compile_fusion(
+    fusion: Fusion,
+    *,
+    question: str | None = None,
+    tools: Sequence[str] = (),
+) -> str:
     """Render one parameterized recipe or one concrete case expression."""
 
+    tool_params = _tool_params(tools)
     sources = []
     if question is not None:
         sources.append(src(text(_literal(question)), name="question"))
-    sources.extend(_member_source(member) for member in fusion._members)
+    sources.extend(_member_source(member, tool_params) for member in fusion._members)
 
     if isinstance(fusion.reducer, MajorityVote):
         member_answers = {member.id: f"${member.id}" for member in fusion._members}
@@ -82,13 +89,16 @@ def compile_model_expression(
     )
 
 
-def _member_source(member: _FusionMember):
+def _member_source(
+    member: _FusionMember,
+    tool_params: tuple[tuple[str, str], ...],
+):
     return src(
         RelExpr(
             path=_model_route(member.model),
             context="$question",
             intent=Text(member.call.prompt),
-            params=_params(member.call.parameter_items),
+            params=_params(member.call.parameter_items) + tool_params,
         ),
         name=member.id,
     )
@@ -109,6 +119,12 @@ def _params(
     items: tuple[tuple[str, ParameterValue], ...],
 ) -> tuple[tuple[str, str], ...]:
     return tuple((key, _param(value)) for key, value in items)
+
+
+def _tool_params(tools: Sequence[str]) -> tuple[tuple[str, str], ...]:
+    if not tools:
+        return ()
+    return ((TOOL_PARAMETER, encoded_tools(tools)),)
 
 
 def _param(value: ParameterValue) -> str:

@@ -59,9 +59,9 @@ configuration. Increasing it requires a separate review with the engine's admiss
 
 Benchmark discovery and loading do not contact the configured engine. The current engine cannot
 execute DRACO because it lacks the judge route and advertises no `web_search` support. Evaluation
-therefore fails capability preflight before `/v1` model traffic. Phase 4C will separately review
-member-only benchmark-tool compilation; later engine work owns the named search-and-fetch adapter
-and judge route.
+therefore fails capability preflight before `/v1` model traffic. Phase 4C subsequently implemented
+member-only benchmark-tool compilation; later engine work still owns the named search-and-fetch
+adapter and judge route.
 
 ## Live-source verification
 
