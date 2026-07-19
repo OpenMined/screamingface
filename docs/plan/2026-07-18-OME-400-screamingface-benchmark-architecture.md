@@ -1,10 +1,12 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 5 notebook suite implemented; release-readiness review next
-**Date:** 2026-07-18  
-**Last updated:** 2026-07-19
-**Normative contract:**
-[`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
+**Status:** Phase 5 implemented; Phase 6 provider-connections contract approved
+**Date:** 2026-07-18
+**Last updated:** 2026-07-20
+**Normative contracts:**
+
+- [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
+- [`docs/spec/2026-07-20-OME-400-provider-connections-contract.md`](../spec/2026-07-20-OME-400-provider-connections-contract.md)
 
 This plan supersedes the unreleased benchmark SDK and notebook contracts. ScreamingFace has no
 external SDK users yet, so implementation should target the approved design directly. Do not add
@@ -521,11 +523,33 @@ Before promoting the temporary package-development app, agree the engine profile
 location and ownership. If it moves to `apps/screamingface-engine`, preserve the same external
 contract rather than its temporary filesystem layout.
 
+### Phase 6 — model-provider connections
+
+The approved Phase 6 contract is
+[`docs/spec/2026-07-20-OME-400-provider-connections-contract.md`](../spec/2026-07-20-OME-400-provider-connections-contract.md),
+with its implementation sequence in
+[`docs/plan/2026-07-20-OME-400-provider-connections.md`](2026-07-20-OME-400-provider-connections.md).
+
+Phase 6 keeps dataset access researcher-local and adds only model-provider connections through the
+configured engine. The public SDK surface is `sf.connect(...)`, `sf.disconnect(...)`, and
+`sf.connections.list()`. There are no Fusion-owned connection methods. Model discovery remains
+connection-independent, while `run`, `grade`, and `evaluate` check their model-backed requirements
+at execution time.
+
+The engine publishes provider capabilities in its public registry and exposes protected JSON
+connection control routes under `/v1/connections`. API keys travel only in request bodies; OAuth
+callbacks relay through the engine; AI Gateway remains the encrypted credential store. URL4
+evaluation remains the plaintext transactional `GET /v1?q=...` data plane.
+
+Implementation is split into 6A SDK foundations, 6B engine/Gateway bridge, and 6C SDK flows,
+stage-specific preflight, and the brand-aligned notebook widget. Each slice still requires explicit
+execution approval.
+
 ### Future phases — explicitly deferred
 
 Design separately when the infrastructure exists:
 
-- authentication and provider connection UX;
+- hosted ScreamingFace identity and multi-profile provider connections;
 - usage, pricing, cost, and enforceable budgets;
 - persistence, resume, caches, and distributed execution;
 - hashes, publication, attestation, and verified hosted evaluation;
@@ -541,6 +565,8 @@ These are additive concerns, not hidden MVP requirements.
 |---|---|---|
 | Configure engine | Store/resolve one HTTP(S) origin | Bind and publish the service |
 | Discover models | Parse/filter registry | Advertise route IDs and tools |
+| Discover providers | Parse public provider capabilities | Advertise identities/auth methods |
+| Manage connections | Call only protected engine routes | Adapt to AI Gateway profiles securely |
 | Discover/load benchmark | List installed definitions; fetch/validate source locally | No responsibility |
 | Run Fusion | Compile and send complete URL4 | Evaluate it in one persistent `Url4Node` process |
 | Model execution | Never call Gateway | Run in-process handler, call AI Gateway, return text |
@@ -582,7 +608,8 @@ These are additive concerns, not hidden MVP requirements.
 - plaintext JSON parsing and schema rejection; and
 - timeout, transport, HTTP, parse, and execution errors remain distinguishable; and
 - one failed case does not cancel unrelated cases, change result order, produce a partial
-  envelope, become a zero, or trigger an SDK retry.
+  envelope, become a zero, or trigger an SDK retry; Phase 6 may stop only unscheduled work that
+  depends on a newly rejected provider credential.
 
 ### Grading and aggregation tests
 
@@ -604,6 +631,19 @@ These are additive concerns, not hidden MVP requirements.
 - majority vote makes no AI Gateway request;
 - context, intent, params, and tools arrive at the adapter correctly; and
 - engine success is plaintext and SDK parsing produces the typed result.
+
+### Provider connection tests
+
+- public provider capabilities remain separate from protected current-user status;
+- API-key and OAuth operations traverse SDK -> engine -> AI Gateway only;
+- secrets never appear in URLs, redirects, logs, errors, representations, widget state, or
+  serialized notebooks;
+- local encrypted credentials persist through ordinary Docker restarts and explicit removal is
+  destructive;
+- benchmark loading is independent of model-provider status;
+- run, grade, and evaluate enforce their distinct model-backed requirements once before spend;
+- disconnected providers do not disappear from model discovery; and
+- non-loopback private traffic requires HTTPS.
 
 ## 6. Repository map
 
@@ -635,8 +675,6 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review full DRACO notebook and deployment readiness against the implemented SDK/engine path. The
-engine can execute compatible `web_search` members and now exposes the required judge route;
-provider-backed success still depends on the external AI Gateway model registration,
-authentication, and the selected reproduction's complete panel-model lineup. Keep the dataset
-SDK-local and do not add a substitute judge, runtime fallback, or direct Gateway client.
+Implement Phase 6A only after a final owner execution approval. Keep the dataset SDK-local, retain
+connection-independent model discovery, and do not add a substitute judge, runtime fallback,
+direct Gateway client, hosted anonymous deployment, or dataset credential manager.

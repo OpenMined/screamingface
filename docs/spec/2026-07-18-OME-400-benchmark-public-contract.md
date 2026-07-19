@@ -3,6 +3,7 @@ title: ScreamingFace benchmark public contract
 ticket: OME-400
 status: approved
 date: 2026-07-18
+last_updated: 2026-07-20
 ---
 
 # ScreamingFace benchmark public contract
@@ -98,7 +99,7 @@ Low-level result records are immutable values surfaced through `Run` and `Grades
 `MemberResult`, and `RunFailure` are exported for inspection and type checking, but users receive
 them from `Fusion.run()` rather than constructing them as configuration.
 
-Not included in the MVP:
+Not included in the benchmark-core MVP:
 
 - a public `Engine`, `Client`, `Runner`, `Loader`, `Row`, or `Task`;
 - an ETL, dataset-mapping, or benchmark-building DSL;
@@ -106,8 +107,12 @@ Not included in the MVP:
 - `sf.runs`, persistence, resume, cost, budgets, hashes, or publication;
 - `primary_metric`, a public `Score` wrapper, or a benchmark-level generation seed;
 - an in-process URL4 engine, simulated responses, or mock runtime mode;
-- authentication/provider-key UX; or
 - direct SDK access to AI Gateway or a model provider.
+
+Provider authentication is specified separately by the approved
+[`ScreamingFace provider connections contract`](2026-07-20-OME-400-provider-connections-contract.md).
+It adds no dataset credential manager, direct SDK-to-Gateway path, or authentication field to a
+benchmark or Fusion definition.
 
 ## 3. Engine configuration and boundary
 
@@ -703,8 +708,9 @@ sf.EngineConnectionError
 sf.EngineProtocolError
 ```
 
-For the MVP, a model advertised by the registry is one the engine claims is available. User- or
-credential-specific availability belongs to a future engine authentication contract.
+For the MVP, a model advertised by the registry is one the engine claims is structurally
+available. User credential state is checked separately at the model-backed stage boundary under
+the provider-connections contract; it does not change model discovery or benchmark loading.
 
 ## 12. `Run`
 
@@ -773,6 +779,11 @@ at its original selected position while every unrelated selected case is allowed
 the bounded concurrency policy. Stable input order, not completion order, determines
 `run.results`. Failures preserve safe messages and, when available, the HTTP status and URL4 error
 code; they never retain credentials, provider payloads, or mutable exception objects.
+
+Phase 6 adds one systemic exception without changing this rule: after a provider rejects a stored
+credential, the SDK stops scheduling work that requires that same rejected connection. Such work
+is dependent, not unrelated. Already completed evidence is retained, work independent of that
+provider may finish, and the existing `url4` failure kind carries the stable authentication code.
 
 Phase 2 performs no automatic SDK retry. This avoids silently duplicating paid model calls when a
 connection is interrupted after the engine or provider has already accepted work. A future retry
@@ -1259,8 +1270,8 @@ The first implementation is accepted when:
 15. DRACO appears in the SDK catalog only when its canonical local definition is complete; its
     evaluation preflight fails until the judge and a compatible web-search Fusion are runnable
     through the real engine-to-Gateway path.
-16. no runtime mock, in-process engine, direct gateway client, compatibility alias, persistence,
-    budget, authentication, or ETL framework is introduced.
+16. no runtime mock, in-process engine, direct gateway client, compatibility alias, general run
+    persistence, budget, dataset credential manager, or ETL framework is introduced.
 
 The grading and aggregation behavior in §§13–17 was approved as Phase 3A and implemented through
 Phase 3D: public grading values, deterministic ExactChoice, complete `Run.grade()` Rubric
@@ -1273,3 +1284,7 @@ validation on 2026-07-19. Phase 4D added the engine-owned bounded SearXNG web-re
 on compatible worker routes. Phase 4E0 added safe bound judge context plus the preflighted
 transactional-GET size contract. Phase 4E1 added the tool-free `gemini/3.1-pro-preview` engine
 route under the explicit external AI Gateway registration assumption.
+
+Phase 6A-6C provider connection behavior was approved on 2026-07-20 in the separate provider
+connections contract. It is not part of the already implemented benchmark core and requires its
+own phased implementation approval.

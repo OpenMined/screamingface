@@ -567,3 +567,29 @@ Implemented the approved generated custom-benchmark guide:
 The notebook ran top-to-bottom in a fresh kernel, created the expected immutable benchmark, and
 left the report unset without touching an engine or network. No SDK runtime, engine, URL4, AI
 Gateway, authentication, or dataset behavior changed.
+
+## Phase 6 provider-connections contract approval — 2026-07-20
+
+Approved a separate model-provider connection control plane without changing benchmark or dataset
+ownership:
+
+- keep `sf.connect(...)`, `sf.disconnect(...)`, and `sf.connections.list()` as the complete public
+  connection surface, with no Fusion-owned connection methods;
+- keep model discovery connection-independent and check only model-backed `run`, `grade`, and
+  `evaluate` stages;
+- keep Hugging Face and other dataset credentials in the researcher's process under their native
+  libraries;
+- publish provider capabilities publicly while protecting all current-user connection state;
+- expose JSON `/v1/connections` control routes separately from plaintext URL4 `GET /v1?q=...`;
+- send API keys only in request bodies, relay OAuth callbacks through the engine, and leave
+  encrypted credential persistence to AI Gateway;
+- keep the current anonymous Gateway configuration local and loopback-only, with hosted identity
+  explicitly deferred; and
+- require a compact, accessible, brand-aligned notebook panel with no serialized credentials or
+  live account state.
+
+The normative record is
+`docs/spec/2026-07-20-OME-400-provider-connections-contract.md`; implementation is split into the
+explicitly reviewed 6A SDK, 6B engine, and 6C UX/preflight slices in
+`docs/plan/2026-07-20-OME-400-provider-connections.md`. No runtime phase begins without a separate
+owner execution approval.
