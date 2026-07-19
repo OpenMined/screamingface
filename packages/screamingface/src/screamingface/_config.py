@@ -31,7 +31,6 @@ def _normalize_engine_url(engine: object) -> str:
     parts = urlsplit(engine.strip())
     if parts.scheme not in {"http", "https"} or not parts.netloc:
         raise ValueError("engine must be an HTTP(S) URL")
-    if parts.query or parts.fragment:
-        raise ValueError("engine must not contain a query string or fragment")
-    path = parts.path.rstrip("/")
-    return urlunsplit((parts.scheme, parts.netloc, path, "", ""))
+    if parts.path not in {"", "/"} or parts.query or parts.fragment:
+        raise ValueError("engine must be an HTTP(S) origin without a path, query, or fragment")
+    return urlunsplit((parts.scheme, parts.netloc, "", "", ""))

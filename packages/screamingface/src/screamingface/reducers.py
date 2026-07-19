@@ -1,4 +1,4 @@
-"""Reducer definitions; execution is introduced in Phase 2."""
+"""Fusion reduction strategy definitions."""
 
 from __future__ import annotations
 

@@ -39,11 +39,13 @@ def _result(case_id: str) -> sf.CaseResult:
 
 
 def _run(benchmark: sf.Benchmark | None = None) -> sf.Run:
+    selected_benchmark = benchmark or _benchmark()
     return sf.Run(
-        benchmark=benchmark or _benchmark(),
+        benchmark=selected_benchmark,
         fusion_name="paired-fusion",
         fusion_url4="(recipe)",
         members=MEMBERS,
+        cases=selected_benchmark._materialize_cases(),
         results=[_result("q1"), _result("q2"), _result("q3")],
     )
 
@@ -150,6 +152,7 @@ def test_no_paired_cases_retains_every_member_without_fabricating_scores() -> No
         fusion_name="all-failed",
         fusion_url4="(recipe)",
         members=MEMBERS,
+        cases=benchmark._materialize_cases(),
         results=[
             sf.CaseResult("q1", members={}, answer=None, failure=first),
             sf.CaseResult("q2", members={}, answer=None, failure=second),

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
@@ -10,6 +9,7 @@ from typing import Any, cast
 import httpx
 
 from screamingface._config import current_engine_url
+from screamingface._engine_http import unique_json_object
 from screamingface.aggregators import Mean
 from screamingface.benchmark import Benchmark, Case
 from screamingface.errors import (
@@ -227,12 +227,9 @@ def _json_object(
     body: str, label: str, error_type: type[EngineProfileError] | type[InvalidBenchmarkError]
 ) -> dict[str, object]:
     try:
-        payload = json.loads(body)
-    except json.JSONDecodeError as exc:
-        raise error_type(f"invalid {label}: response is not JSON") from exc
-    if not isinstance(payload, dict):
-        raise error_type(f"invalid {label}: expected a JSON object")
-    return payload
+        return unique_json_object(body)
+    except (TypeError, ValueError) as exc:
+        raise error_type(f"invalid {label}: {exc}") from exc
 
 
 def _model_record(payload: dict[str, object]) -> ModelRecord:

@@ -1104,23 +1104,19 @@ version = "0.2.0"
 source = { editable = "../../" }
 dependencies = [
     { name = "httpx" },
-    { name = "pyyaml" },
     { name = "url4" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "datasets", marker = "extra == 'datasets'", specifier = ">=4.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "ipykernel", marker = "extra == 'notebook'", specifier = ">=6.29" },
-    { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },
     { name = "jupyterlab", marker = "extra == 'notebook'", specifier = ">=4.2" },
     { name = "nbclient", marker = "extra == 'notebook'", specifier = ">=0.10" },
     { name = "nbformat", marker = "extra == 'notebook'", specifier = ">=5.10" },
-    { name = "pyyaml", specifier = ">=6.0" },
     { name = "url4", editable = "../../../url4" },
 ]
-provides-extras = ["datasets", "notebook"]
+provides-extras = ["notebook"]
 
 [package.metadata.requires-dev]
 dev = [

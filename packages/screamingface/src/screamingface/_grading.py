@@ -66,23 +66,13 @@ def grade_run(run: Run) -> Grades:
 
     if not isinstance(run, Run):
         raise TypeError("grade_run requires an sf.Run")
-    cases = _run_cases(run)
+    cases = run._cases
     grader = run._benchmark.grader
     if isinstance(grader, ExactChoice):
         return _grade_exact(run, cases)
     if isinstance(grader, Rubric):
         return _grade_rubric(run, cases, grader)
     raise TypeError(f"unsupported grader {type(grader).__name__!r}")
-
-
-def _run_cases(run: Run) -> tuple[Case, ...]:
-    materialized = {case.id: case for case in run._benchmark._materialize_cases()}
-    try:
-        return tuple(materialized[case_id] for case_id in run.case_ids)
-    except KeyError as exc:
-        raise InvalidBenchmarkError(
-            f"benchmark no longer contains selected case {exc.args[0]!r}"
-        ) from exc
 
 
 def _grade_exact(run: Run, cases: tuple[Case, ...]) -> Grades:

@@ -21,12 +21,10 @@ GET /healthz
 GET /.well-known/screamingface
 GET /benchmarks/gpqa@1
 GET /benchmarks/gpqa@1/cases
-GET /benchmarks/draco@1
-GET /benchmarks/draco@1/cases
 GET /codex/gpt-5.5?[params&]q=(context)!intent
 GET /gemini/2.5?[params&]q=(context)!intent
 GET /claude/sonnet-4.6?[params&]q=(context)!intent
-GET /reducers/majority-vote?q=(resolved-panel-object)
+GET /reducers/majority-vote?q=(resolved-member-object)
 GET /v1?q=<complete URL4 expression>
 ```
 
@@ -41,21 +39,20 @@ whole-evaluation timeout.
 
 The majority-vote handler is also registered once in that process. It accepts a resolved JSON
 object with contiguous `member_1` through `member_n` string values, applies exact-string voting, and
-breaks ties by numeric panel position. It returns only the winning text and never contacts AI
-Gateway. Nonempty intent, parameters, missing panels, non-string values, and blank answers are
+breaks ties by numeric member position. It returns only the winning text and never contacts AI
+Gateway. Nonempty intent, parameters, missing members, non-string values, and blank answers are
 permanent URL4 `malformed_source` errors.
 
-The current development profile intentionally supports tool-free model requests only. The registry does not claim
-`web_search`, and `gemini/3.1-pro-preview` is not advertised because AI Gateway does not currently
-register that model identifier. DRACO remains discoverable and declares its unmet requirements;
-it becomes runnable only after those real capabilities exist.
+The current development profile intentionally supports tool-free model requests only. The
+registry does not claim `web_search`, and `gemini/3.1-pro-preview` is not advertised because AI
+Gateway does not currently register that model identifier. Only runnable benchmarks are
+advertised, so DRACO is neither listed nor served until those capabilities exist.
 
 ## Dataset access
 
-The case routes load the canonical Hugging Face datasets:
+The case route loads the canonical Hugging Face dataset:
 
 - `Idavidrein/gpqa`, subset `gpqa_diamond`, split `train`
-- `perplexity-ai/draco`, split `test`
 
 GPQA may require accepting the dataset terms and authenticating locally first:
 
@@ -89,7 +86,7 @@ Verify:
 ```bash
 curl -s http://127.0.0.1:4404/healthz
 curl -s http://127.0.0.1:4404/.well-known/screamingface | python -m json.tool
-curl -s http://127.0.0.1:4404/benchmarks/draco@1 | python -m json.tool
+curl -s http://127.0.0.1:4404/benchmarks/gpqa@1 | python -m json.tool
 
 curl -G http://127.0.0.1:4404/codex/gpt-5.5 \
   --data-urlencode "q=(What is 2 + 2?)!Answer briefly"

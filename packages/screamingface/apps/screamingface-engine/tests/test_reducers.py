@@ -65,7 +65,7 @@ def _app(gateway: GatewayClient):
     return create_app(
         settings=Settings(gateway_url="http://gateway.test"),
         gateway=gateway,
-        case_loaders={"gpqa@1": lambda: (Case("q", "Q", reference="A"),), "draco@1": lambda: ()},
+        case_loaders={"gpqa@1": lambda: (Case("q", "Q", reference="A"),)},
     )
 
 

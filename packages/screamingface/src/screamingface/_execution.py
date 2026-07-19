@@ -77,6 +77,7 @@ def run_fusion(
         fusion_name=fusion.name,
         fusion_url4=recipe,
         members=tuple((member.id, member.model) for member in fusion._members),
+        cases=selected,
         results=results,
     )
 

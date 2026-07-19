@@ -42,3 +42,6 @@ release/
 
 # Local AI-agent scratch docs (plans/specs staging, not committed)
 .docs/
+
+# Local upstream design reference; not part of the ScreamingFace package implementation
+packages/screamingface/examples/draco-eval-demo/

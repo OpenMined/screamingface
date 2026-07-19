@@ -42,8 +42,8 @@ simulated, or in-process engine fallback.
 executable setup and API guide. It shows the registry plaintext, discovery filters, opt-in remote
 benchmark loading, local benchmark construction, and network-free Fusion authoring.
 
-The older quickstart, architecture, and DRACO notebooks predate the approved greenfield contract
-and are not current API documentation. They will be regenerated in the planned notebook phase.
+The public quickstart, architecture guide, and DRACO tutorial will be generated from the reviewed
+contract in the planned notebook phase; no superseded notebook is retained as API documentation.
 
 ## Start the development engine
 
@@ -107,7 +107,7 @@ than the notebook JSON.
 import screamingface as sf
 
 # Optional locally: this URL is currently the default.
-sf.config(engine="http://127.0.0.1:4404")
+sf.config(engine="http://127.0.0.1:4404")  # HTTP(S) origin only
 
 models = sf.models.list()
 benchmarks = sf.benchmarks.list()
@@ -158,11 +158,10 @@ report = fusion.evaluate(benchmark)
 
 Construction and `fusion.url4` are network-free. Discovery, loading, and execution contact only
 the configured URL4 engine. `fusion.run("gpqa@1", first=20)` is the named-benchmark shorthand for
-loading and running a stable prefix. The current model registry deliberately advertises no tools:
-`web_search` returns only after a real named-tool adapter exists and has been tested.
-Canonical DRACO grading additionally requires the engine profile to advertise its configured
-`gemini/3.1-pro-preview` judge route; until then, the SDK's Rubric implementation is complete but
-the published DRACO profile correctly fails preflight.
+loading and running a stable prefix. The current registry deliberately advertises no tools and
+lists only GPQA. DRACO will be published in Phase 4 only after the engine has a tested
+`web_search` adapter, advertises the configured `gemini/3.1-pro-preview` judge route, and pins the
+canonical source and judge contract. The SDK's generic Rubric implementation is already complete.
 
 ## Validation
 

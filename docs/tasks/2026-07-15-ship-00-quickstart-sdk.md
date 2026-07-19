@@ -224,3 +224,16 @@ Implemented the approved paired aggregation and report slice:
 
 Phase 3D makes no new engine, URL4, AI Gateway, authentication, persistence, cost, or confidence
 interval behavior. Phase 4 contract review is next.
+
+## Pre-Phase 4 greenfield cleanup — 2026-07-19
+
+Removed the obsolete pre-contract notebooks, generators, YAML/HTML surfaces, mock server, local
+in-process runtime configuration, dead dependencies, and superseded normative documents. Updated
+the live README and CI instructions to describe only the Dockerized HTTP engine boundary.
+
+The runtime now requires an origin-only engine configuration, uses strict duplicate-key JSON at
+every engine boundary, and captures each Run's exact selected cases so grading cannot reload
+changed references. The engine registry now advertises only runnable GPQA; DRACO remains absent
+until Phase 4 supplies its real judge route, `web_search` adapter, and canonical pinned
+publication. Historical task/work ledgers remain explicitly labelled audit evidence, and the
+untracked `packages/screamingface/examples/draco-eval-demo/` reference remains untouched.

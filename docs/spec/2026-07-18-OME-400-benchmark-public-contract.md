@@ -120,6 +120,10 @@ The SDK has one effective URL4 engine:
 sf.config(engine="https://url4.example.org")
 ```
 
+The configured value must be an HTTP(S) origin: scheme and authority only, with no path, query,
+or fragment. This keeps discovery resources and `/v1` evaluation on one unambiguous engine
+boundary.
+
 Importing ScreamingFace and directly constructing a `Fusion`, `Case`, or `Benchmark` perform no
 network request. Registry discovery, named benchmark loading, fusion execution, and model-backed
 grading use the configured HTTP engine.
@@ -303,10 +307,9 @@ The mapping is deliberately typed and allowlisted:
 The registry may advertise `web_search` for a model only when that route has a working named-tool
 adapter. Otherwise SDK preflight must reject a benchmark that requires it.
 
-Phase 2A therefore advertises no tools. The DRACO manifest remains discoverable and truthfully
-declares `web_search`; loading or running it must fail SDK preflight until a tested named-tool
-adapter and its compatible model routes are published. Its `gemini/3.1-pro-preview` judge route is
-likewise not advertised until AI Gateway registers an exact private model mapping.
+The current profile advertises no tools and therefore does not advertise or serve DRACO. DRACO is
+added to the registry only when a tested named-tool adapter, compatible worker routes, and the
+`gemini/3.1-pro-preview` judge route are all published.
 
 For a successful non-streaming response, the handler validates
 `choices[0].message.content`, requires string content, and returns that string only. URL4 therefore
@@ -751,10 +754,13 @@ with an empty string, converted to a zero score, or included in a partial succes
 members, and failures. It excludes private benchmark references and live Python exceptions. The
 MVP does not add `save`, `load`, persistence, or resume behavior.
 
+The `Run` privately captures the exact selected `Case` values used for execution. `run.grade()`
+uses that snapshot rather than rematerializing a callable benchmark source, so a mutable loader
+cannot change references between execution and grading.
+
 `Fusion.run()` is synchronous and safe to call from a normal script or a notebook with an active
-event loop; bounded execution is an internal concern. Phase 2C does not implement
-`Fusion.evaluate()`, `Run.grade()`, or aggregation. Those arrive together in Phase 3 so
-`evaluate()` never temporarily means “run only.”
+event loop; bounded execution is an internal concern. Grading, aggregation, and `evaluate()` are
+the separate Phase 3 stages defined below; `evaluate()` never means “run only.”
 
 ## 13. Grading
 
@@ -1183,7 +1189,7 @@ The first implementation is accepted when:
 4. named benchmark loading uses the SF engine registry, manifests, and normalized case resources.
 5. every selected case is one complete URL4 Fusion expression.
 6. majority vote executes through the advertised SF RDS route using exact-string voting and
-   stable numeric panel-order tie breaking.
+   stable numeric member-order tie breaking.
 7. references never appear in worker or reducer expressions.
 8. official DRACO grading uses one URL4 model request per criterion/pass.
 9. success bodies are parsed from text and validated strictly.
@@ -1192,10 +1198,9 @@ The first implementation is accepted when:
 12. no runtime mock, in-process engine, direct gateway client, compatibility alias, persistence,
     budget, authentication, or ETL framework is introduced.
 
-The grading and aggregation behavior in §§13–17 was approved as the review-only Phase 3A unit.
-Phase 3B implements the public grading values and deterministic ExactChoice core. Phase 3C
-implements complete `Run.grade()` dispatch, Rubric preflight/orchestration, strict judge parsing,
-validation-only retries, coverage, scoring, and retained evidence. The current engine profile
-must separately advertise `gemini/3.1-pro-preview` and working `web_search` support before
-canonical DRACO can execute end to end. Phase 3D implements paired Mean aggregation, immutable
-reports, stable Fusion/member identities, and the exact `Fusion.evaluate()` facade.
+The grading and aggregation behavior in §§13–17 was approved as Phase 3A and implemented through
+Phase 3D: public grading values, deterministic ExactChoice, complete `Run.grade()` Rubric
+orchestration, strict judge parsing, validation-only retries, retained evidence, paired Mean
+aggregation, immutable reports, and the exact `Fusion.evaluate()` facade. The current engine
+profile does not advertise DRACO; Phase 4 must add `gemini/3.1-pro-preview`, working `web_search`,
+and the canonical publication together.

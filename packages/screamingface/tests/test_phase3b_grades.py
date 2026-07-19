@@ -19,8 +19,9 @@ def _benchmark() -> sf.Benchmark:
 
 
 def _successful_run() -> sf.Run:
+    benchmark = _benchmark()
     return sf.Run(
-        benchmark=_benchmark(),
+        benchmark=benchmark,
         fusion_name="frontier-trio",
         fusion_url4="(recipe)",
         members={
@@ -28,6 +29,7 @@ def _successful_run() -> sf.Run:
             "member_2": "gemini/2.5",
             "member_3": "claude/sonnet-4.6",
         },
+        cases=benchmark._materialize_cases(),
         results=[
             sf.CaseResult(
                 "q1",
@@ -123,6 +125,7 @@ def test_successful_rubric_shaped_grade_and_grader_are_serializable() -> None:
             "member_1": "codex/gpt-5.5",
             "member_2": "gemini/2.5",
         },
+        cases=benchmark._materialize_cases(),
         results=[
             sf.CaseResult(
                 "q1",
@@ -328,6 +331,7 @@ def test_failed_run_case_has_no_grades_and_remains_in_failures() -> None:
             "member_2": "gemini/2.5",
             "member_3": "claude/sonnet-4.6",
         },
+        cases=benchmark._materialize_cases(),
         results=[sf.CaseResult("q1", members={}, answer=None, failure=failure)],
     )
     case = sf.CaseGrades("q1", fusion=None, members={}, run_failure=failure)

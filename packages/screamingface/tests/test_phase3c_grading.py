@@ -87,14 +87,16 @@ def _run(
         "member_1": sf.MemberResult("worker/one", "Member one"),
         "member_2": sf.MemberResult("worker/two", "Member two"),
     }
+    selected_cases = benchmark._materialize_cases()
     return sf.Run(
         benchmark=benchmark,
         fusion_name="test-fusion",
         fusion_url4="(recipe)",
         members={member_id: member.model for member_id, member in selected_members.items()},
+        cases=selected_cases,
         results=[
             sf.CaseResult(
-                benchmark._materialize_cases()[0].id,
+                selected_cases[0].id,
                 members=selected_members,
                 answer=answer,
             )
@@ -210,6 +212,7 @@ def test_exact_grading_preserves_failed_run_cases_and_revalidates_references() -
         fusion_name="test-fusion",
         fusion_url4="(recipe)",
         members={"member_1": "worker/one", "member_2": "worker/two"},
+        cases=benchmark._materialize_cases(),
         results=[sf.CaseResult("q1", members=(), answer=None, failure=failure)],
     )
 
@@ -229,6 +232,7 @@ def test_exact_grading_preserves_failed_run_cases_and_revalidates_references() -
         fusion_name="test-fusion",
         fusion_url4="(recipe)",
         members={"member_1": "worker/one", "member_2": "worker/two"},
+        cases=invalid._materialize_cases(),
         results=[sf.CaseResult("q1", members=(), answer=None, failure=failure)],
     )
     with pytest.raises(sf.InvalidBenchmarkError, match="exact-choice reference"):
@@ -258,19 +262,23 @@ def test_grade_run_rejects_non_runs_and_unimplemented_grader_strategies() -> Non
         run.grade()
 
 
-def test_grading_rejects_a_benchmark_that_no_longer_contains_the_run_case() -> None:
-    produced = [[sf.Case("q1", "Question", reference="A")]]
+def test_grading_uses_the_exact_cases_captured_by_the_run() -> None:
+    calls = 0
 
     def cases() -> list[sf.Case]:
-        return produced.pop(0) if produced else [sf.Case("q2", "Other", reference="A")]
+        nonlocal calls
+        calls += 1
+        reference = "A" if calls == 1 else "B"
+        return [sf.Case("q1", "Question", reference=reference)]
 
     benchmark = sf.Benchmark("changing", cases=cases, grader=sf.graders.ExactChoice())
-    assert benchmark._materialize_cases()[0].id == "q1"
+    selected_cases = benchmark._materialize_cases()
     run = sf.Run(
         benchmark=benchmark,
         fusion_name="test-fusion",
         fusion_url4="(recipe)",
         members={"member_1": "worker/one", "member_2": "worker/two"},
+        cases=selected_cases,
         results=[
             sf.CaseResult(
                 "q1",
@@ -283,8 +291,11 @@ def test_grading_rejects_a_benchmark_that_no_longer_contains_the_run_case() -> N
         ],
     )
 
-    with pytest.raises(sf.InvalidBenchmarkError, match="no longer contains"):
-        run.grade()
+    grades = run.grade()
+
+    assert calls == 1
+    assert grades.results[0].fusion is not None
+    assert grades.results[0].fusion.score == 1.0
 
 
 def test_rubric_preflight_validates_all_references_before_registry_or_judge_traffic(
@@ -299,6 +310,7 @@ def test_rubric_preflight_validates_all_references_before_registry_or_judge_traf
         fusion_name="test-fusion",
         fusion_url4="(recipe)",
         members={"member_1": "worker/one", "member_2": "worker/two"},
+        cases=benchmark._materialize_cases(),
         results=[
             sf.CaseResult(
                 "q1",
@@ -530,6 +542,7 @@ def test_failed_rubric_run_case_is_preflighted_but_receives_no_judge_calls(
         fusion_name="test-fusion",
         fusion_url4="(recipe)",
         members={"member_1": "worker/one", "member_2": "worker/two"},
+        cases=benchmark._materialize_cases(),
         results=[sf.CaseResult("q1", members=(), answer=None, failure=failure)],
     )
     client = _install(monkeypatch, lambda _expression, _attempt: _response())

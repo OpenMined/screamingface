@@ -44,7 +44,7 @@ Rules:
 - Importing ScreamingFace and constructing local definitions are network-free.
 - The SDK does not ship a mock or in-process execution fallback.
 - Until a hosted deployment exists, the default engine URL is `http://127.0.0.1:4404`.
-  `sf.config(engine=...)` overrides it.
+  `sf.config(engine=...)` overrides it with an HTTP(S) origin (no path, query, or fragment).
 - The tracked `packages/screamingface/apps/screamingface-engine` stack is temporary local development
   infrastructure. It is not part of the Python wheel or the final application boundary.
 
@@ -166,7 +166,7 @@ screamingface-engine profile:
 
 - `/.well-known/screamingface`;
 - canonical public model IDs and supported-tool declarations;
-- versioned GPQA and DRACO manifests and normalized NDJSON case routes; and
+- a versioned GPQA manifest and normalized NDJSON case route; and
 - an advertised deterministic reducer route identity. Phase 2 replaces Phase 1's provisional
   namespaced route with `/reducers/majority-vote` before it becomes executable. No compatibility
   alias is retained because the SDK is unreleased.
@@ -322,15 +322,16 @@ same framework objects, and failed/unresolved work never becomes a zero score.
 
 ### Phase 4 — canonical GPQA and DRACO validation
 
-Harden the Phase 1 manifests and stable case streams against their canonical sources. They use
-the same public `Benchmark` and `Case` semantics available to researchers. Pin upstream dataset
-revisions inside the publisher, not in the researcher-facing call.
+Harden GPQA and add DRACO only when both publications are runnable against their canonical
+sources. They use the same public `Benchmark` and `Case` semantics available to researchers. Pin
+upstream dataset revisions inside the publisher, not in the researcher-facing call.
 
 Complete when:
 
 - `sf.benchmarks.load("gpqa@1")` and `load("draco@1")` recreate equivalent typed definitions;
 - cases have stable identities and sealed references;
-- DRACO declares `web_search` and the official Rubric configuration; and
+- DRACO is advertised only after the engine exposes its judge model and working `web_search`
+  adapter, and declares the official Rubric configuration; and
 - repeated loads are deterministic.
 
 ### Phase 5 — notebooks and public documentation
@@ -341,7 +342,7 @@ the current notebooks. Cover:
 - a bare-bones quickstart;
 - configuration and architecture;
 - model and benchmark discovery;
-- Fusion construction in Python and YAML;
+- Fusion construction in Python;
 - explicit stage inspection;
 - custom local benchmark definitions; and
 - a clearly labeled DRACO reproduction.
@@ -375,7 +376,7 @@ These are additive concerns, not hidden MVP requirements.
 
 | Capability | ScreamingFace SDK | screamingface-engine profile |
 |---|---|---|
-| Configure engine | Store/resolve one base URL | Bind and publish the service |
+| Configure engine | Store/resolve one HTTP(S) origin | Bind and publish the service |
 | Discover models | Parse/filter registry | Advertise route IDs and tools |
 | Load benchmark | Fetch/validate manifest and cases | Serve manifest and NDJSON cases |
 | Run Fusion | Compile and send complete URL4 | Evaluate it in one persistent `Url4Node` process |
@@ -473,6 +474,6 @@ Review Phase 4 canonical GPQA/DRACO publication against the implemented SDK valu
 changing engine manifests, routes, or notebooks. Keep authentication, persistence, budgets, and
 notebook regeneration out of that contract review.
 
-The current local engine profile still cannot execute canonical DRACO: it does not advertise the
-`gemini/3.1-pro-preview` judge route, and its panel routes do not advertise `web_search`. Those are
-explicit engine-profile follow-ups rather than Phase 3D SDK work.
+The current local engine profile intentionally does not advertise or serve DRACO: it lacks the
+`gemini/3.1-pro-preview` judge route, and its model routes do not advertise `web_search`. Adding
+those real capabilities and the canonical publication is Phase 4 engine-profile work.

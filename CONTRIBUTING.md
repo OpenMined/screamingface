@@ -38,14 +38,17 @@ cd apps/scoreboard
 uv sync
 uv run scoreboard
 
-# ScreamingFace SDK — zero-setup deterministic URL4 quickstart
+# ScreamingFace SDK — local URL4 engine profile and walkthrough
 cd ../../packages/screamingface
 uv sync --extra notebook
-uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
+cd apps/screamingface-engine
+./dev.sh
+# In another terminal, from packages/screamingface:
+uv run --extra notebook jupyter lab examples/phase_1_engine_profile.ipynb
 ```
 
-The ScreamingFace quickstart needs no service. Run `./scripts/dev-url4.sh` only to test the
-optional HTTP transport, then select it with `sf.config("http://127.0.0.1:4404")`.
+The ScreamingFace SDK always uses its configured HTTP URL4 engine. The local development stack
+starts that engine and AI Gateway; only engine model routes contact AI Gateway.
 
 ## Tests, lint, typecheck
 
@@ -98,8 +101,7 @@ Gateway-specific:
   key, migrations)
 - **Scoreboard internals:** `apps/scoreboard/README.md` (portal, public
   artifacts)
-- **ScreamingFace SDK:** `packages/screamingface/README.md` and
-  `packages/screamingface/docs/index.html`
+- **ScreamingFace SDK:** `packages/screamingface/README.md`
 - **URL4 SDK examples:** `packages/url4/examples/url4_examples.ipynb`
 - **Repo routing (which app, which CI, who reviews):** the
   `working-in-this-repo` skill (`.claude/skills/working-in-this-repo/`)

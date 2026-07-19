@@ -6,10 +6,9 @@ import json
 import random
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 
 from screamingface import Benchmark, Case, aggregators, graders
-from screamingface.draco import _JUDGE_SYSTEM_PROMPT
 
 from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE
 
@@ -40,7 +39,6 @@ MODEL_ROUTES = (
 class PublishedBenchmark:
     benchmark: Benchmark
     cases_path: str
-    loader: CaseLoader
 
 
 def gpqa_cases() -> Iterable[Case]:
@@ -69,32 +67,12 @@ def gpqa_cases() -> Iterable[Case]:
         )
 
 
-def draco_cases() -> Iterable[Case]:
-    """Load and normalize canonical DRACO research cases."""
-
-    from datasets import load_dataset
-
-    rows = load_dataset("perplexity-ai/draco", split="test")
-    for index, raw_row in enumerate(rows):
-        row = cast(Mapping[str, object], raw_row)
-        raw_reference = row.get("answer")
-        reference = json.loads(raw_reference) if isinstance(raw_reference, str) else raw_reference
-        metadata = _json_object(row.get("metadata"))
-        domain = row.get("domain") or metadata.get("domain") or "unknown"
-        yield Case(
-            str(row.get("id") or f"draco-{index}"),
-            str(row.get("problem") or row.get("question") or ""),
-            reference=reference,
-            metadata={"domain": str(domain)},
-        )
-
-
 def published_benchmarks(
     case_loaders: Mapping[str, CaseLoader] | None = None,
 ) -> tuple[PublishedBenchmark, ...]:
     """Build canonical definitions while allowing isolated tests to replace dataset I/O."""
 
-    loaders = {"gpqa@1": gpqa_cases, "draco@1": draco_cases}
+    loaders = {"gpqa@1": gpqa_cases}
     if case_loaders is not None:
         unknown = set(case_loaders) - set(loaders)
         if unknown:
@@ -107,23 +85,7 @@ def published_benchmarks(
         grader=graders.ExactChoice(),
         aggregator=aggregators.Mean(),
     )
-    draco = Benchmark(
-        "draco@1",
-        title="DRACO",
-        cases=loaders["draco@1"],
-        grader=graders.Rubric(
-            model="gemini/3.1-pro-preview",
-            prompt=_JUDGE_SYSTEM_PROMPT,
-            passes=5,
-            params={"temperature": 0.2, "reasoning": "low", "max_tokens": 4096},
-        ),
-        aggregator=aggregators.Mean(),
-        tools=("web_search",),
-    )
-    return (
-        PublishedBenchmark(gpqa, "/benchmarks/gpqa@1/cases", loaders["gpqa@1"]),
-        PublishedBenchmark(draco, "/benchmarks/draco@1/cases", loaders["draco@1"]),
-    )
+    return (PublishedBenchmark(gpqa, "/benchmarks/gpqa@1/cases"),)
 
 
 def registry_document(publications: tuple[PublishedBenchmark, ...]) -> dict[str, object]:
@@ -176,12 +138,3 @@ def _grader_document(grader: graders.Grader) -> dict[str, object]:
             "params": grader.params,
         }
     raise TypeError(f"unsupported grader: {type(grader).__name__}")
-
-
-def _json_object(value: Any) -> dict[str, object]:
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except json.JSONDecodeError:
-            return {}
-    return value if isinstance(value, dict) else {}

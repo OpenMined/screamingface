@@ -40,7 +40,7 @@ class EngineASGI:
             await self._lifespan(receive, send)
         elif scope["type"] == "http":
             await self._serve_http(scope, receive, send)
-        else:  # pragma: no cover - no websocket surface in Phase 2A
+        else:  # pragma: no cover - the engine exposes no websocket surface
             await self._base(scope, receive, send)
 
     async def _serve_http(self, scope: Mapping[str, Any], receive: Receive, send: Send) -> None:

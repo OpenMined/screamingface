@@ -1,8 +1,0 @@
-name: frontier-trio
-models:
-  - codex/gpt-5.5
-  - gemini-cli/gemini-2.5-pro
-  - anthropic/claude-sonnet-4-6
-reducer:
-  kind: majority_vote
-  tie_breaker: codex/gpt-5.5

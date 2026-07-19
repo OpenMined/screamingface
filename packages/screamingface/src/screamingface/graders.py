@@ -1,4 +1,4 @@
-"""Grader definitions; grading execution is introduced in Phase 3."""
+"""Benchmark grading strategy definitions."""
 
 from __future__ import annotations
 

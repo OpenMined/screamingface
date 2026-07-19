@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
-from screamingface.benchmark import Benchmark
+from screamingface.benchmark import Benchmark, Case
 
 if TYPE_CHECKING:
     from screamingface.grades import Grades
@@ -122,6 +122,7 @@ class Run:
     fusion_url4: str
     case_ids: tuple[str, ...]
     results: tuple[CaseResult, ...]
+    _cases: tuple[Case, ...] = field(repr=False, compare=False)
     _member_items: tuple[tuple[str, str], ...] = field(repr=False)
     _benchmark: Benchmark = field(repr=False, compare=False)
 
@@ -132,6 +133,7 @@ class Run:
         fusion_name: str,
         fusion_url4: str,
         members: Mapping[str, str] | Sequence[tuple[str, str]],
+        cases: Sequence[Case],
         results: Sequence[CaseResult],
     ) -> None:
         if not isinstance(benchmark, Benchmark):
@@ -140,20 +142,23 @@ class Run:
         recipe = _nonblank(fusion_url4, "fusion URL4")
         member_items = tuple(members.items()) if isinstance(members, Mapping) else tuple(members)
         _run_member_items(member_items)
+        selected_cases = _selected_cases(cases)
+        selected_ids = tuple(case.id for case in selected_cases)
         values = tuple(results)
         if not values:
             raise ValueError("a run requires at least one case result")
         if not all(isinstance(result, CaseResult) for result in values):
             raise TypeError("run results must be sf.CaseResult values")
         case_ids = tuple(result.case_id for result in values)
-        if len(case_ids) != len(set(case_ids)):
-            raise ValueError("run case IDs must be unique")
+        if case_ids != selected_ids:
+            raise ValueError("run result case IDs and order must match the selected cases")
         _result_members(member_items, values)
         object.__setattr__(self, "benchmark_id", benchmark.id)
         object.__setattr__(self, "fusion_name", normalized_name)
         object.__setattr__(self, "fusion_url4", recipe)
         object.__setattr__(self, "case_ids", case_ids)
         object.__setattr__(self, "results", values)
+        object.__setattr__(self, "_cases", selected_cases)
         object.__setattr__(self, "_member_items", member_items)
         object.__setattr__(self, "_benchmark", benchmark)
 
@@ -211,6 +216,18 @@ def _run_member_items(items: tuple[tuple[str, str], ...]) -> None:
         _nonblank(model, "run member model")
     if tuple(observed) != expected:
         raise ValueError("run member slots must be contiguous member_1 through member_n")
+
+
+def _selected_cases(values: Sequence[Case]) -> tuple[Case, ...]:
+    cases = tuple(values)
+    if not cases:
+        raise ValueError("run cases must contain at least one sf.Case")
+    if not all(isinstance(case, Case) for case in cases):
+        raise TypeError("run cases must be sf.Case values")
+    case_ids = tuple(case.id for case in cases)
+    if len(case_ids) != len(set(case_ids)):
+        raise ValueError("run case IDs must be unique")
+    return cases
 
 
 def _result_members(members: tuple[tuple[str, str], ...], results: tuple[CaseResult, ...]) -> None:

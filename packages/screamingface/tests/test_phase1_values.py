@@ -14,10 +14,28 @@ def test_config_is_network_free_and_returns_none() -> None:
     assert sf.config(engine="http://127.0.0.1:4404") is None
 
 
-@pytest.mark.parametrize("engine", ["", "localhost:4404", "ftp://engine.test"])
+@pytest.mark.parametrize(
+    "engine",
+    [
+        "",
+        "localhost:4404",
+        "ftp://engine.test",
+        "https://engine.test/prefix",
+        "https://engine.test/?token=value",
+        "https://engine.test/#fragment",
+    ],
+)
 def test_config_rejects_invalid_engine_urls(engine: str) -> None:
     with pytest.raises(ValueError, match="engine"):
         sf.config(engine=engine)
+
+
+def test_config_normalizes_an_origin_only() -> None:
+    from screamingface._config import current_engine_url
+
+    sf.config(engine=" HTTPS://Engine.Test:4404/ ")
+
+    assert current_engine_url() == "https://Engine.Test:4404"
 
 
 def test_case_is_immutable_and_defensively_owns_json_values() -> None:

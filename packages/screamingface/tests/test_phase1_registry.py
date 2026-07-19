@@ -24,12 +24,12 @@ def _registry() -> dict[str, object]:
         "benchmarks": [
             {
                 "id": "gpqa@1",
-                "manifest": "/sf/benchmarks/gpqa@1",
+                "manifest": "/benchmarks/gpqa@1",
                 "tools": [],
             },
             {
                 "id": "draco@1",
-                "manifest": "/sf/benchmarks/draco@1",
+                "manifest": "/benchmarks/draco@1",
                 "tools": ["web_search"],
             },
         ],
@@ -43,7 +43,7 @@ def _gpqa_manifest() -> dict[str, object]:
         "title": "GPQA Diamond",
         "tools": [],
         "cases": {
-            "url": "/sf/benchmarks/gpqa@1/cases",
+            "url": "/benchmarks/gpqa@1/cases",
             "format": "ndjson",
         },
         "grader": {"type": "exact_choice"},
@@ -58,7 +58,7 @@ def _draco_manifest() -> dict[str, object]:
         "title": "DRACO",
         "tools": ["web_search"],
         "cases": {
-            "url": "/sf/benchmarks/draco@1/cases",
+            "url": "/benchmarks/draco@1/cases",
             "format": "ndjson",
         },
         "grader": {
@@ -79,13 +79,13 @@ def _draco_manifest() -> dict[str, object]:
 def _routes() -> dict[str, str]:
     return {
         "/.well-known/screamingface": json.dumps(_registry()),
-        "/sf/benchmarks/gpqa@1": json.dumps(_gpqa_manifest()),
-        "/sf/benchmarks/gpqa@1/cases": (
+        "/benchmarks/gpqa@1": json.dumps(_gpqa_manifest()),
+        "/benchmarks/gpqa@1/cases": (
             '{"id":"q1","input":"2 + 2?\\n\\nA. 3\\nB. 4","reference":"B",'
             '"metadata":{"subject":"math"}}\n'
         ),
-        "/sf/benchmarks/draco@1": json.dumps(_draco_manifest()),
-        "/sf/benchmarks/draco@1/cases": (
+        "/benchmarks/draco@1": json.dumps(_draco_manifest()),
+        "/benchmarks/draco@1/cases": (
             '{"id":"d1","input":"Research this",'
             '"reference":{"sections":[{"id":"facts","criteria":[]}]},'
             '"metadata":{"domain":"science"}}\n'
@@ -171,7 +171,7 @@ def test_unknown_benchmark_fails_before_manifest_request() -> None:
 
 def test_duplicate_case_ids_are_invalid() -> None:
     routes = _routes()
-    routes["/sf/benchmarks/gpqa@1/cases"] *= 2
+    routes["/benchmarks/gpqa@1/cases"] *= 2
     with _profile_server(routes) as engine:
         sf.config(engine=engine)
         with pytest.raises(sf.InvalidBenchmarkError, match="duplicate case ID"):
@@ -182,6 +182,14 @@ def test_malformed_registry_is_an_engine_profile_error() -> None:
     with _profile_server({"/.well-known/screamingface": "not json"}) as engine:
         sf.config(engine=engine)
         with pytest.raises(sf.EngineProfileError, match="registry"):
+            sf.models.list()
+
+
+def test_registry_rejects_duplicate_json_fields() -> None:
+    body = '{"schema":"screamingface.registry.v1","schema":"duplicate"}'
+    with _profile_server({"/.well-known/screamingface": body}) as engine:
+        sf.config(engine=engine)
+        with pytest.raises(sf.EngineProfileError, match="duplicate JSON field 'schema'"):
             sf.models.list()
 
 
@@ -263,7 +271,7 @@ def test_benchmark_manifest_is_strict(mutate, message: str, error: type[Exceptio
     manifest = _gpqa_manifest()
     mutate(manifest)
     routes = _routes()
-    routes["/sf/benchmarks/gpqa@1"] = json.dumps(manifest)
+    routes["/benchmarks/gpqa@1"] = json.dumps(manifest)
     with _profile_server(routes) as engine:
         sf.config(engine=engine)
         with pytest.raises(error, match=message):
@@ -276,7 +284,7 @@ def test_rubric_manifest_requires_an_advertised_judge_model() -> None:
     assert isinstance(grader, dict)
     grader["model"] = "missing/judge"
     routes = _routes()
-    routes["/sf/benchmarks/draco@1"] = json.dumps(manifest)
+    routes["/benchmarks/draco@1"] = json.dumps(manifest)
     with _profile_server(routes) as engine:
         sf.config(engine=engine)
         with pytest.raises(sf.UnknownModelError, match="missing/judge"):
@@ -294,7 +302,7 @@ def test_rubric_manifest_requires_an_advertised_judge_model() -> None:
 )
 def test_case_stream_is_strict(body: str, message: str) -> None:
     routes = _routes()
-    routes["/sf/benchmarks/gpqa@1/cases"] = body
+    routes["/benchmarks/gpqa@1/cases"] = body
     with _profile_server(routes) as engine:
         sf.config(engine=engine)
         with pytest.raises(sf.InvalidBenchmarkError, match=message):
