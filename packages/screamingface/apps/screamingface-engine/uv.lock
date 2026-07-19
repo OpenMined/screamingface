@@ -1103,12 +1103,14 @@ name = "screamingface"
 version = "0.2.0"
 source = { editable = "../../" }
 dependencies = [
+    { name = "datasets" },
     { name = "httpx" },
     { name = "url4" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "datasets", specifier = ">=4.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "ipykernel", marker = "extra == 'notebook'", specifier = ">=6.29" },
     { name = "jupyterlab", marker = "extra == 'notebook'", specifier = ">=4.2" },
@@ -1132,7 +1134,6 @@ name = "screamingface-engine"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "datasets" },
     { name = "httpx" },
     { name = "screamingface" },
     { name = "url4", extra = ["server"] },
@@ -1149,7 +1150,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "datasets", specifier = ">=4.0" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "screamingface", editable = "../../" },
     { name = "url4", extras = ["server"], editable = "../../../url4" },

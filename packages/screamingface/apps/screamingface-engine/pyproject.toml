@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Temporary ScreamingFace package-development URL4 engine profile"
 requires-python = ">=3.12"
 dependencies = [
-    "datasets>=4.0",
     "httpx>=0.28",
     "screamingface",
     "url4[server]>=0.1.0",

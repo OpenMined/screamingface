@@ -6,7 +6,6 @@ from typing import Any
 import httpx
 import pytest
 import screamingface as sf
-from screamingface import Case
 from screamingface._compiler import compile_fusion
 from url4 import Request, ResolutionError
 
@@ -65,7 +64,6 @@ def _app(gateway: GatewayClient):
     return create_app(
         settings=Settings(gateway_url="http://gateway.test"),
         gateway=gateway,
-        case_loaders={"gpqa@1": lambda: (Case("q", "Q", reference="A"),)},
     )
 
 

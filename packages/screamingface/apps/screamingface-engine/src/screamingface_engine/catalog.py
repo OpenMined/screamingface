@@ -1,18 +1,10 @@
-"""Canonical ScreamingFace registry, manifests, and Hugging Face case loaders."""
+"""Canonical executable model catalog and engine registry."""
 
 from __future__ import annotations
 
-import json
-import random
-from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import cast
-
-from screamingface import Benchmark, Case, aggregators, graders
 
 from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE
-
-type CaseLoader = Callable[[], Iterable[Case]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,60 +27,7 @@ MODEL_ROUTES = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class PublishedBenchmark:
-    benchmark: Benchmark
-    cases_path: str
-
-
-def gpqa_cases() -> Iterable[Case]:
-    """Load and normalize canonical GPQA Diamond cases."""
-
-    from datasets import load_dataset
-
-    rows = load_dataset("Idavidrein/gpqa", "gpqa_diamond", split="train")
-    for index, raw_row in enumerate(rows):
-        row = cast(Mapping[str, object], raw_row)
-        case_id = f"gpqa-diamond-{index}"
-        correct = str(row["Correct Answer"])
-        options = [
-            correct,
-            *(str(row[f"Incorrect Answer {number}"]) for number in range(1, 4)),
-        ]
-        random.Random(f"screamingface:gpqa@1:{case_id}").shuffle(options)
-        rendered = "\n".join(
-            f"{chr(65 + option_index)}. {option}" for option_index, option in enumerate(options)
-        )
-        yield Case(
-            case_id,
-            f"{row['Question']}\n\n{rendered}\n\nReply with only A, B, C, or D.",
-            reference=chr(65 + options.index(correct)),
-            metadata={"subject": "science"},
-        )
-
-
-def published_benchmarks(
-    case_loaders: Mapping[str, CaseLoader] | None = None,
-) -> tuple[PublishedBenchmark, ...]:
-    """Build canonical definitions while allowing isolated tests to replace dataset I/O."""
-
-    loaders = {"gpqa@1": gpqa_cases}
-    if case_loaders is not None:
-        unknown = set(case_loaders) - set(loaders)
-        if unknown:
-            raise ValueError(f"unknown benchmark case loader(s): {sorted(unknown)}")
-        loaders.update(case_loaders)
-    gpqa = Benchmark(
-        "gpqa@1",
-        title="GPQA Diamond",
-        cases=loaders["gpqa@1"],
-        grader=graders.ExactChoice(),
-        aggregator=aggregators.Mean(),
-    )
-    return (PublishedBenchmark(gpqa, "/benchmarks/gpqa@1/cases"),)
-
-
-def registry_document(publications: tuple[PublishedBenchmark, ...]) -> dict[str, object]:
+def registry_document() -> dict[str, object]:
     return {
         "schema": "screamingface.registry.v1",
         "response_schemas": ["screamingface.fusion-result.v1"],
@@ -97,44 +36,4 @@ def registry_document(publications: tuple[PublishedBenchmark, ...]) -> dict[str,
             for model in MODEL_ROUTES
         ],
         "reducers": [{"id": "majority_vote", "route": MAJORITY_VOTE_ROUTE}],
-        "benchmarks": [
-            {
-                "id": publication.benchmark.id,
-                "manifest": f"/benchmarks/{publication.benchmark.id}",
-                "tools": list(publication.benchmark.tools),
-            }
-            for publication in publications
-        ],
     }
-
-
-def manifest_document(publication: PublishedBenchmark) -> dict[str, object]:
-    benchmark = publication.benchmark
-    return {
-        "schema": "screamingface.benchmark.v1",
-        "id": benchmark.id,
-        "title": benchmark.title,
-        "tools": list(benchmark.tools),
-        "cases": {"url": publication.cases_path, "format": "ndjson"},
-        "grader": _grader_document(benchmark.grader),
-        "aggregator": {"type": benchmark.aggregator.kind},
-    }
-
-
-def cases_document(publication: PublishedBenchmark) -> str:
-    cases = publication.benchmark._materialize_cases()
-    return "".join(f"{json.dumps(case._to_wire(), separators=(',', ':'))}\n" for case in cases)
-
-
-def _grader_document(grader: graders.Grader) -> dict[str, object]:
-    if isinstance(grader, graders.ExactChoice):
-        return {"type": grader.kind}
-    if isinstance(grader, graders.Rubric):
-        return {
-            "type": grader.kind,
-            "model": grader.model,
-            "prompt": grader.prompt,
-            "passes": grader.passes,
-            "params": grader.params,
-        }
-    raise TypeError(f"unsupported grader: {type(grader).__name__}")

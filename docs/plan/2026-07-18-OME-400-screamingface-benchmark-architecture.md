@@ -1,7 +1,8 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 3D implemented; Phase 4 contract review next
+**Status:** Phase 4A canonical GPQA implemented; Phase 4B review next
 **Date:** 2026-07-18  
+**Last updated:** 2026-07-19
 **Normative contract:**
 [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
 
@@ -19,12 +20,13 @@ The architecture has three clear layers:
 ```text
 Researcher Python
   ScreamingFace SDK
-    definitions, URL4 compilation, orchestration, grading, aggregation
+    installed benchmark definitions, dataset access, URL4 compilation,
+    orchestration, grading, aggregation
              |
              | GET /v1?q=<complete URL4 expression>
              v
   screamingface-engine (one persistent Python/ASGI process)
-    Url4Node evaluator, registry, benchmark data, in-process reducer/model handlers
+    Url4Node evaluator, executable registry, in-process reducer/model handlers
              |
              | POST /v1/chat/completions (engine-owned adapter only)
              v
@@ -39,8 +41,10 @@ Rules:
   Uvicorn. Model and reducer handlers execute inside that persistent process.
 - Phase 2 uses the public `Url4Node` registration API, not the `url4 serve` TOML `[commands]`
   subprocess adapter. The engine executable is never launched recursively to handle a route.
-- URL4 remains a generic expression engine; ScreamingFace-specific routes and manifests live in
-  the screamingface-engine profile.
+- URL4 remains a generic expression engine; ScreamingFace-specific executable routes and
+  capability metadata live in the screamingface-engine profile.
+- Canonical benchmark definitions and source loaders live in the SDK. Gated data and answer keys
+  are loaded through the researcher's process and are never published by the engine.
 - Importing ScreamingFace and constructing local definitions are network-free.
 - The SDK does not ship a mock or in-process execution fallback.
 - Until a hosted deployment exists, the default engine URL is `http://127.0.0.1:4404`.
@@ -73,7 +77,8 @@ There are no top-level concrete-strategy aliases and no `sf.judges` namespace.
 
 ### Discovery and loading
 
-The configured engine exposes `GET /.well-known/screamingface`. The SDK provides:
+The configured engine exposes executable capabilities at `GET /.well-known/screamingface`.
+The SDK separately exposes its installed canonical benchmark catalog:
 
 ```python
 sf.models.list(query=None, tools=(), limit=None)       # -> list[str]
@@ -82,7 +87,8 @@ sf.benchmarks.load("draco@1")                         # -> sf.Benchmark
 ```
 
 Public model IDs are URL4 routes without the leading slash. Engine-private provider mappings do
-not leak into Fusion recipes or result records.
+not leak into Fusion recipes or result records. `sf.benchmarks.list/load` perform no engine
+request; loading uses the caller's ordinary dataset credentials.
 
 ### Evaluation stages
 
@@ -108,8 +114,8 @@ same paired cases. Missing work remains missing; it is never converted to a zero
 
 ### Benchmark responsibilities
 
-A remotely loaded benchmark consists of a manifest plus a case-data route. The manifest selects
-the public grader and aggregator configurations; the SDK performs stage orchestration. Direct
+A canonical benchmark is an SDK-installed Python definition that pins its source, validates and
+normalizes it into `Case` values, and selects public grader and aggregator configurations. Direct
 benchmark authoring uses ordinary Python and the same `sf.Benchmark` constructor. ScreamingFace
 does not add an ETL DSL, case-browsing API, export/fork mechanism, or benchmark CLI in the MVP.
 
@@ -125,7 +131,6 @@ The screamingface-engine profile owns:
 - one canonical model catalog that owns route registration, public discovery fields, and private
   AI Gateway mappings;
 - persistent model handlers registered with `node.endpoint(...)` at process startup;
-- versioned benchmark manifests and NDJSON case routes;
 - deterministic RDS reducer routes such as `/reducers/majority-vote`;
 - `context -> user` and `intent -> system` mapping for model calls;
 - typed, allowlisted forwarding of declared model parameters and named tools;
@@ -158,22 +163,21 @@ SDK:
 - engine configuration with the temporary localhost default;
 - `Case`, `Benchmark`, reducer/grader/aggregator strategies, and validation;
 - internal HTTP client and typed transport/protocol errors;
-- model and benchmark `.list(...)` methods;
-- manifest retrieval and conversion into a `Benchmark`; and
+- engine-backed model discovery plus SDK-local benchmark `.list(...)` and `.load(...)`;
+- canonical local source loading and conversion into a `Benchmark`; and
 - preflight validation of models, tools, reducer route, cases, and response schema.
 
 screamingface-engine profile:
 
 - `/.well-known/screamingface`;
 - canonical public model IDs and supported-tool declarations;
-- a versioned GPQA manifest and normalized NDJSON case route; and
 - an advertised deterministic reducer route identity. Phase 2 replaces Phase 1's provisional
   namespaced route with `/reducers/majority-vote` before it becomes executable. No compatibility
   alias is retained because the SDK is unreleased.
 
-Complete when the Phase 0 fixtures construct against the real public types and the SDK can list
-and load the profile's benchmarks over HTTP. Invalid and incompatible manifests must fail before
-model calls.
+Complete when the Phase 0 fixtures construct against the real public types, the SDK can discover
+engine models, and installed benchmarks list/load without contacting the engine. Invalid source
+data and incompatible execution capabilities must fail before model calls.
 
 The owner approved one development-only Phase 1 engine-profile walkthrough after implementation.
 It documents and smoke-tests this boundary without introducing model execution. Regenerating the
@@ -183,7 +187,7 @@ public quickstart, architecture, and DRACO tutorial series remains Phase 5.
 
 Implementation is split into reviewed vertical slices. Phase 2A now implements the persistent
 engine lifecycle, canonical model route registration, typed parameter translation, shared AI
-Gateway client, plaintext extraction, unprefixed benchmark resources, admission control, and
+Gateway client, plaintext extraction, admission control, and
 whole-evaluation timeout. Its registry is intentionally tool-free and excludes the unavailable
 `gemini/3.1-pro-preview` route. Phase 2B now adds the SDK-owned exact-string majority selector,
 its in-process `/reducers/majority-vote` adapter, complete-expression coverage, and no-mock Docker
@@ -223,11 +227,11 @@ Persistent screamingface-engine:
 
 - construct one `Url4Node("screamingface-engine", eval_path="/v1")` per process;
 - construct one reusable asynchronous AI Gateway client per process;
-- replace the provisional Phase 1 resource namespace with `/benchmarks/<id>`,
-  `/benchmarks/<id>/cases`, and `/reducers/majority-vote` before execution ships;
+- replace the provisional Phase 1 reducer namespace with `/reducers/majority-vote` before
+  execution ships;
 - register every advertised model route in-process from the canonical model catalog;
 - register `/reducers/majority-vote` as an in-process deterministic endpoint;
-- serve registry, manifest, case, and health reads through the same node;
+- serve executable registry and health reads through the same node;
 - wrap `node.asgi()` with a thin application-owned lifecycle/admission layer that starts and closes
   the Gateway client, limits global in-flight evaluations, applies a whole-evaluation timeout, and
   closes node-owned resources during graceful shutdown; and
@@ -287,8 +291,10 @@ Phase 3A is the completed review-only contract unit. The approved behavior is:
   admission limit, and stable evidence order;
 - transport failures are never retried by the SDK; invalid judge output alone receives up to two
   byte-identical retries;
-- official DRACO uses five byte-identical independent passes, positive/negative criterion
-  semantics, weighted section/overall scores, and a local unweighted `pass_rate` metric;
+- rubric grading supports any validated positive pass count. The Phase 4 `draco@1` publication
+  pins three byte-identical independent passes to match the benchmark pipeline, with
+  positive/negative criterion semantics, weighted section/overall scores, and a local
+  unweighted `pass_rate` metric;
 - rubric grades require 100% verdict coverage; missing work produces `score=None`, not a zero,
   inferred `UNMET`, or partial diagnostic score;
 - immutable nested `Grades -> CaseGrades -> Grade -> CriterionVerdict` values preserve complete
@@ -324,14 +330,59 @@ same framework objects, and failed/unresolved work never becomes a zero score.
 
 Harden GPQA and add DRACO only when both publications are runnable against their canonical
 sources. They use the same public `Benchmark` and `Case` semantics available to researchers. Pin
-upstream dataset revisions inside the publisher, not in the researcher-facing call.
+upstream dataset revisions inside the SDK definition, not in the researcher-facing call.
+
+The approved canonical publications are:
+
+- **GPQA:** `Idavidrein/gpqa`, subset `gpqa_diamond`, split `train`, revision
+  `633f5ee89ab8ad4522a9f850766b73f62147ffdd`; exactly 198 unique source `Record ID` values;
+  a fixed SHA-256-derived option permutation per record; source `High-level domain` and
+  `Subdomain` mapped to `domain` and `subdomain` metadata; and the exact A-D prompt ending
+  `Reply with only A, B, C, or D.`;
+- **DRACO:** `perplexity-ai/draco`, default configuration, split `test`, revision
+  `ce076749809027649ebd331bcb70f42bf720d387`, with source JSONL SHA-256
+  `e35bfe78cd827fa1d541b79fbc7bc7b91966d3227d8742c83e99d26d4ac4679a`; exactly 100
+  source-order UUID cases, ten domains, four rubric sections per case, and 3,934 criteria; and
+- both definitions validate the complete source/schema before yielding cases and cache the
+  normalized immutable cases once per researcher process. Dataset reads never contact the URL4
+  engine or AI Gateway.
+
+**Phase 4A is implemented:** GPQA now lives in an SDK-local benchmark module, loads the pinned
+revision lazily through the researcher's Hugging Face session, validates all 198 rows, uses source Record IDs and metadata,
+renders SHA-256-stable choices, and caches the normalized tuple once per process. A live check
+against the pin confirmed all 198 cases. The source contains one pair of duplicate distractors;
+the publisher preserves that canonical row and rejects only a collision between the correct
+answer and a distractor.
+
+`draco@1` follows the executable benchmark pipeline contract rather than claiming literal paper
+parity: judge route `gemini/3.1-pro-preview`, three passes, temperature `0.2`, reasoning `low`,
+`max_tokens=4096`, and the exact Appendix F.5 judge system prompt. The prompt is pinned by
+SHA-256 `dbc1ae32e32be6fbc47180b4a246b997d299bb0e25373a8cde87c6461cb2397b` (5,196
+UTF-8 bytes). Every Fusion/member target receives one independent request per criterion per pass;
+invalid judge output alone gets up to two byte-identical retries. DRACO judge concurrency becomes
+32 to match the benchmark pipeline. The SDK retains its stricter publication rule: incomplete
+verdict coverage keeps the evidence but produces `score=None`.
+
+The DRACO benchmark declares `tools=("web_search",)`. The compiler adds that named capability
+only to answer-producing Fusion member routes. Reducers, model synthesizers, and rubric judges do
+not inherit it. In the engine, `web_search` means the complete named research capability needed
+to search and open/fetch sources; its provider-specific payload is allowlisted and tested rather
+than forwarding the string blindly. The profile blocks access to benchmark rubrics, references,
+and result sources through this capability.
+
+The engine registry remains minimal and advertises only executable models and reducers. DRACO is
+absent from the SDK catalog until its local definition is complete; evaluating it additionally
+requires the judge route and at least one complete compatible web-search Fusion end to end. The
+stronger Phase 5 reproduction gate additionally requires the complete benchmark-pipeline model
+lineup. Success bodies remain plaintext URL4 results; tool/cost telemetry, budgets, provider
+selection, tool profiles, and verified server-side scoring remain deferred.
 
 Complete when:
 
 - `sf.benchmarks.load("gpqa@1")` and `load("draco@1")` recreate equivalent typed definitions;
 - cases have stable identities and sealed references;
-- DRACO is advertised only after the engine exposes its judge model and working `web_search`
-  adapter, and declares the official Rubric configuration; and
+- DRACO is listed by the SDK only after its local definition is complete, and can run only when
+  the engine exposes its judge model and working `web_search` adapter;
 - repeated loads are deterministic.
 
 ### Phase 5 — notebooks and public documentation
@@ -378,7 +429,7 @@ These are additive concerns, not hidden MVP requirements.
 |---|---|---|
 | Configure engine | Store/resolve one HTTP(S) origin | Bind and publish the service |
 | Discover models | Parse/filter registry | Advertise route IDs and tools |
-| Load benchmark | Fetch/validate manifest and cases | Serve manifest and NDJSON cases |
+| Discover/load benchmark | List installed definitions; fetch/validate source locally | No responsibility |
 | Run Fusion | Compile and send complete URL4 | Evaluate it in one persistent `Url4Node` process |
 | Model execution | Never call Gateway | Run in-process handler, call AI Gateway, return text |
 | Majority vote | Compile RDS call | Execute deterministic route without Gateway |
@@ -397,12 +448,13 @@ These are additive concerns, not hidden MVP requirements.
 - only namespaced concrete strategies are exported; and
 - public scores remain `0..1` while widgets format percentages.
 
-### Registry and manifest tests
+### Discovery and benchmark-source tests
 
-- discovery filtering by query, tools, and limit;
+- model and benchmark discovery filtering by query, tools, and limit;
+- benchmark listing/loading never contacts the engine;
 - model ID/route identity;
 - benchmark version IDs remain opaque strings;
-- malformed/unsupported manifests fail before model calls; and
+- malformed canonical source rows fail before model calls; and
 - incompatible tools, reducer routes, or response schemas fail preflight.
 
 ### URL4 compiler and HTTP tests
@@ -426,7 +478,8 @@ These are additive concerns, not hidden MVP requirements.
 - malformed exact references fail preflight while unparseable model answers score zero;
 - one DRACO call per target, criterion, and pass through the advertised model route;
 - invalid judge output alone receives two byte-identical retries; transport failures do not;
-- positive/negative criterion scoring, section metrics, pass rate, and five-pass averaging;
+- positive/negative criterion scoring, section metrics, pass rate, and configured-pass averaging,
+  including the three-pass `draco@1` publication;
 - incomplete judge coverage produces a missing score and retained evidence, not zero;
 - Fusion and every member use the same strict paired cases;
 - nested immutable values and stable JSON-compatible serialization; and
@@ -447,8 +500,8 @@ Expected areas, subject to phase review:
 ```text
 packages/screamingface/src/screamingface/
   config and internal engine HTTP client
-  models and benchmarks registries
-  benchmark/case values
+  engine model registry and installed benchmark catalog/loaders
+  benchmark/case values and canonical source normalization
   fusion compiler and execution
   reducers, graders, aggregators
   run, grades, report values
@@ -457,7 +510,7 @@ packages/screamingface/tests/
   unit and HTTP contract tests
 
 packages/screamingface/apps/screamingface-engine/  # temporary package-development location
-  persistent Url4Node app, model/Gateway adapter, manifests, routes, Docker wiring
+  persistent Url4Node app, model/Gateway adapter, executable registry/routes, Docker wiring
 
 apps/screamingface-engine/                 # proposed final owner/location after approval
 
@@ -470,10 +523,11 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review Phase 4 canonical GPQA/DRACO publication against the implemented SDK values before
-changing engine manifests, routes, or notebooks. Keep authentication, persistence, budgets, and
-notebook regeneration out of that contract review.
+Review Phase 4B's hidden canonical DRACO SDK definition before changing runtime code. Later
+slices add named `web_search` and the judge route, then expose DRACO from the SDK catalog only
+after the local definition is complete. Keep authentication, persistence, budgets, telemetry, and notebook
+regeneration out of these runtime slices.
 
-The current local engine profile intentionally does not advertise or serve DRACO: it lacks the
+The current local engine profile cannot execute DRACO: it lacks the
 `gemini/3.1-pro-preview` judge route, and its model routes do not advertise `web_search`. Adding
-those real capabilities and the canonical publication is Phase 4 engine-profile work.
+those executable capabilities is later Phase 4 engine-profile work; its dataset remains SDK-local.

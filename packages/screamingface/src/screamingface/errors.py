@@ -18,7 +18,7 @@ class EngineProfileError(EngineProtocolError):
 
 
 class UnknownBenchmarkError(ScreamingFaceError):
-    """The configured engine does not advertise a requested benchmark."""
+    """The installed SDK catalog does not contain a requested benchmark."""
 
 
 class UnknownModelError(ScreamingFaceError):
@@ -34,4 +34,4 @@ class UnsupportedReducerError(ScreamingFaceError):
 
 
 class InvalidBenchmarkError(ScreamingFaceError):
-    """A benchmark manifest or normalized case stream is invalid."""
+    """A benchmark definition or its source data is invalid."""

@@ -2,15 +2,16 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 3D
+## Current implementation: Phase 4A
 
 The SDK currently supports:
 
 - `sf.config(engine=...)`, defaulting temporarily to `http://127.0.0.1:4404`;
 - immutable `sf.Case`, `sf.Benchmark`, and `sf.Fusion` authoring;
 - namespaced reducers, graders, and aggregators;
-- `sf.models.list(...)` and `sf.benchmarks.list(...)` against the engine registry; and
-- eager, validated `sf.benchmarks.load(...)` from engine manifests and NDJSON case routes;
+- `sf.models.list(...)` against the configured engine's executable capability registry;
+- `sf.benchmarks.list(...)` against the SDK's installed canonical benchmark catalog;
+- eager, validated `sf.benchmarks.load(...)` through the researcher's ordinary dataset access;
 - canonical, shareable `fusion.url4` recipe compilation; and
 - synchronous `fusion.run(...)` through only the configured URL4 engine, returning immutable
   in-memory result records;
@@ -20,11 +21,16 @@ The SDK currently supports:
   strict evidence coverage, validation-only retries, and weighted DRACO-compatible scoring; and
 - strict paired `sf.aggregators.Mean()` reports plus the exact `fusion.evaluate(...)` facade.
 
-The development `screamingface-engine` additionally runs three tool-free model routes through one
+The development `screamingface-engine` runs three tool-free model routes through one
 persistent `Url4Node` and a shared AI Gateway client. It accepts direct endpoint requests and
 complete expressions through `GET /v1?q=...`, with no subprocess route adapter. Its
 `/reducers/majority-vote` endpoint executes the same SDK-owned exact-string selection logic,
 without contacting AI Gateway.
+
+Benchmark definitions, source loading, references, grading, and aggregation are SDK concerns.
+The engine does not publish benchmark manifests or cases and never needs the researcher's
+Hugging Face token. This keeps gated datasets in the researcher's process while all model-backed
+work still crosses the configured URL4 engine.
 
 Each selected benchmark case becomes one complete URL4 expression sent as
 `GET /v1?q=<expression>`. Successful plaintext JSON is validated strictly as
@@ -39,8 +45,9 @@ simulated, or in-process engine fallback.
 ## Phase 1 walkthrough
 
 [`examples/phase_1_engine_profile.ipynb`](examples/phase_1_engine_profile.ipynb) is the current
-executable setup and API guide. It shows the registry plaintext, discovery filters, opt-in remote
-benchmark loading, local benchmark construction, and network-free Fusion authoring.
+executable setup and API guide. It shows the registry plaintext, the separate model and benchmark
+catalogs, local canonical benchmark loading, local benchmark construction, and network-free
+Fusion authoring.
 
 The public quickstart, architecture guide, and DRACO tutorial will be generated from the reviewed
 contract in the planned notebook phase; no superseded notebook is retained as API documentation.
@@ -65,13 +72,12 @@ URL4 engine  http://127.0.0.1:4404
 AI Gateway   http://127.0.0.1:9105
 ```
 
-Discovery and benchmark loading do not contact AI Gateway. Model routes contact AI Gateway only
-through `screamingface-engine`. Published benchmark routes load real Hugging Face datasets.
-Authenticate before requesting gated datasets and expose the token to Compose:
+Model routes contact AI Gateway only through `screamingface-engine`. Loading GPQA happens in the
+notebook or SDK process, not in either container. Authenticate in that process before requesting
+gated datasets:
 
 ```bash
 huggingface-cli login
-export HF_TOKEN=hf_...
 ```
 
 No synthetic dataset fallback exists.
@@ -156,12 +162,13 @@ report.to_dict()
 report = fusion.evaluate(benchmark)
 ```
 
-Construction and `fusion.url4` are network-free. Discovery, loading, and execution contact only
-the configured URL4 engine. `fusion.run("gpqa@1", first=20)` is the named-benchmark shorthand for
-loading and running a stable prefix. The current registry deliberately advertises no tools and
-lists only GPQA. DRACO will be published in Phase 4 only after the engine has a tested
-`web_search` adapter, advertises the configured `gemini/3.1-pro-preview` judge route, and pins the
-canonical source and judge contract. The SDK's generic Rubric implementation is already complete.
+Construction and `fusion.url4` are network-free. Model discovery and execution contact only the
+configured URL4 engine. Benchmark discovery is package-local; loading `gpqa@1` uses the caller's
+Hugging Face session and returns ordinary immutable SDK values. `fusion.run("gpqa@1", first=20)`
+is shorthand for local load followed by engine execution over a stable prefix. The current engine
+registry deliberately advertises no tools. DRACO remains unavailable as a canonical built-in
+until its local source definition is pinned and the engine supplies a tested `web_search` adapter
+and configured judge route. The SDK's generic Rubric implementation is already complete.
 
 ## Validation
 

@@ -20,7 +20,6 @@ def _registry(*models: str) -> Registry:
     return Registry(
         models=tuple(ModelRecord(model, ()) for model in selected),
         reducers=(),
-        benchmarks=(),
         response_schemas=("screamingface.fusion-result.v1",),
     )
 

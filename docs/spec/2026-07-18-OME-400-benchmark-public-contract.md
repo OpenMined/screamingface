@@ -125,8 +125,9 @@ or fragment. This keeps discovery resources and `/v1` evaluation on one unambigu
 boundary.
 
 Importing ScreamingFace and directly constructing a `Fusion`, `Case`, or `Benchmark` perform no
-network request. Registry discovery, named benchmark loading, fusion execution, and model-backed
-grading use the configured HTTP engine.
+network request. Model discovery, Fusion execution, and model-backed grading use the configured
+HTTP engine. Named benchmark discovery is SDK-local; loading may contact the canonical dataset
+source through the researcher's own credentials but never contacts the engine.
 
 The architecture is:
 
@@ -159,7 +160,7 @@ profile, not one HTTP endpoint per SDK class:
 |---|---|
 | model ID | model route |
 | `reducers.MajorityVote()` | deterministic RDS reducer route |
-| `benchmarks.list/load` | SF discovery, manifest, and cases resources |
+| `benchmarks.list/load` | none; installed SDK definition and researcher-side source access |
 | `graders.Rubric(model=...)` | ordinary calls to the advertised judge-model route |
 | `graders.ExactChoice()` | none; deterministic SDK computation |
 | `aggregators.Mean()` | none; deterministic SDK computation |
@@ -197,25 +198,18 @@ It is not part of generic URL4 core. The MVP shape is:
       "id": "majority_vote",
       "route": "/reducers/majority-vote"
     }
-  ],
-  "benchmarks": [
-    {
-      "id": "gpqa@1",
-      "manifest": "/benchmarks/gpqa@1",
-      "tools": []
-    },
-    {
-      "id": "draco@1",
-      "manifest": "/benchmarks/draco@1",
-      "tools": ["web_search"]
-    }
   ]
 }
 ```
 
-The registry advertises addressable engine resources, not every SDK abstraction. Graders and
-aggregators are serialized in benchmark manifests but do not get separate registry entries when
-the ordinary client workflow executes them locally.
+This registry contains remotely executable capabilities only. Once the engine can execute the
+DRACO flow, compatible model records gain `"web_search"` in `supported_tools` and the judge model
+is added. Benchmarks never appear here because their definitions, sources, graders, and
+aggregators remain local to the SDK.
+
+The registry advertises addressable engine resources, not every SDK abstraction. Benchmarks,
+graders, and aggregators do not get registry entries when the ordinary client workflow executes
+them locally.
 
 Public discovery returns IDs only:
 
@@ -227,8 +221,10 @@ sf.benchmarks.list()
 sf.benchmarks.list(query="draco", tools=["web_search"], limit=10)
 ```
 
-Both return `list[str]`. Filters are arguments to `list()`; there is no separate `search()` in
-the MVP. The SDK does not expose internal registry summary objects.
+Both return `list[str]`, but their sources intentionally differ: models come from the configured
+engine registry while benchmarks come from the installed SDK catalog. Filters are arguments to
+`list()`; there is no separate `search()` in the MVP. The SDK does not expose internal catalog or
+registry summary objects.
 
 ## 5. Model identity
 
@@ -307,9 +303,9 @@ The mapping is deliberately typed and allowlisted:
 The registry may advertise `web_search` for a model only when that route has a working named-tool
 adapter. Otherwise SDK preflight must reject a benchmark that requires it.
 
-The current profile advertises no tools and therefore does not advertise or serve DRACO. DRACO is
-added to the registry only when a tested named-tool adapter, compatible worker routes, and the
-`gemini/3.1-pro-preview` judge route are all published.
+The current profile advertises no tools and therefore cannot execute DRACO. The SDK may install
+the local DRACO definition independently, but evaluation preflight fails until a tested named-tool
+adapter, compatible worker routes, and the `gemini/3.1-pro-preview` judge route are all published.
 
 For a successful non-streaming response, the handler validates
 `choices[0].message.content`, requires string content, and returns that string only. URL4 therefore
@@ -337,59 +333,39 @@ behavior, or response reshaping. It does not use FastAPI, Hono, or URL4's privat
 This preserves one URL4 dispatch path while giving the production application explicit resource
 ownership.
 
-## 6. Benchmark loading and manifests
+## 6. SDK-local benchmark loading
 
-Benchmark identities such as `draco@1` and `gpqa@1` are opaque versioned strings. Phase 0 does
+Benchmark identities such as `draco@1` and `gpqa@1` are opaque versioned strings. The MVP does
 not define semantic-version ranges, `latest`, or a separate `version=` field.
 
 ```python
-benchmark = sf.benchmarks.load("draco@1")
+benchmark = sf.benchmarks.load("gpqa@1")
 ```
 
-`load()` resolves the registry record and fetches its manifest. It does not look for a matching
-benchmark implementation installed locally and does not download or execute Python.
+`sf.benchmarks.list()` reads a small catalog installed with the SDK. `load()` selects that local
+definition, fetches its pinned canonical source through the researcher's ordinary dataset access,
+validates and normalizes every row, and returns an immutable `Benchmark`. It performs no engine
+registry, manifest, or case-route request and does not execute downloaded Python.
 
-Example manifest:
+This is deliberately ordinary Python rather than a wire-level ETL or benchmark DSL. The local
+definition owns the source pin and conversion to `Case`, plus its `Grader`, `Aggregator`, and
+required tools. Researchers can build modified or private benchmarks directly with the same
+public constructor without changing the execution stages.
 
-```json
-{
-  "schema": "screamingface.benchmark.v1",
-  "id": "draco@1",
-  "title": "DRACO",
-  "tools": ["web_search"],
-  "cases": {
-    "url": "/benchmarks/draco@1/cases",
-    "format": "ndjson"
-  },
-  "grader": {
-    "type": "rubric",
-    "model": "gemini/3.1-pro-preview",
-    "prompt": "<pinned official judge prompt>",
-    "passes": 5,
-    "params": {
-      "temperature": 0.2,
-      "reasoning": "low",
-      "max_tokens": 4096
-    }
-  },
-  "aggregator": {
-    "type": "mean"
-  }
-}
-```
+The two canonical publishers are pinned as follows:
 
-The case resource contains already-normalized NDJSON:
+| Benchmark | Hugging Face source | Required publication invariants |
+|---|---|---|
+| `gpqa@1` | `Idavidrein/gpqa`, `gpqa_diamond`, `train`, revision `633f5ee89ab8ad4522a9f850766b73f62147ffdd` | 198 unique source `Record ID` values; fixed SHA-256 option permutation per record; source `High-level domain`/`Subdomain` mapped to `domain`/`subdomain` metadata |
+| `draco@1` | `perplexity-ai/draco`, default config, `test`, revision `ce076749809027649ebd331bcb70f42bf720d387` | source JSONL SHA-256 `e35bfe78cd827fa1d541b79fbc7bc7b91966d3227d8742c83e99d26d4ac4679a`; 100 unique UUID cases in source order; 10 domains; four sections per case; 3,934 criteria |
 
-```json
-{"id":"q1","input":"<research question>","reference":{"sections":[...]},"metadata":{"domain":"Finance"}}
-{"id":"q2","input":"<research question>","reference":{"sections":[...]},"metadata":{"domain":"Medicine"}}
-```
+The definitions validate the complete source and normalized schema before returning any cases.
+They cache the resulting immutable cases once per researcher process. `first=` therefore selects a
+stable source-order prefix; it never reshuffles either publication. GPQA's one deterministic
+choice permutation per question is part of the `gpqa@1` identity.
 
-This wire schema is not ETL. Engine-side benchmark authors fetch, clean, and normalize source
-datasets in ordinary Python before publishing canonical `Case` records.
-
-All discovery, manifest, cases, execution, and judge bodies are read through `response.text` and
-then parsed/validated by the SDK.
+Engine registry, execution, and judge bodies are read through `response.text` and then
+parsed/validated by the SDK. Dataset libraries retain their native authenticated transport.
 
 ## 7. Universal `Case` and `Benchmark`
 
@@ -446,7 +422,14 @@ Benchmark is network-free to construct, but running it still requires the config
 model work.
 
 Benchmark `tools` are concrete model-usable actions. They are added only to answer-producing
-panel routes. Reducers and graders do not inherit them.
+Fusion member routes. Reducers, model synthesizers, and graders do not inherit them.
+
+For `draco@1`, `web_search` names the engine-owned research capability needed to search and then
+open/fetch source content. It subsumes the benchmark pipeline's separate `web_search` and
+`web_fetch` tools at the public SDK boundary. The engine translates that capability through a
+tested provider-specific adapter; it does not forward the string as an arbitrary Gateway or
+provider field. Benchmark rubrics, sealed references, and result sources must be inaccessible to
+that adapter.
 
 ## 8. Fusion authoring
 
@@ -649,10 +632,10 @@ final response structure is identical for model and deterministic reducers.
 
 Before any answer or judge call, evaluation:
 
-1. fetches and validates `/.well-known/screamingface`;
-2. resolves the benchmark manifest;
-3. loads and validates the selected canonical cases;
-4. validates every selected reference;
+1. resolves a named benchmark from the installed SDK catalog when needed;
+2. loads and validates the selected canonical cases through the caller's dataset access;
+3. validates every selected reference;
+4. fetches and validates `/.well-known/screamingface`;
 5. confirms every panel, reducer, and judge model exists;
 6. confirms every panel model supports all benchmark tools;
 7. confirms required deterministic reducer routes are advertised; and
@@ -839,13 +822,13 @@ Exact-choice grading is deterministic local computation and makes no engine requ
 
 ### 13.2 Rubric
 
-The official DRACO configuration is:
+The `draco@1` benchmark-pipeline configuration is:
 
 ```python
 sf.graders.Rubric(
     model="gemini/3.1-pro-preview",
     prompt=DRACO_JUDGE_PROMPT,
-    passes=5,
+    passes=3,
     params={
         "temperature": 0.2,
         "reasoning": "low",
@@ -854,7 +837,7 @@ sf.graders.Rubric(
 )
 ```
 
-For official DRACO mode, one criterion and one pass produce one model expression:
+For `draco@1`, one criterion and one pass produce one model expression:
 
 ```url4
 (
@@ -868,7 +851,7 @@ For official DRACO mode, one criterion and one pass produce one model expression
       <query>...</query>
       <response>...</response>
     )!
-    '<pinned official DRACO judge prompt>'
+    '<exact DRACO Appendix F.5 judge prompt>'
 )
 ```
 
@@ -882,10 +865,18 @@ The judge returns its model output directly as response text:
 ```
 
 The SDK already knows the case, target, criterion, weight, and pass and attaches that metadata
-locally. A 40-criterion rubric with five passes means 200 independent judge model calls per
+locally. A 40-criterion rubric with three passes means 120 independent judge model calls per
 answer. Because the Fusion and all three members are graded, a three-member DRACO case ordinarily
-means 800 judge calls. Those calls may execute concurrently under the SDK's bounded execution
+means 480 judge calls. Those calls may execute concurrently under the SDK's bounded execution
 policy.
+
+The system prompt is the paper's Appendix F.5 text, not Appendix C.5. Its pinned UTF-8 bytes are
+5,196 bytes with SHA-256
+`dbc1ae32e32be6fbc47180b4a246b997d299bb0e25373a8cde87c6461cb2397b`. `draco@1`
+deliberately matches the executable benchmark/OpenRouter pipeline's three-pass protocol while
+using the public `gemini/3.1-pro-preview` engine identity. The paper's five-pass Gemini 3 run is a
+different publication claim; this contract must not describe the pipeline-aligned profile as
+byte-for-byte paper reproduction.
 
 The SF model adapter must preserve:
 
@@ -906,7 +897,7 @@ not shown to the judge. Only the positive/negative criterion type is shown.
 
 Every configured pass sends byte-identical context, intent, and parameters. No random salt,
 pass marker, or hidden prompt mutation is added. Independence is provided by the model sampling
-configuration (`temperature=0.2` for official DRACO) and by disabling response caching.
+configuration (`temperature=0.2` for `draco@1`) and by disabling response caching.
 
 The SDK accepts a JSON object with exactly the judge fields `explanation` and
 `criterion_status`, where the status is `MET` or `UNMET`. It may remove a Markdown code fence or
@@ -948,7 +939,7 @@ score is valid only when coverage == 1.0
 
 This is stricter than partial-score behavior in some executable DRACO reference paths, but it is
 identical on successful publishable runs and prevents missing negative criteria from inflating a
-score. For example, 199 successful verdicts out of 200 produces `coverage=0.995`, `score=None`,
+score. For example, 119 successful verdicts out of 120 produces `coverage=119/120`, `score=None`,
 and an `incomplete_verdicts` summary failure. Missing work is never converted to `UNMET`, and the
 SDK does not publish a diagnostic partial score in the MVP. Successful verdicts, explanations,
 and raw responses remain inspectable.
@@ -1126,7 +1117,7 @@ before judge spend. An exact-choice response that is merely wrong or unparseable
 Concurrency is execution policy, not strategy configuration. MVP defaults are internal:
 
 - at most four benchmark cases in flight;
-- at most 16 rubric-judge requests in flight, matching the current engine admission limit;
+- at most 32 rubric-judge requests in flight for the pipeline-aligned DRACO publication;
 - stable returned ordering regardless of completion order; and
 - no execution-time cancellation of unrelated selected cases.
 
@@ -1162,10 +1153,10 @@ the MVP. The benchmark owns its grader and aggregator; there are no facade param
 grader, aggregator, seed, budget, retry policy, or concurrency, and there is no top-level
 `sf.evaluate` function.
 
-Passing an ID does not select a different execution mode. `sf.benchmarks.load("draco@1")` eagerly
-fetches the engine registry, manifest, and complete normalized NDJSON case resource and builds an
-in-memory `Benchmark`. Consequently `fusion.evaluate("draco@1")` means load, run, grade, and
-aggregate. Passing an existing `Benchmark` skips only the named-benchmark loading step. Panel,
+Passing an ID does not select a different execution mode. `sf.benchmarks.load("draco@1")` selects
+the installed definition, fetches its pinned source through the caller's dataset access, and
+builds an in-memory `Benchmark`. Consequently `fusion.evaluate("draco@1")` means load, run, grade,
+and aggregate. Passing an existing `Benchmark` skips only the named-benchmark loading step. Panel,
 reducer, and rubric-judge model calls still go through the configured URL4 engine; only exact
 grading and mean aggregation are local deterministic computations.
 
@@ -1186,21 +1177,34 @@ The first implementation is accepted when:
 1. GPQA, DRACO, and an in-memory example use the same `Case` and `Benchmark` contracts.
 2. `Fusion.evaluate()` equals `run -> grade -> aggregate`.
 3. model IDs map mechanically to URL4 routes.
-4. named benchmark loading uses the SF engine registry, manifests, and normalized case resources.
-5. every selected case is one complete URL4 Fusion expression.
-6. majority vote executes through the advertised SF RDS route using exact-string voting and
+4. named benchmark loading uses installed SDK definitions and the researcher's dataset access,
+   without an engine benchmark endpoint.
+5. GPQA and DRACO match their pinned source revisions, counts, identities, order, and normalized
+   schemas.
+6. every selected case is one complete URL4 Fusion expression.
+7. majority vote executes through the advertised SF RDS route using exact-string voting and
    stable numeric member-order tie breaking.
-7. references never appear in worker or reducer expressions.
-8. official DRACO grading uses one URL4 model request per criterion/pass.
-9. success bodies are parsed from text and validated strictly.
-10. missing work never becomes a zero score.
-11. headline comparisons use a common paired case set.
-12. no runtime mock, in-process engine, direct gateway client, compatibility alias, persistence,
+8. references never appear in worker, reducer, tool, or judge-visible source material beyond the
+   individual criterion being judged.
+9. benchmark tools are compiled only onto answer-producing member routes; reducers, synthesizers,
+   and judges do not inherit them.
+10. `web_search` demonstrably searches and opens/fetches source content through an allowlisted
+    engine adapter.
+11. `draco@1` grading uses one URL4 model request per criterion/pass with the pinned three-pass
+   Appendix F.5 configuration.
+12. success bodies are parsed from text and validated strictly.
+13. missing work never becomes a zero score.
+14. headline comparisons use a common paired case set.
+15. DRACO appears in the SDK catalog only when its canonical local definition is complete; its
+    evaluation preflight fails until the judge and a compatible web-search Fusion are runnable
+    through the real engine-to-Gateway path.
+16. no runtime mock, in-process engine, direct gateway client, compatibility alias, persistence,
     budget, authentication, or ETL framework is introduced.
 
 The grading and aggregation behavior in §§13–17 was approved as Phase 3A and implemented through
 Phase 3D: public grading values, deterministic ExactChoice, complete `Run.grade()` Rubric
 orchestration, strict judge parsing, validation-only retries, retained evidence, paired Mean
 aggregation, immutable reports, and the exact `Fusion.evaluate()` facade. The current engine
-profile does not advertise DRACO; Phase 4 must add `gemini/3.1-pro-preview`, working `web_search`,
-and the canonical publication together.
+profile cannot execute DRACO. Phase 4A implemented the canonical pinned SDK-local GPQA definition
+on 2026-07-19. The remaining Phase 4 slices must add the hidden canonical DRACO definition,
+`gemini/3.1-pro-preview`, working `web_search`, and SDK catalog exposure.

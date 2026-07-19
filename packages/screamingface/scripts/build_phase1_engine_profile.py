@@ -18,9 +18,9 @@ Connect the SDK to the temporary `screamingface-engine` development profile, ins
 advertises, and construct the immutable values used by later execution phases.
 
 **This is the Phase 1 discovery walkthrough—not the product quickstart.** It covers engine
-configuration, model and benchmark discovery, benchmark loading, local benchmark definitions,
-and Fusion authoring. It deliberately does not call the model routes. SDK Fusion execution now
-exists in Phase 2C, but remains outside this discovery-focused walkthrough.
+configuration, engine model discovery, SDK benchmark discovery and loading, local benchmark
+definitions, and Fusion authoring. It deliberately does not call the model routes. SDK Fusion
+execution now exists in Phase 2C, but remains outside this discovery-focused walkthrough.
 
 ## Before you run it
 
@@ -32,16 +32,15 @@ cd packages/screamingface/apps/screamingface-engine
 ```
 
 This starts the URL4 engine at `http://127.0.0.1:4404` and AI Gateway at
-`http://127.0.0.1:9105`. Discovery and benchmark loading use only the URL4 engine; only an
-executable model route contacts AI Gateway. Only one development stack can own those ports, so
+`http://127.0.0.1:9105`. Model discovery uses the URL4 engine; only an executable model route
+contacts AI Gateway. Only one development stack can own those ports, so
 stop any earlier URL4 or AI Gateway containers before running `./dev.sh`.
 
-The published GPQA and DRACO case routes read their canonical Hugging Face datasets. Before
-loading one, accept any dataset terms and expose your token to Compose:
+Canonical datasets are loaded in this Python process, never by the engine. Before loading GPQA,
+accept its dataset terms and authenticate this environment:
 
 ```bash
 huggingface-cli login
-export HF_TOKEN=hf_...
 ```
 
 There is no synthetic or in-process fallback."""
@@ -80,7 +79,8 @@ sf.config(engine="https://url4.example")
         nbformat.v4.new_markdown_cell(
             """The URL4 node returns plaintext. The SDK parses that text and validates the complete
 `screamingface.registry.v1` shape before exposing IDs. Model entries describe executable route
-identities and supported tools. Benchmark entries point to versioned manifests and case streams."""
+identities and supported tools; reducer entries describe executable composition routes.
+Benchmarks are absent because their definitions and data remain local to the SDK."""
         ),
         nbformat.v4.new_markdown_cell("## 3 · Discover available models and benchmarks"),
         nbformat.v4.new_code_cell(
@@ -93,37 +93,38 @@ identities and supported tools. Benchmark entries point to versioned manifests a
             "}"
         ),
         nbformat.v4.new_markdown_cell(
-            """Discovery returns canonical IDs in registry order. It does not return a static
-catalog bundled in the SDK, and it does not infer provider access or authentication. The
-configured engine is the source of truth.
+            """The two lists answer different questions:
 
-Phase 2A intentionally advertises no `web_search` models until a real named-tool adapter exists,
-so `web_search_models` is empty. DRACO remains discoverable through `research_benchmarks` because
-its manifest truthfully declares that still-unmet execution requirement."""
+- `sf.models.list()` asks the configured engine what it can execute.
+- `sf.benchmarks.list()` asks the installed SDK which canonical definitions it can load.
+
+Neither list infers provider authentication. The current engine intentionally advertises no
+`web_search` models, so `web_search_models` is empty. The SDK currently installs GPQA only, so the
+benchmark list contains `gpqa@1` and the research filter is empty."""
         ),
         nbformat.v4.new_markdown_cell(
-            "## 4 · Load a published benchmark when dataset access is ready"
+            "## 4 · Load a canonical benchmark when dataset access is ready"
         ),
         nbformat.v4.new_code_cell(
-            "# Change this after the engine container has access to your Hugging Face token.\n"
-            "LOAD_REMOTE_BENCHMARK = False\n\n"
-            'benchmark = sf.benchmarks.load("gpqa@1") if LOAD_REMOTE_BENCHMARK else None\n\n'
+            "# Change this after this Python environment can access the gated dataset.\n"
+            "LOAD_CANONICAL_BENCHMARK = False\n\n"
+            'benchmark = sf.benchmarks.load("gpqa@1") if LOAD_CANONICAL_BENCHMARK else None\n\n'
             "benchmark or (\n"
-            '    "Set LOAD_REMOTE_BENCHMARK = True to fetch, parse, and validate the GPQA "\n'
-            '    "manifest and case stream."\n'
+            '    "Set LOAD_CANONICAL_BENCHMARK = True to fetch and validate GPQA through "\n'
+            '    "this process\'s Hugging Face access."\n'
             ")"
         ),
         nbformat.v4.new_markdown_cell(
             """`sf.benchmarks.load("gpqa@1")` is eager:
 
-1. fetch and validate the engine registry;
-2. resolve the benchmark's same-engine manifest route;
-3. validate its grader, aggregator, tools, and case-stream contract;
-4. fetch and parse every normalized NDJSON case; and
-5. return one immutable `sf.Benchmark`.
+1. select the pinned definition installed with this SDK version;
+2. fetch the canonical dataset through the caller's Hugging Face session;
+3. validate all source rows and normalize them into stable `sf.Case` values; and
+4. return one immutable `sf.Benchmark` with its local grader and aggregator.
 
-Malformed manifests, duplicate case IDs, unknown judge models, and HTTP failures remain typed
-errors. Loading never calls a panel model or AI Gateway."""
+Invalid source rows and unknown benchmark IDs remain typed errors. Loading never calls the URL4
+engine, a panel model, or AI Gateway. Answer keys therefore never need to be published by the
+engine."""
         ),
         nbformat.v4.new_markdown_cell("## 5 · Define a small benchmark in ordinary Python"),
         nbformat.v4.new_code_cell(
@@ -188,8 +189,8 @@ You have now exercised everything Phase 1 promises:
 
 - configure one URL4 engine;
 - inspect and validate its ScreamingFace registry;
-- list models and benchmarks with filters;
-- optionally load a published benchmark and its real cases;
+- list engine models and installed SDK benchmarks with filters;
+- optionally load canonical benchmark data through the researcher's own access;
 - define a local benchmark with the same public types; and
 - author an immutable Fusion.
 
@@ -197,8 +198,8 @@ This walkthrough deliberately stops before `fusion.run(...)`. Phase 2B supplies 
 tool-free model routes, the deterministic majority-vote route, and `GET /v1?q=...`; Phase 2C now
 supplies SDK URL4 compilation, plaintext result validation, and in-memory run results. Grading,
 aggregation, and `fusion.evaluate(...)` remain Phase 3.
-The SDK will continue to contact only the URL4 engine; only the engine's model adapter may contact
-AI Gateway."""
+All model-backed SDK work continues to contact only the URL4 engine; only the engine's model
+adapter may contact AI Gateway."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

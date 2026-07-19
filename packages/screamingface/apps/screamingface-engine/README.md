@@ -14,13 +14,12 @@ apps/screamingface-engine/
 
 ## Implemented responsibilities
 
-This tracked development profile composes the generic `Url4Node` with ScreamingFace-owned data:
+This tracked development profile composes the generic `Url4Node` with ScreamingFace-owned
+executable capabilities:
 
 ```text
 GET /healthz
 GET /.well-known/screamingface
-GET /benchmarks/gpqa@1
-GET /benchmarks/gpqa@1/cases
 GET /codex/gpt-5.5?[params&]q=(context)!intent
 GET /gemini/2.5?[params&]q=(context)!intent
 GET /claude/sonnet-4.6?[params&]q=(context)!intent
@@ -28,9 +27,9 @@ GET /reducers/majority-vote?q=(resolved-member-object)
 GET /v1?q=<complete URL4 expression>
 ```
 
-All successful bodies are plaintext. Registry and manifest bodies contain JSON text; case routes
-contain normalized NDJSON. Model routes return only the first AI Gateway assistant message text.
-The SDK parses and validates structured plaintext on the client.
+All successful bodies are plaintext. The registry body contains JSON text. Model routes return
+only the first AI Gateway assistant message text. The SDK parses and validates structured
+plaintext on the client.
 
 The application is one persistent `Url4Node` process. Its model handlers call AI Gateway
 in-process through one shared asynchronous HTTP client; they do not launch route subprocesses or
@@ -45,23 +44,23 @@ permanent URL4 `malformed_source` errors.
 
 The current development profile intentionally supports tool-free model requests only. The
 registry does not claim `web_search`, and `gemini/3.1-pro-preview` is not advertised because AI
-Gateway does not currently register that model identifier. Only runnable benchmarks are
-advertised, so DRACO is neither listed nor served until those capabilities exist.
+Gateway does not currently register that model identifier.
 
-## Dataset access
+## Benchmark boundary
 
-The case route loads the canonical Hugging Face dataset:
+The engine does not publish benchmark manifests, cases, answer keys, graders, or aggregators.
+Those are local SDK concerns. For example, `sf.benchmarks.load("gpqa@1")` loads the pinned
+Hugging Face source through the researcher's own process and credentials, then engine requests
+contain only the concrete case prompt needed for model execution.
 
-- `Idavidrein/gpqa`, subset `gpqa_diamond`, split `train`
-
-GPQA may require accepting the dataset terms and authenticating locally first:
+GPQA may require accepting its dataset terms and authenticating before loading it:
 
 ```bash
 huggingface-cli login
 ```
 
-The Compose profile forwards `HF_TOKEN` from your shell into the engine container. No synthetic
-or mock dataset fallback exists.
+No Hugging Face token is forwarded to either container. No synthetic or mock dataset fallback
+exists.
 
 ## Run the local stack
 
@@ -78,15 +77,14 @@ the containers' internal topology:
 AIGATEWAY_HOST_PORT=19105 SCREAMINGFACE_ENGINE_HOST_PORT=14404 ./dev.sh
 ```
 
-This builds the engine and AI Gateway containers. Discovery and benchmark loading do not contact
-AI Gateway; model routes do.
+This builds the engine and AI Gateway containers. SDK-local benchmark loading does not contact
+either service; model routes do.
 
 Verify:
 
 ```bash
 curl -s http://127.0.0.1:4404/healthz
 curl -s http://127.0.0.1:4404/.well-known/screamingface | python -m json.tool
-curl -s http://127.0.0.1:4404/benchmarks/gpqa@1 | python -m json.tool
 
 curl -G http://127.0.0.1:4404/codex/gpt-5.5 \
   --data-urlencode "q=(What is 2 + 2?)!Answer briefly"

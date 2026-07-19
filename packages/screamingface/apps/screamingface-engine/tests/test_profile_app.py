@@ -4,7 +4,6 @@ import json
 
 import httpx
 import pytest
-from screamingface import Case
 
 from screamingface_engine.app import create_app
 from screamingface_engine.gateway import GatewayClient
@@ -12,19 +11,16 @@ from screamingface_engine.settings import Settings
 
 
 @pytest.mark.asyncio
-async def test_profile_serves_registry_manifests_and_normalized_cases_as_plaintext() -> None:
-    app = create_app(case_loaders={"gpqa@1": lambda: (Case("q1", "Question", reference="A"),)})
+async def test_profile_serves_only_executable_capability_discovery() -> None:
+    app = create_app()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         health = await client.get("/healthz")
         registry_response = await client.get("/.well-known/screamingface")
-        manifest_response = await client.get("/benchmarks/gpqa@1")
-        cases_response = await client.get("/benchmarks/gpqa@1/cases")
+        gpqa_response = await client.get("/benchmarks/gpqa@1")
         draco_response = await client.get("/benchmarks/draco@1")
 
     registry = json.loads(registry_response.text)
-    manifest = json.loads(manifest_response.text)
-    cases = [json.loads(line) for line in cases_response.text.splitlines()]
 
     assert health.text == "ok"
     assert registry["schema"] == "screamingface.registry.v1"
@@ -33,18 +29,8 @@ async def test_profile_serves_registry_manifests_and_normalized_cases_as_plainte
         {"id": "gemini/2.5", "supported_tools": []},
         {"id": "claude/sonnet-4.6", "supported_tools": []},
     ]
-    assert registry["benchmarks"] == [
-        {"id": "gpqa@1", "manifest": "/benchmarks/gpqa@1", "tools": []}
-    ]
-    assert manifest["grader"]["type"] == "exact_choice"
-    assert cases == [
-        {
-            "id": "q1",
-            "input": "Question",
-            "reference": "A",
-            "metadata": {},
-        }
-    ]
+    assert set(registry) == {"schema", "response_schemas", "models", "reducers"}
+    assert gpqa_response.status_code == 404
     assert draco_response.status_code == 404
     assert registry_response.headers["content-type"].startswith("text/plain")
 

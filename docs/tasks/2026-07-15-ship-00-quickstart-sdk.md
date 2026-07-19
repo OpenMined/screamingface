@@ -52,12 +52,13 @@ enforcement are later additive contracts once their engine and storage requireme
 
 ## Phase 1 implementation — 2026-07-18
 
-Implemented the network-free public value layer and strict remote discovery/loading boundary:
+Implemented the network-free public value layer and strict discovery/loading boundary:
 
 - `sf.config`, immutable `Case`, `Benchmark`, and `Fusion` authoring;
 - namespaced reducers, graders, and aggregators;
-- strict `models.list`, `benchmarks.list`, and eager `benchmarks.load`;
-- typed registry, transport, manifest, and case-stream failures; and
+- engine-backed `models.list`, SDK-local `benchmarks.list`, and eager canonical
+  `benchmarks.load`;
+- typed registry, transport, and benchmark-source failures; and
 - a real Dockerized `Url4Node` profile in the temporary package-development app location.
 
 Phase 1 intentionally does not implement model execution, Fusion evaluation, grading,
@@ -141,7 +142,7 @@ Approved the grading, aggregation, and facade contract without changing runtime 
 - `Mean` uses one strict common paired case set for Fusion, baseline, gain, member scores, and
   metrics; and
 - `Fusion.evaluate(benchmark, first=...)` is exactly `run -> grade -> aggregate`, while
-  `benchmarks.load()` remains an eager engine-backed manifest/case load rather than an alternate
+  `benchmarks.load()` remains an eager SDK-local canonical source load rather than an alternate
   execution mode.
 
 Implementation is intentionally deferred to separately reviewed Phase 3B–3D slices. Phase 3B is
@@ -233,7 +234,48 @@ the live README and CI instructions to describe only the Dockerized HTTP engine 
 
 The runtime now requires an origin-only engine configuration, uses strict duplicate-key JSON at
 every engine boundary, and captures each Run's exact selected cases so grading cannot reload
-changed references. The engine registry now advertises only runnable GPQA; DRACO remains absent
-until Phase 4 supplies its real judge route, `web_search` adapter, and canonical pinned
-publication. Historical task/work ledgers remain explicitly labelled audit evidence, and the
+changed references. The engine registry now advertises only executable models and reducers;
+benchmark definitions and data are SDK-local. DRACO remains absent from the SDK catalog until
+Phase 4 supplies its canonical definition, while execution also requires its real judge route and
+`web_search` adapter. Historical task/work ledgers remain explicitly labelled audit evidence, and the
 untracked `packages/screamingface/examples/draco-eval-demo/` reference remains untouched.
+
+## Phase 4 contract approval — 2026-07-19
+
+Approved the canonical GPQA/DRACO publication contract without changing runtime behavior:
+
+- GPQA pins the Hugging Face revision, source Record IDs, source order, 198-row invariant,
+  SHA-256 option permutations, exact MCQ formatting, and source domain metadata;
+- DRACO pins the dataset revision and raw digest, preserves its 100-case source order, and
+  validates its full 3,934-criterion rubric corpus before publication;
+- `draco@1` follows the executable benchmark pipeline with three passes, the exact Appendix F.5
+  prompt, Gemini 3.1 public route, temperature/reasoning/token parameters, and 32-way judge work;
+- incomplete verdict coverage remains invalid under the SDK's stricter no-missing-work contract;
+- `web_search` is injected only onto answer-producing members and represents engine-owned search
+  plus source fetching, with benchmark-source leakage blocked; and
+- DRACO remains absent from discovery until its judge, named tool, at least one complete Fusion,
+  and real SDK -> engine -> Gateway -> provider path all pass acceptance tests.
+
+The reviewed implementation is split into canonical GPQA, hidden canonical DRACO, tools, judge,
+and conditional-advertisement slices. Each still requires owner approval before runtime changes.
+See `docs/work/2026-07-19-OME-400-phase-4-contract.md` for the complete decision and gap record.
+
+## Phase 4A implementation — 2026-07-19
+
+Implemented the approved canonical SDK-local GPQA slice:
+
+- moved GPQA source handling into an SDK-local benchmark module and removed benchmarks from the
+  engine registry and HTTP surface;
+- pinned the exact Hugging Face revision and lazily cached one fully validated 198-case tuple per
+  researcher process;
+- replaced generated row IDs and Python `random` with source Record IDs and SHA-256-stable A-D
+  ordering;
+- mapped source `High-level domain` and `Subdomain` into normalized metadata and preserved source
+  row order and text;
+- rejected missing/malformed fields, duplicate IDs, and correct-answer/distractor collisions
+  before publishing any cases; and
+- verified the real pinned dataset end to end. Its one duplicate-distractor pair is canonical and
+  is preserved without compromising the tagged correct-answer reference.
+
+The engine no longer needs the researcher's Hugging Face token or serves answer-bearing case
+routes. DRACO remains hidden. Phase 4B contract review is next after the revised gates pass.

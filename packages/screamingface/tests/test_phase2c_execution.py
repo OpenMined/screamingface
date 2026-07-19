@@ -29,7 +29,6 @@ def _registry(
         reducers=reducers
         if reducers is not None
         else (ReducerRecord("majority_vote", "/reducers/majority-vote"),),
-        benchmarks=(),
         response_schemas=("screamingface.fusion-result.v1",),
     )
 
@@ -168,18 +167,18 @@ def test_structured_failures_are_not_retried_or_made_partial(
     assert all(result.members == {} and result.answer is None for result in run.results)
 
 
-def test_named_benchmark_uses_the_preflight_registry_snapshot(
+def test_named_benchmark_loads_locally_before_engine_preflight(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fusion = _fusion()
     benchmark = _benchmark()
     registry = _registry()
-    calls: list[tuple[str, Registry]] = []
+    calls: list[str] = []
     monkeypatch.setattr(_execution, "load_registry", lambda: registry)
     monkeypatch.setattr(
         _execution,
-        "load_benchmark_from_registry",
-        lambda benchmark_id, snapshot: calls.append((benchmark_id, snapshot)) or benchmark,
+        "load_benchmark",
+        lambda benchmark_id: calls.append(benchmark_id) or benchmark,
     )
     _install(monkeypatch, fusion, benchmark)
     monkeypatch.setattr(_execution, "load_registry", lambda: registry)
@@ -187,7 +186,7 @@ def test_named_benchmark_uses_the_preflight_registry_snapshot(
     run = fusion.run("tiny@1")
 
     assert run.benchmark_id == "tiny@1"
-    assert calls == [("tiny@1", registry)]
+    assert calls == ["tiny@1"]
 
 
 @pytest.mark.parametrize(

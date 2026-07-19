@@ -17,13 +17,9 @@ from screamingface._engine_http import (
     unique_json_object,
 )
 from screamingface._exact_choice import validate_exact_reference
-from screamingface._profile import (
-    FUSION_RESULT_SCHEMA,
-    Registry,
-    load_benchmark_from_registry,
-    load_registry,
-)
+from screamingface._profile import FUSION_RESULT_SCHEMA, Registry, load_registry
 from screamingface.benchmark import Benchmark, Case
+from screamingface.benchmarks import load as load_benchmark
 from screamingface.errors import (
     InvalidBenchmarkError,
     UnknownModelError,
@@ -51,15 +47,11 @@ def run_fusion(
     if not isinstance(benchmark, (str, Benchmark)):
         raise TypeError("benchmark must be a benchmark ID or sf.Benchmark")
     recipe = compile_fusion(fusion)
-    registry = load_registry()
-    resolved = (
-        load_benchmark_from_registry(benchmark, registry)
-        if isinstance(benchmark, str)
-        else benchmark
-    )
+    resolved = load_benchmark(benchmark) if isinstance(benchmark, str) else benchmark
     cases = resolved._materialize_cases()
     selected = cases if limit is None else cases[:limit]
     _references(selected, resolved)
+    registry = load_registry()
     _preflight(fusion, resolved, registry)
 
     expressions = tuple((case, compile_fusion(fusion, question=case.input)) for case in selected)

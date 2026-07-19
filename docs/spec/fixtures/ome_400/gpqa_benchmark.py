@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-import random
+import hashlib
 
 import screamingface as sf
 
 DATASET = "Idavidrein/gpqa"
-REVISION = "<immutable-hugging-face-commit>"
+REVISION = "633f5ee89ab8ad4522a9f850766b73f62147ffdd"
 SPLIT = "train"
+EXPECTED_CASES = 198
+
+
+def _permutation_key(case_id: str, source_position: int) -> bytes:
+    material = f"screamingface:gpqa@1:{case_id}:{source_position}".encode()
+    return hashlib.sha256(material).digest()
 
 
 def load_cases():
@@ -21,27 +27,41 @@ def load_cases():
         split=SPLIT,
         revision=REVISION,
     )
-    for index, record in enumerate(records):
-        case_id = f"gpqa-diamond-{index}"
+    if len(records) != EXPECTED_CASES:
+        raise ValueError(f"gpqa@1 expected {EXPECTED_CASES} rows, got {len(records)}")
+
+    case_ids = tuple(str(record["Record ID"]) for record in records)
+    if any(not case_id for case_id in case_ids) or len(set(case_ids)) != len(case_ids):
+        raise ValueError("gpqa@1 requires unique non-blank source Record ID values")
+
+    for record, case_id in zip(records, case_ids, strict=True):
         correct = str(record["Correct Answer"])
-        options = [
-            correct,
-            *(str(record[f"Incorrect Answer {number}"]) for number in range(1, 4)),
+        tagged_options = [
+            (correct, True),
+            *((str(record[f"Incorrect Answer {number}"]), False) for number in range(1, 4)),
         ]
 
-        # Case content is stable; first=N only selects from this canonical order.
-        random.Random(f"screamingface:gpqa@1:{case_id}").shuffle(options)
+        # This is stable across Python versions and processes. `first=N` selects
+        # from source order; it never changes this per-record permutation.
+        options = [
+            tagged
+            for _, tagged in sorted(
+                enumerate(tagged_options),
+                key=lambda item: _permutation_key(case_id, item[0]),
+            )
+        ]
         choices = "\n".join(
-            f"{chr(65 + option_index)}. {option}"
-            for option_index, option in enumerate(options)
+            f"{chr(65 + option_index)}. {option_text}"
+            for option_index, (option_text, _) in enumerate(options)
         )
         yield sf.Case(
             id=case_id,
-            input=(
-                f"{record['Question']}\n\n{choices}\n\nReply with only A, B, C, or D."
-            ),
-            reference=chr(65 + options.index(correct)),
-            metadata={"subject": "science"},
+            input=(f"{record['Question']}\n\n{choices}\n\nReply with only A, B, C, or D."),
+            reference=chr(65 + next(i for i, (_, is_correct) in enumerate(options) if is_correct)),
+            metadata={
+                "domain": str(record["High-level domain"]),
+                "subdomain": str(record["Subdomain"]),
+            },
         )
 
 
