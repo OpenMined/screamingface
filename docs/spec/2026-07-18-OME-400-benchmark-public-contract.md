@@ -1103,6 +1103,18 @@ contain a valid partial paired comparison while `complete=False`; completeness d
 selected work, not merely whether at least one pair was scorable. If no paired case remains,
 `score`, `baseline`, `gain`, and every member score are `None`.
 
+Rich presentation is a `Report` responsibility rather than notebook-specific branching. When a
+report is the final expression in a Jupyter-compatible notebook, `_repr_html_()` renders one of
+three evidence-first states:
+
+- complete: headline and member scores with full paired coverage;
+- partial: the valid paired comparison, its coverage, and summarized failures; or
+- failed: `0/n cases scored` and summarized failures, with unavailable metric cells omitted.
+
+The display follows the ScreamingFace design system in light and dark themes. It does not change
+the immutable data contract: unavailable numeric fields remain `None`, `to_dict()` remains
+JSON-compatible, and plain `repr(report)` exposes the same state without HTML.
+
 Standard deviations, confidence intervals, and bootstrap aggregators are deferred.
 
 ## 16. Failure behavior

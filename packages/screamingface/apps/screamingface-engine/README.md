@@ -53,8 +53,8 @@ Gateway. Nonempty intent, parameters, missing members, non-string values, and bl
 permanent URL4 `malformed_source` errors.
 
 Registry claims are configuration-dependent: without `SCREAMINGFACE_SEARXNG_URL`, no route claims
-`web_search`; with it, only the compatible Gemini and Claude routes do. The
-The tool-free `gemini/3.1-pro-preview` route maps to
+`web_search`; with it, only the compatible Gemini and Claude routes do. The tool-free
+`gemini/3.1-pro-preview` route maps to
 `gemini-cli/gemini-3.1-pro-preview` for DRACO rubric judging. This development contract assumes
 the AI Gateway owner will register that model identifier. If the Gateway deployment has not done
 so, the URL4 route remains addressable but returns the ordinary safe `502 resolution_failed`
@@ -103,6 +103,19 @@ This builds the engine, AI Gateway, and internal SearXNG containers. SearXNG has
 requires no researcher API key. It still uses public upstream search engines, so research requests
 need outbound network access. SDK-local benchmark loading does not contact any of these services;
 model routes do.
+
+AI Gateway starts with an empty, ephemeral provider profile store in this development profile.
+ScreamingFace does not inject provider credentials or implement a parallel authentication path.
+Until credentials are provisioned through AI Gateway, model routes therefore return the ordinary
+provider-access failure (currently HTTP 401 from Gateway, safely surfaced as a URL4 502), while
+health, registry, compilation, and deterministic reducer routes remain usable.
+
+The engine and AI Gateway remain separate processes and containers, but share one Docker network
+namespace in this local profile. The engine therefore calls AI Gateway at `127.0.0.1:9105`, which
+satisfies AI Gateway's deliberately loopback-only policy when authentication is disabled. The AI
+Gateway service owns both published host ports because Docker requires published ports to belong
+to the container whose network namespace is shared. This is development topology only; a hosted
+deployment should enable authentication rather than rely on this arrangement.
 
 Verify:
 

@@ -18,9 +18,8 @@ def notebook() -> nbformat.NotebookNode:
 Combine three models into one Fusion, evaluate it on five real GPQA Diamond questions, and compare
 the Fusion with its strongest member.
 
-This is the shortest supported path: **configure → compose → evaluate → compare**. The live cell is
-disabled initially because it makes provider-backed calls. Enabling it uses real model responses;
-disabled mode does not create a report or substitute an offline result.
+This is the shortest supported path: **compose → evaluate → compare**. Evaluation uses real model
+responses through the configured ScreamingFace engine; it never substitutes an offline result.
 
 ## Before you run it
 
@@ -31,7 +30,11 @@ cd packages/screamingface/apps/screamingface-engine
 ./dev.sh
 ```
 
-The selected model provider credentials must already be available to the stack's AI Gateway.
+The local AI Gateway starts with an empty provider profile store, and this notebook does not
+install credentials or add a separate authentication path. The selected model provider credentials
+must be provisioned through AI Gateway; otherwise the report will show explicit authentication
+failures and zero scored cases.
+
 GPQA is fetched through this notebook's Hugging Face session, so accept its dataset terms and
 authenticate this Python environment when required:
 
@@ -42,20 +45,9 @@ huggingface-cli login
 The five-case example makes 15 model calls: three Fusion members for each question. Majority vote,
 answer-key grading, and the final comparison make no additional provider calls."""
         ),
-        nbformat.v4.new_markdown_cell("## 1 · Configure"),
+        nbformat.v4.new_markdown_cell("## 1 · Compose"),
         nbformat.v4.new_code_cell(
-            "import os\n\n"
             "import screamingface as sf\n\n"
-            'ENGINE_URL = os.environ.get("SCREAMINGFACE_ENGINE_URL", "http://127.0.0.1:4404")\n'
-            "sf.config(engine=ENGINE_URL)"
-        ),
-        nbformat.v4.new_markdown_cell(
-            """Configuration selects the ScreamingFace engine used for model-backed work. The
-localhost value is also the temporary SDK default, while `sf.config(...)` makes it easy to select
-another deployment later."""
-        ),
-        nbformat.v4.new_markdown_cell("## 2 · Compose"),
-        nbformat.v4.new_code_cell(
             "fusion = sf.Fusion(\n"
             '    "frontier-trio",\n'
             "    models=[\n"
@@ -73,34 +65,16 @@ another deployment later."""
 most common exact answer and breaks a tie by stable member order. Fusion construction is local and
 does not call a model."""
         ),
-        nbformat.v4.new_markdown_cell("## 3 · Evaluate"),
-        nbformat.v4.new_code_cell(
-            "RUN_LIVE = False\n\n"
-            "if RUN_LIVE:\n"
-            '    report = fusion.evaluate("gpqa@1", first=5)\n'
-            "else:\n"
-            "    report = None\n\n"
-            'report or "Set RUN_LIVE = True when the engine and provider access are ready."'
-        ),
+        nbformat.v4.new_markdown_cell("## 2 · Evaluate"),
+        nbformat.v4.new_code_cell('report = fusion.evaluate("gpqa@1", first=5)'),
         nbformat.v4.new_markdown_cell(
             """`evaluate(...)` loads the pinned GPQA Diamond definition through this process,
 executes the three-member Fusion for the first five canonical cases, checks the answers against the
 sealed answer key, and returns one paired comparison. Missing work remains an explicit failure; it
 is never silently scored as zero."""
         ),
-        nbformat.v4.new_markdown_cell("## 4 · Compare"),
-        nbformat.v4.new_code_cell(
-            "comparison = (\n"
-            "    {\n"
-            '        "score": report.score,\n'
-            '        "baseline": report.baseline,\n'
-            '        "gain": report.gain,\n'
-            "    }\n"
-            "    if report is not None\n"
-            '    else "Run the live evaluation to produce comparison values."\n'
-            ")\n\n"
-            "comparison"
-        ),
+        nbformat.v4.new_markdown_cell("## 3 · Compare"),
+        nbformat.v4.new_code_cell("report"),
         nbformat.v4.new_markdown_cell(
             """Read `gain` first:
 
@@ -109,19 +83,7 @@ is never silently scored as zero."""
 - `gain` is `score - baseline`.
 
 A positive gain means the combination outperformed every member on the evaluated cases. A strong
-score with zero gain means the Fusion matched, but did not improve on, its strongest member.
-
-## Recap
-
-```python
-sf.config(engine=ENGINE_URL)
-fusion = sf.Fusion(..., reducer=sf.reducers.MajorityVote())
-report = fusion.evaluate("gpqa@1", first=5)
-report.score, report.baseline, report.gain
-```
-
-That is the core ScreamingFace workflow. Continue to the engine-profile walkthrough for discovery
-and configuration details, or the DRACO walkthrough for model synthesis and rubric judging."""
+score with zero gain means the Fusion matched, but did not improve on, its strongest member."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

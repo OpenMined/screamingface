@@ -1,0 +1,25 @@
+"""Regression checks for the local engine-to-Gateway trust boundary."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+COMPOSE = Path(__file__).parents[1] / "apps" / "screamingface-engine" / "compose.yaml"
+
+
+def test_auth_disabled_gateway_is_reached_over_shared_loopback() -> None:
+    source = COMPOSE.read_text()
+
+    assert 'AIGATEWAY_AUTH_ENABLED: "0"' in source
+    assert "AIGATEWAY_URL: http://127.0.0.1:9105" in source
+    assert "network_mode: service:aigateway" in source
+    assert "AIGATEWAY_URL: http://aigateway:9105" not in source
+
+
+def test_shared_network_namespace_owner_publishes_both_ports() -> None:
+    source = COMPOSE.read_text()
+
+    gateway_port = '"127.0.0.1:${AIGATEWAY_HOST_PORT:-9105}:9105"'
+    engine_port = '"127.0.0.1:${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}:4404"'
+    assert source.count(gateway_port) == 1
+    assert source.count(engine_port) == 1

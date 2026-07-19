@@ -202,6 +202,7 @@ grades.failures
 grades.to_dict()
 
 report = grades.aggregate()
+report  # rich complete / partial / failed comparison in notebooks
 report.score, report.baseline, report.gain
 report.members["member_1"].score
 report.to_dict()
@@ -222,6 +223,12 @@ the explicit assumption that AI Gateway will register
 `gemini-cli/gemini-3.1-pro-preview`. Successful provider-backed grading still requires that
 external registration and provider authentication; no substitute judge or runtime fallback is
 used.
+
+`Report` owns its presentation contract. Notebook display shows complete, partial, and zero-scored
+runs with paired coverage and structured failure summaries; it never renders unavailable numeric
+metrics as empty cards. Plain Python `repr(report)` carries the same status concisely, while
+`report.score`, `report.baseline`, and `report.gain` remain correctly typed as `None` when no case
+was scorable.
 
 ## Validation
 

@@ -32,7 +32,7 @@ def test_quickstart_is_a_generated_output_free_notebook() -> None:
     assert document["nbformat"] == 4
     cells = document["cells"]
     assert isinstance(cells, list)
-    assert 8 <= len(cells) <= 14
+    assert 7 <= len(cells) <= 10
     assert all(isinstance(cell, dict) and cell.get("outputs", []) == [] for cell in cells)
     assert all(
         isinstance(cell, dict) and cell.get("execution_count") is None
@@ -54,16 +54,14 @@ def test_quickstart_code_cells_are_valid_python() -> None:
 def test_quickstart_is_the_minimal_public_compose_evaluate_compare_flow() -> None:
     code = _sources("code")
 
-    assert "sf.config(engine=ENGINE_URL)" in code
+    assert "import screamingface as sf" in code
     assert code.count("sf.Fusion(") == 1
     assert '"codex/gpt-5.5"' in code
     assert '"gemini/2.5"' in code
     assert '"claude/sonnet-4.6"' in code
     assert code.count("sf.reducers.MajorityVote()") == 1
     assert code.count('fusion.evaluate("gpqa@1", first=5)') == 1
-    assert '"score": report.score' in code
-    assert '"baseline": report.baseline' in code
-    assert '"gain": report.gain' in code
+    assert code.rstrip().endswith("report")
 
     # INVARIANT: Deep execution and discovery APIs do not leak into the shortest path.
     assert "sf.models.list" not in code
@@ -80,17 +78,22 @@ def test_quickstart_is_safe_and_honest_by_default() -> None:
     code = _sources("code")
     markdown = _sources("markdown")
 
-    assert "RUN_LIVE = False" in code
-    assert "if RUN_LIVE:" in code
-    assert code.index("if RUN_LIVE:") < code.index('fusion.evaluate("gpqa@1", first=5)')
+    assert "RUN_LIVE" not in code
+    assert "if report" not in code
+    assert "sf.config(" not in code
+    assert "ENGINE_URL" not in code
     assert "mock" not in code.lower()
     assert "simulated" not in code.lower()
 
     assert "15 model calls" in markdown
-    assert "does not create a report" in markdown
+    assert "compose → evaluate → compare" in markdown
     assert "Hugging Face" in markdown
     assert "provider credentials" in markdown
+    assert "empty provider profile store" in markdown
+    assert "authentication" in markdown
+    assert "failures" in markdown
     assert "./dev.sh" in markdown
+    assert "## Recap" not in markdown
 
 
 def test_quickstart_keeps_architecture_details_out_of_the_main_path() -> None:

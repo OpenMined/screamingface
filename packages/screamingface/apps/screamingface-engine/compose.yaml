@@ -18,6 +18,9 @@ services:
     init: true
     ports:
       - "127.0.0.1:${AIGATEWAY_HOST_PORT:-9105}:9105"
+      # The engine shares this network namespace so auth-disabled Gateway calls
+      # are genuinely loopback. Published ports therefore belong here too.
+      - "127.0.0.1:${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}:4404"
     healthcheck:
       test:
         - CMD
@@ -49,7 +52,7 @@ services:
       dockerfile: packages/screamingface/apps/screamingface-engine/Dockerfile
     environment:
       AIGATEWAY_TIMEOUT: "120"
-      AIGATEWAY_URL: http://aigateway:9105
+      AIGATEWAY_URL: http://127.0.0.1:9105
       SCREAMINGFACE_ENGINE_MAX_INFLIGHT: "16"
       SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES: "61440"
       SCREAMINGFACE_SEARXNG_URL: http://searxng:8080
@@ -62,8 +65,10 @@ services:
         condition: service_healthy
       searxng:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}:4404"
+    # AI Gateway's auth-disabled mode deliberately accepts loopback only. Keep
+    # the processes isolated in separate containers while sharing networking so
+    # the engine cannot accidentally weaken that boundary for local development.
+    network_mode: service:aigateway
     healthcheck:
       test:
         - CMD

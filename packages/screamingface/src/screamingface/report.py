@@ -125,6 +125,18 @@ class Report:
     def complete(self) -> bool:
         return not self.failures
 
+    def __repr__(self) -> str:
+        from screamingface._report_display import report_repr
+
+        return report_repr(self)
+
+    def _repr_html_(self) -> str:
+        """Return the rich notebook representation of this report."""
+
+        from screamingface._report_display import report_html
+
+        return report_html(self)
+
     def to_dict(self) -> dict[str, object]:
         """Return the complete public report as JSON-compatible values."""
 
