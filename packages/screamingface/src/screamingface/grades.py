@@ -6,10 +6,13 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from screamingface.graders import ExactChoice, Grader, Rubric
 from screamingface.run import Run, RunFailure
+
+if TYPE_CHECKING:
+    from screamingface.report import Report
 
 type GradeFailureKind = Literal[
     "connection",
@@ -248,6 +251,7 @@ class Grades:
     """One immutable, in-memory grading artifact derived from a Run."""
 
     benchmark_id: str
+    fusion_name: str
     fusion_url4: str
     grader: Grader
     case_ids: tuple[str, ...]
@@ -262,11 +266,16 @@ class Grades:
             raise TypeError("grade results must be sf.CaseGrades values")
         _grade_results(run, values)
         object.__setattr__(self, "benchmark_id", run.benchmark_id)
+        object.__setattr__(self, "fusion_name", run.fusion_name)
         object.__setattr__(self, "fusion_url4", run.fusion_url4)
         object.__setattr__(self, "grader", run._benchmark.grader)
         object.__setattr__(self, "case_ids", run.case_ids)
         object.__setattr__(self, "results", values)
         object.__setattr__(self, "_run", run)
+
+    @property
+    def members(self) -> Mapping[str, str]:
+        return self._run.members
 
     @property
     def failures(self) -> tuple[GradingFailure, ...]:
@@ -293,13 +302,22 @@ class Grades:
 
         return {
             "benchmark_id": self.benchmark_id,
+            "fusion_name": self.fusion_name,
             "fusion_url4": self.fusion_url4,
+            "members": dict(self.members),
             "grader": _grader_wire(self.grader),
             "case_ids": list(self.case_ids),
             "results": [result._to_wire() for result in self.results],
             "failures": [_failure_wire(failure) for failure in self.failures],
             "complete": self.complete,
         }
+
+    def aggregate(self) -> Report:
+        """Aggregate valid paired grades with the Benchmark strategy."""
+
+        from screamingface._aggregation import aggregate_grades
+
+        return aggregate_grades(self)
 
 
 def _grade_state(

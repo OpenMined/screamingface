@@ -40,7 +40,7 @@ another engine. The thin ASGI wrapper owns only client lifecycle, global admissi
 whole-evaluation timeout.
 
 The majority-vote handler is also registered once in that process. It accepts a resolved JSON
-object with contiguous `panel_1` through `panel_n` string values, applies exact-string voting, and
+object with contiguous `member_1` through `member_n` string values, applies exact-string voting, and
 breaks ties by numeric panel position. It returns only the winning text and never contacts AI
 Gateway. Nonempty intent, parameters, missing panels, non-string values, and blank answers are
 permanent URL4 `malformed_source` errors.

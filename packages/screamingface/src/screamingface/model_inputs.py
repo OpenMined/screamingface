@@ -59,7 +59,7 @@ def normalize_model_inputs(
     prompt = _nonempty(default_prompt, "fusion prompt")
     return tuple(
         _FusionMember(
-            id=f"panel_{index}",
+            id=f"member_{index}",
             call=_model_call(value, prompt),
             explicit=not isinstance(value, str),
         )

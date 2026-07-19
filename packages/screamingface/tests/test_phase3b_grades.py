@@ -21,14 +21,20 @@ def _benchmark() -> sf.Benchmark:
 def _successful_run() -> sf.Run:
     return sf.Run(
         benchmark=_benchmark(),
+        fusion_name="frontier-trio",
         fusion_url4="(recipe)",
+        members={
+            "member_1": "codex/gpt-5.5",
+            "member_2": "gemini/2.5",
+            "member_3": "claude/sonnet-4.6",
+        },
         results=[
             sf.CaseResult(
                 "q1",
                 members={
-                    "panel_1": sf.MemberResult("codex/gpt-5.5", "A"),
-                    "panel_2": sf.MemberResult("gemini/2.5", "B"),
-                    "panel_3": sf.MemberResult("claude/sonnet-4.6", "B"),
+                    "member_1": sf.MemberResult("codex/gpt-5.5", "A"),
+                    "member_2": sf.MemberResult("gemini/2.5", "B"),
+                    "member_3": sf.MemberResult("claude/sonnet-4.6", "B"),
                 },
                 answer="B",
             )
@@ -111,13 +117,18 @@ def test_successful_rubric_shaped_grade_and_grader_are_serializable() -> None:
     )
     run = sf.Run(
         benchmark=benchmark,
+        fusion_name="research-duo",
         fusion_url4="(recipe)",
+        members={
+            "member_1": "codex/gpt-5.5",
+            "member_2": "gemini/2.5",
+        },
         results=[
             sf.CaseResult(
                 "q1",
                 members={
-                    "panel_1": sf.MemberResult("codex/gpt-5.5", "answer one"),
-                    "panel_2": sf.MemberResult("gemini/2.5", "answer two"),
+                    "member_1": sf.MemberResult("codex/gpt-5.5", "answer one"),
+                    "member_2": sf.MemberResult("gemini/2.5", "answer two"),
                 },
                 answer="fusion answer",
             )
@@ -145,7 +156,7 @@ def test_successful_rubric_shaped_grade_and_grader_are_serializable() -> None:
             sf.CaseGrades(
                 "q1",
                 fusion=grade,
-                members={"panel_1": grade, "panel_2": grade},
+                members={"member_1": grade, "member_2": grade},
             )
         ],
     )
@@ -213,9 +224,9 @@ def test_grades_flatten_detailed_and_summary_grade_failures() -> None:
                 "q1",
                 fusion=invalid,
                 members={
-                    "panel_1": _exact_grade(0.0),
-                    "panel_2": _exact_grade(1.0),
-                    "panel_3": _exact_grade(1.0),
+                    "member_1": _exact_grade(0.0),
+                    "member_2": _exact_grade(1.0),
+                    "member_3": _exact_grade(1.0),
                 },
             )
         ],
@@ -232,9 +243,9 @@ def test_grades_preserve_nested_targets_and_json_compatible_snapshot() -> None:
         "q1",
         fusion=_exact_grade(1.0),
         members={
-            "panel_1": _exact_grade(0.0),
-            "panel_2": _exact_grade(1.0),
-            "panel_3": _exact_grade(1.0),
+            "member_1": _exact_grade(0.0),
+            "member_2": _exact_grade(1.0),
+            "member_3": _exact_grade(1.0),
         },
     )
     grades = sf.Grades(run=run, results=[case])
@@ -247,11 +258,17 @@ def test_grades_preserve_nested_targets_and_json_compatible_snapshot() -> None:
     assert grades.failures == ()
     assert grades.complete is True
     assert grades.results[0].fusion == _exact_grade(1.0)
-    assert tuple(grades.results[0].members) == ("panel_1", "panel_2", "panel_3")
+    assert tuple(grades.results[0].members) == ("member_1", "member_2", "member_3")
     assert json.loads(json.dumps(grades.to_dict())) == grades.to_dict()
     assert grades.to_dict() == {
         "benchmark_id": "gpqa@1",
+        "fusion_name": "frontier-trio",
         "fusion_url4": "(recipe)",
+        "members": {
+            "member_1": "codex/gpt-5.5",
+            "member_2": "gemini/2.5",
+            "member_3": "claude/sonnet-4.6",
+        },
         "grader": {"type": "exact_choice"},
         "case_ids": ["q1"],
         "results": [
@@ -266,7 +283,7 @@ def test_grades_preserve_nested_targets_and_json_compatible_snapshot() -> None:
                     "valid": True,
                 },
                 "members": {
-                    "panel_1": {
+                    "member_1": {
                         "score": 0.0,
                         "metrics": {},
                         "coverage": 1.0,
@@ -274,7 +291,7 @@ def test_grades_preserve_nested_targets_and_json_compatible_snapshot() -> None:
                         "failure": None,
                         "valid": True,
                     },
-                    "panel_2": {
+                    "member_2": {
                         "score": 1.0,
                         "metrics": {},
                         "coverage": 1.0,
@@ -282,7 +299,7 @@ def test_grades_preserve_nested_targets_and_json_compatible_snapshot() -> None:
                         "failure": None,
                         "valid": True,
                     },
-                    "panel_3": {
+                    "member_3": {
                         "score": 1.0,
                         "metrics": {},
                         "coverage": 1.0,
@@ -304,7 +321,13 @@ def test_failed_run_case_has_no_grades_and_remains_in_failures() -> None:
     failure = sf.RunFailure("q1", "timeout", "URL4 engine evaluation timed out")
     run = sf.Run(
         benchmark=benchmark,
+        fusion_name="frontier-trio",
         fusion_url4="(recipe)",
+        members={
+            "member_1": "codex/gpt-5.5",
+            "member_2": "gemini/2.5",
+            "member_3": "claude/sonnet-4.6",
+        },
         results=[sf.CaseResult("q1", members={}, answer=None, failure=failure)],
     )
     case = sf.CaseGrades("q1", fusion=None, members={}, run_failure=failure)
@@ -534,7 +557,7 @@ def test_failed_run_case_has_no_grades_and_remains_in_failures() -> None:
             lambda: sf.CaseGrades(
                 "q1",
                 fusion=_exact_grade(1.0),
-                members=cast(dict[str, sf.Grade], {"panel_1": "wrong"}),
+                members=cast(dict[str, sf.Grade], {"member_1": "wrong"}),
             ),
             "sf.Grade",
         ),
@@ -542,7 +565,7 @@ def test_failed_run_case_has_no_grades_and_remains_in_failures() -> None:
             lambda: sf.CaseGrades(
                 "q1",
                 fusion=_exact_grade(1.0),
-                members=[("panel_1", _exact_grade(1.0)), ("panel_1", _exact_grade(1.0))],
+                members=[("member_1", _exact_grade(1.0)), ("member_1", _exact_grade(1.0))],
             ),
             "unique",
         ),
@@ -567,7 +590,7 @@ def test_grades_require_the_exact_run_case_and_member_shape() -> None:
     wrong_members = sf.CaseGrades(
         "q1",
         fusion=_exact_grade(1.0),
-        members={"panel_1": _exact_grade(1.0)},
+        members={"member_1": _exact_grade(1.0)},
     )
 
     with pytest.raises(ValueError, match="member slots"):
@@ -580,9 +603,9 @@ def test_grades_reject_inconsistent_run_result_shapes_and_failure_identity() -> 
         "q1",
         fusion=_exact_grade(1.0),
         members={
-            "panel_1": _exact_grade(0.0),
-            "panel_2": _exact_grade(1.0),
-            "panel_3": _exact_grade(1.0),
+            "member_1": _exact_grade(0.0),
+            "member_2": _exact_grade(1.0),
+            "member_3": _exact_grade(1.0),
         },
     )
     with pytest.raises(TypeError, match="sf.Run"):
@@ -597,15 +620,15 @@ def test_grades_reject_inconsistent_run_result_shapes_and_failure_identity() -> 
                     "other",
                     fusion=_exact_grade(1.0),
                     members={
-                        "panel_1": _exact_grade(0.0),
-                        "panel_2": _exact_grade(1.0),
-                        "panel_3": _exact_grade(1.0),
+                        "member_1": _exact_grade(0.0),
+                        "member_2": _exact_grade(1.0),
+                        "member_3": _exact_grade(1.0),
                     },
                 )
             ],
         )
 
-    wrong_summary = sf.GradeFailure("q1", "panel_1", "incomplete_verdicts", "wrong target")
+    wrong_summary = sf.GradeFailure("q1", "member_1", "incomplete_verdicts", "wrong target")
     invalid_fusion = sf.Grade(
         score=None,
         metrics={},
@@ -620,9 +643,9 @@ def test_grades_reject_inconsistent_run_result_shapes_and_failure_identity() -> 
                     "q1",
                     fusion=invalid_fusion,
                     members={
-                        "panel_1": _exact_grade(0.0),
-                        "panel_2": _exact_grade(1.0),
-                        "panel_3": _exact_grade(1.0),
+                        "member_1": _exact_grade(0.0),
+                        "member_2": _exact_grade(1.0),
+                        "member_3": _exact_grade(1.0),
                     },
                 )
             ],

@@ -31,7 +31,7 @@ def main() -> None:
     if run.complete:
         result = run.results[0]
         assert result.answer is not None
-        assert tuple(result.members) == ("panel_1", "panel_2", "panel_3")
+        assert tuple(result.members) == ("member_1", "member_2", "member_3")
         outcome = "provider-backed Fusion result received"
     else:
         failure = run.failures[0]

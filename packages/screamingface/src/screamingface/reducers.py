@@ -18,7 +18,7 @@ class Reducer(ABC):
 
 @dataclass(frozen=True, slots=True)
 class MajorityVote(Reducer):
-    """Exact-string majority vote with stable panel-order tie breaking."""
+    """Exact-string majority vote with stable member-order tie breaking."""
 
     kind: ClassVar[str] = "majority_vote"
 

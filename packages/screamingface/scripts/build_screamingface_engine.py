@@ -128,40 +128,40 @@ AI Gateway, or providers directly."""
             "# GET http://127.0.0.1:4404/v1?q=<URL-encoded fusion expression>\n"
             "# Decoded q expression:\n"
             "# (question='<resolved GPQA prompt>',\n"
-            "#  panel_1=/codex/gpt-5.5()!'$question',\n"
-            "#  panel_2=/gemini/2.5()!'$question',\n"
-            "#  panel_3=/claude/sonnet-4.6()!'$question',\n"
+            "#  member_1=/codex/gpt-5.5()!'$question',\n"
+            "#  member_2=/gemini/2.5()!'$question',\n"
+            "#  member_3=/claude/sonnet-4.6()!'$question',\n"
             "#  {schema: 'screamingface.panel-result.v2',\n"
-            "#   panel_1_id: 'codex/gpt-5.5', panel_1_model: 'codex/gpt-5.5',\n"
-            "#   panel_1_answer: '$panel_1',\n"
-            "#   panel_2_id: 'gemini-cli/gemini-2.5-pro',\n"
-            "#   panel_2_model: 'gemini-cli/gemini-2.5-pro', panel_2_answer: '$panel_2',\n"
-            "#   panel_3_id: 'anthropic/claude-sonnet-4-6',\n"
-            "#   panel_3_model: 'anthropic/claude-sonnet-4-6', panel_3_answer: '$panel_3'})\n"
+            "#   member_1_id: 'codex/gpt-5.5', member_1_model: 'codex/gpt-5.5',\n"
+            "#   member_1_answer: '$member_1',\n"
+            "#   member_2_id: 'gemini-cli/gemini-2.5-pro',\n"
+            "#   member_2_model: 'gemini-cli/gemini-2.5-pro', member_2_answer: '$member_2',\n"
+            "#   member_3_id: 'anthropic/claude-sonnet-4-6',\n"
+            "#   member_3_model: 'anthropic/claude-sonnet-4-6', member_3_answer: '$member_3'})\n"
             "#\n"
             "# Compiled URL4 request node (↖ shared = the same binding, not another request):\n"
             "# GatherNode\n"
             "# ├─ question: BindingNode → TextNode '<resolved GPQA prompt>'\n"
-            "# ├─ panel_1: BindingNode → RelUrlNode /codex/gpt-5.5\n"
+            "# ├─ member_1: BindingNode → RelUrlNode /codex/gpt-5.5\n"
             "# │  ├─ context → empty\n"
             "# │  └─ intent → question ↖ shared\n"
-            "# ├─ panel_2: BindingNode → RelUrlNode /gemini/2.5\n"
+            "# ├─ member_2: BindingNode → RelUrlNode /gemini/2.5\n"
             "# │  ├─ context → empty\n"
             "# │  └─ intent → question ↖ shared\n"
-            "# ├─ panel_3: BindingNode → RelUrlNode /claude/sonnet-4.6\n"
+            "# ├─ member_3: BindingNode → RelUrlNode /claude/sonnet-4.6\n"
             "# │  ├─ context → empty\n"
             "# │  └─ intent → question ↖ shared\n"
             "# └─ response: StructNode\n"
             "#    ├─ schema → screamingface.panel-result.v2\n"
-            "#    ├─ panel_1_id → codex/gpt-5.5\n"
-            "#    ├─ panel_1_model → codex/gpt-5.5\n"
-            "#    ├─ panel_1_answer → panel_1 ↖ shared\n"
-            "#    ├─ panel_2_id → gemini-cli/gemini-2.5-pro\n"
-            "#    ├─ panel_2_model → gemini-cli/gemini-2.5-pro\n"
-            "#    ├─ panel_2_answer → panel_2 ↖ shared\n"
-            "#    ├─ panel_3_id → anthropic/claude-sonnet-4-6\n"
-            "#    ├─ panel_3_model → anthropic/claude-sonnet-4-6\n"
-            "#    └─ panel_3_answer → panel_3 ↖ shared\n"
+            "#    ├─ member_1_id → codex/gpt-5.5\n"
+            "#    ├─ member_1_model → codex/gpt-5.5\n"
+            "#    ├─ member_1_answer → member_1 ↖ shared\n"
+            "#    ├─ member_2_id → gemini-cli/gemini-2.5-pro\n"
+            "#    ├─ member_2_model → gemini-cli/gemini-2.5-pro\n"
+            "#    ├─ member_2_answer → member_2 ↖ shared\n"
+            "#    ├─ member_3_id → anthropic/claude-sonnet-4-6\n"
+            "#    ├─ member_3_model → anthropic/claude-sonnet-4-6\n"
+            "#    └─ member_3_answer → member_3 ↖ shared\n"
             'run = fusion.evaluate("gpqa", first=20, seed=0)\n'
             "run"
         ),
@@ -174,15 +174,15 @@ HTTP production node must use the same labeled envelope:
 ```json
 {
   "schema": "screamingface.panel-result.v2",
-  "panel_1_id": "codex/gpt-5.5",
-  "panel_1_model": "codex/gpt-5.5",
-  "panel_1_answer": "A",
-  "panel_2_id": "gemini-cli/gemini-2.5-pro",
-  "panel_2_model": "gemini-cli/gemini-2.5-pro",
-  "panel_2_answer": "B",
-  "panel_3_id": "anthropic/claude-sonnet-4-6",
-  "panel_3_model": "anthropic/claude-sonnet-4-6",
-  "panel_3_answer": "A"
+  "member_1_id": "codex/gpt-5.5",
+  "member_1_model": "codex/gpt-5.5",
+  "member_1_answer": "A",
+  "member_2_id": "gemini-cli/gemini-2.5-pro",
+  "member_2_model": "gemini-cli/gemini-2.5-pro",
+  "member_2_answer": "B",
+  "member_3_id": "anthropic/claude-sonnet-4-6",
+  "member_3_model": "anthropic/claude-sonnet-4-6",
+  "member_3_answer": "A"
 }
 ```
 
@@ -215,7 +215,7 @@ later without changing this SDK flow."""
 deterministically in the SDK. `ModelReducer` adds one later URL4 model call whose prompt can
 synthesize, select, rank, merge, or adjudicate the resolved panel answers.
 
-The `$panel_answers` binding contains stable private slot IDs, model IDs, and resolved answers. The
+The `$member_answers` binding contains stable private slot IDs, model IDs, and resolved answers. The
 reducer receives it in its URL4 intent, with empty context."""
         ),
         nbformat.v4.new_code_cell(
@@ -224,7 +224,7 @@ reducer receives it in its URL4 intent, with empty context."""
             "    models=fusion.models,\n"
             "    reducer=sf.ModelReducer(\n"
             '        model="codex/gpt-5.5",\n'
-            '        prompt="Synthesize one final answer for $question from $panel_answers",\n'
+            '        prompt="Synthesize one final answer for $question from $member_answers",\n'
             '        params={"temperature": 0.0, "max_tokens": 512},\n'
             "    ),\n"
             ")\n"

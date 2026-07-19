@@ -83,7 +83,7 @@ authentication, automatic retries, or mock fallbacks.
 
 Implemented deterministic Fusion reduction through the persistent engine:
 
-- one private SDK-owned exact-string majority selector with stable panel-order tie breaking;
+- one private SDK-owned exact-string majority selector with stable member-order tie breaking;
 - one startup-registered `/reducers/majority-vote` URL4 endpoint;
 - strict resolved-context validation and permanent URL4 `malformed_source` failures;
 - literal and model-backed complete-expression coverage, including proof that the reducer makes no
@@ -207,4 +207,20 @@ Implemented the approved complete grading execution slice:
 
 Verification passes with 270 repository tests at 97.6% ScreamingFace coverage, 49 engine-profile
 tests at 98.1% coverage, lint, formatting, typing, fixture regeneration, notebook regeneration,
-and package builds. Phase 3D contract review is next.
+and package builds.
+
+## Phase 3D implementation — 2026-07-19
+
+Implemented the approved paired aggregation and report slice:
+
+- preserved the Fusion name and ordered `member_n -> model ID` identities through `Run`,
+  `Grades`, and `Report`, including runs where every case fails;
+- added strict validation that every successful case uses the expected member slots and models;
+- added deterministic local `sf.aggregators.Mean()` aggregation over the common case set where
+  the Fusion and every member have valid grades;
+- added immutable `sf.Report` and `sf.MemberReport` values with score, baseline, gain, coverage,
+  consistently available metrics, failures, and JSON-compatible serialization; and
+- added `Fusion.evaluate()` as the exact `run -> grade -> aggregate` convenience facade.
+
+Phase 3D makes no new engine, URL4, AI Gateway, authentication, persistence, cost, or confidence
+interval behavior. Phase 4 contract review is next.

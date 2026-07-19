@@ -30,9 +30,9 @@ def _request(
     )
 
 
-def test_majority_vote_parses_resolved_context_and_orders_panels_numerically() -> None:
-    assert majority_vote(_request('{"panel_3":"A","panel_1":"B","panel_2":"A"}')) == "A"
-    assert majority_vote(_request('{"panel_2":"A","panel_1":"B"}')) == "B"
+def test_majority_vote_parses_resolved_context_and_orders_members_numerically() -> None:
+    assert majority_vote(_request('{"member_3":"A","member_1":"B","member_2":"A"}')) == "A"
+    assert majority_vote(_request('{"member_2":"A","member_1":"B"}')) == "B"
 
 
 @pytest.mark.parametrize(
@@ -40,15 +40,15 @@ def test_majority_vote_parses_resolved_context_and_orders_panels_numerically() -
     [
         (_request("not json"), "JSON object"),
         (_request("[]"), "JSON object"),
-        (_request('{"panel_1":"A"}'), "n >= 2"),
-        (_request('{"panel_1":"A","panel_3":"B"}'), "contiguous"),
-        (_request('{"panel_01":"A","panel_2":"B"}'), "keys"),
-        (_request('{"member_1":"A","panel_2":"B"}'), "keys"),
-        (_request('{"panel_1":"A","panel_2":2}'), "strings"),
-        (_request('{"panel_1":"A","panel_2":" "}'), "blank"),
-        (_request('{"panel_1":"A","panel_2":"B"}', intent="vote"), "intent"),
+        (_request('{"member_1":"A"}'), "n >= 2"),
+        (_request('{"member_1":"A","member_3":"B"}'), "contiguous"),
+        (_request('{"member_01":"A","member_2":"B"}'), "keys"),
+        (_request('{"panel_1":"A","member_2":"B"}'), "keys"),
+        (_request('{"member_1":"A","member_2":2}'), "strings"),
+        (_request('{"member_1":"A","member_2":" "}'), "blank"),
+        (_request('{"member_1":"A","member_2":"B"}', intent="vote"), "intent"),
         (
-            _request('{"panel_1":"A","panel_2":"B"}', params={"mode": "strict"}),
+            _request('{"member_1":"A","member_2":"B"}', params={"mode": "strict"}),
             "parameters",
         ),
     ],
@@ -87,14 +87,14 @@ async def test_reducer_route_and_complete_literal_expression_return_plaintext() 
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         direct = await client.get(
             "/reducers/majority-vote",
-            params={"q": '({"panel_2":"B","panel_1":"A","panel_3":"B"})'},
+            params={"q": '({"member_2":"B","member_1":"A","member_3":"B"})'},
         )
         evaluated = await client.get(
             "/v1",
             params={
                 "q": (
-                    "(panel_answers={panel_1:'A',panel_2:'B',panel_3:'A'},"
-                    "fusion_answer=/reducers/majority-vote($panel_answers),"
+                    "(member_answers={member_1:'A',member_2:'B',member_3:'A'},"
+                    "fusion_answer=/reducers/majority-vote($member_answers),"
                     "{schema:'screamingface.fusion-result.v1',answer:'$fusion_answer'})"
                 )
             },
@@ -133,15 +133,15 @@ async def test_complete_model_and_reducer_expression_makes_only_panel_gateway_ca
     transport = httpx.ASGITransport(app=_app(gateway))
     expression = (
         "(question='Choose',"
-        "panel_1=/codex/gpt-5.5($question)!'Answer',"
-        "panel_2=/gemini/2.5($question)!'Answer',"
-        "panel_3=/claude/sonnet-4.6($question)!'Answer',"
-        "panel_answers={panel_1:'$panel_1',panel_2:'$panel_2',panel_3:'$panel_3'},"
-        "fusion_answer=/reducers/majority-vote($panel_answers),"
+        "member_1=/codex/gpt-5.5($question)!'Answer',"
+        "member_2=/gemini/2.5($question)!'Answer',"
+        "member_3=/claude/sonnet-4.6($question)!'Answer',"
+        "member_answers={member_1:'$member_1',member_2:'$member_2',member_3:'$member_3'},"
+        "fusion_answer=/reducers/majority-vote($member_answers),"
         "{schema:'screamingface.fusion-result.v1',"
-        "members:{panel_1:{model:'codex/gpt-5.5',answer:'$panel_1'},"
-        "panel_2:{model:'gemini/2.5',answer:'$panel_2'},"
-        "panel_3:{model:'claude/sonnet-4.6',answer:'$panel_3'}},"
+        "members:{member_1:{model:'codex/gpt-5.5',answer:'$member_1'},"
+        "member_2:{model:'gemini/2.5',answer:'$member_2'},"
+        "member_3:{model:'claude/sonnet-4.6',answer:'$member_3'}},"
         "answer:'$fusion_answer'})"
     )
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
@@ -192,9 +192,9 @@ async def test_sdk_compiler_expression_executes_on_the_persistent_node() -> None
     assert response.json() == {
         "schema": "screamingface.fusion-result.v1",
         "members": {
-            "panel_1": {"model": "codex/gpt-5.5", "answer": "A"},
-            "panel_2": {"model": "gemini/2.5", "answer": "B"},
-            "panel_3": {"model": "claude/sonnet-4.6", "answer": "A"},
+            "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
+            "member_2": {"model": "gemini/2.5", "answer": "B"},
+            "member_3": {"model": "claude/sonnet-4.6", "answer": "A"},
         },
         "answer": "A",
     }
@@ -262,7 +262,7 @@ async def test_reducer_errors_surface_as_atomic_url4_failures() -> None:
             "/v1",
             params={
                 "q": (
-                    "(answers={panel_1:'A',panel_3:'B'},"
+                    "(answers={member_1:'A',member_3:'B'},"
                     "winner=/reducers/majority-vote($answers),{answer:'$winner'})"
                 )
             },

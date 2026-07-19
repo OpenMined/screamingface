@@ -18,7 +18,7 @@ thin URL4 `Request` adapter and registers it once on the persistent node.
 
 - Add private SDK-owned exact-string majority selection with stable input-order tie breaking.
 - Register `/reducers/majority-vote` as an in-process URL4 endpoint.
-- Require a resolved JSON object containing contiguous `panel_1` through `panel_n` strings.
+- Require a resolved JSON object containing contiguous `member_1` through `member_n` strings.
 - Return only the winning plaintext and reject unsupported intent/parameters as permanent
   `malformed_source` errors.
 - Cover direct dispatch, literal complete expressions, model-backed complete expressions, atomic

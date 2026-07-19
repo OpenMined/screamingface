@@ -51,9 +51,11 @@ def research_workflow():
 def inspect_run(run: sf.Run):
     """Phase 2C result inspection without re-running paid work."""
     first_result = run.results[0]
-    first_member = first_result.members["panel_1"]
+    first_member = first_result.members["member_1"]
     return {
+        "fusion": run.fusion_name,
         "recipe": run.fusion_url4,
+        "members": run.members,
         "case_ids": run.case_ids,
         "first_member_model": first_member.model,
         "first_member_answer": first_member.answer,
@@ -69,11 +71,13 @@ def inspect_grades(grades: sf.Grades):
     first_case = next(case for case in grades.results if case.fusion is not None)
     fusion_grade = first_case.fusion
     assert fusion_grade is not None
-    first_member_grade = first_case.members["panel_1"]
+    first_member_grade = first_case.members["member_1"]
     first_verdict = fusion_grade.verdicts[0] if fusion_grade.verdicts else None
     return {
         "benchmark": grades.benchmark_id,
+        "fusion": grades.fusion_name,
         "recipe": grades.fusion_url4,
+        "members": grades.members,
         "grader": grades.grader,
         "case_ids": grades.case_ids,
         "fusion_score": fusion_grade.score,
@@ -91,9 +95,10 @@ def inspect_grades(grades: sf.Grades):
 
 def inspect_report(report: sf.Report):
     """Phase 3A paired Fusion-versus-member comparison."""
-    first_member = report.members["panel_1"]
+    first_member = report.members["member_1"]
     return {
         "benchmark": report.benchmark_id,
+        "fusion": report.fusion_name,
         "recipe": report.fusion_url4,
         "n_cases": report.n_cases,
         "n_scored": report.n_scored,

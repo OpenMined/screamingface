@@ -24,14 +24,14 @@ def compile_fusion(fusion: Fusion, *, question: str | None = None) -> str:
     sources = []
     if question is not None:
         sources.append(src(text(_literal(question)), name="question"))
-    sources.extend(_panel_source(member) for member in fusion._members)
+    sources.extend(_member_source(member) for member in fusion._members)
 
     if isinstance(fusion.reducer, MajorityVote):
-        panel_answers = {member.id: f"${member.id}" for member in fusion._members}
-        sources.append(src(struct(panel_answers), name="panel_answers"))
+        member_answers = {member.id: f"${member.id}" for member in fusion._members}
+        sources.append(src(struct(member_answers), name="member_answers"))
         reducer_call = RelExpr(
             path=MAJORITY_VOTE_ROUTE,
-            context="$panel_answers",
+            context="$member_answers",
         )
     elif isinstance(fusion.reducer, Model):
         reducer_call = RelExpr(
@@ -82,7 +82,7 @@ def compile_model_expression(
     )
 
 
-def _panel_source(member: _FusionMember):
+def _member_source(member: _FusionMember):
     return src(
         RelExpr(
             path=_model_route(member.model),
@@ -95,10 +95,10 @@ def _panel_source(member: _FusionMember):
 
 
 def _model_reducer_context(members: tuple[_FusionMember, ...]) -> str:
-    panels = []
+    member_sections = []
     for position, member in enumerate(members, 1):
-        panels.append(f"Panel {position} [{_literal(member.model)}]:\n${member.id}")
-    return "Question:\n$question\n\nPanel answers:\n" + "\n\n".join(panels)
+        member_sections.append(f"Panel {position} [{_literal(member.model)}]:\n${member.id}")
+    return "Question:\n$question\n\nPanel answers:\n" + "\n\n".join(member_sections)
 
 
 def _model_route(model: str) -> str:

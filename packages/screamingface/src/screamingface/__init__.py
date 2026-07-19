@@ -19,6 +19,7 @@ from screamingface.fusion import Fusion
 from screamingface.graders import Grader
 from screamingface.grades import CaseGrades, CriterionVerdict, Grade, GradeFailure, Grades
 from screamingface.reducers import Reducer
+from screamingface.report import MemberReport, Report
 from screamingface.run import CaseResult, MemberResult, Run, RunFailure
 
 __all__ = [
@@ -38,9 +39,11 @@ __all__ = [
     "Grades",
     "InvalidBenchmarkError",
     "MemberResult",
+    "MemberReport",
     "Reducer",
     "Run",
     "RunFailure",
+    "Report",
     "ScreamingFaceError",
     "UnknownBenchmarkError",
     "UnknownModelError",

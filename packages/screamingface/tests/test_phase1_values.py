@@ -71,7 +71,7 @@ def test_fusion_authoring_is_network_free_and_uses_namespaced_strategies() -> No
         prompt="Answer: $question",
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
-            prompt="Synthesize $panel_answers",
+            prompt="Synthesize $member_answers",
             params={"temperature": 0.0},
         ),
     )

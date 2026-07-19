@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 3C implemented; Phase 3D contract review next
+**Status:** Phase 3D implemented; Phase 4 contract review next
 **Date:** 2026-07-18  
 **Normative contract:**
 [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
@@ -193,7 +193,7 @@ SDK:
 
 - canonical `fusion.url4` template compilation from string and mapping model specifications using
   URL4's public builder/AST facade and certified renderer;
-- stable `panel_1`, `panel_2`, ... identities;
+- stable `member_1`, `member_2`, ... identities;
 - the question as member context and the member prompt as intent, with the minimal default
   `"Answer the question."`;
 - automatic labeled question/panel context for model reducers;
@@ -204,6 +204,9 @@ SDK:
 - bounded case concurrency (initial policy: four); and
 - immutable in-memory `Run`, `CaseResult`, `MemberResult`, and `RunFailure` values with
   JSON-compatible `run.to_dict()`.
+
+`member_n` is the single slot identity used by URL4 bindings and every SDK result layer. “Panel”
+may describe the group in researcher-facing prose, but does not create separate `panel_n` keys.
 
 Each case evaluation is atomic. Any required panel or reducer failure invalidates that case; the
 engine returns a non-success URL4 response rather than a partial Fusion envelope. The SDK records
@@ -308,8 +311,9 @@ the paid model-backed path:
 - **Phase 3C (implemented):** complete `Run.grade()` dispatch, rubric preflight,
   URL4 judge orchestration, response validation/retries, strict coverage/scoring, and evidence
   retention; and
-- **Phase 3D:** paired Mean aggregation, immutable reports, and the exact `Fusion.evaluate()`
-  facade over `run -> grade -> aggregate`.
+- **Phase 3D (implemented):** paired Mean aggregation, immutable reports, stable Fusion/member
+  identity at every result layer, and the exact `Fusion.evaluate()` facade over
+  `run -> grade -> aggregate`.
 
 Each implementation slice requires owner review before runtime changes begin.
 
@@ -403,7 +407,7 @@ These are additive concerns, not hidden MVP requirements.
 ### URL4 compiler and HTTP tests
 
 - one request per Fusion case;
-- stable panel mapping and nested member result structure;
+- stable member mapping and nested member result structure;
 - arrays are not emitted inside URL4 inline structs;
 - model and deterministic reducer paths;
 - one startup registration per advertised model route, with no per-call engine subprocess;
@@ -465,11 +469,10 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review Phase 3D before changing runtime code: strict paired Mean aggregation, immutable
-`Report`/`MemberReport` values, failure/completeness propagation, and exact
-`Fusion.evaluate(...) == run -> grade -> aggregate` parity. Keep engine-profile changes,
-authentication, persistence, budgets, and notebook regeneration out of that slice.
+Review Phase 4 canonical GPQA/DRACO publication against the implemented SDK values before
+changing engine manifests, routes, or notebooks. Keep authentication, persistence, budgets, and
+notebook regeneration out of that contract review.
 
 The current local engine profile still cannot execute canonical DRACO: it does not advertise the
 `gemini/3.1-pro-preview` judge route, and its panel routes do not advertise `web_search`. Those are
-explicit engine-profile follow-ups rather than Phase 3C SDK work.
+explicit engine-profile follow-ups rather than Phase 3D SDK work.

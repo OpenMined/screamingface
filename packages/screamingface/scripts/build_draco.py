@@ -39,7 +39,7 @@ must execute the capabilities and parameters that ScreamingFace emits."""
             """## 2 · Define the research behavior
 
 These prompts belong to the experiment, not the DRACO dataset adapter. `$question` is resolved for
-each case. The reducer additionally receives the labeled `$panel_answers` produced by URL4."""
+each case. The reducer additionally receives the labeled `$member_answers` produced by URL4."""
         ),
         nbformat.v4.new_code_cell(
             'DRACO_PANEL_PROMPT = """\n'
@@ -59,7 +59,7 @@ each case. The reducer additionally receives the labeled `$panel_answers` produc
             "Research prompt:\n"
             "$question\n\n"
             "Panel answers:\n"
-            '$panel_answers\n""".strip()'
+            '$member_answers\n""".strip()'
         ),
         nbformat.v4.new_markdown_cell("## 3 · Compose the fusion"),
         nbformat.v4.new_code_cell(

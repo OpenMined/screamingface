@@ -202,7 +202,7 @@ a strict `reducer: {kind: ...}` mapping.
 - `MajorityVote(tie_breaker=None)` executes locally after URL4 returns panel answers. A tie breaker
   selects an existing member answer and never creates another model call.
 - `ModelReducer(model=..., prompt=..., params=...)` adds a reducer model call to the URL4 graph.
-  `$panel_answers` contains labeled call-slot IDs, model IDs, and resolved answers.
+  `$member_answers` contains labeled call-slot IDs, model IDs, and resolved answers.
 
 Synthesis, selection, ranking, merging, and adjudication are prompt behaviors of `ModelReducer`,
 not separate classes with identical constructor fields.
@@ -219,16 +219,16 @@ final reduction.
 
 ```url4
 (
-  panel_1=/codex/gpt-5.5()!'$question',
-  panel_2=/gemini/2.5()!'$question',
+  member_1=/codex/gpt-5.5()!'$question',
+  member_2=/gemini/2.5()!'$question',
   {
     schema: 'screamingface.panel-result.v2',
-    panel_1_id: 'codex/gpt-5.5',
-    panel_1_model: 'codex/gpt-5.5',
-    panel_1_answer: '$panel_1',
-    panel_2_id: 'gemini-cli/gemini-2.5-pro',
-    panel_2_model: 'gemini-cli/gemini-2.5-pro',
-    panel_2_answer: '$panel_2'
+    member_1_id: 'codex/gpt-5.5',
+    member_1_model: 'codex/gpt-5.5',
+    member_1_answer: '$member_1',
+    member_2_id: 'gemini-cli/gemini-2.5-pro',
+    member_2_model: 'gemini-cli/gemini-2.5-pro',
+    member_2_answer: '$member_2'
   }
 )
 ```
@@ -253,12 +253,12 @@ relative nodes inside the expression and are dispatched by URL4.
 ```json
 {
   "schema": "screamingface.panel-result.v2",
-  "panel_1_id": "codex/gpt-5.5",
-  "panel_1_model": "codex/gpt-5.5",
-  "panel_1_answer": "A",
-  "panel_2_id": "gemini-cli/gemini-2.5-pro",
-  "panel_2_model": "gemini-cli/gemini-2.5-pro",
-  "panel_2_answer": "B"
+  "member_1_id": "codex/gpt-5.5",
+  "member_1_model": "codex/gpt-5.5",
+  "member_1_answer": "A",
+  "member_2_id": "gemini-cli/gemini-2.5-pro",
+  "member_2_model": "gemini-cli/gemini-2.5-pro",
+  "member_2_answer": "B"
 }
 ```
 

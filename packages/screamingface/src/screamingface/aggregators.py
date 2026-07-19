@@ -1,4 +1,4 @@
-"""Aggregation definitions; aggregation execution is introduced in Phase 3."""
+"""Deterministic benchmark aggregation strategies."""
 
 from __future__ import annotations
 
@@ -15,6 +15,6 @@ class Aggregator(ABC):
 
 @dataclass(frozen=True, slots=True)
 class Mean(Aggregator):
-    """Average paired valid grades."""
+    """Unweighted arithmetic mean over the common valid paired case set."""
 
     kind: ClassVar[str] = "mean"

@@ -107,7 +107,7 @@ class CaseResult:
     def _to_wire(self) -> dict[str, object]:
         return {
             "case_id": self.case_id,
-            "members": {panel_id: member._to_wire() for panel_id, member in self._member_items},
+            "members": {member_id: member._to_wire() for member_id, member in self._member_items},
             "answer": self.answer,
             "failure": None if self.failure is None else self.failure._to_wire(),
         }
@@ -118,21 +118,28 @@ class Run:
     """One immutable, in-memory Fusion run over a selected case sequence."""
 
     benchmark_id: str
+    fusion_name: str
     fusion_url4: str
     case_ids: tuple[str, ...]
     results: tuple[CaseResult, ...]
+    _member_items: tuple[tuple[str, str], ...] = field(repr=False)
     _benchmark: Benchmark = field(repr=False, compare=False)
 
     def __init__(
         self,
         *,
         benchmark: Benchmark,
+        fusion_name: str,
         fusion_url4: str,
+        members: Mapping[str, str] | Sequence[tuple[str, str]],
         results: Sequence[CaseResult],
     ) -> None:
         if not isinstance(benchmark, Benchmark):
             raise TypeError("run benchmark must be an sf.Benchmark")
+        normalized_name = _nonblank(fusion_name, "fusion name")
         recipe = _nonblank(fusion_url4, "fusion URL4")
+        member_items = tuple(members.items()) if isinstance(members, Mapping) else tuple(members)
+        _run_member_items(member_items)
         values = tuple(results)
         if not values:
             raise ValueError("a run requires at least one case result")
@@ -141,11 +148,18 @@ class Run:
         case_ids = tuple(result.case_id for result in values)
         if len(case_ids) != len(set(case_ids)):
             raise ValueError("run case IDs must be unique")
+        _result_members(member_items, values)
         object.__setattr__(self, "benchmark_id", benchmark.id)
+        object.__setattr__(self, "fusion_name", normalized_name)
         object.__setattr__(self, "fusion_url4", recipe)
         object.__setattr__(self, "case_ids", case_ids)
         object.__setattr__(self, "results", values)
+        object.__setattr__(self, "_member_items", member_items)
         object.__setattr__(self, "_benchmark", benchmark)
+
+    @property
+    def members(self) -> Mapping[str, str]:
+        return MappingProxyType(dict(self._member_items))
 
     @property
     def failures(self) -> tuple[RunFailure, ...]:
@@ -160,7 +174,9 @@ class Run:
 
         return {
             "benchmark_id": self.benchmark_id,
+            "fusion_name": self.fusion_name,
             "fusion_url4": self.fusion_url4,
+            "members": dict(self._member_items),
             "case_ids": list(self.case_ids),
             "results": [result._to_wire() for result in self.results],
             "failures": [failure._to_wire() for failure in self.failures],
@@ -176,13 +192,38 @@ class Run:
 
 
 def _member_items(items: tuple[tuple[str, MemberResult], ...]) -> None:
-    panel_ids: list[str] = []
-    for panel_id, member in items:
-        panel_ids.append(_nonblank(panel_id, "member slot ID"))
+    member_ids: list[str] = []
+    for member_id, member in items:
+        member_ids.append(_nonblank(member_id, "member slot ID"))
         if not isinstance(member, MemberResult):
             raise TypeError("result members must be sf.MemberResult values")
-    if len(panel_ids) != len(set(panel_ids)):
+    if len(member_ids) != len(set(member_ids)):
         raise ValueError("result member slot IDs must be unique")
+
+
+def _run_member_items(items: tuple[tuple[str, str], ...]) -> None:
+    if len(items) < 2:
+        raise ValueError("a run requires at least two member slots")
+    expected = tuple(f"member_{position}" for position in range(1, len(items) + 1))
+    observed: list[str] = []
+    for member_id, model in items:
+        observed.append(_nonblank(member_id, "run member slot ID"))
+        _nonblank(model, "run member model")
+    if tuple(observed) != expected:
+        raise ValueError("run member slots must be contiguous member_1 through member_n")
+
+
+def _result_members(members: tuple[tuple[str, str], ...], results: tuple[CaseResult, ...]) -> None:
+    expected_ids = tuple(member_id for member_id, _ in members)
+    expected_models = dict(members)
+    for result in results:
+        if result.failure is not None:
+            continue
+        if tuple(result.members) != expected_ids:
+            raise ValueError("successful result member slots and order must match the Run")
+        for member_id, member in result._member_items:
+            if member.model != expected_models[member_id]:
+                raise ValueError("successful result member models must match the Run")
 
 
 def _nonblank(value: object, label: str) -> str:

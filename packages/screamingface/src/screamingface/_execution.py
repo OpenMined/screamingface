@@ -72,7 +72,13 @@ def run_fusion(
                     expressions,
                 )
             )
-    return Run(benchmark=resolved, fusion_url4=recipe, results=results)
+    return Run(
+        benchmark=resolved,
+        fusion_name=fusion.name,
+        fusion_url4=recipe,
+        members=tuple((member.id, member.model) for member in fusion._members),
+        results=results,
+    )
 
 
 def _execute_case(

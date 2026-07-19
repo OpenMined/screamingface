@@ -25,9 +25,9 @@ def test_majority_recipe_is_canonical_parameterized_and_network_free() -> None:
 
     assert build(recipe)
     assert "question=" not in recipe
-    assert "panel_1=/codex/gpt-5.5($question)!'Answer the question.'" in recipe
+    assert "member_1=/codex/gpt-5.5($question)!'Answer the question.'" in recipe
     assert "/gemini/2.5?temperature=0.2&enabled=true&q=($question)" in recipe
-    assert "fusion_answer=/reducers/majority-vote($panel_answers)" in recipe
+    assert "fusion_answer=/reducers/majority-vote($member_answers)" in recipe
     assert "schema: 'screamingface.fusion-result.v1'" in recipe
     assert fusion.prompt == "Answer the question."
 
@@ -60,8 +60,8 @@ def test_model_reducer_receives_automatic_labeled_context_and_its_own_intent() -
     recipe = fusion.url4
 
     assert "fusion_answer=/codex/gpt-5.5?temperature=0.0&q=(Question:" in recipe
-    assert "$question\n\nPanel answers:\nPanel 1 [codex/gpt-5.5]:\n$panel_1" in recipe
-    assert "Panel 2 [gemini/2.5]:\n$panel_2" in recipe
+    assert "$question\n\nPanel answers:\nPanel 1 [codex/gpt-5.5]:\n$member_1" in recipe
+    assert "Panel 2 [gemini/2.5]:\n$member_2" in recipe
     assert ")!'Synthesize the panel answers.'" in recipe
 
 

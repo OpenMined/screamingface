@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 3C
+## Current implementation: Phase 3D
 
 The SDK currently supports:
 
@@ -17,7 +17,8 @@ The SDK currently supports:
 - immutable grading record types (`Grades`, `CaseGrades`, `Grade`, `CriterionVerdict`, and
   `GradeFailure`); and
 - `run.grade()` with deterministic local ExactChoice grading and URL4-backed Rubric judging,
-  strict evidence coverage, validation-only retries, and weighted DRACO-compatible scoring.
+  strict evidence coverage, validation-only retries, and weighted DRACO-compatible scoring; and
+- strict paired `sf.aggregators.Mean()` reports plus the exact `fusion.evaluate(...)` facade.
 
 The development `screamingface-engine` additionally runs three tool-free model routes through one
 persistent `Url4Node` and a shared AI Gateway client. It accepts direct endpoint requests and
@@ -32,8 +33,8 @@ recorded atomically at the case's original position. Execution performs no retri
 AI Gateway directly. `run.grade()` grades those captured Fusion/member answers without rerunning
 them. ExactChoice stays local; Rubric sends one ordinary URL4 judge-model expression per target,
 criterion, and pass, with at most 16 requests in flight. Aggregation and
-`fusion.evaluate(...)` follow in Phase 3D. There is no mock, simulated, or in-process engine
-fallback.
+`fusion.evaluate(...)` remain ordinary local SDK stages after model-backed work. There is no mock,
+simulated, or in-process engine fallback.
 
 ## Phase 1 walkthrough
 
@@ -131,16 +132,28 @@ benchmark = sf.Benchmark(
 )
 
 run = fusion.run(benchmark)
-run.results[0].members["panel_1"].answer
+run.fusion_name
+run.members
+run.results[0].members["member_1"].answer
 run.results[0].answer
 run.failures
 run.to_dict()
 
 grades = run.grade()
+grades.fusion_name
+grades.members
 grades.results[0].fusion.score
-grades.results[0].members["panel_1"].score
+grades.results[0].members["member_1"].score
 grades.failures
 grades.to_dict()
+
+report = grades.aggregate()
+report.score, report.baseline, report.gain
+report.members["member_1"].score
+report.to_dict()
+
+# Exact shorthand for run -> grade -> aggregate:
+report = fusion.evaluate(benchmark)
 ```
 
 Construction and `fusion.url4` are network-free. Discovery, loading, and execution contact only

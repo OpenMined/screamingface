@@ -84,12 +84,14 @@ def _run(
     members: dict[str, sf.MemberResult] | None = None,
 ) -> sf.Run:
     selected_members = members or {
-        "panel_1": sf.MemberResult("worker/one", "Member one"),
-        "panel_2": sf.MemberResult("worker/two", "Member two"),
+        "member_1": sf.MemberResult("worker/one", "Member one"),
+        "member_2": sf.MemberResult("worker/two", "Member two"),
     }
     return sf.Run(
         benchmark=benchmark,
+        fusion_name="test-fusion",
         fusion_url4="(recipe)",
+        members={member_id: member.model for member_id, member in selected_members.items()},
         results=[
             sf.CaseResult(
                 benchmark._materialize_cases()[0].id,
@@ -178,8 +180,8 @@ def test_run_grade_dispatches_exact_choice_locally_without_engine(
         benchmark,
         answer="Final answer: B",
         members={
-            "panel_1": sf.MemberResult("worker/one", "A"),
-            "panel_2": sf.MemberResult("worker/two", "B"),
+            "member_1": sf.MemberResult("worker/one", "A"),
+            "member_2": sf.MemberResult("worker/two", "B"),
         },
     )
     monkeypatch.setattr(
@@ -205,7 +207,9 @@ def test_exact_grading_preserves_failed_run_cases_and_revalidates_references() -
     failure = sf.RunFailure("q1", "timeout", "URL4 engine evaluation timed out")
     run = sf.Run(
         benchmark=benchmark,
+        fusion_name="test-fusion",
         fusion_url4="(recipe)",
+        members={"member_1": "worker/one", "member_2": "worker/two"},
         results=[sf.CaseResult("q1", members=(), answer=None, failure=failure)],
     )
 
@@ -222,7 +226,9 @@ def test_exact_grading_preserves_failed_run_cases_and_revalidates_references() -
     )
     invalid_run = sf.Run(
         benchmark=invalid,
+        fusion_name="test-fusion",
         fusion_url4="(recipe)",
+        members={"member_1": "worker/one", "member_2": "worker/two"},
         results=[sf.CaseResult("q1", members=(), answer=None, failure=failure)],
     )
     with pytest.raises(sf.InvalidBenchmarkError, match="exact-choice reference"):
@@ -243,7 +249,10 @@ def test_grade_run_rejects_non_runs_and_unimplemented_grader_strategies() -> Non
     )
     run = _run(
         benchmark,
-        members={"panel_1": sf.MemberResult("worker/one", "answer")},
+        members={
+            "member_1": sf.MemberResult("worker/one", "answer"),
+            "member_2": sf.MemberResult("worker/two", "answer"),
+        },
     )
     with pytest.raises(TypeError, match="unsupported grader"):
         run.grade()
@@ -259,11 +268,16 @@ def test_grading_rejects_a_benchmark_that_no_longer_contains_the_run_case() -> N
     assert benchmark._materialize_cases()[0].id == "q1"
     run = sf.Run(
         benchmark=benchmark,
+        fusion_name="test-fusion",
         fusion_url4="(recipe)",
+        members={"member_1": "worker/one", "member_2": "worker/two"},
         results=[
             sf.CaseResult(
                 "q1",
-                members={"panel_1": sf.MemberResult("worker/one", "A")},
+                members={
+                    "member_1": sf.MemberResult("worker/one", "A"),
+                    "member_2": sf.MemberResult("worker/two", "A"),
+                },
                 answer="A",
             )
         ],
@@ -282,11 +296,16 @@ def test_rubric_preflight_validates_all_references_before_registry_or_judge_traf
     failure = sf.RunFailure("q2", "timeout", "run failed")
     run = sf.Run(
         benchmark=benchmark,
+        fusion_name="test-fusion",
         fusion_url4="(recipe)",
+        members={"member_1": "worker/one", "member_2": "worker/two"},
         results=[
             sf.CaseResult(
                 "q1",
-                members={"panel_1": sf.MemberResult("worker/one", "answer")},
+                members={
+                    "member_1": sf.MemberResult("worker/one", "answer"),
+                    "member_2": sf.MemberResult("worker/two", "answer"),
+                },
                 answer="fusion",
             ),
             sf.CaseResult("q2", members=(), answer=None, failure=failure),
@@ -453,11 +472,14 @@ def test_rubric_builds_literal_url4_and_preserves_official_context_semantics(
     grades = _run(
         benchmark,
         answer="A $5 snack.",
-        members={"panel_1": sf.MemberResult("worker/one", "Nothing for $5.")},
+        members={
+            "member_1": sf.MemberResult("worker/one", "Nothing for $5."),
+            "member_2": sf.MemberResult("worker/two", "Something for $5."),
+        },
     ).grade()
 
     assert grades.complete is True
-    assert len(client.calls) == 2
+    assert len(client.calls) == 3
     expression = client.calls[0]
     assert build(expression)
     assert expression.startswith("(/judge/model?temperature=0.2&reasoning=low&max_tokens=4096&q=(")
@@ -505,7 +527,9 @@ def test_failed_rubric_run_case_is_preflighted_but_receives_no_judge_calls(
     failure = sf.RunFailure("q1", "timeout", "run failed")
     run = sf.Run(
         benchmark=benchmark,
+        fusion_name="test-fusion",
         fusion_url4="(recipe)",
+        members={"member_1": "worker/one", "member_2": "worker/two"},
         results=[sf.CaseResult("q1", members=(), answer=None, failure=failure)],
     )
     client = _install(monkeypatch, lambda _expression, _attempt: _response())
@@ -539,11 +563,14 @@ def test_invalid_judge_output_retries_twice_with_the_identical_expression(
 
     grades = _run(
         benchmark,
-        members={"panel_1": sf.MemberResult("worker/one", "member")},
+        members={
+            "member_1": sf.MemberResult("worker/one", "member"),
+            "member_2": sf.MemberResult("worker/two", "member two"),
+        },
     ).grade()
 
     assert grades.complete is True
-    assert len(client.calls) == 6
+    assert len(client.calls) == 9
     assert set(client.counts.values()) == {3}
     assert all(grade.verdicts[0].status == "MET" for grade in _all_grades(grades))
     assert all(
@@ -569,10 +596,13 @@ def test_exhausted_validation_retries_preserve_evidence_without_partial_scores(
 
     grades = _run(
         benchmark,
-        members={"panel_1": sf.MemberResult("worker/one", "member")},
+        members={
+            "member_1": sf.MemberResult("worker/one", "member"),
+            "member_2": sf.MemberResult("worker/two", "member two"),
+        },
     ).grade()
 
-    assert len(client.calls) == 6
+    assert len(client.calls) == 9
     assert grades.complete is False
     for grade in _all_grades(grades):
         assert grade.score is None
@@ -584,6 +614,8 @@ def test_exhausted_validation_retries_preserve_evidence_without_partial_scores(
         assert grade.failure is not None
         assert grade.failure.kind == "incomplete_verdicts"
     assert [failure.kind for failure in grades.failures] == [
+        "invalid_judge_output",
+        "incomplete_verdicts",
         "invalid_judge_output",
         "incomplete_verdicts",
         "invalid_judge_output",
@@ -645,10 +677,13 @@ def test_non_validation_failures_are_recorded_once_without_retry(
 
     grades = _run(
         benchmark,
-        members={"panel_1": sf.MemberResult("worker/one", "member")},
+        members={
+            "member_1": sf.MemberResult("worker/one", "member"),
+            "member_2": sf.MemberResult("worker/two", "member two"),
+        },
     ).grade()
 
-    assert len(client.calls) == 2
+    assert len(client.calls) == 3
     for grade in _all_grades(grades):
         failure = grade.verdicts[0].failure
         assert failure is not None
@@ -684,10 +719,13 @@ def test_transport_failures_are_safe_and_not_retried(
 
     grades = _run(
         benchmark,
-        members={"panel_1": sf.MemberResult("worker/one", "member")},
+        members={
+            "member_1": sf.MemberResult("worker/one", "member"),
+            "member_2": sf.MemberResult("worker/two", "member two"),
+        },
     ).grade()
 
-    assert len(client.calls) == 2
+    assert len(client.calls) == 3
     for grade in _all_grades(grades):
         failure = grade.verdicts[0].failure
         assert failure is not None
@@ -716,10 +754,13 @@ def test_transport_failure_after_invalid_output_retains_last_plaintext_evidence(
 
     grades = _run(
         benchmark,
-        members={"panel_1": sf.MemberResult("worker/one", "member")},
+        members={
+            "member_1": sf.MemberResult("worker/one", "member"),
+            "member_2": sf.MemberResult("worker/two", "member two"),
+        },
     ).grade()
 
-    assert len(client.calls) == 4
+    assert len(client.calls) == 6
     for grade in _all_grades(grades):
         verdict = grade.verdicts[0]
         assert verdict.failure is not None
@@ -772,7 +813,7 @@ def test_judge_concurrency_is_bounded_at_sixteen_and_results_remain_ordered(
     }
     benchmark = _rubric_benchmark(cases=[sf.Case("q1", "Question", reference=reference)])
     members = {
-        f"panel_{index}": sf.MemberResult(f"worker/{index}", f"answer {index}")
+        f"member_{index}": sf.MemberResult(f"worker/{index}", f"answer {index}")
         for index in range(1, 20)
     }
     client = _install(

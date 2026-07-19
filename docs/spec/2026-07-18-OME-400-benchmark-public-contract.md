@@ -476,14 +476,18 @@ Rules:
 - a mapping configures only that member's model, prompt, or model parameters;
 - `Fusion.prompt` is the default panel intent and a member prompt overrides it;
 - omitted prompts use the minimal SDK default `"Answer the question."`;
-- repeated models remain distinct ordered execution slots (`panel_1`, `panel_2`, ...);
+- repeated models remain distinct ordered execution slots (`member_1`, `member_2`, ...);
 - model parameters become query parameters on that model route;
 - reducers are explicit strategy objects; and
 - a DRACO reproduction pins its research-answer prompt in the Fusion.
 
+`member_n` is the canonical machine-facing slot identity across the URL4 recipe, engine result,
+`Run`, `Grades`, and `Report`. “Panel” remains descriptive research language for the members
+answering together; it is not a second identifier namespace.
+
 `reducers.Model` uses the same conceptual `model`, `prompt`, and `params` fields as a configured
 member. `reducers.MajorityVote()` performs deterministic exact-string voting and breaks ties by
-stable panel order.
+stable member order.
 
 URL4 interpolates embedded references in prompt templates. Researchers may therefore reference
 `$question` deliberately, but they do not need to repeat the question in the prompt: every panel
@@ -526,12 +530,12 @@ reimplementing it independently in the engine app.
 
 The Phase 2B request contract is deliberately narrow:
 
-- context is a JSON object with exactly contiguous `panel_1` through `panel_n` keys, where
+- context is a JSON object with exactly contiguous `member_1` through `member_n` keys, where
   `n >= 2`;
 - each value is a non-blank string;
-- object insertion order is irrelevant because stable order is the numeric `panel_n` order;
+- object insertion order is irrelevant because stable order is the numeric `member_n` order;
 - votes use exact raw-string equality, so `A`, `a`, and `A\n` are distinct answers;
-- an exact tie selects the lowest numeric panel position;
+- an exact tie selects the lowest numeric member position;
 - intent and query parameters are rejected; and
 - malformed input raises a permanent URL4 `malformed_source` error, invalidating the whole
   expression rather than returning a partial Fusion object.
@@ -545,7 +549,7 @@ packager merely to reshape JSON.
 
 ## 10. One URL4 request per case
 
-`fusion.url4` is the canonical, shareable URL4 recipe template. It contains stable `panel_n`
+`fusion.url4` is the canonical, shareable URL4 recipe template. It contains stable `member_n`
 slots and an intentionally unbound `$question`, but no benchmark case or answer key. The compiler
 constructs this template with URL4's public builder/AST facade and renders it with URL4's
 certified renderer; it does not concatenate ad-hoc URL4 strings. `run.fusion_url4` preserves this
@@ -562,26 +566,26 @@ fan-out, reducer, and final result structure. Conceptually:
 (
   question='<resolved case input>',
 
-  panel_1=/codex/gpt-5.5($question)!'Answer the question',
-  panel_2=/gemini/2.5($question)!'Answer the question',
+  member_1=/codex/gpt-5.5($question)!'Answer the question',
+  member_2=/gemini/2.5($question)!'Answer the question',
 
-  panel_answers={
-    panel_1: '$panel_1',
-    panel_2: '$panel_2'
+  member_answers={
+    member_1: '$member_1',
+    member_2: '$member_2'
   },
 
-  fusion_answer=/reducers/majority-vote($panel_answers),
+  fusion_answer=/reducers/majority-vote($member_answers),
 
   {
     schema: 'screamingface.fusion-result.v1',
     members: {
-      panel_1: {
+      member_1: {
         model: 'codex/gpt-5.5',
-        answer: '$panel_1'
+        answer: '$member_1'
       },
-      panel_2: {
+      member_2: {
         model: 'gemini/2.5',
-        answer: '$panel_2'
+        answer: '$member_2'
       }
     },
     answer: '$fusion_answer'
@@ -601,11 +605,11 @@ The engine evaluates internal nodes and returns canonical JSON text:
 {
   "schema": "screamingface.fusion-result.v1",
   "members": {
-    "panel_1": {
+    "member_1": {
       "model": "codex/gpt-5.5",
       "answer": "<response>"
     },
-    "panel_2": {
+    "member_2": {
       "model": "gemini/2.5",
       "answer": "<response>"
     }
@@ -614,7 +618,7 @@ The engine evaluates internal nodes and returns canonical JSON text:
 }
 ```
 
-The `panel_n` object keys are the member/call-slot IDs, so an inner `id` field would be redundant.
+The `member_n` object keys are the member/call-slot IDs, so an inner `id` field would be redundant.
 
 Current URL4 structured-object fields support strings, bare scalars, and nested objects, but not
 embedded arrays. The nested `members` object is therefore the native representation. An array
@@ -629,7 +633,7 @@ payload = json.loads(response.text)
 
 The SDK validates the schema, expected member slots, model IDs, member answers, and final answer.
 It rejects missing or additional fields, missing or unexpected slots, wrong model IDs, and blank
-member/final answers. It reconstructs member order from the expected numeric panel slots rather
+member/final answers. It reconstructs member order from the expected numeric member slots rather
 than trusting JSON object insertion order. It preserves accepted answer text exactly and never
 guesses or repairs an invalid engine result.
 
@@ -676,7 +680,9 @@ artifact:
 run = fusion.run("draco@1", first=5)
 
 run.benchmark_id
+run.fusion_name
 run.fusion_url4
+run.members
 run.case_ids
 run.results
 run.failures
@@ -698,13 +704,13 @@ Each result preserves its selected case position:
 
 ```python
 result.case_id
-result.members["panel_1"].model
-result.members["panel_1"].answer
+result.members["member_1"].model
+result.members["member_1"].answer
 result.answer
 result.failure
 ```
 
-`result.members` is an immutable mapping keyed by the `panel_n` call-slot ID. The key is the ID, so
+`result.members` is an immutable mapping keyed by the `member_n` call-slot ID. The key is the ID, so
 `MemberResult` contains only `model` and `answer`; it does not repeat an `id` field. A successful
 `CaseResult` has the complete expected member mapping, a non-blank final answer, and
 `failure=None`. A failed result has `answer=None`, an empty member mapping, and one `RunFailure`.
@@ -758,7 +764,9 @@ event loop; bounded execution is an internal concern. Phase 2C does not implemen
 grades = run.grade()
 
 grades.benchmark_id
+grades.fusion_name
 grades.fusion_url4
+grades.members
 grades.grader
 grades.case_ids
 grades.results
@@ -1001,6 +1009,7 @@ member headline score. If no common valid cases remain, `score`, `baseline`, and
 report = grades.aggregate()
 
 report.benchmark_id
+report.fusion_name
 report.fusion_url4
 report.n_cases
 report.n_scored
@@ -1014,15 +1023,19 @@ report.failures
 report.complete
 report.to_dict()
 
-member = report.members["panel_1"]
+member = report.members["member_1"]
 member.model
 member.score
 member.metrics
 ```
 
 `sf.Report` and `sf.MemberReport` are immutable values. Repeated uses of the same model remain
-distinct `panel_n` member reports. If multiple members tie for the best score, `baseline` is still
+distinct `member_n` member reports. If multiple members tie for the best score, `baseline` is still
 that numeric maximum; no public tie-breaker is needed.
+
+`fusion_name` and the ordered `member_n -> model ID` mapping persist from `Fusion` through `Run`,
+`Grades`, and `Report`, including when every selected case fails. Successful case results must
+contain exactly those slots and models; failed cases remain atomic with no partial answers.
 
 All SDK scores use `0.0-1.0`. Widgets render them as percentages. Gain is displayed in percentage
 points:
@@ -1184,5 +1197,5 @@ Phase 3B implements the public grading values and deterministic ExactChoice core
 implements complete `Run.grade()` dispatch, Rubric preflight/orchestration, strict judge parsing,
 validation-only retries, coverage, scoring, and retained evidence. The current engine profile
 must separately advertise `gemini/3.1-pro-preview` and working `web_search` support before
-canonical DRACO can execute end to end. Phase 3D remains aggregation, reports, and the exact
-`Fusion.evaluate()` facade.
+canonical DRACO can execute end to end. Phase 3D implements paired Mean aggregation, immutable
+reports, stable Fusion/member identities, and the exact `Fusion.evaluate()` facade.

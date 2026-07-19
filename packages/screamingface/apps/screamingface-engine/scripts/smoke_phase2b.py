@@ -26,8 +26,8 @@ def main() -> None:
     assert (health_status, health) == (200, "ok")
 
     expression = (
-        "(panel_answers={panel_1:'A',panel_2:'B',panel_3:'A'},"
-        "fusion_answer=/reducers/majority-vote($panel_answers),"
+        "(member_answers={member_1:'A',member_2:'B',member_3:'A'},"
+        "fusion_answer=/reducers/majority-vote($member_answers),"
         "{schema:'screamingface.fusion-result.v1',answer:'$fusion_answer'})"
     )
     reducer_status, reducer_body = _get("/v1", expression)

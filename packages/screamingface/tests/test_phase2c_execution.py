@@ -58,8 +58,8 @@ def _success(fusion: sf.Fusion, case_id: str) -> httpx.Response:
             {
                 "answer": f"answer-{case_id}",
                 "members": {
-                    "panel_2": {"answer": "B", "model": "gemini/2.5"},
-                    "panel_1": {"model": "codex/gpt-5.5", "answer": "A"},
+                    "member_2": {"answer": "B", "model": "gemini/2.5"},
+                    "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
                 },
                 "schema": "screamingface.fusion-result.v1",
             }
@@ -138,7 +138,7 @@ def test_run_executes_one_request_per_case_with_bounded_stable_order(
     assert tuple(result.answer for result in run.results) == tuple(
         f"answer-q{index}" for index in range(5)
     )
-    assert tuple(run.results[0].members) == ("panel_1", "panel_2")
+    assert tuple(run.results[0].members) == ("member_1", "member_2")
     assert len(client.calls) == 5
     assert 2 <= client.max_active <= 4
     assert run.fusion_url4 == fusion.url4
@@ -273,9 +273,9 @@ def test_response_failure_categories(response: httpx.Response, kind: str, code: 
     [
         lambda value: value.update(schema="wrong"),
         lambda value: value.update(extra=True),
-        lambda value: value["members"].pop("panel_2"),
-        lambda value: value["members"]["panel_1"].update(model="wrong"),
-        lambda value: value["members"]["panel_1"].update(answer=" "),
+        lambda value: value["members"].pop("member_2"),
+        lambda value: value["members"]["member_1"].update(model="wrong"),
+        lambda value: value["members"]["member_1"].update(answer=" "),
         lambda value: value.update(answer=""),
     ],
 )

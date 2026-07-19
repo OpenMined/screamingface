@@ -11,6 +11,7 @@ from screamingface.reducers import Reducer
 
 if TYPE_CHECKING:
     from screamingface.benchmark import Benchmark
+    from screamingface.report import Report
     from screamingface.run import Run
 
 
@@ -68,3 +69,13 @@ class Fusion:
         from screamingface._execution import run_fusion
 
         return run_fusion(self, benchmark, first=first)
+
+    def evaluate(
+        self,
+        benchmark: str | Benchmark,
+        *,
+        first: int | None = None,
+    ) -> Report:
+        """Run, grade, and aggregate one benchmark without changing stage policy."""
+
+        return self.run(benchmark, first=first).grade().aggregate()
