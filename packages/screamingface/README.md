@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 4E0
+## Current implementation: Phase 4E1
 
 The SDK currently supports:
 
@@ -22,7 +22,7 @@ The SDK currently supports:
   strict evidence coverage, validation-only retries, and weighted DRACO-compatible scoring; and
 - strict paired `sf.aggregators.Mean()` reports plus the exact `fusion.evaluate(...)` facade.
 
-The development `screamingface-engine` runs three model routes through one persistent `Url4Node`
+The development `screamingface-engine` runs four model routes through one persistent `Url4Node`
 and a shared AI Gateway client. It accepts direct endpoint requests and complete expressions
 through `GET /v1?q=...`, with no subprocess route adapter. Its
 `/reducers/majority-vote` endpoint executes the same SDK-owned exact-string selection logic,
@@ -186,9 +186,12 @@ Hugging Face session and returns ordinary immutable SDK values. `fusion.run("gpq
 is shorthand for local load followed by engine execution over a stable prefix. The SDK now
 installs both `gpqa@1` and `draco@1`; DRACO can be loaded and inspected locally. The development
 engine can execute `tools=web_search` members through its internal SearXNG adapter on the
-compatible Gemini and Claude routes. A complete DRACO evaluation is still blocked by the missing
-`gemini/3.1-pro-preview` judge route and the separately tracked long judge-expression transport
-review. The SDK's generic Rubric implementation is already complete.
+compatible Gemini and Claude routes. It also exposes the tool-free
+`gemini/3.1-pro-preview` judge route required by the SDK's generic Rubric implementation, under
+the explicit assumption that AI Gateway will register
+`gemini-cli/gemini-3.1-pro-preview`. Successful provider-backed grading still requires that
+external registration and provider authentication; no substitute judge or runtime fallback is
+used.
 
 ## Validation
 

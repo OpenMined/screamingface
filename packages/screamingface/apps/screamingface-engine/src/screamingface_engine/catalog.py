@@ -25,6 +25,7 @@ MODEL_ROUTES = (
     ModelRoute("codex/gpt-5.5", "codex/gpt-5.5"),
     ModelRoute("gemini/2.5", "gemini-cli/gemini-2.5-pro", ("web_search",)),
     ModelRoute("claude/sonnet-4.6", "anthropic/claude-sonnet-4-6", ("web_search",)),
+    ModelRoute("gemini/3.1-pro-preview", "gemini-cli/gemini-3.1-pro-preview"),
 )
 
 

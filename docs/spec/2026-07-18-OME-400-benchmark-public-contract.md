@@ -195,6 +195,10 @@ It is not part of generic URL4 core. The MVP shape is:
     {
       "id": "claude/sonnet-4.6",
       "supported_tools": ["web_search"]
+    },
+    {
+      "id": "gemini/3.1-pro-preview",
+      "supported_tools": []
     }
   ],
   "reducers": [
@@ -209,9 +213,10 @@ It is not part of generic URL4 core. The MVP shape is:
 This registry contains remotely executable capabilities only. The example is the development
 Compose profile with SearXNG configured. Without `SCREAMINGFACE_SEARXNG_URL`, every model reports
 an empty `supported_tools` array. Compatible records gain `"web_search"` only while that engine
-adapter is configured; Codex remains tool-free. The judge model is added separately when it is
-executable. Benchmarks never appear here because their definitions, sources, graders, and
-aggregators remain local to the SDK.
+adapter is configured; Codex and the Gemini 3.1 rubric judge remain tool-free. The development
+profile maps that judge to `gemini-cli/gemini-3.1-pro-preview` under the explicit assumption that
+the AI Gateway owner registers it. Benchmarks never appear here because their definitions,
+sources, graders, and aggregators remain local to the SDK.
 
 `limits.max_request_target_bytes` is required and is a positive integer. It measures the complete
 encoded HTTP request target for `GET /v1?q=...`, including the path, separator, query-key syntax,
@@ -329,9 +334,8 @@ The registry may advertise `web_search` for a model only when that route has a w
 adapter. Otherwise SDK preflight must reject a benchmark that requires it.
 
 The development Compose profile configures SearXNG and advertises `web_search` only on compatible
-Gemini and Claude worker routes. The SDK may install the local DRACO definition independently, but
-complete evaluation preflight still fails until the `gemini/3.1-pro-preview` judge route is
-published.
+Gemini and Claude worker routes. It publishes the tool-free `gemini/3.1-pro-preview` judge route,
+which maps to the assumed AI Gateway registration `gemini-cli/gemini-3.1-pro-preview`.
 
 For a successful non-streaming response, the handler validates
 `choices[0].message.content`, requires string content, and returns that string only. URL4 therefore
@@ -1254,5 +1258,6 @@ canonical pinned SDK-local GPQA definition
 on 2026-07-19. Phase 4B added the canonical SDK-local DRACO definition and catalog exposure on
 2026-07-19. Phase 4C added member-only benchmark-tool compilation and reserved capability
 validation on 2026-07-19. Phase 4D added the engine-owned bounded SearXNG web-research capability
-on compatible worker routes. Complete DRACO execution still requires the
-`gemini/3.1-pro-preview` judge route and the reviewed long judge-expression transport.
+on compatible worker routes. Phase 4E0 added safe bound judge context plus the preflighted
+transactional-GET size contract. Phase 4E1 added the tool-free `gemini/3.1-pro-preview` engine
+route under the explicit external AI Gateway registration assumption.

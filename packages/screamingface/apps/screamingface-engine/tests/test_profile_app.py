@@ -28,6 +28,7 @@ async def test_profile_serves_only_executable_capability_discovery() -> None:
         {"id": "codex/gpt-5.5", "supported_tools": []},
         {"id": "gemini/2.5", "supported_tools": []},
         {"id": "claude/sonnet-4.6", "supported_tools": []},
+        {"id": "gemini/3.1-pro-preview", "supported_tools": []},
     ]
     assert registry["limits"] == {"max_request_target_bytes": 61440}
     assert set(registry) == {"schema", "response_schemas", "limits", "models", "reducers"}

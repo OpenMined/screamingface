@@ -23,6 +23,7 @@ GET /.well-known/screamingface
 GET /codex/gpt-5.5?[params&]q=(context)!intent
 GET /gemini/2.5?[params&]q=(context)!intent
 GET /claude/sonnet-4.6?[params&]q=(context)!intent
+GET /gemini/3.1-pro-preview?[params&]q=(context)!intent
 GET /reducers/majority-vote?q=(resolved-member-object)
 GET /v1?q=<complete URL4 expression>
 ```
@@ -53,8 +54,11 @@ permanent URL4 `malformed_source` errors.
 
 Registry claims are configuration-dependent: without `SCREAMINGFACE_SEARXNG_URL`, no route claims
 `web_search`; with it, only the compatible Gemini and Claude routes do. The
-`gemini/3.1-pro-preview` judge is not advertised because AI Gateway does not currently register
-that model identifier.
+The tool-free `gemini/3.1-pro-preview` route maps to
+`gemini-cli/gemini-3.1-pro-preview` for DRACO rubric judging. This development contract assumes
+the AI Gateway owner will register that model identifier. If the Gateway deployment has not done
+so, the URL4 route remains addressable but returns the ordinary safe `502 resolution_failed`
+upstream error; the engine never bypasses Gateway or substitutes another judge.
 
 The registry also advertises `limits.max_request_target_bytes`. It defaults to 61440 bytes and
 is configurable with `SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES`. This is the exact encoded

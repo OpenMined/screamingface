@@ -360,3 +360,21 @@ engine configuration may lower the boundary but cannot raise it.
 The URL4 transaction remains GET-only. There is no truncation, POST fallback, hidden compression,
 partial grading, or paid retry. The next reviewed capability slice is the missing
 `gemini/3.1-pro-preview` judge route.
+
+## Phase 4E1 implementation — 2026-07-19
+
+Implemented the reviewed DRACO judge route entirely inside the temporary
+`screamingface-engine` profile:
+
+- added `/gemini/3.1-pro-preview` as an ordinary tool-free model route mapped to the assumed AI
+  Gateway registration `gemini-cli/gemini-3.1-pro-preview`;
+- reused the generic model executor and Gateway client for system/user message mapping,
+  `temperature`, `max_tokens`, and `reasoning_effort`;
+- preserved assistant judge JSON as plaintext URL4 output;
+- proved repeated passes produce independent Gateway requests with no cache or automatic retry;
+  and
+- proved Gateway rejection, connection failure, timeout, and malformed success responses remain
+  safe `502 resolution_failed` URL4 errors.
+
+No URL4 or AI Gateway file changed. Provider-backed success depends on the AI Gateway owner
+registering the assumed model ID and on ordinary provider authentication.

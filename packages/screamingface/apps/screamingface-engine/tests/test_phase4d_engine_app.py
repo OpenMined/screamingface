@@ -134,6 +134,7 @@ async def test_configured_app_advertises_and_executes_web_search_as_plaintext() 
         {"id": "codex/gpt-5.5", "supported_tools": []},
         {"id": "gemini/2.5", "supported_tools": ["web_search"]},
         {"id": "claude/sonnet-4.6", "supported_tools": ["web_search"]},
+        {"id": "gemini/3.1-pro-preview", "supported_tools": []},
     ]
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/plain")

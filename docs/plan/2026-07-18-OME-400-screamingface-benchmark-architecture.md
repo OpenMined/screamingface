@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 4E0 safe URL4 judge transport implemented; judge-route review next
+**Status:** Phase 4E1 DRACO judge route implemented; full notebook/readiness review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -387,8 +387,9 @@ other evidence. Gemini and Claude advertise the capability only when SearXNG is 
 Codex remains tool-free.
 
 The engine registry remains minimal and advertises only executable models and reducers. DRACO is
-present in the SDK catalog now that its local definition is complete. Phase 4D makes compatible
-web-search Fusion members executable; complete evaluation still requires the judge route. The
+present in the SDK catalog now that its local definition is complete. Phase 4D made compatible
+web-search Fusion members executable; at that phase boundary, complete evaluation still required
+the judge route. The
 stronger Phase 5 reproduction gate additionally requires the complete benchmark-pipeline model
 lineup. Success bodies remain plaintext URL4 results; tool/cost telemetry, budgets, provider
 selection, tool profiles, and verified server-side scoring remain deferred.
@@ -402,6 +403,15 @@ application limit leaves 4 KiB for the configured origin under `httpx`'s 64 KiB 
 ceiling. GET
 remains the only transactional URL4 transport. There is no truncation, POST fallback, compression,
 partial grading, or change to URL4 or AI Gateway.
+
+**Phase 4E1 is implemented:** the development engine exposes the ordinary tool-free
+`gemini/3.1-pro-preview` model route and maps it to
+`gemini-cli/gemini-3.1-pro-preview`. It reuses the generic model/Gateway adapter, preserves the
+official system/user message split and allowlisted judge parameters, returns assistant JSON as
+plaintext, and makes every pass an independent Gateway request. Gateway rejection, connection,
+timeout, and malformed responses remain safe transient `502 resolution_failed` URL4 errors with
+no retry. This slice assumes the AI Gateway owner registers the mapped model; it changes neither
+AI Gateway nor URL4.
 
 Complete when:
 
@@ -549,12 +559,8 @@ names and behavioral boundaries are fixed by the spec; private filenames are not
 
 ## 7. Immediate next step
 
-Review the next engine-capability slice before adding the `gemini/3.1-pro-preview` judge route.
-Keep authentication, persistence, budgets, telemetry, and notebook regeneration out of these
-runtime slices.
-
-The current local engine profile can execute compatible DRACO research-member requests with
-`web_search`, but cannot complete DRACO grading because it lacks the
-`gemini/3.1-pro-preview` judge route. Phase 4E0 has settled safe context transport and the
-development GET-size boundary; the next reviewed engine slice is the judge route. The dataset
-remains SDK-local.
+Review full DRACO notebook and deployment readiness against the implemented SDK/engine path. The
+engine can execute compatible `web_search` members and now exposes the required judge route;
+provider-backed success still depends on the external AI Gateway model registration,
+authentication, and the selected reproduction's complete panel-model lineup. Keep the dataset
+SDK-local and do not add a substitute judge, runtime fallback, or direct Gateway client.

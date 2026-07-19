@@ -102,6 +102,8 @@ definitions and data remain local to the SDK."""
 
 Neither list infers provider authentication. The current Compose profile advertises `web_search`
 for Gemini and Claude because its private SearXNG adapter is configured; Codex remains tool-free.
+The Gemini 3.1 preview judge also appears as a tool-free model route under the development
+contract's AI Gateway registration assumption.
 The installed SDK catalog contains `gpqa@1` and `draco@1`, and the research filter selects DRACO
 because that benchmark requires `web_search`."""
         ),
