@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 5D
+## Current implementation: Phase 5E
 
 The SDK currently supports:
 
@@ -74,6 +74,10 @@ discovery, `fusion.url4` recipe semantics, and one real provider-free determinis
 discovery from SDK-local benchmark discovery. It demonstrates the shared `query`, `tools`, and
 `limit` filters, returns only IDs, and keeps the Hugging Face-backed GPQA load disabled by default.
 
+[`examples/03_fusions.ipynb`](examples/03_fusions.ipynb) is the network-free Fusion authoring
+guide. It covers concise model IDs, per-member prompt and parameter overrides, repeated models,
+deterministic majority voting, model-backed synthesis, and public `.url4` inspection.
+
 [`examples/05_draco.ipynb`](examples/05_draco.ipynb) is the real-engine DRACO SDK walkthrough. It
 uses the pinned `draco@1` definition, shows a compatible web-research Fusion, and separates
 `run -> grade -> aggregate`. Paid execution is explicitly disabled by default because one case can
@@ -137,11 +141,13 @@ uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
 uv run --extra notebook jupyter lab examples/01_architecture.ipynb
 # or
 uv run --extra notebook jupyter lab examples/02_discovery.ipynb
+# or
+uv run --extra notebook jupyter lab examples/03_fusions.ipynb
 ```
 
 The notebooks are generated from `scripts/build_quickstart.py`, `scripts/build_architecture.py`,
-`scripts/build_discovery.py`, and `scripts/build_draco_walkthrough.py`; edit the generators rather
-than notebook JSON.
+`scripts/build_discovery.py`, `scripts/build_fusions.py`, and `scripts/build_draco_walkthrough.py`;
+edit the generators rather than notebook JSON.
 
 ## Current API example
 

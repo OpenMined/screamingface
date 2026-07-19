@@ -78,6 +78,11 @@ jobs:
           uv run --extra notebook python scripts/build_discovery.py
           git diff --exit-code -- examples/02_discovery.ipynb
 
+      - name: Regenerate Phase 5E Fusion walkthrough
+        run: |
+          uv run --extra notebook python scripts/build_fusions.py
+          git diff --exit-code -- examples/03_fusions.ipynb
+
       - name: Regenerate Phase 5B quickstart
         run: |
           uv run --extra notebook python scripts/build_quickstart.py

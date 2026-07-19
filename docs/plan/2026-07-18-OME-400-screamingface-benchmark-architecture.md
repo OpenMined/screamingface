@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 5D discovery notebook implemented; Fusion tutorial review next
+**Status:** Phase 5E Fusion construction notebook implemented; custom benchmark review next
 **Date:** 2026-07-18  
 **Last updated:** 2026-07-19
 **Normative contract:**
@@ -492,6 +492,17 @@ definition and may fetch its source with the researcher's ordinary Hugging Face 
 is visible but defaults off, so the generated notebook runs top-to-bottom with only the Docker
 stack. Raw registry inspection remains in the architecture notebook, and Fusion construction,
 evaluation, provider calls, authentication UX, mocks, and private APIs remain out of scope.
+
+**Phase 5E is implemented:** `examples/03_fusions.ipynb` teaches network-free Fusion construction.
+String model IDs are the concise default; mappings with exactly `model`, `prompt`, and `params` are
+used only for member-specific overrides. It demonstrates a shared default prompt, stable member
+order, scalar parameters, duplicate model IDs with distinct configurations, deterministic
+`MajorityVote`, and a model-backed `Model` reducer that adds one synthesis call.
+
+The notebook inspects only the public `models`, `model_ids`, `reducer`, and `url4` values. It
+explains that `tools` is benchmark-owned and reserved from ordinary model parameters, while route
+availability and provider authentication are execution-time concerns. It performs no engine
+configuration, discovery, benchmark loading, execution, YAML parsing, HTTP, or private compilation.
 
 Before promoting the temporary package-development app, agree the engine profile's final
 location and ownership. If it moves to `apps/screamingface-engine`, preserve the same external

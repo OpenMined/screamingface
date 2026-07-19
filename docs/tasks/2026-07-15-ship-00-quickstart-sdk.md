@@ -504,3 +504,35 @@ The notebook ran top-to-bottom against the tracked Docker stack on isolated port
 expected model and benchmark filter results without calling a provider or dataset. The isolated
 stack was removed afterwards without touching the owner's existing spike containers. No SDK
 runtime, engine, URL4, AI Gateway, authentication, or dataset behavior changed.
+
+## Phase 5E contract approval — 2026-07-19
+
+Approved one generated, network-free Fusion construction notebook:
+
+- use string model IDs as the concise form and mappings only for per-member overrides;
+- teach the shared Fusion prompt and explicit member `prompt` and scalar `params`;
+- demonstrate repeated model IDs with distinct configurations and stable order;
+- compare deterministic `sf.reducers.MajorityVote()` with model-backed
+  `sf.reducers.Model(...)` and its one extra synthesis call;
+- inspect only `fusion.models`, `fusion.model_ids`, `fusion.reducer`, and `fusion.url4`; and
+- explain that `tools` belongs to benchmarks and compatibility/authentication belong to execution.
+
+The notebook requires no Docker or credentials and excludes discovery, benchmark loading,
+execution, YAML, HTTP, mocks, authentication UX, and private APIs. The phase adds no runtime API.
+
+## Phase 5E implementation — 2026-07-19
+
+Implemented the approved generated Fusion construction guide:
+
+- added `examples/03_fusions.ipynb` and its deterministic builder;
+- taught string members as the default and mappings only for per-member prompt/parameter
+  overrides;
+- demonstrated stable ordering and repeated model IDs through two differently configured Claude
+  members;
+- compared deterministic majority voting with one model-backed synthesis call;
+- exposed only `models`, `model_ids`, `reducer`, and `url4` for definition inspection; and
+- added append-only contract tests, README navigation, and CI regeneration enforcement.
+
+The notebook ran top-to-bottom in a fresh kernel without an engine, credentials, or network access;
+all three Fusions and their URL4 recipes compiled successfully. No SDK runtime, engine, URL4, AI
+Gateway, authentication, or dataset behavior changed.
