@@ -1,12 +1,12 @@
 ---
 id: OME-506
 linear_url: https://linear.app/openmined/issue/OME-506
-status: Todo
+status: Done
 type: Feature
 priority: P3
-labels: [url4-engine, pkg/url4-python-sdk, deferred, human]
+labels: [url4-engine, pkg/url4-python-sdk, autonomous, agentic]
 created: 2026-07-20
-closed:
+closed: 2026-07-20
 ---
 
 # OME-506 — processor= §27.3 delegation unimplemented

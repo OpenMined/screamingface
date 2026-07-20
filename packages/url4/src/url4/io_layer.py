@@ -39,7 +39,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
@@ -108,6 +108,19 @@ class SupportsDefaultRoute(Protocol):
     """
 
     def default_route(self) -> str | None: ...
+
+
+@runtime_checkable
+class SupportsProcessorRoutes(Protocol):
+    """Optional adapter capability: the processor routes this world declares.
+
+    A `processor=` id (§27.3 Form 1) names one of these. The adapter only
+    DECLARES what it has; the matching rule lives in :mod:`url4.processor` so it
+    has one definition rather than one per adapter. Adapters with no route
+    registry simply don't implement this, and a bare id then cannot resolve.
+    """
+
+    def processor_routes(self) -> Sequence[str]: ...
 
 
 @runtime_checkable
@@ -330,6 +343,7 @@ __all__ = [
     "SupportsDefaultRoute",
     "SupportsFetchEx",
     "SupportsHoldings",
+    "SupportsProcessorRoutes",
     "fetch_result",
     "parse_collection",
 ]

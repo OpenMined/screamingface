@@ -237,6 +237,10 @@ class Url4Node:
 
         return register
 
+    def processor_routes(self) -> list[str]:
+        """The registered endpoint paths a `processor=` id may name (§27.3)."""
+        return list(self._endpoints)
+
     def default_route(self) -> str | None:
         """The node's reduce route (:class:`~url4.io_layer.SupportsDefaultRoute`).
 
@@ -341,7 +345,13 @@ class Url4Node:
         # path; `_check_routable` keeps the two from overlapping.
         if path == self._eval_path or path.startswith(f"{self._eval_path}/"):
             collection = path[len(self._eval_path) + 1 :]
-            return await self._run_text(_reassemble(q, params), self_collection=collection or None)
+            # `processor` is consumed here, not re-attached by `_reassemble` — it
+            # selects this run's processor rather than becoming an expression param.
+            return await self._run_text(
+                _reassemble(q, params),
+                self_collection=collection or None,
+                processor=params.get("processor"),
+            )
         return None
 
     async def _call_endpoint(self, path: str, q: str, params: Mapping[str, str]) -> str:
@@ -355,10 +365,14 @@ class Url4Node:
         env: Mapping[str, object] | None = None,
         *,
         self_collection: str | None = None,
+        processor: str | None = None,
     ) -> str:
+        # WHY the request's `processor=` wins: §27.3 lets a CALLER select the
+        # processor for this evaluation. The node's own `default_processor` is
+        # the fallback when the request names none.
         ctx = ExecutionContext(
             self,
-            processor=self._processor,
+            processor=processor or self._processor,
             process=self._process,
             scope=Context(bindings=dict(env)) if env else None,
             strict_fields=self._strict_fields,

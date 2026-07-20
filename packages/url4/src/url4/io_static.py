@@ -65,6 +65,10 @@ class StaticIOLayer:
         except KeyError:
             raise ResolutionError(f"no fetch mapping for {target!r}") from None
 
+    def processor_routes(self) -> list[str]:
+        """The declared route paths a `processor=` id may name (§27.3)."""
+        return list(self._routes)
+
     def default_route(self) -> str | None:
         """The first declared route — the engine's ``processor`` default
         (:class:`~url4.io_layer.SupportsDefaultRoute`); ``None`` without routes."""

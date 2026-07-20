@@ -90,6 +90,7 @@ from url4.io_layer import (
     SupportsDefaultRoute,
     SupportsFetchEx,
     SupportsHoldings,
+    SupportsProcessorRoutes,
 )
 from url4.io_static import StaticIOLayer
 from url4.nodes import (
@@ -144,6 +145,7 @@ __all__ = [
     "SupportsDefaultRoute",
     "SupportsFetchEx",
     "SupportsHoldings",
+    "SupportsProcessorRoutes",
     "Text",
     "Url",
     "Url4Error",

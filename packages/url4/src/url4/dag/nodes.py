@@ -51,6 +51,7 @@ from url4.io_layer import FetchRequest, SupportsHoldings, fetch_result, parse_co
 from url4.nodes import IterationDirectives, Params
 from url4.nodes import RelExpr as AstRelExpr
 from url4.parser import split_intent
+from url4.processor import resolve_processor_target
 from url4.subrequest import encode_subrequest, strip_transport_params
 
 from url4.dag.node import (  # isort: skip
@@ -792,8 +793,14 @@ class FanoutReduceNode:
                 "routes and none was set; pass processor= (run/Client) or register "
                 "a route/endpoint on the node"
             )
-        target = encode_subrequest(ctx.processor, "", reducer_input)
-        return await ctx.io.fetch(target, relative=True)
+        # §27.3: the processor may be an id, a URI, a route path, or an
+        # expression that computes one — url4.processor owns that classification.
+        scope = _frame(inputs, ctx)
+        base, relative = await resolve_processor_target(
+            ctx.processor, io=ctx.io, spawn=lambda text: ctx.spawn(text, scope)
+        )
+        target = encode_subrequest(base, "", reducer_input)
+        return await ctx.io.fetch(target, relative=relative)
 
 
 @dataclass(eq=False)

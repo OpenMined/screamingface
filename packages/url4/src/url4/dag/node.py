@@ -32,7 +32,7 @@ Design notes
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import NoReturn, Protocol, runtime_checkable
 
@@ -44,6 +44,7 @@ from url4.io_layer import (
     SupportsDefaultRoute,
     SupportsFetchEx,
     SupportsHoldings,
+    SupportsProcessorRoutes,
 )
 
 
@@ -128,6 +129,7 @@ class BoundedIOLayer:
     # hasattr/isinstance stay false when the inner adapter lacks the port).
     fetch_ex: Callable[[FetchRequest], Awaitable[FetchResult]]
     fetch_holdings: Callable[[str | None, str | None], Awaitable[str]]
+    processor_routes: Callable[[], Sequence[str]]
 
     def __init__(self, inner: IOLayer, limit: int) -> None:
         self._inner = inner
@@ -136,6 +138,10 @@ class BoundedIOLayer:
             self.fetch_ex = self._bounded_fetch_ex
         if isinstance(inner, SupportsHoldings):
             self.fetch_holdings = self._bounded_fetch_holdings
+        if isinstance(inner, SupportsProcessorRoutes):
+            # Not bounded: declaring routes is not I/O. Forwarded so a
+            # `processor=` id still resolves through the wrapper (§27.3).
+            self.processor_routes = inner.processor_routes
 
     async def fetch(self, target: str, *, relative: bool) -> str:
         async with self._sem:
