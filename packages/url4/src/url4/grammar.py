@@ -31,7 +31,12 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from url4._annotations import classify_boundary, extract_directives, split_annotation_pairs
+from url4._annotations import (
+    classify_boundary,
+    extract_directives,
+    split_annotation_pairs,
+    validate_exec_annotations,
+)
 from url4._scan import balanced_body, iter_top_level, skip_quoted, split_top_level
 from url4.errors import ParseError
 from url4.nodes import (
@@ -53,13 +58,25 @@ from url4.nodes import (
     VarRef,
 )
 
-_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
-_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+# INVARIANT: the ABNF's ALPHA is ASCII. Python's `\w` is Unicode-aware by
+# default, so every identifier pattern here compiles with re.ASCII — otherwise
+# `$café` / `@bób` / `articleé=…` parse as identifiers the grammar does not
+# admit (`OME-504`).
+_IDENT_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?", re.ASCII)
 _SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://")
-_IDENTITY_NAME_RE = re.compile(r"\w+")  # the principal-name production, on its own
-_IDENTITY_RE = re.compile(rf"@({_IDENTITY_NAME_RE.pattern})")
-_VARREF_HEAD_RE = re.compile(r"\$([A-Za-z_]\w*|\d+)")
-_FIELD_SEG_RE = re.compile(r"[A-Za-z_]\w*")
+# identity-name = name-part / 1*DIGIT — a digit-led name followed by letters
+# (`@9lives`) is NEITHER alternative and must not parse.
+_IDENTITY_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", re.ASCII)
+_IDENTITY_RE = re.compile(rf"@({_IDENTITY_NAME_RE.pattern})", re.ASCII)
+_VARREF_HEAD_RE = re.compile(r"\$([A-Za-z_]\w*|\d+)", re.ASCII)
+_FIELD_SEG_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)
+# path-segment (§ identity-collection) — the ABNF's explicit character class.
+_PATH_SEGMENT_RE = re.compile(r"[A-Za-z0-9\-_.~:@!$&+=]+", re.ASCII)
+# budget-key = 1*( ALPHA / "_" ) — digits are deliberately excluded.
+_BUDGET_KEY_RE = re.compile(r"[A-Za-z_]+", re.ASCII)
+# scalar-budget-value = 1*( ALPHA / DIGIT / "." / "-" / "_" )
+_SCALAR_BUDGET_RE = re.compile(r"[A-Za-z0-9.\-_]+", re.ASCII)
 _INDEX_SEG_RE = re.compile(r"(0|[1-9]\d*)\]")
 _STRUCT_KEY_RE = re.compile(r"[A-Za-z0-9_]+")
 _STRUCT_TOKEN_RE = re.compile(r"[A-Za-z0-9_.\-]+")
@@ -210,7 +227,7 @@ def _classify_segment(seg: str, first: bool, d: _Descriptor, head: str) -> None:
         d.weight = float(seg)
     elif key == "weight" and eq and d.weight is None:
         d.weight = _parse_weight_value(val)
-    elif eq and _IDENT_RE.fullmatch(key) and key not in ("src", "weight"):
+    elif eq and _BUDGET_KEY_RE.fullmatch(key) and key not in ("src", "weight"):
         d.budgets.append((key, _parse_budget_value(val)))
     else:
         raise ParseError(f"cannot classify descriptor segment {seg!r} in {head!r}")
@@ -232,7 +249,10 @@ def _classify_weight_group(rest: str) -> tuple[dict, str] | None:
         raise ParseError(f"unclosed '(' in {rest!r}")
     if not _commits_to_struct(body):
         return None
-    weight = _parse_struct_entries(body, nested=False)
+    # INVARIANT: structured-weight is FLAT. `struct-val` is terminal, so only
+    # `structured-budget-value` may nest (and only two deep, §24.4.6). Passing
+    # nested=True makes any inner "(" a malformed_source (`OME-504`).
+    weight = _parse_struct_entries(body, nested=True)
     after = rest[len(body) + 2 :]
     if not after.startswith(":"):
         raise ParseError(f"structured weight must be followed by ':<data-binding>' in {rest!r}")
@@ -303,12 +323,16 @@ def _parse_struct_val(val: str, *, nested: bool) -> object:
 
 
 def _parse_nested_struct_val(val: str, *, nested: bool) -> dict:
-    if nested:
-        # §24.4.6 — at most scope → domain → scalar; deeper nesting rejected.
-        raise ParseError(f"structured annotation nested too deep at {val!r}")
+    # WHY well-formedness is checked BEFORE the depth rule: `(b:1)x` is malformed
+    # whatever the depth budget is, and reporting it as "nested too deep" would
+    # send the reader looking for the wrong defect.
     inner = balanced_body(val, 1)
     if inner is None or len(inner) + 2 != len(val):
         raise ParseError(f"malformed structured annotation value {val!r}")
+    if nested:
+        # §24.4.6 — at most scope → domain → scalar. Also the flat-only rule for
+        # structured-weight, which passes nested=True at the top level.
+        raise ParseError(f"structured annotation nested too deep at {val!r}")
     return _parse_struct_entries(inner, nested=True)
 
 
@@ -319,7 +343,8 @@ def _parse_weight_value(val: str) -> float | dict:
     if val.startswith("("):
         inner = balanced_body(val, 1)
         if inner is not None and len(inner) + 2 == len(val):
-            return _parse_struct_entries(inner, nested=False)
+            # flat only — see _classify_weight_group
+            return _parse_struct_entries(inner, nested=True)
     raise ParseError(f"malformed weight value {val!r}")
 
 
@@ -329,6 +354,8 @@ def _parse_budget_value(val: str) -> str | dict:
         if inner is not None and len(inner) + 2 == len(val):
             return _parse_struct_entries(inner, nested=False)
         raise ParseError(f"malformed structured budget value {val!r}")
+    if not _SCALAR_BUDGET_RE.fullmatch(val):
+        raise ParseError(f"malformed scalar budget value {val!r} (spec §4.1.1.3)")
     return val
 
 
@@ -343,6 +370,10 @@ def _attach_tail(d: _Descriptor, tail: Params) -> Node:
         value = _add_expr_params(value, expr_params)
     else:
         source_ann = tail
+    # INVARIANT: validate the EXEC axis only, and only after the §8.1.2 boundary
+    # has separated it from expression params — expression `param-key`s may carry
+    # digits, exec-keys may not (`OME-504`).
+    validate_exec_annotations(source_ann)
     source_ann, expand = _extract_expand(source_ann)
     if isinstance(value, Iteration):
         source_ann, directives = _fold_directives(value, source_ann)
@@ -587,15 +618,35 @@ def _unquote(token: str) -> str:
 
 
 def _unescape(content: str) -> str:
+    """Decode a quoted body, enforcing the ``quoted-char`` production.
+
+    # INVARIANT: the ABNF defines exactly two escapes, ``\\'`` and ``\\\\``. A
+    # backslash before anything else is not a legal quoted-char, and neither is a
+    # raw control character (< %x20, or DEL) — httpx rejects those in a URL
+    # anyway (`OME-504`).
+    #
+    # WHY the upper bound is NOT checked: the ABNF caps quoted-char at %x7E, but
+    # url4 carries natural-language prompts and `'héllo 世界 🎉'` must parse. That
+    # is a grammar defect, amended by `OME-503` — deliberately not enforced here.
+    """
     out: list[str] = []
     i = 0
     while i < len(content):
-        if content[i] == "\\" and i + 1 < len(content) and content[i + 1] in "\\'":
-            out.append(content[i + 1])
+        char = content[i]
+        if char == "\\":
+            nxt = content[i + 1] if i + 1 < len(content) else ""
+            if nxt not in ("\\", "'"):
+                raise ParseError(
+                    f"undefined escape {'\\' + nxt!r} in quoted text — the grammar "
+                    r"defines only \' and \\"
+                )
+            out.append(nxt)
             i += 2
-        else:
-            out.append(content[i])
-            i += 1
+            continue
+        if char < " " or char == "\x7f":
+            raise ParseError(f"raw control character {char!r} in quoted text (spec quoted-char)")
+        out.append(char)
+        i += 1
     return "".join(out)
 
 
@@ -639,7 +690,7 @@ def _parse_reference(token: str) -> SelfRef | IdentityRef:
     if rest.startswith("/"):
         collection = rest[1:]
         segments = collection.split("/")
-        if all(seg and " " not in seg for seg in segments):
+        if all(_PATH_SEGMENT_RE.fullmatch(seg) for seg in segments):
             return IdentityRef(m.group(1), collection)
     raise ParseError(f"invalid identity reference {token!r} (spec §5.6.2)")
 

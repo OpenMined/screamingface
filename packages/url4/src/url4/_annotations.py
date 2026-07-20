@@ -17,6 +17,7 @@ definition so the two layers cannot drift:
 
 from __future__ import annotations
 
+import re
 import warnings
 
 from url4.errors import ParseError
@@ -39,6 +40,52 @@ def split_annotation_pairs(parts: list[str]) -> Params:
         key, eq, value = part.strip().partition("=")
         pairs.append((key.strip(), value.strip() if eq else None))
     return tuple(pairs)
+
+
+# --- exec-chain character classes (§4.2) ------------------------------------------
+#
+# INVARIANT: these enforce the ABNF's `exec-key` / `exec-value` productions on the
+# EXECUTION axis only. They are applied from `grammar._attach_tail`, where the
+# §8.1.2 boundary has already separated expression params from source
+# annotations — applying them at split time would wrongly reject legal
+# expression-level `param-key`s (which, unlike exec-keys, may contain digits).
+
+# exec-key = 1*( ALPHA / "_" / "." ) — the extensible form. No digits.
+_EXEC_KEY_RE = re.compile(r"[A-Za-z_.]+", re.ASCII)
+
+# exec-value: the ABNF says 1*( ALPHA / DIGIT / "." / "-" / "_" / "," ) but that
+# class cannot express two forms this codebase ships and tests:
+#   `;iteration.slice=1:3`      needs ":"
+#   `;accept=application/json`  needs "/"
+# Both are grammar defects, not code defects — folded into `OME-503`'s amendment
+# list alongside the other under-specified productions.
+_EXEC_VALUE_RE = re.compile(r"[A-Za-z0-9.\-_,:/]+", re.ASCII)
+
+# coord-key is a CLOSED enum in the ABNF (`coord-param`), unlike the open-ended
+# `iteration.*` family. The more specific production wins over the extensible
+# `exec-key` fallback for a `coord.`-prefixed key.
+_COORD_KEYS = frozenset(
+    {"coord.rounds", "coord.max_turns", "coord.convergence", "coord.turn_timeout"}
+)
+
+
+def validate_exec_annotations(pairs: Params) -> None:
+    """Enforce the exec-chain character classes; raise ``malformed_source``."""
+    for key, value in pairs:
+        if not _EXEC_KEY_RE.fullmatch(key):
+            raise ParseError(
+                f"invalid execution-annotation key {key!r} — exec-key admits only "
+                "letters, '_' and '.' (spec §4.2)"
+            )
+        if key.startswith("coord.") and key not in _COORD_KEYS:
+            raise ParseError(
+                f"unknown coordination key {key!r} — coord-key is a closed set: "
+                f"{sorted(_COORD_KEYS)}"
+            )
+        if value is not None and not _EXEC_VALUE_RE.fullmatch(value):
+            raise ParseError(
+                f"invalid execution-annotation value {value!r} for {key!r} (spec §4.2)"
+            )
 
 
 def is_source_level_key(key: str) -> bool:

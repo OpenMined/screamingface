@@ -1,12 +1,12 @@
 ---
 id: OME-504
 linear_url: https://linear.app/openmined/issue/OME-504
-status: Todo
+status: Done
 type: Improvement
 priority: P2
 labels: [url4-engine, pkg/url4-python-sdk, autonomous, agentic]
 created: 2026-07-20
-closed:
+closed: 2026-07-20
 ---
 
 # OME-504 — Character-class validation sweep

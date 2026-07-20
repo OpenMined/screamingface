@@ -33,18 +33,22 @@ from url4.errors import ScopeError
 
 # One field-path grammar everywhere (spec §8 field-path production): dot
 # segments and non-negative, no-leading-zero index segments.
+# INVARIANT: every pattern below compiles with re.ASCII — the ABNF's ALPHA is
+# ASCII, and Python's `\w` would otherwise admit Unicode identifiers that the
+# parser (also ASCII-anchored) never produces, desynchronising the two
+# (`OME-504`).
 _PATH = r"(?:\.[a-zA-Z_]\w*|\[(?:0|[1-9]\d*)\])"
 
 # $$ (escape) | $name (letter-led binding) or $N (1-based positional slot),
 # each with an optional field path.
-_ENV_VAR_RE = re.compile(rf"\$\$|\$([a-zA-Z_]\w*|[0-9]+)({_PATH}*)")
+_ENV_VAR_RE = re.compile(rf"\$\$|\$([a-zA-Z_]\w*|[0-9]+)({_PATH}*)", re.ASCII)
 # $name only, no path — the fan-out reducer instruction's reference form.
-_NAME_ONLY_RE = re.compile(r"\$\$|\$([a-zA-Z_]\w*)")
+_NAME_ONLY_RE = re.compile(r"\$\$|\$([a-zA-Z_]\w*)", re.ASCII)
 # $item with a non-empty field path ($item.f, $item[0], $item.a[1].b …).
-_ITEM_PATH_RE = re.compile(rf"(?<!\$)\$item({_PATH}+)")
+_ITEM_PATH_RE = re.compile(rf"(?<!\$)\$item({_PATH}+)", re.ASCII)
 # Bare $item: not a longer identifier ($items) nor the head of a field path.
-_ITEM_BARE_RE = re.compile(rf"(?<!\$)\$item(?!\w)(?!{_PATH})")
-_SEGMENT_RE = re.compile(r"\.([a-zA-Z_]\w*)|\[(\d+)\]")
+_ITEM_BARE_RE = re.compile(rf"(?<!\$)\$item(?!\w)(?!{_PATH})", re.ASCII)
+_SEGMENT_RE = re.compile(r"\.([a-zA-Z_]\w*)|\[(\d+)\]", re.ASCII)
 
 
 @dataclass
