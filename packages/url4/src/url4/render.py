@@ -23,8 +23,9 @@ Canonical-form choices (each reparses to the identical AST):
 - Relative/remote expressions render in sugar form without params and in
   canonical ``?…&q=`` form with params (spec §8.1.4).
 - At top level, composite source nodes (Binding/Source/RelExpr/RemoteExpr)
-  render parenthesized: bare ``/p(c)!'i'`` would have its intent hoisted to
-  expression level by ``build()``'s top-level ``!`` split.
+  render BARE, as fragment roots. The former paren wrap was an intent-less
+  group, which the grammar does not derive (`OME-508`); and ``build()`` no
+  longer hoists a lone call's intent, so ``/p(c)!'i'`` round-trips as itself.
 """
 
 from __future__ import annotations
@@ -42,6 +43,7 @@ from url4.grammar import (
     _IDENT_RE,
     _IDENTITY_NAME_RE,
     _NUMBER_RE,
+    _PATH_RE,
     _SCHEME_RE,
     _STRUCT_KEY_RE,
     _STRUCT_TOKEN_RE,
@@ -478,8 +480,10 @@ def _render_target_expr(prefix: str, path: str, node: RelExpr | RemoteExpr) -> s
 
 
 def _check_path(path: str) -> None:
-    # Spec §8 segment charset (ALPHA / DIGIT / - _ . ~) joined by '/'.
-    if not path.startswith("/") or not all(ch.isalnum() or ch in "-_.~/" for ch in path):
+    # §8 `path = segment *( "/" segment )`. Reads the GRAMMAR's pattern rather
+    # than re-deriving the charset — the parse side enforces the same one, so
+    # anything that parses re-renders (`OME-507` closed that asymmetry).
+    if not _PATH_RE.fullmatch(path):
         raise RenderError(f"invalid expression path {path!r}")
 
 

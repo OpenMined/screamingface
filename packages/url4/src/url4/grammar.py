@@ -81,6 +81,43 @@ _INDEX_SEG_RE = re.compile(r"(0|[1-9]\d*)\]")
 _STRUCT_KEY_RE = re.compile(r"[A-Za-z0-9_]+")
 _STRUCT_TOKEN_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 
+# §8 `path = segment *( "/" segment )`, `segment = *( ALPHA / DIGIT / "-" /
+# "_" / "." / "~" )` — the NARROW charset, for expression-bearing paths
+# (relative-expr / remote-expr). `render._check_path` reads this same pattern,
+# which is what keeps parse and render from drifting (`OME-507`).
+_PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~]*)+", re.ASCII)
+
+# `relative-uri`'s `path-segment` — the WIDE charset. It admits "$", which is
+# what makes a variable-bearing data reference like `/data/$topic` legal. A
+# data path is a DIFFERENT production from an expression path; narrowing it to
+# match would break those references.
+_DATA_PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~:@!$&+=]+)+", re.ASCII)
+
+# `port = 1*DIGIT`. `host = hostname / IPv4address` is deliberately NOT
+# validated: the grammar defines neither `hostname` nor `IPv4address`, so a
+# charset here would be asserting a rule the spec does not state.
+_PORT_RE = re.compile(r"[0-9]+", re.ASCII)
+
+
+def _check_expr_path(path: str, token: str) -> None:
+    """Validate an expression-bearing path against `path` / `segment`."""
+    if not _PATH_RE.fullmatch(path):
+        raise ParseError(
+            f"invalid expression path {path!r} in {token!r} — a path segment takes "
+            "ALPHA / DIGIT / '-' / '_' / '.' / '~'",
+            code="malformed_source",
+        )
+
+
+def _check_data_path(token: str) -> None:
+    """Validate a `relative-uri` path against `path-segment` (query-tail aside)."""
+    path = token.partition("?")[0]
+    if not _DATA_PATH_RE.fullmatch(path):
+        raise ParseError(
+            f"invalid data path {path!r} in {token!r}",
+            code="malformed_source",
+        )
+
 
 def parse(text: str) -> Node:
     """Parse a url4 source expression into a typed AST node.
@@ -554,6 +591,7 @@ def _parse_group_sources(body: str) -> tuple[Node, ...]:
 def _parse_relative(token: str) -> RelUrl | RelExpr:
     pos = _find_unquoted(token, "?(")
     if pos is None:
+        _check_data_path(token)
         return RelUrl(token)
     if token[pos] == "(":
         return _parse_expr_sugar(token, pos)
@@ -566,6 +604,7 @@ def _parse_expr_sugar(token: str, paren: int) -> RelExpr:
     if body is None:
         raise ParseError(f"unclosed '(' in {token!r}", position=paren)
     after = token[paren + 1 + len(body) + 1 :]
+    _check_expr_path(token[:paren], token)
     return RelExpr(
         path=token[:paren],
         context=body.strip() or None,
@@ -581,12 +620,15 @@ def _parse_expr_canonical(token: str, qmark: int) -> RelUrl | RelExpr:
     """
     qstart = _find_expression_param(token, qmark)
     if qstart is None or token[qstart + 2 : qstart + 3] != "(":
+        # §8 parse rule 16 rewind — this is a `relative-uri`, not an expression.
+        _check_data_path(token)
         return RelUrl(token)
     body_start = qstart + 2  # past "q="
     body = balanced_body(token, body_start + 1)
     if body is None:
         raise ParseError(f"unclosed '(' in {token!r}", position=body_start)
     after = token[body_start + 1 + len(body) + 1 :]
+    _check_expr_path(token[:qmark], token)
     return RelExpr(
         path=token[:qmark],
         context=body.strip() or None,
@@ -655,6 +697,18 @@ def _parse_expr_intent(after: str, token: str) -> Node:
     raise ParseError(f"unexpected text after expression body in {token!r}")
 
 
+def _check_authority(authority: str, token: str) -> None:
+    """Validate `authority = host [ ":" port ]` — the PORT only (see `_PORT_RE`)."""
+    host, sep, port = authority.partition(":")
+    if sep and not _PORT_RE.fullmatch(port):
+        raise ParseError(
+            f"invalid port {port!r} in {token!r} — `port = 1*DIGIT`",
+            code="malformed_source",
+        )
+    if not host:
+        raise ParseError(f"remote expression has no host: {token!r}", code="malformed_source")
+
+
 def _parse_remote(token: str) -> Node:
     rest = token[len("url4://") :]
     slash = rest.find("/")
@@ -663,6 +717,7 @@ def _parse_remote(token: str) -> Node:
         raise ParseError(f"remote expression requires a path: {token!r}")
     if slash == -1:
         return Url(token)
+    _check_authority(rest[:slash], token)
     inner = _parse_relative(rest[slash:])
     if isinstance(inner, RelUrl):
         return Url(token)  # §5.2 rule 3.3 — bare remote reference
