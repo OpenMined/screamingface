@@ -1,6 +1,6 @@
 "use client";
 
-import { Boxes, FileCode, Flame, Key, Layers, Plug, Sparkles, Trophy, User } from "lucide-react";
+import { Boxes, FileCode, Flame, Hash, Key, Layers, Plug, Sparkles, Trophy, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsTauri } from "@/hooks/use-is-tauri";
+import { useEnsembleStore } from "@/lib/ensemble-store";
 
 const navigation = [
   { label: "Ensembles", href: "/ensembles/", Icon: Boxes },
@@ -38,6 +39,10 @@ function MonsterFusionCard() {
 export function AppSidebar() {
   const pathname = usePathname();
   const isTauri = useIsTauri();
+  const ensembles = useEnsembleStore((state) => state.ensembles);
+  const activeEnsembleId = useEnsembleStore(
+    (state) => state.activeEnsembleId,
+  );
 
   return (
     <Sidebar aria-label="Primary navigation">
@@ -74,6 +79,46 @@ export function AppSidebar() {
             ))}
           </SidebarMenu>
         </nav>
+
+        {ensembles.length > 0 && (
+          <nav
+            aria-label="My ensembles"
+            className="mt-5 group-data-[state=collapsed]/sidebar:hidden"
+          >
+            <p className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              My Ensembles
+            </p>
+            <SidebarMenu>
+              {ensembles.map((ensemble) => (
+                <SidebarMenuItem key={ensemble.id}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={
+                      pathname === "/ensembles/new/" &&
+                      activeEnsembleId === ensemble.id
+                    }
+                    className="hover:bg-sidebar-accent/40 data-[active=true]:bg-sidebar-accent/60"
+                  >
+                    <Link
+                      href={`/ensembles/new/?id=${encodeURIComponent(ensemble.id)}`}
+                      prefetch={false}
+                    >
+                      <Hash className="size-3" />
+                      <span className="truncate font-mono text-xs">
+                        {ensemble.name}
+                      </span>
+                      {ensemble.runs > 0 && (
+                        <span className="ml-auto font-mono text-xs text-muted-foreground">
+                          {ensemble.runs}
+                        </span>
+                      )}
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </nav>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="gap-3 border-t border-sidebar-border p-3 group-data-[state=collapsed]/sidebar:p-2">
