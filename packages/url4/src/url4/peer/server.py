@@ -11,9 +11,9 @@ Dispatch contract (mirrors the engine's wire conventions):
 
 - **Endpoint paths are intent processors.** ``GET /claude?[params&]q=(ctx)!i``
   calls the registered handler with :class:`Request` — ``context`` is *opaque,
-  already-resolved data* (engine-internal dispatches wire-escape resolved
-  text; re-evaluating it would mis-parse). Handlers never receive unresolved
-  expressions.
+  already-resolved data*. AIDEV-NOTE: engine-internal dispatches wire-escape
+  resolved text, so re-evaluating it would mis-parse — handlers never receive
+  unresolved expressions.
 - **The eval path is the protocol surface** (default ``/v1``). Its ``q=`` is a
   full url4 expression: the node reconstructs it, re-attaches non-transport
   protocol params as the ``;``-chain (so ``broadcast``/``quorum`` keep their
@@ -21,8 +21,8 @@ Dispatch contract (mirrors the engine's wire conventions):
   HERE (§5.6.3 pass-through), the intent dispatches to the node's default
   route (explicit ``default_processor``, else its first registered endpoint).
 - **Data routes** serve plain reads (`/api/rows`) for sources and collections.
-- **GET is the only verb** (url4-engine doctrine N1: the expression is the
-  address, so the transactional call is an idempotent GET).
+- **GET is the only verb.** WHY: url4-engine doctrine N1 — the expression is the
+  address, so the transactional call is an idempotent, cacheable GET.
 
 Deferred by design: response envelopes, streaming delivery, requestor
 authentication and consent hooks (they need the URL4-Auth-Token / Part C
@@ -59,8 +59,9 @@ from url4.peer.client import Url4Result
 # delegation semantics (§27.3) are not implemented yet.
 # The ingress set is broader than the spec's transport-only rule: it also drops
 # params this node consumes itself (delivery/cb/meta/v) and `processor`, whose
-# §27.3 delegation semantics are not implemented yet (see `OME-506`). It is
-# DERIVED from the shared rule so the two can never disagree about resume/rid.
+# §27.3 delegation semantics are not implemented yet (see `OME-506`).
+# INVARIANT: _TRANSPORT_PARAMS is DERIVED from TRANSPORT_ONLY_PARAMS, so the two
+# can never disagree about resume/rid.
 _TRANSPORT_PARAMS = TRANSPORT_ONLY_PARAMS | frozenset({"delivery", "cb", "meta", "v", "processor"})
 
 # HTTP status by spec error code; unlisted codes fall back by exception shape.
@@ -308,9 +309,9 @@ class Url4Node:
             expression_result = await self._dispatch_expression(path, q, params)
             if expression_result is not None:
                 return expression_result
-        # Exact-target first, then the bare path — membership, not `.get(...,
-        # .get(...))`, so a hit avoids the second lookup and a legitimately
-        # falsy provider (e.g. "") is still served rather than skipped.
+        # INVARIANT: exact-target first, then the bare path — membership, not
+        # `.get(..., .get(...))`, so a hit avoids the second lookup and a
+        # legitimately falsy provider (e.g. "") is still served rather than skipped.
         if target in self._data:
             provider: DataProvider | None = self._data[target]
         elif path in self._data:
@@ -345,8 +346,8 @@ class Url4Node:
         # path; `_check_routable` keeps the two from overlapping.
         if path == self._eval_path or path.startswith(f"{self._eval_path}/"):
             collection = path[len(self._eval_path) + 1 :]
-            # `processor` is consumed here, not re-attached by `_reassemble` — it
-            # selects this run's processor rather than becoming an expression param.
+            # AIDEV-NOTE: `processor` is consumed here, not re-attached by
+            # `_reassemble` — it selects this run's processor, not an expression param.
             return await self._run_text(
                 _reassemble(q, params),
                 self_collection=collection or None,

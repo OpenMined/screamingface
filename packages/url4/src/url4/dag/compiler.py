@@ -404,12 +404,12 @@ def _build_slots(slots: list[_Slot]) -> list[DagNode]:
     built: list[DagNode | None] = [None] * len(slots)
     by_name: dict[str, DagNode] = {}
     by_pos: dict[int, DagNode] = {}
-    for i, slot in enumerate(slots):  # named slots see only EARLIER named slots
+    for i, slot in enumerate(slots):  # INVARIANT: named slots see only EARLIER named slots
         if slot.name is None:
             continue
         node = slot.make(_ref_edges(slot.refs, by_name, by_pos))
         built[i], by_name[slot.name], by_pos[i + 1] = node, node, node
-    for i, slot in enumerate(slots):  # unnamed sources see ALL named slots
+    for i, slot in enumerate(slots):  # INVARIANT: unnamed sources see ALL named slots
         if slot.name is None:
             built[i] = slot.make(_ref_edges(slot.refs, by_name, by_pos))
     return [node for node in built if node is not None]
@@ -459,7 +459,7 @@ def _reduce_graph(
     from_list: bool,
     quorum: int | None,
 ) -> DagNode:
-    # Fan-out + reduce is a LIST operation — it needs a parenthesised group of
+    # WHY: fan-out + reduce is a LIST operation — it needs a parenthesised group of
     # relative-expression sources, mirroring the reference engine's fan-out gate
     # (``_is_fanout and raw_intent``: the source must be a list AND carry a
     # top-level intent). A *bare* single relative expression with a top-level
@@ -561,7 +561,7 @@ def _base_graph(
 
 
 def _reject_bare_group(segment: str) -> None:
-    """Reject an intent-less ``(…)`` in source position EAGERLY (`OME-508`).
+    """WHY: reject an intent-less ``(…)`` in source position EAGERLY (`OME-508`).
 
     Lazy deferral would postpone the error to spawn time — and the spawn
     boundary compiles permissively (the engine's own wrappers legally arrive
@@ -641,7 +641,7 @@ def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
         return TextNode("")
     inner = strip_one_paren_layer(collection)
     if inner is not None:
-        # A bare parenthesized group ``(e1, …)`` is an inline collection (§5.3.11):
+        # WHY: a bare parenthesized group ``(e1, …)`` is an inline collection (§5.3.11):
         # its authored elements form a real ordered list rather than a joined
         # blob re-sniffed as a §5.3.7 body. This is the twin of _lower_collection
         # on the AST path (a bare group parses to an intent-less Expression).
@@ -701,7 +701,7 @@ def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool =
     cannot diverge; they differ only in what each terminal produces (a lazy DAG
     here, an eager AST in ``build``).
 
-    F2 / complexity-audit note: "cannot diverge" is a claim about *results*
+    AIDEV-NOTE: F2 / complexity-audit — "cannot diverge" is a claim about *results*
     (what a run resolves to), not about *graph shape*. A nested group such as
     ``(a, (b, c)!x)!go`` becomes a :class:`~url4.dag.nodes.LazyExprNode` thunk
     here (compiled only when the executor reaches it) but is fully expanded
