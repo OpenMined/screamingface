@@ -1,12 +1,12 @@
 ---
 id: OME-510
 linear_url: https://linear.app/openmined/issue/OME-510/url4-fix-stale-docstring-cross-refs-adopt-semantic-anchor-pattern
-status: In Progress
+status: Done
 type: Improvement
 priority: P2
 labels: [url4-python-sdk, url4-engine, autonomous, agentic]
 created: 2026-07-20
-closed:
+closed: 2026-07-20
 ---
 
 # url4: fix stale docstring cross-refs + adopt semantic-anchor pattern across src

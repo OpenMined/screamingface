@@ -1,9 +1,9 @@
 ---
 ticket: OME-510
 stack: url4
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-07-20
-finished:
+finished: 2026-07-20
 ---
 
 # OME-510 — url4: fix stale docstring cross-refs + adopt semantic-anchor pattern across src
@@ -61,7 +61,7 @@ Documentation-only — no behavior change.
   (`WHY:` 13→30, `INVARIANT:` 36→40, `AIDEV-NOTE:` 3→4) where un-anchored
   rationale/invariants were hiding. `core-part-2` (ensemble/builders/render/
   context/errors/subrequest) needed none — already well-anchored.
-- **Commits:** <sha — filled at commit>
+- **Commits:** f1767b9 — docs(url4): repath stale cross-refs + adopt semantic-anchor pattern in src
 - **Gates:** run_gates.py url4 → ALL GATES GREEN (append-only check · ruff check ·
   ruff format --check · pyright 0 errors · pytest --cov=url4 --cov-fail-under=95).
   1046 tests pass — unchanged from the post-merge baseline (behavior preserved).
