@@ -159,7 +159,7 @@ ScreamingFace SDK
      -> startup-registered, in-process SF model/RDS handlers
         -> AI Gateway     POST /v1/chat/completions
            -> provider
-        -> internal SearXNG + bounded public-page reads (`web_search` only)
+        -> Tavily search/extract on explicitly verified HF routes
 ```
 
 Only screamingface-engine contacts AI Gateway. Generic `packages/url4` remains unaware of
@@ -214,8 +214,8 @@ It is not part of generic URL4 core. The MVP shape is:
       "supported_tools": []
     },
     {
-      "id": "claude/sonnet-4.6",
-      "supported_tools": ["web_search"]
+      "id": "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",
+      "supported_tools": ["web_search", "web_fetch"]
     }
   ],
   "reducers": [
@@ -227,13 +227,14 @@ It is not part of generic URL4 core. The MVP shape is:
 }
 ```
 
-This registry contains remotely executable capabilities only. The example is the development
-Compose profile with SearXNG configured. Without `SCREAMINGFACE_SEARXNG_URL`, every model reports
-an empty `supported_tools` array. Compatible records gain `"web_search"` only while that engine
-adapter is configured; Codex and the Gemini 3.1 rubric judge remain tool-free. The development
-profile deliberately does not advertise the canonical Gemini 3.1 rubric judge until AI Gateway
-officially registers it. Benchmarks never appear here because their definitions, sources, graders,
-and aggregators remain local to the SDK.
+This registry contains remotely executable capabilities only. Explicit policy attaches
+`web_search` and `web_fetch` only to the exact DeepSeek V4 Pro/DeepInfra and GLM 5.2/DeepInfra
+Hugging Face pins when AI Gateway discovers them. Capability claims are independent of the current
+researcher's Tavily connection; execution preflight reads fresh connection state. Every other
+model, including reducers and rubric judges, remains tool-free. The development profile does not
+advertise the canonical Gemini 3.1 rubric judge until AI Gateway officially registers it.
+Benchmarks never appear here because their definitions, sources, graders, and aggregators remain
+local to the SDK.
 
 `limits.max_request_target_bytes` is required and is a positive integer. It measures the complete
 encoded HTTP request target for `GET /v1?q=...`, including the path, separator, query-key syntax,
@@ -343,15 +344,15 @@ The mapping is deliberately typed and allowlisted:
 - `temperature` parses as a finite float;
 - `max_tokens` parses as a positive integer;
 - `reasoning` maps to AI Gateway's `reasoning_effort` field;
-- `tools=web_search` names an engine-owned capability adapter rather than being forwarded as an
+- `tools=web_search+web_fetch` names engine-owned capabilities rather than being forwarded as an
   arbitrary provider payload; and
 - unknown parameters, malformed values, and unsupported tools fail before Gateway traffic.
 
 The registry may advertise `web_search` for a model only when that route has a working named-tool
 adapter. Otherwise SDK preflight must reject a benchmark that requires it.
 
-The development Compose profile configures SearXNG and advertises `web_search` on the compatible
-Claude worker route. Gemini 3 remains tool-free until AI Gateway preserves its mandatory
+The development Compose profile advertises both tools only on the two verified DeepInfra-pinned HF
+worker routes. Gemini 3 remains tool-free until AI Gateway preserves its mandatory
 `thoughtSignature` across function-calling turns. The profile publishes only AI Gateway-registered
 Gemini model routes; canonical `draco@1` therefore fails model preflight until its pinned
 `gemini/3.1-pro-preview` judge is officially available.
@@ -366,15 +367,13 @@ The process owns one reusable asynchronous AI Gateway client. Route handlers do 
 new client, launch a subprocess, or start another server. The application closes the Gateway
 client and node resources during ASGI shutdown.
 
-For `tools=web_search`, the engine sends standard `web_search` and `web_fetch` function schemas to
-AI Gateway and preserves standard assistant tool calls and tool-result messages between turns.
-Search discovery uses an internal, pinned SearXNG service; page reads accept only bounded public
-HTTP(S) HTML/plaintext after validating every redirect and rejecting credentials, private or
-non-global addresses, unsupported media, oversized responses, and benchmark-contaminating source
-prefixes. The loop has a configured total call limit. Malformed/unsafe calls fail permanently;
-transient failure to read one page becomes structured tool output so the model may continue with
-other evidence. SearXNG requires no API key but is not an offline index and may contact its public
-upstream search engines.
+For `tools=web_search+web_fetch`, the engine sends standard function schemas to AI Gateway and
+preserves assistant tool calls and tool-result messages between turns. It independently validates
+the complete scalar Tavily policy before spend, executes emitted calls directly through Tavily in
+order, and bounds calls, rounds, raw bodies, and normalized results. Invalid model-emitted
+arguments become safe tool output so the model can correct them; malformed request policy and
+missing Tavily fail before Gateway traffic. The SDK never contacts Tavily and credentials never
+enter URL4 or model messages.
 
 ### 5.2 Application-owned ASGI lifecycle
 
@@ -933,13 +932,13 @@ sf.graders.Rubric(
 )
 ```
 
-Preview uses two independently prompted Claude research members with the SearXNG-backed
-`web_search` capability, a Codex model reducer, and the AI Gateway-supported direct Gemini route
-only for judging. Gemini research is intentionally disabled because AI Gateway does not yet
-preserve Gemini 3's required function-call thought signature. Preview output validates the
-criterion/pass evidence shape and aggregation implementation, but its judge model, research
-transport, rubric coverage, and pass count differ. It is never a DRACO score and must not be
-compared with `draco@1`, the paper, or the earlier OpenRouter reproduction.
+Preview uses the verified DeepSeek V4 Pro and GLM 5.2 DeepInfra research routes with typed Tavily
+search/extract policy, a Codex model reducer, and the AI Gateway-supported direct Gemini route only
+for judging. Gemini research is intentionally disabled because AI Gateway does not yet preserve
+Gemini 3's required function-call thought signature. Preview output validates the criterion/pass
+evidence shape and aggregation implementation, but its judge model, research transport, rubric
+coverage, and pass count differ. It is never a DRACO score and must not be compared with
+`draco@1`, the paper, or the earlier OpenRouter reproduction.
 
 For `draco@1`, one criterion and one pass produce one model expression:
 
@@ -1325,8 +1324,8 @@ aggregation, immutable reports, and the exact `Fusion.evaluate()` facade. Phase 
 canonical pinned SDK-local GPQA definition
 on 2026-07-19. Phase 4B added the canonical SDK-local DRACO definition and catalog exposure on
 2026-07-19. Phase 4C added member-only benchmark-tool compilation and reserved capability
-validation on 2026-07-19. Phase 4D added the engine-owned bounded SearXNG web-research capability
-on compatible worker routes. Phase 4E0 added safe bound judge context plus the preflighted
+validation on 2026-07-19. Phase 4D added the original bounded research capability and was
+superseded by Phase 9B.4's typed Tavily execution on verified HF routes. Phase 4E0 added safe bound judge context plus the preflighted
 transactional-GET size contract. Phase 4E1 originally added a provisional
 `gemini/3.1-pro-preview` route under an external registration assumption; that route was removed
 on 2026-07-20 because the installed AI Gateway does not register it. The canonical benchmark keeps
@@ -1354,10 +1353,10 @@ codex/gpt-5.5 + codex                codex/gpt-5.5                            co
 gemini-cli/gemini-2.5-flash          gemini-cli/gemini-2.5-flash             gemini/2.5-flash
 ```
 
-Every selected Gateway record becomes a tool-free model route by default. Explicit
-ScreamingFace capability policy may add a named tool only when the deployment adapter is enabled;
-the current SearXNG profile adds `web_search` only to `claude/sonnet-4.6`. The resolved immutable
-route tuple is the single input to both `Url4Node.endpoint(...)` registration and
+Every selected Gateway record becomes a tool-free model route by default. Explicit ScreamingFace
+capability policy adds `web_search` and `web_fetch` only to the exact verified DeepSeek V4 Pro and
+GLM 5.2 DeepInfra pins. The resolved immutable route tuple is the single input to both
+`Url4Node.endpoint(...)` registration and
 `/.well-known/screamingface` rendering.
 
 Malformed records, duplicate public IDs, Gateway transport/status failures, or a catalog with no

@@ -1,4 +1,4 @@
-"""Bounded engine-owned model/tool execution for named URL4 capabilities."""
+"""Bounded engine-owned model and Tavily agent execution."""
 
 from __future__ import annotations
 
@@ -10,39 +10,59 @@ from url4 import Request, ResolutionError
 
 from screamingface_engine.catalog import ModelRoute
 from screamingface_engine.gateway import AssistantTurn, ToolCall
-from screamingface_engine.web_research import SearchResult
+from screamingface_engine.tool_policy import (
+    WEB_FETCH,
+    WEB_SEARCH,
+    ExtractPolicy,
+    SearchPolicy,
+    ToolPolicy,
+    parse_tool_policy,
+)
 
-_TOOLS_PARAM = "tools"
-_WEB_SEARCH = "web_search"
+MAX_TOOL_CALLS_PER_TURN = 8
+MAX_TOTAL_TOOL_CALLS = 32
 
-_WEB_TOOL_SPECS: tuple[dict[str, object], ...] = (
-    {
+_TOOL_SPECS: Mapping[str, dict[str, object]] = {
+    WEB_SEARCH: {
         "type": "function",
         "function": {
-            "name": "web_search",
+            "name": WEB_SEARCH,
             "description": (
-                "Search the public web for current evidence. Returns titles, URLs, and snippets."
+                "Search the web for current evidence, titles, URLs, and relevant content."
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"query": {"type": "string"}},
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The natural-language search query.",
+                    }
+                },
                 "required": ["query"],
+                "additionalProperties": False,
             },
         },
     },
-    {
+    WEB_FETCH: {
         "type": "function",
         "function": {
-            "name": "web_fetch",
-            "description": "Read the public text of a URL returned by web_search.",
+            "name": WEB_FETCH,
+            "description": "Extract clean content from a specific web URL.",
             "parameters": {
                 "type": "object",
-                "properties": {"url": {"type": "string"}},
+                "properties": {
+                    "url": {"type": "string", "description": "The URL to extract."},
+                    "query": {
+                        "type": "string",
+                        "description": "Optional query used to select relevant chunks.",
+                    },
+                },
                 "required": ["url"],
+                "additionalProperties": False,
             },
         },
     },
-)
+}
 
 
 class GatewayPort(Protocol):
@@ -56,25 +76,26 @@ class GatewayPort(Protocol):
     ) -> AssistantTurn: ...
 
 
-class ResearchPort(Protocol):
-    async def search(self, query: str) -> tuple[SearchResult, ...]: ...
+class TavilyPort(Protocol):
+    async def is_connected(self) -> bool: ...
 
-    async def fetch(self, url: str) -> str: ...
+    async def search(self, query: str, policy: SearchPolicy) -> dict[str, object]: ...
+
+    async def extract(
+        self,
+        url: str,
+        policy: ExtractPolicy,
+        *,
+        query: str | None,
+    ) -> dict[str, object]: ...
 
 
 class ModelExecutor:
-    """Interpret named capabilities while keeping the Gateway transport generic."""
+    """Interpret benchmark tool policy while keeping Gateway transport generic."""
 
-    def __init__(
-        self,
-        gateway: GatewayPort,
-        research: ResearchPort | None,
-        *,
-        max_tool_calls: int,
-    ) -> None:
+    def __init__(self, gateway: GatewayPort, tavily: TavilyPort) -> None:
         self._gateway = gateway
-        self._research = research
-        self._max_tool_calls = max_tool_calls
+        self._tavily = tavily
 
     def handler(self, model: ModelRoute):
         async def execute(request: Request) -> str:
@@ -83,80 +104,145 @@ class ModelExecutor:
         return execute
 
     async def complete(self, model: ModelRoute, request: Request) -> str:
-        requested = _requested_tools(request.params)
-        params = {key: value for key, value in request.params.items() if key != _TOOLS_PARAM}
-        if not requested:
+        parsed = parse_tool_policy(request.params)
+        policy = parsed.policy
+        if policy is None:
             turn = await self._gateway.turn(
                 model,
                 messages=_initial_messages(request),
-                params=params,
+                params=parsed.model_params,
                 tools=(),
             )
             return _final_text(turn, model)
 
-        unsupported = set(requested) - {_WEB_SEARCH}
+        unsupported = policy.tools - set(model.tool_capabilities)
         if unsupported:
-            _invalid(f"unsupported tool capability: {sorted(unsupported)}")
-        if not set(requested).issubset(model.tool_capabilities):
-            _invalid(f"model route {model.id!r} does not support {requested!r}")
-        if self._research is None:
-            _invalid("web_search is not configured on this engine")
+            _resolution(
+                f"model route {model.id!r} does not support {sorted(unsupported)}",
+                "unsupported_tool",
+                permanent=True,
+            )
+        if not await self._tavily.is_connected():
+            _resolution(
+                "Connect Tavily before using benchmark tools.",
+                "authentication_required",
+                permanent=True,
+            )
+        return await self._run_agent(model, request, parsed.model_params, policy)
 
+    async def _run_agent(
+        self,
+        model: ModelRoute,
+        request: Request,
+        params: Mapping[str, str],
+        policy: ToolPolicy,
+    ) -> str:
         messages = _initial_messages(request)
-        call_count = 0
-        while True:
+        specifications = tuple(
+            _TOOL_SPECS[name] for name in (WEB_SEARCH, WEB_FETCH) if name in policy.tools
+        )
+        total_calls = 0
+        for round_index in range(policy.max_rounds):
             turn = await self._gateway.turn(
                 model,
                 messages=messages,
                 params=params,
-                tools=_WEB_TOOL_SPECS,
+                tools=specifications,
             )
             if not turn.tool_calls:
                 return _final_text(turn, model)
-            if call_count + len(turn.tool_calls) > self._max_tool_calls:
-                raise ResolutionError(f"model route {model.id!r} exceeded the web tool-call limit")
+            if round_index + 1 == policy.max_rounds:
+                _budget(model, "tool-round")
+            if len(turn.tool_calls) > MAX_TOOL_CALLS_PER_TURN:
+                _budget(model, "per-turn tool-call")
+            if total_calls + len(turn.tool_calls) > MAX_TOTAL_TOOL_CALLS:
+                _budget(model, "total tool-call")
             messages.append(turn.to_message())
             for tool_call in turn.tool_calls:
-                messages.append(await self._tool_message(tool_call))
-                call_count += 1
+                # INVARIANT: One model turn's calls execute in emitted order for reference parity.
+                messages.append(await self._tool_message(tool_call, policy))
+                total_calls += 1
+        raise AssertionError("bounded agent loop exhausted without returning or raising")
 
-    async def _tool_message(self, tool_call: ToolCall) -> dict[str, object]:
-        arguments = _arguments(tool_call)
-        assert self._research is not None
-        if tool_call.name == "web_search":
-            query = _nonblank(arguments.get("query"), "web_search requires a non-empty query")
-            _exact_keys(arguments, {"query"}, "web_search arguments")
-            results = await self._research.search(query)
-            content: dict[str, object] = {"results": [result.to_dict() for result in results]}
-        elif tool_call.name == "web_fetch":
-            url = _nonblank(arguments.get("url"), "web_fetch requires a non-empty URL")
-            _exact_keys(arguments, {"url"}, "web_fetch arguments")
-            try:
-                fetched = await self._research.fetch(url)
-            except ResolutionError as exc:
-                if exc.permanent:
-                    raise
-                content = {"url": url, "error": str(exc)}
-            else:
-                content = {"url": url, "content": fetched}
-        else:
-            _invalid(f"model requested undeclared tool {tool_call.name!r}")
+    async def _tool_message(self, tool_call: ToolCall, policy: ToolPolicy) -> dict[str, object]:
+        try:
+            content = await self._tool_result(tool_call, policy)
+        except _ToolArgumentsError as exc:
+            content = {
+                "error": {
+                    "code": "invalid_tool_arguments",
+                    "message": str(exc),
+                }
+            }
         return {
             "role": "tool",
             "tool_call_id": tool_call.id,
             "name": tool_call.name,
-            "content": json.dumps(content, separators=(",", ":")),
+            "content": json.dumps(content, separators=(",", ":"), ensure_ascii=False),
         }
 
+    async def _tool_result(self, tool_call: ToolCall, policy: ToolPolicy) -> dict[str, object]:
+        arguments = _arguments(tool_call)
+        if tool_call.name == WEB_SEARCH and policy.search is not None:
+            _exact_keys(arguments, {"query"}, WEB_SEARCH)
+            query = _nonblank(arguments.get("query"), "web_search requires a non-empty query")
+            return await self._tavily.search(query, policy.search)
+        if tool_call.name == WEB_FETCH and policy.extract is not None:
+            _allowed_keys(arguments, {"url", "query"}, WEB_FETCH)
+            url = _nonblank(arguments.get("url"), "web_fetch requires a non-empty URL")
+            query = _optional_nonblank(arguments.get("query"), "web_fetch query")
+            if policy.extract.chunks_per_source is not None and query is None:
+                raise _ToolArgumentsError(
+                    "web_fetch requires query when chunks_per_source is configured."
+                )
+            return await self._tavily.extract(url, policy.extract, query=query)
+        raise _ToolArgumentsError(f"Tool {tool_call.name!r} was not declared.")
 
-def _requested_tools(params: Mapping[str, str]) -> tuple[str, ...]:
-    raw = params.get(_TOOLS_PARAM)
-    if raw is None:
-        return ()
-    tools = tuple(raw.split())
-    if not tools or len(set(tools)) != len(tools):
-        _invalid("tools must contain unique non-empty capability IDs")
-    return tools
+
+class _ToolArgumentsError(ValueError):
+    """A model-emitted tool call can be corrected in a subsequent model turn."""
+
+
+def _arguments(tool_call: ToolCall) -> Mapping[str, Any]:
+    try:
+        value: Any = json.loads(tool_call.arguments, object_pairs_hook=_unique_object)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise _ToolArgumentsError("Invalid JSON object.") from exc
+    if not isinstance(value, Mapping):
+        raise _ToolArgumentsError("Invalid JSON object.")
+    return value
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate field {key!r}")
+        value[key] = item
+    return value
+
+
+def _exact_keys(value: Mapping[str, Any], expected: set[str], name: str) -> None:
+    if set(value) != expected:
+        raise _ToolArgumentsError(f"{name} arguments must contain exactly {sorted(expected)}.")
+
+
+def _allowed_keys(value: Mapping[str, Any], allowed: set[str], name: str) -> None:
+    unknown = set(value) - allowed
+    if unknown:
+        raise _ToolArgumentsError(f"{name} has unknown argument(s): {sorted(unknown)}.")
+
+
+def _nonblank(value: object, message: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise _ToolArgumentsError(f"{message}.")
+    return value.strip()
+
+
+def _optional_nonblank(value: object, label: str) -> str | None:
+    if value is None:
+        return None
+    return _nonblank(value, f"{label} must be non-empty")
 
 
 def _initial_messages(request: Request) -> list[dict[str, object]]:
@@ -171,33 +257,23 @@ def _final_text(turn: AssistantTurn, model: ModelRoute) -> str:
     if turn.tool_calls:
         raise ResolutionError(f"model route {model.id!r} returned undeclared tool calls")
     if turn.content is None or not turn.content.strip():
-        raise ResolutionError(f"model route {model.id!r} returned no final text")
+        raise ResolutionError(
+            f"model route {model.id!r} returned no final text",
+            code="invalid_provider_response",
+        )
     return turn.content
 
 
-def _arguments(tool_call: ToolCall) -> Mapping[str, Any]:
-    try:
-        value: Any = json.loads(tool_call.arguments)
-    except json.JSONDecodeError:
-        _invalid(f"tool {tool_call.name!r} arguments must be a valid JSON object")
-    if not isinstance(value, Mapping):
-        _invalid(f"tool {tool_call.name!r} arguments must be a valid JSON object")
-    return value
+def _budget(model: ModelRoute, limit: str) -> NoReturn:
+    _resolution(
+        f"model route {model.id!r} exceeded the {limit} limit",
+        "tool_budget_exhausted",
+        permanent=True,
+    )
 
 
-def _exact_keys(value: Mapping[str, Any], expected: set[str], label: str) -> None:
-    if set(value) != expected:
-        _invalid(f"{label} must contain exactly {sorted(expected)}")
+def _resolution(message: str, code: str, *, permanent: bool = False) -> NoReturn:
+    raise ResolutionError(message, code=code, permanent=permanent)
 
 
-def _nonblank(value: object, message: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        _invalid(message)
-    return value.strip()
-
-
-def _invalid(message: str) -> NoReturn:
-    raise ResolutionError(message, code="malformed_source", permanent=True)
-
-
-__all__ = ["ModelExecutor"]
+__all__ = ["MAX_TOOL_CALLS_PER_TURN", "MAX_TOTAL_TOOL_CALLS", "ModelExecutor"]

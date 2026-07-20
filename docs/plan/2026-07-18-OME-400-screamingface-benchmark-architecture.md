@@ -31,9 +31,9 @@ Researcher Python
   screamingface-engine (one persistent Python/ASGI process)
     Url4Node evaluator, executable registry, in-process reducer/model handlers
       |                              |
-      | model turns                  | search / bounded public-page reads
+      | model turns                  | typed search / extract calls
       v                              v
-  AI Gateway                     internal SearXNG
+  AI Gateway                     Tavily API
 ```
 
 Rules:
@@ -378,15 +378,13 @@ encode tool IDs, loop policy, and every stable Tavily request field as scalar pa
 calls. Repeated domains use stable numbered keys. The benchmark-independent `fusion.url4` template
 and `run.fusion_url4` remain unchanged, and credentials never enter URL4.
 
-**Phase 4D is implemented:** the development engine owns a bounded standard model-tool loop,
-translates the single public `web_search` capability into internal `web_search` and `web_fetch`
-functions, uses a pinned keyless SearXNG container for discovery, safely reads bounded public
-HTML/plaintext pages, and returns only the final assistant plaintext. Every model turn still goes
-through the unchanged AI Gateway chat-completions endpoint. Unsafe targets and malformed calls
-fail closed; a transient failure reading one page is returned as tool output so the model can use
-other evidence. Claude advertises the capability only when SearXNG is configured; Gemini and
-Codex remain tool-free. Gemini 3 research stays disabled until AI Gateway preserves the required
-thought signature across normalized function-calling turns.
+**Phase 9B.4 supersedes the Phase 4D research adapter:** the development engine owns strict typed
+Tavily policy parsing and a bounded standard model-tool loop. Only the exact DeepSeek V4 Pro and
+GLM 5.2 DeepInfra-pinned Hugging Face routes advertise `web_search` and `web_fetch`. Every model
+turn goes through AI Gateway; the engine executes emitted calls directly through Tavily, retains
+bounded normalized results, and returns only final assistant plaintext. Missing Tavily fails
+before model spend, malformed policy fails closed, and exhausted limits are explicit failures.
+Gemini, Claude, Codex, reducers, and judges remain tool-free.
 
 The engine registry remains minimal and advertises only executable models and reducers. DRACO is
 present in the SDK catalog now that its local definition is complete. Phase 4D made compatible
@@ -446,10 +444,10 @@ mock-mode or in-process fallback.
 `examples/05_draco.ipynb` is a four-step `connect -> compose -> evaluate -> compare` walkthrough
 for `draco-preview@1`. Preview uses the same pinned 100-case source, the official per-criterion
 prompt, one real positive criterion per case, one Gemini 2.5 Flash judge pass, and the same local
-aggregation machinery. Its two-member Claude self-fusion uses distinct evidence and challenge
-prompts, the engine's SearXNG-backed research capability, and a Codex model reducer. Gemini remains
-judge-only because the current AI Gateway boundary drops Gemini 3's mandatory function-call
-thought signature.
+aggregation machinery. Its two-member Fusion uses the verified DeepSeek V4 Pro and GLM 5.2
+DeepInfra routes with distinct evidence and challenge prompts, engine-owned Tavily search/extract,
+and a Codex model reducer. Gemini remains judge-only because the current AI Gateway boundary drops
+Gemini 3's mandatory function-call thought signature.
 
 The notebook runs one Preview case directly after provider connection and makes three answer calls
 plus three judge calls. Its opening caveat explains why Preview is not a DRACO score or a
@@ -590,7 +588,8 @@ Phase 9 is split into separately testable units:
   connection, validated directly through Tavily without Gateway traffic.
 - **9B.3 (implemented):** replace the unreleased string-tool representation with typed Tavily
   benchmark policy, a required round bound, and scalar URL4 compilation.
-- **9B.4:** implement the bounded HF model/tool loop and remove SearXNG/direct page fetching.
+- **9B.4 (implemented):** parse strict typed policy, execute bounded Tavily search/extract inside
+  verified HF agent loops, require Tavily in SDK preflight, and remove SearXNG/direct fetching.
 - **9B.5:** pin the canonical DRACO configuration and prove one-case, two-member, and complete-run
   readiness against real services.
 

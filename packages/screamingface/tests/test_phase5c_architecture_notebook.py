@@ -95,7 +95,7 @@ def test_architecture_notebook_explains_the_approved_ownership_boundary() -> Non
     assert "ScreamingFace SDK" in markdown
     assert "screamingface-engine" in markdown
     assert "AI Gateway" in markdown
-    assert "SearXNG" in markdown
+    assert "Tavily" in markdown
     assert "Benchmark source and references" in markdown
     assert "Exact grading and aggregation" in markdown
     assert "GET /v1?q=<encoded URL4 expression>" in markdown

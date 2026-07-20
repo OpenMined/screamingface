@@ -43,11 +43,11 @@ sf.disconnect("tavily")
 
 For the current researcher-owned local engine, the key is validated directly through Tavily and
 kept only in engine process memory. It never passes through AI Gateway. Restarting the engine
-disconnects Tavily by design. The SDK now has typed Tavily benchmark policy and deterministic
-URL4 compilation, but this phase does not yet execute that policy: Hugging Face routes remain
-tool-free until Phase 9B.4 adds the bounded engine tool loop. A shared hosted engine needs
-identity, authorization, HTTPS, and encrypted per-user storage before it can accept this
-credential safely.
+disconnects Tavily by design. Typed benchmark policy compiles into each answer-producing URL4
+member request. The engine executes it through bounded Tavily search/extract calls and a
+multi-turn AI Gateway loop only on the explicitly verified DeepSeek V4 Pro/DeepInfra and GLM
+5.2/DeepInfra routes. A shared hosted engine needs identity, authorization, HTTPS, and encrypted
+per-user storage before it can accept this credential safely.
 
 `Fusion.run(...)`, `Run.grade(...)`, and `Fusion.evaluate(...)` accept `progress=True | False |
 None`. The default `None` shows one live progress surface in Jupyter and remains silent in ordinary
@@ -61,12 +61,10 @@ through `GET /v1?q=...`, with no subprocess route adapter. Its
 `/reducers/majority-vote` endpoint executes the same SDK-owned exact-string selection logic,
 without contacting AI Gateway.
 
-When the engine is configured with its internal SearXNG service, the Claude route advertises
-`web_search`. The engine translates that named capability into a bounded standard
-model-tool loop: search and public-page reads happen inside the engine, while every model turn
-still goes through AI Gateway. Codex remains tool-free. SearXNG is keyless and private to the
-Compose network; it is not an offline search index and still queries its configured public search
-engines.
+The engine advertises `web_search` and `web_fetch` only on the two verified pinned Hugging Face
+routes. It translates those named capabilities into a bounded standard model-tool loop: every
+model turn goes through AI Gateway, while search and extraction go directly from the engine to
+Tavily. Other discovered Hugging Face routes and all reducers and judges remain tool-free.
 
 Benchmark definitions, source loading, references, grading, and aggregation are SDK concerns.
 The engine does not publish benchmark manifests or cases and never needs the researcher's
@@ -116,11 +114,12 @@ benchmark from ordinary `sf.Case` values. It explains sealed references, researc
 grader and aggregator selection, benchmark tools, and an optional default-off live evaluation.
 
 [`examples/05_draco.ipynb`](examples/05_draco.ipynb) is the concise real-engine DRACO Preview
-walkthrough. It connects providers, composes two independently prompted Claude research members
-with a Codex reducer, evaluates one `draco-preview@1` case, and reads the resulting comparison.
-Preview keeps every real DRACO question but retains one positive criterion and one Gemini 3.5
-Flash judge pass. The equivalent explicit `load -> run -> grade -> aggregate` stages remain as a
-commented learning aid; the notebook neither runs nor fabricates canonical `draco@1` results.
+walkthrough. It connects providers, composes the verified DeepSeek V4 Pro and GLM 5.2 DeepInfra
+research routes with a Codex reducer, evaluates one `draco-preview@1` case, and reads the resulting
+comparison. Preview keeps every real DRACO question but retains one positive criterion and one
+Gemini 2.5 Flash judge pass. The equivalent explicit `load -> run -> grade -> aggregate` stages
+remain as a commented learning aid; the notebook neither runs nor fabricates canonical `draco@1`
+results.
 
 [`examples/06_connections.ipynb`](examples/06_connections.ipynb) explains the provider connection
 control plane in isolation: interactive panel use, script-oriented OAuth and API-key calls,
@@ -147,7 +146,7 @@ This starts:
 ```text
 URL4 engine  http://127.0.0.1:4404
 AI Gateway   http://127.0.0.1:9105
-SearXNG      internal Compose service only
+Tavily       engine-owned external API connection
 ```
 
 Model routes contact AI Gateway only through `screamingface-engine`. Loading GPQA happens in the
@@ -280,10 +279,9 @@ Hugging Face session and returns ordinary immutable SDK values. `fusion.run("gpq
 is shorthand for local load followed by engine execution over a stable prefix. The SDK now
 installs `gpqa@1`, canonical `draco@1`, and the explicitly non-comparable `draco-preview@1` development
 profile; all can be loaded and inspected locally. The development
-engine can still execute the earlier `tools=web_search` transport shape through its internal
-SearXNG adapter on the Claude route. The typed DRACO definitions now require both `web_search` and
-`web_fetch` plus Tavily policy, so they intentionally fail capability preflight until Phase 9B.4
-replaces that adapter with the HF/Tavily loop. The engine exposes the tool-free
+engine executes typed `web_search` and `web_fetch` policies only on the verified DeepSeek V4 Pro
+and GLM 5.2 DeepInfra pins. Tool-enabled evaluation requires both the Hugging Face and Tavily
+connections and fails before model spend when either is unavailable. The engine exposes the tool-free
 `gemini/2.5-flash` route used for bounded DRACO Preview judging.
 Gemini research is deliberately not advertised: Gemini 3 requires an encrypted thought signature
 on function-calling continuations, and the current AI Gateway normalization does not preserve it.

@@ -19,7 +19,7 @@ gates, `.github/CODEOWNERS` for reviewers, and the component README for local co
 
 `packages/screamingface/apps/screamingface-engine` is a temporary development location for the
 deployable ScreamingFace URL4 profile. Treat it as application code: it composes `Url4Node`, calls
-AI Gateway, and optionally uses SearXNG. Promote it to root `apps/` only after ownership and release
+AI Gateway, and directly uses Tavily for verified HF tool routes. Promote it to root `apps/` only after ownership and release
 responsibilities are approved.
 
 ## Placement rules

@@ -38,7 +38,7 @@ The temporary `packages/screamingface/apps/screamingface-engine` profile is one 
 - the ScreamingFace capability registry;
 - public model/reducer routes;
 - the private provider-connection control plane;
-- AI Gateway and optional SearXNG adapters;
+- AI Gateway model adapters and the engine-owned Tavily tool service;
 - request admission, timeouts, and encoded request-target limits.
 
 The ScreamingFace SDK calls only this engine. Only engine model handlers contact AI Gateway.

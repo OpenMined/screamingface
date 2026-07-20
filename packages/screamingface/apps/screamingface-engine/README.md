@@ -95,8 +95,7 @@ Tavily is intentionally different. The engine validates a submitted key directly
 Tavily's authenticated `GET /usage` endpoint and retains it only in process memory. The key never
 enters AI Gateway, URL4 expressions, model messages, responses, or logs. Failed replacement is
 atomic, disconnect clears the key, and restarting the engine requires the researcher to reconnect.
-No environment-variable or persistence fallback exists. Search/extract execution is not part of
-this connection-only phase, so Hugging Face routes remain tool-free.
+No environment-variable or persistence fallback exists.
 
 This memory-only connection is suitable for the researcher-owned local engine, not an
 unauthenticated shared deployment. A hosted engine must add HTTPS, researcher identity,
@@ -109,15 +108,14 @@ Gemini API-key connections remain available. The engine relays
 only `code` and `state` over its loopback Gateway connection and returns its own generic HTML page.
 The SDK never handles callback codes or provider tokens.
 
-The Compose profile also configures an internal SearXNG service. The explicit capability overlay
-currently adds `web_search` to `claude/sonnet-4.6`; all other dynamically discovered routes remain
-tool-free. A capable model may call the engine's
-standard `web_search` and `web_fetch` functions multiple times within a bounded loop. SearXNG
-returns candidate titles, URLs, and snippets; the engine can read bounded public HTML/plaintext
-pages after rejecting credentials, non-HTTP(S) URLs, private/non-global targets, unsafe redirects,
-oversized responses, unsupported media, and known DRACO-contaminating sources. Every assistant
-turn still uses AI Gateway's existing `POST /v1/chat/completions` contract, and the URL4 endpoint
-returns only the final assistant plaintext.
+The explicit capability overlay adds `web_search` and `web_fetch` only to the exact
+`huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra` and
+`huggingface/zai-org/GLM-5.2~deepinfra` routes when AI Gateway discovers them. Other dynamically
+discovered routes remain tool-free. Tool-enabled requests must carry the complete typed benchmark
+policy and a positive `max_tool_rounds`. The engine rejects malformed policy and disconnected
+Tavily before model spend, sends each model turn through AI Gateway, executes emitted calls through
+Tavily in order, and returns only final assistant plaintext. One member is limited to eight calls
+per turn, 32 calls total, and the benchmark's explicit model-round budget.
 
 The majority-vote handler is also registered once in that process. It accepts a resolved JSON
 object with contiguous `member_1` through `member_n` string values, applies exact-string voting, and
@@ -125,8 +123,9 @@ breaks ties by numeric member position. It returns only the winning text and nev
 Gateway. Nonempty intent, parameters, missing members, non-string values, and blank answers are
 permanent URL4 `malformed_source` errors.
 
-Registry claims are configuration-dependent: without `SCREAMINGFACE_SEARXNG_URL`, no route claims
-`web_search`; with it, the compatible Claude route does. The tool-free `gemini/2.5-flash` route
+Registry capability claims are independent of the current researcher's connection state. The two
+verified HF pins advertise their executable tools even when Tavily is disconnected; fresh
+connection status comes from `/v1/connections`, and execution preflight requires it. The tool-free `gemini/2.5-flash` route
 maps to AI Gateway's registered `gemini-cli/gemini-2.5-flash` model and is the bounded judge used
 by the explicitly non-comparable `draco-preview@1` SDK profile. Gemini research is not advertised
 because Gemini 3 function-calling continuations require the
@@ -173,7 +172,7 @@ From this directory:
 ```
 
 `./dev.sh start` is the explicit form of the default command. Startup waits up to three minutes
-for AI Gateway, SearXNG, and the ScreamingFace engine health checks. Because services start
+for AI Gateway and the ScreamingFace engine health checks. Because services start
 detached, closing the invoking terminal or interrupting `./dev.sh logs` does not stop them. An
 unknown command fails before Docker with the supported-command list.
 
@@ -190,12 +189,11 @@ CODEX_OAUTH_HOST_PORT=1457 \
 Codex OAuth uses the provider-registered loopback ports `1455` or `1457`; use `1457` only when
 `1455` is occupied. Other provider callbacks continue to use `SCREAMINGFACE_ENGINE_HOST_PORT`.
 
-This builds the engine, AI Gateway, and internal SearXNG containers. SearXNG remains the current
-temporary search runtime until the later Tavily execution phase removes it; connecting Tavily in
-the current phase does not route searches to Tavily. SearXNG has no host port and
-requires no researcher API key. It still uses public upstream search engines, so research requests
-need outbound network access. SDK-local benchmark loading does not contact any of these services;
-model routes do.
+This builds the engine and AI Gateway containers. Tavily is an external API rather than another
+container: connect it with `sf.connect("tavily", api_key=...)` after each engine restart. The engine
+uses the key directly for bounded search/extract calls; it never forwards the key to AI Gateway.
+SDK-local benchmark loading contacts neither service, while model-backed tool execution needs
+outbound access to both AI Gateway's configured providers and Tavily.
 
 AI Gateway starts with an empty provider connection store. Its SQLite database, encrypted
 credential blobs, generated local master key, and generated JWT secret live on the named

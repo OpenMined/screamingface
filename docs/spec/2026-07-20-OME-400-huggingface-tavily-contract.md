@@ -24,7 +24,7 @@ credential boundary. Tavily is not a model provider and does not pass through AI
 credential and requests are owned by the ScreamingFace engine. Generic `packages/url4` remains
 provider-agnostic and requires no DRACO-, Gateway-, Hugging Face-, or Tavily-specific change.
 
-SearXNG and direct public-page fetching are removed when the Tavily execution phase lands. There
+SearXNG and direct public-page fetching are removed by the Tavily execution phase. There
 is no runtime mock, legacy string-tool API, silent tool fallback, or direct SDK service client.
 
 ## 2. Hugging Face discovery and public identity
@@ -192,11 +192,19 @@ HF benchmark runner:
 6. Repeat until final assistant text or the configured tool-round limit.
 7. Return only the final plaintext answer to URL4.
 
-`max_tool_rounds` names the behavior honestly: the reference runner's `max_calls_per_row` bounds
-model-loop iterations, and one round may emit multiple tool calls. Tavily timeouts, rate limits,
-and transient server failures receive bounded retries. Invalid tool arguments become safe tool
+`max_tool_rounds` names the behavior honestly: it includes the initial and final model calls, and
+one round may emit multiple tool calls. A member may emit at most eight calls in one turn and 32
+calls across the loop. Tavily timeouts, rate limits, and transient server failures receive at most
+three total attempts with 2- and 4-second delays. Invalid model-emitted arguments become safe tool
 errors the model may inspect. Exhaustion becomes an explicit `tool_budget_exhausted` failure, not
-an empty answer. Results are deterministically bounded and mark truncation.
+an empty answer. Raw Tavily bodies are capped at 2 MiB; normalized tool results are capped at 1
+MiB, deterministically trim optional enrichment, and mark truncation.
+
+The engine independently reparses every scalar URL4 policy field instead of trusting the SDK.
+Malformed policy and unsupported tools are HTTP 400 application errors; invalid Tavily
+credentials are 401, rate limits are 429, tool-budget exhaustion is 422, and safe upstream service
+or response failures are 502. The whole local evaluation deadline defaults to 900 seconds. These
+application-owned translations do not modify generic URL4 error behavior.
 
 Panel members remain independent. Their model calls may run concurrently, while calls emitted by
 one model turn execute sequentially for reference-pipeline parity. Fusion reduction and DRACO
@@ -248,6 +256,7 @@ acceptance exercises the real HF and Tavily path.
 - **9B.2 (implemented):** engine-owned, directly validated, process-local Tavily connection and
   explicit shared-hosting boundary.
 - **9B.3 (implemented):** typed SDK tool values, benchmark policy, and URL4 compilation.
-- **9B.4:** Tavily adapter plus bounded HF agent loop; remove SearXNG.
+- **9B.4 (implemented):** strict typed policy parsing, Tavily execution, bounded verified-HF agent
+  loops, SDK Tavily preflight, explicit safe errors, and complete SearXNG removal.
 - **9B.5:** canonical DRACO configuration, notebook, real one-case/two-member acceptance, then full
   reproduction readiness.

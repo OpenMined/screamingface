@@ -35,6 +35,7 @@ def _registry(
             ProviderRecord("codex", "OpenAI Codex", ("oauth",)),
             ProviderRecord("gemini", "Google Gemini", ("oauth", "api_key")),
             ProviderRecord("judge", "Judge", ("api_key",)),
+            ProviderRecord("tavily", "Tavily", ("api_key",)),
         ),
     )
 

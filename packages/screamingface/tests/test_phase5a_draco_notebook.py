@@ -53,7 +53,8 @@ def test_draco_preview_matches_the_quickstart_public_workflow() -> None:
     markdown = _sources("markdown")
 
     assert "sf.connect()" in code
-    assert code.count('{"model": "claude/sonnet-4.6", "prompt":') == 2
+    assert '"model": "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra"' in code
+    assert '"model": "huggingface/zai-org/GLM-5.2~deepinfra"' in code
     assert '"prompt": EVIDENCE_PROMPT' in code
     assert '"prompt": CHALLENGE_PROMPT' in code
     assert "sf.reducers.Model(" in code
@@ -84,17 +85,16 @@ def test_draco_preview_puts_every_material_caveat_before_execution() -> None:
     assert "real DRACO" in markdown
     assert "Hugging Face" in markdown
     assert "researcher" not in markdown.lower()
-    assert "six model calls" in markdown
+    assert "at least six\nmodel calls" in markdown
     assert "about 354 judge" in markdown
-    assert "two independently prompted Claude" in markdown
-    assert "Codex is the model reducer" in markdown
-    assert "Gemini 2.5 Flash is tool-free and used only as the judge" in markdown
-    assert "thoughtSignature" in markdown
-    assert "SearXNG" in markdown
+    assert "two Hugging Face calls are independent" in markdown
+    assert "Codex is the tool-free model reducer" in markdown
+    assert "Gemini 2.5 Flash is used only as the tool-free judge" in markdown
+    assert "Tavily" in markdown
     assert "OpenRouter" in markdown
     assert "OME-428" in markdown
     assert "GET /v1?q=<URL-encoded-expression>" in markdown
-    assert "Only the engine contacts AI Gateway" in markdown
+    assert "Only the\nengine contacts AI Gateway" in markdown
     assert "live progress panel" in markdown
 
 

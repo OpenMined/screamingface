@@ -6,12 +6,12 @@ from collections.abc import Sequence
 
 from screamingface import connections
 from screamingface._profile import ProviderRecord, Registry
-from screamingface._requirements import ModelRequirement
+from screamingface._requirements import ConnectionRequirement
 from screamingface.errors import ConnectionRequiredError
 
 
 def require_connections(
-    requirements: Sequence[ModelRequirement],
+    requirements: Sequence[ConnectionRequirement],
     registry: Registry,
 ) -> None:
     """Raise one structured error before spend when a required provider is unavailable."""
@@ -28,14 +28,14 @@ def require_connections(
         return
 
     providers = _unique(item.provider for item in missing)
-    models = _unique(item.model for item in missing)
+    models = _unique(item.model for item in missing if item.model is not None)
     roles = _unique(item.role for item in missing)
     records = {provider.id: provider for provider in registry.providers}
     actions = "; ".join(_action(records[provider]) for provider in providers)
     # INVARIANT: Execution methods report every missing provider together and never open a
     # notebook widget or make a model request as a side effect of preflight.
     raise ConnectionRequiredError(
-        f"Connect the required model provider(s) before execution: {actions}",
+        f"Connect the required connection(s) before execution: {actions}",
         providers=providers,
         models=models,
         roles=roles,

@@ -800,3 +800,24 @@ Replaced the unreleased benchmark string-tool shape with a clean typed contract:
 This slice defines and validates transport policy only. It adds no Tavily client dependency,
 engine tool execution, HF tool capability claim, or AI Gateway change; those belong to Phase
 9B.4.
+
+## Phase 9B.4 Tavily execution and verified HF agent loop — 2026-07-20
+
+Superseded the temporary Phase 4D SearXNG path with the approved typed Tavily execution boundary:
+
+- the engine independently parses and validates every scalar tool-policy field before model spend;
+- only the exact DeepSeek V4 Pro/DeepInfra and GLM 5.2/DeepInfra routes advertise `web_search`
+  and `web_fetch` when discovered from AI Gateway;
+- missing Tavily fails before Gateway traffic, while each model turn continues to use only AI
+  Gateway and the SDK continues to contact only the ScreamingFace engine;
+- the engine executes ordered Tavily search/extract calls with three bounded attempts, response
+  normalization, truncation markers, eight calls per turn, 32 calls per member, and the benchmark's
+  explicit model-round bound;
+- the 900-second local evaluation deadline covers the complete URL4 request, including all member
+  loops and model reduction; and
+- SearXNG services, settings, direct page fetching, legacy tests, and compatibility fallbacks were
+  removed from the current application.
+
+Tool-free model requests remain one Gateway call. URL4 and model success bodies remain plaintext,
+reducers and judges remain tool-free, and no AI Gateway or generic URL4 source change is required.
+Real one-case and two-member acceptance against researcher credentials remains Phase 9B.5.

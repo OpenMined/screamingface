@@ -324,7 +324,9 @@ def test_stage_requirement_planning_uses_explicit_provider_metadata(
         grader=sf.graders.Rubric(model="gemini/2.5-flash", prompt="Judge: $answer"),
     )
 
-    assert [(item.provider, item.role) for item in run_requirements(fusion, registry)] == [
+    assert [
+        (item.provider, item.role) for item in run_requirements(fusion, benchmark, registry)
+    ] == [
         ("codex", "member"),
         ("gemini", "member"),
         ("codex", "reducer"),
@@ -349,7 +351,10 @@ def test_deterministic_strategies_add_no_model_requirement(monkeypatch: pytest.M
         grader=sf.graders.ExactChoice(),
     )
 
-    assert [item.role for item in run_requirements(fusion, registry)] == ["member", "member"]
+    assert [item.role for item in run_requirements(fusion, benchmark, registry)] == [
+        "member",
+        "member",
+    ]
     assert grade_requirements(benchmark, registry) == ()
 
     repeated = sf.Fusion(
@@ -357,4 +362,5 @@ def test_deterministic_strategies_add_no_model_requirement(monkeypatch: pytest.M
         models=["codex/gpt-5.5", "codex/gpt-5.5"],
         reducer=sf.reducers.MajorityVote(),
     )
-    assert run_requirements(repeated, registry) == (run_requirements(repeated, registry)[0],)
+    repeated_requirements = run_requirements(repeated, benchmark, registry)
+    assert repeated_requirements == (repeated_requirements[0],)

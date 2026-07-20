@@ -5,13 +5,13 @@ from __future__ import annotations
 from screamingface_engine.catalog import PUBLIC_PROVIDERS, PublicProvider
 from screamingface_engine.connection_contract import ConnectionControlError
 from screamingface_engine.connection_gateway import ConnectionGateway
-from screamingface_engine.tavily_connection import TAVILY_PROVIDER_ID, TavilyConnection
+from screamingface_engine.tavily import TAVILY_PROVIDER_ID, TavilyService
 
 
 class ConnectionManager:
     """Route each advertised connection to its owning internal service."""
 
-    def __init__(self, gateway: ConnectionGateway, tavily: TavilyConnection) -> None:
+    def __init__(self, gateway: ConnectionGateway, tavily: TavilyService) -> None:
         self._gateway = gateway
         self._tavily = tavily
 

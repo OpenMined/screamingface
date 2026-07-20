@@ -41,7 +41,7 @@ def test_pinned_huggingface_model_gets_a_url4_safe_public_alias() -> None:
         id=PUBLIC_MODEL,
         gateway_model=GATEWAY_MODEL,
         provider="huggingface",
-        tool_capabilities=(),
+        tool_capabilities=("web_search", "web_fetch"),
     )
     assert route.route == f"/{PUBLIC_MODEL}"
 
@@ -74,11 +74,15 @@ def test_duplicate_huggingface_public_aliases_fail_startup() -> None:
         resolve_model_routes((model, model))
 
 
-def test_huggingface_registry_records_claim_no_tools_before_tavily() -> None:
-    registry = registry_document((_route(),), enabled_tools=("web_search", "web_fetch"))
+def test_verified_huggingface_registry_record_claims_tavily_tools() -> None:
+    registry = registry_document((_route(),))
 
     assert registry["models"] == [
-        {"id": PUBLIC_MODEL, "provider": "huggingface", "supported_tools": []}
+        {
+            "id": PUBLIC_MODEL,
+            "provider": "huggingface",
+            "supported_tools": ["web_search", "web_fetch"],
+        }
     ]
     providers = cast(list[object], registry["providers"])
     assert {

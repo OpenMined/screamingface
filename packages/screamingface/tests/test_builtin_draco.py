@@ -151,7 +151,10 @@ def test_draco_evaluation_fails_preflight_without_engine_spend(
             reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
             response_schemas=("screamingface.fusion-result.v1",),
             max_request_target_bytes=61440,
-            providers=(ProviderRecord("anthropic", "Anthropic", ("oauth", "api_key")),),
+            providers=(
+                ProviderRecord("anthropic", "Anthropic", ("oauth", "api_key")),
+                ProviderRecord("tavily", "Tavily", ("api_key",)),
+            ),
         ),
     )
     monkeypatch.setattr(

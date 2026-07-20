@@ -15,15 +15,13 @@ from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE, majority_vote
 from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES, Settings
-from screamingface_engine.tavily_connection import TavilyConnection
-from screamingface_engine.web_research import WebResearchClient
+from screamingface_engine.tavily import TavilyService
 
 
 def create_node(
     executor: ModelExecutor,
     model_routes: tuple[ModelRoute, ...],
     *,
-    enabled_tools: tuple[str, ...] = (),
     max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES,
 ) -> Url4Node:
     """Register executable routes plus health and capability metadata."""
@@ -38,7 +36,6 @@ def create_node(
         json.dumps(
             registry_document(
                 model_routes,
-                enabled_tools=enabled_tools,
                 max_request_target_bytes=max_request_target_bytes,
             ),
             separators=(",", ":"),
@@ -51,9 +48,8 @@ def create_app(
     *,
     settings: Settings | None = None,
     gateway: GatewayClient | None = None,
-    research: WebResearchClient | None = None,
     model_routes: tuple[ModelRoute, ...] | None = None,
-    tavily: TavilyConnection | None = None,
+    tavily: TavilyService | None = None,
 ) -> EngineASGI:
     """Compose the persistent node, Gateway adapter, and thin ASGI lifecycle."""
 
@@ -62,22 +58,8 @@ def create_app(
         resolved.gateway_url,
         timeout=resolved.gateway_timeout,
     )
-    tavily_adapter = tavily or TavilyConnection()
-    research_adapter = research
-    if research_adapter is None and resolved.searxng_url is not None:
-        research_adapter = WebResearchClient(
-            resolved.searxng_url,
-            timeout=resolved.web_timeout,
-            max_results=resolved.web_max_results,
-            max_content_chars=resolved.web_max_content_chars,
-            max_fetch_bytes=resolved.web_max_fetch_bytes,
-        )
-    executor = ModelExecutor(
-        adapter,
-        research_adapter,
-        max_tool_calls=resolved.web_max_tool_calls,
-    )
-    enabled_tools = ("web_search",) if research_adapter is not None else ()
+    tavily_adapter = tavily or TavilyService(timeout=resolved.tavily_timeout)
+    executor = ModelExecutor(adapter, tavily_adapter)
 
     async def initialize_node() -> Url4Node:
         # INVARIANT: Executable endpoints and advertised models come from one Gateway snapshot.
@@ -85,7 +67,6 @@ def create_app(
         return create_node(
             executor,
             resolve_model_routes(discovered),
-            enabled_tools=enabled_tools,
             max_request_target_bytes=resolved.max_request_target_bytes,
         )
 
@@ -95,7 +76,6 @@ def create_app(
         else create_node(
             executor,
             model_routes,
-            enabled_tools=enabled_tools,
             max_request_target_bytes=resolved.max_request_target_bytes,
         )
     )
@@ -103,7 +83,6 @@ def create_app(
         node,
         adapter,
         initialize=initialize_node if node is None else None,
-        research=research_adapter,
         connections=ConnectionASGI(
             ConnectionManager(
                 ConnectionGateway(

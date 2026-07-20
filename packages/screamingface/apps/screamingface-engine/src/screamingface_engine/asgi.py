@@ -12,13 +12,23 @@ from url4 import Url4Node
 from screamingface_engine.connection_asgi import ConnectionASGI
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES
-from screamingface_engine.web_research import WebResearchClient
 
 type Message = MutableMapping[str, Any]
 type Receive = Callable[[], Awaitable[Message]]
 type Send = Callable[[Message], Awaitable[None]]
 type AsgiApp = Callable[[Mapping[str, Any], Receive, Send], Awaitable[None]]
 type NodeInitializer = Callable[[], Awaitable[Url4Node]]
+
+_APPLICATION_ERROR_STATUSES = {
+    "malformed_tool_policy": 400,
+    "unsupported_tool": 400,
+    "invalid_tool_request": 400,
+    "authentication_required": 401,
+    "rate_limited": 429,
+    "tool_budget_exhausted": 422,
+    "provider_unavailable": 502,
+    "invalid_provider_response": 502,
+}
 
 
 class EngineASGI:
@@ -30,7 +40,6 @@ class EngineASGI:
         gateway: GatewayClient,
         *,
         initialize: NodeInitializer | None = None,
-        research: WebResearchClient | None = None,
         connections: ConnectionASGI | None = None,
         max_inflight: int,
         timeout: float,
@@ -40,7 +49,6 @@ class EngineASGI:
             raise ValueError("engine requires a node or startup initializer")
         self.node = node
         self.gateway = gateway
-        self.research = research
         self.connections = connections
         self._base: AsgiApp | None = None if node is None else node.asgi()
         self._initialize = initialize
@@ -86,9 +94,10 @@ class EngineASGI:
             return
         self._inflight += 1
         guard = _StartGuard(send)
+        application_errors = _ApplicationErrorGuard(guard.send)
         try:
             async with asyncio.timeout(self._timeout):
-                await self._base(scope, receive, guard.send)
+                await self._base(scope, receive, application_errors.send)
         except TimeoutError:
             if not guard.started:
                 await _send_error(
@@ -120,8 +129,6 @@ class EngineASGI:
 
     async def _startup(self) -> None:
         await self.gateway.start()
-        if self.research is not None:
-            await self.research.start()
         if self.node is not None:
             return
         if self._initialize is None:  # pragma: no cover - constructor invariant
@@ -131,8 +138,6 @@ class EngineASGI:
         self._base = node.asgi()
 
     async def _close_adapters(self) -> None:
-        if self.research is not None:
-            await self.research.aclose()
         if self.connections is not None:
             await self.connections.aclose()
         await self.gateway.aclose()
@@ -147,6 +152,51 @@ class _StartGuard:
         if message["type"] == "http.response.start":
             self.started = True
         await self._send(message)
+
+
+class _ApplicationErrorGuard:
+    """Translate application error codes without changing generic URL4."""
+
+    def __init__(self, send: Send) -> None:
+        self._send = send
+        self._start: Message | None = None
+        self._body = bytearray()
+
+    async def send(self, message: Message) -> None:
+        if message["type"] == "http.response.start":
+            status = message.get("status")
+            if isinstance(status, int) and status >= 400:
+                self._start = dict(message)
+                return
+            await self._send(message)
+            return
+        if self._start is None:
+            await self._send(message)
+            return
+        body = message.get("body", b"")
+        if isinstance(body, bytes):
+            self._body.extend(body)
+        if message.get("more_body", False):
+            return
+        start = self._start
+        start["status"] = _application_error_status(bytes(self._body), start["status"])
+        await self._send(start)
+        await self._send({"type": "http.response.body", "body": bytes(self._body)})
+
+
+def _application_error_status(body: bytes, fallback: object) -> int:
+    status = fallback if isinstance(fallback, int) else 500
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, ValueError):
+        return status
+    if not isinstance(payload, Mapping):
+        return status
+    error = payload.get("error")
+    if not isinstance(error, Mapping):
+        return status
+    code = error.get("code")
+    return _APPLICATION_ERROR_STATUSES.get(code, status) if isinstance(code, str) else status
 
 
 def _request_target_bytes(scope: Mapping[str, Any]) -> int:

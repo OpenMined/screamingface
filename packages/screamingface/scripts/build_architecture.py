@@ -70,10 +70,11 @@ Researcher process
 └─ screamingface-engine · persistent Url4Node
    ├─ plaintext URL4 data plane · GET /v1?q=...
    │  ├─ model routes ── AI Gateway ── model providers
-   │  ├─ web_search ── private SearXNG service
+   │  ├─ verified HF tool routes ── Tavily search/extract
    │  └─ deterministic reducer routes
    └─ JSON connection control plane · /v1/connections/...
-      └─ AI Gateway credential profiles
+      ├─ AI Gateway model-provider credential profiles
+      └─ process-local Tavily connection
 ```
 
 Both planes end at the configured ScreamingFace engine. The SDK never calls providers or AI
@@ -159,7 +160,7 @@ passes their resolved object to the registered majority-vote route, and returns 
 structured result.
 
 No model route appears in the graph, so executing it cannot reach AI Gateway, a provider, or
-SearXNG."""
+Tavily."""
         ),
         nbformat.v4.new_markdown_cell("## 6 · Send the encoded GET and inspect the plaintext"),
         nbformat.v4.new_code_cell(
@@ -200,7 +201,7 @@ plaintext when it runs a Fusion; this cell performs those two steps visibly for 
 | URL4 graph execution | `screamingface-engine` / URL4 |
 | Provider calls | Engine through AI Gateway |
 | Provider credential control | SDK through engine to AI Gateway |
-| Web research | Engine through SearXNG |
+| Web research | Engine directly through Tavily on verified HF routes |
 | Exact grading and aggregation | Researcher's SDK process |
 
 Rubric grading is the one model-backed grading mode: the SDK schedules each judge task through the

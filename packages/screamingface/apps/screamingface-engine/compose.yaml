@@ -39,21 +39,6 @@ services:
       timeout: 5s
       retries: 12
 
-  searxng:
-    image: docker.io/searxng/searxng@sha256:b8ca38ba06eea544d7555e88321e212ddc0d5c3c7de055419cfb2e5c6bf30812
-    environment:
-      SEARXNG_SETTINGS_PATH: /etc/searxng/settings.yml
-    init: true
-    volumes:
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - wget --spider -q http://127.0.0.1:8080/ || exit 1
-      interval: 30s
-      timeout: 5s
-      retries: 12
-
   screamingface-engine:
     build:
       context: ../../../..
@@ -64,15 +49,13 @@ services:
       SCREAMINGFACE_ENGINE_MAX_INFLIGHT: "16"
       SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES: "61440"
       SCREAMINGFACE_CODEX_OAUTH_REDIRECT_URI: http://localhost:${CODEX_OAUTH_HOST_PORT:-1455}/auth/callback
-      SCREAMINGFACE_SEARXNG_URL: http://searxng:8080
-      SCREAMINGFACE_ENGINE_TIMEOUT: "120"
+      SCREAMINGFACE_ENGINE_TIMEOUT: "900"
+      SCREAMINGFACE_TAVILY_TIMEOUT: "75"
       URL4_HOST: 0.0.0.0
       URL4_PORT: "4404"
     init: true
     depends_on:
       aigateway:
-        condition: service_healthy
-      searxng:
         condition: service_healthy
     # AI Gateway's auth-disabled mode deliberately accepts loopback only. Keep
     # the processes isolated in separate containers while sharing networking so

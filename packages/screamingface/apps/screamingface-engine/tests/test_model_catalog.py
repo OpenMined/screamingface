@@ -33,7 +33,7 @@ def test_gateway_catalog_forwards_every_supported_provider_model_in_order() -> N
         ),
     ]
     assert routes[0].tool_capabilities == ()
-    assert routes[1].tool_capabilities == ("web_search",)
+    assert routes[1].tool_capabilities == ()
 
 
 @pytest.mark.parametrize(

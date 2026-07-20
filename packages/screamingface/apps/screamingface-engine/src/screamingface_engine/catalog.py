@@ -17,7 +17,10 @@ _HUGGINGFACE_MODEL = re.compile(
     r"^huggingface/(?P<organization>[A-Za-z0-9._-]+)/"
     r"(?P<model>[A-Za-z0-9._-]+):(?P<inference_provider>[A-Za-z0-9._-]+)$"
 )
-_CAPABILITY_POLICY = {"claude/sonnet-4.6": ("web_search",)}
+_CAPABILITY_POLICY = {
+    "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra": ("web_search", "web_fetch"),
+    "huggingface/zai-org/GLM-5.2~deepinfra": ("web_search", "web_fetch"),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,10 +182,8 @@ def _alias_error(model: GatewayModel) -> ValueError:
 def registry_document(
     model_routes: Sequence[ModelRoute],
     *,
-    enabled_tools: tuple[str, ...] = (),
     max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES,
 ) -> dict[str, object]:
-    enabled = frozenset(enabled_tools)
     return {
         "schema": "screamingface.registry.v1",
         "response_schemas": ["screamingface.fusion-result.v1"],
@@ -199,7 +200,7 @@ def registry_document(
             {
                 "id": model.id,
                 "provider": model.provider,
-                "supported_tools": [tool for tool in model.tool_capabilities if tool in enabled],
+                "supported_tools": list(model.tool_capabilities),
             }
             for model in model_routes
         ],

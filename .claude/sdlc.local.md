@@ -82,7 +82,7 @@ ledger_dir: docs/work/
 - INVARIANTS: the SDK calls only its configured ScreamingFace URL4 engine, never AI Gateway.
   Benchmark datasets, deterministic graders, and aggregators remain local SDK concerns. The
   temporary `apps/screamingface-engine` profile composes `Url4Node`, AI Gateway, and optional
-  SearXNG; its registry must advertise only executable capabilities.
+  Tavily for verified Hugging Face tool routes; its registry must advertise only executable capabilities.
 
 ## ledger naming (D8)
 

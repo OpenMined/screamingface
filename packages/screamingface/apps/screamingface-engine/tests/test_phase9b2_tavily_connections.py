@@ -7,7 +7,7 @@ from model_fixtures import MODEL_ROUTES
 from screamingface_engine.app import create_app
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.settings import Settings
-from screamingface_engine.tavily_connection import MAX_TAVILY_RESPONSE_BYTES, TavilyConnection
+from screamingface_engine.tavily import MAX_TAVILY_RESPONSE_BYTES, TavilyService
 
 
 def _settings() -> Settings:
@@ -33,7 +33,7 @@ def _gateway_that_must_not_be_called() -> GatewayClient:
 
 @pytest.mark.asyncio
 async def test_tavily_is_advertised_as_an_engine_owned_api_key_connection() -> None:
-    tavily = TavilyConnection(
+    tavily = TavilyService(
         transport=httpx.MockTransport(
             lambda _request: pytest.fail("registry discovery contacted Tavily")
         )
@@ -71,7 +71,7 @@ async def test_tavily_key_is_validated_directly_and_public_state_is_sanitized() 
         tavily_requests.append(request)
         return httpx.Response(200, json=_usage_response())
 
-    tavily = TavilyConnection(transport=httpx.MockTransport(tavily_handler))
+    tavily = TavilyService(transport=httpx.MockTransport(tavily_handler))
     gateway = _gateway_that_must_not_be_called()
     app = create_app(
         model_routes=MODEL_ROUTES,
@@ -115,7 +115,7 @@ async def test_tavily_list_merges_gateway_and_engine_owned_connection_state() ->
     gateway = GatewayClient(
         "http://gateway.test", timeout=5, transport=httpx.MockTransport(gateway_handler)
     )
-    tavily = TavilyConnection(
+    tavily = TavilyService(
         transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=_usage_response()))
     )
     app = create_app(
@@ -150,7 +150,7 @@ async def test_failed_tavily_replacement_is_atomic_and_restart_clears_memory() -
             return httpx.Response(200, json=_usage_response())
         return httpx.Response(401, text="private rejected credential diagnostic")
 
-    tavily = TavilyConnection(transport=httpx.MockTransport(tavily_handler))
+    tavily = TavilyService(transport=httpx.MockTransport(tavily_handler))
     gateway = _gateway_that_must_not_be_called()
     app = create_app(
         model_routes=MODEL_ROUTES,
@@ -173,7 +173,7 @@ async def test_failed_tavily_replacement_is_atomic_and_restart_clears_memory() -
         disconnected = await client.delete("/v1/connections/tavily")
         cleared = await client.get("/v1/connections/tavily")
 
-    fresh = TavilyConnection(
+    fresh = TavilyService(
         transport=httpx.MockTransport(
             lambda _request: pytest.fail("fresh connection status contacted Tavily")
         )
@@ -214,7 +214,7 @@ async def test_tavily_failures_are_stable_safe_and_retryable_when_appropriate(
     code: str,
     retryable: bool,
 ) -> None:
-    tavily = TavilyConnection(transport=httpx.MockTransport(lambda _request: upstream))
+    tavily = TavilyService(transport=httpx.MockTransport(lambda _request: upstream))
     gateway = _gateway_that_must_not_be_called()
     app = create_app(
         model_routes=MODEL_ROUTES,
@@ -254,7 +254,7 @@ async def test_tavily_transport_failures_are_sanitized(
     async def tavily_handler(_request: httpx.Request) -> httpx.Response:
         raise failure
 
-    tavily = TavilyConnection(transport=httpx.MockTransport(tavily_handler))
+    tavily = TavilyService(transport=httpx.MockTransport(tavily_handler))
     gateway = _gateway_that_must_not_be_called()
     app = create_app(
         model_routes=MODEL_ROUTES,
@@ -279,7 +279,7 @@ async def test_tavily_transport_failures_are_sanitized(
 
 @pytest.mark.asyncio
 async def test_tavily_validation_response_is_byte_bounded() -> None:
-    tavily = TavilyConnection(
+    tavily = TavilyService(
         transport=httpx.MockTransport(
             lambda _request: httpx.Response(200, content=b"x" * (MAX_TAVILY_RESPONSE_BYTES + 1))
         )
@@ -307,7 +307,7 @@ async def test_tavily_validation_response_is_byte_bounded() -> None:
 
 @pytest.mark.asyncio
 async def test_tavily_oauth_is_rejected_without_tavily_or_gateway_traffic() -> None:
-    tavily = TavilyConnection(
+    tavily = TavilyService(
         transport=httpx.MockTransport(
             lambda _request: pytest.fail("unsupported Tavily OAuth contacted Tavily")
         )

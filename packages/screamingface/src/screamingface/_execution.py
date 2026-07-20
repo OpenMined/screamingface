@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from screamingface.report import Report
 
 _CASE_CONCURRENCY = 4
-_RUN_TIMEOUT = 130.0
+_RUN_TIMEOUT = 910.0
 _AUTH_REJECTION_CODES = frozenset({"authentication_required", "connection_needs_reauth"})
 _RETRYABLE_FAILURE_CODES = frozenset(
     {
@@ -123,7 +123,7 @@ def _run_fusion(
     registry = _registry or load_registry()
     _preflight(fusion, resolved, registry)
     if not _connections_checked:
-        require_connections(run_requirements(fusion, registry), registry)
+        require_connections(run_requirements(fusion, resolved, registry), registry)
 
     expressions = tuple(
         (
