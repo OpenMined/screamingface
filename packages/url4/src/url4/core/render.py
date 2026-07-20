@@ -32,13 +32,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from math import isfinite
 
-from url4._annotations import is_source_level_key
-from url4._scan import balanced_body, find_top_level, skip_quoted
-from url4.errors import ParseError, RenderError
+from url4.core._annotations import is_source_level_key
+from url4.core._scan import balanced_body, find_top_level, skip_quoted
+from url4.core.errors import ParseError, RenderError
 
 # WHY: these regexes ARE the grammar's character classes; re-declaring them
 # here would let the two modules drift. Private-name import is deliberate.
-from url4.grammar import (
+from url4.core.grammar import (
     _IDENT_RE,
     _IDENTITY_NAME_RE,
     _NUMBER_RE,
@@ -46,7 +46,7 @@ from url4.grammar import (
     _STRUCT_KEY_RE,
     _STRUCT_TOKEN_RE,
 )
-from url4.nodes import (
+from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,
@@ -100,7 +100,7 @@ def _render_top(node: Node) -> str:
 
 
 def _verify(node: Node, text: str) -> None:
-    from url4.parser import build  # runtime-only: parser is a higher layer
+    from url4.core.parser import build  # runtime-only: parser is a higher layer
 
     expected = node if isinstance(node, (Expression, Iteration)) else Expression(sources=(node,))
     try:

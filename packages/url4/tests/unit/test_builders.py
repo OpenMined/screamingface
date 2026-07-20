@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from url4 import build
-from url4.builders import (
+from url4.core.builders import (
     broadcast,
     expand,
     expr,
@@ -26,8 +26,8 @@ from url4.builders import (
     struct,
     text,
 )
-from url4.errors import RenderError
-from url4.nodes import (
+from url4.core.errors import RenderError
+from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,
@@ -42,7 +42,7 @@ from url4.nodes import (
     Url,
     VarRef,
 )
-from url4.render import render
+from url4.core.render import render
 
 # --- leaf constructors --------------------------------------------------------------
 

@@ -16,8 +16,8 @@ import asyncio
 import httpx
 import pytest
 
-from url4._serve import ServeConfig, build_asgi_app, build_node
-from url4.server import Url4Node
+from url4.cli._serve import ServeConfig, build_asgi_app, build_node
+from url4.peer.server import Url4Node
 
 pytestmark = pytest.mark.asyncio
 

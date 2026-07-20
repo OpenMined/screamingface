@@ -36,8 +36,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import NoReturn, Protocol, runtime_checkable
 
-from url4.context import Context
-from url4.io_layer import (
+from url4.core.context import Context
+from url4.io.layer import (
     FetchRequest,
     FetchResult,
     IOLayer,

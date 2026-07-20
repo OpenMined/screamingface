@@ -13,8 +13,8 @@ import json
 import pytest
 
 from url4 import StaticIOLayer, build
-from url4.builders import iterate, src
-from url4.client import Client, Url4Result, evaluate_sync
+from url4.core.builders import iterate, src
+from url4.peer.client import Client, Url4Result, evaluate_sync
 
 pytestmark = pytest.mark.asyncio
 

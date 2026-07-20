@@ -14,9 +14,9 @@ import random
 import pytest
 
 from url4 import build
-from url4.errors import RenderError
-from url4.grammar import parse, parse_value
-from url4.nodes import (
+from url4.core.errors import RenderError
+from url4.core.grammar import parse, parse_value
+from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,
@@ -31,7 +31,7 @@ from url4.nodes import (
     Url,
     VarRef,
 )
-from url4.render import render
+from url4.core.render import render
 
 # --- helpers -------------------------------------------------------------------
 

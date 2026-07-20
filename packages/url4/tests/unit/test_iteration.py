@@ -12,10 +12,10 @@ import json
 import pytest
 from conftest import RecordingIOLayer
 
+from url4.core.errors import CollectionError
+from url4.core.parser import build
 from url4.dag import ExecutionContext, run
-from url4.errors import CollectionError
-from url4.io_static import StaticIOLayer
-from url4.parser import build
+from url4.io.static import StaticIOLayer
 
 ROWS = json.dumps([{"q": "2+2"}, {"q": "3+3"}])
 

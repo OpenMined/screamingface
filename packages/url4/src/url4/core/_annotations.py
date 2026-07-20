@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import warnings
 
-from url4.errors import ParseError
-from url4.nodes import IterationDirectives, Params
+from url4.core.errors import ParseError
+from url4.core.nodes import IterationDirectives, Params
 
 # §8.1.3 — keys that can ONLY be source-level execution annotations; the first
 # one encountered in a sugar-form ``;`` chain triggers the boundary. ``coord.*``

@@ -38,20 +38,20 @@ from dataclasses import dataclass
 from inspect import isawaitable, signature
 from typing import overload
 
-from url4.client import Url4Result
-from url4.context import Context
-from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
-from url4.dag.node import ProcessFn, default_process
-from url4.errors import ResolutionError, Url4Error
-from url4.grammar import _IDENTITY_NAME_RE
-from url4.io_layer import FetchRequest, FetchResult, IOLayer, fetch_result
-from url4.nodes import Node
-from url4.render import render
-from url4.subrequest import (
+from url4.core.context import Context
+from url4.core.errors import ResolutionError, Url4Error
+from url4.core.grammar import _IDENTITY_NAME_RE
+from url4.core.nodes import Node
+from url4.core.render import render
+from url4.core.subrequest import (
     decode_expression_http,
     decode_subrequest_http,
     extract_expression_params,
 )
+from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
+from url4.dag.node import ProcessFn, default_process
+from url4.io.layer import FetchRequest, FetchResult, IOLayer, fetch_result
+from url4.peer.client import Url4Result
 
 # Transport-level query params a node consumes itself rather than re-attaching
 # to the expression (spec §11.6.3); `processor` is expression-bearing and its
@@ -409,7 +409,7 @@ class Url4Node:
         if self._outbound is not None:
             return self._outbound
         if self._owned_outbound is None:
-            from url4.io_http import HttpIOLayer  # composition root: lazy transport import
+            from url4.io.http import HttpIOLayer  # composition root: lazy transport import
 
             self._owned_outbound = HttpIOLayer()
         return self._owned_outbound

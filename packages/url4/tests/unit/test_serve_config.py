@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from url4._serve import ConfigError, ServeConfig, resolve
+from url4.cli._serve import ConfigError, ServeConfig, resolve
 
 CMDS = {"/upper": ("tr", "a-z", "A-Z"), "/echo": ("cat",)}
 

@@ -43,7 +43,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
-from url4.errors import CollectionError
+from url4.core.errors import CollectionError
 
 
 @runtime_checkable

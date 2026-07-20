@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from url4.errors import ScopeError
+from url4.core.errors import ScopeError
 
 
 @dataclass(frozen=True)

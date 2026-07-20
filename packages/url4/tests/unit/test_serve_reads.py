@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from url4._serve import ConfigError, ProviderSpec, ServeConfig, build_node, resolve
-from url4.errors import ResolutionError
+from url4.cli._serve import ConfigError, ProviderSpec, ServeConfig, build_node, resolve
+from url4.core.errors import ResolutionError
 
 CMDS = {"/echo": ("cat",)}
 

@@ -8,16 +8,16 @@ import json
 import pytest
 
 from url4 import StaticIOLayer
+from url4.core.errors import CollectionError, ResolutionError
+from url4.core.parser import build
 from url4.dag import run
-from url4.errors import CollectionError, ResolutionError
-from url4.parser import build
 
 # --- parse level ----------------------------------------------------------------
 
 
 def _iteration(node: object):
     """Narrow a parse result to Iteration for typed attribute access."""
-    from url4.nodes import Iteration
+    from url4.core.nodes import Iteration
 
     assert isinstance(node, Iteration)
     return node
@@ -243,7 +243,7 @@ async def test_reducer_receives_json_array_of_rows() -> None:
 
 def test_iteration_as_source_in_outer_expression_parses() -> None:
     # §5.3.1 — "The iteration expression as a source in an outer expression"
-    from url4.nodes import Expression, Iteration, Source
+    from url4.core.nodes import Expression, Iteration, Source
 
     node = build("(scores:0.0:https://data.com/records*(t=$item.answer)!/score())!'Agg $scores'")
     assert isinstance(node, Expression)

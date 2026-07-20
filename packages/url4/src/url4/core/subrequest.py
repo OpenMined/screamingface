@@ -18,7 +18,7 @@ import re
 from collections.abc import Sequence
 from urllib.parse import unquote, unquote_plus
 
-from url4._scan import balanced_body, split_top_level
+from url4.core._scan import balanced_body, split_top_level
 
 # Characters that cannot appear raw inside a context/intent payload:
 #   ( )  would desync the balanced-paren scan that delimits the context;

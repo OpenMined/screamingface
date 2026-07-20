@@ -57,7 +57,7 @@ in :mod:`url4.subrequest`; scope internals in :mod:`url4.context`.
 
 from __future__ import annotations
 
-from url4.builders import (
+from url4.core.builders import (
     ParamsLike,
     SourceLike,
     broadcast,
@@ -72,8 +72,7 @@ from url4.builders import (
     struct,
     text,
 )
-from url4.client import Client, Url4Result, evaluate_sync
-from url4.errors import (
+from url4.core.errors import (
     CollectionError,
     CycleError,
     ParseError,
@@ -82,17 +81,7 @@ from url4.errors import (
     ScopeError,
     Url4Error,
 )
-from url4.io_http import HttpIOLayer
-from url4.io_layer import (
-    FetchRequest,
-    FetchResult,
-    IOLayer,
-    SupportsDefaultRoute,
-    SupportsFetchEx,
-    SupportsHoldings,
-)
-from url4.io_static import StaticIOLayer
-from url4.nodes import (
+from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,
@@ -108,9 +97,20 @@ from url4.nodes import (
     Url,
     VarRef,
 )
-from url4.parser import build, walk
-from url4.render import render
-from url4.server import Request, Url4Node
+from url4.core.parser import build, walk
+from url4.core.render import render
+from url4.io.http import HttpIOLayer
+from url4.io.layer import (
+    FetchRequest,
+    FetchResult,
+    IOLayer,
+    SupportsDefaultRoute,
+    SupportsFetchEx,
+    SupportsHoldings,
+)
+from url4.io.static import StaticIOLayer
+from url4.peer.client import Client, Url4Result, evaluate_sync
+from url4.peer.server import Request, Url4Node
 
 __version__ = "0.1.0"
 

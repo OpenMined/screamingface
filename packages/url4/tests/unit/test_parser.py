@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from url4.errors import ParseError
-from url4.nodes import Binding, Expression, Iteration, RelUrl, Text, Url
-from url4.parser import (
+from url4.core.errors import ParseError
+from url4.core.nodes import Binding, Expression, Iteration, RelUrl, Text, Url
+from url4.core.parser import (
     Parser,
     split_collection_iteration,
     split_expr_params,

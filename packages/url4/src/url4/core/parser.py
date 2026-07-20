@@ -25,13 +25,13 @@ import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from url4._annotations import extract_directives, split_annotation_pairs
-from url4._scan import balanced_body
-from url4._scan import iter_top_level as _iter_top_level
-from url4._scan import split_top_level as _split_top_level
-from url4.errors import ParseError
-from url4.grammar import intent_atom, parse
-from url4.nodes import (
+from url4.core._annotations import extract_directives, split_annotation_pairs
+from url4.core._scan import balanced_body
+from url4.core._scan import iter_top_level as _iter_top_level
+from url4.core._scan import split_top_level as _split_top_level
+from url4.core.errors import ParseError
+from url4.core.grammar import intent_atom, parse
+from url4.core.nodes import (
     Binding,
     Expression,
     ForeachDirectives,
@@ -41,7 +41,7 @@ from url4.nodes import (
     Params,
     Source,
 )
-from url4.nodes import walk as _walk
+from url4.core.nodes import walk as _walk
 
 
 def split_intent(expr: str) -> tuple[str, str | None, bool]:

@@ -17,12 +17,12 @@ import httpx
 import pytest
 
 from url4 import StaticIOLayer
-from url4.builders import src
-from url4.client import Client
-from url4.errors import ResolutionError, Url4Error
-from url4.io_http import HttpIOLayer
-from url4.io_layer import FetchRequest
-from url4.server import Request, Url4Node
+from url4.core.builders import src
+from url4.core.errors import ResolutionError, Url4Error
+from url4.io.http import HttpIOLayer
+from url4.io.layer import FetchRequest
+from url4.peer.client import Client
+from url4.peer.server import Request, Url4Node
 
 pytestmark = pytest.mark.asyncio
 
@@ -273,7 +273,7 @@ async def test_constructor_data_param():
 async def test_dual_wire_conventions_are_codec_owned():
     # WHY: spec §3.4 — a node MUST accept url4's raw-structural escaping AND a
     # standard client's full percent-encoding; the codec module owns both.
-    from url4.subrequest import decode_expression_http, decode_subrequest_http
+    from url4.core.subrequest import decode_expression_http, decode_subrequest_http
 
     raw = "(a=https://x)!'go'"
     encoded = "%28a%3Dhttps%3A%2F%2Fx%29%21%27go%27"

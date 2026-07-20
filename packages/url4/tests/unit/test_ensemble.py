@@ -7,18 +7,18 @@ import json
 import pytest
 from conftest import RecordingIOLayer
 
-from url4.context import Context
-from url4.dag import ExecutionContext, run
-from url4.ensemble import (
+from url4.core.context import Context
+from url4.core.ensemble import (
     FanoutResponse,
     substitute_env_vars,
     substitute_item,
     substitute_response_vars,
 )
-from url4.errors import CollectionError, ResolutionError, ScopeError
-from url4.io_layer import parse_collection
-from url4.io_static import StaticIOLayer
-from url4.subrequest import decode_subrequest
+from url4.core.errors import CollectionError, ResolutionError, ScopeError
+from url4.core.subrequest import decode_subrequest
+from url4.dag import ExecutionContext, run
+from url4.io.layer import parse_collection
+from url4.io.static import StaticIOLayer
 
 
 @pytest.mark.asyncio

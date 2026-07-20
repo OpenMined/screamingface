@@ -24,10 +24,10 @@ from __future__ import annotations
 import asyncio
 from typing import cast
 
-from url4.context import Context
-from url4.errors import CycleError
-from url4.io_layer import IOLayer
-from url4.nodes import Node as AstNode
+from url4.core.context import Context
+from url4.core.errors import CycleError
+from url4.core.nodes import Node as AstNode
+from url4.io.layer import IOLayer
 
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.node import (  # isort: skip
@@ -343,7 +343,7 @@ def _run_context(
     if io is None:
         # Composition-root default: imported lazily so the execution core's
         # static import graph never references a concrete transport (httpx).
-        from url4.io_http import HttpIOLayer
+        from url4.io.http import HttpIOLayer
 
         io = owned_io = HttpIOLayer()
     run_ctx = ExecutionContext(

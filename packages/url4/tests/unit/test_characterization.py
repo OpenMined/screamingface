@@ -12,9 +12,9 @@ import pytest
 from conftest import RecordingIOLayer
 
 from url4 import StaticIOLayer
+from url4.core.grammar import parse as grammar_parse
+from url4.core.subrequest import decode_subrequest
 from url4.dag import run
-from url4.grammar import parse as grammar_parse
-from url4.subrequest import decode_subrequest
 
 
 @pytest.mark.asyncio

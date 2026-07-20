@@ -9,7 +9,7 @@ from types import ModuleType
 import pytest
 
 from url4 import IOLayer, StaticIOLayer
-from url4.errors import ResolutionError
+from url4.core.errors import ResolutionError
 
 
 @pytest.fixture
