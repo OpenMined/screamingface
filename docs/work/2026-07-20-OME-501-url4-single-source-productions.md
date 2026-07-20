@@ -90,7 +90,7 @@ RED first, each pinning the currently-wrong behaviour:
   - `src/url4/dag/nodes.py` — `_wire_params` applies the shared filter (C)
   - `src/url4/server.py` — `_TRANSPORT_PARAMS` DERIVED from the shared rule (C)
 
-- **Commits:** `4c72b66` — fix(url4): collapse three duplicated productions onto one source of truth
+- **Commits:** `f6a3ca6` — fix(url4): collapse three duplicated productions onto one source of truth
 
 - **Gates:** `run_gates.py url4` — ALL GREEN. append-only test check ✓ · ruff check ✓ ·
   ruff format ✓ · pyright ✓ · pytest 835 passed, coverage ≥95% ✓
