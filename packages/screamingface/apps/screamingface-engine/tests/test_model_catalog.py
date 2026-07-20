@@ -15,7 +15,7 @@ def test_gateway_catalog_forwards_every_supported_provider_model_in_order() -> N
             GatewayModel("gemini-cli/gemini-2.5-pro", "gemini-cli"),
             GatewayModel("gemini-cli/gemini-2.0-flash", "gemini-cli"),
             GatewayModel("antigravity/gemini-3-flash", "antigravity"),
-            GatewayModel("huggingface/Qwen/Qwen3", "huggingface"),
+            GatewayModel("huggingface/Qwen/Qwen3:novita", "huggingface"),
         )
     )
 
@@ -26,6 +26,11 @@ def test_gateway_catalog_forwards_every_supported_provider_model_in_order() -> N
         ("codex/gpt-5.4-mini", "codex/gpt-5.4-mini", "codex"),
         ("gemini/2.5-pro", "gemini-cli/gemini-2.5-pro", "gemini"),
         ("gemini/2.0-flash", "gemini-cli/gemini-2.0-flash", "gemini"),
+        (
+            "huggingface/Qwen/Qwen3~novita",
+            "huggingface/Qwen/Qwen3:novita",
+            "huggingface",
+        ),
     ]
     assert routes[0].tool_capabilities == ()
     assert routes[1].tool_capabilities == ("web_search",)
@@ -35,7 +40,7 @@ def test_gateway_catalog_forwards_every_supported_provider_model_in_order() -> N
     "models",
     [
         (),
-        (GatewayModel("huggingface/model", "huggingface"),),
+        (GatewayModel("openrouter/model", "openrouter"),),
     ],
 )
 def test_catalog_requires_at_least_one_supported_provider_model(
@@ -61,6 +66,7 @@ def test_catalog_rejects_duplicate_public_routes() -> None:
         GatewayModel("claude-sonnet-latest", "anthropic"),
         GatewayModel("gpt-5.5", "codex"),
         GatewayModel("gemini-cli/not-gemini", "gemini-cli"),
+        GatewayModel("huggingface/Qwen/Qwen3", "huggingface"),
     ],
 )
 def test_supported_provider_aliases_are_strict(model: GatewayModel) -> None:

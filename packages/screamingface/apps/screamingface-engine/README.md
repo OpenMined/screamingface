@@ -45,19 +45,28 @@ connection control plane. All other request dispatch remains owned by `Url4Node`
 
 ## Provider connections
 
-The public registry advertises `codex`, `gemini`, and `anthropic` capabilities and explicitly maps
-every discovered model owned by those supported Gateway providers to one public provider. Gateway
-order is preserved. Adding or removing one of those provider's models takes effect on engine
-restart without a ScreamingFace availability edit. Models owned by providers without a
-ScreamingFace connection contract remain hidden. Private AI Gateway provider names, connection
-UUIDs, credential locators, claims, and tokens never appear in registry or connection responses.
+The public registry advertises `codex`, `gemini`, `anthropic`, and `huggingface` capabilities and
+explicitly maps every discovered model owned by those supported Gateway providers to one public
+provider. Gateway order is preserved. Adding or removing one of those providers' models takes
+effect on engine restart without a ScreamingFace availability edit. Models owned by providers
+without a ScreamingFace connection contract remain hidden. Private AI Gateway provider names,
+connection UUIDs, credential locators, claims, and tokens never appear in registry or connection
+responses.
+
+Provider display names and supported authentication methods are temporarily explicit
+ScreamingFace policy. They are expected soon to come from a protected AI Gateway provider
+discovery endpoint, read and validated with the model catalog at engine startup. Until that
+contract exists, the engine does not infer authentication methods from model IDs.
 
 ScreamingFace still owns its public aliases and request IDs. For example,
 `claude-sonnet-4-6` becomes public `claude/sonnet-4.6` and is sent to chat completion as
 `anthropic/claude-sonnet-4-6`; `gemini-cli/gemini-2.5-flash` becomes public
-`gemini/2.5-flash`; Codex IDs are already public and pass through unchanged. A malformed supported
-provider record, a duplicate public alias, an unavailable catalog, or a catalog containing no
-supported models prevents startup rather than exposing a stale or partial service.
+`gemini/2.5-flash`; Codex IDs are already public and pass through unchanged. A pinned Hugging Face
+ID such as `huggingface/deepseek-ai/DeepSeek-V4-Pro:deepinfra` is exposed as the URL4-safe public
+ID `huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra`, while the exact colon-pinned ID is retained
+for AI Gateway calls. A malformed supported provider record, an unpinned Hugging Face model, a
+duplicate public alias, an unavailable catalog, or a catalog containing no supported models
+prevents startup rather than exposing a stale or partial service.
 
 Use the SDK-facing engine API:
 
@@ -71,6 +80,8 @@ connection = flow.wait()
 
 sf.connect("gemini", api_key="...")
 sf.disconnect("gemini")
+
+sf.connect("huggingface", api_key="hf_...")
 ```
 
 ScreamingFace owns exactly the AI Gateway connection whose private label is `default`, and model

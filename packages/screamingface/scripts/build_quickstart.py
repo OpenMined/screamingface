@@ -36,6 +36,18 @@ ScreamingFace provider panel, which stores provider credentials through the engi
 provider is disconnected, evaluation raises one actionable `ConnectionRequiredError` before model
 calls; provider authentication never becomes repeated per-case failures.
 
+### Gemini compatibility · July 2026
+
+Some newly created Google API projects may receive `model no longer available` for Gemini 2.5
+even when their quota dashboard displays Gemini 2.5 limits. The local AI Gateway used by this
+notebook does not yet register Google's recommended `gemini-3.5-flash` or
+`gemini-3.1-pro-preview` replacements. If that happens, replace the Gemini member below with
+another connected model advertised by `sf.models.list()`.
+
+Hugging Face does not provide Gemini through this integration. The forthcoming Hugging Face route
+is for open models such as DeepSeek and GLM through pinned inference providers; Gemini 3 still
+requires explicit AI Gateway support.
+
 GPQA is fetched through this notebook's Hugging Face session, so accept its dataset terms and
 authenticate this Python environment when required:
 

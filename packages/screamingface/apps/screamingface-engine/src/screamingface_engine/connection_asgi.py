@@ -19,7 +19,9 @@ type Receive = Callable[[], Awaitable[Message]]
 type Send = Callable[[Message], Awaitable[None]]
 
 MAX_CONNECTION_BODY_BYTES = 16_384
-CALLBACK_PATHS = frozenset(provider.callback_path for provider in PROVIDER_ROUTES)
+CALLBACK_PATHS = frozenset(
+    provider.callback_path for provider in PROVIDER_ROUTES if provider.callback_path is not None
+)
 _CALLBACK_SUCCESS = """<!doctype html>
 <html><body><p>Authentication complete. You may close this window.</p></body></html>
 """

@@ -13,6 +13,10 @@ from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES
 type AuthMethod = Literal["oauth", "api_key"]
 
 _CLAUDE_MODEL = re.compile(r"^claude-([a-z0-9-]+)-(\d+)-(\d+)$")
+_HUGGINGFACE_MODEL = re.compile(
+    r"^huggingface/(?P<organization>[A-Za-z0-9._-]+)/"
+    r"(?P<model>[A-Za-z0-9._-]+):(?P<inference_provider>[A-Za-z0-9._-]+)$"
+)
 _CAPABILITY_POLICY = {"claude/sonnet-4.6": ("web_search",)}
 
 
@@ -36,7 +40,7 @@ class ProviderRoute:
     display_name: str
     gateway_provider: str
     auth_methods: tuple[AuthMethod, ...]
-    callback_path: str
+    callback_path: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +75,19 @@ PROVIDER_ROUTES = (
         ("oauth", "api_key"),
         "/callback",
     ),
+    ProviderRoute(
+        "huggingface",
+        "Hugging Face",
+        "huggingface",
+        ("api_key",),
+        None,
+    ),
 )
+
+# AIDEV-NOTE: This explicit provider/auth policy is temporary. AI Gateway is expected
+# to expose provider and auth-method discovery soon; replace this tuple with one
+# validated startup snapshot when that protected contract exists. Never infer auth
+# methods from model IDs.
 
 
 def resolve_model_routes(models: Sequence[GatewayModel]) -> tuple[ModelRoute, ...]:
@@ -115,6 +131,16 @@ def _model_route(model: GatewayModel) -> ModelRoute | None:
         public_id = f"gemini/{model.id.removeprefix(prefix)}"
         gateway_model = model.id
         provider = "gemini"
+    elif model.owned_by == "huggingface":
+        match = _HUGGINGFACE_MODEL.fullmatch(model.id)
+        if match is None:
+            raise _alias_error(model)
+        organization, name, inference_provider = match.groups()
+        # INVARIANT: ':' remains private to AI Gateway's provider pin; '~' keeps the
+        # public model ID unambiguous inside URL4 paths and expressions.
+        public_id = f"huggingface/{organization}/{name}~{inference_provider}"
+        gateway_model = model.id
+        provider = "huggingface"
     else:
         return None
     return ModelRoute(

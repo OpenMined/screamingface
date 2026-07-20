@@ -1,12 +1,13 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 5 and provider-connection Phases 6A–6C implemented; Phase 7A in progress
+**Status:** Phases 1–8A and 9B.1 implemented; Phase 7A live acceptance is in progress
 **Date:** 2026-07-18
 **Last updated:** 2026-07-20
 **Normative contracts:**
 
 - [`docs/spec/2026-07-18-OME-400-benchmark-public-contract.md`](../spec/2026-07-18-OME-400-benchmark-public-contract.md)
 - [`docs/spec/2026-07-20-OME-400-provider-connections-contract.md`](../spec/2026-07-20-OME-400-provider-connections-contract.md)
+- [`docs/spec/2026-07-20-OME-400-huggingface-tavily-contract.md`](../spec/2026-07-20-OME-400-huggingface-tavily-contract.md)
 
 This plan supersedes the unreleased benchmark SDK and notebook contracts. ScreamingFace has no
 external SDK users yet, so implementation should target the approved design directly. Do not add
@@ -574,6 +575,30 @@ runtime abstraction. It is split into separately reviewed slices:
 
 Phase 7A automation never submits a credential or makes a paid provider call. The researcher owns
 the interactive authorization and chooses when to run the documented 15-call quickstart.
+
+### Phase 9 — Hugging Face research tools through Tavily
+
+The approved Phase 9 contract is
+[`docs/spec/2026-07-20-OME-400-huggingface-tavily-contract.md`](../spec/2026-07-20-OME-400-huggingface-tavily-contract.md).
+It replaces the temporary SearXNG research adapter with engine-owned Tavily search/extract while
+keeping model execution and model credentials in AI Gateway. The SDK continues to call only the
+configured ScreamingFace engine; generic URL4 remains unchanged.
+
+Phase 9 is split into separately testable units:
+
+- **9B.1 (implemented):** discover pinned Hugging Face models from Gateway, derive URL4-safe
+  `~provider` aliases, and bridge HF API-key connections without advertising tools.
+- **9B.2:** add Tavily as an engine-owned API-key tool provider.
+- **9B.3:** replace the unreleased string-tool representation with typed Tavily benchmark policy
+  and scalar URL4 compilation.
+- **9B.4:** implement the bounded HF model/tool loop and remove SearXNG/direct page fetching.
+- **9B.5:** pin the canonical DRACO configuration and prove one-case, two-member, and complete-run
+  readiness against real services.
+
+Gateway model availability remains sourced from `GET /v1/models`. Gateway provider/auth discovery,
+per-model request capability discovery, and strict rejection of silently ignored parameters are
+external Gateway contract gaps; ScreamingFace does not hide them with defaults or direct provider
+traffic.
 
 ### Future phases — explicitly deferred
 

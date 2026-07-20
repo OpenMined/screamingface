@@ -95,6 +95,33 @@ def test_engine_model_discovery_and_sdk_benchmark_discovery_are_separate() -> No
         ]
 
 
+def test_sdk_discovers_url4_safe_huggingface_aliases_from_engine_registry() -> None:
+    registry = _registry()
+    providers = cast(list[object], registry["providers"])
+    providers.append(
+        {
+            "id": "huggingface",
+            "display_name": "Hugging Face",
+            "auth_methods": ["api_key"],
+        }
+    )
+    models = cast(list[object], registry["models"])
+    models.append(
+        {
+            "id": "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",
+            "provider": "huggingface",
+            "supported_tools": [],
+        }
+    )
+
+    with _profile_server({"/.well-known/screamingface": json.dumps(registry)}) as engine:
+        sf.config(engine=engine)
+
+        assert sf.models.list(query="huggingface/") == [
+            "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra"
+        ]
+
+
 def test_benchmark_discovery_does_not_contact_the_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

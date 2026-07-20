@@ -141,7 +141,7 @@ async def test_startup_builds_routes_and_registry_from_one_gateway_catalog_snaps
                             "owned_by": "gemini-cli",
                         },
                         {
-                            "id": "huggingface/model",
+                            "id": "huggingface/Qwen/Qwen3:novita",
                             "object": "model",
                             "owned_by": "huggingface",
                         },
@@ -175,6 +175,7 @@ async def test_startup_builds_routes_and_registry_from_one_gateway_catalog_snaps
         "claude/opus-4.8",
         "codex/gpt-5.4-mini",
         "gemini/2.5-pro",
+        "huggingface/Qwen/Qwen3~novita",
     ]
     assert answer.text == "answer"
     assert requests == [("GET", "/v1/models"), ("POST", "/v1/chat/completions")]

@@ -178,6 +178,7 @@ async def test_status_projection_handles_reauth_and_ignores_unmanaged_labels() -
         "pending",
         "needs_reauth",
         "needs_reauth",
+        "not_connected",
     ]
     assert connections[0]["account_label"] == "Pending Researcher"
     assert connections[2]["account_label"] == "anthropic-subject"
