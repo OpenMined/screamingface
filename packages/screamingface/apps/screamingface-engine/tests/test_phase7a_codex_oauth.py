@@ -8,6 +8,7 @@ from uuid import UUID
 
 import httpx
 import pytest
+from model_fixtures import MODEL_ROUTES
 
 from screamingface_engine import cli
 from screamingface_engine.app import create_app
@@ -54,6 +55,7 @@ async def test_codex_oauth_uses_registered_engine_callback_and_secret_safe_relay
         "http://gateway.test", timeout=5, transport=httpx.MockTransport(handler)
     )
     app = create_app(
+        model_routes=MODEL_ROUTES,
         settings=Settings(
             gateway_url="http://gateway.test",
             codex_oauth_redirect_uri=CODEX_REDIRECT_URI,

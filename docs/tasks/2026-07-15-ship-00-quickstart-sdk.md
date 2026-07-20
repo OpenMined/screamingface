@@ -745,3 +745,17 @@ secrets, or a direct SDK-to-Gateway path.
 Added an explicit `not_scheduled` result for every case stopped by the canary. Reports now
 distinguish attempted failures from skipped cases, show the real provider failure once, and retain
 the strict paired-coverage rule without turning missing work into zero scores.
+
+## Phase 8A Gateway-derived engine model catalog — 2026-07-20
+
+Implemented execution removes static model availability from the ScreamingFace engine. At startup the
+engine reads AI Gateway's `GET /v1/models`, strictly resolves every model belonging to the existing
+Codex, Gemini, or Anthropic provider contracts, and builds both URL4 endpoints and the public
+ScreamingFace registry from that one tuple. ScreamingFace retains public alias normalization and
+named-tool policy. Unknown providers remain hidden until their connection metadata is designed.
+
+The engine fails startup rather than serving an empty, stale, or partially malformed catalog.
+Discovery is one startup snapshot and changes take effect after restart. The SDK API and transport
+remain unchanged and never contact AI Gateway directly. The live development stack exposed all 14
+supported-provider Gateway models after restart while omitting providers without ScreamingFace
+connection contracts.

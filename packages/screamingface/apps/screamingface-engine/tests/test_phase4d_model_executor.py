@@ -4,9 +4,10 @@ import json
 from collections.abc import Mapping, Sequence
 
 import pytest
+from model_fixtures import MODEL_ROUTES
 from url4 import Request, ResolutionError
 
-from screamingface_engine.catalog import MODEL_ROUTES, ModelRoute
+from screamingface_engine.catalog import ModelRoute
 from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import AssistantTurn, ToolCall
 from screamingface_engine.web_research import SearchResult

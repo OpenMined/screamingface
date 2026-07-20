@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from model_fixtures import MODEL_ROUTES
 
 from screamingface_engine.app import create_app
 from screamingface_engine.gateway import GatewayClient
@@ -116,7 +117,9 @@ async def test_configured_app_advertises_and_executes_web_search_as_plaintext() 
         transport=httpx.MockTransport(search_handler),
         resolver=_public_address,
     )
-    app = create_app(settings=settings, gateway=gateway, research=research)
+    app = create_app(
+        model_routes=MODEL_ROUTES, settings=settings, gateway=gateway, research=research
+    )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         registry = json.loads((await client.get("/.well-known/screamingface")).text)
@@ -171,7 +174,9 @@ async def test_engine_lifespan_owns_research_client() -> None:
     gateway.aclose = close_gateway
     research.start = start_research
     research.aclose = close_research
-    app = create_app(settings=settings, gateway=gateway, research=research)
+    app = create_app(
+        model_routes=MODEL_ROUTES, settings=settings, gateway=gateway, research=research
+    )
     received = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
     sent: list[MutableMapping[str, Any]] = []
 
@@ -210,7 +215,9 @@ async def test_engine_lifespan_cleans_up_when_research_startup_fails() -> None:
     gateway.aclose = AsyncMock()
     research.start = AsyncMock(side_effect=RuntimeError("search unavailable"))
     research.aclose = AsyncMock()
-    app = create_app(settings=settings, gateway=gateway, research=research)
+    app = create_app(
+        model_routes=MODEL_ROUTES, settings=settings, gateway=gateway, research=research
+    )
     received = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
     sent: list[MutableMapping[str, Any]] = []
 
@@ -247,7 +254,7 @@ async def test_engine_preserves_safe_gateway_code_without_private_detail() -> No
             )
         ),
     )
-    app = create_app(settings=Settings(), gateway=gateway)
+    app = create_app(model_routes=MODEL_ROUTES, settings=Settings(), gateway=gateway)
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"

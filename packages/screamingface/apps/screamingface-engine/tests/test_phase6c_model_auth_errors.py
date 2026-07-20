@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from model_fixtures import MODEL_ROUTES
 from url4 import Request, ResolutionError
 
-from screamingface_engine.catalog import MODEL_ROUTES
 from screamingface_engine.gateway import GatewayClient
 
 

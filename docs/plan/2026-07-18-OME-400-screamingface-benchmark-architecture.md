@@ -705,8 +705,22 @@ packages/screamingface/examples/
 The actual module split should follow repository conventions found during implementation. Public
 names and behavioral boundaries are fixed by the spec; private filenames are not.
 
-## 7. Immediate next step
+## 7. Latest completed step
 
-Implement Phase 6A only after a final owner execution approval. Keep the dataset SDK-local, retain
-connection-independent model discovery, and do not add a substitute judge, runtime fallback,
-direct Gateway client, hosted anonymous deployment, or dataset credential manager.
+Phase 8A implemented the approved Gateway-derived engine model catalog. It kept datasets SDK-local,
+retained connection-independent model discovery, and did not add a substitute judge, runtime
+fallback, direct SDK Gateway client, hosted anonymous deployment, or dataset credential manager.
+
+### Phase 8A — Gateway-derived engine model routes
+
+1. Add strict `GatewayClient.list_models()` decoding for the protected `GET /v1/models` response.
+2. Replace static model availability with provider policy plus deterministic public-ID and
+   provider-qualified request-ID derivation.
+3. Resolve the catalog once during engine startup and build the `Url4Node` endpoints and public
+   registry from the same immutable records.
+4. Fail startup on Gateway/catalog/normalization errors or when no supported model remains; never
+   serve a static fallback.
+5. Preserve Gateway order, omit providers without an approved ScreamingFace connection contract,
+   and default new routes to no named tools.
+6. Prove the SDK still has no AI Gateway destination or client and validate the real Docker
+   registry against the live Gateway catalog without provider spend.

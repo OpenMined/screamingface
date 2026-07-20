@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ from typing import Any, NoReturn
 import httpx
 from url4 import Request, ResolutionError
 
-from screamingface_engine.catalog import ModelRoute
+from screamingface_engine.catalog import GatewayModel, ModelRoute
 
 _ALLOWED_PARAMS = frozenset({"temperature", "max_tokens", "reasoning"})
 _REASONING_VALUES = frozenset({"low", "medium", "high"})
@@ -32,6 +33,10 @@ _TRANSIENT_GATEWAY_CODES = frozenset(
 
 class GatewayResponseTooLargeError(Exception):
     """An internal Gateway response exceeded its caller's explicit byte budget."""
+
+
+class GatewayCatalogError(RuntimeError):
+    """AI Gateway model discovery could not produce a safe startup snapshot."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +102,25 @@ class GatewayClient:
         if turn.content is None:
             raise ResolutionError(f"AI Gateway response has no text content for {model.id!r}")
         return turn.content
+
+    async def list_models(self) -> tuple[GatewayModel, ...]:
+        """Read and strictly decode AI Gateway's protected startup model catalog."""
+
+        try:
+            response = await self.request("GET", "/v1/models")
+        except httpx.TimeoutException as exc:
+            raise GatewayCatalogError("AI Gateway model catalog timed out") from exc
+        except httpx.RequestError as exc:
+            raise GatewayCatalogError("AI Gateway model catalog is unavailable") from exc
+        if not response.is_success:
+            raise GatewayCatalogError(
+                f"AI Gateway model catalog returned HTTP {response.status_code}"
+            )
+        try:
+            payload: Any = json.loads(response.text, object_pairs_hook=_unique_object)
+            return _model_catalog(payload)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GatewayCatalogError(f"invalid AI Gateway model catalog: {exc}") from exc
 
     async def turn(
         self,
@@ -182,6 +206,60 @@ def _request_messages(request: Request) -> list[dict[str, object]]:
         messages.append({"role": "system", "content": request.intent})
     messages.append({"role": "user", "content": request.context})
     return messages
+
+
+def _model_catalog(payload: Any) -> tuple[GatewayModel, ...]:
+    # INVARIANT: Startup never constructs routes from an ambiguous or partially decoded catalog.
+    if not isinstance(payload, dict):
+        raise TypeError("catalog must be an object")
+    _exact_fields(payload, {"object", "data"}, "catalog")
+    if payload["object"] != "list":
+        raise ValueError("catalog object must be 'list'")
+    data = payload["data"]
+    if not isinstance(data, list):
+        raise TypeError("catalog data must be a list")
+    models: list[GatewayModel] = []
+    identities: set[tuple[str, str]] = set()
+    for index, value in enumerate(data):
+        if not isinstance(value, dict):
+            raise TypeError(f"catalog model {index} must be an object")
+        _exact_fields(value, {"id", "object", "owned_by"}, f"catalog model {index}")
+        if value["object"] != "model":
+            raise ValueError(f"catalog model {index} object must be 'model'")
+        model = GatewayModel(
+            _nonblank(value["id"], f"catalog model {index} ID"),
+            _nonblank(value["owned_by"], f"catalog model {index} owner"),
+        )
+        identity = (model.owned_by, model.id)
+        if identity in identities:
+            raise ValueError(f"duplicate catalog model {model.id!r} for {model.owned_by!r}")
+        identities.add(identity)
+        models.append(model)
+    return tuple(models)
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate field {key!r}")
+        value[key] = item
+    return value
+
+
+def _exact_fields(payload: Mapping[str, Any], expected: set[str], label: str) -> None:
+    missing = expected - set(payload)
+    unknown = set(payload) - expected
+    if missing:
+        raise ValueError(f"{label} is missing field(s): {', '.join(sorted(missing))}")
+    if unknown:
+        raise ValueError(f"{label} has unknown field(s): {', '.join(sorted(unknown))}")
+
+
+def _nonblank(value: object, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} must be a non-blank string")
+    return value
 
 
 def _turn_body(

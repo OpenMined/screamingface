@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from model_fixtures import MODEL_ROUTES
 from url4 import Url4Node
 
 from screamingface_engine.app import create_app
@@ -35,7 +36,7 @@ def test_request_target_limit_has_a_validated_environment_override() -> None:
 
 @pytest.mark.asyncio
 async def test_registry_advertises_the_configured_request_target_limit() -> None:
-    app = create_app(settings=Settings(max_request_target_bytes=4096))
+    app = create_app(model_routes=MODEL_ROUTES, settings=Settings(max_request_target_bytes=4096))
     transport = httpx.ASGITransport(app=app)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:

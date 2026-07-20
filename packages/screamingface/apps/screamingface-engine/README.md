@@ -20,9 +20,7 @@ executable capabilities:
 ```text
 GET /healthz
 GET /.well-known/screamingface
-GET /codex/gpt-5.5?[params&]q=(context)!intent
-GET /gemini/2.5-flash?[params&]q=(context)!intent
-GET /claude/sonnet-4.6?[params&]q=(context)!intent
+GET /{public-provider}/{model}?[params&]q=(context)!intent
 GET /reducers/majority-vote?q=(resolved-member-object)
 GET /v1?q=<complete URL4 expression>
 GET /v1/connections
@@ -34,7 +32,10 @@ DELETE /v1/connections/{provider}
 
 URL4 and model success bodies remain plaintext. The registry is JSON text, while the separate
 private connection control plane returns sanitized JSON. Model routes return only the first AI
-Gateway assistant message text. The SDK never contacts AI Gateway directly.
+Gateway assistant message text. At startup, the engine reads AI Gateway's protected
+`GET /v1/models` catalog once, derives public routes for supported providers, and builds the URL4
+node and public registry from the same immutable snapshot. There is no static availability
+fallback or per-request catalog lookup. The SDK never contacts AI Gateway directly.
 
 The application is one persistent `Url4Node` process. Its model handlers call AI Gateway
 in-process through one shared asynchronous HTTP client; they do not launch route subprocesses or
@@ -45,8 +46,18 @@ connection control plane. All other request dispatch remains owned by `Url4Node`
 ## Provider connections
 
 The public registry advertises `codex`, `gemini`, and `anthropic` capabilities and explicitly maps
-every model to one of those public providers. Private AI Gateway provider names, connection UUIDs,
-credential locators, claims, and tokens never appear in registry or connection responses.
+every discovered model owned by those supported Gateway providers to one public provider. Gateway
+order is preserved. Adding or removing one of those provider's models takes effect on engine
+restart without a ScreamingFace availability edit. Models owned by providers without a
+ScreamingFace connection contract remain hidden. Private AI Gateway provider names, connection
+UUIDs, credential locators, claims, and tokens never appear in registry or connection responses.
+
+ScreamingFace still owns its public aliases and request IDs. For example,
+`claude-sonnet-4-6` becomes public `claude/sonnet-4.6` and is sent to chat completion as
+`anthropic/claude-sonnet-4-6`; `gemini-cli/gemini-2.5-flash` becomes public
+`gemini/2.5-flash`; Codex IDs are already public and pass through unchanged. A malformed supported
+provider record, a duplicate public alias, an unavailable catalog, or a catalog containing no
+supported models prevents startup rather than exposing a stale or partial service.
 
 Use the SDK-facing engine API:
 
@@ -74,8 +85,9 @@ Gemini API-key connections remain available. The engine relays
 only `code` and `state` over its loopback Gateway connection and returns its own generic HTML page.
 The SDK never handles callback codes or provider tokens.
 
-The Compose profile also configures an internal SearXNG service. Claude then advertises the named
-`web_search` capability; Codex and Gemini remain tool-free. A capable model may call the engine's
+The Compose profile also configures an internal SearXNG service. The explicit capability overlay
+currently adds `web_search` to `claude/sonnet-4.6`; all other dynamically discovered routes remain
+tool-free. A capable model may call the engine's
 standard `web_search` and `web_fetch` functions multiple times within a bounded loop. SearXNG
 returns candidate titles, URLs, and snippets; the engine can read bounded public HTML/plaintext
 pages after rejecting credentials, non-HTTP(S) URLs, private/non-global targets, unsafe redirects,

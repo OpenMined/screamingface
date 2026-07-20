@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 import pytest
 import screamingface as sf
+from model_fixtures import MODEL_ROUTES
 from screamingface._compiler import compile_fusion
 from url4 import Request, ResolutionError
 
@@ -62,6 +63,7 @@ def test_majority_vote_rejects_malformed_requests(reducer_request: Request, mess
 
 def _app(gateway: GatewayClient):
     return create_app(
+        model_routes=MODEL_ROUTES,
         settings=Settings(gateway_url="http://gateway.test"),
         gateway=gateway,
     )

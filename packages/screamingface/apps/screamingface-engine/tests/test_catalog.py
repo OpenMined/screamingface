@@ -4,16 +4,17 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from model_fixtures import MODEL_ROUTES
 
 from screamingface_engine import catalog, cli
 
 
 def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> None:
-    registry = catalog.registry_document()
+    registry = catalog.registry_document(MODEL_ROUTES)
 
-    assert len({model.id for model in catalog.MODEL_ROUTES}) == len(catalog.MODEL_ROUTES)
-    assert len({model.route for model in catalog.MODEL_ROUTES}) == len(catalog.MODEL_ROUTES)
-    assert all(model.gateway_model for model in catalog.MODEL_ROUTES)
+    assert len({model.id for model in MODEL_ROUTES}) == len(MODEL_ROUTES)
+    assert len({model.route for model in MODEL_ROUTES}) == len(MODEL_ROUTES)
+    assert all(model.gateway_model for model in MODEL_ROUTES)
     assert registry == {
         "schema": "screamingface.registry.v1",
         "response_schemas": ["screamingface.fusion-result.v1"],
@@ -28,7 +29,7 @@ def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> Non
         ],
         "models": [
             {"id": model.id, "provider": model.provider, "supported_tools": []}
-            for model in catalog.MODEL_ROUTES
+            for model in MODEL_ROUTES
         ],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
     }

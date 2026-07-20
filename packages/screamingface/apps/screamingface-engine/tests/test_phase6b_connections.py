@@ -6,6 +6,7 @@ from uuid import UUID
 
 import httpx
 import pytest
+from model_fixtures import MODEL_ROUTES
 
 from screamingface_engine.app import create_app
 from screamingface_engine.gateway import GatewayClient
@@ -46,7 +47,7 @@ def _settings() -> Settings:
 
 @pytest.mark.asyncio
 async def test_registry_advertises_public_provider_ownership_without_gateway_aliases() -> None:
-    app = create_app(settings=_settings())
+    app = create_app(model_routes=MODEL_ROUTES, settings=_settings())
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
     ) as client:
@@ -77,7 +78,7 @@ async def test_registry_advertises_public_provider_ownership_without_gateway_ali
 
 @pytest.mark.asyncio
 async def test_gemini_oauth_is_not_startable_while_api_keys_remain_advertised() -> None:
-    app = create_app(settings=_settings())
+    app = create_app(model_routes=MODEL_ROUTES, settings=_settings())
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
     ) as client:
@@ -116,7 +117,7 @@ async def test_connection_list_and_status_are_sanitized_and_fresh() -> None:
     gateway = GatewayClient(
         "http://gateway.test", timeout=5, transport=httpx.MockTransport(handler)
     )
-    app = create_app(settings=_settings(), gateway=gateway)
+    app = create_app(model_routes=MODEL_ROUTES, settings=_settings(), gateway=gateway)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
     ) as client:
@@ -176,7 +177,7 @@ async def test_api_key_put_creates_gateway_connection_without_echoing_secret() -
     gateway = GatewayClient(
         "http://gateway.test", timeout=5, transport=httpx.MockTransport(handler)
     )
-    app = create_app(settings=_settings(), gateway=gateway)
+    app = create_app(model_routes=MODEL_ROUTES, settings=_settings(), gateway=gateway)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
     ) as client:
@@ -232,7 +233,7 @@ async def test_oauth_start_and_provider_callback_remain_engine_owned() -> None:
     gateway = GatewayClient(
         "http://gateway.test", timeout=5, transport=httpx.MockTransport(handler)
     )
-    app = create_app(settings=_settings(), gateway=gateway)
+    app = create_app(model_routes=MODEL_ROUTES, settings=_settings(), gateway=gateway)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
     ) as client:
@@ -276,7 +277,7 @@ async def test_disconnect_is_idempotent_and_does_not_invent_gateway_ids() -> Non
     gateway = GatewayClient(
         "http://gateway.test", timeout=5, transport=httpx.MockTransport(handler)
     )
-    app = create_app(settings=_settings(), gateway=gateway)
+    app = create_app(model_routes=MODEL_ROUTES, settings=_settings(), gateway=gateway)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
     ) as client:
@@ -300,7 +301,7 @@ async def test_connection_routes_reject_unknown_providers_and_malformed_secret_b
             lambda _request: pytest.fail("invalid request reached AI Gateway")
         ),
     )
-    app = create_app(settings=_settings(), gateway=gateway)
+    app = create_app(model_routes=MODEL_ROUTES, settings=_settings(), gateway=gateway)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
     ) as client:
@@ -333,7 +334,7 @@ async def test_gateway_connection_failure_is_normalized_without_unsafe_body() ->
             lambda _request: httpx.Response(503, text="private upstream diagnostic")
         ),
     )
-    app = create_app(settings=_settings(), gateway=gateway)
+    app = create_app(model_routes=MODEL_ROUTES, settings=_settings(), gateway=gateway)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
     ) as client:
@@ -362,7 +363,7 @@ async def test_model_dispatch_selects_the_engine_managed_default_connection() ->
     gateway = GatewayClient(
         "http://gateway.test", timeout=5, transport=httpx.MockTransport(handler)
     )
-    app = create_app(settings=_settings(), gateway=gateway)
+    app = create_app(model_routes=MODEL_ROUTES, settings=_settings(), gateway=gateway)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
     ) as client:

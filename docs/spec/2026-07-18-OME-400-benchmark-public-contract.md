@@ -1326,3 +1326,35 @@ the requirement and now fails honest preflight instead of advertising an assumed
 Phase 6A-6C provider connection behavior was approved on 2026-07-20 in the separate provider
 connections contract. It is not part of the already implemented benchmark core and requires its
 own phased implementation approval.
+
+## 20. AI Gateway-derived engine model catalog
+
+The ScreamingFace engine must not maintain a second model-availability list. During ASGI startup it
+requests AI Gateway's protected `GET /v1/models` catalog exactly once and strictly validates the
+OpenAI-compatible list envelope and every `{id, object:"model", owned_by}` record. The engine then
+selects records whose `owned_by` matches a configured ScreamingFace provider, preserving Gateway
+order. Unknown providers are not exposed until ScreamingFace defines their public connection and
+provider metadata.
+
+ScreamingFace owns deterministic public naming, not availability:
+
+```text
+Gateway alias + owned_by             Gateway chat ID                         Public URL4 ID
+claude-sonnet-4-6 + anthropic        anthropic/claude-sonnet-4-6             claude/sonnet-4.6
+codex/gpt-5.5 + codex                codex/gpt-5.5                            codex/gpt-5.5
+gemini-cli/gemini-2.5-flash          gemini-cli/gemini-2.5-flash             gemini/2.5-flash
+```
+
+Every selected Gateway record becomes a tool-free model route by default. Explicit
+ScreamingFace capability policy may add a named tool only when the deployment adapter is enabled;
+the current SearXNG profile adds `web_search` only to `claude/sonnet-4.6`. The resolved immutable
+route tuple is the single input to both `Url4Node.endpoint(...)` registration and
+`/.well-known/screamingface` rendering.
+
+Malformed records, duplicate public IDs, Gateway transport/status failures, or a catalog with no
+supported-provider models fail engine startup. There is no static, cached, or stale fallback and no
+partially initialized HTTP service. The catalog is an engine-startup snapshot; changes become
+visible after restart, never through a per-request Gateway lookup.
+
+This changes no SDK transport. Registry discovery, model execution, judging, and provider
+connections continue to target only `sf.config(engine=...)`; the engine alone contacts AI Gateway.

@@ -5,6 +5,7 @@ from uuid import UUID
 
 import httpx
 import pytest
+from model_fixtures import MODEL_ROUTES
 
 from screamingface_engine.app import create_app
 from screamingface_engine.asgi import EngineASGI
@@ -36,7 +37,11 @@ def _app(handler) -> tuple[EngineASGI, GatewayClient]:
     gateway = GatewayClient(
         "http://gateway.test", timeout=5, transport=httpx.MockTransport(handler)
     )
-    app = create_app(settings=Settings(gateway_url="http://gateway.test"), gateway=gateway)
+    app = create_app(
+        model_routes=MODEL_ROUTES,
+        settings=Settings(gateway_url="http://gateway.test"),
+        gateway=gateway,
+    )
     return app, gateway
 
 

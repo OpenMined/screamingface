@@ -18,6 +18,7 @@ type Message = MutableMapping[str, Any]
 type Receive = Callable[[], Awaitable[Message]]
 type Send = Callable[[Message], Awaitable[None]]
 type AsgiApp = Callable[[Mapping[str, Any], Receive, Send], Awaitable[None]]
+type NodeInitializer = Callable[[], Awaitable[Url4Node]]
 
 
 class EngineASGI:
@@ -25,20 +26,24 @@ class EngineASGI:
 
     def __init__(
         self,
-        node: Url4Node,
+        node: Url4Node | None,
         gateway: GatewayClient,
         *,
+        initialize: NodeInitializer | None = None,
         research: WebResearchClient | None = None,
         connections: ConnectionASGI | None = None,
         max_inflight: int,
         timeout: float,
         max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES,
     ) -> None:
+        if node is None and initialize is None:
+            raise ValueError("engine requires a node or startup initializer")
         self.node = node
         self.gateway = gateway
         self.research = research
         self.connections = connections
-        self._base: AsgiApp = node.asgi()
+        self._base: AsgiApp | None = None if node is None else node.asgi()
+        self._initialize = initialize
         self._max_inflight = max_inflight
         self._timeout = timeout
         self._max_request_target_bytes = max_request_target_bytes
@@ -50,7 +55,10 @@ class EngineASGI:
         elif scope["type"] == "http":
             await self._serve_http(scope, receive, send)
         else:  # pragma: no cover - the engine exposes no websocket surface
-            await self._base(scope, receive, send)
+            base = self._base
+            if base is None:
+                raise RuntimeError("engine startup is incomplete")
+            await base(scope, receive, send)
 
     async def _serve_http(self, scope: Mapping[str, Any], receive: Receive, send: Send) -> None:
         if _request_target_bytes(scope) > self._max_request_target_bytes:
@@ -60,6 +68,9 @@ class EngineASGI:
                 "request_target_too_large",
                 f"request target exceeds {self._max_request_target_bytes} bytes",
             )
+            return
+        if self._base is None:
+            await _send_error(send, 503, "not_ready", "engine startup is incomplete")
             return
         if self.connections is not None and self.connections.handles(scope):
             await self.connections(scope, receive, send)
@@ -94,9 +105,7 @@ class EngineASGI:
             message = await receive()
             if message["type"] == "lifespan.startup":
                 try:
-                    await self.gateway.start()
-                    if self.research is not None:
-                        await self.research.start()
+                    await self._startup()
                 except Exception as exc:
                     if self.research is not None:
                         await self.research.aclose()
@@ -108,9 +117,22 @@ class EngineASGI:
                 if self.research is not None:
                     await self.research.aclose()
                 await self.gateway.aclose()
-                await self.node.aclose()
+                if self.node is not None:
+                    await self.node.aclose()
                 await send({"type": "lifespan.shutdown.complete"})
                 return
+
+    async def _startup(self) -> None:
+        await self.gateway.start()
+        if self.research is not None:
+            await self.research.start()
+        if self.node is not None:
+            return
+        if self._initialize is None:  # pragma: no cover - constructor invariant
+            raise RuntimeError("engine startup initializer is missing")
+        node = await self._initialize()
+        self.node = node
+        self._base = node.asgi()
 
 
 class _StartGuard:

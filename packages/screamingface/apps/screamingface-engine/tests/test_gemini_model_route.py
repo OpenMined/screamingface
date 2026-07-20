@@ -4,9 +4,9 @@ import json
 
 import httpx
 import pytest
+from model_fixtures import MODEL_ROUTES
 
 from screamingface_engine.app import create_app
-from screamingface_engine.catalog import MODEL_ROUTES
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.settings import Settings
 
@@ -45,7 +45,7 @@ async def test_gemini_route_maps_exact_request_and_keeps_calls_independent() -> 
         timeout=settings.gateway_timeout,
         transport=httpx.MockTransport(handler),
     )
-    app = create_app(settings=settings, gateway=gateway)
+    app = create_app(model_routes=MODEL_ROUTES, settings=settings, gateway=gateway)
     transport = httpx.ASGITransport(app=app)
     expression = (
         "(model_context='<criterion>Be correct.</criterion>',"
@@ -123,7 +123,7 @@ async def test_gemini_route_maps_gateway_failures_once_as_safe_url4_errors(
         timeout=settings.gateway_timeout,
         transport=httpx.MockTransport(handler),
     )
-    app = create_app(settings=settings, gateway=gateway)
+    app = create_app(model_routes=MODEL_ROUTES, settings=settings, gateway=gateway)
     transport = httpx.ASGITransport(app=app)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:

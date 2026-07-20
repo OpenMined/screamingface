@@ -4,10 +4,11 @@ import json
 
 import httpx
 import pytest
+from model_fixtures import MODEL_ROUTES
 from url4 import Request, ResolutionError
 
-from screamingface_engine.catalog import MODEL_ROUTES
-from screamingface_engine.gateway import GatewayClient
+from screamingface_engine.catalog import GatewayModel
+from screamingface_engine.gateway import GatewayCatalogError, GatewayClient
 
 
 @pytest.mark.asyncio
@@ -319,3 +320,78 @@ async def test_gateway_classifies_retired_provider_model_without_exposing_detail
     assert captured.value.permanent is True
     assert "model unavailable" in str(captured.value)
     assert "private provider detail" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+async def test_gateway_decodes_the_strict_model_catalog() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "object": "list",
+                "data": [
+                    {"id": "claude-sonnet-4-6", "object": "model", "owned_by": "anthropic"},
+                    {"id": "codex/gpt-5.5", "object": "model", "owned_by": "codex"},
+                ],
+            },
+        )
+
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(handler),
+    )
+
+    models = await gateway.list_models()
+    await gateway.aclose()
+
+    assert models == (
+        GatewayModel("claude-sonnet-4-6", "anthropic"),
+        GatewayModel("codex/gpt-5.5", "codex"),
+    )
+    assert [(request.method, request.url.path) for request in requests] == [("GET", "/v1/models")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"object": "wrong", "data": []},
+        {"object": "list", "data": "not-a-list"},
+        {"object": "list", "data": [{"id": "x", "object": "model"}]},
+        {
+            "object": "list",
+            "data": [{"id": "x", "object": "wrong", "owned_by": "provider"}],
+        },
+        {
+            "object": "list",
+            "data": [{"id": "", "object": "model", "owned_by": "provider"}],
+        },
+    ],
+)
+async def test_gateway_rejects_malformed_model_catalog(payload: object) -> None:
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=payload)),
+    )
+
+    with pytest.raises(GatewayCatalogError, match="invalid AI Gateway model catalog"):
+        await gateway.list_models()
+    await gateway.aclose()
+
+
+@pytest.mark.asyncio
+async def test_gateway_catalog_status_failure_is_a_startup_error() -> None:
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(lambda _request: httpx.Response(503, text="private")),
+    )
+
+    with pytest.raises(GatewayCatalogError, match="returned HTTP 503"):
+        await gateway.list_models()
+    await gateway.aclose()
