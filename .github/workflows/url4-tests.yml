@@ -171,7 +171,7 @@ jobs:
             fi
           }
 
-          expect "$(get /v1 "(/upper(hello world)!'go')")"   "HELLO WORLD"
+          expect "$(get /v1 "(/upper(hello world)!'go')!''")" "HELLO WORLD"
           expect "$(get /v1 "(/rubrics/42)!''")"             clarity
           expect "$(get /v1 "(@)!''")"                       DEFAULT-SHELF
           expect "$(get /v1/science "(@)!''")"               SCIENCE-SHELF
@@ -187,7 +187,7 @@ jobs:
           # Error contract: parse error -> 400, unknown route -> 404, POST -> 405.
           code() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"; }
           [ "$(code --get --data-urlencode "q=(@/science)!''" http://127.0.0.1:4404/v1)" = 400 ]
-          [ "$(code --get --data-urlencode "q=(/nope(x)!'go')" http://127.0.0.1:4404/v1)" = 404 ]
+          [ "$(code --get --data-urlencode "q=(/nope(x)!'go')!''" http://127.0.0.1:4404/v1)" = 404 ]
           [ "$(code -X POST http://127.0.0.1:4404/v1)" = 405 ]
 
           echo "serve smoke OK"
