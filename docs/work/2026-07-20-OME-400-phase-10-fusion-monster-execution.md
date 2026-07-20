@@ -6,13 +6,13 @@ started: 2026-07-20
 finished:
 ---
 
-# OME-400 — Model, Fusion, and Experiment execution
+# OME-400 — Model, Fusion, and FusionMonster execution
 
 ## Intent
 
 Add the smallest reusable-system abstraction needed to express and run the historical DRACO
 matrix correctly. Researchers should be able to name reusable model calls with `Model`, compose
-those same values into existing `Fusion` objects, and evaluate an `Experiment` of models and
+those same values into existing `Fusion` objects, and evaluate a `FusionMonster` of models and
 Fusions without
 regenerating or re-grading shared panel answers. The first worked target is the complete historical
 DRACO topology on one case, with unavailable models substituted and the result labeled as a
@@ -40,12 +40,12 @@ frontier_trio = sf.Fusion(
     ),
 )
 
-experiment = sf.Experiment(
+monster = sf.FusionMonster(
     "draco-substituted",
     systems=[opus, gpt, gemini, frontier_trio],
 )
 
-report = experiment.evaluate("draco@1", first=1)
+report = monster.evaluate("draco@1", first=1)
 ```
 
 Contract decisions to approve before implementation:
@@ -53,27 +53,27 @@ Contract decisions to approve before implementation:
 - `Model(name, model, *, prompt, params)` is the typed, reusable model-call leaf.
 - Ordinary `Fusion.models` continues accepting model strings and dictionaries, and additionally
   accepts `Model` values. Strings remain the quickstart shorthand for anonymous model leaves.
-- `Experiment.systems` accepts only explicitly named `Model` and `Fusion` values so report keys and
+- `FusionMonster.systems` accepts only explicitly named `Model` and `Fusion` values so report keys and
   execution identity are stable.
 - Reusing the same `Model` value across Fusions means one answer is generated per case and reused.
 - Two separately named `Model` values may use the same model route and still produce independent
   samples.
-- A Fusion may reference a `Model` that is not listed as a top-level Experiment system; its answer is
+- A Fusion may reference a `Model` that is not listed as a top-level FusionMonster system; its answer is
   generated and reused but is not independently graded or reported.
 - A reducer model call is always a new synthesis call and never aliases a Model response.
-- Every system name in an Experiment is unique; named dependency identities are unambiguous across
+- Every system name in a FusionMonster is unique; named dependency identities are unambiguous across
   the graph.
-- Experiment execution emits multiple ordinary URL4 requests rather than one oversized expression:
+- FusionMonster execution emits multiple ordinary URL4 requests rather than one oversized expression:
   shared Model requests first, Fusion synthesis requests second, and judge requests during grading.
-- `ExperimentReport.systems` maps each listed system name to its result. An Experiment does not invent a
+- `FusionMonsterReport.systems` maps each listed system name to its result. A FusionMonster does not invent a
   single score or `gain`; comparisons remain explicit across the included systems.
-- `Suite` remains reserved for running one or more Experiments across multiple benchmarks.
+- `Suite` remains reserved for running one or more FusionMonsters across multiple benchmarks.
 
 ## Planned changes
 
 ### Phase 10A — authoring and graph contract
 
-- Add immutable `Model` and `Experiment` public values.
+- Add immutable `Model` and `FusionMonster` public values.
 - Allow `Fusion` members to reference `Model` values without breaking string/dictionary shorthand.
 - Validate names, dependencies, and duplicate identity before any engine request.
 - Add focused value and graph tests before implementation.
@@ -89,9 +89,9 @@ Contract decisions to approve before implementation:
 
 - Grade each listed Model/Fusion output exactly once using the loaded benchmark grader.
 - Aggregate one result per listed system without duplicating member grading.
-- Add immutable `ExperimentRun`, `ExperimentGrades`, and `ExperimentReport` values only where staged API parity
+- Add immutable `FusionMonsterRun`, `FusionMonsterGrades`, and `FusionMonsterReport` values only where staged API parity
   requires them.
-- Prove `experiment.evaluate(...)` matches explicit `run().grade().aggregate()` orchestration.
+- Prove `monster.evaluate(...)` matches explicit `run().grade().aggregate()` orchestration.
 
 ### Phase 10D — one-case DRACO topology notebook
 
@@ -109,7 +109,7 @@ Contract decisions to approve before implementation:
 
 - RED: `Model` constructor validation, immutability, and stable identity.
 - RED: Fusion accepts strings, dictionaries, and Model values with deterministic member IDs.
-- RED: Experiment rejects duplicate names and ambiguous dependency identities.
+- RED: FusionMonster rejects duplicate names and ambiguous dependency identities.
 - RED: the same Model reused by multiple Fusions makes one model request per case.
 - RED: two distinct Models using the same route make two independent model requests per case.
 - RED: Fusion-only Model dependencies execute but are absent from top-level grading/reporting.
@@ -126,7 +126,7 @@ Contract decisions to approve before implementation:
 - Evaluating one case reuses every named shared Model response across all dependent Fusions.
 - The SDK still sends all model and judge requests exclusively to the configured
   screamingface-engine URL4 endpoint.
-- An Experiment report exposes one result per listed system and no misleading aggregate score.
+- A FusionMonster report exposes one result per listed system and no misleading aggregate score.
 - The worked notebook clearly separates protocol parity from result comparability and cannot begin
   the expensive live run accidentally.
 
