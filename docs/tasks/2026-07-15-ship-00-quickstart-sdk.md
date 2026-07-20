@@ -593,3 +593,22 @@ The normative record is
 explicitly reviewed 6A SDK, 6B engine, and 6C UX/preflight slices in
 `docs/plan/2026-07-20-OME-400-provider-connections.md`. No runtime phase begins without a separate
 owner execution approval.
+
+## Phase 6A provider-connections implementation — 2026-07-20
+
+Implemented the approved SDK-only provider connection foundation:
+
+- extended strict engine registry decoding with public provider capabilities and explicit
+  model-provider ownership, with no route-prefix inference or legacy wire fallback;
+- added immutable `Connection` and `OAuthFlow` values plus `sf.connect(...)`,
+  `sf.disconnect(...)`, and `sf.connections.list()` against the approved fake-engine contract;
+- kept OAuth polling bounded and pinned to its originating engine, with idempotent cancellation;
+- confined API keys to the private PUT JSON body and rejected redirects and non-loopback HTTP;
+- decoded only sanitized connection/error envelopes and exposed structured connection failures;
+- added pure, stable requirement planning for member, model-reducer, and model-grader stages while
+  deduplicating repeated model/role requirements; and
+- left discovery, benchmark loading, execution preflight, widgets, real engine routes, AI Gateway,
+  and URL4 unchanged for Phases 6B–6C.
+
+The append-only gate was skipped only for the owner-approved replacement of the pre-provider
+registry fixture; all format, lint, type, test, and coverage gates passed unchanged with 431 tests.

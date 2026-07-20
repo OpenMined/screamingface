@@ -1,18 +1,25 @@
 """ScreamingFace — URL4-native model fusions and benchmark comparison."""
 
-from screamingface import aggregators, benchmarks, graders, models, reducers
+from screamingface import aggregators, benchmarks, connections, graders, models, reducers
 from screamingface._config import config
 from screamingface.aggregators import Aggregator
 from screamingface.benchmark import Benchmark, Case
+from screamingface.connections import Connection, OAuthFlow, connect, disconnect
 from screamingface.errors import (
+    AuthMethodRequiredError,
+    ConnectionRequiredError,
     EngineConnectionError,
     EngineProfileError,
     EngineProtocolError,
     EngineRequestTooLargeError,
     InvalidBenchmarkError,
+    ProviderConnectionError,
     ScreamingFaceError,
+    SecureTransportRequiredError,
     UnknownBenchmarkError,
     UnknownModelError,
+    UnknownProviderError,
+    UnsupportedAuthMethodError,
     UnsupportedReducerError,
     UnsupportedToolError,
 )
@@ -29,6 +36,8 @@ __all__ = [
     "Case",
     "CaseGrades",
     "CaseResult",
+    "Connection",
+    "ConnectionRequiredError",
     "CriterionVerdict",
     "EngineConnectionError",
     "EngineProfileError",
@@ -42,18 +51,27 @@ __all__ = [
     "InvalidBenchmarkError",
     "MemberResult",
     "MemberReport",
+    "OAuthFlow",
+    "ProviderConnectionError",
     "Reducer",
     "Run",
     "RunFailure",
     "Report",
     "ScreamingFaceError",
+    "SecureTransportRequiredError",
     "UnknownBenchmarkError",
     "UnknownModelError",
+    "UnknownProviderError",
+    "AuthMethodRequiredError",
+    "UnsupportedAuthMethodError",
     "UnsupportedReducerError",
     "UnsupportedToolError",
     "aggregators",
     "benchmarks",
+    "connect",
+    "connections",
     "config",
+    "disconnect",
     "graders",
     "models",
     "reducers",

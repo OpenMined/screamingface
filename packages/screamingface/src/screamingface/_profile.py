@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import Literal, cast
 
 import httpx
 
@@ -15,12 +16,23 @@ from screamingface.errors import EngineConnectionError, EngineProfileError, Engi
 REGISTRY_PATH = "/.well-known/screamingface"
 REGISTRY_SCHEMA = "screamingface.registry.v1"
 FUSION_RESULT_SCHEMA = "screamingface.fusion-result.v1"
+type AuthMethod = Literal["oauth", "api_key"]
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderRecord:
+    id: str
+    display_name: str
+    auth_methods: tuple[AuthMethod, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class ModelRecord:
     id: str
     supported_tools: tuple[str, ...]
+    # AIDEV-NOTE: Empty only preserves direct construction in older internal unit fixtures. The
+    # wire decoder below always requires and validates explicit ownership.
+    provider: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +47,7 @@ class Registry:
     reducers: tuple[ReducerRecord, ...]
     response_schemas: tuple[str, ...]
     max_request_target_bytes: int
+    providers: tuple[ProviderRecord, ...] = ()
 
 
 def load_registry() -> Registry:
@@ -42,24 +55,34 @@ def load_registry() -> Registry:
     try:
         _exact_fields(
             payload,
-            {"schema", "response_schemas", "limits", "models", "reducers"},
+            {"schema", "response_schemas", "limits", "providers", "models", "reducers"},
             "engine registry",
         )
         if payload["schema"] != REGISTRY_SCHEMA:
             raise ValueError(f"expected schema {REGISTRY_SCHEMA!r}")
         response_schemas = _string_list(payload["response_schemas"], "response_schemas")
+        providers = tuple(
+            _provider_record(item) for item in _object_list(payload["providers"], "providers")
+        )
         models = tuple(_model_record(item) for item in _object_list(payload["models"], "models"))
         reducers = tuple(
             _reducer_record(item) for item in _object_list(payload["reducers"], "reducers")
         )
         limits = _limits(payload["limits"])
         _unique((record.id for record in models), "model")
+        _unique((record.id for record in providers), "provider")
         _unique((record.id for record in reducers), "reducer")
+        provider_ids = {record.id for record in providers}
+        for model in models:
+            if model.provider not in provider_ids:
+                raise ValueError(
+                    f"model {model.id!r} references unknown provider {model.provider!r}"
+                )
         if FUSION_RESULT_SCHEMA not in response_schemas:
             raise ValueError(f"missing response schema {FUSION_RESULT_SCHEMA!r}")
     except (KeyError, TypeError, ValueError) as exc:
         raise EngineProfileError(f"invalid engine registry: {exc}") from exc
-    return Registry(models, reducers, response_schemas, limits)
+    return Registry(models, reducers, response_schemas, limits, providers)
 
 
 def _get_text(path: str) -> str:
@@ -82,13 +105,29 @@ def _json_object(body: str, label: str) -> dict[str, object]:
 
 
 def _model_record(payload: dict[str, object]) -> ModelRecord:
-    _exact_fields(payload, {"id", "supported_tools"}, "model record")
+    _exact_fields(payload, {"id", "provider", "supported_tools"}, "model record")
     return ModelRecord(
         _nonempty(payload["id"], "model ID"),
         tool_ids(
             _string_list(payload["supported_tools"], "model supported_tools"),
             label="model supported_tools",
         ),
+        _public_id(payload["provider"], "model provider"),
+    )
+
+
+def _provider_record(payload: dict[str, object]) -> ProviderRecord:
+    _exact_fields(payload, {"id", "display_name", "auth_methods"}, "provider record")
+    methods = _string_list(payload["auth_methods"], "provider auth_methods")
+    invalid = set(methods) - {"oauth", "api_key"}
+    if invalid:
+        raise ValueError(f"unsupported provider auth method: {sorted(invalid)[0]}")
+    if not methods:
+        raise ValueError("provider auth_methods must not be empty")
+    return ProviderRecord(
+        _public_id(payload["id"], "provider ID"),
+        _nonempty(payload["display_name"], "provider display_name"),
+        cast(tuple[AuthMethod, ...], tuple(methods)),
     )
 
 
@@ -145,6 +184,15 @@ def _nonempty(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must be a non-empty string")
     return value.strip()
+
+
+def _public_id(value: object, label: str) -> str:
+    identifier = _nonempty(value, label)
+    if identifier != identifier.lower() or not all(
+        character.isalnum() or character in {"_", "-"} for character in identifier
+    ):
+        raise ValueError(f"{label} must use lowercase letters, digits, underscores, or hyphens")
+    return identifier
 
 
 def _unique(values: Iterable[str], label: str) -> None:

@@ -41,6 +41,20 @@ sf.disconnect("gemini")
 sf.connections.list()
 ```
 
+Starting OAuth returns an immutable public `sf.OAuthFlow`:
+
+```python
+flow = sf.connect("codex")
+flow.authorize_url
+flow.status          # "pending"
+connection = flow.wait()
+flow.cancel()
+```
+
+`wait()` polls only the originating engine until the attempt connects, fails, is cancelled, or
+expires; it returns the resulting immutable `Connection`. `cancel()` is idempotent. An
+already-connected provider returns its existing `Connection` rather than an OAuth flow.
+
 There is no `Fusion.connect()`, `Fusion.connections()`, `connection_status()`, setup/session
 object, or separate provider client. Authentication is not part of `sf.config()`; that function
 continues to select one engine origin.
@@ -359,6 +373,7 @@ The Phase 6 implementation is accepted when:
 4. local encrypted credentials survive an ordinary Docker restart and disappear only after an
    explicit volume reset or disconnect;
 5. `sf.connect`, `sf.disconnect`, and `sf.connections.list` implement the exact approved surface;
+   OAuth starts return `sf.OAuthFlow` with bounded `wait()` and idempotent `cancel()`;
 6. benchmark loading remains independent of connection state and native dataset credentials never
    reach the engine;
 7. run, grade, and evaluate perform their approved stage-specific preflights without repeated

@@ -19,12 +19,33 @@ def _registry() -> dict[str, object]:
         "schema": "screamingface.registry.v1",
         "response_schemas": ["screamingface.fusion-result.v1"],
         "limits": {"max_request_target_bytes": 61440},
+        "providers": [
+            {
+                "id": "codex",
+                "display_name": "OpenAI Codex",
+                "auth_methods": ["oauth"],
+            },
+            {
+                "id": "gemini",
+                "display_name": "Google Gemini",
+                "auth_methods": ["oauth", "api_key"],
+            },
+        ],
         "models": [
-            {"id": "codex/gpt-5.5", "supported_tools": ["web_search"]},
-            {"id": "gemini/2.5", "supported_tools": []},
+            {
+                "id": "codex/gpt-5.5",
+                "provider": "codex",
+                "supported_tools": ["web_search"],
+            },
+            {"id": "gemini/2.5", "provider": "gemini", "supported_tools": []},
         ],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
     }
+
+
+def _duplicate_record(value: dict[str, object], field: str) -> None:
+    records = cast(list[object], value[field])
+    records.append(records[0])
 
 
 @contextmanager
@@ -89,6 +110,7 @@ def test_benchmark_discovery_does_not_contact_the_engine(
     ("mutate", "message"),
     [
         (lambda value: value.pop("models"), "missing field.*models"),
+        (lambda value: value.pop("providers"), "missing field.*providers"),
         (lambda value: value.update(extra=True), "unknown field.*extra"),
         (lambda value: value.update(schema="wrong"), "expected schema"),
         (lambda value: value.update(models={}), "models must be a list"),
@@ -104,11 +126,15 @@ def test_benchmark_discovery_does_not_contact_the_engine(
             "engine limits has unknown field.*extra",
         ),
         (
-            lambda value: value["models"].append(value["models"][0]),  # type: ignore[union-attr]
+            lambda value: _duplicate_record(value, "models"),
             "duplicate model ID",
         ),
         (
-            lambda value: value["reducers"].append(value["reducers"][0]),  # type: ignore[union-attr]
+            lambda value: _duplicate_record(value, "providers"),
+            "duplicate provider ID",
+        ),
+        (
+            lambda value: _duplicate_record(value, "reducers"),
             "duplicate reducer ID",
         ),
     ],
@@ -125,10 +151,16 @@ def test_registry_document_is_strict(monkeypatch, mutate, message: str) -> None:
 @pytest.mark.parametrize(
     ("payload", "message"),
     [
-        ({"id": "model"}, "missing field.*supported_tools"),
-        ({"id": "model", "supported_tools": ["x", "x"]}, "must not contain duplicates"),
-        ({"id": "model", "supported_tools": ["Web-Search"]}, "lowercase"),
-        ({"id": "", "supported_tools": []}, "model ID"),
+        ({"id": "model"}, "missing field"),
+        (
+            {"id": "model", "provider": "provider", "supported_tools": ["x", "x"]},
+            "must not contain duplicates",
+        ),
+        (
+            {"id": "model", "provider": "provider", "supported_tools": ["Web-Search"]},
+            "lowercase",
+        ),
+        ({"id": "", "provider": "provider", "supported_tools": []}, "model ID"),
     ],
 )
 def test_model_records_are_strict(payload: dict[str, object], message: str) -> None:

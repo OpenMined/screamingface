@@ -47,3 +47,53 @@ class UnsupportedReducerError(ScreamingFaceError):
 
 class InvalidBenchmarkError(ScreamingFaceError):
     """A benchmark definition or its source data is invalid."""
+
+
+class SecureTransportRequiredError(ScreamingFaceError):
+    """A private provider operation was attempted over non-loopback HTTP."""
+
+
+class ProviderConnectionError(ScreamingFaceError):
+    """A provider connection operation failed with a safe engine error."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        provider: str | None = None,
+        retryable: bool = False,
+    ) -> None:
+        self.code = code
+        self.provider = provider
+        self.retryable = retryable
+        super().__init__(message)
+
+
+class UnknownProviderError(ProviderConnectionError):
+    """The configured engine does not advertise a requested provider."""
+
+
+class AuthMethodRequiredError(ProviderConnectionError):
+    """A provider supports multiple methods and requires an explicit choice."""
+
+
+class UnsupportedAuthMethodError(ProviderConnectionError):
+    """The requested provider authentication method is not advertised."""
+
+
+class ConnectionRequiredError(ProviderConnectionError):
+    """One or more model stages require disconnected providers."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        providers: tuple[str, ...],
+        models: tuple[str, ...],
+        roles: tuple[str, ...],
+    ) -> None:
+        self.providers = providers
+        self.models = models
+        self.roles = roles
+        super().__init__(message, code="connection_required")

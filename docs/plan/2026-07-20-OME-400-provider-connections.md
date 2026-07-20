@@ -1,6 +1,6 @@
 # OME-400 — Provider connections implementation plan
 
-**Status:** approved for phased implementation
+**Status:** Phase 6A complete; Phases 6B–6C approved but not started
 **Date:** 2026-07-20
 **Normative contract:**
 [`docs/spec/2026-07-20-OME-400-provider-connections-contract.md`](../spec/2026-07-20-OME-400-provider-connections-contract.md)
@@ -10,12 +10,16 @@ dataset boundaries. Each runtime phase still requires the owner's explicit execu
 
 ## Phase 6A — SDK connection foundation
 
+**Implementation status:** complete on 2026-07-20.
+
 Add the connection vocabulary and HTTP contract against deterministic fake-engine transports
 before changing the development engine.
 
 - extend engine discovery values with providers, authentication methods, and explicit
   model-provider ownership;
 - add immutable `Connection` values and the `sf.connections.list()` namespace operation;
+- add immutable `OAuthFlow` values whose bounded `wait()` and idempotent `cancel()` remain scoped
+  to the engine that created the flow;
 - add `sf.connect(...)` and `sf.disconnect(...)` signatures with strict provider/method argument
   validation and no Fusion-owned auth methods;
 - add stable connection and secure-transport exception types;
@@ -59,7 +63,8 @@ Wire the approved Python calls to the real engine control plane and add the note
 - implement explicit OAuth and API-key flows plus idempotent `sf.disconnect()`;
 - refresh connection reads on every list, action, widget refresh, OAuth poll, and execution
   preflight;
-- add bounded OAuth polling, cancellation, manual refresh, and non-interactive script output;
+- integrate bounded OAuth polling and cancellation into the widget, including manual refresh and
+  non-interactive script output;
 - preflight `run`, `grade`, and `evaluate` at their approved stage boundaries and raise one
   structured `ConnectionRequiredError` before model spend;
 - preserve completed work and stop unscheduled dependent work when a stored credential is rejected
