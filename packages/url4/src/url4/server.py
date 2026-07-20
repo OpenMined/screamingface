@@ -48,6 +48,7 @@ from url4.io_layer import FetchRequest, FetchResult, IOLayer, fetch_result
 from url4.nodes import Node
 from url4.render import render
 from url4.subrequest import (
+    TRANSPORT_ONLY_PARAMS,
     decode_expression_http,
     decode_subrequest_http,
     extract_expression_params,
@@ -56,7 +57,11 @@ from url4.subrequest import (
 # Transport-level query params a node consumes itself rather than re-attaching
 # to the expression (spec §11.6.3); `processor` is expression-bearing and its
 # delegation semantics (§27.3) are not implemented yet.
-_TRANSPORT_PARAMS = frozenset({"delivery", "rid", "resume", "cb", "meta", "v", "processor"})
+# The ingress set is broader than the spec's transport-only rule: it also drops
+# params this node consumes itself (delivery/cb/meta/v) and `processor`, whose
+# §27.3 delegation semantics are not implemented yet (see `OME-506`). It is
+# DERIVED from the shared rule so the two can never disagree about resume/rid.
+_TRANSPORT_PARAMS = TRANSPORT_ONLY_PARAMS | frozenset({"delivery", "cb", "meta", "v", "processor"})
 
 # HTTP status by spec error code; unlisted codes fall back by exception shape.
 _STATUS_BY_CODE = {

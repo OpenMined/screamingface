@@ -114,6 +114,26 @@ def split_collection_iteration(source_expr: str) -> tuple[str | None, str | None
     return None, None
 
 
+def _split_at_iteration_body(text: str) -> tuple[str | None, str]:
+    """Split ``text`` just after a depth-0 ``*(body)``, or ``(None, "")``.
+
+    Returns ``(head, tail)`` where ``head`` runs from the start through the
+    closing ``)`` of the iteration body and ``tail`` is whatever follows.
+
+    # WHY: only a depth-0 ``*(`` is an envelope-level iteration. The
+    # reduce-over-iteration shape ``(src*(body)!peri)!reducer`` and a
+    # descriptored collection (§5.3.10) both nest their ``*(`` inside parens,
+    # so they are invisible here and keep their existing decode route.
+    """
+    for i, ch in _iter_top_level(text):
+        if ch == "*" and text[i + 1 : i + 2] == "(":
+            body = balanced_body(text, i + 2)
+            if body is not None:
+                end = i + 2 + len(body) + 1
+                return text[:end], text[end:]
+    return None, ""
+
+
 def split_top_level_commas(expr: str) -> list[str]:
     """Split ``expr`` on commas outside nesting/quotes; empty input → ``[]``."""
     return _split_top_level(expr, ",")
@@ -190,15 +210,34 @@ Envelope = IterationEnvelope | GroupEnvelope
 def decode_envelope(text: str) -> Envelope:
     """Peel the surface envelope the source grammar sits under, as raw text.
 
-    Runs the string scanners in the fixed order — top-level ``!intent`` split,
-    trailing ``;`` expression params (both sides of the ``!``), the
-    ``(src*(body)[!peri])!reducer`` reduce-over-iteration shape, then the plain
-    ``src*(body)`` iteration — and classifies the result. This is the single
-    source of truth for that ordering: both the eager parse tree (:func:`build`)
-    and the lazy DAG (:mod:`url4.dag.compiler`) interpret this same decode, so
-    their surface semantics can never drift.
+    Runs the string scanners in the fixed order — a depth-0 ``*(body)`` bound
+    FIRST, then the top-level ``!intent`` split, trailing ``;`` expression
+    params (both sides of the ``!``), the ``(src*(body)[!peri])!reducer``
+    reduce-over-iteration shape, then the plain ``src*(body)`` iteration — and
+    classifies the result. This is the single source of truth for that ordering:
+    both the eager parse tree (:func:`build`) and the lazy DAG
+    (:mod:`url4.dag.compiler`) interpret this same decode, so their surface
+    semantics can never drift.
+
+    # INVARIANT: a depth-0 ``*(`` binds tighter than the top-level ``!`` split.
+    # A collection may carry its OWN mandatory intent (``uri-collection-ref``
+    # admits local/relative/remote expressions), so in ``(a)!y*('b')!x`` the
+    # first depth-0 ``!`` belongs to the COLLECTION, not to the envelope.
+    # Splitting on it first silently destroyed the iteration — the bug this
+    # ordering exists to prevent (`OME-501`). ``grammar.parse_value`` has always
+    # scanned for ``*(`` unconditionally; this keeps the two entry points in
+    # agreement.
     """
-    source_expr, raw_intent, broadcast = split_intent(text.strip())
+    stripped = text.strip()
+    head, tail = _split_at_iteration_body(stripped)
+    if head is None:
+        source_expr, raw_intent, broadcast = split_intent(stripped)
+    else:
+        # Only the text AFTER the iteration body can carry the envelope's own
+        # ``!intent`` / ``;params``; everything up to and including the body is
+        # the source side.
+        tail_src, raw_intent, broadcast = split_intent(tail) if tail else ("", None, False)
+        source_expr = head + tail_src
     source_expr, src_params, src_directives = _split_source_side(source_expr)
     params: Params = src_params
     directives = src_directives

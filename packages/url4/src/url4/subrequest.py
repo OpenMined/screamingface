@@ -35,6 +35,22 @@ _WIRE_UNSAFE = re.compile(r"[()'%&# \x00-\x1f\x7f]")
 # the expression decoder owns the percent-decoding, not the query splitter.
 _EXPRESSION_BEARING = frozenset({"q", "processor"})
 
+# INVARIANT (spec §11.6.3): transport-only parameters are scoped to the single
+# hop that received them and MUST NOT appear on an outbound sub-request. This
+# frozenset is the ONE definition of that rule — the HTTP ingress
+# (`url4.server._reassemble`) and the sub-request builder
+# (`url4.dag.nodes._wire_params`) both consume it. They previously enforced it
+# independently, so a `resume=`/`rid=` written in expression text was stripped
+# inbound but leaked outbound (`OME-501`).
+TRANSPORT_ONLY_PARAMS = frozenset({"resume", "rid"})
+
+
+def strip_transport_params(
+    params: Sequence[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    """Drop the spec §11.6.3 transport-only params from an outbound param list."""
+    return [(key, value) for key, value in params if key not in TRANSPORT_ONLY_PARAMS]
+
 
 def _wire_escape(text: str) -> str:
     """Percent-encode only the characters that would corrupt the wire format."""
@@ -159,9 +175,11 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
 
 
 __all__ = [
+    "TRANSPORT_ONLY_PARAMS",
     "decode_expression_http",
     "decode_subrequest",
     "decode_subrequest_http",
     "encode_subrequest",
     "extract_expression_params",
+    "strip_transport_params",
 ]

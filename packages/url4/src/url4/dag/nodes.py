@@ -51,7 +51,7 @@ from url4.io_layer import FetchRequest, SupportsHoldings, fetch_result, parse_co
 from url4.nodes import IterationDirectives, Params
 from url4.nodes import RelExpr as AstRelExpr
 from url4.parser import split_intent
-from url4.subrequest import encode_subrequest
+from url4.subrequest import encode_subrequest, strip_transport_params
 
 from url4.dag.node import (  # isort: skip
     DagNode,
@@ -180,8 +180,14 @@ def _error_payload(exc: BaseException) -> dict:
 
 
 def _wire_params(params: Params) -> list[tuple[str, str]]:
-    """Protocol params for the sub-request codec; a valueless flag emits ``k=``."""
-    return [(key, value if value is not None else "") for key, value in params]
+    """Protocol params for the sub-request codec; a valueless flag emits ``k=``.
+
+    # INVARIANT: transport-only params (spec §11.6.3) are stripped here, using
+    # the codec's single definition — an expression authored with ``resume=``/
+    # ``rid=`` must not smuggle them onto the next hop (`OME-501`).
+    """
+    pairs = [(key, value if value is not None else "") for key, value in params]
+    return strip_transport_params(pairs)
 
 
 @dataclass(eq=False)

@@ -512,21 +512,33 @@ def _parse_expr_canonical(token: str, qmark: int) -> RelUrl | RelExpr:
 
 
 def _find_expression_param(token: str, qmark: int) -> int | None:
-    """The offset of ``q=(`` as a query parameter after ``qmark``, or None."""
-    j = qmark + 1
-    while j is not None:
-        if token[j : j + 3] == "q=(":
-            return j
-        amp = _find_unquoted(token, "&", j)
-        j = None if amp is None else amp + 1
+    """The offset of ``q=(`` as a query parameter after ``qmark``, or None.
+
+    # INVARIANT: ``&`` separates query parameters only at depth 0 outside
+    # quotes — the same rule :func:`url4.subrequest.extract_expression_params`
+    # applies on the wire. A quote-only scan mistook an ``&`` nested inside a
+    # parenthesized expression-bearing value (``processor=(/x?a=1&b=2&q=(y)!z)``)
+    # for a parameter boundary and locked onto the INNER ``q=(`` (`OME-501`).
+    """
+    start = qmark + 1
+    if token[start : start + 3] == "q=(":
+        return start
+    rest = token[start:]
+    for i, ch in iter_top_level(rest):
+        if ch == "&":
+            candidate = start + i + 1
+            if token[candidate : candidate + 3] == "q=(":
+                return candidate
     return None
 
 
 def _decode_query_params(params_text: str) -> Params:
+    # INVARIANT: same depth-0 rule as _find_expression_param — a nested ``&``
+    # belongs to its enclosing value, not to this parameter list.
     if not params_text:
         return ()
     pairs: list[tuple[str, str | None]] = []
-    for segment in params_text.split("&"):
+    for segment in split_top_level(params_text, "&"):
         if segment:
             key, eq, value = segment.partition("=")
             pairs.append((key, value if eq else None))
