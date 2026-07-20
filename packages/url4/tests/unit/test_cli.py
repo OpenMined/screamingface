@@ -15,7 +15,7 @@ import io
 
 import pytest
 
-import url4.cli as cli
+import url4.cli.app as cli
 from url4 import __version__
 
 

@@ -7,8 +7,8 @@ annotations, or the expansion mark wraps in ``Source``.
 
 from __future__ import annotations
 
-from url4.grammar import parse
-from url4.nodes import Binding, RelExpr, Text, Url
+from url4.core.grammar import parse
+from url4.core.nodes import Binding, RelExpr, Text, Url
 
 
 def test_bare_source_no_annotations() -> None:
@@ -31,7 +31,7 @@ def test_named_only_general_form_is_binding() -> None:
 
 def test_named_and_weighted() -> None:
     # §4.5 "Named and weighted"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     assert parse("article:0.9:https://news.com/story") == Source(
         value=Url("https://news.com/story"), name="article", weight=0.9
@@ -40,7 +40,7 @@ def test_named_and_weighted() -> None:
 
 def test_unnamed_weighted() -> None:
     # §4.5 "Unnamed, weighted" — s3:// is an absolute URI (any scheme)
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     assert parse("0.8:s3://bucket/train.parquet") == Source(
         value=Url("s3://bucket/train.parquet"), weight=0.8
@@ -49,7 +49,7 @@ def test_unnamed_weighted() -> None:
 
 def test_named_weighted_budgeted_with_required() -> None:
     # §4.5 "Named, weighted, budgeted"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     assert parse("article:0.9:tokens=4000:https://news.com/story;required") == Source(
         value=Url("https://news.com/story"),
@@ -69,7 +69,7 @@ def test_explicit_src_binding_equals_implicit() -> None:
 
 def test_unnamed_weighted_quoted_with_exec_annotations() -> None:
     # §4.5 "Unnamed, weighted, with execution annotations" — quotes stripped
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     assert parse("0.2:'Supplementary AMA guidelines';optional;retry=3") == Source(
         value=Text("Supplementary AMA guidelines"),
@@ -80,7 +80,7 @@ def test_unnamed_weighted_quoted_with_exec_annotations() -> None:
 
 def test_bare_token_value_requires_src() -> None:
     # §4.5 "Unnamed, weighted, bare-token value (src= required)"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     assert parse("0.2:src=mytoken;optional;retry=3") == Source(
         value=Text("mytoken"),
@@ -91,7 +91,7 @@ def test_bare_token_value_requires_src() -> None:
 
 def test_full_attribution_plus_execution() -> None:
     # §4.5 "Full attribution + execution"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse(
         "medical:0.5:tokens=8000:influence=0.6:"
@@ -110,7 +110,7 @@ def test_agent_mode_relative_subexpression_sugar() -> None:
     # §4.5 "Agent mode, named, relative sub-expression (sugar form)". The old
     # paren wrap around the sub-expression was an intent-less group (`OME-508`)
     # — the descriptor binds the relative expression directly.
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("chef:0.4:/chef(https://allrecipes.com)!'Find recipes';mode=agent;t=120")
     assert node == Source(
@@ -127,7 +127,7 @@ def test_agent_mode_relative_subexpression_sugar() -> None:
 
 def test_per_source_content_type_preference() -> None:
     # §4.5 "Per-source content type preference" — name + exec chain, no weight
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     assert parse("data:https://api.example.com/records;accept=csv;t=30") == Source(
         value=Url("https://api.example.com/records"),
@@ -154,7 +154,7 @@ def test_annotated_uri_no_longer_silently_text() -> None:
 
 def test_exec_flag_and_typed_annotation_order_preserved() -> None:
     # §4.2 — the execution chain is ordered; flags carry a None value
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("a:0.1:https://x;required;t=5")
     assert isinstance(node, Source)

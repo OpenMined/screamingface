@@ -8,6 +8,10 @@ import json
 import pytest
 from conftest import RecordingIOLayer
 
+from url4.core.errors import CollectionError, CycleError, ParseError, ResolutionError
+from url4.core.grammar import parse as grammar_parse
+from url4.core.grammar import parse_group_root
+from url4.core.nodes import ForeachDirectives, Text, Url
 from url4.dag import (
     DEFAULT_MAP_CONCURRENCY,
     BarrierNode,
@@ -28,11 +32,7 @@ from url4.dag import (
     default_registry,
     run,
 )
-from url4.errors import CollectionError, CycleError, ParseError, ResolutionError
-from url4.grammar import parse as grammar_parse
-from url4.grammar import parse_group_root
-from url4.io_static import StaticIOLayer
-from url4.nodes import ForeachDirectives, Text, Url
+from url4.io.static import StaticIOLayer
 
 
 class BarrierIOLayer:

@@ -31,16 +31,16 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from url4._annotations import (
+from url4.core._annotations import (
     classify_boundary,
     extract_directives,
     split_annotation_pairs,
     validate_exec_annotations,
     validate_param,
 )
-from url4._scan import balanced_body, iter_top_level, skip_quoted, split_top_level
-from url4.errors import ParseError
-from url4.nodes import (
+from url4.core._scan import balanced_body, iter_top_level, skip_quoted, split_top_level
+from url4.core.errors import ParseError
+from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,

@@ -15,12 +15,12 @@ import asyncio
 
 import pytest
 
+from url4.core.grammar import parse as grammar_parse
+from url4.core.grammar import parse_value
+from url4.core.nodes import Expression, Iteration, RelExpr, Text
+from url4.core.parser import build
 from url4.dag import run
-from url4.grammar import parse as grammar_parse
-from url4.grammar import parse_value
-from url4.io_static import StaticIOLayer
-from url4.nodes import Expression, Iteration, RelExpr, Text
-from url4.parser import build
+from url4.io.static import StaticIOLayer
 
 # --- Bug A: intent-bearing collections survive the envelope decode ------------------
 

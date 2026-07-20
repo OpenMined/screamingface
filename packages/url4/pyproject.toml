@@ -16,7 +16,7 @@ server = ["uvicorn>=0.30"]
 # The `url4` CLI: `url4 serve` (HTTP node) and `url4 eval` (network-free one-shot).
 # `serve` additionally needs the `server` extra (uvicorn) at runtime.
 [project.scripts]
-url4 = "url4.cli:main"
+url4 = "url4.cli.app:main"
 
 [build-system]
 requires = ["hatchling"]

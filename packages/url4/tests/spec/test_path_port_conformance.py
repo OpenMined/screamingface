@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import pytest
 
-from url4.errors import ParseError
-from url4.grammar import parse
-from url4.nodes import RelExpr, RelUrl, RemoteExpr
+from url4.core.errors import ParseError
+from url4.core.grammar import parse
+from url4.core.nodes import RelExpr, RelUrl, RemoteExpr
 
 # --- expression paths take the NARROW `segment` charset -------------------------------
 
@@ -111,7 +111,7 @@ def test_host_itself_is_not_charset_checked() -> None:
 
 def test_parse_and_render_agree_on_the_expression_path_charset() -> None:
     # The asymmetry this cycle closes: anything that parses must re-render.
-    from url4.render import render
+    from url4.core.render import render
 
     node = parse("/a-b_c.d~e/f(x)!'y'")
     assert isinstance(node, RelExpr)

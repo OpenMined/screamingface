@@ -36,23 +36,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-from url4._scan import skip_quoted, split_top_level
-from url4.context import Context
-from url4.ensemble import (
+from url4.core._scan import skip_quoted, split_top_level
+from url4.core.context import Context
+from url4.core.ensemble import (
     FanoutResponse,
     build_reducer_input,
     substitute_env_vars,
     substitute_item,
     substitute_response_vars,
 )
-from url4.errors import CollectionError, ResolutionError, ScopeError, Url4Error
-from url4.grammar import parse as grammar_parse
-from url4.io_layer import FetchRequest, SupportsHoldings, fetch_result, parse_collection
-from url4.nodes import IterationDirectives, Params
-from url4.nodes import RelExpr as AstRelExpr
-from url4.parser import split_intent
-from url4.processor import resolve_processor_target
-from url4.subrequest import encode_subrequest, strip_transport_params
+from url4.core.errors import CollectionError, ResolutionError, ScopeError, Url4Error
+from url4.core.grammar import parse as grammar_parse
+from url4.core.nodes import IterationDirectives, Params
+from url4.core.nodes import RelExpr as AstRelExpr
+from url4.core.parser import split_intent
+from url4.core.subrequest import encode_subrequest, strip_transport_params
+from url4.dag.processor import resolve_processor_target
+from url4.io.layer import FetchRequest, SupportsHoldings, fetch_result, parse_collection
 
 from url4.dag.node import (  # isort: skip
     DagNode,

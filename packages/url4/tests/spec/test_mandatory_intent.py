@@ -15,12 +15,12 @@ import asyncio
 
 import pytest
 
-from url4.builders import expr, iterate
-from url4.errors import ParseError, RenderError
-from url4.io_static import StaticIOLayer
-from url4.nodes import Expression, Iteration, Text
-from url4.parser import build
-from url4.render import render
+from url4.core.builders import expr, iterate
+from url4.core.errors import ParseError, RenderError
+from url4.core.nodes import Expression, Iteration, Text
+from url4.core.parser import build
+from url4.core.render import render
+from url4.io.static import StaticIOLayer
 
 # --- bare groups are rejected at every parse entry ----------------------------------
 
@@ -106,7 +106,7 @@ def test_paren_collection_is_still_legal_without_an_intent() -> None:
 
 
 def test_structured_weight_and_budget_parens_are_unaffected() -> None:
-    from url4.grammar import parse
+    from url4.core.grammar import parse
 
     assert parse("name:(medical:0.9,legal:0.5):src=https://x") is not None
     assert parse("name:budget=(scope:(domain:5)):src=https://x") is not None

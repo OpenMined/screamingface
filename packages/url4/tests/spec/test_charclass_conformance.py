@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import pytest
 
-from url4.errors import ParseError
-from url4.grammar import parse, parse_value
-from url4.nodes import Binding, IdentityRef, Text, VarRef
+from url4.core.errors import ParseError
+from url4.core.grammar import parse, parse_value
+from url4.core.nodes import Binding, IdentityRef, Text, VarRef
 
 # --- ASCII anchoring: `\w` is Unicode-aware, ABNF `ALPHA` is not --------------------
 

@@ -42,10 +42,10 @@ import re
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 
-from url4.ensemble import find_references
-from url4.errors import ParseError
-from url4.grammar import parse as grammar_parse
-from url4.nodes import (
+from url4.core.ensemble import find_references
+from url4.core.errors import ParseError
+from url4.core.grammar import parse as grammar_parse
+from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,
@@ -62,8 +62,8 @@ from url4.nodes import (
     Url,
     VarRef,
 )
-from url4.nodes import walk as ast_walk
-from url4.parser import (
+from url4.core.nodes import walk as ast_walk
+from url4.core.parser import (
     IterationEnvelope,
     balanced_body,
     decode_envelope,

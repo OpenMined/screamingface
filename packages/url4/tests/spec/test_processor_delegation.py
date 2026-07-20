@@ -14,9 +14,9 @@ import asyncio
 
 import pytest
 
+from url4.core.errors import ResolutionError
 from url4.dag import run
-from url4.errors import ResolutionError
-from url4.io_static import StaticIOLayer
+from url4.io.static import StaticIOLayer
 
 
 class _RecordingIO:
@@ -122,7 +122,7 @@ def test_missing_processor_still_raises_the_existing_error() -> None:
 
 
 def test_wire_processor_param_selects_the_processor() -> None:
-    from url4.server import Url4Node
+    from url4.peer.server import Url4Node
 
     node = Url4Node(name="n")
     node.endpoint("/claude")(lambda request: f"claude:{request.intent}")
@@ -143,6 +143,6 @@ def test_wire_processor_is_not_reattached_as_an_expression_param() -> None:
     # INVARIANT: `processor` is CONSUMED by the node, never appended to the
     # expression's `;` chain — it selects the run's processor, it is not a
     # protocol param of the expression.
-    from url4.server import _reassemble
+    from url4.peer.server import _reassemble
 
     assert ";processor" not in _reassemble("(a)!b", {"processor": "gpt4", "tone": "formal"})

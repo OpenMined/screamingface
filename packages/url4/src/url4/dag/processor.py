@@ -13,12 +13,12 @@ otherwise        1 — an id naming a declared processor         look up, relati
 ===============  ===========================================  ====================
 
 The ``/`` branch is a fourth case the three-way rule does not name: a
-``processor-id`` cannot contain ``/``, and :meth:`~url4.io_layer.SupportsDefaultRoute.default_route`
+``processor-id`` cannot contain ``/``, and :meth:`~url4.io.layer.SupportsDefaultRoute.default_route`
 has always returned a path. Keeping it means every existing ``processor="/claude"``
 caller — and every adapter with no route registry — keeps working unchanged.
 
 Id resolution lives HERE rather than in each adapter: an adapter only declares
-which routes it has (:class:`~url4.io_layer.SupportsProcessorRoutes`), and the
+which routes it has (:class:`~url4.io.layer.SupportsProcessorRoutes`), and the
 matching rule stays in one place.
 """
 
@@ -27,9 +27,9 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Literal
 
-from url4.errors import ResolutionError
-from url4.io_layer import IOLayer, SupportsProcessorRoutes
-from url4.parser import build
+from url4.core.errors import ResolutionError
+from url4.core.parser import build
+from url4.io.layer import IOLayer, SupportsProcessorRoutes
 
 ProcessorForm = Literal["expression", "uri", "route", "id"]
 

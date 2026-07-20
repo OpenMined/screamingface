@@ -27,11 +27,11 @@ from __future__ import annotations
 
 import pytest
 
-from url4.errors import ParseError
-from url4.grammar import parse
-from url4.nodes import RelExpr
-from url4.parser import build
-from url4.subrequest import extract_expression_params
+from url4.core.errors import ParseError
+from url4.core.grammar import parse
+from url4.core.nodes import RelExpr
+from url4.core.parser import build
+from url4.core.subrequest import extract_expression_params
 
 # --- param-key: no "-" -----------------------------------------------------------
 

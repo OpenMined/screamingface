@@ -13,9 +13,9 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from inspect import isawaitable
 
-from url4.errors import ResolutionError
-from url4.io_layer import FetchRequest, FetchResult
-from url4.subrequest import decode_subrequest, extract_expression_params
+from url4.core.errors import ResolutionError
+from url4.core.subrequest import decode_subrequest, extract_expression_params
+from url4.io.layer import FetchRequest, FetchResult
 
 RouteHandler = Callable[[str, str], str | Awaitable[str]]
 

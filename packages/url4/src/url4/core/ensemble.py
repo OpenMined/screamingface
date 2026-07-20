@@ -28,8 +28,8 @@ import json
 import re
 from dataclasses import dataclass
 
-from url4.context import Context
-from url4.errors import ScopeError
+from url4.core.context import Context
+from url4.core.errors import ScopeError
 
 # One field-path grammar everywhere (spec §8 field-path production): dot
 # segments and non-negative, no-leading-zero index segments.

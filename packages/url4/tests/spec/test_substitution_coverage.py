@@ -23,7 +23,7 @@ import asyncio
 import pytest
 
 from url4.dag import run
-from url4.io_static import StaticIOLayer
+from url4.io.static import StaticIOLayer
 
 _ECHO_IO = StaticIOLayer(routes={"/echo": lambda context, intent: context})  # noqa: ARG005
 

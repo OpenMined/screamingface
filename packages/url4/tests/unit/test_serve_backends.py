@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import pytest
 
-from url4._serve import make_command_handler
-from url4.errors import ResolutionError
-from url4.server import Request
+from url4.cli._serve import make_command_handler
+from url4.core.errors import ResolutionError
+from url4.peer.server import Request
 
 pytestmark = pytest.mark.asyncio
 
@@ -65,7 +65,7 @@ async def test_command_handler_non_utf8_stdout_does_not_crash() -> None:
 async def test_llm_connector_is_gone() -> None:
     # INVARIANT: the aigateway connector was removed from the serve layer —
     # users own their backends entirely (commands only).
-    import url4._serve as serve
+    import url4.cli._serve as serve
 
     for legacy in ("make_llm_handler", "build_client", "DEFAULT_ROUTES", "_merge"):
         assert not hasattr(serve, legacy), legacy

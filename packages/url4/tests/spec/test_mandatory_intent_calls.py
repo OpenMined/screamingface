@@ -23,12 +23,12 @@ import asyncio
 
 import pytest
 
-from url4.errors import ParseError, RenderError
-from url4.grammar import parse
-from url4.io_static import StaticIOLayer
-from url4.nodes import RelExpr, RelUrl, Text, Url
-from url4.parser import build
-from url4.render import render
+from url4.core.errors import ParseError, RenderError
+from url4.core.grammar import parse
+from url4.core.nodes import RelExpr, RelUrl, Text, Url
+from url4.core.parser import build
+from url4.core.render import render
+from url4.io.static import StaticIOLayer
 
 # --- relative expressions ------------------------------------------------------------
 
@@ -124,7 +124,7 @@ def test_context_only_wire_subrequest_still_round_trips() -> None:
     # INVARIANT: `encode_subrequest(path, ctx, intent=None)` builds `/p?q=(ctx)`
     # — a WIRE artifact decoded by `decode_subrequest`, never re-parsed by the
     # grammar. The intent rule must not reach it.
-    from url4.subrequest import decode_subrequest, encode_subrequest
+    from url4.core.subrequest import decode_subrequest, encode_subrequest
 
     target = encode_subrequest("/p", "hello", None)
     assert target == "/p?q=(hello)"
@@ -147,14 +147,14 @@ def test_render_rejects_an_intent_less_relexpr() -> None:
 
 
 def test_render_rejects_an_intent_less_remoteexpr() -> None:
-    from url4.nodes import RemoteExpr
+    from url4.core.nodes import RemoteExpr
 
     with pytest.raises(RenderError, match="intent"):
         render(RemoteExpr(authority="node.ai", path="/v1", context="https://x"))
 
 
 def test_render_of_a_call_with_intent_still_round_trips() -> None:
-    from url4.nodes import Expression
+    from url4.core.nodes import Expression
 
     node = Expression(
         sources=(RelExpr(path="/claude", context="https://x", intent=Text("go")),),

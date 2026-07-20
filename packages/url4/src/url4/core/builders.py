@@ -34,9 +34,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
-from url4._annotations import _VALID_ON_ERROR
-from url4.grammar import _IDENT_RE, _STRUCT_KEY_RE, intent_atom, parse, parse_value
-from url4.nodes import (
+from url4.core._annotations import _VALID_ON_ERROR
+from url4.core.grammar import _IDENT_RE, _STRUCT_KEY_RE, intent_atom, parse, parse_value
+from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,
@@ -55,7 +55,7 @@ from url4.nodes import (
 
 # WHY: the renderer owns the canonical text forms; re-deriving quoting/number/
 # intent/source formatting here would let builders and renderer drift.
-from url4.render import _format_number, _quote, _render_intent, _render_source
+from url4.core.render import _format_number, _quote, _render_intent, _render_source
 
 SourceLike = str | Node | Mapping[str, object]
 """Anything accepted in a source position: url4 text, an AST node, or a mapping."""

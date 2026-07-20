@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from url4 import __version__
-from url4.errors import Url4Error
+from url4.core.errors import Url4Error
 
 # INVARIANT: only genuine loopback addresses belong here — a host in this set skips
 # the exposure warnings. "" is NOT loopback: it binds 0.0.0.0 AND :: (every
@@ -104,7 +104,7 @@ def _run_eval(args: argparse.Namespace) -> int:
 
 
 def _run_serve(args: argparse.Namespace) -> int:
-    from url4 import _serve  # lazy: keeps httpx/subprocess assembly off the base import path
+    from url4.cli import _serve  # lazy: keeps httpx/subprocess assembly off the base import path
 
     try:
         config = _serve.resolve(_overrides(args), os.environ, _config_path(args))

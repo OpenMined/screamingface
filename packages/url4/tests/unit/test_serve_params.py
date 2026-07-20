@@ -20,8 +20,8 @@ import json
 
 import pytest
 
-from url4._serve import ServeConfig, build_node, make_command_handler
-from url4.server import Request
+from url4.cli._serve import ServeConfig, build_node, make_command_handler
+from url4.peer.server import Request
 
 pytestmark = pytest.mark.asyncio
 

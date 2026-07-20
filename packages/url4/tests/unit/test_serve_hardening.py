@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import pytest
 
-import url4.cli as cli
-from url4._serve import ConfigError, ServeConfig, resolve
+import url4.cli.app as cli
+from url4.cli._serve import ConfigError, ServeConfig, resolve
 
 CMDS = {"/upper": ("tr", "a-z", "A-Z")}
 _FIELDS: tuple[str, ...] = (

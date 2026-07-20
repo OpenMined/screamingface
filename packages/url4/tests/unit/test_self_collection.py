@@ -16,11 +16,11 @@ from __future__ import annotations
 import pytest
 
 from url4 import StaticIOLayer
-from url4._serve import ConfigError, ProviderSpec, ServeConfig, build_node
+from url4.cli._serve import ConfigError, ProviderSpec, ServeConfig, build_node
+from url4.core.errors import ParseError
+from url4.core.grammar import parse
 from url4.dag.node import ExecutionContext
-from url4.errors import ParseError
-from url4.grammar import parse
-from url4.server import Url4Node
+from url4.peer.server import Url4Node
 
 CMDS = {"/echo": ("cat",)}
 

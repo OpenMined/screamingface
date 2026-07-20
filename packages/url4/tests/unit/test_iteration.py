@@ -18,11 +18,11 @@ import json
 import pytest
 from conftest import RecordingIOLayer
 
+from url4.core.errors import CollectionError
+from url4.core.nodes import Expression, Iteration, Text, Url
+from url4.core.parser import build
 from url4.dag import ExecutionContext, run
-from url4.errors import CollectionError
-from url4.io_static import StaticIOLayer
-from url4.nodes import Expression, Iteration, Text, Url
-from url4.parser import build
+from url4.io.static import StaticIOLayer
 
 ROWS = json.dumps([{"q": "2+2"}, {"q": "3+3"}])
 
@@ -180,7 +180,7 @@ async def test_reduce_over_iteration_with_per_row_intent() -> None:
 
 @pytest.mark.asyncio
 async def test_reduce_over_iteration_with_inner_directive() -> None:
-    from url4.nodes import IterationDirectives
+    from url4.core.nodes import IterationDirectives
 
     node = Iteration(
         collection=Url("https://data"),
@@ -194,7 +194,7 @@ async def test_reduce_over_iteration_with_inner_directive() -> None:
 
 @pytest.mark.asyncio
 async def test_iteration_with_concurrency_directive() -> None:
-    from url4.nodes import IterationDirectives
+    from url4.core.nodes import IterationDirectives
 
     node = Iteration(
         collection=Url("https://data"),

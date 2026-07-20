@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import pytest
 
-from url4.errors import ParseError
-from url4.subrequest import extract_expression_params
+from url4.core.errors import ParseError
+from url4.core.subrequest import extract_expression_params
 
 # --- q= last ---------------------------------------------------------------------
 
@@ -80,7 +80,7 @@ def test_query_without_q_is_a_data_query(query: str) -> None:
 def test_data_route_with_a_query_string_is_still_served() -> None:
     import asyncio
 
-    from url4.server import Url4Node
+    from url4.peer.server import Url4Node
 
     node = Url4Node("n")
     node.data("/api/rows", "DATA")
@@ -93,7 +93,7 @@ def test_data_route_with_a_query_string_is_still_served() -> None:
 def test_wire_q_not_last_is_a_400() -> None:
     import asyncio
 
-    from url4.server import Url4Node
+    from url4.peer.server import Url4Node
 
     node = Url4Node("n", eval_path="/v1")
     node.endpoint("/claude")(lambda request: f"claude:{request.intent}")

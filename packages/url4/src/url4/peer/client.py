@@ -38,18 +38,18 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from url4.builders import ParamsLike, SourceLike, _pairs, _rewrite_reducer_iteration
-from url4.builders import broadcast as _broadcast
-from url4.builders import expr as _expr
-from url4.builders import iterate as _iterate
-from url4.builders import reduce as _reduce
-from url4.context import Context
+from url4.core.builders import ParamsLike, SourceLike, _pairs, _rewrite_reducer_iteration
+from url4.core.builders import broadcast as _broadcast
+from url4.core.builders import expr as _expr
+from url4.core.builders import iterate as _iterate
+from url4.core.builders import reduce as _reduce
+from url4.core.context import Context
+from url4.core.nodes import Binding, Expression, Iteration, Node, Params, RemoteExpr, Text
+from url4.core.parser import build
+from url4.core.render import _render_source, render
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
 from url4.dag.node import ProcessFn, default_process
-from url4.io_layer import IOLayer
-from url4.nodes import Binding, Expression, Iteration, Node, Params, RemoteExpr, Text
-from url4.parser import build
-from url4.render import _render_source, render
+from url4.io.layer import IOLayer
 
 
 @dataclass(frozen=True)
@@ -160,7 +160,7 @@ class Client:
         if self._io is not None:
             return self._io
         if self._owned_io is None:
-            from url4.io_http import HttpIOLayer  # composition root: lazy transport import
+            from url4.io.http import HttpIOLayer  # composition root: lazy transport import
 
             self._owned_io = HttpIOLayer()
         return self._owned_io

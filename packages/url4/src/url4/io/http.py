@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import httpx
 
-from url4.errors import ResolutionError
-from url4.io_layer import FetchRequest, FetchResult
+from url4.core.errors import ResolutionError
+from url4.io.layer import FetchRequest, FetchResult
 
 
 class HttpIOLayer:

@@ -5,16 +5,16 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from url4.errors import (
+from url4.core.errors import (
     CollectionError,
     ParseError,
     ResolutionError,
     Url4Error,
 )
-from url4.io_http import HttpIOLayer
-from url4.io_layer import FetchRequest, FetchResult, fetch_result, parse_collection
-from url4.io_static import StaticIOLayer
-from url4.subrequest import encode_subrequest
+from url4.core.subrequest import encode_subrequest
+from url4.io.http import HttpIOLayer
+from url4.io.layer import FetchRequest, FetchResult, fetch_result, parse_collection
+from url4.io.static import StaticIOLayer
 
 
 @pytest.mark.asyncio

@@ -17,8 +17,7 @@ import asyncio
 
 import pytest
 
-from url4.dag import run
-from url4.nodes import (
+from url4.core.nodes import (
     Expression,
     IdentityRef,
     Iteration,
@@ -28,8 +27,9 @@ from url4.nodes import (
     Text,
     Url,
 )
-from url4.parser import build
-from url4.render import render
+from url4.core.parser import build
+from url4.core.render import render
+from url4.dag import run
 
 # --- the defect that actually bites -------------------------------------------------
 

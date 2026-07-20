@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from url4._scan import (
+from url4.core._scan import (
     balanced_body,
     find_top_level,
     iter_top_level,
     skip_quoted,
     split_top_level,
 )
-from url4.errors import ParseError
-from url4.subrequest import (
+from url4.core.errors import ParseError
+from url4.core.subrequest import (
     decode_subrequest,
     encode_subrequest,
     extract_expression_params,
