@@ -17,6 +17,7 @@ type ProgressStage = Literal[
     "grading",
     "aggregating",
     "complete",
+    "stopped",
     "failed",
 ]
 
@@ -34,6 +35,7 @@ _PROGRESS_STYLE = (
   "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;
   white-space:nowrap}
 .sf-progress__status.complete{color:var(--sf-gain)}
+.sf-progress__status.stopped{color:var(--sf-blind)}
 .sf-progress__status.failed{color:var(--sf-blind)}
 .sf-progress__body{padding:12px}
 .sf-progress__line{display:flex;justify-content:space-between;gap:12px;color:var(--sf-ink-2)}
@@ -42,6 +44,7 @@ _PROGRESS_STYLE = (
 .sf-progress__track{height:4px;margin-top:10px;background:var(--sf-surface-2);overflow:hidden}
 .sf-progress__fill{height:100%;background:var(--sf-ink);transition:width .18s ease}
 .sf-progress__fill.complete{background:var(--sf-gain)}
+.sf-progress__fill.stopped{background:var(--sf-blind)}
 .sf-progress__fill.failed{background:var(--sf-blind)}
 </style>"""
 )
@@ -85,7 +88,7 @@ class _TextBackend:
         count = "" if state.total is None else f" {state.completed}/{state.total}"
         line = f"{state.fusion_name} · {state.benchmark_id} · {state.label}{count}"
         padding = " " * max(0, self._last_length - len(line))
-        ending = "\n" if state.stage in {"complete", "failed"} else ""
+        ending = "\n" if state.stage in {"complete", "stopped", "failed"} else ""
         print(f"\r{line}{padding}", end=ending, file=sys.stderr, flush=True)
         self._last_length = len(line)
 
@@ -157,6 +160,20 @@ class Progress:
                 message,
                 self._state.completed,
                 self._state.total,
+            )
+            self._render()
+
+    def stop(self, label: str, *, completed: int, total: int) -> None:
+        if completed < 0 or total < 1 or completed > total:
+            raise ValueError("stopped progress requires 0 <= completed <= total")
+        with self._lock:
+            self._state = _State(
+                self._state.fusion_name,
+                self._state.benchmark_id,
+                "stopped",
+                label,
+                completed,
+                total,
             )
             self._render()
 

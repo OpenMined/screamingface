@@ -24,6 +24,7 @@ _APPLICATION_ERROR_STATUSES = {
     "unsupported_tool": 400,
     "invalid_tool_request": 400,
     "authentication_required": 401,
+    "payment_required": 402,
     "rate_limited": 429,
     "tool_budget_exhausted": 422,
     "provider_unavailable": 502,

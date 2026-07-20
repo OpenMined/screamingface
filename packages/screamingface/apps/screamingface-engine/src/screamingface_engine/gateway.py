@@ -409,6 +409,8 @@ def _normalized_gateway_code(status: int, upstream_code: str | None) -> str:
         }
     ):
         code = "connection_needs_reauth"
+    elif status == 402:
+        code = "payment_required"
     elif status == 403:
         code = "provider_access_denied"
     elif status == 429:

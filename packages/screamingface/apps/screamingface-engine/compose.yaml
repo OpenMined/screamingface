@@ -16,6 +16,16 @@ services:
       AIGATEWAY_AUTH_ENABLED: "0"
       AIGATEWAY_DATABASE_URL: sqlite:///home/app/aigateway.sqlite3
       AIGATEWAY_PUBLIC_URL: http://localhost:${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}
+      # INVARIANT: This plugin setting replaces its complete default list; retain the existing
+      # routes while adding only the two HF/provider pins verified for the Tavily agent loop.
+      AIGW_HUGGINGFACE_DEFAULT_MODELS: >-
+        ["huggingface/openai/gpt-oss-120b:cerebras",
+        "huggingface/Qwen/Qwen3-Coder-480B-A35B-Instruct:novita",
+        "huggingface/deepseek-ai/DeepSeek-R1:novita",
+        "huggingface/google/gemma-2-2b-it:featherless-ai",
+        "huggingface/meta-llama/Llama-3.1-8B-Instruct:nscale",
+        "huggingface/deepseek-ai/DeepSeek-V4-Pro:deepinfra",
+        "huggingface/zai-org/GLM-5.2:deepinfra"]
     init: true
     volumes:
       # The image creates /home/app with uid 1000; mounting at that existing

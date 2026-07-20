@@ -821,3 +821,35 @@ Superseded the temporary Phase 4D SearXNG path with the approved typed Tavily ex
 Tool-free model requests remain one Gateway call. URL4 and model success bodies remain plaintext,
 reducers and judges remain tool-free, and no AI Gateway or generic URL4 source change is required.
 Real one-case and two-member acceptance against researcher credentials remains Phase 9B.5.
+
+## Phase 9B.5 live acceptance — 2026-07-20
+
+Started the guarded live-acceptance sequence with no model spend:
+
+- verified through Hugging Face's public model API that DeepSeek V4 Pro and GLM 5.2 currently have
+  live DeepInfra conversational mappings;
+- configured both private IDs through AI Gateway's existing
+  `AIGW_HUGGINGFACE_DEFAULT_MODELS` deployment setting in the local ScreamingFace Compose profile,
+  without changing AI Gateway source;
+- retained all five existing HF defaults because the environment setting replaces the complete
+  plugin seed list;
+- restarted the stack and confirmed the public engine registry exposes seven HF routes, with
+  `web_search` and `web_fetch` only on the two approved DeepInfra pins; and
+- stopped before any model or Tavily search call because Hugging Face and Tavily were not yet
+  connected after restart.
+
+Researcher-owned credential entry through `sf.connect()` then enabled the guarded paid steps. The
+bounded DeepSeek canary completed successfully with final plaintext after three Gateway model
+turns, proving the real URL4 -> AI Gateway -> Tavily -> same-model continuation path. The first
+one-case DRACO Preview attempt later received upstream HTTP 402 Payment Required. After the
+researcher restored funding and explicitly approved one retry, the same case progressed through
+both research loops until GLM emitted another tool call on its twelfth and final permitted model
+turn. The engine correctly rejected that atomic case with `tool_budget_exhausted`; it returned no
+partial Fusion, scheduled no second case, and made no judge calls.
+
+The acceptance follow-up preserves payment-required responses as HTTP 402, includes the configured
+round bound and safe executed tool counts in exhausted-budget failures, and makes notebook
+progress distinguish attempted from scored cases. An all-failed evaluation omits the meaningless
+`Grading responses 0/0` stage and ends as stopped rather than complete. Phase 9B.5 remains blocked
+on completing the unchanged one-case Preview inside its pinned policy; do not silently increase
+the budget, substitute a model, or claim DRACO readiness.

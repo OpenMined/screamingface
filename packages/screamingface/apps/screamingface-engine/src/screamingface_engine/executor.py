@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Mapping
 from typing import Any, NoReturn, Protocol
 
@@ -142,6 +143,7 @@ class ModelExecutor:
             _TOOL_SPECS[name] for name in (WEB_SEARCH, WEB_FETCH) if name in policy.tools
         )
         total_calls = 0
+        tool_counts: Counter[str] = Counter()
         for round_index in range(policy.max_rounds):
             turn = await self._gateway.turn(
                 model,
@@ -152,7 +154,7 @@ class ModelExecutor:
             if not turn.tool_calls:
                 return _final_text(turn, model)
             if round_index + 1 == policy.max_rounds:
-                _budget(model, "tool-round")
+                _round_budget(model, policy.max_rounds, tool_counts)
             if len(turn.tool_calls) > MAX_TOOL_CALLS_PER_TURN:
                 _budget(model, "per-turn tool-call")
             if total_calls + len(turn.tool_calls) > MAX_TOTAL_TOOL_CALLS:
@@ -162,6 +164,8 @@ class ModelExecutor:
                 # INVARIANT: One model turn's calls execute in emitted order for reference parity.
                 messages.append(await self._tool_message(tool_call, policy))
                 total_calls += 1
+                if tool_call.name in {WEB_SEARCH, WEB_FETCH}:
+                    tool_counts[tool_call.name] += 1
         raise AssertionError("bounded agent loop exhausted without returning or raising")
 
     async def _tool_message(self, tool_call: ToolCall, policy: ToolPolicy) -> dict[str, object]:
@@ -267,6 +271,18 @@ def _final_text(turn: AssistantTurn, model: ModelRoute) -> str:
 def _budget(model: ModelRoute, limit: str) -> NoReturn:
     _resolution(
         f"model route {model.id!r} exceeded the {limit} limit",
+        "tool_budget_exhausted",
+        permanent=True,
+    )
+
+
+def _round_budget(model: ModelRoute, max_rounds: int, counts: Counter[str]) -> NoReturn:
+    count_text = ", ".join(
+        f"{name}={counts[name]}" for name in (WEB_SEARCH, WEB_FETCH) if counts[name]
+    )
+    _resolution(
+        f"model route {model.id!r} exhausted max_tool_rounds={max_rounds} after "
+        f"{max_rounds} model turns (executed tool calls: {count_text or 'none'})",
         "tool_budget_exhausted",
         permanent=True,
     )

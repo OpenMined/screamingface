@@ -143,7 +143,7 @@ def _run_fusion(
             registry.max_request_target_bytes,
             f"case {case.id!r}",
         )
-    tracker.stage("running", "Running cases", total=len(selected))
+    tracker.stage("running", "Attempting cases", total=len(selected))
     base_url = current_engine_url()
     with httpx.Client(base_url=base_url, timeout=_RUN_TIMEOUT) as client:
         results = _execute_cases(client, fusion, expressions, registry, tracker)
@@ -284,14 +284,37 @@ def evaluate_fusion(
             _registry=registry,
             _tracker=tracker,
         )
-        grades = grade_run(run, _connections_checked=True, _tracker=tracker)
+        # WHY: A failed atomic run still becomes an aggregatable report, but it has no response
+        # work to show in the shared notebook progress receipt.
+        grades = (
+            grade_run(run, _connections_checked=True, _tracker=tracker)
+            if any(result.failure is None for result in run.results)
+            else grade_run(run, _connections_checked=True, progress=False)
+        )
         tracker.stage("aggregating", "Aggregating report")
         report = grades.aggregate()
     except Exception as exc:
         tracker.fail(str(exc))
         raise
-    tracker.finish("Complete")
+    _finish_evaluation(tracker, report, run)
     return report
+
+
+def _finish_evaluation(tracker: Progress, report: Report, run: Run) -> None:
+    if report.complete:
+        tracker.finish("Complete")
+        return
+    tracker.stop(
+        f"{report.n_scored}/{report.n_cases} cases scored · {_attempted_cases(run)} attempted",
+        completed=report.n_scored,
+        total=report.n_cases,
+    )
+
+
+def _attempted_cases(run: Run) -> int:
+    return sum(
+        result.failure is None or result.failure.code != "not_scheduled" for result in run.results
+    )
 
 
 def _execute_case(

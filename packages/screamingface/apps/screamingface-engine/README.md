@@ -117,6 +117,20 @@ Tavily before model spend, sends each model turn through AI Gateway, executes em
 Tavily in order, and returns only final assistant plaintext. One member is limited to eight calls
 per turn, 32 calls total, and the benchmark's explicit model-round budget.
 
+Application failures retain actionable HTTP semantics at the public engine boundary. In
+particular, AI Gateway payment-required responses remain HTTP 402 with `payment_required`, and an
+exhausted model-round budget is HTTP 422 with the configured `max_tool_rounds`, model-turn count,
+and safe executed `web_search`/`web_fetch` counts. Tool arguments, result content, credentials, and
+raw provider payloads are never included in those diagnostics.
+
+The local Compose profile supplies both private Gateway IDs through AI Gateway's existing
+`AIGW_HUGGINGFACE_DEFAULT_MODELS` deployment setting. Because that setting replaces the complete
+plugin default, the profile repeats the five existing HF seeds and appends the two verified
+DeepInfra pins. This is deployment configuration, not a copied ScreamingFace availability list:
+AI Gateway still owns registration, the engine still reads `GET /v1/models` once at startup, and
+no AI Gateway source is modified. Hugging Face's public model API reported both DeepInfra mappings
+live when this local acceptance profile was recorded on 2026-07-20.
+
 The majority-vote handler is also registered once in that process. It accepts a resolved JSON
 object with contiguous `member_1` through `member_n` string values, applies exact-string voting, and
 breaks ties by numeric member position. It returns only the winning text and never contacts AI

@@ -264,7 +264,7 @@ def test_evaluate_emits_one_coherent_run_grade_aggregate_progress_sequence(
     assert len(client.eval_calls) == 4
     assert events == [
         ("stage", "checking", "Checking requirements", None),
-        ("stage", "running", "Running cases", 1),
+        ("stage", "running", "Attempting cases", 1),
         ("advance", "running", 1),
         ("stage", "checking", "Preparing grading", None),
         ("stage", "grading", "Grading responses", 3),
