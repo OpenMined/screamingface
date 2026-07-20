@@ -730,12 +730,38 @@ _VALUE_HANDLERS: dict[str, Callable[[str], Node]] = {
 }
 
 
+# Value heads that an intent may open with (`intent = value`, ABNF §6). Quoted
+# text, `scheme://` and `/path` are handled BEFORE this set is consulted — see
+# `intent_atom`.
+#
+# INVARIANT: `$` is deliberately ABSENT. A `$ref` intent must stay `Text`: the
+# TextNode path substitutes it against the run scope (`_substitute`), which is
+# what makes `(a=…, b='$a again')!$b` resolve. Lowering it as a VarRef instead
+# yields the literal string `$b` — verified by
+# `test_execution.py::test_later_source_sees_earlier_binding`. Text IS the
+# correct realization of a variable-ref intent, not a degraded one.
+_INTENT_VALUE_HEADS = frozenset("({@")
+
+
 def intent_atom(intent: str) -> Node:
-    """Classify a raw intent string into a leaf AST node (§6).
+    """Classify a raw intent string into an AST node (§6).
 
     Quoted → :class:`~url4.nodes.Text` content (quotes are delimiters);
     ``/path`` → :class:`~url4.nodes.RelUrl`; any ``scheme://…`` →
-    :class:`~url4.nodes.Url`; anything else → :class:`~url4.nodes.Text`.
+    :class:`~url4.nodes.Url`. Otherwise the ABNF's ``intent = value`` applies and
+    the token runs through full value detection, so a nested expression, an
+    iteration, a struct object, a self/identity ref, or a variable ref keeps its
+    structure. Anything else is natural-language :class:`~url4.nodes.Text`.
+
+    # WHY: these forms used to collapse to `Text`. That is not cosmetic — the DAG
+    # compiler dispatches lowering by node type, so a nested-expression intent was
+    # never compiled into a subgraph; the literal string `"(c,d)!agg"` was handed
+    # to the model as a prompt (`OME-502`).
+    #
+    # INVARIANT: `/path` stays a `RelUrl` rather than parsing as a relative
+    # EXPRESSION. `!/reduce()` is the fan-out reducer ROUTE form and is
+    # load-bearing; a literal `intent = value` reading would rewire reduce
+    # dispatch. Deliberate, recorded deviation — see the `OME-502` ledger.
     """
     text = intent.strip()
     if text.startswith("'"):
@@ -745,8 +771,24 @@ def intent_atom(intent: str) -> Node:
     elif text.startswith("/"):
         node = RelUrl(text)
     else:
-        node = Text(text)
+        node = _intent_value_or_text(text)
     return node
+
+
+def _intent_value_or_text(text: str) -> Node:
+    """Full value detection for an intent token, else natural-language ``Text``.
+
+    # WHY: an intent is natural language FIRST. A token that merely looks like a
+    # value head (``{not a struct``) must stay prompt text rather than become a
+    # parse error — widening intent classification may not narrow what an author
+    # is allowed to say.
+    """
+    if text[:1] not in _INTENT_VALUE_HEADS and _find_iteration_star(text) is None:
+        return Text(text)
+    try:
+        return _parse_value(text)
+    except ParseError:
+        return Text(text)
 
 
 __all__ = ["intent_atom", "parse", "parse_value"]

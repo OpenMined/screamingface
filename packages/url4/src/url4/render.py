@@ -179,7 +179,11 @@ def _render_param(key: str, value: str | None, *, top: bool) -> str:
 
 
 def _render_intent(node: Node) -> str:
-    # intent_atom() can only produce Text / Url / RelUrl (spec §6 leaf forms).
+    # INVARIANT: this must stay in lockstep with `grammar.intent_atom`. The ABNF's
+    # `intent = value` means an intent can be any value form, so anything
+    # intent_atom can PRODUCE, this must be able to render back — otherwise a
+    # legal expression becomes unrenderable and render() stops being parse()'s
+    # inverse (`OME-502`).
     if isinstance(node, Text):
         return _quote(node.value)
     if isinstance(node, (Url, RelUrl)):
@@ -187,10 +191,17 @@ def _render_intent(node: Node) -> str:
         if isinstance(node, Url):
             _scan_uri(text, allow_parens=True, forbid="';")
         return text
-    raise RenderError(
-        f"{type(node).__name__} cannot be an intent — "
-        "the grammar's intent forms are Text, Url, and RelUrl"
-    )
+    if isinstance(node, VarRef):
+        # INVARIANT: `intent_atom` never PRODUCES a VarRef (see its
+        # `_INTENT_VALUE_HEADS`), so rendering one would emit `$a`, which reparses
+        # as Text — render would stop being parse's inverse. Reject it instead.
+        raise RenderError(
+            "VarRef cannot be an intent — a `$ref` in intent position is text that "
+            "resolves by substitution, so rendering one would not reparse to itself"
+        )
+    # The widened value forms (nested expression, iteration, struct object,
+    # self/identity ref) share the value renderers.
+    return _render_value(node)
 
 
 def _relurl_intent(node: RelUrl) -> str:
