@@ -59,7 +59,7 @@ enforces nothing. And the two "hardest" modules — `dag/compiler.py` and
   `_TRANSPORT_PARAMS` DERIVED INVARIANT, opaque-context AIDEV-NOTE, data-route
   membership INVARIANT, processor-consumed AIDEV-NOTE). Prefix-only on existing
   prose; vocabulary-only, no invented anchors, no restated code.
-- **Commits:** <sha — filled at commit>
+- **Commits:** 1cc9549 — fix(url4): activate the inert PLR1702 gate + anchor compiler.py and server.py
 - **Gates:** run_gates.py url4 → ALL GREEN (append-only · ruff check · ruff format
   --check · pyright 0 errors · pytest --cov=url4 --cov-fail-under=95). 1046 tests
   pass — unchanged (docs/config only, no behavior change).
