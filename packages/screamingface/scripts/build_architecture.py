@@ -1,4 +1,4 @@
-"""Build the Phase 5C ScreamingFace architecture notebook."""
+"""Build the ScreamingFace architecture notebook."""
 
 from __future__ import annotations
 
@@ -62,20 +62,23 @@ Researcher process
 ├─ ScreamingFace SDK
 │  ├─ loads benchmark sources and keeps references sealed
 │  ├─ compiles Fusion definitions into URL4
+│  ├─ reads provider status and sends connection actions
 │  ├─ validates returned run evidence
 │  ├─ performs deterministic graders
 │  └─ aggregates paired comparisons
 │
-└─ HTTP GET
-   └─ screamingface-engine · persistent Url4Node
-      ├─ model routes ── AI Gateway ── model providers
-      ├─ web_search ── private SearXNG service
-      └─ deterministic reducer routes
+└─ screamingface-engine · persistent Url4Node
+   ├─ plaintext URL4 data plane · GET /v1?q=...
+   │  ├─ model routes ── AI Gateway ── model providers
+   │  ├─ web_search ── private SearXNG service
+   │  └─ deterministic reducer routes
+   └─ JSON connection control plane · /v1/connections/...
+      └─ AI Gateway credential profiles
 ```
 
-The SDK never calls providers or AI Gateway directly. The generic URL4 engine evaluates the graph;
-the ScreamingFace engine profile registers the model, tool, and reducer capabilities needed by the
-SDK."""
+Both planes end at the configured ScreamingFace engine. The SDK never calls providers or AI
+Gateway directly. The generic URL4 engine evaluates the graph; the ScreamingFace engine profile
+registers the model, tool, reducer, and connection capabilities needed by the SDK."""
         ),
         nbformat.v4.new_markdown_cell("## 3 · Inspect the engine registry"),
         nbformat.v4.new_code_cell(
@@ -99,8 +102,9 @@ SDK."""
             """The registry is JSON serialized inside a plaintext HTTP body. `sf.models.list()`
 fetches and validates the complete `screamingface.registry.v1` document before returning model IDs.
 
-The registry advertises executable routes and transport limits—not provider authentication and not
-benchmark data. Benchmarks are installed SDK definitions because their sources and sealed
+The registry advertises executable routes, transport limits, and provider ownership/auth methods.
+Fresh connection status comes from the engine's protected connection API rather than this public
+capability document. Benchmarks are installed SDK definitions because their sources and sealed
 references belong in the researcher's process."""
         ),
         nbformat.v4.new_markdown_cell("## 4 · A Fusion recipe is URL4, but not yet a request"),
@@ -195,6 +199,7 @@ plaintext when it runs a Fusion; this cell performs those two steps visibly for 
 | URL4 recipe compilation | ScreamingFace SDK |
 | URL4 graph execution | `screamingface-engine` / URL4 |
 | Provider calls | Engine through AI Gateway |
+| Provider credential control | SDK through engine to AI Gateway |
 | Web research | Engine through SearXNG |
 | Exact grading and aggregation | Researcher's SDK process |
 
@@ -205,6 +210,8 @@ same configured URL4 engine. The SDK still never opens a direct provider or Gate
 
 - `sf.config(...)` selects one URL4 engine.
 - The engine registry describes what that deployment can execute.
+- `sf.connect()` displays fresh connection state and sends credentials only to that engine.
+- model-backed work checks required connections once before spend.
 - `fusion.url4` is a reusable parameterized recipe.
 - one concrete execution is an encoded `GET /v1?q=...` transaction.
 - successful bodies are plaintext that the SDK parses and validates.

@@ -10,19 +10,44 @@ import pytest
 from url4 import Request, Url4Node, build
 
 import screamingface as sf
-from screamingface import _grading
+from screamingface import _grading, connections
 from screamingface._compiler import compile_model_expression
-from screamingface._profile import ModelRecord, Registry
+from screamingface._profile import ModelRecord, ProviderRecord, Registry
 
 
 def _registry(*models: str) -> Registry:
     selected = models or ("judge/model",)
     return Registry(
-        models=tuple(ModelRecord(model, ()) for model in selected),
+        models=tuple(ModelRecord(model, (), "test-provider") for model in selected),
         reducers=(),
         response_schemas=("screamingface.fusion-result.v1",),
         max_request_target_bytes=61440,
+        providers=(ProviderRecord("test-provider", "Test Provider", ("api_key",)),),
     )
+
+
+@pytest.fixture(autouse=True)
+def _connected_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    sf.config(engine="http://127.0.0.1:4404")
+
+    def response(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/connections"
+        return httpx.Response(
+            200,
+            json={
+                "schema": "screamingface.connections.v1",
+                "connections": [
+                    {
+                        "provider": "test-provider",
+                        "status": "connected",
+                        "auth_method": "api_key",
+                        "account_label": None,
+                    }
+                ],
+            },
+        )
+
+    monkeypatch.setattr(connections, "_transport", httpx.MockTransport(response))
 
 
 def _reference() -> dict[str, object]:

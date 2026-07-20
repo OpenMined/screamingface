@@ -5,14 +5,14 @@ from __future__ import annotations
 import builtins
 import time
 from dataclasses import dataclass, field
-from typing import Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, cast, overload
 from urllib.parse import urlsplit
 
 import httpx
 
 from screamingface._config import current_engine_url
 from screamingface._engine_http import exact_fields, nonblank, object_value, unique_json_object
-from screamingface._profile import AuthMethod, ProviderRecord, load_registry
+from screamingface._profile import AuthMethod, ProviderRecord, Registry, load_registry
 from screamingface.errors import (
     AuthMethodRequiredError,
     EngineConnectionError,
@@ -34,6 +34,10 @@ _ERROR_TYPES = {
     "auth_method_not_supported": UnsupportedAuthMethodError,
 }
 _transport: httpx.BaseTransport | None = None
+_HttpClient = httpx.Client
+
+if TYPE_CHECKING:
+    from screamingface._connection_panel import ConnectionPanel
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +99,12 @@ class OAuthFlow:
             expect_empty=True,
         )
 
+    @property
+    def expired(self) -> bool:
+        """Whether this bounded flow has passed its engine-advertised lifetime."""
+
+        return time.monotonic() > self._expires_at
+
     def _required_provider_record(self) -> ProviderRecord:
         if self._provider_record is None or not self._engine_url:
             raise ValueError("OAuthFlow values are created by sf.connect(...)")
@@ -105,7 +115,17 @@ def list() -> tuple[Connection, ...]:
     """Return fresh, sanitized connection state for every advertised provider."""
 
     registry = load_registry()
-    payload = _request("GET", "/v1/connections")
+    return _list_for_registry(registry)
+
+
+def _list_for_registry(
+    registry: Registry,
+    *,
+    engine_url: str | None = None,
+) -> tuple[Connection, ...]:
+    """Return fresh state using an already-validated registry."""
+
+    payload = _request("GET", "/v1/connections", engine_url=engine_url)
     return _decode_connection_list(payload, registry.providers)
 
 
@@ -152,7 +172,7 @@ def _decode_connection_list_value(
 @overload
 def connect(
     provider: None = None, *, method: None = None, api_key: None = None
-) -> tuple[Connection, ...]: ...
+) -> ConnectionPanel: ...
 
 
 @overload
@@ -179,8 +199,8 @@ def connect(
     *,
     method: AuthMethod | None = None,
     api_key: str | None = None,
-) -> tuple[Connection, ...] | Connection | OAuthFlow:
-    """List connections or start/update one provider connection."""
+) -> ConnectionPanel | Connection | OAuthFlow:
+    """Open the provider panel or start/update one provider connection."""
 
     if provider is None:
         return _connect_without_provider(method=method, api_key=api_key)
@@ -193,16 +213,20 @@ def connect(
     return action if isinstance(action, Connection) else _start_oauth(selected, action)
 
 
-def _connect_without_provider(
-    *, method: AuthMethod | None, api_key: str | None
-) -> tuple[Connection, ...]:
+def _connect_without_provider(*, method: AuthMethod | None, api_key: str | None) -> ConnectionPanel:
     if method is not None or api_key is not None:
         raise TypeError("provider is required when method or api_key is supplied")
-    return list()
+    from screamingface._connection_panel import ConnectionPanel
+
+    return ConnectionPanel.create()
 
 
 def _connect_api_key(
-    provider: ProviderRecord, *, method: AuthMethod | None, api_key: str
+    provider: ProviderRecord,
+    *,
+    method: AuthMethod | None,
+    api_key: str,
+    engine_url: str | None = None,
 ) -> Connection:
     if method not in {None, "api_key"}:
         raise ValueError("api_key cannot be combined with OAuth")
@@ -212,6 +236,7 @@ def _connect_api_key(
     payload = _request(
         "PUT",
         f"/v1/connections/{provider.id}/api-key",
+        engine_url=engine_url,
         json_body={"api_key": api_key},
     )
     return _decode_connection_response(payload, provider)
@@ -233,9 +258,19 @@ def _oauth_action(provider: ProviderRecord, method: AuthMethod | None) -> AuthMe
     return provider.auth_methods[0]
 
 
-def _start_oauth(selected: ProviderRecord, method: AuthMethod) -> OAuthFlow:
+def _start_oauth(
+    selected: ProviderRecord,
+    method: AuthMethod,
+    *,
+    engine_url: str | None = None,
+) -> OAuthFlow:
     _require_method(selected, method)
-    payload = _request("POST", f"/v1/connections/{selected.id}/oauth")
+    origin = engine_url or current_engine_url()
+    payload = _request(
+        "POST",
+        f"/v1/connections/{selected.id}/oauth",
+        engine_url=origin,
+    )
     try:
         exact_fields(
             payload,
@@ -253,7 +288,7 @@ def _start_oauth(selected: ProviderRecord, method: AuthMethod) -> OAuthFlow:
     return OAuthFlow(
         provider=selected.id,
         authorize_url=authorize_url,
-        _engine_url=current_engine_url(),
+        _engine_url=origin,
         _provider_record=selected,
         _expires_at=time.monotonic() + expires_in,
     )
@@ -263,7 +298,20 @@ def disconnect(provider: str) -> Connection:
     """Remove one provider connection; already-disconnected providers are harmless."""
 
     selected = _provider(provider)
-    _request("DELETE", f"/v1/connections/{selected.id}", expect_empty=True)
+    return _disconnect_provider(selected)
+
+
+def _disconnect_provider(
+    selected: ProviderRecord,
+    *,
+    engine_url: str | None = None,
+) -> Connection:
+    _request(
+        "DELETE",
+        f"/v1/connections/{selected.id}",
+        engine_url=engine_url,
+        expect_empty=True,
+    )
     return Connection(
         provider=selected.id,
         display_name=selected.display_name,
@@ -348,7 +396,7 @@ def _request(
     base_url = engine_url or current_engine_url()
     _require_private_origin(base_url)
     try:
-        with httpx.Client(
+        with _HttpClient(
             base_url=base_url,
             timeout=30.0,
             follow_redirects=False,

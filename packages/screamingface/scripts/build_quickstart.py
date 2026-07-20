@@ -15,11 +15,12 @@ def notebook() -> nbformat.NotebookNode:
         nbformat.v4.new_markdown_cell(
             """# ScreamingFace · quickstart
 
-Combine three models into one Fusion, evaluate it on five real GPQA Diamond questions, and compare
-the Fusion with its strongest member.
+Connect three model providers, combine their models into one Fusion, evaluate it on five real GPQA
+Diamond questions, and compare the Fusion with its strongest member.
 
-This is the shortest supported path: **compose → evaluate → compare**. Evaluation uses real model
-responses through the configured ScreamingFace engine; it never substitutes an offline result.
+This is the shortest supported path: **connect → compose → evaluate → compare**. Its core
+evaluation path remains **compose → evaluate → compare**. Evaluation uses real model responses
+through the configured ScreamingFace engine; it never substitutes an offline result.
 
 ## Before you run it
 
@@ -30,10 +31,10 @@ cd packages/screamingface/apps/screamingface-engine
 ./dev.sh
 ```
 
-The local AI Gateway starts with an empty provider profile store, and this notebook does not
-install credentials or add a separate authentication path. The selected model provider credentials
-must be provisioned through AI Gateway; otherwise the report will show explicit authentication
-failures and zero scored cases.
+The local AI Gateway starts with an empty provider profile store. The first cell opens the
+ScreamingFace provider panel, which stores provider credentials through the engine. If a selected
+provider is disconnected, evaluation raises one actionable `ConnectionRequiredError` before model
+calls; provider authentication never becomes repeated per-case failures.
 
 GPQA is fetched through this notebook's Hugging Face session, so accept its dataset terms and
 authenticate this Python environment when required:
@@ -45,9 +46,15 @@ huggingface-cli login
 The five-case example makes 15 model calls: three Fusion members for each question. Majority vote,
 answer-key grading, and the final comparison make no additional provider calls."""
         ),
-        nbformat.v4.new_markdown_cell("## 1 · Compose"),
+        nbformat.v4.new_markdown_cell("## 1 · Connect"),
+        nbformat.v4.new_code_cell("import screamingface as sf\n\nsf.connect()"),
+        nbformat.v4.new_markdown_cell(
+            """Connect each provider used below. The panel sends credentials only to the configured
+ScreamingFace engine and shows the engine origin before you act.
+
+## 2 · Compose"""
+        ),
         nbformat.v4.new_code_cell(
-            "import screamingface as sf\n\n"
             "fusion = sf.Fusion(\n"
             '    "frontier-trio",\n'
             "    models=[\n"
@@ -63,9 +70,10 @@ answer-key grading, and the final comparison make no additional provider calls."
         nbformat.v4.new_markdown_cell(
             """Each member answers the same multiple-choice question. `MajorityVote` selects the
 most common exact answer and breaks a tie by stable member order. Fusion construction is local and
-does not call a model."""
+does not call a model.
+
+## 3 · Evaluate"""
         ),
-        nbformat.v4.new_markdown_cell("## 2 · Evaluate"),
         nbformat.v4.new_code_cell(
             'report = fusion.evaluate("gpqa@1", first=5)\n\n'
             "# Equivalent staged API:\n"
@@ -78,9 +86,10 @@ does not call a model."""
             """`evaluate(...)` loads the pinned GPQA Diamond definition through this process,
 executes the three-member Fusion for the first five canonical cases, checks the answers against the
 sealed answer key, and returns one paired comparison. Missing work remains an explicit failure; it
-is never silently scored as zero."""
+is never silently scored as zero.
+
+## 4 · Compare"""
         ),
-        nbformat.v4.new_markdown_cell("## 3 · Compare"),
         nbformat.v4.new_code_cell("report"),
         nbformat.v4.new_markdown_cell(
             """Read `gain` first:

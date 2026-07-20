@@ -76,6 +76,8 @@ class Fusion:
         *,
         first: int | None = None,
     ) -> Report:
-        """Run, grade, and aggregate one benchmark without changing stage policy."""
+        """Preflight the complete requirement union, then run, grade, and aggregate."""
 
-        return self.run(benchmark, first=first).grade().aggregate()
+        from screamingface._execution import evaluate_fusion
+
+        return evaluate_fusion(self, benchmark, first=first)

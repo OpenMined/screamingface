@@ -30,9 +30,7 @@ class ProviderRecord:
 class ModelRecord:
     id: str
     supported_tools: tuple[str, ...]
-    # AIDEV-NOTE: Empty only preserves direct construction in older internal unit fixtures. The
-    # wire decoder below always requires and validates explicit ownership.
-    provider: str = ""
+    provider: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +45,7 @@ class Registry:
     reducers: tuple[ReducerRecord, ...]
     response_schemas: tuple[str, ...]
     max_request_target_bytes: int
-    providers: tuple[ProviderRecord, ...] = ()
+    providers: tuple[ProviderRecord, ...]
 
 
 def load_registry() -> Registry:

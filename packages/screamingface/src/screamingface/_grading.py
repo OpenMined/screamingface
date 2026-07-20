@@ -12,8 +12,10 @@ from statistics import fmean
 
 import httpx
 
+from screamingface import connections
 from screamingface._compiler import compile_model_expression
 from screamingface._config import current_engine_url
+from screamingface._connection_preflight import require_connections
 from screamingface._engine_http import (
     EVAL_PATH,
     engine_error,
@@ -24,6 +26,7 @@ from screamingface._engine_http import (
 )
 from screamingface._exact_choice import exact_choice_score, validate_exact_reference
 from screamingface._profile import load_registry
+from screamingface._requirements import grade_requirements
 from screamingface.benchmark import Case
 from screamingface.errors import InvalidBenchmarkError, UnknownModelError
 from screamingface.graders import ExactChoice, Rubric
@@ -42,6 +45,7 @@ _JUDGE_CONCURRENCY = 16
 _JUDGE_TIMEOUT = 130.0
 _VALIDATION_ATTEMPTS = 3
 _METRIC_KEY_RE = re.compile(r"[^a-z0-9]+")
+_AUTH_REJECTION_CODES = frozenset({"authentication_required", "connection_needs_reauth"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +72,7 @@ class _JudgeTask:
     expression: str
 
 
-def grade_run(run: Run) -> Grades:
+def grade_run(run: Run, *, _connections_checked: bool = False) -> Grades:
     """Dispatch one immutable Run to its benchmark-owned grader."""
 
     if not isinstance(run, Run):
@@ -78,7 +82,7 @@ def grade_run(run: Run) -> Grades:
     if isinstance(grader, ExactChoice):
         return _grade_exact(run, cases)
     if isinstance(grader, Rubric):
-        return _grade_rubric(run, cases, grader)
+        return _grade_rubric(run, cases, grader, _connections_checked=_connections_checked)
     raise TypeError(f"unsupported grader {type(grader).__name__!r}")
 
 
@@ -110,11 +114,19 @@ def _exact_grade(reference: object, answer: str) -> Grade:
     return Grade(score=exact_choice_score(reference, answer), metrics={}, coverage=1.0)
 
 
-def _grade_rubric(run: Run, cases: tuple[Case, ...], grader: Rubric) -> Grades:
+def _grade_rubric(
+    run: Run,
+    cases: tuple[Case, ...],
+    grader: Rubric,
+    *,
+    _connections_checked: bool,
+) -> Grades:
     references = tuple(_rubric_reference(case) for case in cases)
     registry = load_registry()
     if grader.model not in {record.id for record in registry.models}:
         raise UnknownModelError(f"unknown rubric judge model {grader.model!r}")
+    if not _connections_checked:
+        require_connections(grade_requirements(run._benchmark, registry), registry)
 
     tasks = _judge_tasks(run, cases, references, grader)
     for task in tasks:
@@ -126,7 +138,7 @@ def _grade_rubric(run: Run, cases: tuple[Case, ...], grader: Rubric) -> Grades:
                 f"{task.criterion.id!r} pass {task.pass_number}"
             ),
         )
-    verdicts = _execute_tasks(tasks)
+    verdicts = _execute_tasks(tasks, registry=registry)
     grouped = _group_verdicts(tasks, verdicts)
     results = tuple(
         _rubric_case(result, reference, grouped)
@@ -280,12 +292,48 @@ def _judge_context(question: str, answer: str, criterion: _Criterion) -> str:
     )
 
 
-def _execute_tasks(tasks: tuple[_JudgeTask, ...]) -> tuple[CriterionVerdict, ...]:
+def _execute_tasks(
+    tasks: tuple[_JudgeTask, ...],
+    *,
+    registry=None,
+) -> tuple[CriterionVerdict, ...]:
     if not tasks:
         return ()
+    verdicts: list[CriterionVerdict] = []
     with httpx.Client(base_url=current_engine_url(), timeout=_JUDGE_TIMEOUT) as client:
         with ThreadPoolExecutor(max_workers=min(_JUDGE_CONCURRENCY, len(tasks))) as pool:
-            return tuple(pool.map(lambda task: _execute_task(client, task), tasks))
+            for start in range(0, len(tasks), _JUDGE_CONCURRENCY):
+                batch = tasks[start : start + _JUDGE_CONCURRENCY]
+                completed = tuple(pool.map(lambda task: _execute_task(client, task), batch))
+                verdicts.extend(completed)
+                rejection = _verdict_auth_rejection(completed)
+                if rejection is not None:
+                    if registry is not None:
+                        connections._list_for_registry(registry)
+                    verdicts.extend(
+                        _failed_verdict(
+                            task,
+                            "url4",
+                            "Judge request was not scheduled because provider credentials "
+                            "require reconnection.",
+                            status=401,
+                            code=rejection,
+                        )
+                        for task in tasks[start + len(batch) :]
+                    )
+                    break
+    return tuple(verdicts)
+
+
+def _verdict_auth_rejection(verdicts: tuple[CriterionVerdict, ...]) -> str | None:
+    return next(
+        (
+            verdict.failure.code
+            for verdict in verdicts
+            if verdict.failure is not None and verdict.failure.code in _AUTH_REJECTION_CODES
+        ),
+        None,
+    )
 
 
 def _execute_task(client: httpx.Client, task: _JudgeTask) -> CriterionVerdict:

@@ -105,9 +105,13 @@ class GatewayClient:
         except httpx.TimeoutException as exc:
             raise ResolutionError(f"AI Gateway timed out while running {model.id!r}") from exc
         except httpx.HTTPStatusError as exc:
-            raise ResolutionError(
-                f"AI Gateway returned HTTP {exc.response.status_code} for {model.id!r}"
-            ) from exc
+            status = exc.response.status_code
+            message = f"AI Gateway returned HTTP {status} for {model.id!r}"
+            if status == 401:
+                raise ResolutionError(message, code="connection_needs_reauth") from exc
+            if status == 403:
+                raise ResolutionError(message, code="provider_access_denied") from exc
+            raise ResolutionError(message) from exc
         except httpx.RequestError as exc:
             raise ResolutionError(f"AI Gateway request failed for {model.id!r}: {exc}") from exc
         return _response_turn(response, model)

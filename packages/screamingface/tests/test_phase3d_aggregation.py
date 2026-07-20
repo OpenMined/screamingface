@@ -6,7 +6,7 @@ from collections.abc import Mapping
 import pytest
 
 import screamingface as sf
-from screamingface import _aggregation
+from screamingface import _aggregation, _execution
 
 MEMBERS = {
     "member_1": "worker/one",
@@ -206,24 +206,22 @@ def test_unsupported_aggregator_fails_without_fallback() -> None:
         _aggregation.aggregate_grades(None)  # type: ignore[arg-type]
 
 
-def test_fusion_evaluate_is_exactly_run_grade_aggregate(
+def test_fusion_evaluate_delegates_to_the_union_preflight_pipeline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     grades = _paired_grades()
-    run = grades._run
     calls: list[tuple[object, int | None]] = []
 
-    def fake_run(
+    def fake_evaluate(
         _fusion: sf.Fusion,
         benchmark: str | sf.Benchmark,
         *,
         first: int | None = None,
-    ) -> sf.Run:
+    ) -> sf.Report:
         calls.append((benchmark, first))
-        return run
+        return grades.aggregate()
 
-    monkeypatch.setattr(sf.Fusion, "run", fake_run)
-    monkeypatch.setattr(sf.Run, "grade", lambda _run: grades)
+    monkeypatch.setattr(_execution, "evaluate_fusion", fake_evaluate)
     fusion = sf.Fusion(
         "paired-fusion",
         ["worker/one", "worker/two"],

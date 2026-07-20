@@ -17,7 +17,7 @@ from screamingface._benchmarks._draco_prompt import (
     DRACO_JUDGE_PROMPT_BYTES,
     DRACO_JUDGE_PROMPT_SHA256,
 )
-from screamingface._profile import ModelRecord, ReducerRecord, Registry
+from screamingface._profile import ModelRecord, ProviderRecord, ReducerRecord, Registry
 
 
 def _criterion(index: int) -> dict[str, object]:
@@ -135,12 +135,16 @@ def test_draco_evaluation_fails_preflight_without_engine_spend(
         "load_registry",
         lambda: Registry(
             models=(
-                ModelRecord("codex/gpt-5.5", ()),
-                ModelRecord("gemini/2.5", ()),
+                ModelRecord("codex/gpt-5.5", ("web_search",), "codex"),
+                ModelRecord("gemini/2.5", ("web_search",), "gemini"),
             ),
             reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
             response_schemas=("screamingface.fusion-result.v1",),
             max_request_target_bytes=61440,
+            providers=(
+                ProviderRecord("codex", "OpenAI Codex", ("oauth",)),
+                ProviderRecord("gemini", "Google Gemini", ("oauth", "api_key")),
+            ),
         ),
     )
     monkeypatch.setattr(
@@ -155,7 +159,7 @@ def test_draco_evaluation_fails_preflight_without_engine_spend(
     )
 
     with pytest.raises(sf.UnknownModelError, match="gemini/3.1-pro-preview"):
-        fusion.run("draco@1", first=1)
+        fusion.evaluate("draco@1", first=1)
 
 
 def test_draco_source_requires_the_canonical_row_count() -> None:

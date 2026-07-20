@@ -9,9 +9,9 @@ import httpx
 import pytest
 
 import screamingface as sf
-from screamingface import _execution
+from screamingface import _execution, connections
 from screamingface._compiler import compile_fusion
-from screamingface._profile import ModelRecord, ReducerRecord, Registry
+from screamingface._profile import ModelRecord, ProviderRecord, ReducerRecord, Registry
 
 
 def _registry(
@@ -22,16 +22,46 @@ def _registry(
     return Registry(
         models=models
         or (
-            ModelRecord("codex/gpt-5.5", ()),
-            ModelRecord("gemini/2.5", ()),
-            ModelRecord("judge/model", ()),
+            ModelRecord("codex/gpt-5.5", (), "codex"),
+            ModelRecord("gemini/2.5", (), "gemini"),
+            ModelRecord("judge/model", (), "judge"),
         ),
         reducers=reducers
         if reducers is not None
         else (ReducerRecord("majority_vote", "/reducers/majority-vote"),),
         response_schemas=("screamingface.fusion-result.v1",),
         max_request_target_bytes=61440,
+        providers=(
+            ProviderRecord("codex", "OpenAI Codex", ("oauth",)),
+            ProviderRecord("gemini", "Google Gemini", ("oauth", "api_key")),
+            ProviderRecord("judge", "Judge", ("api_key",)),
+        ),
     )
+
+
+@pytest.fixture(autouse=True)
+def _connected_providers(monkeypatch: pytest.MonkeyPatch) -> None:
+    sf.config(engine="http://127.0.0.1:4404")
+
+    def response(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/connections"
+        return httpx.Response(
+            200,
+            json={
+                "schema": "screamingface.connections.v1",
+                "connections": [
+                    {
+                        "provider": provider.id,
+                        "status": "connected",
+                        "auth_method": provider.auth_methods[0],
+                        "account_label": None,
+                    }
+                    for provider in _registry().providers
+                ],
+            },
+        )
+
+    monkeypatch.setattr(connections, "_transport", httpx.MockTransport(response))
 
 
 def _fusion(reducer=None) -> sf.Fusion:
@@ -131,9 +161,9 @@ def test_supported_benchmark_tools_are_sent_only_in_concrete_member_requests(
     fusion = _fusion()
     benchmark = _benchmark(tools=("web_search",))
     supported = (
-        ModelRecord("codex/gpt-5.5", ("web_search",)),
-        ModelRecord("gemini/2.5", ("web_search",)),
-        ModelRecord("judge/model", ()),
+        ModelRecord("codex/gpt-5.5", ("web_search",), "codex"),
+        ModelRecord("gemini/2.5", ("web_search",), "gemini"),
+        ModelRecord("judge/model", (), "judge"),
     )
     monkeypatch.setattr(_execution, "load_registry", lambda: _registry(models=supported))
     client = _install(monkeypatch, fusion, benchmark)
@@ -333,7 +363,7 @@ def test_preflight_rejects_unknown_models_tools_reducers_and_references(
     monkeypatch.setattr(
         _execution,
         "load_registry",
-        lambda: _registry(models=(ModelRecord("codex/gpt-5.5", ()),)),
+        lambda: _registry(models=(ModelRecord("codex/gpt-5.5", (), "codex"),)),
     )
     with pytest.raises(sf.UnknownModelError, match="gemini"):
         fusion.run(_benchmark())

@@ -2,11 +2,13 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 5F
+## Current implementation: Phase 6C
 
 The SDK currently supports:
 
 - `sf.config(engine=...)`, defaulting temporarily to `http://127.0.0.1:4404`;
+- `sf.connect()` for the engine-scoped notebook panel, plus explicit
+  `sf.connect(provider, ...)`, `sf.disconnect(provider)`, and `sf.connections.list()` flows;
 - immutable `sf.Case`, `sf.Benchmark`, and `sf.Fusion` authoring;
 - namespaced reducers, graders, and aggregators;
 - `sf.models.list(...)` against the configured engine's executable capability registry;
@@ -21,6 +23,13 @@ The SDK currently supports:
 - `run.grade()` with deterministic local ExactChoice grading and URL4-backed Rubric judging,
   strict evidence coverage, validation-only retries, and weighted DRACO-compatible scoring; and
 - strict paired `sf.aggregators.Mean()` reports plus the exact `fusion.evaluate(...)` facade.
+
+Before model-backed work, the SDK reads fresh provider status from the configured engine.
+`fusion.run(...)` checks member and model-reducer requirements, `run.grade()` checks a model
+judge when present, and `fusion.evaluate(...)` checks their union once. Missing credentials raise
+one structured `sf.ConnectionRequiredError` before model spend instead of producing one failure
+per case. Deterministic grading, aggregation, benchmark loading, and discovery remain independent
+of provider connections.
 
 The development `screamingface-engine` runs four model routes through one persistent `Url4Node`
 and a shared AI Gateway client. It accepts direct endpoint requests and complete expressions
@@ -62,9 +71,9 @@ direct callers that exceed it.
 ## Walkthrough notebooks
 
 [`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb) is the shortest public path. It
-configures the engine, constructs one three-member majority-vote Fusion, evaluates five canonical
-GPQA cases, and compares `score`, `baseline`, and `gain`. Its provider-backed cell defaults off
-until the researcher confirms the documented 15-call example.
+opens the engine-scoped provider panel, constructs one three-member majority-vote Fusion, evaluates
+five canonical GPQA cases, and compares `score`, `baseline`, and `gain`. The evaluation makes the
+documented 15 provider calls only after connection preflight succeeds.
 
 [`examples/01_architecture.ipynb`](examples/01_architecture.ipynb) is the executable configuration
 and architecture guide. It shows the SDK/engine boundary, raw registry plaintext, validated model
@@ -87,6 +96,11 @@ uses the pinned `draco@1` definition, shows a compatible web-research Fusion, an
 `run -> grade -> aggregate`. Paid execution is explicitly disabled by default because one case can
 require hundreds of judge calls. It is not presented as the benchmark pipeline's full model-lineup
 reproduction.
+
+[`examples/06_connections.ipynb`](examples/06_connections.ipynb) explains the provider connection
+control plane in isolation: interactive panel use, script-oriented OAuth and API-key calls,
+connection status, disconnect, preflight errors, and the separate Hugging Face dataset session.
+It makes no paid model call.
 
 No superseded notebook is retained as API documentation.
 
@@ -149,11 +163,16 @@ uv run --extra notebook jupyter lab examples/02_discovery.ipynb
 uv run --extra notebook jupyter lab examples/03_fusions.ipynb
 # or
 uv run --extra notebook jupyter lab examples/04_custom_benchmarks.ipynb
+# or
+uv run --extra notebook jupyter lab examples/05_draco.ipynb
+# or
+uv run --extra notebook jupyter lab examples/06_connections.ipynb
 ```
 
 The notebooks are generated from `scripts/build_quickstart.py`, `scripts/build_architecture.py`,
 `scripts/build_discovery.py`, `scripts/build_fusions.py`, `scripts/build_custom_benchmarks.py`, and
-`scripts/build_draco_walkthrough.py`; edit the generators rather than notebook JSON.
+`scripts/build_draco_walkthrough.py`, and `scripts/build_connections.py`; edit the generators
+rather than notebook JSON.
 
 ## Current API example
 
@@ -162,6 +181,12 @@ import screamingface as sf
 
 # Optional locally: this URL is currently the default.
 sf.config(engine="http://127.0.0.1:4404")  # HTTP(S) origin only
+
+# Notebook panel for every provider advertised by that engine.
+sf.connect()
+
+# Plain status for scripts and applications.
+sf.connections.list()
 
 models = sf.models.list()
 benchmarks = sf.benchmarks.list()
@@ -212,7 +237,8 @@ report = fusion.evaluate(benchmark)
 ```
 
 Construction and `fusion.url4` are network-free. Model discovery and execution contact only the
-configured URL4 engine. Benchmark discovery is package-local; loading `gpqa@1` uses the caller's
+configured URL4 engine. Provider connection calls also contact only that engine; the SDK never
+contacts AI Gateway directly. Benchmark discovery is package-local; loading `gpqa@1` uses the caller's
 Hugging Face session and returns ordinary immutable SDK values. `fusion.run("gpqa@1", first=20)`
 is shorthand for local load followed by engine execution over a stable prefix. The SDK now
 installs both `gpqa@1` and `draco@1`; DRACO can be loaded and inspected locally. The development

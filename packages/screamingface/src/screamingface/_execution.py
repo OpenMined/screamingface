@@ -7,8 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
+from screamingface import connections
 from screamingface._compiler import MAJORITY_VOTE_ROUTE, compile_fusion
 from screamingface._config import current_engine_url
+from screamingface._connection_preflight import require_connections
 from screamingface._engine_http import (
     EVAL_PATH,
     engine_error,
@@ -20,6 +22,7 @@ from screamingface._engine_http import (
 )
 from screamingface._exact_choice import validate_exact_reference
 from screamingface._profile import FUSION_RESULT_SCHEMA, Registry, load_registry
+from screamingface._requirements import evaluate_requirements, run_requirements
 from screamingface.benchmark import Benchmark, Case
 from screamingface.benchmarks import load as load_benchmark
 from screamingface.errors import (
@@ -29,12 +32,13 @@ from screamingface.errors import (
     UnsupportedToolError,
 )
 from screamingface.fusion import Fusion
-from screamingface.graders import ExactChoice, Rubric
+from screamingface.graders import ExactChoice
 from screamingface.reducers import MajorityVote, Model
 from screamingface.run import CaseResult, FailureKind, MemberResult, Run, RunFailure
 
 _CASE_CONCURRENCY = 4
 _RUN_TIMEOUT = 130.0
+_AUTH_REJECTION_CODES = frozenset({"authentication_required", "connection_needs_reauth"})
 
 
 def run_fusion(
@@ -42,6 +46,8 @@ def run_fusion(
     benchmark: str | Benchmark,
     *,
     first: int | None,
+    _connections_checked: bool = False,
+    _registry: Registry | None = None,
 ) -> Run:
     """Preflight, execute every selected case, and preserve canonical order."""
 
@@ -53,8 +59,10 @@ def run_fusion(
     cases = resolved._materialize_cases()
     selected = cases if limit is None else cases[:limit]
     _references(selected, resolved)
-    registry = load_registry()
+    registry = _registry or load_registry()
     _preflight(fusion, resolved, registry)
+    if not _connections_checked:
+        require_connections(run_requirements(fusion, registry), registry)
 
     expressions = tuple(
         (
@@ -71,13 +79,7 @@ def run_fusion(
         )
     base_url = current_engine_url()
     with httpx.Client(base_url=base_url, timeout=_RUN_TIMEOUT) as client:
-        with ThreadPoolExecutor(max_workers=min(_CASE_CONCURRENCY, len(expressions))) as pool:
-            results = tuple(
-                pool.map(
-                    lambda value: _execute_case(client, fusion, *value),
-                    expressions,
-                )
-            )
+        results = _execute_cases(client, fusion, expressions, registry)
     return Run(
         benchmark=resolved,
         fusion_name=fusion.name,
@@ -86,6 +88,83 @@ def run_fusion(
         cases=selected,
         results=results,
     )
+
+
+def _execute_cases(
+    client: httpx.Client,
+    fusion: Fusion,
+    expressions: tuple[tuple[Case, str], ...],
+    registry: Registry,
+) -> tuple[CaseResult, ...]:
+    results: list[CaseResult] = []
+    with ThreadPoolExecutor(max_workers=min(_CASE_CONCURRENCY, len(expressions))) as pool:
+        for start in range(0, len(expressions), _CASE_CONCURRENCY):
+            batch = expressions[start : start + _CASE_CONCURRENCY]
+            completed = tuple(pool.map(lambda value: _execute_case(client, fusion, *value), batch))
+            results.extend(completed)
+            rejection = _auth_rejection(completed)
+            if rejection is not None:
+                # WHY: A bounded batch preserves parallelism while leaving later dependent work
+                # genuinely unscheduled after a stored credential is rejected.
+                connections._list_for_registry(registry)
+                results.extend(
+                    _unscheduled(case.id, rejection)
+                    for case, _expression in expressions[start + len(batch) :]
+                )
+                break
+    return tuple(results)
+
+
+def _auth_rejection(results: tuple[CaseResult, ...]) -> str | None:
+    return next(
+        (
+            result.failure.code
+            for result in results
+            if result.failure is not None and result.failure.code in _AUTH_REJECTION_CODES
+        ),
+        None,
+    )
+
+
+def _unscheduled(case_id: str, code: str) -> CaseResult:
+    return _failed(
+        case_id,
+        "url4",
+        "Case was not scheduled because provider credentials require reconnection.",
+        status=401,
+        code=code,
+    )
+
+
+def evaluate_fusion(
+    fusion: Fusion,
+    benchmark: str | Benchmark,
+    *,
+    first: int | None,
+):
+    """Check the complete model-backed requirement union once, then execute all stages."""
+
+    from screamingface._grading import grade_run
+
+    _first(first)
+    if not isinstance(benchmark, (str, Benchmark)):
+        raise TypeError("benchmark must be a benchmark ID or sf.Benchmark")
+    resolved = load_benchmark(benchmark) if isinstance(benchmark, str) else benchmark
+    registry = load_registry()
+    _preflight(fusion, resolved, registry)
+    try:
+        requirements = evaluate_requirements(fusion, resolved, registry)
+    except ValueError as exc:
+        raise UnknownModelError(str(exc)) from exc
+    require_connections(requirements, registry)
+    run = run_fusion(
+        fusion,
+        resolved,
+        first=first,
+        _connections_checked=True,
+        _registry=registry,
+    )
+    return grade_run(run, _connections_checked=True).aggregate()
 
 
 def _execute_case(
@@ -186,12 +265,10 @@ def _preflight(fusion: Fusion, benchmark: Benchmark, registry: Registry) -> None
     _reducer(fusion, registry)
 
 
-def _required_models(fusion: Fusion, benchmark: Benchmark) -> tuple[str, ...]:
+def _required_models(fusion: Fusion, _benchmark: Benchmark) -> tuple[str, ...]:
     models = list(fusion.model_ids)
     if isinstance(fusion.reducer, Model):
         models.append(fusion.reducer.model)
-    if isinstance(benchmark.grader, Rubric):
-        models.append(benchmark.grader.model)
     return tuple(models)
 
 
@@ -249,4 +326,4 @@ def _protocol(case_id: str, message: str, status: int) -> CaseResult:
     return _failed(case_id, "protocol", message, status=status)
 
 
-__all__ = ["run_fusion"]
+__all__ = ["evaluate_fusion", "run_fusion"]

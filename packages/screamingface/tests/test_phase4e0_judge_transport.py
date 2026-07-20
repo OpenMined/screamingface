@@ -5,23 +5,53 @@ import pytest
 from url4 import Request, Url4Node, build
 
 import screamingface as sf
-from screamingface import _execution, _grading
+from screamingface import _execution, _grading, connections
 from screamingface._compiler import compile_model_expression
 from screamingface._engine_http import eval_request_target_bytes
-from screamingface._profile import ModelRecord, ReducerRecord, Registry
+from screamingface._profile import ModelRecord, ProviderRecord, ReducerRecord, Registry
 
 
 def _registry(*, limit: int) -> Registry:
     return Registry(
         models=(
-            ModelRecord("codex/gpt-5.5", ()),
-            ModelRecord("gemini/2.5", ()),
-            ModelRecord("judge/model", ()),
+            ModelRecord("codex/gpt-5.5", (), "codex"),
+            ModelRecord("gemini/2.5", (), "gemini"),
+            ModelRecord("judge/model", (), "judge"),
         ),
         reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
         response_schemas=("screamingface.fusion-result.v1",),
         max_request_target_bytes=limit,
+        providers=(
+            ProviderRecord("codex", "OpenAI Codex", ("oauth",)),
+            ProviderRecord("gemini", "Google Gemini", ("oauth", "api_key")),
+            ProviderRecord("judge", "Judge", ("api_key",)),
+        ),
     )
+
+
+@pytest.fixture(autouse=True)
+def _connected_providers(monkeypatch: pytest.MonkeyPatch) -> None:
+    sf.config(engine="http://127.0.0.1:4404")
+
+    def response(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/connections"
+        return httpx.Response(
+            200,
+            json={
+                "schema": "screamingface.connections.v1",
+                "connections": [
+                    {
+                        "provider": provider.id,
+                        "status": "connected",
+                        "auth_method": provider.auth_methods[0],
+                        "account_label": None,
+                    }
+                    for provider in _registry(limit=61440).providers
+                ],
+            },
+        )
+
+    monkeypatch.setattr(connections, "_transport", httpx.MockTransport(response))
 
 
 @pytest.mark.asyncio

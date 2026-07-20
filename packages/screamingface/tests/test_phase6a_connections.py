@@ -113,9 +113,9 @@ def test_registry_rejects_unknown_model_provider(monkeypatch: pytest.MonkeyPatch
 
 def test_connections_are_immutable_fresh_and_capability_enriched(fake_engine) -> None:
     first = sf.connections.list()
-    second = sf.connect()
+    panel = sf.connect()
 
-    assert first == second
+    assert first == panel.connections
     assert first[0] == sf.Connection(
         provider="codex",
         display_name="OpenAI Codex",

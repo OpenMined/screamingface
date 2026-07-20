@@ -1113,6 +1113,7 @@ requires-dist = [
     { name = "datasets", specifier = ">=4.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "ipykernel", marker = "extra == 'notebook'", specifier = ">=6.29" },
+    { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8.1" },
     { name = "jupyterlab", marker = "extra == 'notebook'", specifier = ">=4.2" },
     { name = "nbclient", marker = "extra == 'notebook'", specifier = ">=0.10" },
     { name = "nbformat", marker = "extra == 'notebook'", specifier = ">=5.10" },

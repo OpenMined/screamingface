@@ -636,4 +636,29 @@ URL4 source:
 The full engine suite passed with 113 tests and 95.82% coverage, the authoritative ScreamingFace
 gate passed, and an isolated Docker smoke test proved status, secret redaction, restart
 persistence, disconnect, and engine-owned OAuth callback generation. Phase 6C preflight and
-notebook widgets remain unimplemented.
+notebook widgets remained for the next separately approved slice.
+
+## Phase 6C SDK connection UX and preflight implementation — 2026-07-20
+
+Implemented the approved public connection experience without adding a direct SDK-to-Gateway
+path:
+
+- made argument-free `sf.connect()` return a fresh engine-scoped notebook panel while preserving
+  `sf.connections.list()` as the explicit immutable data operation and targeted OAuth/API-key
+  calls for scripts;
+- added one fresh stage-specific connection preflight for `run`, `grade`, and the complete
+  `evaluate` union before model spend, while deterministic grading and aggregation remain local;
+- bounded case and judge scheduling so a rejected stored credential preserves completed evidence
+  and prevents later dependent work from being scheduled;
+- normalized AI Gateway model-call 401 and 403 responses into stable, safe engine error codes;
+- added an optional `ipywidgets` notebook dependency and a square, accessible, light/dark-safe
+  panel with explicit OAuth navigation, masked-and-cleared API keys, bounded polling, cancellation,
+  and escaped inline errors;
+- added the generated provider-connections guide and updated the quickstart, architecture guide,
+  README, lockfiles, and CI regeneration checks; and
+- kept dataset sessions separate and changed neither AI Gateway nor URL4 source.
+
+The SDK suite passed with 482 tests and 95.29% coverage; the engine suite passed with 115 tests
+and 95.84% coverage. Ruff, format, Pyright, deterministic notebook checks, and the authoritative
+ScreamingFace gate all passed. The append-only gate was skipped only after explicit owner approval
+for the prior fixture/contract changes required by the new provider preflight.

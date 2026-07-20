@@ -1,6 +1,6 @@
 # OME-400 — Provider connections implementation plan
 
-**Status:** Phases 6A–6B complete; Phase 6C approved but not started
+**Status:** Phases 6A–6C complete
 **Date:** 2026-07-20
 **Normative contract:**
 [`docs/spec/2026-07-20-OME-400-provider-connections-contract.md`](../spec/2026-07-20-OME-400-provider-connections-contract.md)
@@ -58,6 +58,8 @@ persistence, disconnect/reset behavior, engine-only Gateway access, and no crede
 modify AI Gateway or URL4.
 
 ## Phase 6C — SDK flows, preflight, and widget
+
+**Implementation status:** complete on 2026-07-20.
 
 Wire the approved Python calls to the real engine control plane and add the notebook experience.
 
