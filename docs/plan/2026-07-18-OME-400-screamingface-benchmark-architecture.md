@@ -65,7 +65,7 @@ The complete contract is normative; this is the implementation checklist.
 ### SDK definitions and namespaces
 
 - `sf.Case(id, input, reference=None, metadata=...)`
-- `sf.Benchmark(id, title, cases, grader, aggregator, tools=())`
+- `sf.Benchmark(id, title, cases, grader, aggregator, tools=(), max_tool_rounds=None)`
 - `sf.Fusion(name, models, reducer, prompt=...)`
 - abstract interfaces: `sf.Reducer`, `sf.Grader`, `sf.Aggregator`
 - concrete strategies:
@@ -366,19 +366,17 @@ invalid judge output alone gets up to two byte-identical retries. Judge concurre
 SDK's internal 16-request bound until engine capacity is reviewed separately. The SDK retains its stricter publication rule: incomplete
 verdict coverage keeps the evidence but produces `score=None`.
 
-The DRACO benchmark declares `tools=("web_search",)`. The compiler adds that named capability
-only to answer-producing Fusion member routes. Reducers, model synthesizers, and rubric judges do
-not inherit it. In the engine, `web_search` means the complete named research capability needed
-to search and open/fetch sources; its provider-specific payload is allowlisted and tested rather
-than forwarding the string blindly. The profile blocks access to benchmark rubrics, references,
-and result sources through this capability.
+The DRACO benchmark declares typed `sf.tools.TavilySearch` and `sf.tools.TavilyExtract` policy plus
+`max_tool_rounds=12`. The compiler adds that complete policy only to answer-producing Fusion
+member routes. Reducers, model synthesizers, and rubric judges do not inherit it. The profile
+blocks access to benchmark rubrics, references, credentials, and result sources through these
+capabilities.
 
-**Phase 4C is implemented:** tool identifiers are ordered, unique lowercase capability names;
-`tools` is reserved from generic model parameters; and concrete case expressions encode benchmark
-capabilities only on member calls. One tool renders as `tools=web_search`; multiple tools use the
-canonical URL-query form `tools=web_search+code_execution`. The benchmark-independent
-`fusion.url4` template and `run.fusion_url4` remain unchanged. URL4 transports and decodes the
-parameter generically.
+**Phase 9B.3 supersedes the unreleased Phase 4C authoring shape:** benchmarks accept only immutable
+typed Tavily tool values and require an explicit positive round bound. Concrete case expressions
+encode tool IDs, loop policy, and every stable Tavily request field as scalar parameters on member
+calls. Repeated domains use stable numbered keys. The benchmark-independent `fusion.url4` template
+and `run.fusion_url4` remain unchanged, and credentials never enter URL4.
 
 **Phase 4D is implemented:** the development engine owns a bounded standard model-tool loop,
 translates the single public `web_search` capability into internal `web_search` and `web_fetch`
@@ -590,8 +588,8 @@ Phase 9 is split into separately testable units:
   `~provider` aliases, and bridge HF API-key connections without advertising tools.
 - **9B.2 (implemented):** add Tavily as an engine-owned, process-local API-key tool-service
   connection, validated directly through Tavily without Gateway traffic.
-- **9B.3:** replace the unreleased string-tool representation with typed Tavily benchmark policy
-  and scalar URL4 compilation.
+- **9B.3 (implemented):** replace the unreleased string-tool representation with typed Tavily
+  benchmark policy, a required round bound, and scalar URL4 compilation.
 - **9B.4:** implement the bounded HF model/tool loop and remove SearXNG/direct page fetching.
 - **9B.5:** pin the canonical DRACO configuration and prove one-case, two-member, and complete-run
   readiness against real services.

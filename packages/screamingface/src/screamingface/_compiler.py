@@ -8,10 +8,11 @@ from typing import TYPE_CHECKING
 from url4 import Expression, RelExpr, Text, render, src, struct, text
 
 from screamingface._profile import FUSION_RESULT_SCHEMA
-from screamingface._tooling import TOOL_PARAMETER, encoded_tools
+from screamingface._tooling import TOOL_PARAMETER
 from screamingface.errors import UnsupportedReducerError
 from screamingface.model_inputs import ParameterValue, _FusionMember
 from screamingface.reducers import MajorityVote, Model
+from screamingface.tools import Tool, _tool_ids
 
 if TYPE_CHECKING:
     from screamingface.fusion import Fusion
@@ -23,11 +24,12 @@ def compile_fusion(
     fusion: Fusion,
     *,
     question: str | None = None,
-    tools: Sequence[str] = (),
+    tools: Sequence[Tool] = (),
+    max_tool_rounds: int | None = None,
 ) -> str:
     """Render one parameterized recipe or one concrete case expression."""
 
-    tool_params = _tool_params(tools)
+    tool_params = _tool_params(tools, max_tool_rounds)
     sources = []
     if question is not None:
         sources.append(src(text(_literal(question)), name="question"))
@@ -126,10 +128,23 @@ def _params(
     return tuple((key, _param(value)) for key, value in items)
 
 
-def _tool_params(tools: Sequence[str]) -> tuple[tuple[str, str], ...]:
+def _tool_params(tools: Sequence[Tool], max_tool_rounds: int | None) -> tuple[tuple[str, str], ...]:
     if not tools:
+        if max_tool_rounds is not None:
+            raise ValueError("max_tool_rounds must be None when tools are empty")
         return ()
-    return ((TOOL_PARAMETER, encoded_tools(tools)),)
+    if isinstance(max_tool_rounds, bool) or not isinstance(max_tool_rounds, int):
+        raise ValueError("max_tool_rounds is required when tools are configured")
+    if max_tool_rounds < 1:
+        raise ValueError("max_tool_rounds must be a positive integer")
+    typed_tools = tuple(tools)
+    values: list[tuple[str, str]] = [
+        (TOOL_PARAMETER, "+".join(_tool_ids(typed_tools))),
+        ("max_tool_rounds", str(max_tool_rounds)),
+    ]
+    for tool in typed_tools:
+        values.extend((key, _param(value)) for key, value in tool._parameter_items())
+    return tuple(values)
 
 
 def _param(value: ParameterValue) -> str:

@@ -11,6 +11,7 @@ from screamingface.aggregators import Mean
 from screamingface.benchmark import Benchmark, Case
 from screamingface.errors import InvalidBenchmarkError
 from screamingface.graders import Rubric
+from screamingface.tools import TavilyExtract, TavilySearch
 
 
 def benchmark() -> Benchmark:
@@ -27,7 +28,8 @@ def benchmark() -> Benchmark:
             params={"temperature": 0.2, "max_tokens": 4096},
         ),
         aggregator=Mean(),
-        tools=("web_search",),
+        tools=(TavilySearch(), TavilyExtract()),
+        max_tool_rounds=12,
     )
 
 

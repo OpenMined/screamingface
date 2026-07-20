@@ -16,6 +16,7 @@ from screamingface.aggregators import Mean
 from screamingface.benchmark import Benchmark, Case
 from screamingface.errors import InvalidBenchmarkError
 from screamingface.graders import Rubric
+from screamingface.tools import TavilyExtract, TavilySearch
 
 DATASET = "perplexity-ai/draco"
 SPLIT = "test"
@@ -37,6 +38,12 @@ EXPECTED_DOMAINS = frozenset(
         "Technology",
         "UX Design",
     }
+)
+EXCLUDED_RESEARCH_DOMAINS = (
+    "huggingface.co/datasets/perplexity-ai/draco",
+    "openrouter.ai/blog/announcements/fusion-beats-frontier",
+    "paperswithcode.com/dataset/draco",
+    "arxiv.org/abs/2509",
 )
 
 _SOURCE_FIELDS = {"id", "problem", "answer", "domain"}
@@ -75,7 +82,11 @@ def benchmark() -> Benchmark:
             },
         ),
         aggregator=Mean(),
-        tools=("web_search",),
+        tools=(
+            TavilySearch(max_results=5, exclude_domains=EXCLUDED_RESEARCH_DOMAINS),
+            TavilyExtract(),
+        ),
+        max_tool_rounds=12,
     )
 
 

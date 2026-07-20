@@ -93,7 +93,14 @@ def test_named_draco_load_is_local_pinned_cached_and_canonical(
 
     assert first.id == "draco@1"
     assert first.title == "DRACO"
-    assert first.tools == ("web_search",)
+    assert first.tools == (
+        sf.tools.TavilySearch(
+            max_results=5,
+            exclude_domains=draco.EXCLUDED_RESEARCH_DOMAINS,
+        ),
+        sf.tools.TavilyExtract(),
+    )
+    assert first.max_tool_rounds == 12
     assert isinstance(first.grader, sf.graders.Rubric)
     assert first.grader.model == "gemini/3.1-pro-preview"
     assert first.grader.prompt == DRACO_JUDGE_PROMPT
@@ -134,7 +141,13 @@ def test_draco_evaluation_fails_preflight_without_engine_spend(
         _execution,
         "load_registry",
         lambda: Registry(
-            models=(ModelRecord("claude/sonnet-4.6", ("web_search",), "anthropic"),),
+            models=(
+                ModelRecord(
+                    "claude/sonnet-4.6",
+                    ("web_search", "web_fetch"),
+                    "anthropic",
+                ),
+            ),
             reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
             response_schemas=("screamingface.fusion-result.v1",),
             max_request_target_bytes=61440,

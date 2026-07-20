@@ -72,12 +72,17 @@ def _fusion(reducer=None) -> sf.Fusion:
     )
 
 
-def _benchmark(count: int = 1, *, tools: tuple[str, ...] = ()) -> sf.Benchmark:
+def _benchmark(
+    count: int = 1,
+    *,
+    tools: tuple[sf.tools.Tool, ...] = (),
+) -> sf.Benchmark:
     return sf.Benchmark(
         "tiny@1",
         cases=[sf.Case(f"q{index}", f"Question {index}", reference="A") for index in range(count)],
         grader=sf.graders.ExactChoice(),
         tools=tools,
+        max_tool_rounds=8 if tools else None,
     )
 
 
@@ -145,9 +150,12 @@ def _install(
 ) -> FakeClient:
     monkeypatch.setattr(_execution, "load_registry", _registry)
     responses = {
-        compile_fusion(fusion, question=case.input, tools=benchmark.tools): (
-            lambda case_id=case.id: response(case_id) if response else _success(fusion, case_id)
-        )
+        compile_fusion(
+            fusion,
+            question=case.input,
+            tools=benchmark.tools,
+            max_tool_rounds=benchmark.max_tool_rounds,
+        ): (lambda case_id=case.id: response(case_id) if response else _success(fusion, case_id))
         for case in benchmark._materialize_cases()
     }
     client = FakeClient(responses, delay=delay)
@@ -159,7 +167,7 @@ def test_supported_benchmark_tools_are_sent_only_in_concrete_member_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fusion = _fusion()
-    benchmark = _benchmark(tools=("web_search",))
+    benchmark = _benchmark(tools=(sf.tools.TavilySearch(),))
     supported = (
         ModelRecord("codex/gpt-5.5", ("web_search",), "codex"),
         ModelRecord("gemini/2.5-flash", ("web_search",), "gemini"),
@@ -173,7 +181,8 @@ def test_supported_benchmark_tools_are_sent_only_in_concrete_member_requests(
 
     assert len(client.calls) == 1
     expression = client.calls[0]
-    assert expression.count("?tools=web_search&q=($question)") == 2
+    assert expression.count("tools=web_search") == 2
+    assert expression.count("max_tool_rounds=8") == 2
     assert "fusion_answer=/reducers/majority-vote($member_answers)" in expression
     assert run.fusion_url4 == fusion.url4
     assert "tools=" not in run.fusion_url4
@@ -358,7 +367,7 @@ def test_preflight_rejects_unknown_models_tools_reducers_and_references(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fusion = _fusion()
-    benchmark = _benchmark(tools=("web_search",))
+    benchmark = _benchmark(tools=(sf.tools.TavilySearch(),))
     monkeypatch.setattr(_execution, "load_registry", _registry)
 
     with pytest.raises(sf.UnsupportedToolError, match="web_search"):

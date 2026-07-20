@@ -56,11 +56,13 @@ def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4()
     expression = compile_fusion(
         fusion,
         question="Research this",
-        tools=("web_search", "code_execution"),
+        tools=(sf.tools.TavilySearch(), sf.tools.TavilyExtract()),
+        max_tool_rounds=8,
     )
 
     assert build(expression)
-    assert expression.count("?tools=web_search+code_execution&q=($question)") == 2
+    assert expression.count("tools=web_search+web_fetch") == 2
+    assert expression.count("max_tool_rounds=8") == 2
     assert "fusion_answer=/reducers/majority-vote($member_answers)" in expression
     assert "fusion_answer=/reducers/majority-vote?" not in expression
     assert "tools=" not in fusion.url4
@@ -86,7 +88,8 @@ def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4()
 
     assert result.text
     assert len(requests) == 2
-    assert all(request.params == {"tools": "web_search code_execution"} for request in requests)
+    assert all(request.params["tools"] == "web_search web_fetch" for request in requests)
+    assert all(request.params["max_tool_rounds"] == "8" for request in requests)
     assert len(reducer_requests) == 1
     assert reducer_requests[0].params == {}
 
@@ -102,9 +105,14 @@ def test_model_reducer_receives_automatic_labeled_context_and_its_own_intent() -
         ),
     )
 
-    recipe = compile_fusion(fusion, tools=("web_search",))
+    recipe = compile_fusion(
+        fusion,
+        tools=(sf.tools.TavilySearch(),),
+        max_tool_rounds=8,
+    )
 
-    assert recipe.count("?tools=web_search&q=($question)") == 2
+    assert recipe.count("tools=web_search") == 2
+    assert recipe.count("max_tool_rounds=8") == 2
     assert "fusion_answer=/codex/gpt-5.5?temperature=0.0&q=(Question:" in recipe
     assert "fusion_answer=/codex/gpt-5.5?tools=" not in recipe
     assert "$question\n\nPanel answers:\nPanel 1 [codex/gpt-5.5]:\n$member_1" in recipe

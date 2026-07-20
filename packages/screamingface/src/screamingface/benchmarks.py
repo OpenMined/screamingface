@@ -23,8 +23,8 @@ class _Definition:
 
 _DEFINITIONS = (
     _Definition("gpqa@1", (), gpqa_benchmark),
-    _Definition("draco@1", ("web_search",), draco_benchmark),
-    _Definition("draco-preview@1", ("web_search",), draco_preview_benchmark),
+    _Definition("draco@1", ("web_search", "web_fetch"), draco_benchmark),
+    _Definition("draco-preview@1", ("web_search", "web_fetch"), draco_preview_benchmark),
 )
 
 

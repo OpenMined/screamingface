@@ -15,7 +15,8 @@ The SDK currently supports:
 - `sf.benchmarks.list(...)` against the SDK's installed canonical benchmark catalog;
 - eager, validated `sf.benchmarks.load(...)` through the researcher's ordinary dataset access;
 - canonical, shareable `fusion.url4` recipe compilation; and
-- automatic benchmark-tool compilation onto concrete answer-producing member requests only;
+- typed Tavily search/extract benchmark policy with an explicit agent-round bound, compiled onto
+  concrete answer-producing member requests only;
 - synchronous `fusion.run(...)` through only the configured URL4 engine, returning immutable
   in-memory result records;
 - immutable grading record types (`Grades`, `CaseGrades`, `Grade`, `CriterionVerdict`, and
@@ -42,10 +43,11 @@ sf.disconnect("tavily")
 
 For the current researcher-owned local engine, the key is validated directly through Tavily and
 kept only in engine process memory. It never passes through AI Gateway. Restarting the engine
-disconnects Tavily by design. This connection phase does not yet add Tavily search/extract to
-model routes; Hugging Face routes remain tool-free until the bounded tool-loop phase. A shared
-hosted engine needs identity, authorization, HTTPS, and encrypted per-user storage before it can
-accept this credential safely.
+disconnects Tavily by design. The SDK now has typed Tavily benchmark policy and deterministic
+URL4 compilation, but this phase does not yet execute that policy: Hugging Face routes remain
+tool-free until Phase 9B.4 adds the bounded engine tool loop. A shared hosted engine needs
+identity, authorization, HTTPS, and encrypted per-user storage before it can accept this
+credential safely.
 
 `Fusion.run(...)`, `Run.grade(...)`, and `Fusion.evaluate(...)` accept `progress=True | False |
 None`. The default `None` shows one live progress surface in Jupyter and remains silent in ordinary
@@ -233,6 +235,18 @@ benchmark = sf.Benchmark(
     grader=sf.graders.ExactChoice(),
 )
 
+# Research benchmarks own reproducible tool policy, never credentials.
+research_benchmark = sf.Benchmark(
+    "research@1",
+    cases=[sf.Case("q1", "Research this question", reference="...")],
+    grader=sf.graders.ExactChoice(),
+    tools=(
+        sf.tools.TavilySearch(max_results=5),
+        sf.tools.TavilyExtract(),
+    ),
+    max_tool_rounds=12,
+)
+
 run = fusion.run(benchmark)
 run.fusion_name
 run.members
@@ -266,8 +280,11 @@ Hugging Face session and returns ordinary immutable SDK values. `fusion.run("gpq
 is shorthand for local load followed by engine execution over a stable prefix. The SDK now
 installs `gpqa@1`, canonical `draco@1`, and the explicitly non-comparable `draco-preview@1` development
 profile; all can be loaded and inspected locally. The development
-engine can execute `tools=web_search` members through its internal SearXNG adapter on the Claude
-route. It exposes the tool-free `gemini/2.5-flash` route used for bounded DRACO Preview judging.
+engine can still execute the earlier `tools=web_search` transport shape through its internal
+SearXNG adapter on the Claude route. The typed DRACO definitions now require both `web_search` and
+`web_fetch` plus Tavily policy, so they intentionally fail capability preflight until Phase 9B.4
+replaces that adapter with the HF/Tavily loop. The engine exposes the tool-free
+`gemini/2.5-flash` route used for bounded DRACO Preview judging.
 Gemini research is deliberately not advertised: Gemini 3 requires an encrypted thought signature
 on function-calling continuations, and the current AI Gateway normalization does not preserve it.
 Canonical `draco@1` still pins its `gemini/3.1-pro-preview` judge, but the development engine does

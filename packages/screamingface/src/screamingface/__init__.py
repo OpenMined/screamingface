@@ -1,6 +1,6 @@
 """ScreamingFace — URL4-native model fusions and benchmark comparison."""
 
-from screamingface import aggregators, benchmarks, connections, graders, models, reducers
+from screamingface import aggregators, benchmarks, connections, graders, models, reducers, tools
 from screamingface._config import config
 from screamingface.aggregators import Aggregator
 from screamingface.benchmark import Benchmark, Case
@@ -75,4 +75,5 @@ __all__ = [
     "graders",
     "models",
     "reducers",
+    "tools",
 ]

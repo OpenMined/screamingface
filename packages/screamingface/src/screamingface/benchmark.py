@@ -7,9 +7,9 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from screamingface._tooling import tool_ids
 from screamingface.aggregators import Aggregator, Mean
 from screamingface.graders import Grader
+from screamingface.tools import Tool, _tool_values
 
 type CaseProducer = Callable[[], Iterable[Case]]
 
@@ -67,7 +67,8 @@ class Benchmark:
     title: str
     grader: Grader
     aggregator: Aggregator
-    tools: tuple[str, ...]
+    tools: tuple[Tool, ...]
+    max_tool_rounds: int | None
     _case_source: tuple[Case, ...] | CaseProducer = field(repr=False)
 
     def __init__(
@@ -78,7 +79,8 @@ class Benchmark:
         grader: Grader,
         title: str | None = None,
         aggregator: Aggregator | None = None,
-        tools: Sequence[str] = (),
+        tools: Sequence[Tool] = (),
+        max_tool_rounds: int | None = None,
     ) -> None:
         benchmark_id = _nonempty(id, "benchmark id")
         if not isinstance(grader, Grader):
@@ -97,7 +99,13 @@ class Benchmark:
         object.__setattr__(self, "title", _nonempty(title or benchmark_id, "benchmark title"))
         object.__setattr__(self, "grader", grader)
         object.__setattr__(self, "aggregator", selected_aggregator)
-        object.__setattr__(self, "tools", _tools(tools))
+        selected_tools = _tool_values(tools)
+        object.__setattr__(self, "tools", selected_tools)
+        object.__setattr__(
+            self,
+            "max_tool_rounds",
+            _tool_rounds(max_tool_rounds, has_tools=bool(selected_tools)),
+        )
         object.__setattr__(self, "_case_source", source)
 
     def _materialize_cases(self) -> tuple[Case, ...]:
@@ -118,8 +126,14 @@ def _validate_cases(values: Sequence[Case]) -> tuple[Case, ...]:
     return cases
 
 
-def _tools(values: Sequence[str]) -> tuple[str, ...]:
-    return tool_ids(values, label="benchmark tools")
+def _tool_rounds(value: int | None, *, has_tools: bool) -> int | None:
+    if not has_tools:
+        if value is not None:
+            raise ValueError("max_tool_rounds must be None for a tool-free benchmark")
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError("max_tool_rounds is required and must be a positive integer")
+    return value
 
 
 def _nonempty(value: object, label: str, *, strip: bool = True) -> str:

@@ -60,5 +60,9 @@ benchmark = sf.Benchmark(
         },
     ),
     aggregator=sf.aggregators.Mean(),
-    tools=("web_search",),
+    tools=(
+        sf.tools.TavilySearch(max_results=5),
+        sf.tools.TavilyExtract(),
+    ),
+    max_tool_rounds=12,
 )

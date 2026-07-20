@@ -89,7 +89,7 @@ def _rubric_benchmark(
     cases: list[sf.Case] | None = None,
     passes: int = 1,
     prompt: str = "Judge the criterion.",
-    tools: tuple[str, ...] = (),
+    tools: tuple[sf.tools.Tool, ...] = (),
 ) -> sf.Benchmark:
     return sf.Benchmark(
         "rubric@1",
@@ -101,6 +101,7 @@ def _rubric_benchmark(
             params={"temperature": 0.2, "reasoning": "low", "max_tokens": 4096},
         ),
         tools=tools,
+        max_tool_rounds=8 if tools else None,
     )
 
 
@@ -505,7 +506,7 @@ def test_rubric_builds_literal_url4_and_preserves_official_context_semantics(
     benchmark = _rubric_benchmark(
         cases=[sf.Case("q1", "What does $5 buy?", reference=reference)],
         prompt="Judge against the $policy.",
-        tools=("web_search",),
+        tools=(sf.tools.TavilySearch(),),
     )
     client = _install(monkeypatch, lambda _expression, _attempt: _response())
 

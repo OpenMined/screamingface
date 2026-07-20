@@ -457,7 +457,11 @@ sf.Benchmark(
     cases=load_cases,
     grader=sf.graders.Rubric(...),
     aggregator=sf.aggregators.Mean(),
-    tools=("web_search",),
+    tools=(
+        sf.tools.TavilySearch(max_results=5),
+        sf.tools.TavilyExtract(),
+    ),
+    max_tool_rounds=12,
 )
 ```
 
@@ -471,7 +475,8 @@ Benchmark(
     grader: Grader,
     title: str | None = None,
     aggregator: Aggregator = aggregators.Mean(),
-    tools: tuple[str, ...] = (),
+    tools: Sequence[sf.tools.Tool] = (),
+    max_tool_rounds: int | None = None,
 )
 ```
 
@@ -480,20 +485,16 @@ Benchmark(
 Benchmark is network-free to construct, but running it still requires the configured engine for
 model work.
 
-Benchmark `tools` are concrete model-usable actions. They are added only to answer-producing
-Fusion member routes. Reducers, model synthesizers, and graders do not inherit them.
+Benchmark `tools` are immutable typed request policies. Phase 9B.3 supports
+`sf.tools.TavilySearch` and `sf.tools.TavilyExtract`; untyped strings and arbitrary parameter
+dictionaries are rejected. Tool-enabled benchmarks require an explicit positive
+`max_tool_rounds`, while a tool-free benchmark must leave it `None`.
 
-Tool IDs are ordered, unique lowercase identifiers matching `[a-z][a-z0-9_]*`. They are a
-first-class benchmark capability contract: the `tools` key is reserved from generic member,
-model-reducer, and rubric-grader `params`. A future member-specific capability API must remain
-first-class rather than hiding tools in arbitrary model parameters.
-
-For `draco@1`, `web_search` names the engine-owned research capability needed to search and then
-open/fetch source content. It subsumes the benchmark pipeline's separate `web_search` and
-`web_fetch` tools at the public SDK boundary. The engine translates that capability through a
-tested provider-specific adapter; it does not forward the string as an arbitrary Gateway or
-provider field. Benchmark rubrics, sealed references, and result sources must be inaccessible to
-that adapter.
+The compiler adds the policy only to answer-producing Fusion member routes. Reducers, model
+synthesizers, and graders do not inherit it. Registry and discovery boundaries continue to use
+ordinary capability IDs (`web_search`, `web_fetch`) because those surfaces describe what an
+engine route can execute rather than authoring request policy. Benchmark rubrics, sealed
+references, credentials, and result sources must remain inaccessible to every tool adapter.
 
 ## 8. Fusion authoring
 
@@ -607,11 +608,13 @@ same template.
 
 For execution, the SDK adds one literal `question` binding to the template. Dollar signs in case
 input are escaped as URL4 literal data; dollar references in researcher-authored prompt templates
-remain active. It also adds the selected Benchmark's tools only to each answer-producing member.
-One capability renders as `tools=web_search`; ordered multiple capabilities render through the
-standard query representation `tools=web_search+code_execution` and arrive decoded at the node as
-one space-separated scalar. The resulting concrete expression is still one request. Neither the
-benchmark-independent stored recipe nor any reducer or judge call inherits this execution overlay.
+remain active. It also adds the selected Benchmark's complete typed tool policy only to each
+answer-producing member. Tool IDs render as `tools=web_search+web_fetch`; the explicit loop bound
+renders as `max_tool_rounds=12`; Tavily request fields render as stable scalar
+`tavily.search.*`/`tavily.extract.*` parameters. Repeated domains use numbered keys such as
+`tavily.search.exclude_domain.1`. Defaults are serialized explicitly and `None` fields are omitted,
+so the concrete expression records behavior without carrying credentials. Neither the
+benchmark-independent stored recipe nor any reducer or judge call inherits this overlay.
 
 One selected case produces one complete URL4 expression containing the question binding, panel
 fan-out, reducer, and final result structure. Conceptually:
@@ -620,8 +623,14 @@ fan-out, reducer, and final result structure. Conceptually:
 (
   question='<resolved case input>',
 
-  member_1=/claude/sonnet-4.6?tools=web_search&q=($question)!'Build the evidence case',
-  member_2=/claude/sonnet-4.6?tools=web_search&q=($question)!'Challenge the evidence case',
+  member_1=/hf/deepseek-v3?tools=web_search+web_fetch&max_tool_rounds=12
+    &tavily.search.search_depth=basic&tavily.search.max_results=5
+    &tavily.extract.extract_depth=basic&tavily.extract.format=markdown
+    &q=($question)!'Build the evidence case',
+  member_2=/hf/glm-4?tools=web_search+web_fetch&max_tool_rounds=12
+    &tavily.search.search_depth=basic&tavily.search.max_results=5
+    &tavily.extract.extract_depth=basic&tavily.extract.format=markdown
+    &q=($question)!'Challenge the evidence case',
 
   member_answers={
     member_1: '$member_1',

@@ -121,6 +121,51 @@ range, and combination validation. Built-in benchmarks pin their policy; ordinar
 construct these objects. `Benchmark.tools` becomes a tuple of typed tool values directly, with no
 compatibility path for the unreleased string-tool representation.
 
+The stable search policy surface is:
+
+```python
+sf.tools.TavilySearch(
+    search_depth="basic",          # advanced | basic | fast | ultra-fast
+    chunks_per_source=None,        # 1..3; advanced only
+    max_results=5,                 # 0..20
+    topic="general",               # general | news | finance
+    time_range=None,               # day/week/month/year or d/w/m/y
+    start_date=None,               # ISO YYYY-MM-DD
+    end_date=None,                 # ISO YYYY-MM-DD
+    include_answer=False,          # bool | basic | advanced
+    include_raw_content=False,     # bool | markdown | text
+    include_images=False,
+    include_image_descriptions=False,
+    include_favicon=False,
+    include_domains=(),            # ordered unique values; at most 300
+    exclude_domains=(),            # ordered unique values; at most 150
+    country=None,                  # general topic only
+    auto_parameters=False,
+    exact_match=False,
+    include_usage=False,
+    safe_search=False,             # incompatible with fast/ultra-fast
+)
+```
+
+Image descriptions require images. If both dates are supplied, the start cannot be later than the
+end. The stable extract policy surface is:
+
+```python
+sf.tools.TavilyExtract(
+    extract_depth="basic",         # basic | advanced
+    chunks_per_source=None,        # 1..5
+    include_images=False,
+    include_favicon=False,
+    format="markdown",             # markdown | text
+    timeout=None,                  # numeric 1.0..60.0 seconds
+    include_usage=False,
+)
+```
+
+At model runtime, the only exposed calls are `web_search(query)` and
+`web_fetch(url, query=None)`. Runtime arguments are separate from benchmark policy and are never
+accepted as arbitrary SDK dictionaries.
+
 The compiler emits scalar URL4 parameters. Repeated values use stable numbered keys rather than a
 hidden JSON string:
 
@@ -202,7 +247,7 @@ acceptance exercises the real HF and Tavily path.
   tool claims.
 - **9B.2 (implemented):** engine-owned, directly validated, process-local Tavily connection and
   explicit shared-hosting boundary.
-- **9B.3:** typed SDK tool values, benchmark policy, and URL4 compilation.
+- **9B.3 (implemented):** typed SDK tool values, benchmark policy, and URL4 compilation.
 - **9B.4:** Tavily adapter plus bounded HF agent loop; remove SearXNG.
 - **9B.5:** canonical DRACO configuration, notebook, real one-case/two-member acceptance, then full
   reproduction readiness.

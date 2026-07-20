@@ -154,12 +154,20 @@ research_benchmark = sf.Benchmark(
     "my-research-benchmark@1",
     cases=cases,
     grader=sf.graders.ExactChoice(),
-    tools=("web_search",),
+    tools=(
+        sf.tools.TavilySearch(max_results=5),
+        sf.tools.TavilyExtract(),
+    ),
+    max_tool_rounds=8,
 )
 ```
 
 ScreamingFace then requires every answer-producing member to support the capability and adds it to
-their concrete engine requests. Tools do not belong in individual model parameters."""
+their concrete engine requests. The explicit round budget prevents an unbounded agent loop. Tools
+do not belong in individual model parameters, and credentials never belong in this definition.
+
+This typed policy is the Phase 9 SDK-to-engine contract. Tavily execution for Hugging Face models
+lands in Phase 9B.4; until then, a tool-enabled benchmark correctly fails capability preflight."""
         ),
         nbformat.v4.new_markdown_cell("## 7 · Optionally run the local benchmark"),
         nbformat.v4.new_markdown_cell(

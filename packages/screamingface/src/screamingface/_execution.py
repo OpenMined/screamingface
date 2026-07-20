@@ -128,7 +128,12 @@ def _run_fusion(
     expressions = tuple(
         (
             case,
-            compile_fusion(fusion, question=case.input, tools=resolved.tools),
+            compile_fusion(
+                fusion,
+                question=case.input,
+                tools=resolved.tools,
+                max_tool_rounds=resolved.max_tool_rounds,
+            ),
         )
         for case in selected
     )
@@ -379,7 +384,7 @@ def _preflight(fusion: Fusion, benchmark: Benchmark, registry: Registry) -> None
             raise UnknownModelError(f"unknown model {model!r}")
     for member in fusion._members:
         supported = set(models[member.model].supported_tools)
-        missing = set(benchmark.tools) - supported
+        missing = {tool.id for tool in benchmark.tools} - supported
         if missing:
             raise UnsupportedToolError(
                 f"model {member.model!r} does not support benchmark tool(s): {sorted(missing)}"

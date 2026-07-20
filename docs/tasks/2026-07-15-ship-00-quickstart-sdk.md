@@ -782,3 +782,21 @@ Added Tavily to the same generic SDK connection experience while keeping its own
 This slice adds no Tavily search/extract execution or HF tool claim. Its memory-only credential
 lifecycle is explicitly limited to a researcher-owned local engine; hosted use requires HTTPS,
 authenticated identity, authorization, and encrypted per-user storage.
+
+## Phase 9B.3 typed Tavily benchmark policy — 2026-07-20
+
+Replaced the unreleased benchmark string-tool shape with a clean typed contract:
+
+- `sf.tools.TavilySearch(...)` and `sf.tools.TavilyExtract(...)` expose the stable Tavily request
+  policy with local type, range, date, domain, and cross-field validation;
+- a tool-enabled `sf.Benchmark` requires an explicit positive `max_tool_rounds`, while a tool-free
+  benchmark keeps the value `None`;
+- concrete case URL4 repeats the complete scalar policy on answer-producing members only, uses
+  numbered keys for repeated domains, and explicitly serializes defaults for reproducibility;
+- reducers, graders, the shareable `fusion.url4` recipe, and all credentials remain tool-free; and
+- canonical DRACO definitions pin Tavily search/extract plus 12 rounds, matching the current
+  benchmark pipeline's structural target.
+
+This slice defines and validates transport policy only. It adds no Tavily client dependency,
+engine tool execution, HF tool capability claim, or AI Gateway change; those belong to Phase
+9B.4.
