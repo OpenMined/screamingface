@@ -1,12 +1,12 @@
 ---
 id: OME-505
 linear_url: https://linear.app/openmined/issue/OME-505
-status: Todo
+status: Done
 type: Improvement
 priority: P2
 labels: [url4-engine, pkg/url4-python-sdk, autonomous, agentic]
 created: 2026-07-20
-closed:
+closed: 2026-07-20
 ---
 
 # OME-505 — Verify Text source bindings reach substitute_env_vars
