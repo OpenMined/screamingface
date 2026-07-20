@@ -28,7 +28,7 @@ export default function HomePage() {
         </Button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-color:transparent_transparent] scrollbar-thin hover:[scrollbar-color:color-mix(in_srgb,var(--muted-foreground)_28%,transparent)_transparent] [&::-webkit-scrollbar-thumb:hover]:bg-muted-foreground/40 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-transparent hover:[&::-webkit-scrollbar-thumb]:bg-muted-foreground/25 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar]:w-1.5">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-6xl p-5 sm:p-6 lg:p-8">
           <section className="flex flex-col gap-5 border-b pb-6 sm:flex-row sm:items-end sm:justify-between">
             <div>

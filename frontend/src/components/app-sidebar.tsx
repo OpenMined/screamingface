@@ -13,6 +13,7 @@ import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, Sid
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsTauri } from "@/hooks/use-is-tauri";
 import { useEnsembleStore } from "@/lib/ensemble-store";
+import { useModelStore } from "@/lib/model-store";
 
 const navigation = [
   { label: "Ensembles", href: "/ensembles/", Icon: Boxes },
@@ -43,6 +44,10 @@ export function AppSidebar() {
   const activeEnsembleId = useEnsembleStore(
     (state) => state.activeEnsembleId,
   );
+  const connectedProviders = useModelStore(
+    (state) =>
+      state.providers.filter((provider) => provider.connected).length,
+  );
 
   return (
     <Sidebar aria-label="Primary navigation">
@@ -58,37 +63,52 @@ export function AppSidebar() {
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="p-3 group-data-[state=collapsed]/sidebar:p-2">
-        <nav aria-label="Studio">
+      <SidebarContent className="overflow-hidden p-3 group-data-[state=collapsed]/sidebar:p-2">
+        <nav aria-label="Studio" className="shrink-0">
           <SidebarMenu>
-            {navigation.map(({ label, href, Icon, badge }) => (
-              <SidebarMenuItem key={label}>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname.startsWith(href)}
-                  tooltip={label}
-                  className="hover:bg-sidebar-accent/40 data-[active=true]:bg-sidebar-accent data-[active=true]:hover:bg-sidebar-accent"
-                >
-                  <Link href={href} prefetch={false}>
-                    <Icon />
-                    <span className="group-data-[state=collapsed]/sidebar:hidden">{label}</span>
-                    {badge && <Badge variant="secondary" className="ml-auto font-mono text-[10px] group-data-[state=collapsed]/sidebar:hidden">{badge}</Badge>}
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+            {navigation.map(({ label, href, Icon, badge }) => {
+              const visibleBadge =
+                label === "Models" && connectedProviders > 0
+                  ? String(connectedProviders)
+                  : badge;
+              return (
+                <SidebarMenuItem key={label}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname.startsWith(href)}
+                    tooltip={label}
+                    className="hover:bg-sidebar-accent/40 data-[active=true]:bg-sidebar-accent data-[active=true]:hover:bg-sidebar-accent"
+                  >
+                    <Link href={href} prefetch={false}>
+                      <Icon />
+                      <span className="group-data-[state=collapsed]/sidebar:hidden">
+                        {label}
+                      </span>
+                      {visibleBadge && (
+                        <Badge
+                          variant="secondary"
+                          className="ml-auto font-mono text-xs group-data-[state=collapsed]/sidebar:hidden"
+                        >
+                          {visibleBadge}
+                        </Badge>
+                      )}
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
           </SidebarMenu>
         </nav>
 
         {ensembles.length > 0 && (
           <nav
             aria-label="My ensembles"
-            className="mt-5 group-data-[state=collapsed]/sidebar:hidden"
+            className="mt-5 flex min-h-0 flex-1 flex-col group-data-[state=collapsed]/sidebar:hidden"
           >
-            <p className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <p className="mb-2 shrink-0 px-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               My Ensembles
             </p>
-            <SidebarMenu>
+            <SidebarMenu className="min-h-0 overflow-y-auto">
               {ensembles.map((ensemble) => (
                 <SidebarMenuItem key={ensemble.id}>
                   <SidebarMenuButton

@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -37,8 +37,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   type SavedEnsemble,
+  type SavedModel,
   useEnsembleStore,
 } from "@/lib/ensemble-store";
+import {
+  ALL_MODELS,
+  PROVIDER_COLORS,
+  useModelStore,
+} from "@/lib/model-store";
 import { cn } from "@/lib/utils";
 
 type ReduceStrategy =
@@ -47,36 +53,12 @@ type ReduceStrategy =
   | "best_of_n"
   | "merge";
 
-type Model = {
-  id: string;
-  name: string;
-  providerId: string;
-  providerName: string;
-};
+type Model = SavedModel;
 
 type Slot = {
   model: Model;
   systemPrompt: string;
   weight: number;
-};
-
-const availableModels: Model[] = [
-  { id: "an-1", name: "Claude Opus 4.8", providerId: "anthropic", providerName: "Anthropic" },
-  { id: "an-2", name: "Claude Sonnet 4.6", providerId: "anthropic", providerName: "Anthropic" },
-  { id: "oa-1", name: "GPT-5", providerId: "openai", providerName: "OpenAI" },
-  { id: "oa-3", name: "o3", providerId: "openai", providerName: "OpenAI" },
-  { id: "dm-1", name: "Gemini 2.5 Pro", providerId: "deepmind", providerName: "Google DeepMind" },
-  { id: "dm-2", name: "Gemini 2.5 Flash", providerId: "deepmind", providerName: "Google DeepMind" },
-  { id: "ol-1", name: "Llama 3.3 70B", providerId: "ollama", providerName: "Ollama" },
-  { id: "or-6", name: "DeepSeek-R1", providerId: "openrouter", providerName: "OpenRouter" },
-];
-
-const providerColors: Record<string, string> = {
-  anthropic: "#ca492c",
-  openai: "#53bea9",
-  deepmind: "#6976ae",
-  ollama: "#52aec5",
-  openrouter: "#937098",
 };
 
 const strategies: {
@@ -110,7 +92,7 @@ function ProviderDot({ provider }: { provider: string }) {
   return (
     <span
       className="inline-block size-2 shrink-0 rounded-full"
-      style={{ background: providerColors[provider] ?? "var(--primary)" }}
+      style={{ background: PROVIDER_COLORS[provider] ?? "var(--primary)" }}
     />
   );
 }
@@ -162,7 +144,7 @@ function parseRecipe(raw: string) {
   const params = new URLSearchParams(match[2]);
   const slots = (params.get("models") ?? "")
     .split(/[+\s]+/)
-    .map((id) => availableModels.find((model) => model.id === id))
+    .map((id) => ALL_MODELS.find((model) => model.id === id))
     .filter((model): model is Model => Boolean(model))
     .map((model) => ({ model, systemPrompt: "", weight: 0.5 }));
   const reduce = params.get("reduce") as ReduceStrategy | null;
@@ -177,6 +159,7 @@ function parseRecipe(raw: string) {
 }
 
 function EnsembleComposer() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const requestedId = searchParams.get("id");
   const importedRecipe = searchParams.get("recipe");
@@ -191,9 +174,10 @@ function EnsembleComposer() {
   const setActiveEnsemble = useEnsembleStore(
     (state) => state.setActiveEnsemble,
   );
+  const library = useModelStore((state) => state.library);
+  const addLibraryModels = useModelStore((state) => state.addLibraryModels);
   const [name, setName] = useState("ensemble-1");
   const [editingName, setEditingName] = useState(false);
-  const [library, setLibrary] = useState<Model[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [strategy, setStrategy] =
     useState<ReduceStrategy>("majority_vote");
@@ -218,7 +202,7 @@ function EnsembleComposer() {
       if (saved) {
         setName(saved.name);
         setSlots(saved.slots);
-        setLibrary(saved.slots.map((slot) => slot.model));
+        addLibraryModels(saved.slots.map((slot) => slot.model));
         setStrategy(saved.strategy);
         setCustomReduce(saved.customReduce);
         setLoopMode(saved.loopMode);
@@ -227,7 +211,7 @@ function EnsembleComposer() {
       } else if (parsed) {
         setName(parsed.name);
         setSlots(parsed.slots);
-        setLibrary(parsed.slots.map((slot) => slot.model));
+        addLibraryModels(parsed.slots.map((slot) => slot.model));
         setStrategy(parsed.strategy);
         setCustomReduce(false);
         setLoopMode("parallel");
@@ -242,12 +226,23 @@ function EnsembleComposer() {
       } else {
         setName("ensemble-1");
         setSlots([]);
-        setLibrary([]);
         setStrategy("majority_vote");
         setCustomReduce(false);
         setLoopMode("parallel");
         setJudgeId(null);
-        setSavedSnapshot("");
+        setSavedSnapshot(
+          JSON.stringify({
+            id: ensembleId,
+            name: "ensemble-1",
+            slots: [],
+            strategy: "majority_vote",
+            customReduce: false,
+            loopMode: "parallel",
+            judgeId: null,
+            runs: 0,
+            updatedAt: 0,
+          }),
+        );
       }
       setActiveEnsemble(ensembleId);
       setLoadedEnsembleId(ensembleId);
@@ -255,6 +250,7 @@ function EnsembleComposer() {
     return () => window.cancelAnimationFrame(frame);
   }, [
     ensembleId,
+    addLibraryModels,
     importedRecipe,
     requestedId,
     setActiveEnsemble,
@@ -298,6 +294,12 @@ function EnsembleComposer() {
     const timer = window.setTimeout(() => {
       upsertEnsemble({ ...draft, updatedAt: Date.now() });
       setSavedSnapshot(draftSnapshot);
+      if (!requestedId) {
+        router.replace(
+          `/ensembles/new/?id=${encodeURIComponent(ensembleId)}`,
+          { scroll: false },
+        );
+      }
     }, 250);
     return () => window.clearTimeout(timer);
   }, [
@@ -305,13 +307,22 @@ function EnsembleComposer() {
     dirty,
     draft,
     draftSnapshot,
+    ensembleId,
     ready,
+    requestedId,
+    router,
     upsertEnsemble,
   ]);
 
   function saveDraft() {
     upsertEnsemble({ ...draft, updatedAt: Date.now() });
     setSavedSnapshot(draftSnapshot);
+    if (!requestedId) {
+      router.replace(
+        `/ensembles/new/?id=${encodeURIComponent(ensembleId)}`,
+        { scroll: false },
+      );
+    }
     setSavedFlash(true);
     window.setTimeout(() => setSavedFlash(false), 1500);
   }
