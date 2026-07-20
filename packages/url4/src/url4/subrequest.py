@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from urllib.parse import unquote, unquote_plus
 
 from url4._scan import balanced_body, split_top_level
+from url4.errors import ParseError
 
 # Characters that cannot appear raw inside a context/intent payload:
 #   ( )  would desync the balanced-paren scan that delimits the context;
@@ -150,8 +151,11 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
 
     ``&`` separates parameters only at depth 0 outside quotes, so an ``&``
     inside a nested expression (``q=(https://a?x=1&y=2)!go``) never terminates
-    the expression-bearing value; a depth-0 ``&`` after the ``q`` value does
-    (and what follows is parsed as further params).
+    the expression-bearing value.
+
+    ``q=`` closes the query string (`OME-507`): a depth-0 parameter after it
+    raises :class:`~url4.errors.ParseError`. A query with NO ``q=`` is not an
+    error — that is a ``relative-uri`` data query, and the caller decides.
 
     The expression-bearing values (``q``, and ``processor`` inside the params
     dict) are returned RAW — percent-decoding them is the expression decoder's
@@ -164,6 +168,19 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
     for segment in split_top_level(query_string, "&"):
         if not segment:
             continue
+        if q is not None:
+            # INVARIANT: `query-string = *( query-param "&" ) "q=" expression-body`
+            # — `q=` CLOSES the query string (`OME-507`). The grammar already
+            # reads it that way: `_parse_expr_canonical` takes everything after
+            # the `q=` body as the intent tail, so it rejects
+            # `/p?q=(a)!'go'&tone=formal` outright. Accepting a param here
+            # would let a node honour over the wire what it refuses in text.
+            raise ParseError(
+                f"query string {query_string!r} has a parameter after `q=` — "
+                "`q=` is always the last parameter; everything after it belongs "
+                "to the expression",
+                code="malformed_source",
+            )
         key, sep, value = segment.partition("=")
         if not sep:
             params[segment] = ""

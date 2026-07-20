@@ -28,13 +28,17 @@ def test_nested_canonical_expression_keeps_inner_ampersand() -> None:
     assert q == "(/claude?t=90&q=($data)!'Answer')!'Use $1'"
 
 
-def test_depth_zero_ampersand_terminates_q() -> None:
-    # §3.3.1 parsing rule 3 — & at depth 0 outside quotes terminates the value
+def test_depth_zero_ampersand_after_q_is_rejected() -> None:
+    # §3.3.1 parsing rule 3 — & at depth 0 outside quotes terminates the value.
+    # `OME-507`: what follows is NOT a further param — `q=` closes the query
+    # string, so a depth-0 param after it is malformed.
+    import pytest
+
+    from url4.errors import ParseError
     from url4.subrequest import extract_expression_params
 
-    params, q = extract_expression_params("q=(x)!go&meta=full")
-    assert q == "(x)!go"
-    assert params == {"meta": "full"}
+    with pytest.raises(ParseError, match="last"):
+        extract_expression_params("q=(x)!go&meta=full")
 
 
 def test_multiple_protocol_params_before_q() -> None:

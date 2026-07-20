@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from url4._scan import (
     balanced_body,
     find_top_level,
@@ -9,6 +11,7 @@ from url4._scan import (
     skip_quoted,
     split_top_level,
 )
+from url4.errors import ParseError
 from url4.subrequest import (
     decode_subrequest,
     encode_subrequest,
@@ -171,9 +174,10 @@ def test_extract_splits_on_depth_zero_ampersand_only() -> None:
 
 
 def test_extract_q_value_ends_at_depth_zero_ampersand() -> None:
-    params, q = extract_expression_params("q=(a)!b&meta=full")
-    assert q == "(a)!b"
-    assert params == {"meta": "full"}
+    # The depth-0 boundary is still detected — but `q=` is last (`OME-507`),
+    # so the segment beyond it is an error rather than another param.
+    with pytest.raises(ParseError, match="last"):
+        extract_expression_params("q=(a)!b&meta=full")
 
 
 def test_extract_processor_value_stays_raw() -> None:
@@ -197,6 +201,8 @@ def test_extract_flag_param_and_missing_q() -> None:
 
 
 def test_extract_quoted_ampersand_inside_q() -> None:
-    params, q = extract_expression_params("q=(x)!'a & b'&meta=none")
+    # A QUOTED "&" is content, never a parameter boundary — so this q value
+    # runs to the end and is accepted (contrast the depth-0 case above).
+    params, q = extract_expression_params("q=(x)!'a & b'")
     assert q == "(x)!'a & b'"
-    assert params == {"meta": "none"}
+    assert params == {}
