@@ -132,16 +132,11 @@ async def test_configured_app_advertises_and_executes_web_search_as_plaintext() 
 
     assert registry["models"] == [
         {"id": "codex/gpt-5.5", "provider": "codex", "supported_tools": []},
-        {"id": "gemini/3.5-flash", "provider": "gemini", "supported_tools": []},
+        {"id": "gemini/2.5-flash", "provider": "gemini", "supported_tools": []},
         {
             "id": "claude/sonnet-4.6",
             "provider": "anthropic",
             "supported_tools": ["web_search"],
-        },
-        {
-            "id": "gemini/3.1-pro-preview",
-            "provider": "gemini",
-            "supported_tools": [],
         },
     ]
     assert response.status_code == 200
@@ -258,7 +253,7 @@ async def test_engine_preserves_safe_gateway_code_without_private_detail() -> No
         transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
     ) as client:
         response = await client.get(
-            "/gemini/3.5-flash",
+            "/gemini/2.5-flash",
             params={"q": "(Question)!Answer"},
         )
     await gateway.aclose()
@@ -267,7 +262,7 @@ async def test_engine_preserves_safe_gateway_code_without_private_detail() -> No
     assert response.json() == {
         "error": {
             "code": "provider_unavailable",
-            "message": "AI Gateway returned HTTP 503 (provider_unavailable) for 'gemini/3.5-flash'",
+            "message": "AI Gateway returned HTTP 503 (provider_unavailable) for 'gemini/2.5-flash'",
         }
     }
     assert "bearer-secret-123" not in response.text

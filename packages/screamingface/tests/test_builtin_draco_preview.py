@@ -56,7 +56,7 @@ def test_preview_uses_real_cases_with_one_real_positive_criterion(
     assert benchmark.title == "DRACO Preview"
     assert benchmark.tools == ("web_search",)
     assert isinstance(benchmark.grader, sf.graders.Rubric)
-    assert benchmark.grader.model == "gemini/3.5-flash"
+    assert benchmark.grader.model == "gemini/2.5-flash"
     assert benchmark.grader.passes == 1
     assert benchmark.grader.params == {"temperature": 0.2, "max_tokens": 4096}
     assert cases[0].id == "case-1"

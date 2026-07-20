@@ -74,7 +74,7 @@ def _stopped_report() -> sf.Report:
         sf.RunFailure(
             "q1",
             "url4",
-            "AI Gateway returned HTTP 502 (provider_unavailable) for 'gemini/3.5-flash'",
+            "AI Gateway returned HTTP 502 (provider_unavailable) for 'gemini/2.5-flash'",
             status=502,
             code="provider_unavailable",
         ),

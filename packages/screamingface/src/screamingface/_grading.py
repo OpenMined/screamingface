@@ -98,7 +98,7 @@ def grade_run(
             tracker.fail(str(exc))
         raise
     if owns_tracker:
-        tracker.finish("Grading complete", clear=True)
+        tracker.finish("Grading complete")
     return grades
 
 

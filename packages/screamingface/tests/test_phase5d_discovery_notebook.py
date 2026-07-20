@@ -115,5 +115,4 @@ def test_discovery_notebook_is_public_and_ci_regenerated() -> None:
 
     assert "examples/02_discovery.ipynb" in readme
     assert "scripts/build_discovery.py" in readme
-    assert "python scripts/build_discovery.py" in workflow
-    assert "git diff --exit-code -- examples/02_discovery.ipynb" in workflow
+    assert "python scripts/check_notebooks.py" in workflow

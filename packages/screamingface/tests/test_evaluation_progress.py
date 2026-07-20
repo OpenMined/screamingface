@@ -5,6 +5,8 @@ from __future__ import annotations
 import io
 
 import pytest
+from IPython import display as ipython_display
+from ipywidgets import HTML
 
 from screamingface import _progress
 
@@ -54,6 +56,31 @@ def test_forced_terminal_progress_is_concise_and_auto_progress_can_stay_silent(
     rendered = output.getvalue()
     assert "frontier · gpqa@1 · Running cases 1/2" in rendered
     assert rendered.count("frontier · gpqa@1 · Complete 2/2") == 1
+
+
+def test_notebook_progress_uses_live_widget_updates_and_keeps_completed_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    shown: list[object] = []
+    monkeypatch.setattr(ipython_display, "display", shown.append)
+    monkeypatch.setattr(_progress, "_in_notebook", lambda: True)
+
+    progress = _progress.Progress("frontier", "gpqa@1", None)
+    progress.stage("running", "Running cases", total=2)
+
+    assert len(shown) == 1
+    widget = shown[0]
+    assert isinstance(widget, HTML)
+    assert "Running cases" in widget.value
+    assert "0/2" in widget.value
+
+    progress.advance()
+    assert "1/2" in widget.value
+
+    progress.finish()
+    assert "class='sf-progress__status complete'" in widget.value
+    assert "Complete" in widget.value
+    assert "2/2" in widget.value
 
 
 def test_progress_setting_is_strict() -> None:

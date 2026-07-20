@@ -37,7 +37,7 @@ def _registry() -> dict[str, object]:
                 "provider": "codex",
                 "supported_tools": ["web_search"],
             },
-            {"id": "gemini/3.5-flash", "provider": "gemini", "supported_tools": []},
+            {"id": "gemini/2.5-flash", "provider": "gemini", "supported_tools": []},
         ],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
     }
@@ -84,8 +84,8 @@ def test_engine_model_discovery_and_sdk_benchmark_discovery_are_separate() -> No
     with _profile_server(routes) as engine:
         sf.config(engine=engine)
 
-        assert sf.models.list() == ["codex/gpt-5.5", "gemini/3.5-flash"]
-        assert sf.models.list(query="GEMINI", limit=1) == ["gemini/3.5-flash"]
+        assert sf.models.list() == ["codex/gpt-5.5", "gemini/2.5-flash"]
+        assert sf.models.list(query="GEMINI", limit=1) == ["gemini/2.5-flash"]
         assert sf.models.list(tools=["web_search"]) == ["codex/gpt-5.5"]
         assert sf.benchmarks.list() == ["gpqa@1", "draco@1", "draco-preview@1"]
         assert sf.benchmarks.list(query="GPQA") == ["gpqa@1"]

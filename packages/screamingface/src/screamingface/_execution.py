@@ -99,7 +99,7 @@ def run_fusion(
             tracker.fail(str(exc))
         raise
     if owns_tracker:
-        tracker.finish("Run complete", clear=True)
+        tracker.finish("Run complete")
     return result
 
 
@@ -285,7 +285,7 @@ def evaluate_fusion(
     except Exception as exc:
         tracker.fail(str(exc))
         raise
-    tracker.finish("Complete", clear=True)
+    tracker.finish("Complete")
     return report
 
 

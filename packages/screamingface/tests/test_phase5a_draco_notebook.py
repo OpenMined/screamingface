@@ -88,7 +88,7 @@ def test_draco_preview_puts_every_material_caveat_before_execution() -> None:
     assert "about 354 judge" in markdown
     assert "two independently prompted Claude" in markdown
     assert "Codex is the model reducer" in markdown
-    assert "Gemini 3.5 Flash is tool-free and used only as the judge" in markdown
+    assert "Gemini 2.5 Flash is tool-free and used only as the judge" in markdown
     assert "thoughtSignature" in markdown
     assert "SearXNG" in markdown
     assert "OpenRouter" in markdown

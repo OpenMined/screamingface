@@ -111,7 +111,7 @@ references belong in the researcher's process."""
         nbformat.v4.new_code_cell(
             "fusion = sf.Fusion(\n"
             '    "architecture-example",\n'
-            '    models=["codex/gpt-5.5", "gemini/3.5-flash"],\n'
+            '    models=["codex/gpt-5.5", "gemini/2.5-flash"],\n'
             '    prompt="Answer the question.",\n'
             "    reducer=sf.reducers.MajorityVote(),\n"
             ")\n\n"

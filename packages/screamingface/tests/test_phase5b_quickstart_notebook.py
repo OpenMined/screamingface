@@ -57,7 +57,7 @@ def test_quickstart_is_the_minimal_public_compose_evaluate_compare_flow() -> Non
     assert "import screamingface as sf" in code
     assert code.count("sf.Fusion(") == 1
     assert '"codex/gpt-5.5"' in code
-    assert '"gemini/3.5-flash"' in code
+    assert '"gemini/2.5-flash"' in code
     assert '"claude/sonnet-4.6"' in code
     assert code.count("sf.reducers.MajorityVote()") == 1
     assert code.count('fusion.evaluate("gpqa@1", first=5)') == 1

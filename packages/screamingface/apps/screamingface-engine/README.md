@@ -21,9 +21,8 @@ executable capabilities:
 GET /healthz
 GET /.well-known/screamingface
 GET /codex/gpt-5.5?[params&]q=(context)!intent
-GET /gemini/3.5-flash?[params&]q=(context)!intent
+GET /gemini/2.5-flash?[params&]q=(context)!intent
 GET /claude/sonnet-4.6?[params&]q=(context)!intent
-GET /gemini/3.1-pro-preview?[params&]q=(context)!intent
 GET /reducers/majority-vote?q=(resolved-member-object)
 GET /v1?q=<complete URL4 expression>
 GET /v1/connections
@@ -91,18 +90,15 @@ Gateway. Nonempty intent, parameters, missing members, non-string values, and bl
 permanent URL4 `malformed_source` errors.
 
 Registry claims are configuration-dependent: without `SCREAMINGFACE_SEARXNG_URL`, no route claims
-`web_search`; with it, the compatible Claude route does. The tool-free `gemini/3.5-flash` route
-maps through AI Gateway's existing generic Gemini provider and is the bounded judge used by the
-explicitly non-comparable `draco-preview@1` SDK profile. AI Gateway's `/v1/models` catalog does
-not yet advertise this current Google model ID, but its provider dispatcher accepts and executes
-it. Gemini research is not advertised because Gemini 3 function-calling continuations require the
+`web_search`; with it, the compatible Claude route does. The tool-free `gemini/2.5-flash` route
+maps to AI Gateway's registered `gemini-cli/gemini-2.5-flash` model and is the bounded judge used
+by the explicitly non-comparable `draco-preview@1` SDK profile. Gemini research is not advertised
+because Gemini 3 function-calling continuations require the
 provider's encrypted `thoughtSignature`, which the current Gateway normalization drops. The
 engine must not claim a named capability that fails after its first tool call. The provisional
-`gemini/3.1-pro-preview` route maps to
-`gemini-cli/gemini-3.1-pro-preview` for DRACO rubric judging. This development contract assumes
-the AI Gateway owner will register that model identifier. If the Gateway deployment has not done
-so, the URL4 route remains addressable but returns the ordinary safe upstream error; the engine
-never bypasses Gateway or substitutes another judge.
+`gemini/3.1-pro-preview` route is deliberately absent: canonical `draco@1` retains that pinned
+judge requirement and therefore fails SDK preflight until AI Gateway officially registers it.
+The engine never advertises an assumed model, bypasses Gateway, or substitutes another judge.
 
 The registry also advertises `limits.max_request_target_bytes`. It defaults to 61440 bytes and
 is configurable with `SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES`. This is the exact encoded

@@ -38,13 +38,13 @@ cd apps/scoreboard
 uv sync
 uv run scoreboard
 
-# ScreamingFace SDK — local URL4 engine profile and walkthrough
+# ScreamingFace SDK — local ScreamingFace engine stack and quickstart
 cd ../../packages/screamingface
 uv sync --extra notebook
 cd apps/screamingface-engine
 ./dev.sh
 # In another terminal, from packages/screamingface:
-uv run --extra notebook jupyter lab examples/phase_1_engine_profile.ipynb
+uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
 ```
 
 The ScreamingFace SDK always uses its configured HTTP URL4 engine. The local development stack

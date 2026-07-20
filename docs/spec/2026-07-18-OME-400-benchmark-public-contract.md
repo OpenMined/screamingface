@@ -23,7 +23,7 @@ fusion = sf.Fusion(
     "frontier-trio",
     models=[
         "codex/gpt-5.5",
-        "gemini/3.5-flash",
+        "gemini/2.5-flash",
         "claude/sonnet-4.6",
     ],
     reducer=sf.reducers.MajorityVote(),
@@ -63,9 +63,9 @@ report = fusion.evaluate(benchmark, first=5, progress=None)
 scripts. `True` forces progress and `False` disables it. The panel reports completed cases and
 completed rubric judge requests, not time-based estimates. It is a presentation observer only:
 all three settings have identical loading, preflight, URL4 expressions, scheduling, retries,
-failures, grading evidence, and aggregate values. A successful `evaluate()` clears the transient
-panel so the returned `Report` remains the final notebook output; an exception leaves a sanitized
-failed stage visible before propagating normally.
+failures, grading evidence, and aggregate values. A successful `evaluate()` leaves a compact
+completed receipt so the user can see that all stages ran; an exception leaves
+a sanitized failed stage visible before propagating normally.
 
 ## 2. Public surface
 
@@ -210,16 +210,12 @@ It is not part of generic URL4 core. The MVP shape is:
       "supported_tools": []
     },
     {
-      "id": "gemini/3.5-flash",
+      "id": "gemini/2.5-flash",
       "supported_tools": []
     },
     {
       "id": "claude/sonnet-4.6",
       "supported_tools": ["web_search"]
-    },
-    {
-      "id": "gemini/3.1-pro-preview",
-      "supported_tools": []
     }
   ],
   "reducers": [
@@ -235,9 +231,9 @@ This registry contains remotely executable capabilities only. The example is the
 Compose profile with SearXNG configured. Without `SCREAMINGFACE_SEARXNG_URL`, every model reports
 an empty `supported_tools` array. Compatible records gain `"web_search"` only while that engine
 adapter is configured; Codex and the Gemini 3.1 rubric judge remain tool-free. The development
-profile maps that judge to `gemini-cli/gemini-3.1-pro-preview` under the explicit assumption that
-the AI Gateway owner registers it. Benchmarks never appear here because their definitions,
-sources, graders, and aggregators remain local to the SDK.
+profile deliberately does not advertise the canonical Gemini 3.1 rubric judge until AI Gateway
+officially registers it. Benchmarks never appear here because their definitions, sources, graders,
+and aggregators remain local to the SDK.
 
 `limits.max_request_target_bytes` is required and is a positive integer. It measures the complete
 encoded HTTP request target for `GET /v1?q=...`, including the path, separator, query-key syntax,
@@ -289,12 +285,12 @@ Examples:
 
 ```text
 codex/gpt-5.5          -> /codex/gpt-5.5
-gemini/3.5-flash             -> /gemini/3.5-flash
+gemini/2.5-flash             -> /gemini/2.5-flash
 claude/sonnet-4.6      -> /claude/sonnet-4.6
 ```
 
 The engine privately maps these routes to AI Gateway identifiers. For example,
-`/gemini/3.5-flash` may map to `gemini-cli/gemini-3.5-flash`. That provider mapping never appears in a
+`/gemini/2.5-flash` may map to `gemini-cli/gemini-2.5-flash`. That provider mapping never appears in a
 Fusion recipe or result.
 
 One canonical engine catalog owns the public ID, relative route, supported tools, and private AI
@@ -356,9 +352,9 @@ adapter. Otherwise SDK preflight must reject a benchmark that requires it.
 
 The development Compose profile configures SearXNG and advertises `web_search` on the compatible
 Claude worker route. Gemini 3 remains tool-free until AI Gateway preserves its mandatory
-`thoughtSignature` across function-calling turns. The profile publishes the tool-free
-`gemini/3.1-pro-preview` judge route, which maps to the assumed AI Gateway registration
-`gemini-cli/gemini-3.1-pro-preview`.
+`thoughtSignature` across function-calling turns. The profile publishes only AI Gateway-registered
+Gemini model routes; canonical `draco@1` therefore fails model preflight until its pinned
+`gemini/3.1-pro-preview` judge is officially available.
 
 For a successful non-streaming response, the handler validates
 `choices[0].message.content`, requires string content, and returns that string only. URL4 therefore
@@ -508,7 +504,7 @@ fusion = sf.Fusion(
     "frontier-trio",
     models=[
         "codex/gpt-5.5",
-        "gemini/3.5-flash",
+        "gemini/2.5-flash",
         {
             "model": "claude/sonnet-4.6",
             "prompt": CLAUDE_PROMPT,
@@ -559,7 +555,7 @@ Panel answers:
 Panel 1 [codex/gpt-5.5]:
 <resolved answer>
 
-Panel 2 [gemini/3.5-flash]:
+Panel 2 [gemini/2.5-flash]:
 <resolved answer>
 ```
 
@@ -921,7 +917,7 @@ byte-pinned judge prompt, and configures:
 
 ```python
 sf.graders.Rubric(
-    model="gemini/3.5-flash",
+    model="gemini/2.5-flash",
     prompt=DRACO_JUDGE_PROMPT,
     passes=1,
     params={"temperature": 0.2, "max_tokens": 4096},
@@ -973,9 +969,10 @@ The system prompt is the official per-criterion text identified as Appendix C.5 
 pipeline and open-source harness. Its pinned UTF-8 bytes are 5,196 bytes with SHA-256
 `dbc1ae32e32be6fbc47180b4a246b997d299bb0e25373a8cde87c6461cb2397b`. `draco@1`
 deliberately matches the executable benchmark/OpenRouter pipeline's three-pass protocol while
-using the public `gemini/3.1-pro-preview` engine identity. The paper's five-pass Gemini 3 run is a
-different publication claim; this contract must not describe the pipeline-aligned profile as
-byte-for-byte paper reproduction.
+retaining `gemini/3.1-pro-preview` as its required public model identity. The current development
+engine does not advertise that identity, so canonical evaluation stops at preflight. The paper's
+five-pass Gemini 3 run is a different publication claim; this contract must not describe the
+pipeline-aligned profile as byte-for-byte paper reproduction.
 
 The SF model adapter must preserve:
 
@@ -1321,8 +1318,10 @@ on 2026-07-19. Phase 4B added the canonical SDK-local DRACO definition and catal
 2026-07-19. Phase 4C added member-only benchmark-tool compilation and reserved capability
 validation on 2026-07-19. Phase 4D added the engine-owned bounded SearXNG web-research capability
 on compatible worker routes. Phase 4E0 added safe bound judge context plus the preflighted
-transactional-GET size contract. Phase 4E1 added the tool-free `gemini/3.1-pro-preview` engine
-route under the explicit external AI Gateway registration assumption.
+transactional-GET size contract. Phase 4E1 originally added a provisional
+`gemini/3.1-pro-preview` route under an external registration assumption; that route was removed
+on 2026-07-20 because the installed AI Gateway does not register it. The canonical benchmark keeps
+the requirement and now fails honest preflight instead of advertising an assumed capability.
 
 Phase 6A-6C provider connection behavior was approved on 2026-07-20 in the separate provider
 connections contract. It is not part of the already implemented benchmark core and requires its

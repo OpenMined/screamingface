@@ -41,12 +41,12 @@ cd packages/screamingface/apps/screamingface-engine
 ./dev.sh
 ```
 
-Then open the current SDK/engine-profile walkthrough from another terminal:
+Then open the bare-bones SDK quickstart from another terminal:
 
 ```bash
 cd packages/screamingface
 uv sync --extra notebook
-uv run --extra notebook jupyter lab examples/phase_1_engine_profile.ipynb
+uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
 ```
 
 The SDK communicates only with the configured HTTP URL4 engine. The engine contacts AI Gateway
@@ -78,4 +78,4 @@ uv run ruff check && uv run pyright && uv run pytest
 - **Scoreboard internals** → [`apps/scoreboard/README.md`](apps/scoreboard/README.md)
 - **ScreamingFace SDK** → [`packages/screamingface/README.md`](packages/screamingface/README.md)
 - **URL4 SDK examples** → [`packages/url4/examples/url4_examples.ipynb`](packages/url4/examples/url4_examples.ipynb)
-- **Legacy code** (desktop app, plugin server, url4 engine, marketing site, infra) → `git checkout legacy-monorepo-2026-07-08`
+- **Legacy code** (desktop app, plugin server, marketing site, infra) → `git checkout legacy-monorepo-2026-07-08`

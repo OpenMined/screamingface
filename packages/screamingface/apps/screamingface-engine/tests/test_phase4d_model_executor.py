@@ -151,7 +151,7 @@ async def test_executor_rejects_unavailable_and_unsupported_tools_before_gateway
     with pytest.raises(ResolutionError, match="unsupported tool"):
         await unsupported.complete(
             MODEL_ROUTES[1],
-            Request("/gemini/3.5-flash", "Q", "A", {"tools": "code_execution"}),
+            Request("/gemini/2.5-flash", "Q", "A", {"tools": "code_execution"}),
         )
 
     assert gateway.requests == []

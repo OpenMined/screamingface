@@ -60,23 +60,20 @@ class _State:
 class _Backend(Protocol):
     def update(self, state: _State) -> None: ...
 
-    def clear(self) -> None: ...
-
 
 class _NotebookBackend:
     def __init__(self, state: _State) -> None:
-        from IPython.display import HTML, display
+        from IPython.display import display
+        from ipywidgets import HTML
 
-        self._html = HTML
-        self._handle = display(HTML(progress_html(state)), display_id=True)
+        # WHY: widget comm messages are delivered while a synchronous VS Code/Jupyter cell is
+        # busy. Display-id updates can be buffered by those frontends until the cell completes,
+        # which makes paid model execution look completely opaque.
+        self._widget = HTML(value=progress_html(state))
+        display(self._widget)
 
     def update(self, state: _State) -> None:
-        if self._handle is not None:
-            self._handle.update(self._html(progress_html(state)))
-
-    def clear(self) -> None:
-        if self._handle is not None:
-            self._handle.update(self._html(""))
+        self._widget.value = progress_html(state)
 
 
 class _TextBackend:
@@ -91,9 +88,6 @@ class _TextBackend:
         ending = "\n" if state.stage in {"complete", "failed"} else ""
         print(f"\r{line}{padding}", end=ending, file=sys.stderr, flush=True)
         self._last_length = len(line)
-
-    def clear(self) -> None:
-        return None
 
 
 class Progress:
@@ -141,7 +135,7 @@ class Progress:
             )
             self._render()
 
-    def finish(self, label: str = "Complete", *, clear: bool = False) -> None:
+    def finish(self, label: str = "Complete") -> None:
         total = self._state.total
         with self._lock:
             self._state = _State(
@@ -153,8 +147,6 @@ class Progress:
                 total,
             )
             self._render()
-            if clear and self._notebook and self._backend is not None:
-                self._backend.clear()
 
     def fail(self, message: str) -> None:
         with self._lock:

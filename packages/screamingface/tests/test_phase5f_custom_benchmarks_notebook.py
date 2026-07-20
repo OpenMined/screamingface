@@ -136,5 +136,4 @@ def test_custom_benchmarks_notebook_is_public_and_ci_regenerated() -> None:
 
     assert "examples/04_custom_benchmarks.ipynb" in readme
     assert "scripts/build_custom_benchmarks.py" in readme
-    assert "python scripts/build_custom_benchmarks.py" in workflow
-    assert "git diff --exit-code -- examples/04_custom_benchmarks.ipynb" in workflow
+    assert "python scripts/check_notebooks.py" in workflow

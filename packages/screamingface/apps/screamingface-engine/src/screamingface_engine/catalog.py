@@ -60,12 +60,11 @@ PROVIDER_ROUTES = (
 MODEL_ROUTES = (
     ModelRoute("codex/gpt-5.5", "codex/gpt-5.5", "codex"),
     ModelRoute(
-        "gemini/3.5-flash",
-        "gemini-cli/gemini-3.5-flash",
+        "gemini/2.5-flash",
+        "gemini-cli/gemini-2.5-flash",
         "gemini",
     ),
     ModelRoute("claude/sonnet-4.6", "anthropic/claude-sonnet-4-6", "anthropic", ("web_search",)),
-    ModelRoute("gemini/3.1-pro-preview", "gemini-cli/gemini-3.1-pro-preview", "gemini"),
 )
 
 

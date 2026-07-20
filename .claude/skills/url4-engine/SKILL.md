@@ -1,137 +1,82 @@
 ---
 name: url4-engine
-description: >-
-  Use when DESIGNING or REVIEWING the url4 engine / AI-ensemble execution protocol — how a
-  url4 node resolves an expression, WS(stream) vs HTTP-GET(transactional) transport, recursive
-  fan-out/reduce DAG execution, subprocess leaves, and how logs / OTel gen_ai.* spans /
-  cost.usage taxonomy forward upstream. PROPOSED design-stage invariants (engine currently
-  legacy-tag-only, reviving as packages/url4-python-sdk): url4-expression-as-address,
-  node-selects-transport, one trace_id per tree, cost.usage as a separate event, hybrid
-  relay ↑ + Enclave trace store, RFC 8288 Link header for transactional fetch. Companion to
-  sdlc-python (build loop) and working-in-this-repo (routing).
+description: Implement or review URL4 execution, Url4Node registries, raw-ASGI serving, the url4 serve/eval CLI, or an application-owned URL4 node profile. Use this skill to distinguish implemented GET-only engine contracts from proposed streaming, telemetry, and Enclave architecture.
 ---
 
-# url4 Engine — Ensemble Execution & Telemetry Doctrine
+# URL4 engine
 
-**Announce at start:** "Using the url4-engine skill — design-stage doctrine for the url4
-ensemble execution protocol."
+Announce that this skill is being used and whether the work targets generic `packages/url4` or an
+application-owned node profile.
 
-> **STATUS — PROPOSED / DESIGN-STAGE. NOT ratified, NOT built.** The url4 engine is
-> legacy-tag-only (`legacy-monorepo-2026-07-08`, plugin `url4_executor`) and revives as
-> `packages/url4-python-sdk`. The invariants below are the **agreed mental model**, not
-> enforced law — there is no spec or work item yet. Treat each as a design default to apply
-> and defend, and STOP-and-ask before hardening any of them into code. One fork is still
-> **OPEN** (see F4). Kevin owns the url4 grammar/AST; this skill owns the *execution &
-> telemetry* architecture around it.
+## Implemented today
 
-This doctrine is the CLAUDE.md hexagonal mandate applied to a *recursive network of
-processes*: the url4 grammar/AST/resolver is a **port** (the SDK); the engine wires backends
-via a registry and **never imports them directly**; and every node is a small process
-addressed by a url4 expression. `apps/aigateway` (LiteLLM-based, port 9105, SSE) is the
-upstream-provider boundary a leaf node calls; it is not itself a url4 node.
+`packages/url4` provides:
 
-## The mental model (two diagrams)
+- grammar/parser and Python builders for URL4 expressions;
+- DAG nodes and execution over an `IOLayer`;
+- `Url4Node`, itself an `IOLayer`, with endpoint, data, holding, and identity registries;
+- one shared dispatch path for in-process evaluation, nested subrequests, and HTTP requests;
+- framework-free raw ASGI serving with transactional `GET /v1?q=<expression>`;
+- `url4 eval` for network-free one-shot evaluation; and
+- `url4 serve` with optional, lazily imported uvicorn support and `url4.toml` registries for
+  commands, data, holdings, and identities.
 
-![Architecture — telemetry-forwarding url4 node tree](../../../docs/diagrams/ensemble-node-architecture.png)
+Successful URL4 results are plaintext unless the evaluated expression itself constructs structured
+text. Parse errors and execution failures map to HTTP errors. The generic server has no built-in
+authentication, so it binds to loopback by default; exposing it requires an application security
+boundary. Command routes execute subprocesses and are disabled unless explicitly configured.
 
-![Sequence — one 4-level nested run](../../../docs/diagrams/ensemble-node-sequence.png)
+## Generic versus application-owned behavior
 
-Rendered diagrams (SVG source + PNG): `docs/diagrams/ensemble-node-architecture.*` (the node
-tree + telemetry planes) and `docs/diagrams/ensemble-node-sequence.*` (one nested run:
-descent → leaf exec → live telemetry up + Enclave export → ascent/reduce). The canonical
-4-level example both diagrams share:
+Generic syntax, parsing, DAG execution, I/O semantics, and node dispatch belong in `packages/url4`.
+Provider routing, credentials, model catalogs, benchmark policy, and deployment-specific limits do
+not.
 
-```
-L0  CLIENT (ensembler) ── opens WS ──▶ N1
-L1  N1  root ensemble      [WS]   url4: (A, B)!reduce          fan-out → reduce
-      ├─ L2  N2  sub-ensemble  [WS]   url4: (C, D)!reduce
-      │       ├─ L3  N4  interior   [WS]
-      │       │        └─ L4  N6  leaf  [HTTP GET] ── spawns local subprocess
-      │       └─ L3  N5  leaf  [HTTP GET · cacheable]  + Link header
-      └─ L2  N3  model node   [WS] ──▶ aigateway (upstream provider, SSE)
-```
+The temporary `packages/screamingface/apps/screamingface-engine` profile is one persistent
+`Url4Node` application with Python-registered handlers. It owns:
 
-## Node model (N)
+- the ScreamingFace capability registry;
+- public model/reducer routes;
+- the private provider-connection control plane;
+- AI Gateway and optional SearXNG adapters;
+- request admission, timeouts, and encoded request-target limits.
 
-- **N1 — The url4 expression IS the address.** A node is reached over HTTP with its url4
-  expression (`[name:weight:]path(context)!<intent>`) as the address. Because the address
-  fully determines the work, a transactional call is an idempotent, cacheable `GET` (the
-  "Enclave" cache). *This is why GET — not POST — is the transactional verb.*
-- **N2 — The node self-selects transport by role** (see T). Interior / long-running nodes
-  stream over WebSocket; a DAG **leaf** may answer one-shot `GET`. Nothing outside the node
-  dictates its mode.
-- **N3 — Nodes are recursive; execution is a DAG.** An `intent` may itself be a relative
-  url4 URL the engine resolves in-process, so a node fans out to child url4 nodes. The
-  ensemble shape is **fan-out N backend-calls → reduce** (`(a,b,c)!reduce`, `!*` broadcast,
-  `*source(body)!intent` collection-iteration). Bounded concurrency guards the
-  collection-fan-out failure mode (see `aigateway/core/concurrency.py`).
-- **N4 — A leaf may spawn local subprocesses** (e.g. a coding CLI). Subprocess stdio is
-  telemetry like any other signal (O2) and forwards upstream (F).
-- **N5 — Core never imports backends.** Grammar/AST/resolver live in `packages/url4-python-sdk`
-  (a port); backend routes (`/claude`, `/codex`, `/gemini`) register as adapters; wiring is
-  registry-driven. *Same hexagonal law as the rest of the monorepo.*
+The ScreamingFace SDK calls only this engine. Only engine model handlers contact AI Gateway.
+Registry entries must describe capabilities that the running deployment can actually execute.
 
-## Transport & modes (T)
+Do not force this profile into `url4.toml`: Python handlers are appropriate when a route needs
+shared async clients, lifecycle, auth state, validation, or multi-step tool execution. TOML is the
+right fit for declarative command/data/holding/identity registration in the generic CLI.
 
-- **T1 — WebSocket = streaming.** During execution the node emits **live events** —
-  log records, OTel spans, and `cost.usage` events (O2) — over the socket as they happen.
-  Used when a caller needs progress or the run is long-lived.
-- **T2 — HTTP GET = transactional.** The node returns the final result synchronously and
-  attaches an **RFC 8288 `Link`** header (and/or `202 Accepted` + `Location`) pointing at the
-  results/trace URL, so the caller can fetch the *same* telemetry later (F3). *Generalizes the
-  existing `X-AIGW-Cache` out-of-band-header convention in aigateway.*
-- **T3 — Either edge may be either mode.** Client→node and node→node edges independently
-  choose WS or GET. In **all** cases the three signals forward upstream (F) — mode changes the
-  *delivery channel*, never *whether* telemetry propagates.
+## Core invariants
 
-## Observability — three signals, one trace (O)
+- The URL4 expression is the transactional address; HTTP evaluation remains GET-only.
+- `Url4Node` is the single registry-backed dispatch authority. Do not create a parallel router with
+  divergent semantics.
+- Core URL4 imports remain framework-free; uvicorn is optional and lazy.
+- Backend adapters register at the application boundary; generic URL4 code does not import model
+  providers or AI Gateway.
+- Nested references are resolved by the DAG/I/O layer. Do not pre-populate values in the client as
+  though the engine were merely receiving a completed response.
+- Use bounded concurrency, timeouts, and safe errors at the owning application boundary.
+- Do not advertise authentication, streaming, telemetry, usage, cost, or tool support that is not
+  implemented end to end.
 
-- **O1 — One `trace_id` spans the whole tree.** Each node is a child span; the tree shares
-  one W3C trace. A node links to its parent via the incoming `traceparent` span-id.
-- **O2 — Three distinct signals, deliberately separate:**
-  1. **logs** — structured records tagged `trace_id`/`span_id`.
-  2. **spans** — OTel GenAI semantic conventions (`gen_ai.operation.name`,
-     `gen_ai.provider.name`, `gen_ai.request/response.model`,
-     `gen_ai.usage.input_tokens`/`output_tokens`). **Token counts live here.** Opt in with
-     `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`.
-  3. **`cost.usage`** — a **separate taxonomy event, NOT a span attribute.** *OTel keeps cost
-     out of the span standard on purpose (cost is derived downstream from tokens × pricing);
-     modeling it as its own event is the industry pattern (Langfuse `costDetails`).*
-- **O3 — `cost.usage` schema + roll-up.** `{ trace_id, span_id, parent_span_id, node,
-  provider, model, pricing_version, usage:{input_tokens, output_tokens, cache_read,
-  cache_creation, reasoning}, cost:{…USD per type, total}, scope: "self"|"subtree" }`. Each
-  parent emits its own `self` event **and** a `subtree` event = self + Σ(children.subtree).
-  *The client sees per-node cost and one grand total.*
-- **O4 — Context propagation is explicit per hop.** HTTP hops inject/extract
-  `traceparent`/`tracestate` headers; WS hops bind the trace on the **handshake** and carry
-  `traceparent` inside each **message envelope**. Never open a span per raw WS frame — span
-  logical operations, sample the rest.
+## Proposed, not implemented
 
-## Forwarding topology — HYBRID (F)
+The diagrams under `docs/diagrams/ensemble-node-*` explore a future architecture with WebSocket
+streaming, W3C trace propagation, OTel GenAI spans, separate `cost.usage` events, per-hop telemetry
+relay, an Enclave trace store, and RFC 8288 result links. These are design inputs only. They are not
+current `Url4Node`, `url4 serve`, or ScreamingFace-engine contracts.
 
-- **F1 — Live relay ↑.** Each non-leaf node **merges its children's telemetry with its own
-  and re-emits upstream** over its own WS. The client's single stream to the root is the whole
-  merged tree — the real-time *view*.
-- **F2 — Durable export.** Every node **also** exports its signals to the shared **Enclave
-  trace store** (keyed by `trace_id`, cacheable) — the *record of truth*. Relay is fast but
-  lossy (a crashed mid-tree node drops its subtree's live events); the store reconciles.
-- **F3 — The `Link` header resolves into the Enclave store.** A transactional (GET) caller
-  reads the durable record via `Link: /traces/{id}` (T2) instead of the live view.
-- **F4 — OPEN DECISION — GET-leaf telemetry return.** Does a one-shot `GET` leaf (no open WS
-  to relay on) return its telemetry batch **in the HTTP response body** to its caller, **or
-  only** via the Enclave store + `Link` header? The diagrams currently assume **store-side
-  only**. *Unresolved — do not encode either behavior as final; confirm with the owner before
-  it reaches a spec.*
+Before implementing any of them, require an approved spec that resolves transport negotiation,
+event envelopes, persistence ownership, authentication, backpressure, and the open question of how
+transactional leaf telemetry is returned. Never infer these features from the existing diagrams.
 
-## Red flags — STOP
+## Validation routing
 
-| Thought | Action |
-|---|---|
-| "Make the transactional call a POST." | STOP (N1). url4-expression-as-address ⇒ idempotent GET. |
-| "The interior node calls the model backend directly." | STOP (N5). Backends are registry adapters; core never imports them. |
-| "Put the dollar cost as a span attribute." | STOP (O2/O3). Cost is a *separate* `cost.usage` event; only tokens go on spans. |
-| "Open a span per WS frame." | STOP (O4). Span logical operations, not frames. |
-| "The child dumps telemetry only to the collector; parent reads it there." | STOP (F1). Live path is per-hop relay; the store is the *durable* second path, not the only one. |
-| "A leaf can skip forwarding — it's a leaf." | STOP (T3). Every mode forwards all three signals upstream. |
-| "Point the `Link` header at the node's own ephemeral buffer." | STOP (F3). It resolves into the durable Enclave store. |
-| "Just decide the GET-leaf return shape and ship it." | STOP (F4). That fork is OPEN — ask the owner. |
+- Generic URL4 change: run the `url4` stack from `.claude/sdlc.local.md`.
+- ScreamingFace profile change: run the complete `screamingface` stack, including engine coverage
+  and deterministic notebook/fixture checks.
+- Cross-boundary contract change: use separate work items per affected package/app and test both
+  sides against the same fixture.

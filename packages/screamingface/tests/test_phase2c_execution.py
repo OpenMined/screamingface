@@ -23,7 +23,7 @@ def _registry(
         models=models
         or (
             ModelRecord("codex/gpt-5.5", (), "codex"),
-            ModelRecord("gemini/3.5-flash", (), "gemini"),
+            ModelRecord("gemini/2.5-flash", (), "gemini"),
             ModelRecord("judge/model", (), "judge"),
         ),
         reducers=reducers
@@ -67,7 +67,7 @@ def _connected_providers(monkeypatch: pytest.MonkeyPatch) -> None:
 def _fusion(reducer=None) -> sf.Fusion:
     return sf.Fusion(
         "frontier",
-        ["codex/gpt-5.5", "gemini/3.5-flash"],
+        ["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=reducer or sf.reducers.MajorityVote(),
     )
 
@@ -88,7 +88,7 @@ def _success(fusion: sf.Fusion, case_id: str) -> httpx.Response:
             {
                 "answer": f"answer-{case_id}",
                 "members": {
-                    "member_2": {"answer": "B", "model": "gemini/3.5-flash"},
+                    "member_2": {"answer": "B", "model": "gemini/2.5-flash"},
                     "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
                 },
                 "schema": "screamingface.fusion-result.v1",
@@ -162,7 +162,7 @@ def test_supported_benchmark_tools_are_sent_only_in_concrete_member_requests(
     benchmark = _benchmark(tools=("web_search",))
     supported = (
         ModelRecord("codex/gpt-5.5", ("web_search",), "codex"),
-        ModelRecord("gemini/3.5-flash", ("web_search",), "gemini"),
+        ModelRecord("gemini/2.5-flash", ("web_search",), "gemini"),
         ModelRecord("judge/model", (), "judge"),
     )
     monkeypatch.setattr(_execution, "load_registry", lambda: _registry(models=supported))

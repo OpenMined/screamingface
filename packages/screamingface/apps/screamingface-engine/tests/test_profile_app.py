@@ -26,13 +26,8 @@ async def test_profile_serves_only_executable_capability_discovery() -> None:
     assert registry["schema"] == "screamingface.registry.v1"
     assert registry["models"] == [
         {"id": "codex/gpt-5.5", "provider": "codex", "supported_tools": []},
-        {"id": "gemini/3.5-flash", "provider": "gemini", "supported_tools": []},
+        {"id": "gemini/2.5-flash", "provider": "gemini", "supported_tools": []},
         {"id": "claude/sonnet-4.6", "provider": "anthropic", "supported_tools": []},
-        {
-            "id": "gemini/3.1-pro-preview",
-            "provider": "gemini",
-            "supported_tools": [],
-        },
     ]
     assert registry["limits"] == {"max_request_target_bytes": 61440}
     assert set(registry) == {

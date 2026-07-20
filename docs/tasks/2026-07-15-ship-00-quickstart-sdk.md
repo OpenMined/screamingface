@@ -338,7 +338,7 @@ Current DRACO Preview policy supersedes the original Gemini research claim above
 advertises `web_search`. Gemini 3 research requires its encrypted `thoughtSignature` to survive
 function-calling continuations, and the current AI Gateway normalization does not preserve that
 provider metadata. Preview therefore uses two independently prompted Claude research calls,
-Codex synthesis, and Gemini 3.5 Flash only as a tool-free judge. This keeps the advertised engine
+Codex synthesis, and Gemini 2.5 Flash only as a tool-free judge. This keeps the advertised engine
 contract honest until the Gateway boundary supports Gemini's continuation metadata.
 
 Phase 4D makes compatible DRACO research members executable. At that phase boundary, full DRACO
@@ -385,6 +385,11 @@ Implemented the reviewed DRACO judge route entirely inside the temporary
 
 No URL4 or AI Gateway file changed. Provider-backed success depends on the AI Gateway owner
 registering the assumed model ID and on ordinary provider authentication.
+
+**Correction — 2026-07-20:** the installed AI Gateway does not register that assumed model ID.
+The provisional route and its route-specific tests were removed. Canonical `draco@1` keeps the
+pinned requirement and now fails SDK model preflight until official Gateway support exists; the
+engine registry contains only executable model routes.
 
 ## Phase 5A contract approval — 2026-07-19
 
@@ -698,8 +703,8 @@ OpenRouter support lands in AI Gateway under OME-428:
 
 - preserve the pinned 100-case DRACO source and official per-criterion judge prompt;
 - retain one real positive criterion per case and one judge pass;
-- use Google's current `gemini-3.5-flash` model through AI Gateway's generic Gemini provider and
-  the public tool-free `gemini/3.5-flash` engine route for judging;
+- use AI Gateway's registered `gemini-cli/gemini-2.5-flash` model through the public tool-free
+  `gemini/2.5-flash` engine route for judging;
 - keep SearXNG-backed Claude member research and the same grading/aggregation implementation;
 - do not advertise Gemini research until AI Gateway preserves Gemini 3's mandatory function-call
   thought signature across normalized turns;
@@ -717,7 +722,7 @@ Implemented one presentation contract across the provider panel, live evaluation
   `True`/`False` control;
 - report actual completed cases and rubric judge requests across checking, running, grading, and
   aggregation, without time estimates or execution-policy changes;
-- clear successful `evaluate` progress before the returned report renders while retaining a safe
+- retain a compact completed receipt after successful evaluation while retaining a safe
   failed stage when an exception propagates; and
 - centralize light/dark tokens, square geometry, typography, and status colors for connections,
   progress, and reports while leaving ordinary SDK values and discovery lists as plain Python.

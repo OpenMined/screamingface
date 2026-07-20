@@ -60,7 +60,7 @@ def test_fusions_notebook_starts_with_concise_members_and_majority_vote() -> Non
 
     assert "SHARED_PROMPT =" in code
     assert '"codex/gpt-5.5"' in code
-    assert '"gemini/3.5-flash"' in code
+    assert '"gemini/2.5-flash"' in code
     assert '"claude/sonnet-4.6"' in code
     assert "prompt=SHARED_PROMPT" in code
     assert "reducer=sf.reducers.MajorityVote()" in code
@@ -69,7 +69,7 @@ def test_fusions_notebook_starts_with_concise_members_and_majority_vote() -> Non
 def test_fusions_notebook_uses_mappings_only_for_member_overrides() -> None:
     code = _sources("code")
 
-    assert '"model": "gemini/3.5-flash"' in code
+    assert '"model": "gemini/2.5-flash"' in code
     assert '"prompt": "Check the scientific reasoning and answer directly."' in code
     assert '"params": {"temperature": 0.2, "max_tokens": 512}' in code
     assert "specialist_fusion.models" in code
@@ -122,5 +122,4 @@ def test_fusions_notebook_is_public_and_ci_regenerated() -> None:
 
     assert "examples/03_fusions.ipynb" in readme
     assert "scripts/build_fusions.py" in readme
-    assert "python scripts/build_fusions.py" in workflow
-    assert "git diff --exit-code -- examples/03_fusions.ipynb" in workflow
+    assert "python scripts/check_notebooks.py" in workflow

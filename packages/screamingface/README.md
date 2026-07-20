@@ -202,7 +202,7 @@ fusion = sf.Fusion(
     "frontier-trio",
     models=[
         "codex/gpt-5.5",
-        "gemini/3.5-flash",
+        "gemini/2.5-flash",
         "claude/sonnet-4.6",
     ],
     reducer=sf.reducers.MajorityVote(),
@@ -251,15 +251,12 @@ is shorthand for local load followed by engine execution over a stable prefix. T
 installs `gpqa@1`, canonical `draco@1`, and the explicitly non-comparable `draco-preview@1` development
 profile; all can be loaded and inspected locally. The development
 engine can execute `tools=web_search` members through its internal SearXNG adapter on the Claude
-route. It exposes the tool-free `gemini/3.5-flash` route used for bounded DRACO Preview judging.
+route. It exposes the tool-free `gemini/2.5-flash` route used for bounded DRACO Preview judging.
 Gemini research is deliberately not advertised: Gemini 3 requires an encrypted thought signature
 on function-calling continuations, and the current AI Gateway normalization does not preserve it.
-The engine also exposes the provisional tool-free
-`gemini/3.1-pro-preview` judge route required by the SDK's generic Rubric implementation, under
-the explicit assumption that AI Gateway will register
-`gemini-cli/gemini-3.1-pro-preview`. Successful provider-backed grading still requires that
-external registration and provider authentication; no substitute judge or runtime fallback is
-used.
+Canonical `draco@1` still pins its `gemini/3.1-pro-preview` judge, but the development engine does
+not advertise that route until AI Gateway officially registers it. SDK preflight therefore stops
+canonical evaluation before provider spend; no substitute judge or runtime fallback is used.
 
 `sf.connect()`, live evaluation progress, and `Report` use one shared square, shadow-free,
 light/dark-safe visual foundation. Notebook reports show complete, partial, and zero-scored runs

@@ -70,7 +70,6 @@ async def test_registry_advertises_public_provider_ownership_without_gateway_ali
         "codex",
         "gemini",
         "anthropic",
-        "gemini",
     ]
     assert "gemini-cli" not in response.text
     assert "credential_locator" not in response.text

@@ -407,14 +407,11 @@ ceiling. GET
 remains the only transactional URL4 transport. There is no truncation, POST fallback, compression,
 partial grading, or change to URL4 or AI Gateway.
 
-**Phase 4E1 is implemented:** the development engine exposes the ordinary tool-free
-`gemini/3.1-pro-preview` model route and maps it to
-`gemini-cli/gemini-3.1-pro-preview`. It reuses the generic model/Gateway adapter, preserves the
-official system/user message split and allowlisted judge parameters, returns assistant JSON as
-plaintext, and makes every pass an independent Gateway request. Gateway rejection, connection,
-timeout, and malformed responses remain safe transient `502 resolution_failed` URL4 errors with
-no retry. This slice assumes the AI Gateway owner registers the mapped model; it changes neither
-AI Gateway nor URL4.
+**Phase 4E1 was corrected on 2026-07-20:** its provisional
+`gemini/3.1-pro-preview -> gemini-cli/gemini-3.1-pro-preview` route assumed an AI Gateway
+registration that does not exist. The development engine now advertises only registered model
+routes. Canonical `draco@1` retains the pinned judge identity and fails model preflight until the
+Gateway owner officially adds it; no fallback judge is substituted.
 
 Complete when:
 
@@ -449,7 +446,7 @@ mock-mode or in-process fallback.
 **Phase 5A is implemented and subsequently narrowed for live development:**
 `examples/05_draco.ipynb` is a four-step `connect -> compose -> evaluate -> compare` walkthrough
 for `draco-preview@1`. Preview uses the same pinned 100-case source, the official per-criterion
-prompt, one real positive criterion per case, one Gemini 3.5 Flash judge pass, and the same local
+prompt, one real positive criterion per case, one Gemini 2.5 Flash judge pass, and the same local
 aggregation machinery. Its two-member Claude self-fusion uses distinct evidence and challenge
 prompts, the engine's SearXNG-backed research capability, and a Codex model reducer. Gemini remains
 judge-only because the current AI Gateway boundary drops Gemini 3's mandatory function-call

@@ -59,7 +59,7 @@ ScreamingFace engine and shows the engine origin before you act.
             '    "frontier-trio",\n'
             "    models=[\n"
             '        "codex/gpt-5.5",\n'
-            '        "gemini/3.5-flash",\n'
+            '        "gemini/2.5-flash",\n'
             '        "claude/sonnet-4.6",\n'
             "    ],\n"
             '    prompt="Return only the answer letter: A, B, C, or D.",\n'

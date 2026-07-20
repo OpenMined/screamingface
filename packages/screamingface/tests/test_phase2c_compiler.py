@@ -14,7 +14,7 @@ def test_majority_recipe_is_canonical_parameterized_and_network_free() -> None:
         [
             "codex/gpt-5.5",
             {
-                "model": "gemini/3.5-flash",
+                "model": "gemini/2.5-flash",
                 "params": {"temperature": 0.2, "enabled": True},
             },
         ],
@@ -26,7 +26,7 @@ def test_majority_recipe_is_canonical_parameterized_and_network_free() -> None:
     assert build(recipe)
     assert "question=" not in recipe
     assert "member_1=/codex/gpt-5.5($question)!'Answer the question.'" in recipe
-    assert "/gemini/3.5-flash?temperature=0.2&enabled=true&q=($question)" in recipe
+    assert "/gemini/2.5-flash?temperature=0.2&enabled=true&q=($question)" in recipe
     assert "fusion_answer=/reducers/majority-vote($member_answers)" in recipe
     assert "schema: 'screamingface.fusion-result.v1'" in recipe
     assert fusion.prompt == "Answer the question."
@@ -35,7 +35,7 @@ def test_majority_recipe_is_canonical_parameterized_and_network_free() -> None:
 def test_concrete_expression_binds_literal_question_without_a_reference() -> None:
     fusion = sf.Fusion(
         "money",
-        ["codex/gpt-5.5", "gemini/3.5-flash"],
+        ["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -49,7 +49,7 @@ def test_concrete_expression_binds_literal_question_without_a_reference() -> Non
 def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4() -> None:
     fusion = sf.Fusion(
         "research",
-        ["codex/gpt-5.5", "gemini/3.5-flash"],
+        ["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -74,7 +74,7 @@ def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4()
         return "A"
 
     node.endpoint("/codex/gpt-5.5")(member)
-    node.endpoint("/gemini/3.5-flash")(member)
+    node.endpoint("/gemini/2.5-flash")(member)
 
     def reduce(request):
         reducer_requests.append(request)
@@ -94,7 +94,7 @@ def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4()
 def test_model_reducer_receives_automatic_labeled_context_and_its_own_intent() -> None:
     fusion = sf.Fusion(
         "synthesis",
-        ["codex/gpt-5.5", "gemini/3.5-flash"],
+        ["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Synthesize the panel answers.",
@@ -108,7 +108,7 @@ def test_model_reducer_receives_automatic_labeled_context_and_its_own_intent() -
     assert "fusion_answer=/codex/gpt-5.5?temperature=0.0&q=(Question:" in recipe
     assert "fusion_answer=/codex/gpt-5.5?tools=" not in recipe
     assert "$question\n\nPanel answers:\nPanel 1 [codex/gpt-5.5]:\n$member_1" in recipe
-    assert "Panel 2 [gemini/3.5-flash]:\n$member_2" in recipe
+    assert "Panel 2 [gemini/2.5-flash]:\n$member_2" in recipe
     assert ")!'Synthesize the panel answers.'" in recipe
 
 

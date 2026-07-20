@@ -78,5 +78,4 @@ def test_connection_guide_is_linked_and_regeneration_is_enforced() -> None:
 
     assert "examples/06_connections.ipynb" in readme
     assert "scripts/build_connections.py" in readme
-    assert "python scripts/build_connections.py" in workflow
-    assert "git diff --exit-code -- examples/06_connections.ipynb" in workflow
+    assert "python scripts/check_notebooks.py" in workflow

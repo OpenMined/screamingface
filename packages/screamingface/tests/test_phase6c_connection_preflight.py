@@ -15,7 +15,7 @@ def _registry() -> Registry:
     return Registry(
         models=(
             ModelRecord("codex/gpt-5.5", (), "codex"),
-            ModelRecord("gemini/3.5-flash", (), "gemini"),
+            ModelRecord("gemini/2.5-flash", (), "gemini"),
             ModelRecord("judge/model", (), "judge"),
         ),
         reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
@@ -32,7 +32,7 @@ def _registry() -> Registry:
 def _fusion() -> sf.Fusion:
     return sf.Fusion(
         "panel",
-        models=["codex/gpt-5.5", "gemini/3.5-flash"],
+        models=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -127,7 +127,7 @@ class EngineClient:
                 "schema": "screamingface.fusion-result.v1",
                 "members": {
                     "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
-                    "member_2": {"model": "gemini/3.5-flash", "answer": "A"},
+                    "member_2": {"model": "gemini/2.5-flash", "answer": "A"},
                 },
                 "answer": "A",
             }
@@ -172,7 +172,7 @@ def test_run_requires_only_member_and_reducer_connections_before_spend(
 
     error = captured.value
     assert error.providers == ("gemini",)
-    assert error.models == ("gemini/3.5-flash",)
+    assert error.models == ("gemini/2.5-flash",)
     assert error.roles == ("member",)
     assert "sf.connect('gemini'" in str(error)
     assert client.status_reads == 1
@@ -249,8 +249,8 @@ def test_evaluate_emits_one_coherent_run_grade_aggregate_progress_sequence(
         def advance(self, count: int = 1) -> None:
             events.append(("advance", self.stage_name, count))
 
-        def finish(self, label: str = "Complete", *, clear: bool = False) -> None:
-            events.append(("finish", label, clear))
+        def finish(self, label: str = "Complete") -> None:
+            events.append(("finish", label))
 
         def fail(self, message: str) -> None:
             events.append(("fail", message))
@@ -270,7 +270,7 @@ def test_evaluate_emits_one_coherent_run_grade_aggregate_progress_sequence(
         ("stage", "grading", "Grading responses", 3),
         ("advance", "grading", 3),
         ("stage", "aggregating", "Aggregating report", None),
-        ("finish", "Complete", True),
+        ("finish", "Complete"),
     ]
 
 

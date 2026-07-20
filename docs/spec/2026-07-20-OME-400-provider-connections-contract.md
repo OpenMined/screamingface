@@ -140,7 +140,7 @@ provider ownership on model records. Representative fields are:
   ],
   "models": [
     {
-      "id": "gemini/3.5-flash",
+      "id": "gemini/2.5-flash",
       "provider": "gemini",
       "supported_tools": ["web_search"]
     },

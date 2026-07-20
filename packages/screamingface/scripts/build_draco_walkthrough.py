@@ -30,13 +30,13 @@ It deliberately differs from canonical DRACO:
 | research | two independently prompted Claude calls | seven-model, nine-Fusion lineup |
 | search | engine-hosted SearXNG | earlier reproduction used OpenRouter |
 | synthesis | Codex GPT-5.5 | pinned pipeline-specific synthesizers |
-| judging | Gemini 3.5 Flash, one criterion, one pass | Gemini 3.1 Pro, full rubric, three passes |
+| judging | Gemini 2.5 Flash, one criterion, one pass | Gemini 3.1 Pro, full rubric, three passes |
 | claim | architecture validation | score-comparable reproduction |
 
 The two Claude calls are independent: one builds an evidence-led answer and the other searches for
 omissions and counterevidence. Both receive `web_search`. Codex is the model reducer because its
 current route is tool-free; it combines the resolved research answers without performing another
-search. Gemini 3.5 Flash is tool-free and used only as the judge. Gemini 3 research is not
+search. Gemini 2.5 Flash is tool-free and used only as the judge. Gemini 3 research is not
 advertised because its function-calling continuation requires an encrypted `thoughtSignature`
 that the current AI Gateway normalization does not preserve.
 

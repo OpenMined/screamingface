@@ -21,7 +21,7 @@ def benchmark() -> Benchmark:
         title="DRACO Preview",
         cases=draco_preview_cases(),
         grader=Rubric(
-            model="gemini/3.5-flash",
+            model="gemini/2.5-flash",
             prompt=DRACO_JUDGE_PROMPT,
             passes=1,
             params={"temperature": 0.2, "max_tokens": 4096},

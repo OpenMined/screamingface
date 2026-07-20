@@ -10,12 +10,12 @@ from screamingface_engine.catalog import MODEL_ROUTES
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.settings import Settings
 
-PUBLIC_JUDGE = "gemini/3.1-pro-preview"
-GATEWAY_JUDGE = "gemini-cli/gemini-3.1-pro-preview"
+PUBLIC_MODEL = "gemini/2.5-flash"
+GATEWAY_MODEL = "gemini-cli/gemini-2.5-flash"
 
 
 @pytest.mark.asyncio
-async def test_judge_route_maps_exact_request_and_keeps_passes_independent() -> None:
+async def test_gemini_route_maps_exact_request_and_keeps_calls_independent() -> None:
     upstream: list[dict[str, object]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -28,7 +28,7 @@ async def test_judge_route_maps_exact_request_and_keeps_passes_independent() -> 
                         "message": {
                             "content": json.dumps(
                                 {
-                                    "explanation": f"Independent pass {len(upstream)}.",
+                                    "explanation": f"Independent call {len(upstream)}.",
                                     "criterion_status": "MET",
                                 },
                                 separators=(",", ":"),
@@ -49,7 +49,7 @@ async def test_judge_route_maps_exact_request_and_keeps_passes_independent() -> 
     transport = httpx.ASGITransport(app=app)
     expression = (
         "(model_context='<criterion>Be correct.</criterion>',"
-        "/gemini/3.1-pro-preview?temperature=0.2&reasoning=low&max_tokens=4096"
+        "/gemini/2.5-flash?temperature=0.2&reasoning=low&max_tokens=4096"
         "&q=($model_context)!'Apply the pinned judge prompt.')"
     )
 
@@ -58,22 +58,22 @@ async def test_judge_route_maps_exact_request_and_keeps_passes_independent() -> 
         responses = [await client.get("/v1", params={"q": expression}) for _ in range(3)]
     await gateway.aclose()
 
-    judge_record = next(model for model in registry["models"] if model["id"] == PUBLIC_JUDGE)
-    assert judge_record == {"id": PUBLIC_JUDGE, "provider": "gemini", "supported_tools": []}
+    model_record = next(model for model in registry["models"] if model["id"] == PUBLIC_MODEL)
+    assert model_record == {"id": PUBLIC_MODEL, "provider": "gemini", "supported_tools": []}
     assert [response.status_code for response in responses] == [200, 200, 200]
     assert [response.headers["content-type"] for response in responses] == [
         "text/plain; charset=utf-8"
     ] * 3
     assert [json.loads(response.text)["explanation"] for response in responses] == [
-        "Independent pass 1.",
-        "Independent pass 2.",
-        "Independent pass 3.",
+        "Independent call 1.",
+        "Independent call 2.",
+        "Independent call 3.",
     ]
     assert (
         upstream
         == [
             {
-                "model": GATEWAY_JUDGE,
+                "model": GATEWAY_MODEL,
                 "messages": [
                     {"role": "system", "content": "Apply the pinned judge prompt."},
                     {"role": "user", "content": "<criterion>Be correct.</criterion>"},
@@ -102,7 +102,7 @@ async def test_judge_route_maps_exact_request_and_keeps_passes_independent() -> 
         ),
     ],
 )
-async def test_judge_route_maps_gateway_failures_once_as_safe_url4_errors(
+async def test_gemini_route_maps_gateway_failures_once_as_safe_url4_errors(
     outcome: httpx.Response | Exception,
     status: int,
     code: str,
@@ -128,7 +128,7 @@ async def test_judge_route_maps_gateway_failures_once_as_safe_url4_errors(
 
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         response = await client.get(
-            f"/{PUBLIC_JUDGE}",
+            f"/{PUBLIC_MODEL}",
             params={"q": "(context)!judge"},
         )
     await gateway.aclose()
@@ -139,9 +139,9 @@ async def test_judge_route_maps_gateway_failures_once_as_safe_url4_errors(
     assert calls == 1
 
 
-def test_judge_catalog_identity_is_an_ordinary_tool_free_model_route() -> None:
-    judge = next(model for model in MODEL_ROUTES if model.id == PUBLIC_JUDGE)
+def test_gemini_catalog_identity_is_an_ordinary_tool_free_model_route() -> None:
+    model = next(model for model in MODEL_ROUTES if model.id == PUBLIC_MODEL)
 
-    assert judge.gateway_model == GATEWAY_JUDGE
-    assert judge.route == f"/{PUBLIC_JUDGE}"
-    assert judge.tool_capabilities == ()
+    assert model.gateway_model == GATEWAY_MODEL
+    assert model.route == f"/{PUBLIC_MODEL}"
+    assert model.tool_capabilities == ()

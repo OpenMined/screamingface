@@ -14,7 +14,7 @@ from screamingface._profile import Registry
 def _fusion() -> sf.Fusion:
     return sf.Fusion(
         "panel",
-        models=["codex/gpt-5.5", "gemini/3.5-flash"],
+        models=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -31,7 +31,7 @@ def _success() -> httpx.Response:
                 "schema": "screamingface.fusion-result.v1",
                 "members": {
                     "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
-                    "member_2": {"model": "gemini/3.5-flash", "answer": "A"},
+                    "member_2": {"model": "gemini/2.5-flash", "answer": "A"},
                 },
                 "answer": "A",
             }

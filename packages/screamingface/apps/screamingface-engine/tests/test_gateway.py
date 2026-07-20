@@ -24,7 +24,7 @@ async def test_gateway_maps_public_model_and_reuses_one_client() -> None:
         transport=httpx.MockTransport(handler),
     )
     request = Request(
-        path="/gemini/3.5-flash",
+        path="/gemini/2.5-flash",
         context="The question",
         intent="Answer it",
         params={"temperature": "0", "max_tokens": "8", "reasoning": "high"},
@@ -41,7 +41,7 @@ async def test_gateway_maps_public_model_and_reuses_one_client() -> None:
         seen
         == [
             {
-                "model": "gemini-cli/gemini-3.5-flash",
+                "model": "gemini-cli/gemini-2.5-flash",
                 "messages": [
                     {"role": "system", "content": "Answer it"},
                     {"role": "user", "content": "The question"},
@@ -182,13 +182,13 @@ async def test_gateway_normalizes_safe_model_failure_codes_without_upstream_deta
     with pytest.raises(ResolutionError) as captured:
         await gateway.complete(
             MODEL_ROUTES[1],
-            Request("/gemini/3.5-flash", "question", "answer", {}),
+            Request("/gemini/2.5-flash", "question", "answer", {}),
         )
     await gateway.aclose()
 
     assert captured.value.code == expected_code
     assert captured.value.permanent is permanent
-    assert "gemini/3.5-flash" in str(captured.value)
+    assert "gemini/2.5-flash" in str(captured.value)
     assert "bearer-secret-123" not in str(captured.value)
 
 
@@ -205,7 +205,7 @@ async def test_gateway_malformed_failure_falls_back_to_safe_status_classificatio
     with pytest.raises(ResolutionError) as captured:
         await gateway.complete(
             MODEL_ROUTES[1],
-            Request("/gemini/3.5-flash", "question", "answer", {}),
+            Request("/gemini/2.5-flash", "question", "answer", {}),
         )
     await gateway.aclose()
 
@@ -251,7 +251,7 @@ async def test_gateway_surfaces_only_whitelisted_safe_provider_reason(
     with pytest.raises(ResolutionError) as captured:
         await gateway.complete(
             MODEL_ROUTES[1],
-            Request("/gemini/3.5-flash", "question", "answer", {}),
+            Request("/gemini/2.5-flash", "question", "answer", {}),
         )
     await gateway.aclose()
 
@@ -280,7 +280,7 @@ async def test_gateway_omits_unrecognized_provider_failure_detail() -> None:
     with pytest.raises(ResolutionError) as captured:
         await gateway.complete(
             MODEL_ROUTES[1],
-            Request("/gemini/3.5-flash", "question", "answer", {}),
+            Request("/gemini/2.5-flash", "question", "answer", {}),
         )
     await gateway.aclose()
 
@@ -311,7 +311,7 @@ async def test_gateway_classifies_retired_provider_model_without_exposing_detail
     with pytest.raises(ResolutionError) as captured:
         await gateway.complete(
             MODEL_ROUTES[1],
-            Request("/gemini/3.5-flash", "question", "answer", {}),
+            Request("/gemini/2.5-flash", "question", "answer", {}),
         )
     await gateway.aclose()
 
