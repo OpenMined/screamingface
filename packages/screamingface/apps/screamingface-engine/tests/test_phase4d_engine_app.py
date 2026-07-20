@@ -121,7 +121,7 @@ async def test_configured_app_advertises_and_executes_web_search_as_plaintext() 
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         registry = json.loads((await client.get("/.well-known/screamingface")).text)
         response = await client.get(
-            "/gemini/2.5",
+            "/claude/sonnet-4.6",
             params={
                 "tools": "web_search",
                 "q": "(Compare Jetson models)!Answer with sources",
@@ -132,7 +132,7 @@ async def test_configured_app_advertises_and_executes_web_search_as_plaintext() 
 
     assert registry["models"] == [
         {"id": "codex/gpt-5.5", "provider": "codex", "supported_tools": []},
-        {"id": "gemini/2.5", "provider": "gemini", "supported_tools": ["web_search"]},
+        {"id": "gemini/3.5-flash", "provider": "gemini", "supported_tools": []},
         {
             "id": "claude/sonnet-4.6",
             "provider": "anthropic",
@@ -233,3 +233,41 @@ async def test_engine_lifespan_cleans_up_when_research_startup_fails() -> None:
     ]
     assert gateway.aclose.await_count == 2
     assert research.aclose.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_engine_preserves_safe_gateway_code_without_private_detail() -> None:
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                503,
+                json={
+                    "detail": {
+                        "code": "provider_unavailable",
+                        "message": "private bearer-secret-123",
+                    }
+                },
+            )
+        ),
+    )
+    app = create_app(settings=Settings(), gateway=gateway)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
+    ) as client:
+        response = await client.get(
+            "/gemini/3.5-flash",
+            params={"q": "(Question)!Answer"},
+        )
+    await gateway.aclose()
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": {
+            "code": "provider_unavailable",
+            "message": "AI Gateway returned HTTP 503 (provider_unavailable) for 'gemini/3.5-flash'",
+        }
+    }
+    assert "bearer-secret-123" not in response.text

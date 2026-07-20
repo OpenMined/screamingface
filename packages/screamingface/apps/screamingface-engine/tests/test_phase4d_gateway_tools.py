@@ -57,7 +57,7 @@ async def test_gateway_turn_preserves_standard_tool_calls_and_messages() -> None
     )
 
     turn = await gateway.turn(
-        MODEL_ROUTES[1],
+        MODEL_ROUTES[2],
         messages=messages,
         params={"temperature": "0", "max_tokens": "8192"},
         tools=tools,
@@ -68,7 +68,7 @@ async def test_gateway_turn_preserves_standard_tool_calls_and_messages() -> None
     assert turn.tool_calls == (ToolCall("call_1", "web_search", '{"query":"Jetson Orin"}'),)
     assert requests == [
         {
-            "model": "gemini-cli/gemini-2.5-pro",
+            "model": "anthropic/claude-sonnet-4-6",
             "messages": messages,
             "temperature": 0.0,
             "max_tokens": 8192,
@@ -111,5 +111,5 @@ async def test_gateway_turn_rejects_invalid_assistant_messages(
     )
 
     with pytest.raises(ResolutionError, match=error):
-        await gateway.turn(MODEL_ROUTES[1], messages=[], params={}, tools=())
+        await gateway.turn(MODEL_ROUTES[2], messages=[], params={}, tools=())
     await gateway.aclose()

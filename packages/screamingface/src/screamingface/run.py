@@ -10,10 +10,11 @@ from typing import TYPE_CHECKING, Literal
 from screamingface.benchmark import Benchmark, Case
 
 if TYPE_CHECKING:
+    from screamingface._progress import ProgressSetting
     from screamingface.grades import Grades
 
-type FailureKind = Literal["connection", "timeout", "http", "url4", "protocol"]
-_FAILURE_KINDS = frozenset({"connection", "timeout", "http", "url4", "protocol"})
+type FailureKind = Literal["connection", "timeout", "http", "url4", "protocol", "skipped"]
+_FAILURE_KINDS = frozenset({"connection", "timeout", "http", "url4", "protocol", "skipped"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,12 +189,12 @@ class Run:
             "complete": self.complete,
         }
 
-    def grade(self) -> Grades:
+    def grade(self, *, progress: ProgressSetting = None) -> Grades:
         """Grade the captured Fusion and member answers without rerunning them."""
 
         from screamingface._grading import grade_run
 
-        return grade_run(self)
+        return grade_run(self, progress=progress)
 
 
 def _member_items(items: tuple[tuple[str, MemberResult], ...]) -> None:

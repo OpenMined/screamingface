@@ -89,16 +89,23 @@ async def test_judge_route_maps_exact_request_and_keeps_passes_independent() -> 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("outcome", "message"),
+    ("outcome", "status", "code", "message"),
     [
-        (httpx.Response(404), "AI Gateway returned HTTP 404"),
-        (httpx.ConnectError("offline"), "AI Gateway request failed"),
-        (httpx.ReadTimeout("slow"), "AI Gateway timed out"),
-        (httpx.Response(200, text="not-json"), "AI Gateway returned invalid JSON"),
+        (httpx.Response(404), 500, "model_request_rejected", "AI Gateway returned HTTP 404"),
+        (httpx.ConnectError("offline"), 502, "gateway_unavailable", "is unavailable"),
+        (httpx.ReadTimeout("slow"), 502, "gateway_timeout", "AI Gateway timed out"),
+        (
+            httpx.Response(200, text="not-json"),
+            502,
+            "resolution_failed",
+            "AI Gateway returned invalid JSON",
+        ),
     ],
 )
 async def test_judge_route_maps_gateway_failures_once_as_safe_url4_errors(
     outcome: httpx.Response | Exception,
+    status: int,
+    code: str,
     message: str,
 ) -> None:
     calls = 0
@@ -126,8 +133,8 @@ async def test_judge_route_maps_gateway_failures_once_as_safe_url4_errors(
         )
     await gateway.aclose()
 
-    assert response.status_code == 502
-    assert response.json()["error"]["code"] == "resolution_failed"
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
     assert message in response.json()["error"]["message"]
     assert calls == 1
 

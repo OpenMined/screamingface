@@ -28,7 +28,7 @@ def _registry() -> dict[str, object]:
         ],
         "models": [
             {"id": "codex/gpt-5.5", "provider": "codex", "supported_tools": []},
-            {"id": "gemini/2.5", "provider": "gemini", "supported_tools": []},
+            {"id": "gemini/3.5-flash", "provider": "gemini", "supported_tools": []},
         ],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
     }
@@ -98,7 +98,7 @@ def test_registry_exposes_public_providers_and_explicit_model_ownership(
 
     assert registry.providers[1].auth_methods == ("oauth", "api_key")
     assert registry.models[0].provider == "codex"
-    assert sf.models.list() == ["codex/gpt-5.5", "gemini/2.5"]
+    assert sf.models.list() == ["codex/gpt-5.5", "gemini/3.5-flash"]
 
 
 def test_registry_rejects_unknown_model_provider(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -312,7 +312,7 @@ def test_stage_requirement_planning_uses_explicit_provider_metadata(
     registry = _profile.load_registry()
     fusion = sf.Fusion(
         "panel",
-        models=["codex/gpt-5.5", "gemini/2.5"],
+        models=["codex/gpt-5.5", "gemini/3.5-flash"],
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Reduce: $panel_answers",
@@ -321,7 +321,7 @@ def test_stage_requirement_planning_uses_explicit_provider_metadata(
     benchmark = sf.Benchmark(
         "judged@1",
         cases=[sf.Case("one", "Question", reference={"criteria": []})],
-        grader=sf.graders.Rubric(model="gemini/2.5", prompt="Judge: $answer"),
+        grader=sf.graders.Rubric(model="gemini/3.5-flash", prompt="Judge: $answer"),
     )
 
     assert [(item.provider, item.role) for item in run_requirements(fusion, registry)] == [
@@ -340,7 +340,7 @@ def test_deterministic_strategies_add_no_model_requirement(monkeypatch: pytest.M
     registry = _profile.load_registry()
     fusion = sf.Fusion(
         "vote",
-        models=["codex/gpt-5.5", "gemini/2.5"],
+        models=["codex/gpt-5.5", "gemini/3.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
     benchmark = sf.Benchmark(

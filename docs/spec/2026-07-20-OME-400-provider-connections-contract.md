@@ -35,11 +35,14 @@ The complete MVP surface is:
 ```python
 sf.connect()
 sf.connect("codex")
-sf.connect("gemini", method="oauth")
 sf.connect("gemini", api_key=...)
 sf.disconnect("gemini")
 sf.connections.list()
 ```
+
+Gemini is temporarily advertised as API-key-only. Its OAuth option remains disabled until AI
+Gateway implements the provider's Code Assist onboarding and readiness checks. Codex and
+Anthropic OAuth behavior is unchanged.
 
 Starting OAuth returns an immutable public `sf.OAuthFlow`:
 
@@ -132,12 +135,12 @@ provider ownership on model records. Representative fields are:
     {
       "id": "gemini",
       "display_name": "Google Gemini",
-      "auth_methods": ["oauth", "api_key"]
+      "auth_methods": ["api_key"]
     }
   ],
   "models": [
     {
-      "id": "gemini/2.5",
+      "id": "gemini/3.5-flash",
       "provider": "gemini",
       "supported_tools": ["web_search"]
     },
@@ -184,11 +187,14 @@ the ScreamingFace service. Control-plane paths are intercepted by the applicatio
 wrapper; they are not URL4 endpoints or expressions. URL4 success results remain plaintext.
 Connection management responses are JSON.
 
-All `/v1/connections` routes are private and scoped to the current user. Only `/healthz`,
-`/.well-known/screamingface`, and the three browser callback paths are public. OAuth callbacks are
-unauthenticated by necessity and protected by AI Gateway's short-lived, single-use state nonce.
+In the temporary local development profile, `/v1/connections` exposes one sanitized engine-local
+connection set and is protected by loopback-only port binding. There is no ScreamingFace login or
+current-user identity layer in this profile. `/healthz` and `/.well-known/screamingface` are safe
+public metadata surfaces; OAuth callbacks are unauthenticated by necessity and protected by AI
+Gateway's short-lived, single-use state nonce. A hosted deployment must authenticate and
+user-scope every connection read and mutation before exposing this control plane.
 
-`GET /v1/connections` returns sanitized current-user state:
+`GET /v1/connections` returns sanitized state for the configured engine-local Gateway profile:
 
 ```json
 {
@@ -210,7 +216,7 @@ unauthenticated by necessity and protected by AI Gateway's short-lived, single-u
 }
 ```
 
-There is one public connection per provider in this MVP. Gateway profile names, connection UUIDs,
+There is one engine-local connection per provider in this MVP. Gateway profile names, connection UUIDs,
 access tokens, refresh tokens, and stored keys never appear in the response.
 
 Starting OAuth returns `provider`, `pending` status, `authorize_url`, and `expires_in`. Creating or
@@ -374,8 +380,8 @@ The Phase 6 implementation is accepted when:
 
 1. public discovery advertises providers and explicit model-provider ownership without private
    Gateway aliases;
-2. protected connection reads and mutations are user-scoped, sanitized, and distinct from URL4
-   evaluation;
+2. local connection reads and mutations are sanitized, loopback-only, and distinct from URL4
+   evaluation; any hosted exposure adds authenticated user scoping;
 3. API-key and OAuth operations reach AI Gateway only through the engine;
 4. local encrypted credentials survive an ordinary Docker restart and disappear only after an
    explicit volume reset or disconnect;

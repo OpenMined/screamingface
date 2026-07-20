@@ -67,13 +67,13 @@ async def test_executor_runs_multiple_tools_then_returns_final_plaintext() -> No
     research = _Research()
     executor = ModelExecutor(gateway, research, max_tool_calls=4)
     request = Request(
-        "/gemini/2.5",
+        "/claude/sonnet-4.6",
         "Research question",
         "Answer with sources",
         {"tools": "web_search", "temperature": "0"},
     )
 
-    answer = await executor.complete(MODEL_ROUTES[1], request)
+    answer = await executor.complete(MODEL_ROUTES[2], request)
 
     assert answer == "Final researched answer"
     assert research.searches == ["Jetson Orin"]
@@ -84,6 +84,9 @@ async def test_executor_runs_multiple_tools_then_returns_final_plaintext() -> No
         function = tool["function"]
         assert isinstance(function, dict)
         names.add(function["name"])
+        parameters = function["parameters"]
+        assert isinstance(parameters, dict)
+        assert "additionalProperties" not in parameters
     assert names == {"web_search", "web_fetch"}
     follow_up = gateway.requests[1][1]
     assert follow_up[0] == {"role": "system", "content": "Answer with sources"}
@@ -134,8 +137,8 @@ async def test_executor_rejects_unavailable_and_unsupported_tools_before_gateway
     unavailable = ModelExecutor(gateway, None, max_tool_calls=4)
     with pytest.raises(ResolutionError, match="not configured"):
         await unavailable.complete(
-            MODEL_ROUTES[1],
-            Request("/gemini/2.5", "Q", "A", {"tools": "web_search"}),
+            MODEL_ROUTES[2],
+            Request("/claude/sonnet-4.6", "Q", "A", {"tools": "web_search"}),
         )
 
     research = _Research()
@@ -148,7 +151,7 @@ async def test_executor_rejects_unavailable_and_unsupported_tools_before_gateway
     with pytest.raises(ResolutionError, match="unsupported tool"):
         await unsupported.complete(
             MODEL_ROUTES[1],
-            Request("/gemini/2.5", "Q", "A", {"tools": "code_execution"}),
+            Request("/gemini/3.5-flash", "Q", "A", {"tools": "code_execution"}),
         )
 
     assert gateway.requests == []
@@ -161,8 +164,8 @@ async def test_executor_rejects_malformed_calls_and_enforces_total_call_limit() 
     malformed = ModelExecutor(malformed_gateway, research, max_tool_calls=2)
     with pytest.raises(ResolutionError, match="valid JSON object"):
         await malformed.complete(
-            MODEL_ROUTES[1],
-            Request("/gemini/2.5", "Q", "A", {"tools": "web_search"}),
+            MODEL_ROUTES[2],
+            Request("/claude/sonnet-4.6", "Q", "A", {"tools": "web_search"}),
         )
 
     limited_gateway = _Gateway(
@@ -179,8 +182,8 @@ async def test_executor_rejects_malformed_calls_and_enforces_total_call_limit() 
     limited = ModelExecutor(limited_gateway, research, max_tool_calls=1)
     with pytest.raises(ResolutionError, match="tool-call limit"):
         await limited.complete(
-            MODEL_ROUTES[1],
-            Request("/gemini/2.5", "Q", "A", {"tools": "web_search"}),
+            MODEL_ROUTES[2],
+            Request("/claude/sonnet-4.6", "Q", "A", {"tools": "web_search"}),
         )
 
 
@@ -197,8 +200,8 @@ async def test_executor_validates_tool_names_and_arguments() -> None:
         executor = ModelExecutor(gateway, _Research(), max_tool_calls=2)
         with pytest.raises(ResolutionError, match=message):
             await executor.complete(
-                MODEL_ROUTES[1],
-                Request("/gemini/2.5", "Q", "A", {"tools": "web_search"}),
+                MODEL_ROUTES[2],
+                Request("/claude/sonnet-4.6", "Q", "A", {"tools": "web_search"}),
             )
 
 
@@ -217,7 +220,7 @@ async def test_executor_returns_transient_fetch_failure_to_model_but_rejects_uns
                 permanent=self.permanent,
             )
 
-    request = Request("/gemini/2.5", "Q", "A", {"tools": "web_search"})
+    request = Request("/claude/sonnet-4.6", "Q", "A", {"tools": "web_search"})
     transient_gateway = _Gateway(
         (
             AssistantTurn(
@@ -233,7 +236,7 @@ async def test_executor_returns_transient_fetch_failure_to_model_but_rejects_uns
         max_tool_calls=2,
     )
 
-    answer = await transient.complete(MODEL_ROUTES[1], request)
+    answer = await transient.complete(MODEL_ROUTES[2], request)
 
     assert answer == "Answer from remaining evidence"
     assert transient_gateway.requests[1][1][-1] == {
@@ -258,4 +261,4 @@ async def test_executor_returns_transient_fetch_failure_to_model_but_rejects_uns
     )
 
     with pytest.raises(ResolutionError, match="page unavailable"):
-        await permanent.complete(MODEL_ROUTES[1], request)
+        await permanent.complete(MODEL_ROUTES[2], request)

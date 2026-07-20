@@ -217,7 +217,9 @@ def test_fusion_evaluate_delegates_to_the_union_preflight_pipeline(
         benchmark: str | sf.Benchmark,
         *,
         first: int | None = None,
+        progress: bool | None = None,
     ) -> sf.Report:
+        assert progress is None
         calls.append((benchmark, first))
         return grades.aggregate()
 

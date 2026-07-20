@@ -15,6 +15,19 @@ from screamingface_engine.catalog import ModelRoute
 
 _ALLOWED_PARAMS = frozenset({"temperature", "max_tokens", "reasoning"})
 _REASONING_VALUES = frozenset({"low", "medium", "high"})
+_GATEWAY_CODE_MAP = {
+    "auth_required": "connection_needs_reauth",
+    "connection_not_found": "connection_needs_reauth",
+    "profile_not_found": "connection_needs_reauth",
+    "profile_pending_auth": "connection_pending",
+    "access_denied": "provider_access_denied",
+    "bad_request": "invalid_model_request",
+    "rate_limited": "rate_limited",
+    "provider_unavailable": "provider_unavailable",
+}
+_TRANSIENT_GATEWAY_CODES = frozenset(
+    {"gateway_timeout", "gateway_unavailable", "provider_unavailable", "rate_limited"}
+)
 
 
 class GatewayResponseTooLargeError(Exception):
@@ -103,17 +116,17 @@ class GatewayClient:
             )
             response.raise_for_status()
         except httpx.TimeoutException as exc:
-            raise ResolutionError(f"AI Gateway timed out while running {model.id!r}") from exc
+            raise ResolutionError(
+                f"AI Gateway timed out while running {model.id!r}",
+                code="gateway_timeout",
+            ) from exc
         except httpx.HTTPStatusError as exc:
-            status = exc.response.status_code
-            message = f"AI Gateway returned HTTP {status} for {model.id!r}"
-            if status == 401:
-                raise ResolutionError(message, code="connection_needs_reauth") from exc
-            if status == 403:
-                raise ResolutionError(message, code="provider_access_denied") from exc
-            raise ResolutionError(message) from exc
+            raise _gateway_status_error(exc.response, model) from exc
         except httpx.RequestError as exc:
-            raise ResolutionError(f"AI Gateway request failed for {model.id!r}: {exc}") from exc
+            raise ResolutionError(
+                f"AI Gateway is unavailable while running {model.id!r}",
+                code="gateway_unavailable",
+            ) from exc
         return _response_turn(response, model)
 
     async def request(
@@ -248,6 +261,87 @@ def _response_turn(response: httpx.Response, model: ModelRoute) -> AssistantTurn
             f"for {model.id!r}"
         )
     return AssistantTurn(content, tool_calls)
+
+
+def _gateway_status_error(response: httpx.Response, model: ModelRoute) -> ResolutionError:
+    status = response.status_code
+    upstream_code, upstream_message = _gateway_error_detail(response)
+    code = _normalized_gateway_code(status, upstream_code)
+    # INVARIANT: Raw Gateway/provider messages never cross the public URL4 error boundary.
+    reason = _safe_provider_reason(upstream_message)
+    if reason == "model unavailable":
+        code = "model_unavailable"
+    classification = code if reason is None else f"{code}; {reason}"
+    message = f"AI Gateway returned HTTP {status} ({classification}) for {model.id!r}"
+    return ResolutionError(
+        message,
+        code=code,
+        permanent=code not in _TRANSIENT_GATEWAY_CODES,
+    )
+
+
+def _gateway_error_detail(response: httpx.Response) -> tuple[str | None, str | None]:
+    try:
+        payload: Any = response.json()
+    except ValueError:
+        return None, None
+    if not isinstance(payload, Mapping):
+        return None, None
+    detail = payload.get("detail")
+    if not isinstance(detail, Mapping):
+        return None, None
+    code = detail.get("code")
+    message = detail.get("message")
+    safe_code = code if isinstance(code, str) and code else None
+    raw_message = message if isinstance(message, str) and message else None
+    return safe_code, raw_message
+
+
+def _safe_provider_reason(message: str | None) -> str | None:
+    if message is None:
+        return None
+    normalized = message.lower()
+    if "setup unreachable" in normalized:
+        reason = "provider setup unreachable"
+    elif "setup did not return" in normalized:
+        reason = "provider setup incomplete"
+    elif "request unreachable" in normalized:
+        reason = "provider request unreachable"
+    elif "response is not json" in normalized or "response not json" in normalized:
+        reason = "invalid provider response"
+    elif "response missing candidates" in normalized:
+        reason = "provider response missing candidates"
+    elif "model" in normalized and "no longer available" in normalized:
+        reason = "model unavailable"
+    else:
+        reason = None
+    return reason
+
+
+def _normalized_gateway_code(status: int, upstream_code: str | None) -> str:
+    if upstream_code in _GATEWAY_CODE_MAP:
+        code = _GATEWAY_CODE_MAP[upstream_code]
+    elif (
+        status == 401
+        or status == 404
+        and upstream_code
+        in {
+            "connection_not_found",
+            "profile_not_found",
+        }
+    ):
+        code = "connection_needs_reauth"
+    elif status == 403:
+        code = "provider_access_denied"
+    elif status == 429:
+        code = "rate_limited"
+    elif status >= 500:
+        code = "provider_unavailable"
+    elif status == 400:
+        code = "invalid_model_request"
+    else:
+        code = "model_request_rejected"
+    return code
 
 
 def _tool_call(value: object, model: ModelRoute) -> ToolCall:

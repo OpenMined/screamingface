@@ -21,7 +21,7 @@ executable capabilities:
 GET /healthz
 GET /.well-known/screamingface
 GET /codex/gpt-5.5?[params&]q=(context)!intent
-GET /gemini/2.5?[params&]q=(context)!intent
+GET /gemini/3.5-flash?[params&]q=(context)!intent
 GET /claude/sonnet-4.6?[params&]q=(context)!intent
 GET /gemini/3.1-pro-preview?[params&]q=(context)!intent
 GET /reducers/majority-vote?q=(resolved-member-object)
@@ -69,12 +69,14 @@ once in the engine request body and once in the internal Gateway request body; n
 echoes them. AI Gateway remains the only credential store.
 
 OAuth providers require their registered callback paths, so the browser returns to the engine at
-`/auth/callback` (Codex), `/oauth2callback` (Gemini), or `/callback` (Anthropic). The engine relays
+`/auth/callback` (Codex), `/oauth2callback` (Gemini), or `/callback` (Anthropic). Gemini OAuth is
+temporarily not advertised while AI Gateway's Code Assist onboarding/readiness flow is incomplete;
+Gemini API-key connections remain available. The engine relays
 only `code` and `state` over its loopback Gateway connection and returns its own generic HTML page.
 The SDK never handles callback codes or provider tokens.
 
-The Compose profile also configures an internal SearXNG service. Gemini and Claude then advertise
-the named `web_search` capability; Codex remains tool-free. A capable model may call the engine's
+The Compose profile also configures an internal SearXNG service. Claude then advertises the named
+`web_search` capability; Codex and Gemini remain tool-free. A capable model may call the engine's
 standard `web_search` and `web_fetch` functions multiple times within a bounded loop. SearXNG
 returns candidate titles, URLs, and snippets; the engine can read bounded public HTML/plaintext
 pages after rejecting credentials, non-HTTP(S) URLs, private/non-global targets, unsafe redirects,
@@ -89,12 +91,18 @@ Gateway. Nonempty intent, parameters, missing members, non-string values, and bl
 permanent URL4 `malformed_source` errors.
 
 Registry claims are configuration-dependent: without `SCREAMINGFACE_SEARXNG_URL`, no route claims
-`web_search`; with it, only the compatible Gemini and Claude routes do. The tool-free
+`web_search`; with it, the compatible Claude route does. The tool-free `gemini/3.5-flash` route
+maps through AI Gateway's existing generic Gemini provider and is the bounded judge used by the
+explicitly non-comparable `draco-preview@1` SDK profile. AI Gateway's `/v1/models` catalog does
+not yet advertise this current Google model ID, but its provider dispatcher accepts and executes
+it. Gemini research is not advertised because Gemini 3 function-calling continuations require the
+provider's encrypted `thoughtSignature`, which the current Gateway normalization drops. The
+engine must not claim a named capability that fails after its first tool call. The provisional
 `gemini/3.1-pro-preview` route maps to
 `gemini-cli/gemini-3.1-pro-preview` for DRACO rubric judging. This development contract assumes
 the AI Gateway owner will register that model identifier. If the Gateway deployment has not done
-so, the URL4 route remains addressable but returns the ordinary safe `502 resolution_failed`
-upstream error; the engine never bypasses Gateway or substitutes another judge.
+so, the URL4 route remains addressable but returns the ordinary safe upstream error; the engine
+never bypasses Gateway or substitutes another judge.
 
 The registry also advertises `limits.max_request_target_bytes`. It defaults to 61440 bytes and
 is configurable with `SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES`. This is the exact encoded
@@ -125,15 +133,30 @@ exists.
 From this directory:
 
 ```bash
-./dev.sh
+./dev.sh          # build, start detached, and wait until every service is healthy
+./dev.sh restart  # recreate this stack without deleting provider credentials
+./dev.sh status   # show Compose service health
+./dev.sh logs     # follow recent logs; Ctrl-C leaves the services running
+./dev.sh down     # stop this stack without deleting provider credentials
 ```
+
+`./dev.sh start` is the explicit form of the default command. Startup waits up to three minutes
+for AI Gateway, SearXNG, and the ScreamingFace engine health checks. Because services start
+detached, closing the invoking terminal or interrupting `./dev.sh logs` does not stop them. An
+unknown command fails before Docker with the supported-command list.
 
 If another local stack owns the default host ports, select isolated host ports while preserving
 the containers' internal topology:
 
 ```bash
-AIGATEWAY_HOST_PORT=19105 SCREAMINGFACE_ENGINE_HOST_PORT=14404 ./dev.sh
+AIGATEWAY_HOST_PORT=19105 \
+SCREAMINGFACE_ENGINE_HOST_PORT=14404 \
+CODEX_OAUTH_HOST_PORT=1457 \
+./dev.sh
 ```
+
+Codex OAuth uses the provider-registered loopback ports `1455` or `1457`; use `1457` only when
+`1455` is occupied. Other provider callbacks continue to use `SCREAMINGFACE_ENGINE_HOST_PORT`.
 
 This builds the engine, AI Gateway, and internal SearXNG containers. SearXNG has no host port and
 requires no researcher API key. It still uses public upstream search engines, so research requests
@@ -142,8 +165,9 @@ model routes do.
 
 AI Gateway starts with an empty provider connection store. Its SQLite database, encrypted
 credential blobs, generated local master key, and generated JWT secret live on the named
-`aigateway-data` volume. Ordinary `./dev.sh` rebuilds and `docker compose down` preserve the
-volume; `docker compose down -v` is the explicit destructive credential reset. Until a provider is
+`aigateway-data` volume. Ordinary `./dev.sh`, `./dev.sh restart`, and `./dev.sh down` preserve the
+volume; `docker compose down -v` is the explicit destructive credential reset and is deliberately
+not exposed by `dev.sh`. Until a provider is
 connected through the engine, model routes return the ordinary provider-access failure while
 health, registry, connection status, compilation, and deterministic reducer routes remain usable.
 
@@ -155,8 +179,13 @@ to the container whose network namespace is shared. This is development topology
 deployment should enable authentication rather than rely on this arrangement.
 
 `AIGATEWAY_PUBLIC_URL` points to the engine's browser-visible localhost origin so AI Gateway builds
-provider authorize URLs with the engine callback paths. When overriding
-`SCREAMINGFACE_ENGINE_HOST_PORT`, Compose uses that same port in the OAuth redirect URI.
+Gemini and Anthropic authorize URLs with the engine callback paths. Codex is the deliberate
+exception: the engine requests
+`SCREAMINGFACE_CODEX_OAUTH_REDIRECT_URI=http://localhost:1455/auth/callback`, and Compose publishes
+that host port to the same engine listener. The browser therefore still returns to the
+ScreamingFace engine; the SDK never contacts AI Gateway directly. Callback credentials are relayed
+to AI Gateway in a JSON body, and raw engine access logging is disabled so OAuth codes, state
+values, and URL4 query expressions do not appear in request-target logs.
 
 Verify:
 

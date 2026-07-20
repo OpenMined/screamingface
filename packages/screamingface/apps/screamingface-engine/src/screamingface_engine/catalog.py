@@ -42,7 +42,9 @@ PROVIDER_ROUTES = (
         "gemini",
         "Google Gemini",
         "gemini-cli",
-        ("oauth", "api_key"),
+        # Gemini OAuth is intentionally not advertised until AI Gateway completes the
+        # Code Assist onboarding/readiness flow. API-key connections remain supported.
+        ("api_key",),
         "/oauth2callback",
     ),
     ProviderRoute(
@@ -57,7 +59,11 @@ PROVIDER_ROUTES = (
 
 MODEL_ROUTES = (
     ModelRoute("codex/gpt-5.5", "codex/gpt-5.5", "codex"),
-    ModelRoute("gemini/2.5", "gemini-cli/gemini-2.5-pro", "gemini", ("web_search",)),
+    ModelRoute(
+        "gemini/3.5-flash",
+        "gemini-cli/gemini-3.5-flash",
+        "gemini",
+    ),
     ModelRoute("claude/sonnet-4.6", "anthropic/claude-sonnet-4-6", "anthropic", ("web_search",)),
     ModelRoute("gemini/3.1-pro-preview", "gemini-cli/gemini-3.1-pro-preview", "gemini"),
 )

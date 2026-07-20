@@ -59,7 +59,7 @@ ScreamingFace engine and shows the engine origin before you act.
             '    "frontier-trio",\n'
             "    models=[\n"
             '        "codex/gpt-5.5",\n'
-            '        "gemini/2.5",\n'
+            '        "gemini/3.5-flash",\n'
             '        "claude/sonnet-4.6",\n'
             "    ],\n"
             '    prompt="Return only the answer letter: A, B, C, or D.",\n'
@@ -86,7 +86,9 @@ does not call a model.
             """`evaluate(...)` loads the pinned GPQA Diamond definition through this process,
 executes the three-member Fusion for the first five canonical cases, checks the answers against the
 sealed answer key, and returns one paired comparison. Missing work remains an explicit failure; it
-is never silently scored as zero.
+is never silently scored as zero. In a notebook, one compact live panel shows requirement checks,
+case execution, grading, and aggregation before giving way to the final report. Pass
+`progress=False` to hide it, or `progress=True` to force the same progress outside notebooks.
 
 ## 4 · Compare"""
         ),

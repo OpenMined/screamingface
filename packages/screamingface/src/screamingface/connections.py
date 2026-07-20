@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class Connection:
-    """Sanitized current-user connection state enriched with public capabilities."""
+    """Sanitized engine connection state enriched with public capabilities."""
 
     provider: str
     display_name: str

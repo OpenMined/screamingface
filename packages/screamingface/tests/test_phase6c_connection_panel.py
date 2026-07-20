@@ -27,7 +27,7 @@ def _registry() -> dict[str, object]:
         ],
         "models": [
             {"id": "codex/gpt-5.5", "provider": "codex", "supported_tools": []},
-            {"id": "gemini/2.5", "provider": "gemini", "supported_tools": []},
+            {"id": "gemini/3.5-flash", "provider": "gemini", "supported_tools": []},
         ],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
     }
@@ -36,6 +36,7 @@ def _registry() -> dict[str, object]:
 class ConnectionEngine:
     def __init__(self) -> None:
         self.connected: dict[str, str | None] = {"codex": None, "gemini": None}
+        self.pending: set[str] = set()
         self.calls: list[tuple[str, str, bytes]] = []
         self.reject_api_key = False
 
@@ -57,6 +58,7 @@ class ConnectionEngine:
             response = self._api_key_response()
         if path.endswith("/oauth") and request.method == "POST":
             provider = path.split("/")[3]
+            self.pending.add(provider)
             response = httpx.Response(
                 200,
                 json={
@@ -69,7 +71,9 @@ class ConnectionEngine:
         if path.startswith("/v1/connections/") and request.method == "GET":
             response = httpx.Response(200, json=self._record(path.split("/")[3]))
         if path.startswith("/v1/connections/") and request.method == "DELETE":
-            self.connected[path.split("/")[3]] = None
+            provider = path.split("/")[3]
+            self.connected[provider] = None
+            self.pending.discard(provider)
             response = httpx.Response(204)
         if response is None:
             raise AssertionError(f"unexpected request {request.method} {path}")
@@ -92,10 +96,14 @@ class ConnectionEngine:
 
     def _record(self, provider: str, method: str | None = None) -> dict[str, object]:
         label = self.connected[provider]
+        status = (
+            "pending" if provider in self.pending else "connected" if label else "not_connected"
+        )
         return {
             "provider": provider,
-            "status": "connected" if label is not None else "not_connected",
-            "auth_method": method or ("oauth" if label is not None else None),
+            "status": status,
+            "auth_method": method
+            or ("oauth" if label is not None or provider in self.pending else None),
             "account_label": label,
         }
 
@@ -124,6 +132,15 @@ def _text(widget: widgets.Widget) -> str:
     return "\n".join(values)
 
 
+def _buttons(widget: widgets.Widget) -> list[widgets.Button]:
+    return [item for item in _walk(widget) if isinstance(item, widgets.Button)]
+
+
+def _button(widget: widgets.Widget, description: str, *, occurrence: int = 0) -> widgets.Button:
+    matches = [item for item in _buttons(widget) if item.description == description]
+    return matches[occurrence]
+
+
 def test_argument_free_connect_returns_a_fresh_brand_panel(connection_engine) -> None:
     panel = sf.connect()
 
@@ -132,6 +149,7 @@ def test_argument_free_connect_returns_a_fresh_brand_panel(connection_engine) ->
     assert [item.provider for item in panel.connections] == ["codex", "gemini"]
     assert sf.connections.list()[0].provider == "codex"
     html = panel._repr_html_()
+    assert "class='sf-ui sf-connections'" in html
     assert "OpenAI Codex" in html
     assert "Google Gemini" in html
     assert "http://127.0.0.1:4404" in html
@@ -149,24 +167,23 @@ def test_panel_widget_is_accessible_and_does_not_open_oauth_implicitly(connectio
 
     assert isinstance(widget, widgets.VBox)
     assert "Provider connections" in rendered
-    assert "Connection credentials are stored by http://127.0.0.1:4404" in rendered
-    assert "Connect with OAuth" in rendered
+    assert "Engine · http://127.0.0.1:4404" in rendered
+    assert [button.description for button in _buttons(widget)] == ["Connect", "Connect"]
+    assert "OAuth" not in rendered
+    assert "API key" not in rendered
+    assert not any(isinstance(item, widgets.Password) for item in _walk(widget))
     assert not any(path.endswith("/oauth") for _, path, _ in connection_engine.calls)
-    buttons = [item for item in _walk(widget) if isinstance(item, widgets.Button)]
-    assert all(button.tooltip for button in buttons)
-    assert all(button.layout.border == "1px solid var(--sf-line-2)" for button in buttons)
+    assert all(button.tooltip for button in _buttons(widget))
 
 
 def test_masked_api_key_is_cleared_and_never_rendered(connection_engine) -> None:
     secret = "phase6c-super-secret-key"
     panel = sf.connect()
     widget = panel.widget()
+    _button(widget, "Connect", occurrence=1).click()
+    _button(widget, "API key").click()
     password = next(item for item in _walk(widget) if isinstance(item, widgets.Password))
-    save = next(
-        item
-        for item in _walk(widget)
-        if isinstance(item, widgets.Button) and item.description == "Save API key"
-    )
+    save = _button(widget, "Save")
 
     password.value = secret
     save.click()
@@ -187,12 +204,10 @@ def test_rejected_api_key_becomes_safe_inline_feedback(connection_engine) -> Non
     connection_engine.reject_api_key = True
     panel = sf.connect()
     widget = panel.widget()
+    _button(widget, "Connect", occurrence=1).click()
+    _button(widget, "API key").click()
     password = next(item for item in _walk(widget) if isinstance(item, widgets.Password))
-    save = next(
-        item
-        for item in _walk(widget)
-        if isinstance(item, widgets.Button) and item.description == "Save API key"
-    )
+    save = _button(widget, "Save")
 
     password.value = secret
     save.click()
@@ -207,21 +222,17 @@ def test_rejected_api_key_becomes_safe_inline_feedback(connection_engine) -> Non
 def test_oauth_requires_a_button_press_and_supports_cancel(connection_engine) -> None:
     panel = sf.connect()
     widget = panel.widget()
-    oauth = next(
-        item
-        for item in _walk(widget)
-        if isinstance(item, widgets.Button) and item.description == "Connect with OAuth"
-    )
+
+    _button(widget, "Connect").click()
+    assert not any(path.endswith("/oauth") for _, path, _ in connection_engine.calls)
+    oauth = _button(widget, "OAuth")
 
     oauth.click()
 
     assert any(path == "/v1/connections/codex/oauth" for _, path, _ in connection_engine.calls)
     assert "https://auth.example/authorize?state=public-state" in _text(widget)
-    cancel = next(
-        item
-        for item in _walk(widget)
-        if isinstance(item, widgets.Button) and item.description == "Cancel"
-    )
+    assert "Authorize" in _text(widget)
+    cancel = _button(widget, "Cancel")
     cancel.click()
     assert any(
         method == "DELETE" and path == "/v1/connections/codex"
@@ -233,11 +244,9 @@ def test_oauth_requires_a_button_press_and_supports_cancel(connection_engine) ->
 async def test_widget_disposal_cancels_bounded_oauth_polling(connection_engine) -> None:
     panel = sf.connect()
     widget = panel.widget()
-    oauth = next(
-        item
-        for item in _walk(widget)
-        if isinstance(item, widgets.Button) and item.description == "Connect with OAuth"
-    )
+
+    _button(widget, "Connect").click()
+    oauth = _button(widget, "OAuth")
 
     oauth.click()
     tasks = tuple(panel._tasks.values())
@@ -248,3 +257,104 @@ async def test_widget_disposal_cancels_bounded_oauth_polling(connection_engine) 
 
     assert panel._tasks == {}
     assert tasks[0].cancelled() or tasks[0].done()
+
+
+def test_connect_reveals_only_supported_methods_and_cancel_restores_row(connection_engine) -> None:
+    panel = sf.connect()
+    widget = panel.widget()
+    rows = widget.children[2]
+
+    assert isinstance(rows, widgets.VBox)
+    assert len(rows.children) == 2
+    assert all(row.layout.height == "48px" for row in rows.children)
+
+    _button(widget, "Connect", occurrence=1).click()
+
+    assert [button.description for button in _buttons(rows.children[0])] == ["Connect"]
+    assert [button.description for button in _buttons(rows.children[1])] == [
+        "OAuth",
+        "API key",
+        "Cancel",
+    ]
+    assert not any(isinstance(item, widgets.Password) for item in _walk(widget))
+
+    _button(rows.children[1], "Cancel").click()
+
+    assert [button.description for button in _buttons(widget)] == ["Connect", "Connect"]
+    assert not any(path.endswith("/oauth") for _, path, _ in connection_engine.calls)
+
+
+def test_api_key_editor_is_inline_cancellable_and_mutation_free(connection_engine) -> None:
+    panel = sf.connect()
+    widget = panel.widget()
+
+    _button(widget, "Connect", occurrence=1).click()
+    _button(widget, "API key").click()
+
+    assert len([item for item in _walk(widget) if isinstance(item, widgets.Password)]) == 1
+    assert [button.description for button in _buttons(widget)][-2:] == ["Save", "Cancel"]
+    _button(widget, "Cancel").click()
+
+    assert not any(isinstance(item, widgets.Password) for item in _walk(widget))
+    assert not any(path.endswith("/api-key") for _, path, _ in connection_engine.calls)
+
+
+def test_connected_provider_stays_compact_with_only_disconnect(connection_engine) -> None:
+    connection_engine.connected["gemini"] = "researcher@example.com"
+    panel = sf.connect()
+    widget = panel.widget()
+    rows = widget.children[2]
+
+    assert [button.description for button in _buttons(rows.children[0])] == ["Connect"]
+    assert [button.description for button in _buttons(rows.children[1])] == ["Disconnect"]
+    assert "researcher@example.com" in _text(rows.children[1])
+    assert all(row.layout.height == "48px" for row in rows.children)
+
+
+def test_widget_uses_one_unframed_shell_with_only_row_dividers(connection_engine) -> None:
+    panel = sf.connect()
+    widget = panel.widget()
+    header = widget.children[0]
+
+    assert "sf-connections" in widget._dom_classes
+    assert "class='sf-connections sf-connections__head'" not in header.value
+    assert "border:0" in header.value.replace(" ", "")
+    assert "box-shadow:none" in header.value.replace(" ", "")
+
+
+def test_connected_account_follows_provider_name_in_parentheses(connection_engine) -> None:
+    connection_engine.connected["gemini"] = "researcher@example.com"
+    panel = sf.connect()
+    widget = panel.widget()
+    row = widget.children[2].children[1]
+    meta = next(item for item in _walk(row) if isinstance(item, widgets.HTML))
+
+    assert (
+        "<span class='sf-connections__provider'>Google Gemini "
+        "<span class='sf-connections__account'>(researcher@example.com)</span></span>" in meta.value
+    )
+    assert meta.value.index("researcher@example.com") < meta.value.index("sf-connections__status")
+
+
+def test_fresh_panel_exposes_cancel_for_engine_persisted_pending_oauth(connection_engine) -> None:
+    initiating_panel = sf.connect()
+    initiating_widget = initiating_panel.widget()
+    _button(initiating_widget, "Connect").click()
+    _button(initiating_widget, "OAuth").click()
+
+    fresh_panel = sf.connect()
+    fresh_widget = fresh_panel.widget()
+    codex_row = fresh_widget.children[2].children[0]
+
+    assert "pending" in _text(codex_row).lower()
+    assert [button.description for button in _buttons(codex_row)] == ["Cancel"]
+    assert "Authorize" not in _text(codex_row)
+
+    _button(codex_row, "Cancel").click()
+
+    refreshed_row = fresh_widget.children[2].children[0]
+    assert [button.description for button in _buttons(refreshed_row)] == ["Connect"]
+    assert any(
+        method == "DELETE" and path == "/v1/connections/codex"
+        for method, path, _ in connection_engine.calls
+    )

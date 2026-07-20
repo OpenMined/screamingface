@@ -21,7 +21,7 @@ def _benchmark() -> sf.Benchmark:
 def test_successful_run_is_immutable_typed_and_json_compatible() -> None:
     benchmark = _benchmark()
     member = sf.MemberResult("codex/gpt-5.5", " A\n")
-    second = sf.MemberResult("gemini/2.5", "B")
+    second = sf.MemberResult("gemini/3.5-flash", "B")
     result = sf.CaseResult(
         "q1",
         members={"member_1": member, "member_2": second},
@@ -44,7 +44,7 @@ def test_successful_run_is_immutable_typed_and_json_compatible() -> None:
     assert run.fusion_name == "tiny-fusion"
     assert run.members == {
         "member_1": "codex/gpt-5.5",
-        "member_2": "gemini/2.5",
+        "member_2": "gemini/3.5-flash",
     }
     with pytest.raises(TypeError):
         run.members["member_1"] = "other/model"  # type: ignore[index]
@@ -55,7 +55,7 @@ def test_successful_run_is_immutable_typed_and_json_compatible() -> None:
     assert run.to_dict()["fusion_name"] == "tiny-fusion"
     assert run.to_dict()["members"] == {
         "member_1": "codex/gpt-5.5",
-        "member_2": "gemini/2.5",
+        "member_2": "gemini/3.5-flash",
     }
     with pytest.raises(AttributeError):
         run.results = ()  # type: ignore[misc]
@@ -75,7 +75,7 @@ def test_failed_result_is_atomic_and_surfaces_a_standalone_failure() -> None:
         benchmark=benchmark,
         fusion_name="tiny-fusion",
         fusion_url4="(recipe)",
-        members={"member_1": "codex/gpt-5.5", "member_2": "gemini/2.5"},
+        members={"member_1": "codex/gpt-5.5", "member_2": "gemini/3.5-flash"},
         cases=benchmark._materialize_cases(),
         results=[result],
     )

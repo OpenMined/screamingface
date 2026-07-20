@@ -80,7 +80,7 @@ def test_fusion_authoring_is_network_free_and_uses_namespaced_strategies() -> No
         models=[
             "codex/gpt-5.5",
             {
-                "model": "gemini/2.5",
+                "model": "gemini/3.5-flash",
                 "prompt": "Answer carefully: $question",
                 "params": {"temperature": 0.2},
             },
@@ -96,7 +96,7 @@ def test_fusion_authoring_is_network_free_and_uses_namespaced_strategies() -> No
 
     assert fusion.model_ids == (
         "codex/gpt-5.5",
-        "gemini/2.5",
+        "gemini/3.5-flash",
         "claude/sonnet-4.6",
     )
     assert isinstance(fusion.models[1], Mapping)

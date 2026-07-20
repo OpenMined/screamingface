@@ -15,7 +15,7 @@ def _registry() -> Registry:
     return Registry(
         models=(
             ModelRecord("codex/gpt-5.5", (), "codex"),
-            ModelRecord("gemini/2.5", (), "gemini"),
+            ModelRecord("gemini/3.5-flash", (), "gemini"),
             ModelRecord("judge/model", (), "judge"),
         ),
         reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
@@ -32,7 +32,7 @@ def _registry() -> Registry:
 def _fusion() -> sf.Fusion:
     return sf.Fusion(
         "panel",
-        models=["codex/gpt-5.5", "gemini/2.5"],
+        models=["codex/gpt-5.5", "gemini/3.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -127,7 +127,7 @@ class EngineClient:
                 "schema": "screamingface.fusion-result.v1",
                 "members": {
                     "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
-                    "member_2": {"model": "gemini/2.5", "answer": "A"},
+                    "member_2": {"model": "gemini/3.5-flash", "answer": "A"},
                 },
                 "answer": "A",
             }
@@ -172,7 +172,7 @@ def test_run_requires_only_member_and_reducer_connections_before_spend(
 
     error = captured.value
     assert error.providers == ("gemini",)
-    assert error.models == ("gemini/2.5",)
+    assert error.models == ("gemini/3.5-flash",)
     assert error.roles == ("member",)
     assert "sf.connect('gemini'" in str(error)
     assert client.status_reads == 1
@@ -230,6 +230,50 @@ def test_connected_evaluate_does_not_repeat_nested_preflight(
     assert len(client.eval_calls) == 4
 
 
+def test_evaluate_emits_one_coherent_run_grade_aggregate_progress_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _install(
+        monkeypatch,
+        {"codex": "connected", "gemini": "connected", "judge": "connected"},
+    )
+    events: list[tuple[object, ...]] = []
+
+    class Recorder:
+        stage_name = ""
+
+        def stage(self, stage: str, label: str, *, total: int | None = None) -> None:
+            self.stage_name = stage
+            events.append(("stage", stage, label, total))
+
+        def advance(self, count: int = 1) -> None:
+            events.append(("advance", self.stage_name, count))
+
+        def finish(self, label: str = "Complete", *, clear: bool = False) -> None:
+            events.append(("finish", label, clear))
+
+        def fail(self, message: str) -> None:
+            events.append(("fail", message))
+
+    tracker = Recorder()
+    monkeypatch.setattr(_execution, "Progress", lambda *_args, **_kwargs: tracker)
+
+    report = _fusion().evaluate(_benchmark(rubric=True), progress=True)
+
+    assert report.n_scored == 1
+    assert len(client.eval_calls) == 4
+    assert events == [
+        ("stage", "checking", "Checking requirements", None),
+        ("stage", "running", "Running cases", 1),
+        ("advance", "running", 1),
+        ("stage", "checking", "Preparing grading", None),
+        ("stage", "grading", "Grading responses", 3),
+        ("advance", "grading", 3),
+        ("stage", "aggregating", "Aggregating report", None),
+        ("finish", "Complete", True),
+    ]
+
+
 def test_deterministic_grade_and_aggregate_make_no_connection_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -257,11 +301,12 @@ def test_run_stops_unscheduled_cases_after_rejected_credentials(
 
     run = _fusion().run(_benchmark(count=6))
 
-    assert len(client.eval_calls) == 4
+    assert len(client.eval_calls) == 1
     assert len(run.results) == 6
     assert all(result.failure is not None for result in run.results)
     assert run.results[-1].failure is not None
-    assert run.results[-1].failure.code == "connection_needs_reauth"
+    assert run.results[-1].failure.kind == "skipped"
+    assert run.results[-1].failure.code == "not_scheduled"
     assert "not scheduled" in run.results[-1].failure.message
     assert client.status_reads == 2
 

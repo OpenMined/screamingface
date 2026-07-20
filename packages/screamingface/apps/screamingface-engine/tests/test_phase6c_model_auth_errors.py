@@ -31,4 +31,4 @@ async def test_model_gateway_auth_failures_keep_stable_url4_codes(
     await gateway.aclose()
 
     assert captured.value.code == code
-    assert captured.value.permanent is False
+    assert captured.value.permanent is True

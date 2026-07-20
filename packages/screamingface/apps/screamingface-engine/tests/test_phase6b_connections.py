@@ -58,7 +58,7 @@ async def test_registry_advertises_public_provider_ownership_without_gateway_ali
         {
             "id": "gemini",
             "display_name": "Google Gemini",
-            "auth_methods": ["oauth", "api_key"],
+            "auth_methods": ["api_key"],
         },
         {
             "id": "anthropic",
@@ -74,6 +74,18 @@ async def test_registry_advertises_public_provider_ownership_without_gateway_ali
     ]
     assert "gemini-cli" not in response.text
     assert "credential_locator" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_gemini_oauth_is_not_startable_while_api_keys_remain_advertised() -> None:
+    app = create_app(settings=_settings())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://engine.test"
+    ) as client:
+        response = await client.post("/v1/connections/gemini/oauth")
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "auth_method_not_supported"
 
 
 @pytest.mark.asyncio
@@ -195,23 +207,28 @@ async def test_oauth_start_and_provider_callback_remain_engine_owned() -> None:
         seen.append((request.method, request.url.path, body))
         if request.method == "GET" and request.url.path == "/v1/oauth/connections":
             return httpx.Response(200, json={"connections": []})
-        if request.method == "POST":
-            assert body == {"provider": "codex", "label": "default"}
+        if request.url.path == "/v1/oauth/connections" and request.method == "POST":
+            assert body == {
+                "provider": "codex",
+                "label": "default",
+                "redirect_uri": "http://localhost:1455/auth/callback",
+            }
             return httpx.Response(
                 201,
                 json={
                     "connection_id": str(CODEX_ID),
                     "authorize_url": (
                         "https://auth.openai.example/authorize?"
-                        "redirect_uri=http%3A%2F%2Flocalhost%3A4404%2Fauth%2Fcallback"
+                        "redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"
                     ),
                     "state": "gateway-state",
                     "expires_in": 600,
                 },
             )
-        assert request.url.path == "/auth/callback"
-        assert dict(request.url.params) == {"code": "provider-code", "state": "gateway-state"}
-        return httpx.Response(200, text="gateway private callback response")
+        assert request.url.path == "/v1/auth/codex/exchange-code"
+        assert dict(request.url.params) == {}
+        assert body == {"code": "provider-code", "state": "gateway-state"}
+        return httpx.Response(200, json={"state": "authenticated"})
 
     gateway = GatewayClient(
         "http://gateway.test", timeout=5, transport=httpx.MockTransport(handler)
@@ -232,7 +249,7 @@ async def test_oauth_start_and_provider_callback_remain_engine_owned() -> None:
         "status": "pending",
         "authorize_url": (
             "https://auth.openai.example/authorize?"
-            "redirect_uri=http%3A%2F%2Flocalhost%3A4404%2Fauth%2Fcallback"
+            "redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"
         ),
         "expires_in": 600,
     }
@@ -240,7 +257,11 @@ async def test_oauth_start_and_provider_callback_remain_engine_owned() -> None:
     assert callback.headers["content-type"].startswith("text/html")
     assert "Authentication complete" in callback.text
     assert "gateway private callback response" not in callback.text
-    assert seen[-1] == ("GET", "/auth/callback", None)
+    assert seen[-1] == (
+        "POST",
+        "/v1/auth/codex/exchange-code",
+        {"code": "provider-code", "state": "gateway-state"},
+    )
 
 
 @pytest.mark.asyncio

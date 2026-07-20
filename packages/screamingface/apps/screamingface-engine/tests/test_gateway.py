@@ -24,7 +24,7 @@ async def test_gateway_maps_public_model_and_reuses_one_client() -> None:
         transport=httpx.MockTransport(handler),
     )
     request = Request(
-        path="/gemini/2.5",
+        path="/gemini/3.5-flash",
         context="The question",
         intent="Answer it",
         params={"temperature": "0", "max_tokens": "8", "reasoning": "high"},
@@ -41,7 +41,7 @@ async def test_gateway_maps_public_model_and_reuses_one_client() -> None:
         seen
         == [
             {
-                "model": "gemini-cli/gemini-2.5-pro",
+                "model": "gemini-cli/gemini-3.5-flash",
                 "messages": [
                     {"role": "system", "content": "Answer it"},
                     {"role": "user", "content": "The question"},
@@ -143,3 +143,179 @@ async def test_gateway_converts_connection_and_timeout_failures() -> None:
                 Request("/codex/gpt-5.5", "question", "answer", {}),
             )
         await gateway.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "detail_code", "expected_code", "permanent"),
+    [
+        (401, "auth_required", "connection_needs_reauth", True),
+        (404, "profile_not_found", "connection_needs_reauth", True),
+        (403, "access_denied", "provider_access_denied", True),
+        (400, "bad_request", "invalid_model_request", True),
+        (429, "rate_limited", "rate_limited", False),
+        (503, "provider_unavailable", "provider_unavailable", False),
+    ],
+)
+async def test_gateway_normalizes_safe_model_failure_codes_without_upstream_detail(
+    status: int,
+    detail_code: str,
+    expected_code: str,
+    permanent: bool,
+) -> None:
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                status,
+                json={
+                    "detail": {
+                        "code": detail_code,
+                        "message": "private provider detail bearer-secret-123",
+                    }
+                },
+            )
+        ),
+    )
+
+    with pytest.raises(ResolutionError) as captured:
+        await gateway.complete(
+            MODEL_ROUTES[1],
+            Request("/gemini/3.5-flash", "question", "answer", {}),
+        )
+    await gateway.aclose()
+
+    assert captured.value.code == expected_code
+    assert captured.value.permanent is permanent
+    assert "gemini/3.5-flash" in str(captured.value)
+    assert "bearer-secret-123" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+async def test_gateway_malformed_failure_falls_back_to_safe_status_classification() -> None:
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(502, text="private non-json upstream response")
+        ),
+    )
+
+    with pytest.raises(ResolutionError) as captured:
+        await gateway.complete(
+            MODEL_ROUTES[1],
+            Request("/gemini/3.5-flash", "question", "answer", {}),
+        )
+    await gateway.aclose()
+
+    assert captured.value.code == "provider_unavailable"
+    assert captured.value.permanent is False
+    assert "private non-json" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("private_message", "safe_reason"),
+    [
+        ("Gemini Code Assist setup unreachable: private-host", "provider setup unreachable"),
+        (
+            "Gemini Code Assist setup did not return cloudaicompanionProject",
+            "provider setup incomplete",
+        ),
+        ("Gemini Code Assist request unreachable: private-host", "provider request unreachable"),
+        ("Gemini Code Assist response is not JSON", "invalid provider response"),
+        ("Gemini response missing candidates", "provider response missing candidates"),
+    ],
+)
+async def test_gateway_surfaces_only_whitelisted_safe_provider_reason(
+    private_message: str,
+    safe_reason: str,
+) -> None:
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                502,
+                json={
+                    "detail": {
+                        "code": "provider_unavailable",
+                        "message": private_message,
+                    }
+                },
+            )
+        ),
+    )
+
+    with pytest.raises(ResolutionError) as captured:
+        await gateway.complete(
+            MODEL_ROUTES[1],
+            Request("/gemini/3.5-flash", "question", "answer", {}),
+        )
+    await gateway.aclose()
+
+    assert safe_reason in str(captured.value)
+    assert "private-host" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+async def test_gateway_omits_unrecognized_provider_failure_detail() -> None:
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                502,
+                json={
+                    "detail": {
+                        "code": "provider_unavailable",
+                        "message": "unrecognized private provider diagnostic",
+                    }
+                },
+            )
+        ),
+    )
+
+    with pytest.raises(ResolutionError) as captured:
+        await gateway.complete(
+            MODEL_ROUTES[1],
+            Request("/gemini/3.5-flash", "question", "answer", {}),
+        )
+    await gateway.aclose()
+
+    assert "unrecognized private" not in str(captured.value)
+
+
+@pytest.mark.asyncio
+async def test_gateway_classifies_retired_provider_model_without_exposing_detail() -> None:
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                404,
+                json={
+                    "detail": {
+                        "code": "provider_error",
+                        "message": (
+                            "This model models/gemini-old is no longer available to new users. "
+                            "private provider detail"
+                        ),
+                    }
+                },
+            )
+        ),
+    )
+
+    with pytest.raises(ResolutionError) as captured:
+        await gateway.complete(
+            MODEL_ROUTES[1],
+            Request("/gemini/3.5-flash", "question", "answer", {}),
+        )
+    await gateway.aclose()
+
+    assert captured.value.code == "model_unavailable"
+    assert captured.value.permanent is True
+    assert "model unavailable" in str(captured.value)
+    assert "private provider detail" not in str(captured.value)

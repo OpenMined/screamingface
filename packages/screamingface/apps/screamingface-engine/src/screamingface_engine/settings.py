@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from ipaddress import ip_address
 from math import isfinite
 from urllib.parse import urlsplit
 
@@ -22,6 +23,7 @@ class Settings:
     port: int = 4404
     gateway_url: str = "http://127.0.0.1:9105"
     gateway_timeout: float = 120.0
+    codex_oauth_redirect_uri: str = "http://localhost:1455/auth/callback"
     evaluation_timeout: float = 120.0
     max_inflight: int = 16
     max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES
@@ -46,6 +48,7 @@ class Settings:
             raise SettingsError(
                 f"AIGATEWAY_TIMEOUT must be a positive finite number, got {self.gateway_timeout}"
             )
+        _codex_oauth_redirect(self.codex_oauth_redirect_uri)
         if not isfinite(self.evaluation_timeout) or self.evaluation_timeout <= 0:
             raise SettingsError(
                 "SCREAMINGFACE_ENGINE_TIMEOUT must be a positive finite number, "
@@ -84,6 +87,10 @@ class Settings:
             port=_integer(values, "URL4_PORT", 4404),
             gateway_url=values.get("AIGATEWAY_URL", "http://127.0.0.1:9105").rstrip("/"),
             gateway_timeout=_number(values, "AIGATEWAY_TIMEOUT", 120.0),
+            codex_oauth_redirect_uri=values.get(
+                "SCREAMINGFACE_CODEX_OAUTH_REDIRECT_URI",
+                "http://localhost:1455/auth/callback",
+            ),
             evaluation_timeout=_number(values, "SCREAMINGFACE_ENGINE_TIMEOUT", 120.0),
             max_inflight=_integer(values, "SCREAMINGFACE_ENGINE_MAX_INFLIGHT", 16),
             max_request_target_bytes=_integer(
@@ -131,6 +138,37 @@ def _absolute_url(value: str, name: str) -> None:
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise SettingsError(f"{name} must be an absolute http(s) URL, got {value!r}")
+
+
+def _codex_oauth_redirect(value: str) -> None:
+    name = "SCREAMINGFACE_CODEX_OAUTH_REDIRECT_URI"
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise SettingsError(f"{name} must be a valid loopback URL, got {value!r}") from exc
+    hostname = (parsed.hostname or "").rstrip(".").lower()
+    loopback = hostname == "localhost"
+    if not loopback:
+        try:
+            loopback = ip_address(hostname).is_loopback
+        except ValueError:
+            loopback = False
+    valid = (
+        parsed.scheme == "http"
+        and parsed.username is None
+        and parsed.password is None
+        and loopback
+        and port in {1455, 1457}
+        and parsed.path == "/auth/callback"
+        and not parsed.query
+        and not parsed.fragment
+    )
+    if not valid:
+        raise SettingsError(
+            f"{name} must be http://localhost:1455/auth/callback or the equivalent "
+            f"loopback URL on port 1457, got {value!r}"
+        )
 
 
 def _at_least_one(value: int, name: str) -> None:

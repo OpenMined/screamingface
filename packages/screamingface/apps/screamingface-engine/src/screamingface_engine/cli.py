@@ -19,6 +19,9 @@ def main() -> None:
             H11_MAX_INCOMPLETE_EVENT_SIZE,
             settings.max_request_target_bytes * 2,
         ),
+        # OAuth callbacks and URL4 expressions carry sensitive query values. Route-level
+        # diagnostics are sanitized explicitly; raw request-target logging is unsafe here.
+        access_log=False,
     )
 
 

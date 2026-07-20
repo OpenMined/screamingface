@@ -120,9 +120,9 @@ def test_draco_prompt_is_byte_pinned() -> None:
 
 
 def test_draco_catalog_visibility_and_tool_filter() -> None:
-    assert sf.benchmarks.list() == ["gpqa@1", "draco@1"]
-    assert sf.benchmarks.list(query="DRACO") == ["draco@1"]
-    assert sf.benchmarks.list(tools=["web_search"]) == ["draco@1"]
+    assert sf.benchmarks.list() == ["gpqa@1", "draco@1", "draco-preview@1"]
+    assert sf.benchmarks.list(query="DRACO") == ["draco@1", "draco-preview@1"]
+    assert sf.benchmarks.list(tools=["web_search"]) == ["draco@1", "draco-preview@1"]
 
 
 def test_draco_evaluation_fails_preflight_without_engine_spend(
@@ -134,17 +134,11 @@ def test_draco_evaluation_fails_preflight_without_engine_spend(
         _execution,
         "load_registry",
         lambda: Registry(
-            models=(
-                ModelRecord("codex/gpt-5.5", ("web_search",), "codex"),
-                ModelRecord("gemini/2.5", ("web_search",), "gemini"),
-            ),
+            models=(ModelRecord("claude/sonnet-4.6", ("web_search",), "anthropic"),),
             reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
             response_schemas=("screamingface.fusion-result.v1",),
             max_request_target_bytes=61440,
-            providers=(
-                ProviderRecord("codex", "OpenAI Codex", ("oauth",)),
-                ProviderRecord("gemini", "Google Gemini", ("oauth", "api_key")),
-            ),
+            providers=(ProviderRecord("anthropic", "Anthropic", ("oauth", "api_key")),),
         ),
     )
     monkeypatch.setattr(
@@ -154,7 +148,7 @@ def test_draco_evaluation_fails_preflight_without_engine_spend(
     )
     fusion = sf.Fusion(
         "pair",
-        models=["codex/gpt-5.5", "gemini/2.5"],
+        models=["claude/sonnet-4.6", "claude/sonnet-4.6"],
         reducer=sf.reducers.MajorityVote(),
     )
 

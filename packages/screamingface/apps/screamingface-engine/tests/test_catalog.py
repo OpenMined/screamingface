@@ -37,11 +37,11 @@ def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> Non
 def test_cli_serves_configured_host_port_and_h11_headroom(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    calls: list[tuple[object, str, int, int]] = []
+    calls: list[tuple[object, str, int, int, bool]] = []
     app = object()
 
-    def capture(value, *, host, port, h11_max_incomplete_event_size) -> None:
-        calls.append((value, host, port, h11_max_incomplete_event_size))
+    def capture(value, *, host, port, h11_max_incomplete_event_size, access_log) -> None:
+        calls.append((value, host, port, h11_max_incomplete_event_size, access_log))
 
     run = Mock(side_effect=capture)
     monkeypatch.setattr(cli, "create_app", lambda *, settings: app)
@@ -51,4 +51,4 @@ def test_cli_serves_configured_host_port_and_h11_headroom(
 
     cli.main()
 
-    assert calls == [(app, "0.0.0.0", 4500, 131072)]
+    assert calls == [(app, "0.0.0.0", 4500, 131072, False)]

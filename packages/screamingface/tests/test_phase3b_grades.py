@@ -26,7 +26,7 @@ def _successful_run() -> sf.Run:
         fusion_url4="(recipe)",
         members={
             "member_1": "codex/gpt-5.5",
-            "member_2": "gemini/2.5",
+            "member_2": "gemini/3.5-flash",
             "member_3": "claude/sonnet-4.6",
         },
         cases=benchmark._materialize_cases(),
@@ -35,7 +35,7 @@ def _successful_run() -> sf.Run:
                 "q1",
                 members={
                     "member_1": sf.MemberResult("codex/gpt-5.5", "A"),
-                    "member_2": sf.MemberResult("gemini/2.5", "B"),
+                    "member_2": sf.MemberResult("gemini/3.5-flash", "B"),
                     "member_3": sf.MemberResult("claude/sonnet-4.6", "B"),
                 },
                 answer="B",
@@ -123,7 +123,7 @@ def test_successful_rubric_shaped_grade_and_grader_are_serializable() -> None:
         fusion_url4="(recipe)",
         members={
             "member_1": "codex/gpt-5.5",
-            "member_2": "gemini/2.5",
+            "member_2": "gemini/3.5-flash",
         },
         cases=benchmark._materialize_cases(),
         results=[
@@ -131,7 +131,7 @@ def test_successful_rubric_shaped_grade_and_grader_are_serializable() -> None:
                 "q1",
                 members={
                     "member_1": sf.MemberResult("codex/gpt-5.5", "answer one"),
-                    "member_2": sf.MemberResult("gemini/2.5", "answer two"),
+                    "member_2": sf.MemberResult("gemini/3.5-flash", "answer two"),
                 },
                 answer="fusion answer",
             )
@@ -269,7 +269,7 @@ def test_grades_preserve_nested_targets_and_json_compatible_snapshot() -> None:
         "fusion_url4": "(recipe)",
         "members": {
             "member_1": "codex/gpt-5.5",
-            "member_2": "gemini/2.5",
+            "member_2": "gemini/3.5-flash",
             "member_3": "claude/sonnet-4.6",
         },
         "grader": {"type": "exact_choice"},
@@ -328,7 +328,7 @@ def test_failed_run_case_has_no_grades_and_remains_in_failures() -> None:
         fusion_url4="(recipe)",
         members={
             "member_1": "codex/gpt-5.5",
-            "member_2": "gemini/2.5",
+            "member_2": "gemini/3.5-flash",
             "member_3": "claude/sonnet-4.6",
         },
         cases=benchmark._materialize_cases(),

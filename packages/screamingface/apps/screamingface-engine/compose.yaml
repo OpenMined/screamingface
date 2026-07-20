@@ -26,6 +26,9 @@ services:
       # The engine shares this network namespace so auth-disabled Gateway calls
       # are genuinely loopback. Published ports therefore belong here too.
       - "127.0.0.1:${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}:4404"
+      # Codex's registered OAuth client accepts only loopback ports 1455/1457.
+      # This second host port reaches the same engine listener in the shared namespace.
+      - "127.0.0.1:${CODEX_OAUTH_HOST_PORT:-1455}:4404"
     healthcheck:
       test:
         - CMD
@@ -60,6 +63,7 @@ services:
       AIGATEWAY_URL: http://127.0.0.1:9105
       SCREAMINGFACE_ENGINE_MAX_INFLIGHT: "16"
       SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES: "61440"
+      SCREAMINGFACE_CODEX_OAUTH_REDIRECT_URI: http://localhost:${CODEX_OAUTH_HOST_PORT:-1455}/auth/callback
       SCREAMINGFACE_SEARXNG_URL: http://searxng:8080
       SCREAMINGFACE_ENGINE_TIMEOUT: "120"
       URL4_HOST: 0.0.0.0

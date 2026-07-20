@@ -46,6 +46,16 @@ class GatewayConnection:
     account_label: str | None
 
     def public(self) -> dict[str, object]:
+        if self.auth_method not in self.provider.auth_methods:
+            # A provider may temporarily stop advertising an auth method while an older
+            # managed connection still exists. Keep that record removable/replaceable without
+            # presenting the deprecated method as a usable public connection.
+            return {
+                "provider": self.provider.id,
+                "status": "needs_reauth",
+                "auth_method": None,
+                "account_label": None,
+            }
         return {
             "provider": self.provider.id,
             "status": _public_status(self.status),
@@ -57,8 +67,14 @@ class GatewayConnection:
 class ConnectionGateway:
     """One-connection-per-provider view over AI Gateway's general connection API."""
 
-    def __init__(self, gateway: GatewayClient) -> None:
+    def __init__(
+        self,
+        gateway: GatewayClient,
+        *,
+        codex_oauth_redirect_uri: str = "http://localhost:1455/auth/callback",
+    ) -> None:
         self._gateway = gateway
+        self._codex_oauth_redirect_uri = codex_oauth_redirect_uri
 
     def provider(self, provider_id: str) -> ProviderRoute:
         provider = next((item for item in PROVIDER_ROUTES if item.id == provider_id), None)
@@ -89,11 +105,16 @@ class ConnectionGateway:
         existing = self._managed(provider, await self._list_gateway_connections())
         if existing is not None:
             await self._delete_gateway_connection(existing, provider)
+        body = {"provider": provider.gateway_provider, "label": MANAGED_LABEL}
+        if provider.id == "codex":
+            # The official Codex OAuth client registers fixed loopback ports. The public
+            # callback remains engine-owned; Compose maps this URI to the engine listener.
+            body["redirect_uri"] = self._codex_oauth_redirect_uri
         payload = await self._json_request(
             "POST",
             "/v1/oauth/connections",
             provider=provider,
-            json_body={"provider": provider.gateway_provider, "label": MANAGED_LABEL},
+            json_body=body,
             expected_status={201},
         )
         try:
@@ -157,11 +178,12 @@ class ConnectionGateway:
         provider = next((item for item in PROVIDER_ROUTES if item.callback_path == path), None)
         if provider is None:
             raise ConnectionGatewayError(404, "unknown_callback", "Unknown OAuth callback path.")
+        # Keep callback credentials out of the internal request target and access logs.
         await self._request(
-            "GET",
-            path,
+            "POST",
+            f"/v1/auth/{provider.gateway_provider}/exchange-code",
             provider=provider,
-            params={"code": code, "state": state},
+            json_body={"code": code, "state": state},
             expected_status={200},
         )
 
@@ -209,8 +231,8 @@ class ConnectionGateway:
             if status not in {"pending", "active", "expired", "error"}:
                 raise ValueError(f"unsupported Gateway connection status {status!r}")
             auth_method = _nonblank(payload.get("auth_type"), "Gateway connection auth_type")
-            if auth_method not in provider.auth_methods:
-                raise ValueError("Gateway connection auth_type is not advertised")
+            if auth_method not in {"oauth", "api_key"}:
+                raise ValueError("Gateway connection auth_type is unknown")
             account_label = _account_label(payload.get("account"))
         except (TypeError, ValueError) as exc:
             self._invalid_gateway_response(provider, exc)

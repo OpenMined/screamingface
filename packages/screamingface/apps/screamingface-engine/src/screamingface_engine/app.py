@@ -80,7 +80,12 @@ def create_app(
         node,
         adapter,
         research=research_adapter,
-        connections=ConnectionASGI(ConnectionGateway(adapter)),
+        connections=ConnectionASGI(
+            ConnectionGateway(
+                adapter,
+                codex_oauth_redirect_uri=resolved.codex_oauth_redirect_uri,
+            )
+        ),
         max_inflight=resolved.max_inflight,
         timeout=resolved.evaluation_timeout,
         max_request_target_bytes=resolved.max_request_target_bytes,

@@ -15,7 +15,7 @@ def _registry(*, limit: int) -> Registry:
     return Registry(
         models=(
             ModelRecord("codex/gpt-5.5", (), "codex"),
-            ModelRecord("gemini/2.5", (), "gemini"),
+            ModelRecord("gemini/3.5-flash", (), "gemini"),
             ModelRecord("judge/model", (), "judge"),
         ),
         reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
@@ -104,7 +104,7 @@ def test_run_rejects_every_oversize_expression_before_engine_spend(
 ) -> None:
     fusion = sf.Fusion(
         "pair",
-        ["codex/gpt-5.5", "gemini/2.5"],
+        ["codex/gpt-5.5", "gemini/3.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
     benchmark = sf.Benchmark(
@@ -153,7 +153,7 @@ def test_rubric_rejects_all_oversize_judge_calls_before_judge_spend(
         fusion_url4="(recipe)",
         members={
             "member_1": "codex/gpt-5.5",
-            "member_2": "gemini/2.5",
+            "member_2": "gemini/3.5-flash",
         },
         cases=benchmark._materialize_cases(),
         results=[
@@ -161,7 +161,7 @@ def test_rubric_rejects_all_oversize_judge_calls_before_judge_spend(
                 "q1",
                 members={
                     "member_1": sf.MemberResult("codex/gpt-5.5", "(" * 200),
-                    "member_2": sf.MemberResult("gemini/2.5", "answer"),
+                    "member_2": sf.MemberResult("gemini/3.5-flash", "answer"),
                 },
                 answer="(" * 200,
             )

@@ -26,6 +26,7 @@ from screamingface._engine_http import (
 )
 from screamingface._exact_choice import exact_choice_score, validate_exact_reference
 from screamingface._profile import load_registry
+from screamingface._progress import Progress, ProgressSetting
 from screamingface._requirements import grade_requirements
 from screamingface.benchmark import Case
 from screamingface.errors import InvalidBenchmarkError, UnknownModelError
@@ -72,17 +73,54 @@ class _JudgeTask:
     expression: str
 
 
-def grade_run(run: Run, *, _connections_checked: bool = False) -> Grades:
+def grade_run(
+    run: Run,
+    *,
+    progress: ProgressSetting = None,
+    _connections_checked: bool = False,
+    _tracker: Progress | None = None,
+) -> Grades:
     """Dispatch one immutable Run to its benchmark-owned grader."""
 
     if not isinstance(run, Run):
         raise TypeError("grade_run requires an sf.Run")
+    tracker = _tracker or Progress(run.fusion_name, run.benchmark_id, progress)
+    owns_tracker = _tracker is None
+    tracker.stage("checking", "Preparing grading")
+    try:
+        grades = _grade_run(
+            run,
+            tracker,
+            _connections_checked=_connections_checked,
+        )
+    except Exception as exc:
+        if owns_tracker:
+            tracker.fail(str(exc))
+        raise
+    if owns_tracker:
+        tracker.finish("Grading complete", clear=True)
+    return grades
+
+
+def _grade_run(run: Run, tracker: Progress, *, _connections_checked: bool) -> Grades:
     cases = run._cases
     grader = run._benchmark.grader
     if isinstance(grader, ExactChoice):
-        return _grade_exact(run, cases)
+        total = sum(
+            1 + len(result._member_items) for result in run.results if result.failure is None
+        )
+        tracker.stage("grading", "Grading responses", total=total)
+        grades = _grade_exact(run, cases)
+        tracker.advance(total)
+        return grades
     if isinstance(grader, Rubric):
-        return _grade_rubric(run, cases, grader, _connections_checked=_connections_checked)
+        return _grade_rubric(
+            run,
+            cases,
+            grader,
+            tracker=tracker,
+            _connections_checked=_connections_checked,
+        )
     raise TypeError(f"unsupported grader {type(grader).__name__!r}")
 
 
@@ -119,6 +157,7 @@ def _grade_rubric(
     cases: tuple[Case, ...],
     grader: Rubric,
     *,
+    tracker: Progress,
     _connections_checked: bool,
 ) -> Grades:
     references = tuple(_rubric_reference(case) for case in cases)
@@ -129,6 +168,7 @@ def _grade_rubric(
         require_connections(grade_requirements(run._benchmark, registry), registry)
 
     tasks = _judge_tasks(run, cases, references, grader)
+    tracker.stage("grading", "Grading responses", total=len(tasks))
     for task in tasks:
         require_eval_request_target(
             task.expression,
@@ -138,7 +178,7 @@ def _grade_rubric(
                 f"{task.criterion.id!r} pass {task.pass_number}"
             ),
         )
-    verdicts = _execute_tasks(tasks, registry=registry)
+    verdicts = _execute_tasks(tasks, registry=registry, tracker=tracker)
     grouped = _group_verdicts(tasks, verdicts)
     results = tuple(
         _rubric_case(result, reference, grouped)
@@ -296,6 +336,7 @@ def _execute_tasks(
     tasks: tuple[_JudgeTask, ...],
     *,
     registry=None,
+    tracker: Progress,
 ) -> tuple[CriterionVerdict, ...]:
     if not tasks:
         return ()
@@ -306,11 +347,12 @@ def _execute_tasks(
                 batch = tasks[start : start + _JUDGE_CONCURRENCY]
                 completed = tuple(pool.map(lambda task: _execute_task(client, task), batch))
                 verdicts.extend(completed)
+                tracker.advance(len(completed))
                 rejection = _verdict_auth_rejection(completed)
                 if rejection is not None:
                     if registry is not None:
                         connections._list_for_registry(registry)
-                    verdicts.extend(
+                    skipped = tuple(
                         _failed_verdict(
                             task,
                             "url4",
@@ -321,6 +363,8 @@ def _execute_tasks(
                         )
                         for task in tasks[start + len(batch) :]
                     )
+                    verdicts.extend(skipped)
+                    tracker.advance(len(skipped))
                     break
     return tuple(verdicts)
 

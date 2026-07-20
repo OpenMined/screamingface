@@ -17,7 +17,7 @@ fusion = sf.Fusion(
     "frontier-trio",
     models=[
         "codex/gpt-5.5",
-        "gemini/2.5",
+        "gemini/3.5-flash",
         "claude/sonnet-4.6",
     ],
     prompt=RESEARCH_PROMPT,

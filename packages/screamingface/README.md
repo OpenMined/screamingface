@@ -2,7 +2,7 @@
 
 Compose model panels and benchmark them through a configured URL4 engine.
 
-## Current implementation: Phase 6C
+## Current implementation
 
 The SDK currently supports:
 
@@ -31,14 +31,20 @@ one structured `sf.ConnectionRequiredError` before model spend instead of produc
 per case. Deterministic grading, aggregation, benchmark loading, and discovery remain independent
 of provider connections.
 
+`Fusion.run(...)`, `Run.grade(...)`, and `Fusion.evaluate(...)` accept `progress=True | False |
+None`. The default `None` shows one live progress surface in Jupyter and remains silent in ordinary
+scripts; `True` forces progress and `False` disables it. `evaluate(...)` follows requirement checks,
+case completion, individual rubric judge responses, and aggregation, then yields to the final
+`Report`. Progress is presentation-only and never changes scheduling, retries, spend, or results.
+
 The development `screamingface-engine` runs four model routes through one persistent `Url4Node`
 and a shared AI Gateway client. It accepts direct endpoint requests and complete expressions
 through `GET /v1?q=...`, with no subprocess route adapter. Its
 `/reducers/majority-vote` endpoint executes the same SDK-owned exact-string selection logic,
 without contacting AI Gateway.
 
-When the engine is configured with its internal SearXNG service, the Gemini and Claude routes
-advertise `web_search`. The engine translates that named capability into a bounded standard
+When the engine is configured with its internal SearXNG service, the Claude route advertises
+`web_search`. The engine translates that named capability into a bounded standard
 model-tool loop: search and public-page reads happen inside the engine, while every model turn
 still goes through AI Gateway. Codex remains tool-free. SearXNG is keyless and private to the
 Compose network; it is not an offline search index and still queries its configured public search
@@ -91,11 +97,12 @@ deterministic majority voting, model-backed synthesis, and public `.url4` inspec
 benchmark from ordinary `sf.Case` values. It explains sealed references, researcher-owned loading,
 grader and aggregator selection, benchmark tools, and an optional default-off live evaluation.
 
-[`examples/05_draco.ipynb`](examples/05_draco.ipynb) is the real-engine DRACO SDK walkthrough. It
-uses the pinned `draco@1` definition, shows a compatible web-research Fusion, and separates
-`run -> grade -> aggregate`. Paid execution is explicitly disabled by default because one case can
-require hundreds of judge calls. It is not presented as the benchmark pipeline's full model-lineup
-reproduction.
+[`examples/05_draco.ipynb`](examples/05_draco.ipynb) is the concise real-engine DRACO Preview
+walkthrough. It connects providers, composes two independently prompted Claude research members
+with a Codex reducer, evaluates one `draco-preview@1` case, and reads the resulting comparison.
+Preview keeps every real DRACO question but retains one positive criterion and one Gemini 3.5
+Flash judge pass. The equivalent explicit `load -> run -> grade -> aggregate` stages remain as a
+commented learning aid; the notebook neither runs nor fabricates canonical `draco@1` results.
 
 [`examples/06_connections.ipynb`](examples/06_connections.ipynb) explains the provider connection
 control plane in isolation: interactive panel use, script-oriented OAuth and API-key calls,
@@ -195,7 +202,7 @@ fusion = sf.Fusion(
     "frontier-trio",
     models=[
         "codex/gpt-5.5",
-        "gemini/2.5",
+        "gemini/3.5-flash",
         "claude/sonnet-4.6",
     ],
     reducer=sf.reducers.MajorityVote(),
@@ -241,20 +248,26 @@ configured URL4 engine. Provider connection calls also contact only that engine;
 contacts AI Gateway directly. Benchmark discovery is package-local; loading `gpqa@1` uses the caller's
 Hugging Face session and returns ordinary immutable SDK values. `fusion.run("gpqa@1", first=20)`
 is shorthand for local load followed by engine execution over a stable prefix. The SDK now
-installs both `gpqa@1` and `draco@1`; DRACO can be loaded and inspected locally. The development
-engine can execute `tools=web_search` members through its internal SearXNG adapter on the
-compatible Gemini and Claude routes. It also exposes the tool-free
+installs `gpqa@1`, canonical `draco@1`, and the explicitly non-comparable `draco-preview@1` development
+profile; all can be loaded and inspected locally. The development
+engine can execute `tools=web_search` members through its internal SearXNG adapter on the Claude
+route. It exposes the tool-free `gemini/3.5-flash` route used for bounded DRACO Preview judging.
+Gemini research is deliberately not advertised: Gemini 3 requires an encrypted thought signature
+on function-calling continuations, and the current AI Gateway normalization does not preserve it.
+The engine also exposes the provisional tool-free
 `gemini/3.1-pro-preview` judge route required by the SDK's generic Rubric implementation, under
 the explicit assumption that AI Gateway will register
 `gemini-cli/gemini-3.1-pro-preview`. Successful provider-backed grading still requires that
 external registration and provider authentication; no substitute judge or runtime fallback is
 used.
 
-`Report` owns its presentation contract. Notebook display shows complete, partial, and zero-scored
-runs with paired coverage and structured failure summaries; it never renders unavailable numeric
+`sf.connect()`, live evaluation progress, and `Report` use one shared square, shadow-free,
+light/dark-safe visual foundation. Notebook reports show complete, partial, and zero-scored runs
+with paired coverage and structured failure summaries; they never render unavailable numeric
 metrics as empty cards. Plain Python `repr(report)` carries the same status concisely, while
 `report.score`, `report.baseline`, and `report.gain` remain correctly typed as `None` when no case
-was scorable.
+was scorable. Ordinary values and `models.list()`/`benchmarks.list()` remain plain Python rather
+than being turned into decorative widgets.
 
 ## Validation
 

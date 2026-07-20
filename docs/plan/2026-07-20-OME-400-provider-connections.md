@@ -100,7 +100,7 @@ Docker proof exercises both API-key and OAuth adapters without a paid model call
 | Boundary | Required proof |
 |---|---|
 | Public registry | provider capabilities are public; private Gateway aliases are absent |
-| Private status | protected/current-user records only; no cross-user caching |
+| Connection status | sanitized engine-local records on loopback; hosted exposure requires authenticated user scoping |
 | API key | PUT body only; never echoed, redirected, logged, serialized, or retained |
 | OAuth | engine callback, single-use state, bounded polling, cancellation and expiry |
 | Benchmark | dataset loading works independently of provider connections |

@@ -23,7 +23,7 @@ fusion = sf.Fusion(
     "frontier-trio",
     models=[
         "codex/gpt-5.5",
-        "gemini/2.5",
+        "gemini/3.5-flash",
         "claude/sonnet-4.6",
     ],
     reducer=sf.reducers.MajorityVote(),
@@ -50,6 +50,22 @@ LOAD -> RUN -> GRADE -> AGGREGATE
 `Fusion.evaluate()` is exactly the one-call facade over those stages. Both `run()` and
 `evaluate()` accept `str | Benchmark`; passing a string calls `sf.benchmarks.load(...)`
 internally.
+
+The model-backed stage APIs also accept `progress: bool | None = None`:
+
+```python
+run = fusion.run(benchmark, first=5, progress=None)
+grades = run.grade(progress=None)
+report = fusion.evaluate(benchmark, first=5, progress=None)
+```
+
+`None` auto-enables one live progress panel in a Jupyter kernel and stays silent in ordinary
+scripts. `True` forces progress and `False` disables it. The panel reports completed cases and
+completed rubric judge requests, not time-based estimates. It is a presentation observer only:
+all three settings have identical loading, preflight, URL4 expressions, scheduling, retries,
+failures, grading evidence, and aggregate values. A successful `evaluate()` clears the transient
+panel so the returned `Report` remains the final notebook output; an exception leaves a sanitized
+failed stage visible before propagating normally.
 
 ## 2. Public surface
 
@@ -194,8 +210,8 @@ It is not part of generic URL4 core. The MVP shape is:
       "supported_tools": []
     },
     {
-      "id": "gemini/2.5",
-      "supported_tools": ["web_search"]
+      "id": "gemini/3.5-flash",
+      "supported_tools": []
     },
     {
       "id": "claude/sonnet-4.6",
@@ -273,12 +289,12 @@ Examples:
 
 ```text
 codex/gpt-5.5          -> /codex/gpt-5.5
-gemini/2.5             -> /gemini/2.5
+gemini/3.5-flash             -> /gemini/3.5-flash
 claude/sonnet-4.6      -> /claude/sonnet-4.6
 ```
 
 The engine privately maps these routes to AI Gateway identifiers. For example,
-`/gemini/2.5` may map to `gemini-cli/gemini-2.5-pro`. That provider mapping never appears in a
+`/gemini/3.5-flash` may map to `gemini-cli/gemini-3.5-flash`. That provider mapping never appears in a
 Fusion recipe or result.
 
 One canonical engine catalog owns the public ID, relative route, supported tools, and private AI
@@ -338,9 +354,11 @@ The mapping is deliberately typed and allowlisted:
 The registry may advertise `web_search` for a model only when that route has a working named-tool
 adapter. Otherwise SDK preflight must reject a benchmark that requires it.
 
-The development Compose profile configures SearXNG and advertises `web_search` only on compatible
-Gemini and Claude worker routes. It publishes the tool-free `gemini/3.1-pro-preview` judge route,
-which maps to the assumed AI Gateway registration `gemini-cli/gemini-3.1-pro-preview`.
+The development Compose profile configures SearXNG and advertises `web_search` on the compatible
+Claude worker route. Gemini 3 remains tool-free until AI Gateway preserves its mandatory
+`thoughtSignature` across function-calling turns. The profile publishes the tool-free
+`gemini/3.1-pro-preview` judge route, which maps to the assumed AI Gateway registration
+`gemini-cli/gemini-3.1-pro-preview`.
 
 For a successful non-streaming response, the handler validates
 `choices[0].message.content`, requires string content, and returns that string only. URL4 therefore
@@ -490,7 +508,7 @@ fusion = sf.Fusion(
     "frontier-trio",
     models=[
         "codex/gpt-5.5",
-        "gemini/2.5",
+        "gemini/3.5-flash",
         {
             "model": "claude/sonnet-4.6",
             "prompt": CLAUDE_PROMPT,
@@ -541,7 +559,7 @@ Panel answers:
 Panel 1 [codex/gpt-5.5]:
 <resolved answer>
 
-Panel 2 [gemini/2.5]:
+Panel 2 [gemini/3.5-flash]:
 <resolved answer>
 ```
 
@@ -606,8 +624,8 @@ fan-out, reducer, and final result structure. Conceptually:
 (
   question='<resolved case input>',
 
-  member_1=/codex/gpt-5.5?tools=web_search&q=($question)!'Answer the question',
-  member_2=/gemini/2.5?tools=web_search&q=($question)!'Answer the question',
+  member_1=/claude/sonnet-4.6?tools=web_search&q=($question)!'Build the evidence case',
+  member_2=/claude/sonnet-4.6?tools=web_search&q=($question)!'Challenge the evidence case',
 
   member_answers={
     member_1: '$member_1',
@@ -620,11 +638,11 @@ fan-out, reducer, and final result structure. Conceptually:
     schema: 'screamingface.fusion-result.v1',
     members: {
       member_1: {
-        model: 'codex/gpt-5.5',
+        model: 'claude/sonnet-4.6',
         answer: '$member_1'
       },
       member_2: {
-        model: 'gemini/2.5',
+        model: 'claude/sonnet-4.6',
         answer: '$member_2'
       }
     },
@@ -646,11 +664,11 @@ The engine evaluates internal nodes and returns canonical JSON text:
   "schema": "screamingface.fusion-result.v1",
   "members": {
     "member_1": {
-      "model": "codex/gpt-5.5",
+      "model": "claude/sonnet-4.6",
       "answer": "<response>"
     },
     "member_2": {
-      "model": "gemini/2.5",
+      "model": "claude/sonnet-4.6",
       "answer": "<response>"
     }
   },
@@ -896,6 +914,27 @@ sf.graders.Rubric(
     },
 )
 ```
+
+The separate `draco-preview@1` development profile does not modify this canonical contract. It
+loads the same pinned cases, retains the first positive criterion from each case, reuses the same
+byte-pinned judge prompt, and configures:
+
+```python
+sf.graders.Rubric(
+    model="gemini/3.5-flash",
+    prompt=DRACO_JUDGE_PROMPT,
+    passes=1,
+    params={"temperature": 0.2, "max_tokens": 4096},
+)
+```
+
+Preview uses two independently prompted Claude research members with the SearXNG-backed
+`web_search` capability, a Codex model reducer, and the AI Gateway-supported direct Gemini route
+only for judging. Gemini research is intentionally disabled because AI Gateway does not yet
+preserve Gemini 3's required function-call thought signature. Preview output validates the
+criterion/pass evidence shape and aggregation implementation, but its judge model, research
+transport, rubric coverage, and pass count differ. It is never a DRACO score and must not be
+compared with `draco@1`, the paper, or the earlier OpenRouter reproduction.
 
 For `draco@1`, one criterion and one pass produce one model expression:
 

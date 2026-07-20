@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 5 and provider-connection Phases 6A–6C implemented
+**Status:** Phase 5 and provider-connection Phases 6A–6C implemented; Phase 7A in progress
 **Date:** 2026-07-18
 **Last updated:** 2026-07-20
 **Normative contracts:**
@@ -385,8 +385,9 @@ functions, uses a pinned keyless SearXNG container for discovery, safely reads b
 HTML/plaintext pages, and returns only the final assistant plaintext. Every model turn still goes
 through the unchanged AI Gateway chat-completions endpoint. Unsafe targets and malformed calls
 fail closed; a transient failure reading one page is returned as tool output so the model can use
-other evidence. Gemini and Claude advertise the capability only when SearXNG is configured;
-Codex remains tool-free.
+other evidence. Claude advertises the capability only when SearXNG is configured; Gemini and
+Codex remain tool-free. Gemini 3 research stays disabled until AI Gateway preserves the required
+thought signature across normalized function-calling turns.
 
 The engine registry remains minimal and advertises only executable models and reducers. DRACO is
 present in the SDK catalog now that its local definition is complete. Phase 4D made compatible
@@ -445,31 +446,36 @@ architecture/deep-dive material, not in the shortest quickstart.
 Complete when notebooks run top to bottom against the configured Docker stack and contain no
 mock-mode or in-process fallback.
 
-**Phase 5A is implemented:** `examples/05_draco.ipynb` uses the canonical `draco@1` definition with
-an available Gemini 2.5 and Claude Sonnet 4.6 web-research panel plus a Codex model reducer. It
-teaches explicit `run -> grade -> aggregate` stages and documents `Fusion.evaluate(...)` only as
-their exact convenience equivalent, so researchers do not accidentally execute the paid workflow
-twice. The parameterized public `fusion.url4` and HTTP `GET /v1?q=...` boundary are shown; the
-notebook does not import private compiler functions merely to expose a concrete case expression.
+**Phase 5A is implemented and subsequently narrowed for live development:**
+`examples/05_draco.ipynb` is a four-step `connect -> compose -> evaluate -> compare` walkthrough
+for `draco-preview@1`. Preview uses the same pinned 100-case source, the official per-criterion
+prompt, one real positive criterion per case, one Gemini 3.5 Flash judge pass, and the same local
+aggregation machinery. Its two-member Claude self-fusion uses distinct evidence and challenge
+prompts, the engine's SearXNG-backed research capability, and a Codex model reducer. Gemini remains
+judge-only because the current AI Gateway boundary drops Gemini 3's mandatory function-call
+thought signature.
 
-Live execution defaults off and produces no substitute result. The notebook explains that a
-two-member Fusion creates three answer targets and that DRACO's 3,934 criteria across 100 cases,
-three judge passes, and Fusion-plus-member grading imply roughly 354 judge calls for an average
-single case. The walkthrough is a valid evaluation of that named Fusion, not a reproduction of
-the benchmark pipeline's seven standalone models and nine named fusions. Full reproduction remains
-gated on the complete registered panel/synthesizer lineup plus separately reviewed persistence and
-cost assumptions.
+The notebook runs one Preview case directly after provider connection and makes three answer calls
+plus three judge calls. Its opening caveat explains why Preview is not a DRACO score or a
+reproduction of the benchmark pipeline's seven standalone models and nine named fusions. It does
+not run canonical `draco@1`, fabricate unavailable evidence, or retain the superseded custom
+pass-1 comparison. Commented explicit stages show the exact equivalent of `evaluate(...)` without
+complicating the primary path.
 
 **Phase 5B is implemented:** `examples/00_quickstart.ipynb` is the shortest supported product path.
-It configures one engine, constructs one three-member Fusion with `MajorityVote`, evaluates five
-canonical `gpqa@1` cases, and reads `score`, `baseline`, and `gain`. It does not show model or
-benchmark discovery, raw URL4, registry/response schemas, explicit execution stages, custom
-benchmarks, or private APIs; those belong in deeper walkthroughs.
+It uses the temporary default local engine, opens the provider connection panel, constructs one
+three-member Fusion with `MajorityVote`, evaluates five canonical `gpqa@1` cases, and reads
+`score`, `baseline`, and `gain`. It does not show explicit configuration, model or benchmark
+discovery, raw URL4, registry/response schemas, custom benchmarks, or private APIs; those belong
+in deeper walkthroughs. The equivalent explicit `load -> run -> grade -> aggregate` calls appear
+only as comments under the direct `evaluate(...)` call.
 
 The five-case example implies 15 provider-backed member calls and no model-backed grading or
-reduction. Until enforceable budgets exist, the one live `evaluate(...)` call defaults off and
-creates no substitute report. The quickstart still documents the local Docker stack, caller-owned
-Hugging Face access, and external provider-credential prerequisite.
+reduction. The researcher connects providers explicitly and then runs the one live
+`evaluate(...)` cell directly; connection preflight stops before model spend when a required
+provider is unavailable. The quickstart documents the local Docker stack, caller-owned Hugging
+Face access, and external provider-credential prerequisite at the top rather than wrapping the
+primary path in a live-mode branch.
 
 **Phase 5C is implemented:** `examples/01_architecture.ipynb` replaces the broad development-only
 Phase 1 walkthrough. It explains engine configuration, the SDK/engine/Gateway/tool ownership
@@ -536,13 +542,41 @@ configured engine. The public SDK surface is `sf.connect(...)`, `sf.disconnect(.
 connection-independent, while `run`, `grade`, and `evaluate` check their model-backed requirements
 at execution time.
 
-The engine publishes provider capabilities in its public registry and exposes protected JSON
-connection control routes under `/v1/connections`. API keys travel only in request bodies; OAuth
-callbacks relay through the engine; AI Gateway remains the encrypted credential store. URL4
-evaluation remains the plaintext transactional `GET /v1?q=...` data plane.
+The engine publishes provider capabilities in its public registry and exposes JSON connection
+control routes under `/v1/connections`. In the temporary development profile those routes are
+engine-local state protected by loopback-only port binding, not by a ScreamingFace user identity
+layer. API keys travel only in request bodies; OAuth callbacks relay through the engine; AI
+Gateway remains the encrypted credential store. A hosted deployment must add authenticated
+user-scoping before exposing the control plane. URL4 evaluation remains the plaintext
+transactional `GET /v1?q=...` data plane.
 
 Implementation is split into 6A SDK foundations, 6B engine/Gateway bridge, and 6C SDK flows,
 stage-specific preflight, and the brand-aligned notebook widget. All three slices are complete.
+
+### Phase 7 — share-ready validation and polish
+
+Phase 7 is an acceptance and presentation layer over the implemented architecture, not a new
+runtime abstraction. It is split into separately reviewed slices:
+
+- **Phase 7A (approved and in progress):** make the local Compose lifecycle detached,
+  health-gated, restartable, and credential-preserving; validate public engine health, registry,
+  and sanitized connection status; then perform the owner-driven connection, preflight, and
+  five-case GPQA quickstart against real providers. Missing provider entitlements or Gateway model
+  registrations remain explicit external blockers rather than SDK fallbacks.
+- **Phase 7B (implemented):** use one compact square, shadow-free visual foundation for provider
+  connections, live evaluation progress, and final reports; auto-show case/judge-stage progress in
+  notebooks while keeping scripts silent; and preserve plain Python representations for ordinary
+  SDK values and discovery lists. Presentation does not change benchmark or execution semantics.
+- **Phase 7C (implemented):** preserve stable, sanitized model-failure categories across the
+  engine boundary and isolate the first benchmark case as a canary. A permanent setup failure
+  stops later scheduling; a transient failure does not falsely classify the whole run.
+- **Phase 7D (implemented):** represent unscheduled cases explicitly and distinguish them from
+  attempted failures in immutable results and report presentation.
+- **Phase 7E (review required):** run the complete live notebook stack and CI, capture the
+  colleague handoff, and close the share-ready acceptance record.
+
+Phase 7A automation never submits a credential or makes a paid provider call. The researcher owns
+the interactive authorization and chooses when to run the documented 15-call quickstart.
 
 ### Future phases — explicitly deferred
 
@@ -565,7 +599,7 @@ These are additive concerns, not hidden MVP requirements.
 | Configure engine | Store/resolve one HTTP(S) origin | Bind and publish the service |
 | Discover models | Parse/filter registry | Advertise route IDs and tools |
 | Discover providers | Parse public provider capabilities | Advertise identities/auth methods |
-| Manage connections | Call only protected engine routes | Adapt to AI Gateway profiles securely |
+| Manage connections | Call engine control routes; require HTTPS off loopback | Keep local state loopback-only; require authenticated user scoping when hosted |
 | Discover/load benchmark | List installed definitions; fetch/validate source locally | No responsibility |
 | Run Fusion | Compile and send complete URL4 | Evaluate it in one persistent `Url4Node` process |
 | Model execution | Never call Gateway | Run in-process handler, call AI Gateway, return text |
@@ -633,7 +667,9 @@ These are additive concerns, not hidden MVP requirements.
 
 ### Provider connection tests
 
-- public provider capabilities remain separate from protected current-user status;
+- public provider capabilities remain separate from sanitized engine-local connection status;
+- the development control plane remains loopback-only, while hosted exposure requires a separate
+  authenticated user-scoping layer;
 - API-key and OAuth operations traverse SDK -> engine -> AI Gateway only;
 - secrets never appear in URLs, redirects, logs, errors, representations, widget state, or
   serialized notebooks;

@@ -334,6 +334,13 @@ URL4, or AI Gateway:
   remains tool-free; and
 - retained plaintext URL4 model responses and unchanged tool-free request behavior.
 
+Current DRACO Preview policy supersedes the original Gemini research claim above: only Claude
+advertises `web_search`. Gemini 3 research requires its encrypted `thoughtSignature` to survive
+function-calling continuations, and the current AI Gateway normalization does not preserve that
+provider metadata. Preview therefore uses two independently prompted Claude research calls,
+Codex synthesis, and Gemini 3.5 Flash only as a tool-free judge. This keeps the advertised engine
+contract honest until the Gateway boundary supports Gemini's continuation metadata.
+
 Phase 4D makes compatible DRACO research members executable. At that phase boundary, full DRACO
 evaluation remained out of scope pending the separately reviewed `gemini/3.1-pro-preview` judge
 route and long judge-expression transport. Authentication, budgets, persistence, telemetry,
@@ -384,7 +391,7 @@ registering the assumed model ID and on ordinary provider authentication.
 Approved the first public DRACO tutorial as an SDK walkthrough rather than a full reproduction:
 
 - use the canonical SDK-local `draco@1` definition and real configured HTTP URL4 engine;
-- compose the currently compatible Gemini 2.5 and Claude Sonnet 4.6 research panel with a Codex
+- compose two independently prompted Claude Sonnet 4.6 research members with a Codex
   model reducer;
 - teach explicit `run -> grade -> aggregate` stages and show `evaluate()` only as their shorthand;
 - keep all paid work behind a default-off `RUN_LIVE` switch without fabricating a result;
@@ -579,7 +586,8 @@ ownership:
   `evaluate` stages;
 - keep Hugging Face and other dataset credentials in the researcher's process under their native
   libraries;
-- publish provider capabilities publicly while protecting all current-user connection state;
+- publish provider capabilities publicly while keeping development connection state sanitized and
+  loopback-only; hosted current-user protection remains a separate identity-layer requirement;
 - expose JSON `/v1/connections` control routes separately from plaintext URL4 `GET /v1?q=...`;
 - send API keys only in request bodies, relay OAuth callbacks through the engine, and leave
   encrypted credential persistence to AI Gateway;
@@ -662,3 +670,73 @@ The SDK suite passed with 482 tests and 95.29% coverage; the engine suite passed
 and 95.84% coverage. Ruff, format, Pyright, deterministic notebook checks, and the authoritative
 ScreamingFace gate all passed. The append-only gate was skipped only after explicit owner approval
 for the prior fixture/contract changes required by the new provider preflight.
+
+## Phase 7A live local acceptance contract approval — 2026-07-20
+
+Approved the first share-ready validation slice:
+
+- make `./dev.sh` default to detached build/start with Compose health waiting and add explicit
+  `start`, `restart`, `down`, `status`, and `logs` commands;
+- preserve the named Gateway credential volume across every supported lifecycle operation and
+  never expose a destructive reset command;
+- prove command dispatch through an append-only fake-Docker test suite, then restart the real
+  stack and validate all service health plus the public engine health, registry, and connection
+  endpoints without model spend;
+- exercise missing-connection preflight, real provider authorization, connection persistence, and
+  the five-case GPQA quickstart as explicit owner-driven acceptance; and
+- record unavailable model registrations, provider entitlements, rejected credentials, or Gateway
+  failures by their real category without adding SDK or engine fallbacks.
+
+Phase 7A changes no SDK public API, URL4 source, AI Gateway source, or benchmark definition. It
+does change the local Compose lifecycle and Codex callback port wiring; later presentation and
+failure-handling slices were reviewed separately.
+
+## DRACO Preview development profile — 2026-07-20
+
+Added `draco-preview@1` so the real-data DRACO execution architecture can be exercised before
+OpenRouter support lands in AI Gateway under OME-428:
+
+- preserve the pinned 100-case DRACO source and official per-criterion judge prompt;
+- retain one real positive criterion per case and one judge pass;
+- use Google's current `gemini-3.5-flash` model through AI Gateway's generic Gemini provider and
+  the public tool-free `gemini/3.5-flash` engine route for judging;
+- keep SearXNG-backed Claude member research and the same grading/aggregation implementation;
+- do not advertise Gemini research until AI Gateway preserves Gemini 3's mandatory function-call
+  thought signature across normalized turns;
+- regenerate `examples/05_draco.ipynb` as a concise direct Preview workflow, with the equivalent
+  explicit stages commented underneath and no fabricated canonical comparison; and
+- state throughout that Preview is not a DRACO score and is not score-comparable with canonical
+  DRACO or the earlier OpenRouter reproduction.
+
+## Phase 7B shared notebook progress and presentation — 2026-07-20
+
+Implemented one presentation contract across the provider panel, live evaluation, and reports:
+
+- add `progress: bool | None = None` to `Fusion.run`, `Run.grade`, and `Fusion.evaluate`;
+- auto-show a compact live panel in Jupyter, remain silent in ordinary scripts, and allow explicit
+  `True`/`False` control;
+- report actual completed cases and rubric judge requests across checking, running, grading, and
+  aggregation, without time estimates or execution-policy changes;
+- clear successful `evaluate` progress before the returned report renders while retaining a safe
+  failed stage when an exception propagates; and
+- centralize light/dark tokens, square geometry, typography, and status colors for connections,
+  progress, and reports while leaving ordinary SDK values and discovery lists as plain Python.
+
+The final share-ready notebook cleanup supersedes the earlier Phase 5B default-off switch: the
+quickstart now relies on the configured engine default, connects providers explicitly, and runs
+its single five-case `evaluate(...)` cell directly. The DRACO Preview guide follows the same
+concise structure for one case. Both retain their equivalent explicit stages as comments rather
+than live branches or duplicate workflows.
+
+## Phase 7C typed model failures and evaluation canary — 2026-07-20
+
+Implemented stable model-failure categories and an isolated first-case canary. Permanent provider
+setup failures stop later cases before they are scheduled; transient failures preserve normal
+execution policy. Safe reason categories cross the engine boundary without raw provider payloads,
+secrets, or a direct SDK-to-Gateway path.
+
+## Phase 7D skipped-case reporting — 2026-07-20
+
+Added an explicit `not_scheduled` result for every case stopped by the canary. Reports now
+distinguish attempted failures from skipped cases, show the real provider failure once, and retain
+the strict paired-coverage rule without turning missing work into zero scores.

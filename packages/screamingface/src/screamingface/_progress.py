@@ -1,0 +1,226 @@
+"""Live, dependency-light progress for synchronous notebook evaluation."""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from html import escape
+from threading import RLock
+from typing import Literal, Protocol
+
+from screamingface._display import STYLE
+
+type ProgressSetting = bool | None
+type ProgressStage = Literal[
+    "checking",
+    "running",
+    "grading",
+    "aggregating",
+    "complete",
+    "failed",
+]
+
+_PROGRESS_STYLE = (
+    STYLE
+    + """<style>
+.sf-progress{border:1px solid var(--sf-line-2)}
+.sf-progress__head{height:48px;display:flex;align-items:center;gap:12px;padding:0 12px;
+  border-bottom:1px solid var(--sf-line)}
+.sf-progress__identity{min-width:0}
+.sf-progress__title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sf-progress__benchmark{color:var(--sf-ink-3);font:11px/1.4 "IBM Plex Mono",ui-monospace,
+  monospace}
+.sf-progress__status{margin-left:auto;color:var(--sf-ink-2);font:600 11px/1.4
+  "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;
+  white-space:nowrap}
+.sf-progress__status.complete{color:var(--sf-gain)}
+.sf-progress__status.failed{color:var(--sf-blind)}
+.sf-progress__body{padding:12px}
+.sf-progress__line{display:flex;justify-content:space-between;gap:12px;color:var(--sf-ink-2)}
+.sf-progress__count{color:var(--sf-ink-3);font:12px/1.4 "IBM Plex Mono",ui-monospace,
+  monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sf-progress__track{height:4px;margin-top:10px;background:var(--sf-surface-2);overflow:hidden}
+.sf-progress__fill{height:100%;background:var(--sf-ink);transition:width .18s ease}
+.sf-progress__fill.complete{background:var(--sf-gain)}
+.sf-progress__fill.failed{background:var(--sf-blind)}
+</style>"""
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _State:
+    fusion_name: str
+    benchmark_id: str
+    stage: ProgressStage
+    label: str
+    completed: int = 0
+    total: int | None = None
+
+
+class _Backend(Protocol):
+    def update(self, state: _State) -> None: ...
+
+    def clear(self) -> None: ...
+
+
+class _NotebookBackend:
+    def __init__(self, state: _State) -> None:
+        from IPython.display import HTML, display
+
+        self._html = HTML
+        self._handle = display(HTML(progress_html(state)), display_id=True)
+
+    def update(self, state: _State) -> None:
+        if self._handle is not None:
+            self._handle.update(self._html(progress_html(state)))
+
+    def clear(self) -> None:
+        if self._handle is not None:
+            self._handle.update(self._html(""))
+
+
+class _TextBackend:
+    def __init__(self, state: _State) -> None:
+        self._last_length = 0
+        self.update(state)
+
+    def update(self, state: _State) -> None:
+        count = "" if state.total is None else f" {state.completed}/{state.total}"
+        line = f"{state.fusion_name} · {state.benchmark_id} · {state.label}{count}"
+        padding = " " * max(0, self._last_length - len(line))
+        ending = "\n" if state.stage in {"complete", "failed"} else ""
+        print(f"\r{line}{padding}", end=ending, file=sys.stderr, flush=True)
+        self._last_length = len(line)
+
+    def clear(self) -> None:
+        return None
+
+
+class Progress:
+    """Internal stage tracker shared by run, grade, and evaluate."""
+
+    def __init__(
+        self,
+        fusion_name: str,
+        benchmark_id: str,
+        setting: ProgressSetting,
+    ) -> None:
+        _validate_setting(setting)
+        self._enabled = _in_notebook() if setting is None else setting
+        self._notebook = self._enabled and _in_notebook()
+        self._state = _State(fusion_name, benchmark_id, "checking", "Checking requirements")
+        self._backend: _Backend | None = None
+        self._lock = RLock()
+
+    def stage(self, stage: ProgressStage, label: str, *, total: int | None = None) -> None:
+        with self._lock:
+            self._state = _State(
+                self._state.fusion_name,
+                self._state.benchmark_id,
+                stage,
+                label,
+                total=total,
+            )
+            self._render()
+
+    def advance(self, count: int = 1) -> None:
+        if count < 0:
+            raise ValueError("progress advance must not be negative")
+        with self._lock:
+            total = self._state.total
+            completed = self._state.completed + count
+            if total is not None:
+                completed = min(completed, total)
+            self._state = _State(
+                self._state.fusion_name,
+                self._state.benchmark_id,
+                self._state.stage,
+                self._state.label,
+                completed,
+                total,
+            )
+            self._render()
+
+    def finish(self, label: str = "Complete", *, clear: bool = False) -> None:
+        total = self._state.total
+        with self._lock:
+            self._state = _State(
+                self._state.fusion_name,
+                self._state.benchmark_id,
+                "complete",
+                label,
+                total or 0,
+                total,
+            )
+            self._render()
+            if clear and self._notebook and self._backend is not None:
+                self._backend.clear()
+
+    def fail(self, message: str) -> None:
+        with self._lock:
+            self._state = _State(
+                self._state.fusion_name,
+                self._state.benchmark_id,
+                "failed",
+                message,
+                self._state.completed,
+                self._state.total,
+            )
+            self._render()
+
+    def _render(self) -> None:
+        if not self._enabled:
+            return
+        if self._backend is None:
+            self._backend = (
+                _NotebookBackend(self._state) if self._notebook else _TextBackend(self._state)
+            )
+            return
+        self._backend.update(self._state)
+
+
+def progress_html(state: _State) -> str:
+    """Render one safe progress snapshot using the shared notebook visual system."""
+
+    total = state.total
+    completed = state.completed
+    percent = (
+        100.0
+        if state.stage == "complete" and total is None
+        else (0.0 if not total else min(100.0, completed / total * 100.0))
+    )
+    count = "" if total is None else f"{completed}/{total}"
+    return (
+        f"{_PROGRESS_STYLE}<div class='sf-ui sf-progress' "
+        "aria-label='ScreamingFace evaluation progress'>"
+        "<div class='sf-progress__head'><div class='sf-progress__identity'>"
+        f"<div class='sf-progress__title'>{escape(state.fusion_name)}</div>"
+        f"<div class='sf-progress__benchmark'>{escape(state.benchmark_id)}</div></div>"
+        f"<div class='sf-progress__status {state.stage}'>{escape(state.stage)}</div></div>"
+        "<div class='sf-progress__body'><div class='sf-progress__line'>"
+        f"<span>{escape(state.label)}</span><span class='sf-progress__count'>{count}</span></div>"
+        "<div class='sf-progress__track' role='progressbar' "
+        f"aria-valuemin='0' aria-valuemax='{total or 0}' aria-valuenow='{completed}'>"
+        f"<div class='sf-progress__fill {state.stage}' style='width:{percent:.2f}%'></div>"
+        "</div></div></div>"
+    )
+
+
+def _validate_setting(setting: ProgressSetting) -> None:
+    if setting is not None and not isinstance(setting, bool):
+        raise TypeError("progress must be True, False, or None")
+
+
+def _in_notebook() -> bool:
+    try:
+        from IPython.core.getipython import get_ipython
+    except ImportError:
+        return False
+    shell = get_ipython()
+    return shell is not None and (
+        shell.__class__.__name__ == "ZMQInteractiveShell"
+        or getattr(shell, "kernel", None) is not None
+    )
+
+
+__all__ = ["Progress", "ProgressSetting", "progress_html"]

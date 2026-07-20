@@ -2,86 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from html import escape
 from typing import TYPE_CHECKING, Literal
 
+from screamingface._display import STYLE
+
 if TYPE_CHECKING:
+    from screamingface.grades import GradingFailure
     from screamingface.report import Report
 
-type ReportStatus = Literal["complete", "partial", "failed"]
+type ReportStatus = Literal["complete", "partial", "failed", "stopped"]
 
-_STYLE = """<style>
-.sf-report {
-  --sf-bg: #ffffff;
-  --sf-surface: #f6f6f7;
-  --sf-surface-2: #efeff1;
-  --sf-ink: #16181d;
-  --sf-ink-2: #585d67;
-  --sf-ink-3: #8b909a;
-  --sf-line: #e6e7ea;
-  --sf-line-2: #d4d6db;
-  --sf-gain: #0f7a3d;
-  --sf-gain-bg: #e8f3ec;
-  --sf-blind: #b23b3b;
-  --sf-blind-bg: #f6e7e6;
-  max-width: 760px;
-  color: var(--sf-ink);
-  background: var(--sf-bg);
-  border: 1px solid var(--sf-line-2);
-  font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  font-size: 13px;
-  line-height: 1.45;
-}
-@media (prefers-color-scheme: dark) {
-  .sf-report {
-    --sf-bg: #0a0b0d;
-    --sf-surface: #131519;
-    --sf-surface-2: #1a1d22;
-    --sf-ink: #e8eaed;
-    --sf-ink-2: #9aa0aa;
-    --sf-ink-3: #686e78;
-    --sf-line: #20232a;
-    --sf-line-2: #2c303a;
-    --sf-gain: #35d07f;
-    --sf-gain-bg: #11241b;
-    --sf-blind: #f0726f;
-    --sf-blind-bg: #2a1715;
-  }
-}
-.jp-mod-theme-dark .sf-report,
-[data-jp-theme-light="false"] .sf-report,
-.vscode-dark .sf-report,
-.vscode-high-contrast .sf-report {
-  --sf-bg: #0a0b0d;
-  --sf-surface: #131519;
-  --sf-surface-2: #1a1d22;
-  --sf-ink: #e8eaed;
-  --sf-ink-2: #9aa0aa;
-  --sf-ink-3: #686e78;
-  --sf-line: #20232a;
-  --sf-line-2: #2c303a;
-  --sf-gain: #35d07f;
-  --sf-gain-bg: #11241b;
-  --sf-blind: #f0726f;
-  --sf-blind-bg: #2a1715;
-}
-.jp-mod-theme-light .sf-report,
-[data-jp-theme-light="true"] .sf-report,
-.vscode-light .sf-report {
-  --sf-bg: #ffffff;
-  --sf-surface: #f6f6f7;
-  --sf-surface-2: #efeff1;
-  --sf-ink: #16181d;
-  --sf-ink-2: #585d67;
-  --sf-ink-3: #8b909a;
-  --sf-line: #e6e7ea;
-  --sf-line-2: #d4d6db;
-  --sf-gain: #0f7a3d;
-  --sf-gain-bg: #e8f3ec;
-  --sf-blind: #b23b3b;
-  --sf-blind-bg: #f6e7e6;
-}
-.sf-report, .sf-report * { box-sizing: border-box; }
+_STYLE = (
+    STYLE
+    + """<style>
+.sf-report { border: 1px solid var(--sf-line-2); }
 .sf-report-head {
   display: flex;
   justify-content: space-between;
@@ -110,7 +46,7 @@ _STYLE = """<style>
   white-space: nowrap;
 }
 .sf-report-status.complete { color: var(--sf-gain); }
-.sf-report-status.failed { color: var(--sf-blind); }
+.sf-report-status.failed, .sf-report-status.stopped { color: var(--sf-blind); }
 .sf-report-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -206,24 +142,27 @@ _STYLE = """<style>
   .sf-report-track { display: none; }
 }
 </style>"""
+)
 
 
 def report_repr(report: Report) -> str:
     """Return a concise representation without fabricating missing scores."""
 
     status = _status(report)
+    failures, skipped = _split_failures(report)
     identity = (
         f"fusion_name={report.fusion_name!r}, benchmark_id={report.benchmark_id!r}, "
         f"status={status!r}, scored={report.n_scored}/{report.n_cases}"
     )
     if report.n_scored == 0:
-        return f"Report({identity}, failures={len(report.failures)})"
+        skipped_text = f", skipped={len(skipped)}" if skipped else ""
+        return f"Report({identity}, failures={len(failures)}{skipped_text})"
     score = _required(report.score, "score")
     baseline = _required(report.baseline, "baseline")
     gain = _required(report.gain, "gain")
     return (
         f"Report({identity}, score={score:.3f}, baseline={baseline:.3f}, "
-        f"gain={gain:+.3f}, failures={len(report.failures)})"
+        f"gain={gain:+.3f}, failures={len(failures)}, skipped={len(skipped)})"
     )
 
 
@@ -232,9 +171,9 @@ def report_html(report: Report) -> str:
 
     status = _status(report)
     return (
-        f"{_STYLE}<div class='sf-report' aria-label='ScreamingFace benchmark report'>"
+        f"{_STYLE}<div class='sf-ui sf-report' aria-label='ScreamingFace benchmark report'>"
         f"{_header(report, status)}"
-        f"{_headline(report)}"
+        f"{_headline(report, status)}"
         f"{_additional_metrics(report)}"
         f"{_member_rows(report)}"
         f"{_failure_rows(report, status)}"
@@ -244,11 +183,16 @@ def report_html(report: Report) -> str:
 
 
 def _status(report: Report) -> ReportStatus:
-    if report.n_scored == 0:
-        return "failed"
-    if report.n_scored == report.n_cases and report.complete:
-        return "complete"
-    return "partial"
+    _failures, skipped = _split_failures(report)
+    if report.n_scored == 0 and skipped:
+        status: ReportStatus = "stopped"
+    elif report.n_scored == 0:
+        status = "failed"
+    elif report.n_scored == report.n_cases and report.complete:
+        status = "complete"
+    else:
+        status = "partial"
+    return status
 
 
 def _header(report: Report, status: ReportStatus) -> str:
@@ -262,14 +206,25 @@ def _header(report: Report, status: ReportStatus) -> str:
     )
 
 
-def _headline(report: Report) -> str:
+def _headline(report: Report, status: ReportStatus) -> str:
     if report.n_scored == 0:
+        failures, skipped = _split_failures(report)
+        if status == "stopped":
+            failed_label = "case failed" if len(failures) == 1 else "cases failed"
+            skipped_label = "case was" if len(skipped) == 1 else "cases were"
+            explanation = (
+                f"{len(failures)} {failed_label}; {len(skipped)} later {skipped_label} not run."
+            )
+        else:
+            explanation = (
+                "Every selected case failed before a complete Fusion-versus-members comparison "
+                "was available."
+            )
         return (
             "<div class='sf-report-note'>"
             "<div class='sf-report-label'>Evaluation stopped</div>"
             "<div class='sf-report-note-title'>No benchmark score was calculated.</div>"
-            "<div class='sf-report-note-copy'>Every selected case failed before a complete "
-            "Fusion-versus-members comparison was available.</div></div>"
+            f"<div class='sf-report-note-copy'>{explanation}</div></div>"
         )
     return (
         "<div class='sf-report-stats'>"
@@ -336,8 +291,24 @@ def _member_row(member_id: str, model: str, score: float | None, best: bool) -> 
 def _failure_rows(report: Report, status: ReportStatus) -> str:
     if not report.failures:
         return ""
+    failures, skipped = _split_failures(report)
+    failure_label = "Evaluation failures" if status in {"failed", "stopped"} else "Partial coverage"
+    return _failure_section(failures, failure_label) + _failure_section(skipped, "Skipped cases")
+
+
+def _split_failures(
+    report: Report,
+) -> tuple[tuple[GradingFailure, ...], tuple[GradingFailure, ...]]:
+    skipped = tuple(failure for failure in report.failures if failure.code == "not_scheduled")
+    failures = tuple(failure for failure in report.failures if failure.code != "not_scheduled")
+    return failures, skipped
+
+
+def _failure_section(failures: Sequence[GradingFailure], label: str) -> str:
+    if not failures:
+        return ""
     counts: dict[str, int] = {}
-    for failure in report.failures:
+    for failure in failures:
         counts[failure.message] = counts.get(failure.message, 0) + 1
     items = list(counts.items())
     visible = items[:3]
@@ -351,10 +322,9 @@ def _failure_rows(report: Report, status: ReportStatus) -> str:
         if remainder == 0
         else f"<div class='sf-report-more'>+{remainder} more failure types</div>"
     )
-    label = "Evaluation failures" if status == "failed" else "Partial coverage"
     return (
         "<div class='sf-report-section'>"
-        f"<span class='sf-report-label'>{label} · {len(report.failures)}</span>"
+        f"<span class='sf-report-label'>{label} · {len(failures)}</span>"
         f"<ul class='sf-report-failures'>{rows}</ul>{more}</div>"
     )
 

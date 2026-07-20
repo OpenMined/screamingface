@@ -1,4 +1,4 @@
-"""Contract tests for the generated Phase 5A DRACO walkthrough."""
+"""Contract tests for the generated concise DRACO Preview notebook."""
 
 from __future__ import annotations
 
@@ -14,8 +14,7 @@ def _notebook() -> dict[str, object]:
 
 
 def _sources(cell_type: str) -> str:
-    document = _notebook()
-    cells = document["cells"]
+    cells = _notebook()["cells"]
     assert isinstance(cells, list)
     return "\n".join(
         "".join(cell["source"])
@@ -24,7 +23,7 @@ def _sources(cell_type: str) -> str:
     )
 
 
-def test_draco_walkthrough_is_generated_from_a_tracked_builder() -> None:
+def test_draco_preview_is_generated_concise_and_output_free() -> None:
     assert GENERATOR.is_file()
     assert NOTEBOOK.is_file()
 
@@ -32,7 +31,7 @@ def test_draco_walkthrough_is_generated_from_a_tracked_builder() -> None:
     assert document["nbformat"] == 4
     cells = document["cells"]
     assert isinstance(cells, list)
-    assert cells
+    assert len(cells) == 9
     assert all(isinstance(cell, dict) and cell.get("outputs", []) == [] for cell in cells)
     assert all(
         isinstance(cell, dict) and cell.get("execution_count") is None
@@ -41,29 +40,35 @@ def test_draco_walkthrough_is_generated_from_a_tracked_builder() -> None:
     )
 
 
-def test_draco_walkthrough_code_cells_are_valid_python() -> None:
-    document = _notebook()
-    cells = document["cells"]
+def test_draco_preview_code_cells_are_valid_python() -> None:
+    cells = _notebook()["cells"]
     assert isinstance(cells, list)
     for cell in cells:
         if isinstance(cell, dict) and cell.get("cell_type") == "code":
-            source = "".join(cell["source"])
-            compile(source, f"{NOTEBOOK.name}:{cell['id']}", "exec")
+            compile("".join(cell["source"]), f"{NOTEBOOK.name}:{cell['id']}", "exec")
 
 
-def test_draco_walkthrough_uses_only_the_approved_public_workflow() -> None:
+def test_draco_preview_matches_the_quickstart_public_workflow() -> None:
     code = _sources("code")
+    markdown = _sources("markdown")
 
-    assert "sf.config(engine=ENGINE_URL)" in code
-    assert 'sf.benchmarks.load("draco@1")' in code
-    assert '"gemini/2.5"' in code
-    assert '"claude/sonnet-4.6"' in code
+    assert "sf.connect()" in code
+    assert code.count('{"model": "claude/sonnet-4.6", "prompt":') == 2
+    assert '"prompt": EVIDENCE_PROMPT' in code
+    assert '"prompt": CHALLENGE_PROMPT' in code
     assert "sf.reducers.Model(" in code
     assert 'model="codex/gpt-5.5"' in code
-    assert "fusion.url4" in code
-    assert "run = fusion.run(benchmark, first=1)" in code
-    assert "grades = run.grade()" in code
-    assert "report = grades.aggregate()" in code
+    assert 'report = fusion.evaluate("draco-preview@1", first=1)' in code
+    assert '# benchmark = sf.benchmarks.load("draco-preview@1")' in code
+    assert "# run = fusion.run(benchmark, first=1)" in code
+    assert "# grades = run.grade()" in code
+    assert "# report = grades.aggregate()" in code
+
+    assert markdown.index("## Before you run it") < markdown.index("## 1 · Connect")
+    assert "## 1 · Connect" in markdown
+    assert "## 2 · Compose" in markdown
+    assert "## 3 · Evaluate" in markdown
+    assert "## 4 · Compare" in markdown
 
     # INVARIANT: The teaching notebook never bypasses the SDK's HTTP URL4 boundary.
     assert "aigateway" not in code.lower()
@@ -71,33 +76,34 @@ def test_draco_walkthrough_uses_only_the_approved_public_workflow() -> None:
     assert "compile_fusion" not in code
 
 
-def test_draco_walkthrough_is_no_spend_and_no_mock_by_default() -> None:
-    code = _sources("code")
+def test_draco_preview_puts_every_material_caveat_before_execution() -> None:
     markdown = _sources("markdown")
 
-    assert "RUN_LIVE = False" in code
-    assert "if RUN_LIVE:" in code
-    assert code.index("if RUN_LIVE:") < code.index("run = fusion.run(benchmark, first=1)")
-    assert "fusion.evaluate(" not in code
+    assert "not canonical `draco@1`" in markdown
+    assert "Preview must not be presented\nas a DRACO score" in markdown
+    assert "real DRACO" in markdown
+    assert "Hugging Face" in markdown
+    assert "researcher" not in markdown.lower()
+    assert "six model calls" in markdown
+    assert "about 354 judge" in markdown
+    assert "two independently prompted Claude" in markdown
+    assert "Codex is the model reducer" in markdown
+    assert "Gemini 3.5 Flash is tool-free and used only as the judge" in markdown
+    assert "thoughtSignature" in markdown
+    assert "SearXNG" in markdown
+    assert "OpenRouter" in markdown
+    assert "OME-428" in markdown
+    assert "GET /v1?q=<URL-encoded-expression>" in markdown
+    assert "Only the engine contacts AI Gateway" in markdown
+    assert "live progress panel" in markdown
+
+
+def test_draco_preview_has_no_mock_or_default_off_control_flow() -> None:
+    code = _sources("code")
+
+    assert "RUN_PREVIEW" not in code
+    assert "if RUN" not in code
     assert "mock" not in code.lower()
     assert "simulated" not in code.lower()
-
-    assert "hundreds of independent judge requests" in markdown
-    assert "does not fabricate a result" in markdown
-    assert "full DRACO reproduction" in markdown
-    assert "does **not**" in markdown
-    assert "fusion.evaluate(benchmark, first=1)" in markdown
-
-
-def test_draco_walkthrough_explains_the_real_execution_boundary() -> None:
-    markdown = _sources("markdown")
-
-    assert "Hugging Face" in markdown
-    assert "researcher's Python process" in markdown
-    assert "GET /v1?q=<URL-encoded-expression>" in markdown
-    assert "plaintext" in markdown
-    assert "AI Gateway" in markdown
-    assert "SearXNG" in markdown
-    assert "deterministic local Python" in markdown
-    assert "seven standalone models" in markdown
-    assert "nine named fusions" in markdown
+    assert "canonical_draco_pass_1" not in code
+    assert "first_fusion_verdict" not in code

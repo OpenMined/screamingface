@@ -10,6 +10,7 @@ from screamingface.model_inputs import ModelInput, _FusionMember, normalize_mode
 from screamingface.reducers import Reducer
 
 if TYPE_CHECKING:
+    from screamingface._progress import ProgressSetting
     from screamingface.benchmark import Benchmark
     from screamingface.report import Report
     from screamingface.run import Run
@@ -63,21 +64,23 @@ class Fusion:
         benchmark: str | Benchmark,
         *,
         first: int | None = None,
+        progress: ProgressSetting = None,
     ) -> Run:
         """Run selected benchmark cases through only the configured URL4 engine."""
 
         from screamingface._execution import run_fusion
 
-        return run_fusion(self, benchmark, first=first)
+        return run_fusion(self, benchmark, first=first, progress=progress)
 
     def evaluate(
         self,
         benchmark: str | Benchmark,
         *,
         first: int | None = None,
+        progress: ProgressSetting = None,
     ) -> Report:
         """Preflight the complete requirement union, then run, grade, and aggregate."""
 
         from screamingface._execution import evaluate_fusion
 
-        return evaluate_fusion(self, benchmark, first=first)
+        return evaluate_fusion(self, benchmark, first=first, progress=progress)

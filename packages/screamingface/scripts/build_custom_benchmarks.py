@@ -182,7 +182,7 @@ No substitute report is created while execution is disabled."""
             '        "tiny-science-panel",\n'
             "        models=[\n"
             '            "codex/gpt-5.5",\n'
-            '            "gemini/2.5",\n'
+            '            "gemini/3.5-flash",\n'
             '            "claude/sonnet-4.6",\n'
             "        ],\n"
             "        reducer=sf.reducers.MajorityVote(),\n"

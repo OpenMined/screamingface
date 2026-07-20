@@ -111,7 +111,7 @@ async def test_complete_model_and_reducer_expression_makes_only_panel_gateway_ca
     requests: list[dict[str, Any]] = []
     answers = {
         "codex/gpt-5.5": "A",
-        "gemini-cli/gemini-2.5-pro": "B",
+        "gemini-cli/gemini-3.5-flash": "B",
         "anthropic/claude-sonnet-4-6": "A",
     }
 
@@ -132,13 +132,13 @@ async def test_complete_model_and_reducer_expression_makes_only_panel_gateway_ca
     expression = (
         "(question='Choose',"
         "member_1=/codex/gpt-5.5($question)!'Answer',"
-        "member_2=/gemini/2.5($question)!'Answer',"
+        "member_2=/gemini/3.5-flash($question)!'Answer',"
         "member_3=/claude/sonnet-4.6($question)!'Answer',"
         "member_answers={member_1:'$member_1',member_2:'$member_2',member_3:'$member_3'},"
         "fusion_answer=/reducers/majority-vote($member_answers),"
         "{schema:'screamingface.fusion-result.v1',"
         "members:{member_1:{model:'codex/gpt-5.5',answer:'$member_1'},"
-        "member_2:{model:'gemini/2.5',answer:'$member_2'},"
+        "member_2:{model:'gemini/3.5-flash',answer:'$member_2'},"
         "member_3:{model:'claude/sonnet-4.6',answer:'$member_3'}},"
         "answer:'$fusion_answer'})"
     )
@@ -150,7 +150,7 @@ async def test_complete_model_and_reducer_expression_makes_only_panel_gateway_ca
     assert response.json()["answer"] == "A"
     assert [request["model"] for request in requests] == [
         "codex/gpt-5.5",
-        "gemini-cli/gemini-2.5-pro",
+        "gemini-cli/gemini-3.5-flash",
         "anthropic/claude-sonnet-4-6",
     ]
 
@@ -159,7 +159,7 @@ async def test_complete_model_and_reducer_expression_makes_only_panel_gateway_ca
 async def test_sdk_compiler_expression_executes_on_the_persistent_node() -> None:
     answers = {
         "codex/gpt-5.5": "A",
-        "gemini-cli/gemini-2.5-pro": "B",
+        "gemini-cli/gemini-3.5-flash": "B",
         "anthropic/claude-sonnet-4-6": "A",
     }
 
@@ -172,7 +172,7 @@ async def test_sdk_compiler_expression_executes_on_the_persistent_node() -> None
 
     fusion = sf.Fusion(
         "compiled",
-        ["codex/gpt-5.5", "gemini/2.5", "claude/sonnet-4.6"],
+        ["codex/gpt-5.5", "gemini/3.5-flash", "claude/sonnet-4.6"],
         reducer=sf.reducers.MajorityVote(),
     )
     expression = compile_fusion(fusion, question="Choose A or B")
@@ -191,7 +191,7 @@ async def test_sdk_compiler_expression_executes_on_the_persistent_node() -> None
         "schema": "screamingface.fusion-result.v1",
         "members": {
             "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
-            "member_2": {"model": "gemini/2.5", "answer": "B"},
+            "member_2": {"model": "gemini/3.5-flash", "answer": "B"},
             "member_3": {"model": "claude/sonnet-4.6", "answer": "A"},
         },
         "answer": "A",
@@ -216,7 +216,7 @@ async def test_sdk_model_reducer_receives_resolved_question_and_labeled_answers(
 
     fusion = sf.Fusion(
         "compiled-model-reducer",
-        ["codex/gpt-5.5", "gemini/2.5"],
+        ["codex/gpt-5.5", "gemini/3.5-flash"],
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Synthesize the panel answers.",
@@ -241,7 +241,7 @@ async def test_sdk_model_reducer_receives_resolved_question_and_labeled_answers(
     assert reducer_request["messages"][1]["content"] == (
         "Question:\nResearch question\n\nPanel answers:\n"
         "Panel 1 [codex/gpt-5.5]:\nalpha\n\n"
-        "Panel 2 [gemini/2.5]:\nbeta"
+        "Panel 2 [gemini/3.5-flash]:\nbeta"
     )
     assert response.status_code == 200
     assert response.json()["answer"] == "combined"

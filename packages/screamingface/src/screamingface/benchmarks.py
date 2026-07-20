@@ -7,6 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from screamingface._benchmarks.draco import benchmark as draco_benchmark
+from screamingface._benchmarks.draco_preview import benchmark as draco_preview_benchmark
 from screamingface._benchmarks.gpqa import benchmark as gpqa_benchmark
 from screamingface.benchmark import Benchmark
 from screamingface.errors import UnknownBenchmarkError
@@ -23,6 +24,7 @@ class _Definition:
 _DEFINITIONS = (
     _Definition("gpqa@1", (), gpqa_benchmark),
     _Definition("draco@1", ("web_search",), draco_benchmark),
+    _Definition("draco-preview@1", ("web_search",), draco_preview_benchmark),
 )
 
 

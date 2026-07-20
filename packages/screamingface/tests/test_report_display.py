@@ -69,6 +69,41 @@ def _failed_report() -> sf.Report:
     )
 
 
+def _stopped_report() -> sf.Report:
+    failures = (
+        sf.RunFailure(
+            "q1",
+            "url4",
+            "AI Gateway returned HTTP 502 (provider_unavailable) for 'gemini/3.5-flash'",
+            status=502,
+            code="provider_unavailable",
+        ),
+        *(
+            sf.RunFailure(
+                f"q{index}",
+                "skipped",
+                "Case was not scheduled after evaluation stopped on 'provider_unavailable'.",
+                code="not_scheduled",
+            )
+            for index in range(2, 6)
+        ),
+    )
+    return sf.Report(
+        benchmark_id="gpqa@1",
+        fusion_name="frontier-trio",
+        fusion_url4="(recipe)",
+        n_cases=5,
+        n_scored=0,
+        coverage=0.0,
+        score=None,
+        baseline=None,
+        gain=None,
+        members=_members(None, None),
+        metrics={},
+        failures=failures,
+    )
+
+
 def test_complete_report_has_rich_metrics_and_concise_text() -> None:
     report = _complete_report()
 
@@ -119,16 +154,35 @@ def test_failed_report_explains_missing_metrics_without_rendering_none() -> None
     assert report.to_dict()["score"] is None
 
 
+def test_stopped_report_distinguishes_one_failure_from_four_skipped_cases() -> None:
+    report = _stopped_report()
+
+    text = repr(report)
+    html = report._repr_html_()
+
+    assert "status='stopped'" in text
+    assert "failures=1" in text
+    assert "skipped=4" in text
+    assert "sf-report-status stopped'>stopped · 0/5 cases scored" in html
+    assert "1 case failed; 4 later cases were not run." in html
+    assert "Every selected case failed" not in html
+    assert "Evaluation failures · 1" in html
+    assert "Skipped cases · 4" in html
+    assert "provider_unavailable" in html
+    assert "×4" in html
+
+
 def test_notebook_display_follows_screamingface_visual_rules_in_both_themes() -> None:
     html = _complete_report()._repr_html_()
 
-    assert 'font-family: "IBM Plex Sans"' in html
+    assert 'font-family:"IBM Plex Sans"' in html
     assert 'font-family: "IBM Plex Mono"' in html
     assert "var(--sf-line)" in html
     assert "var(--sf-gain)" in html
-    assert "prefers-color-scheme: dark" in html
-    assert ".jp-mod-theme-dark .sf-report" in html
-    assert ".jp-mod-theme-light .sf-report" in html
+    assert "prefers-color-scheme:dark" in html
+    assert ".jp-mod-theme-dark .sf-ui" in html
+    assert ".jp-mod-theme-light .sf-ui" in html
+    assert "class='sf-ui sf-report'" in html
     assert "border-radius" not in html
     assert "box-shadow" not in html
     assert "gradient" not in html

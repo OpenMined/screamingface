@@ -23,7 +23,7 @@ def _registry(
         models=models
         or (
             ModelRecord("codex/gpt-5.5", (), "codex"),
-            ModelRecord("gemini/2.5", (), "gemini"),
+            ModelRecord("gemini/3.5-flash", (), "gemini"),
             ModelRecord("judge/model", (), "judge"),
         ),
         reducers=reducers
@@ -67,7 +67,7 @@ def _connected_providers(monkeypatch: pytest.MonkeyPatch) -> None:
 def _fusion(reducer=None) -> sf.Fusion:
     return sf.Fusion(
         "frontier",
-        ["codex/gpt-5.5", "gemini/2.5"],
+        ["codex/gpt-5.5", "gemini/3.5-flash"],
         reducer=reducer or sf.reducers.MajorityVote(),
     )
 
@@ -88,7 +88,7 @@ def _success(fusion: sf.Fusion, case_id: str) -> httpx.Response:
             {
                 "answer": f"answer-{case_id}",
                 "members": {
-                    "member_2": {"answer": "B", "model": "gemini/2.5"},
+                    "member_2": {"answer": "B", "model": "gemini/3.5-flash"},
                     "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
                 },
                 "schema": "screamingface.fusion-result.v1",
@@ -162,7 +162,7 @@ def test_supported_benchmark_tools_are_sent_only_in_concrete_member_requests(
     benchmark = _benchmark(tools=("web_search",))
     supported = (
         ModelRecord("codex/gpt-5.5", ("web_search",), "codex"),
-        ModelRecord("gemini/2.5", ("web_search",), "gemini"),
+        ModelRecord("gemini/3.5-flash", ("web_search",), "gemini"),
         ModelRecord("judge/model", (), "judge"),
     )
     monkeypatch.setattr(_execution, "load_registry", lambda: _registry(models=supported))
@@ -199,7 +199,7 @@ def test_run_executes_one_request_per_case_with_bounded_stable_order(
     assert run.complete is True
 
 
-def test_structured_failures_are_not_retried_or_made_partial(
+def test_structured_transient_canary_is_retried_once_without_partial_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fusion = _fusion()
@@ -216,9 +216,13 @@ def test_structured_failures_are_not_retried_or_made_partial(
 
     run = fusion.run(benchmark)
 
-    assert len(client.calls) == 3
-    assert [failure.kind for failure in run.failures] == ["url4"] * 3
-    assert [failure.code for failure in run.failures] == ["overloaded"] * 3
+    assert len(client.calls) == 2
+    assert [failure.kind for failure in run.failures] == ["url4", "skipped", "skipped"]
+    assert [failure.code for failure in run.failures] == [
+        "overloaded",
+        "not_scheduled",
+        "not_scheduled",
+    ]
     assert all(result.members == {} and result.answer is None for result in run.results)
 
 

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Protocol
 
 import httpx
 
@@ -22,6 +23,7 @@ from screamingface._engine_http import (
 )
 from screamingface._exact_choice import validate_exact_reference
 from screamingface._profile import FUSION_RESULT_SCHEMA, Registry, load_registry
+from screamingface._progress import Progress, ProgressSetting
 from screamingface._requirements import evaluate_requirements, run_requirements
 from screamingface.benchmark import Benchmark, Case
 from screamingface.benchmarks import load as load_benchmark
@@ -36,9 +38,32 @@ from screamingface.graders import ExactChoice
 from screamingface.reducers import MajorityVote, Model
 from screamingface.run import CaseResult, FailureKind, MemberResult, Run, RunFailure
 
+if TYPE_CHECKING:
+    from screamingface.report import Report
+
 _CASE_CONCURRENCY = 4
 _RUN_TIMEOUT = 130.0
 _AUTH_REJECTION_CODES = frozenset({"authentication_required", "connection_needs_reauth"})
+_RETRYABLE_FAILURE_CODES = frozenset(
+    {
+        "gateway_timeout",
+        "gateway_unavailable",
+        "overloaded",
+        "provider_unavailable",
+        "rate_limited",
+        "resolution_failed",
+        "timeout",
+    }
+)
+
+
+class _EngineClient(Protocol):
+    def get(
+        self,
+        url: str,
+        *,
+        params: Mapping[str, str] | None = None,
+    ) -> httpx.Response: ...
 
 
 def run_fusion(
@@ -46,11 +71,47 @@ def run_fusion(
     benchmark: str | Benchmark,
     *,
     first: int | None,
+    progress: ProgressSetting = None,
     _connections_checked: bool = False,
     _registry: Registry | None = None,
+    _tracker: Progress | None = None,
 ) -> Run:
     """Preflight, execute every selected case, and preserve canonical order."""
 
+    benchmark_id = (
+        benchmark if isinstance(benchmark, str) else getattr(benchmark, "id", "benchmark")
+    )
+    tracker = _tracker or Progress(fusion.name, benchmark_id, progress)
+    owns_tracker = _tracker is None
+    if owns_tracker:
+        tracker.stage("checking", "Checking requirements")
+    try:
+        result = _run_fusion(
+            fusion,
+            benchmark,
+            first=first,
+            _connections_checked=_connections_checked,
+            _registry=_registry,
+            tracker=tracker,
+        )
+    except Exception as exc:
+        if owns_tracker:
+            tracker.fail(str(exc))
+        raise
+    if owns_tracker:
+        tracker.finish("Run complete", clear=True)
+    return result
+
+
+def _run_fusion(
+    fusion: Fusion,
+    benchmark: str | Benchmark,
+    *,
+    first: int | None,
+    _connections_checked: bool,
+    _registry: Registry | None,
+    tracker: Progress,
+) -> Run:
     limit = _first(first)
     if not isinstance(benchmark, (str, Benchmark)):
         raise TypeError("benchmark must be a benchmark ID or sf.Benchmark")
@@ -77,9 +138,10 @@ def run_fusion(
             registry.max_request_target_bytes,
             f"case {case.id!r}",
         )
+    tracker.stage("running", "Running cases", total=len(selected))
     base_url = current_engine_url()
     with httpx.Client(base_url=base_url, timeout=_RUN_TIMEOUT) as client:
-        results = _execute_cases(client, fusion, expressions, registry)
+        results = _execute_cases(client, fusion, expressions, registry, tracker)
     return Run(
         benchmark=resolved,
         fusion_name=fusion.name,
@@ -91,48 +153,93 @@ def run_fusion(
 
 
 def _execute_cases(
-    client: httpx.Client,
+    client: _EngineClient,
     fusion: Fusion,
     expressions: tuple[tuple[Case, str], ...],
     registry: Registry,
+    tracker: Progress | None = None,
 ) -> tuple[CaseResult, ...]:
+    if not expressions:
+        return ()
+    canary_case, canary_expression = expressions[0]
+    canary = _execute_case(client, fusion, canary_case, canary_expression)
+    if canary.failure is not None and _retryable(canary.failure):
+        # WHY: One retry distinguishes a brief upstream wobble from a benchmark-wide outage while
+        # bounding duplicate model spend before the parallel fan-out begins.
+        canary = _execute_case(client, fusion, canary_case, canary_expression)
+    _advance(tracker)
+    if canary.failure is not None:
+        _refresh_rejected_connections(canary.failure.code, registry)
+        skipped = tuple(_unscheduled(case.id, canary.failure) for case, _ in expressions[1:])
+        _advance(tracker, len(skipped))
+        return (canary, *skipped)
+    return (canary, *_execute_remaining(client, fusion, expressions[1:], registry, tracker))
+
+
+def _execute_remaining(
+    client: _EngineClient,
+    fusion: Fusion,
+    expressions: tuple[tuple[Case, str], ...],
+    registry: Registry,
+    tracker: Progress | None,
+) -> tuple[CaseResult, ...]:
+    if not expressions:
+        return ()
     results: list[CaseResult] = []
     with ThreadPoolExecutor(max_workers=min(_CASE_CONCURRENCY, len(expressions))) as pool:
         for start in range(0, len(expressions), _CASE_CONCURRENCY):
             batch = expressions[start : start + _CASE_CONCURRENCY]
             completed = tuple(pool.map(lambda value: _execute_case(client, fusion, *value), batch))
             results.extend(completed)
-            rejection = _auth_rejection(completed)
-            if rejection is not None:
-                # WHY: A bounded batch preserves parallelism while leaving later dependent work
-                # genuinely unscheduled after a stored credential is rejected.
-                connections._list_for_registry(registry)
+            _advance(tracker, len(completed))
+            failure = _stopping_failure(completed)
+            if failure is not None:
+                _refresh_rejected_connections(failure.code, registry)
                 results.extend(
-                    _unscheduled(case.id, rejection)
+                    _unscheduled(case.id, failure)
                     for case, _expression in expressions[start + len(batch) :]
                 )
+                _advance(tracker, len(expressions) - start - len(batch))
                 break
     return tuple(results)
 
 
-def _auth_rejection(results: tuple[CaseResult, ...]) -> str | None:
+def _advance(tracker: Progress | None, count: int = 1) -> None:
+    if tracker is not None:
+        tracker.advance(count)
+
+
+def _stopping_failure(results: tuple[CaseResult, ...]) -> RunFailure | None:
     return next(
         (
-            result.failure.code
+            result.failure
             for result in results
-            if result.failure is not None and result.failure.code in _AUTH_REJECTION_CODES
+            if result.failure is not None and not _retryable(result.failure)
         ),
         None,
     )
 
 
-def _unscheduled(case_id: str, code: str) -> CaseResult:
+def _retryable(failure: RunFailure) -> bool:
+    if failure.kind in {"connection", "timeout"}:
+        return True
+    if failure.code in _RETRYABLE_FAILURE_CODES:
+        return True
+    return failure.code is None and failure.status is not None and failure.status >= 500
+
+
+def _refresh_rejected_connections(code: str | None, registry: Registry) -> None:
+    if code in _AUTH_REJECTION_CODES:
+        connections._list_for_registry(registry)
+
+
+def _unscheduled(case_id: str, cause: RunFailure) -> CaseResult:
+    cause_code = cause.code or "evaluation_failure"
     return _failed(
         case_id,
-        "url4",
-        "Case was not scheduled because provider credentials require reconnection.",
-        status=401,
-        code=code,
+        "skipped",
+        f"Case was not scheduled after evaluation stopped on {cause_code!r}.",
+        code="not_scheduled",
     )
 
 
@@ -141,34 +248,49 @@ def evaluate_fusion(
     benchmark: str | Benchmark,
     *,
     first: int | None,
-):
+    progress: ProgressSetting = None,
+) -> Report:
     """Check the complete model-backed requirement union once, then execute all stages."""
 
     from screamingface._grading import grade_run
 
-    _first(first)
-    if not isinstance(benchmark, (str, Benchmark)):
-        raise TypeError("benchmark must be a benchmark ID or sf.Benchmark")
-    resolved = load_benchmark(benchmark) if isinstance(benchmark, str) else benchmark
-    registry = load_registry()
-    _preflight(fusion, resolved, registry)
-    try:
-        requirements = evaluate_requirements(fusion, resolved, registry)
-    except ValueError as exc:
-        raise UnknownModelError(str(exc)) from exc
-    require_connections(requirements, registry)
-    run = run_fusion(
-        fusion,
-        resolved,
-        first=first,
-        _connections_checked=True,
-        _registry=registry,
+    benchmark_id = (
+        benchmark if isinstance(benchmark, str) else getattr(benchmark, "id", "benchmark")
     )
-    return grade_run(run, _connections_checked=True).aggregate()
+    tracker = Progress(fusion.name, benchmark_id, progress)
+    tracker.stage("checking", "Checking requirements")
+    try:
+        _first(first)
+        if not isinstance(benchmark, (str, Benchmark)):
+            raise TypeError("benchmark must be a benchmark ID or sf.Benchmark")
+        resolved = load_benchmark(benchmark) if isinstance(benchmark, str) else benchmark
+        registry = load_registry()
+        _preflight(fusion, resolved, registry)
+        try:
+            requirements = evaluate_requirements(fusion, resolved, registry)
+        except ValueError as exc:
+            raise UnknownModelError(str(exc)) from exc
+        require_connections(requirements, registry)
+        run = run_fusion(
+            fusion,
+            resolved,
+            first=first,
+            _connections_checked=True,
+            _registry=registry,
+            _tracker=tracker,
+        )
+        grades = grade_run(run, _connections_checked=True, _tracker=tracker)
+        tracker.stage("aggregating", "Aggregating report")
+        report = grades.aggregate()
+    except Exception as exc:
+        tracker.fail(str(exc))
+        raise
+    tracker.finish("Complete", clear=True)
+    return report
 
 
 def _execute_case(
-    client: httpx.Client,
+    client: _EngineClient,
     fusion: Fusion,
     case: Case,
     expression: str,
