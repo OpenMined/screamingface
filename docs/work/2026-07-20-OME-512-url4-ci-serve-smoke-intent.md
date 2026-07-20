@@ -46,7 +46,7 @@ by the recent main merge; the merge only surfaced the long-standing failure.
   with the exact CI `url4.toml` (incl. `science` shelf + `emily` identity) under
   `set -euo pipefail` — exit 0, "serve smoke OK"; all evals 200, error contract
   400/404/405 intact. Workflow YAML re-validated.
-- **Commits:** <sha — filled at commit>
+- **Commits:** 1387eb1 — fix(url4): make serve-smoke CI expressions OME-508-legal (add outer intent)
 - **Gates:** workflow-only change; no `packages/url4/src` or `tests` touched, so the
   url4 stack gates are unaffected (green as of merge commit a817bc4).
 - **Deviations:** two expressions fixed rather than the one planned — the second
