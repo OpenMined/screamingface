@@ -208,7 +208,13 @@ def _wire_spawn(ctx: ExecutionContext, registry: LoweringRegistry | None) -> Non
             # same text always hits the cache (mirrors the ``_memo`` invariant
             # in ``_run``). A duplicate compile would only be wasted work anyway
             # (same text → an equivalent graph), never a correctness bug.
-            graph = compile_expression(text, registry=registry)
+            # bare_root_ok: spawn is the ENGINE's boundary — its texts are
+            # engine-authored wrappers (a map row's "(body)", a deferred
+            # collection) whose intent is held outside the text (`OME-508`).
+            # User bare groups never reach here: every user entry
+            # (build/run/serve, and _slot_from_text for nested sources)
+            # rejects them eagerly.
+            graph = compile_expression(text, registry=registry, bare_root_ok=True)
             # Acyclicity is a graph property, so validate once per unique
             # fragment, not once per row that re-executes it. Compiler-emitted
             # graphs are acyclic by construction; this single check guards a

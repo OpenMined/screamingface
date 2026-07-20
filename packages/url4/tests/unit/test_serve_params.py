@@ -68,5 +68,5 @@ async def test_params_reach_command_through_node_dispatch() -> None:
     # dispatches it to the endpoint, and the command receives the value.
     config = ServeConfig(commands={"/model": (*_ECHO_ARGV1, "T={param:temperature}")})
     node = build_node(config)
-    result = await node.evaluate("(/model?temperature=0.7&q=(x)!'go')")
+    result = await node.evaluate("(r=/model?temperature=0.7&q=(x)!'go')!'$r'")
     assert "T=0.7" in result.text

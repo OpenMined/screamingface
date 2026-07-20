@@ -299,12 +299,15 @@ def test_iterate_validation():
 # --- iteration sources inside expressions (hazard shielding) ------------------------------
 
 
-def test_expr_shields_bare_iteration_sources():
+def test_expr_keeps_bare_iteration_sources():
+    # `OME-508`: the old shield wrapped the iteration in an intent-less group,
+    # which has no surface form — the source stays as authored, and the
+    # renderer's decode-hazard guard reports the unrepresentable placement.
     it = iterate("https://d/rows", "x=$item", intent="p")
     e = expr(it, "https://y", intent="r")
-    # the bare iteration is wrapped in its own (attribution-neutral) group
-    assert e.sources[0] == Expression(sources=(it,))
-    assert build(render(e)) == e
+    assert e.sources[0] is it
+    with pytest.raises(RenderError, match="reduce-over-iteration"):
+        render(e)
 
 
 def test_expr_rewrites_reducer_iteration_sources():

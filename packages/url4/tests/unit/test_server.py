@@ -107,7 +107,7 @@ async def test_data_route_media_type_drives_collection_iteration():
     )
     # The single NDJSON row iterates; CollectNode embeds the JSON object row
     # structurally (spec §5.3.8).
-    result = (await n.evaluate("/api/nd*($item)")).text
+    result = (await n.evaluate("/api/nd*(r=$item)!'$r'")).text
     assert json.loads(result) == [{"q": "2+2"}]
 
 
@@ -145,7 +145,7 @@ async def test_identity_handler_can_deny_access(node):
 async def test_endpoint_dispatch_from_engine_internals(node, wire):
     # A relative expression source dispatches to the registered endpoint with
     # the wire-decoded (context, intent) pair — context is opaque data.
-    res = await node.evaluate("(/claude(https://x)!'Go')")
+    res = await node.evaluate("(r=/claude(https://x)!'Go')!'$r'")
     assert res.text.startswith("CLAUDE(")
     assert wire[0].path == "/claude"
     assert wire[0].context == "https://x"
@@ -213,7 +213,7 @@ async def test_asgi_full_client_loop(node, wire):
         client = Client(HttpIOLayer(client=http), node="url4://testnode/v1")
         res = await client.query(src("https://x", name="a"), intent="Summarize $a")
     assert "ARTICLE" in res.text or res.text.startswith("CLAUDE(")
-    assert res.request.startswith("(url4://testnode/v1")
+    assert res.request.startswith("(r=url4://testnode/v1")
 
 
 @pytest.mark.parametrize(

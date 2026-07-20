@@ -161,7 +161,7 @@ async def test_media_type_drives_collection_parsing() -> None:
         data={"/rows": ProviderSpec(value=rows, media_type="application/json")},
     )
     node = build_node(config)
-    result = await node.evaluate("(/rows*(x=$item.n, /echo(got: $item.n)!'noop')!'')")
+    result = await node.evaluate("/rows*(x=$item.n, /echo(got: $item.n)!'noop')!''")
     assert result.text.count("got:") == 3
 
 

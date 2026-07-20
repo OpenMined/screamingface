@@ -30,7 +30,7 @@ from url4._scan import balanced_body
 from url4._scan import iter_top_level as _iter_top_level
 from url4._scan import split_top_level as _split_top_level
 from url4.errors import ParseError
-from url4.grammar import intent_atom, parse
+from url4.grammar import intent_atom, parse, parse_group_root
 from url4.nodes import (
     Binding,
     Expression,
@@ -158,12 +158,12 @@ def assemble_expression(
 ) -> Expression:
     """Parse a source group and wrap it into a unified :class:`Expression` root.
 
-    Parses ``source_expr`` via the grammar, unwraps a bare group so both
-    ``(a, b)`` and a single source ``x`` yield flat ``sources``, and attaches
-    the classified intent, for callers that already hold a ``split_intent``
-    result.
+    Parses ``source_expr`` via the grammar's ``parse_group_root`` — the caller
+    holds the ``split_intent`` result, so the source side legally arrives as a
+    bare ``(…)`` — unwraps that group so both ``(a, b)`` and a single source
+    ``x`` yield flat ``sources``, and attaches the classified intent.
     """
-    parsed = parse(source_expr) if source_expr else Expression(sources=())
+    parsed = parse_group_root(source_expr) if source_expr else Expression(sources=())
     if isinstance(parsed, Expression) and parsed.intent is None:
         sources = parsed.sources
         params = parsed.params + params
@@ -174,8 +174,12 @@ def assemble_expression(
 
 
 def _collection_node(source: str) -> Node:
-    """Parse an iteration's collection source into a resolvable node."""
-    return parse(source) if source else Expression(sources=())
+    """Parse an iteration's collection source into a resolvable node.
+
+    A bare paren-collection is legal in this position (`paren-collection` is
+    its own intent-less production), so this goes through ``parse_group_root``.
+    """
+    return parse_group_root(source) if source else Expression(sources=())
 
 
 @dataclass(frozen=True)
@@ -207,14 +211,18 @@ class GroupEnvelope:
 Envelope = IterationEnvelope | GroupEnvelope
 
 
-def decode_envelope(text: str) -> Envelope:
+def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
     """Peel the surface envelope the source grammar sits under, as raw text.
 
     Runs the string scanners in the fixed order — a depth-0 ``*(body)`` bound
     FIRST, then the top-level ``!intent`` split, trailing ``;`` expression
     params (both sides of the ``!``), the ``(src*(body)[!peri])!reducer``
     reduce-over-iteration shape, then the plain ``src*(body)`` iteration — and
-    classifies the result. This is the single source of truth for that ordering:
+    classifies the result. ``require_intent`` enforces the grammar's mandatory
+    ``intent-op intent`` (`OME-508`); the executor's spawn boundary passes
+    False, because the engine's OWN wrappers (a map row's ``(body)``, a wire
+    ``(context)`` whose intent travels separately) legally arrive intent-less.
+    This is the single source of truth for that ordering:
     both the eager parse tree (:func:`build`) and the lazy DAG
     (:mod:`url4.dag.compiler`) interpret this same decode, so their surface
     semantics can never drift.
@@ -250,7 +258,26 @@ def decode_envelope(text: str) -> Envelope:
 
     envelope = _decode_iteration(source_expr, raw_intent, directives)
     if envelope is not None:
+        if envelope.intent is None and require_intent:
+            # INVARIANT: iteration-expr takes a full expression after "*", and
+            # an expression's intent is mandatory (`OME-508`) — the cross-row
+            # shape spells it `(src*(body)!peri)!reducer`.
+            raise ParseError(
+                f"iteration {stripped!r} has no per-row intent — the expression "
+                "after '*' must carry !intent (src*(body)!intent)",
+                code="missing_intent",
+            )
         return envelope
+    if require_intent and raw_intent is None and strip_one_paren_layer(source_expr) is not None:
+        # INVARIANT: expression = "(" source-list ")" intent-op intent — a
+        # parenthesized envelope with no intent has no grammar form (`OME-508`).
+        # This decode is shared by build() and the DAG text path, so both
+        # entries reject identically.
+        raise ParseError(
+            f"expression group {stripped!r} has no intent — a parenthesized "
+            "source group must be followed by !intent (or !*intent)",
+            code="missing_intent",
+        )
     return GroupEnvelope(source_expr, raw_intent, broadcast, params)
 
 

@@ -121,7 +121,6 @@ Two orthogonal axes decorate a source (spec §4.3, the **two-axis descriptor**):
 
 | Form | Meaning |
 |---|---|
-| `(a, b, c)` | bare group — resolve sources, newline-join (no intent) |
 | `(a, b)!intent` | **base**: merge resolved sources under one intent |
 | `(/x(c)!i, /y(c)!i)!reduce` | **fan-out + reduce**: parallel relative-expression calls, then a reducer call |
 | `(a, b)!*intent` | **broadcast**: apply the intent once per source → JSON array (§6.1) |
@@ -263,7 +262,7 @@ lets an expression fan out to sub-expressions that are themselves only parsed on
 | `GuardNode` | per-source disposition: `;optional`/`;t=`/`;retry=` (isolation boundary) |
 | `ExpandNode` | `*source`/`;expand` → `list[str]` spliced into sibling positions |
 | `BarrierNode` | make a fetch-intent structurally depend on all sources |
-| `GatherNode` | bare group `(a,b,c)` — join non-binding sources |
+| `GatherNode` | internal gather-join of an intent-less group (AST-only carrier — no surface form, `OME-508`) |
 | `InlineCollectionNode` | `(e1,e2,…)` as a real ordered element list for `*` |
 | `ProcessNode` | `(sources)!intent` base merge via the `process` hook |
 | `MergeNode` | one broadcast application (`$current` bound) |

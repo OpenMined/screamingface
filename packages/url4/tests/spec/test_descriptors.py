@@ -8,7 +8,7 @@ annotations, or the expansion mark wraps in ``Source``.
 from __future__ import annotations
 
 from url4.grammar import parse
-from url4.nodes import Binding, Expression, RelExpr, Text, Url
+from url4.nodes import Binding, RelExpr, Text, Url
 
 
 def test_bare_source_no_annotations() -> None:
@@ -107,20 +107,17 @@ def test_full_attribution_plus_execution() -> None:
 
 
 def test_agent_mode_relative_subexpression_sugar() -> None:
-    # §4.5 "Agent mode, named, relative sub-expression (sugar form)"
+    # §4.5 "Agent mode, named, relative sub-expression (sugar form)". The old
+    # paren wrap around the sub-expression was an intent-less group (`OME-508`)
+    # — the descriptor binds the relative expression directly.
     from url4.nodes import Source
 
-    node = parse("chef:0.4:(/chef(https://allrecipes.com)!'Find recipes');mode=agent;t=120")
+    node = parse("chef:0.4:/chef(https://allrecipes.com)!'Find recipes';mode=agent;t=120")
     assert node == Source(
-        value=Expression(
-            sources=(
-                RelExpr(
-                    path="/chef",
-                    context="https://allrecipes.com",
-                    intent=Text("Find recipes"),
-                ),
-            ),
-            intent=None,
+        value=RelExpr(
+            path="/chef",
+            context="https://allrecipes.com",
+            intent=Text("Find recipes"),
         ),
         name="chef",
         weight=0.4,

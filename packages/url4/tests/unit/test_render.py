@@ -86,23 +86,24 @@ def test_leaf_renders_bare_at_top_level():
     assert render(Url("https://x")) == "https://x"
 
 
-# --- composite source nodes parenthesize at top level ------------------------------
+# --- composite source nodes render as bare fragment roots (`OME-508`) ---------------
 
 
-def test_binding_parenthesized_at_top_level():
+def test_binding_renders_bare_at_top_level():
+    # WHY: the old paren wrap was an intent-less group, which the grammar
+    # rejects (`OME-508`) — a lone composite source is a fragment root.
     node = Binding("a", Url("https://x"), "=")
-    assert render(node) == "(a=https://x)"
+    assert render(node) == "a=https://x"
     assert build(render(node)) == Expression(sources=(node,))
 
 
-def test_relexpr_with_intent_parenthesized_at_top_level():
-    # WHY: bare "/p(c)!'i'" at top level would HOIST the intent to expression
-    # level on reparse (build() splits at the first depth-0 '!'); the parens
-    # keep the intent on the sub-expression.
+def test_relexpr_with_intent_has_no_top_level_form():
+    # Bare "/p(c)!'i'" at top level HOISTS the intent to expression level on
+    # reparse (build() splits at the first depth-0 '!'), and the old paren wrap
+    # is an intent-less group (`OME-508`) — the shape has no faithful text.
     node = RelExpr(path="/claude", context="https://x", intent=Text("summarize"))
-    rendered = render(node)
-    assert rendered == "(/claude(https://x)!'summarize')"
-    assert build(rendered) == Expression(sources=(node,))
+    with pytest.raises(RenderError):
+        render(node)
 
 
 def test_source_parenthesized_at_top_level():
@@ -116,33 +117,33 @@ def test_source_parenthesized_at_top_level():
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("article=https://news.com/story", "(article=https://news.com/story)"),
-        ("article:0.9:https://news.com/story", "(article:0.9:https://news.com/story)"),
-        ("0.8:s3://bucket/train.parquet", "(0.8:s3://bucket/train.parquet)"),
+        ("article=https://news.com/story", "article=https://news.com/story"),
+        ("article:0.9:https://news.com/story", "article:0.9:https://news.com/story"),
+        ("0.8:s3://bucket/train.parquet", "0.8:s3://bucket/train.parquet"),
         (
             "article:0.9:tokens=4000:https://news.com/story;required",
-            "(article:0.9:tokens=4000:https://news.com/story;required)",
+            "article:0.9:tokens=4000:https://news.com/story;required",
         ),
         (
             "medical:0.5:tokens=8000:influence=0.6:https://h.org/api;mode=agent;t=120;retry=2;required",
-            "(medical:0.5:tokens=8000:influence=0.6:https://h.org/api;mode=agent;t=120;retry=2;required)",
+            "medical:0.5:tokens=8000:influence=0.6:https://h.org/api;mode=agent;t=120;retry=2;required",
         ),
         # structured weight, struct budget, nested struct budget
         (
             "claude:(science:0.85,math:0.64,_default:0.4):https://x",
-            "(claude:(science:0.85,math:0.64,_default:0.4):https://x)",
+            "claude:(science:0.85,math:0.64,_default:0.4):https://x",
         ),
         (
             "claude:0.6:tokens=(science:6000,_default:4000):https://x",
-            "(claude:0.6:tokens=(science:6000,_default:4000):https://x)",
+            "claude:0.6:tokens=(science:6000,_default:4000):https://x",
         ),
         (
             "claude:0.6:tokens=(_each:(science:6000,_default:4000),_total:5000000):https://x",
-            "(claude:0.6:tokens=(_each:(science:6000,_default:4000),_total:5000000):https://x)",
+            "claude:0.6:tokens=(_each:(science:6000,_default:4000),_total:5000000):https://x",
         ),
         # expansion prefix (canonical sugar for ;expand)
-        ("*https://feed.com/items", "(*https://feed.com/items)"),
-        ("*articles:0.5:https://feed.com/items", "(*articles:0.5:https://feed.com/items)"),
+        ("*https://feed.com/items", "*https://feed.com/items"),
+        ("*articles:0.5:https://feed.com/items", "*articles:0.5:https://feed.com/items"),
     ],
 )
 def test_descriptor_golden(text, expected):
@@ -153,7 +154,7 @@ def test_descriptor_golden(text, expected):
 def test_weight_keyword_normalizes_to_bare_scalar():
     # weight=0.5 and 0.5 produce the same AST; render emits the bare form.
     node = parse("claude:weight=0.5:https://x")
-    assert render(node) == "(claude:0.5:https://x)"
+    assert render(node) == "claude:0.5:https://x"
     assert parse("claude:0.5:https://x") == node
 
 
@@ -161,14 +162,14 @@ def test_expand_annotation_normalizes_to_prefix():
     prefix = parse("*https://feed.com/items")
     annotated = parse("https://feed.com/items;expand")
     assert prefix == annotated
-    assert render(annotated) == "(*https://feed.com/items)"
+    assert render(annotated) == "*https://feed.com/items"
 
 
 def test_src_binding_of_bare_token_renders_quoted():
     # 0.2:src=mytoken → Source(weight=0.2, value=Text("mytoken")); the quoted
     # form parses back to the same Text without needing src=.
     node = parse("0.2:src=mytoken;optional")
-    assert render(node) == "(0.2:'mytoken';optional)"
+    assert render(node) == "0.2:'mytoken';optional"
     assert parse("0.2:'mytoken';optional") == node
 
 
@@ -195,7 +196,7 @@ def test_unnamed_structured_weight_raises():
 
 def test_flag_annotation_without_value():
     node = parse("https://x;required;x_custom")
-    assert render(node) == "(https://x;required;x_custom)"
+    assert render(node) == "https://x;required;x_custom"
 
 
 # --- expressions -------------------------------------------------------------------
@@ -219,8 +220,6 @@ def test_flag_annotation_without_value():
         "(summary=(https://src.com)!'clean', data=https://d.com)!'Compare $summary vs $data'",
         "(scores:0.0:https://data.com/records)!'Aggregate $scores'",
         "(x)!'go';quorum=2;t=60",
-        "(a=https://x)",
-        "()",
         "(claude:0.6:/claude(https://u.com)!'Go', llama:0.4:/llama(https://u.com)!'Go')"
         "!'Merge $claude and $llama'",
         "(https://api.com/search?q=hello&limit=100)!'Summarize'",
@@ -271,10 +270,12 @@ def test_rel_remote_roundtrip(text):
 
 
 def test_relexpr_sugar_when_no_params_canonical_when_params():
-    sugar = parse("/claude(https://x)!'Answer'")
-    assert render(sugar) == "(/claude(https://x)!'Answer')"
-    canonical = parse("/claude?t=90&q=(https://x)!'Answer'")
-    assert render(canonical) == "(/claude?t=90&q=(https://x)!'Answer')"
+    # A lone RelExpr-with-intent has no top-level form (`OME-508`), so the
+    # sugar/canonical emission is asserted through an intent-bearing group.
+    sugar = build("(/claude(https://x)!'Answer')!'Use $1'")
+    assert render(sugar) == "(/claude(https://x)!'Answer')!'Use $1'"
+    canonical = build("(/claude?t=90&q=(https://x)!'Answer')!'Use $1'")
+    assert render(canonical) == "(/claude?t=90&q=(https://x)!'Answer')!'Use $1'"
 
 
 # --- iteration -------------------------------------------------------------------------
@@ -296,7 +297,6 @@ def test_relexpr_sugar_when_no_params_canonical_when_params():
         "({name: 'Emily', style: 'upbeat'}, {name: 'Max', style: 'dry'})*()!'Mimic $item.style'",
         "(scores:0.0:https://data.com/records*(m:0.5:/claude($item.q)!'A';mode=agent;required,"
         " truth=$item.answer)!score.py)!'Aggregate $scores'",
-        "https://data.com/records*()",
     ],
 )
 def test_iteration_roundtrip(text):
@@ -390,7 +390,10 @@ def test_dual_key_boundary_guard_raises():
         value=RelExpr(path="/claude", context="x", intent=Text("go")),
         annotations=(("mode", "agent"), ("t", "90")),
     )
-    assert build(render(ok)) == Expression(sources=(ok,))
+    # A lone annotated rel-expr source hoists its tail at top level (`OME-508`
+    # removed the paren wrap), so representability is asserted inside a group.
+    ok_expr = Expression(sources=(ok,), intent=Text("r"))
+    assert build(render(ok_expr)) == ok_expr
 
 
 def test_binding_inside_source_raises():
@@ -426,7 +429,7 @@ def test_source_level_param_on_nested_expression_raises():
     # "mode" is exclusively source-level (§8.1.3); on a NESTED (non-top)
     # Expression it has nowhere faithful to reparse to.
     inner = Expression(sources=(Url("https://x"),), intent=Text("go"), params=(("mode", "agent"),))
-    outer = Expression(sources=(inner,))
+    outer = Expression(sources=(inner,), intent=Text("outer"))
     with pytest.raises(RenderError, match="source-level"):
         render(outer)
 
@@ -518,21 +521,24 @@ def test_top_iteration_descriptored_collection_reducer_raises():
     # collection (the descriptor would attribute the iteration in the
     # enclosing expression instead), so this shape has no text form.
     it = Iteration(
-        collection=Source(value=Url("https://x"), weight=0.5), body="x=$item", reducer="'r'"
+        collection=Source(value=Url("https://x"), weight=0.5),
+        body="x=$item",
+        intent="'p'",
+        reducer="'r'",
     )
     with pytest.raises(RenderError, match="descriptored collection"):
         render(it)
 
 
 def test_top_iteration_reducer_depth0_semicolon_raises():
-    it = Iteration(collection=Url("https://x"), body="x=$item", reducer="a;b")
+    it = Iteration(collection=Url("https://x"), body="x=$item", intent="'p'", reducer="a;b")
     with pytest.raises(RenderError, match="depth-0 ';'"):
         render(it)
 
 
 def test_iteration_collection_cannot_be_iteration_raises():
-    inner = Iteration(collection=Url("https://x"), body="a=1")
-    outer = Iteration(collection=inner, body="b=2")
+    inner = Iteration(collection=Url("https://x"), body="a=1", intent="'p'")
+    outer = Iteration(collection=inner, body="b=2", intent="'q'")
     with pytest.raises(RenderError, match="cannot be another iteration's collection"):
         render(outer)
 
@@ -553,9 +559,9 @@ def test_nested_reduce_over_iteration_in_value_position_raises():
     # rendered. Here the reducer'd iteration is a bare source of a NESTED
     # (non-top) Expression, which skips the hazard check entirely and reaches
     # _check_value_iteration's own reducer guard.
-    inner_it = Iteration(collection=Url("https://x"), body="a=$item", reducer="'r'")
-    nested = Expression(sources=(inner_it,))
-    outer = Expression(sources=(nested,))
+    inner_it = Iteration(collection=Url("https://x"), body="a=$item", intent="'p'", reducer="'r'")
+    nested = Expression(sources=(inner_it,), intent=Text("go"))
+    outer = Expression(sources=(nested,), intent=Text("outer"))
     with pytest.raises(RenderError, match="top-level envelope"):
         render(outer)
 
@@ -607,8 +613,8 @@ CORPUS = [
     "(article:0.9:tokens=4000:src=https://news.com/story;required)!'go'",
     "(0.2:'Supplementary AMA guidelines';optional;retry=3)!'go'",
     "(0.2:src=mytoken;optional;retry=3)!'go'",
-    "(chef:0.4:(/chef?q=(https://allrecipes.com)!'Find recipes');mode=agent;t=120)!'go'",
-    "(chef:0.4:(/chef(https://allrecipes.com)!'Find recipes');mode=agent;t=120)!'go'",
+    "(chef:0.4:/chef?q=(https://allrecipes.com)!'Find recipes';mode=agent;t=120)!'go'",
+    "(chef:0.4:/chef(https://allrecipes.com)!'Find recipes';mode=agent;t=120)!'go'",
     "(data:https://api.example.com/records;accept=csv;t=30)!'go'",
     # §4.1.1 structured values
     "(claude:(science:0.85,math:0.64,classics:0.10,_default:0.4):https://x)!'go'",
@@ -707,11 +713,11 @@ def _source(rng: random.Random, depth: int):
 
 
 def _shielded_iteration() -> Expression:
-    # WHY: iteration values are shielded in their own group — an unshielded
-    # iteration source is position-dependent (see the hazard tests above) and
-    # the legal placements are covered by the corpus.
+    # WHY: iteration values are shielded in their own intent-bearing group — an
+    # unshielded iteration source is position-dependent (see the hazard tests
+    # above), and an intent-less wrap has no surface form (`OME-508`).
     it = Iteration(collection=Url("https://data.com/rows"), body="x=$item", intent="'p'")
-    return Expression(sources=(Source(value=it, weight=0.5),))
+    return Expression(sources=(Source(value=it, weight=0.5),), intent=Text("go"))
 
 
 def _value(rng: random.Random, depth: int):
@@ -746,9 +752,7 @@ def test_random_ast_roundtrip():
     for i in range(200):
         root = Expression(
             sources=tuple(_source(rng, 2) for _ in range(rng.randrange(4))),
-            intent=rng.choice([Text("merge it"), Url("https://code.com/s.py"), None]),
+            intent=rng.choice([Text("merge it"), Url("https://code.com/s.py")]),
         )
-        if root.intent is None and root.broadcast:
-            continue
         rendered = render(root)  # check=True certifies the round-trip
         assert build(rendered) == root, f"case {i}: {rendered!r}"

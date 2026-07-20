@@ -215,12 +215,16 @@ class Iteration:
     :attr:`body` is a per-row template that is re-parsed after ``$item``
     substitution. The optional tails mirror the two reduce shapes:
 
-    - :attr:`intent`  — a ``!intent`` after the iteration, reducing each
-      row-group per row (``src*(body)!intent``). A template string.
+    - :attr:`intent`  — the ``!intent`` after the iteration, reducing each
+      row-group per row (``src*(body)!intent``). A template string. The
+      grammar's iteration takes a full expression after ``*``, so the PARSER
+      always sets it (`OME-508`); ``None`` (map-only) is an internal, AST-only
+      shape the compiler still lowers.
     - :attr:`reducer` — a cross-row reducer applied to the JSON array of all
-      rows (``(src*(body))!reducer``). A template string; ``None`` = map-only.
+      rows (``(src*(body)!peri)!reducer``). A template string; ``None`` = no
+      cross-row reduce.
 
-    Both may coexist (``(src*(body)!intent)!reducer``). :attr:`directives`
+    Both tails may coexist (``(src*(body)!intent)!reducer``). :attr:`directives`
     carries the ``;iteration.*`` execution annotations so the node fully
     captures the expression (``evaluate(text) == resolve(build(text))``).
     """
@@ -236,8 +240,12 @@ class Iteration:
 class Expression:
     """The composite ``(sources)!intent`` unit — the atomic url4 computation.
 
-    - ``intent is None``     → a bare group ``(a, b, c)``.
-    - ``intent`` set         → ``(sources)!intent``.
+    - ``intent`` set         → ``(sources)!intent``. The grammar's expression
+      always carries an intent, so the parser sets it in every surface
+      position (`OME-508`).
+    - ``intent is None``     → an INTERNAL carrier with no surface form of its
+      own: an iteration's paren-collection, an envelope mid-assembly, or a
+      hand-built group the compiler lowers to a plain gather-join.
     - ``broadcast is True``  → ``(sources)!*intent`` (apply intent per source).
     - ``params``             → the trailing ``;key=val`` per-expression
       protocol parameters (spec §9.2); the ``;broadcast`` flag is folded into

@@ -81,8 +81,9 @@ def test_uri_processor_dispatches_absolutely(uri: str) -> None:
 
 def test_expression_processor_is_evaluated_then_dispatched() -> None:
     io = _routes_io()
-    # The expression resolves to the text "/gpt4", which is then the route.
-    result = asyncio.run(run(_FANOUT, io, processor="('/gpt4')"))
+    # The all-binding expression interpolates to "/gpt4" (`OME-508`: the
+    # expression carries an intent), which is then the route.
+    result = asyncio.run(run(_FANOUT, io, processor="(p='/gpt4')!'$p'"))
     assert result.startswith("gpt4:")
 
 
@@ -93,7 +94,7 @@ def test_expression_result_is_not_re_evaluated() -> None:
     # expression-shaped; it must be refused rather than evaluated a second time.
     io = _routes_io()
     with pytest.raises(ResolutionError, match="single-pass"):
-        asyncio.run(run(_FANOUT, io, processor="('(\\'/gpt4\\')')"))
+        asyncio.run(run(_FANOUT, io, processor="(p='(\\'/gpt4\\')')!'$p'"))
 
 
 # --- backwards compatibility --------------------------------------------------------

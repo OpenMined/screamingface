@@ -560,6 +560,23 @@ def _base_graph(
 # --- the text (string) path ---------------------------------------------------
 
 
+def _reject_bare_group(segment: str) -> None:
+    """Reject an intent-less ``(…)`` in source position EAGERLY (`OME-508`).
+
+    Lazy deferral would postpone the error to spawn time — and the spawn
+    boundary compiles permissively (the engine's own wrappers legally arrive
+    intent-less), so a user's bare group would silently execute instead of
+    failing as the grammar demands. Iteration collections never pass through
+    here (``_collection_dag`` owns that legal position).
+    """
+    if strip_one_paren_layer(segment) is not None:
+        raise ParseError(
+            f"expression group {segment!r} has no intent — a parenthesized "
+            "source group must be followed by !intent (or !*intent)",
+            code="missing_intent",
+        )
+
+
 def _is_lazy_group(segment: str) -> bool:
     """True for ``(…)`` and ``(…)!tail`` shapes, which defer to a thunk."""
     if strip_one_paren_layer(segment) is not None:
@@ -578,9 +595,11 @@ def _slot_from_text(segment: str, registry: LoweringRegistry) -> _Slot:
         # Only a group-shaped RHS defers; ``name:(k:v):data`` is a structured
         # weight (§4.1.1.4) and must reach the grammar's classifier instead.
         if _is_lazy_group(rhs):
+            _reject_bare_group(rhs)
             name, kind = group_binding.group(1), group_binding.group(2)
             return _Slot(name, refs, _make_binding_thunk(name, kind, rhs), is_binding=True)
     if _is_lazy_group(segment):
+        _reject_bare_group(segment)
         return _Slot(None, refs, lambda edges: LazyExprNode(segment, deps=dict(edges)))
     ast = grammar_parse(segment)
     name, is_binding = _slot_identity(ast)
@@ -675,7 +694,7 @@ def _compile_group_text(
     )
 
 
-def _compile_text(text: str, registry: LoweringRegistry) -> DagNode:
+def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool = False) -> DagNode:
     """Lower the decoded surface envelope — the lazy twin of :func:`url4.parser.build`.
 
     Both consume the same :func:`~url4.parser.decode_envelope`, so the two paths
@@ -693,7 +712,7 @@ def _compile_text(text: str, registry: LoweringRegistry) -> DagNode:
     same graph. Extending that test to a nested-group shape should assert on
     the resolved string, not on ``compile_expression(...).sink`` structure.
     """
-    env = decode_envelope(text)
+    env = decode_envelope(text, require_intent=not bare_root_ok)
     if isinstance(env, IterationEnvelope):
         map_node = _map_from_text(env.collection, env.body, env.intent, env.directives, registry)
         if env.reducer is not None:
@@ -776,11 +795,22 @@ class Graph:
                 grammar_parse(split_intent(node.reducer)[0])
 
 
-def compile_expression(target: str | Node, *, registry: LoweringRegistry | None = None) -> Graph:
-    """Compile url4 surface text or a parse-tree node into an executable graph."""
+def compile_expression(
+    target: str | Node,
+    *,
+    registry: LoweringRegistry | None = None,
+    bare_root_ok: bool = False,
+) -> Graph:
+    """Compile url4 surface text or a parse-tree node into an executable graph.
+
+    ``bare_root_ok`` is the ENGINE-INTERNAL escape from the grammar's mandatory
+    intent (`OME-508`): the executor's spawn boundary compiles its own wrappers
+    (a map row's ``(body)``, a lazily-deferred collection) whose intent, if
+    any, is held outside the text. User-facing entries leave it False.
+    """
     registry = registry if registry is not None else default_registry()
     if isinstance(target, str):
-        return Graph(_compile_text(target, registry), registry=registry)
+        return Graph(_compile_text(target, registry, bare_root_ok=bare_root_ok), registry=registry)
     return Graph(_lower_top_level(target, registry), registry=registry)
 
 

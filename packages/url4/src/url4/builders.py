@@ -302,31 +302,16 @@ def expr(
     params: ParamsLike | None = None,
 ) -> Expression:
     """The composite ``(sources)!intent`` unit (§2) — everything else is sugar."""
-    if broadcast and intent is None:
-        raise ValueError("broadcast (!*) requires an intent (§6.1)")
-    coerced = tuple(_coerce_source(s) for s in sources)
-    if intent is not None:
-        coerced = _shield_iterations(coerced)
+    if intent is None:
+        # INVARIANT: expression = "(" source-list ")" intent-op intent — the
+        # intent is not optional (`OME-508`), so the builder rejects what the
+        # grammar rejects. Iteration collections are built via iterate().
+        raise ValueError("expr() requires an intent — the grammar's expression always carries one")
     return Expression(
-        sources=coerced,
-        intent=None if intent is None else _intent_node(intent),
+        sources=tuple(_coerce_source(s) for s in sources),
+        intent=_intent_node(intent),
         broadcast=broadcast,
         params=_pairs(params or ()),
-    )
-
-
-def _shield_iterations(sources: tuple[Node, ...]) -> tuple[Node, ...]:
-    """Wrap bare Iteration sources of an intent-bearing group in their own group.
-
-    At TOP level the envelope's reduce-over-iteration decode would otherwise
-    capture them (§5.3); the wrap is attribution-neutral and valid nested, so
-    shielding unconditionally keeps builder output usable in every position.
-    A *descriptored* iteration source is left alone — reordering or nesting it
-    would change attribution, so top-level representability is checked by the
-    renderer instead (its error names the fix).
-    """
-    return tuple(
-        Expression(sources=(node,)) if isinstance(node, Iteration) else node for node in sources
     )
 
 
@@ -382,6 +367,14 @@ def iterate(
     (may reference ``$item``). ``intent`` reduces per row; ``reduce`` across
     rows. Directive kwargs map to ``;iteration.*`` (§5.3.6).
     """
+    if intent is None:
+        # INVARIANT: iteration-expr takes a full expression after "*", whose
+        # intent is mandatory (`OME-508`) — map-only iteration has no grammar
+        # form, with or without a cross-row reducer.
+        raise ValueError(
+            "iterate() requires an intent — the expression after '*' always "
+            "carries one (src*(body)!intent)"
+        )
     return Iteration(
         collection=_coerce_collection(collection),
         body=_body_text(body),

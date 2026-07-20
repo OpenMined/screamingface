@@ -53,9 +53,10 @@ def test_build_collection_iteration_yields_node() -> None:
 
 
 def test_build_reduce_over_iteration_yields_node() -> None:
-    tree = Parser().build("(/data*(x))!/reduce(all)")
+    # `OME-508`: the inner expression after "*" carries its per-row intent.
+    tree = Parser().build("(/data*(x)!p)!/reduce(all)")
     assert tree == Iteration(
-        collection=RelUrl("/data"), body="x", intent=None, reducer="/reduce(all)"
+        collection=RelUrl("/data"), body="x", intent="p", reducer="/reduce(all)"
     )
 
 

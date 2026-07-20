@@ -152,7 +152,7 @@ def test_transport_params_in_expression_text_never_reach_the_wire() -> None:
     # INVARIANT (spec §11.6.3): `resume` and `rid` are transport-only. They are
     # already stripped on the HTTP ingress (`server._reassemble`); an expression
     # authored with them must not smuggle them outbound either.
-    targets = _run_and_capture("(/summarize?resume=1&rid=abc&q=(ctx)!go)")
+    targets = _run_and_capture("(r=/summarize?resume=1&rid=abc&q=(ctx)!go)!'$r'")
     assert targets, "expected at least one outbound fetch"
     joined = " ".join(targets)
     assert "resume" not in joined
@@ -161,7 +161,7 @@ def test_transport_params_in_expression_text_never_reach_the_wire() -> None:
 
 def test_non_transport_params_still_reach_the_wire() -> None:
     # BOUNDARY: the filter must not over-reach — ordinary protocol params survive.
-    targets = _run_and_capture("(/summarize?tone=formal&q=(ctx)!go)")
+    targets = _run_and_capture("(r=/summarize?tone=formal&q=(ctx)!go)!'$r'")
     joined = " ".join(targets)
     assert "tone=formal" in joined
 

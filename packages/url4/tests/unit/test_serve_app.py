@@ -54,7 +54,7 @@ async def test_command_route_dispatches_subprocess() -> None:
     config = _config()
     app = build_asgi_app(build_node(config), config)
     async with _driver(app) as http:
-        response = await http.get("/v1", params={"q": "(/echo(ping)!'noop')"})
+        response = await http.get("/v1", params={"q": "(r=/echo(ping)!'noop')!'$r'"})
     assert response.status_code == 200
     assert "ping" in response.text
 
@@ -107,9 +107,9 @@ async def test_over_max_inflight_returns_503() -> None:
     config = _config(commands={"/slow": ("true",)}, max_inflight=1, timeout=5.0)
     app = build_asgi_app(node, config)
     async with _driver(app) as http:
-        first = asyncio.create_task(http.get("/v1", params={"q": "(/slow(x)!'go')"}))
+        first = asyncio.create_task(http.get("/v1", params={"q": "(r=/slow(x)!'go')!'$r'"}))
         await asyncio.sleep(0.1)  # let the first request enter and hold the only slot
-        second = await http.get("/v1", params={"q": "(/slow(x)!'go')"})
+        second = await http.get("/v1", params={"q": "(r=/slow(x)!'go')!'$r'"})
         assert second.status_code == 503
         assert second.headers["retry-after"] == "1"
         gate.set()
@@ -127,7 +127,7 @@ async def test_request_timeout_returns_504() -> None:
     config = _config(commands={"/slow": ("true",)}, timeout=0.05)
     app = build_asgi_app(node, config)
     async with _driver(app) as http:
-        response = await http.get("/v1", params={"q": "(/slow(x)!'go')"})
+        response = await http.get("/v1", params={"q": "(r=/slow(x)!'go')!'$r'"})
     assert response.status_code == 504
     assert response.json()["error"]["code"] == "timeout"
 

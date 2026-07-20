@@ -8,9 +8,11 @@ rendered string is returned as :attr:`Url4Result.request`: the loggable,
 shareable, re-runnable audit artifact the protocol is built around (spec §1.2).
 
 Remote encodings (all reparse-verified by the renderer):
-- ``query``     → ``(url4://node/path(ctx)!intent)`` — the parenthesized form
+- ``query``     → ``(r=url4://node/path(ctx)!intent)!'$r'`` — the binding
   keeps the intent executing on the remote node (bare, the top-level ``!``
-  split would hoist it to a local intent).
+  split would hoist it to a local intent), and the all-binding group's ``$r``
+  intent is pure interpolation, so no local processor is involved (`OME-508`:
+  the old intent-less paren wrap has no grammar form).
 - ``broadcast`` → the ``broadcast`` flag rides as a protocol param before
   ``q=``; the remote envelope decode folds it back into ``!*`` (§6.1.1).
 - ``iterate(reduce=…)`` → the canonical reduce-over-iteration text
@@ -45,7 +47,7 @@ from url4.context import Context
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
 from url4.dag.node import ProcessFn, default_process
 from url4.io_layer import IOLayer
-from url4.nodes import Expression, Iteration, Node, Params, RemoteExpr
+from url4.nodes import Binding, Expression, Iteration, Node, Params, RemoteExpr, Text
 from url4.parser import build
 from url4.render import _render_source, render
 
@@ -266,7 +268,7 @@ class Client:
             if target is None:
                 request = render(_with_params(root, proto))
             else:
-                request = render(_as_remote(root, target, path or self._path, proto))
+                request = render(_passthrough(_as_remote(root, target, path or self._path, proto)))
         ctx = ExecutionContext(
             self._effective_io(),
             processor=self._processor,
@@ -356,6 +358,16 @@ def _with_params(root: Expression | Iteration, params: Params) -> Expression | I
         broadcast=root.broadcast,
         params=root.params + params,
     )
+
+
+def _passthrough(node: RemoteExpr) -> Expression:
+    """Wrap a lone remote call in the grammar's passthrough group.
+
+    ``(r=<call>)!'$r'`` — the group's intent is mandatory (`OME-508`), and an
+    all-binding group resolves its intent by pure interpolation, so the
+    wrapper adds no processor hop: the result IS the remote call's result.
+    """
+    return Expression(sources=(Binding("r", node, "="),), intent=Text("$r"))
 
 
 def _as_remote(

@@ -128,7 +128,7 @@ async def test_json_object_collection_fails_malformed_source() -> None:
 async def test_item_in_source_values() -> None:
     # §5.3.4 — source-side fan-out
     io = StaticIOLayer({"https://rows": '["1", "2"]', "/api/1": "A", "/api/2": "B"})
-    result = await run("https://rows*(/api/$item)", io)
+    result = await run("https://rows*(r=/api/$item)!'$r'", io)
     assert json.loads(result) == ["A", "B"]
 
 
@@ -171,7 +171,7 @@ async def test_item_array_index_access() -> None:
 async def test_on_error_collect_default_includes_error_objects() -> None:
     # §5.3.6 — collect (the default): failed elements become error objects
     io = StaticIOLayer({"https://rows": '["ok", "bad"]', "/api/ok": "OK"})
-    result = await run("https://rows*(/api/$item)", io)
+    result = await run("https://rows*(r=/api/$item)!'$r'", io)
     rows = json.loads(result)
     assert rows[0] == "OK"
     assert isinstance(rows[1], dict) and "error" in rows[1]
@@ -181,7 +181,7 @@ async def test_on_error_collect_default_includes_error_objects() -> None:
 async def test_on_error_skip_omits_failed_elements() -> None:
     # §5.3.6 — skip: omit failed elements from the result
     io = StaticIOLayer({"https://rows": '["ok", "bad"]', "/api/ok": "OK"})
-    result = await run("https://rows*(/api/$item);iteration.on_error=skip", io)
+    result = await run("https://rows*(r=/api/$item)!'$r';iteration.on_error=skip", io)
     assert json.loads(result) == ["OK"]
 
 
@@ -190,7 +190,7 @@ async def test_on_error_fail_aborts_on_first_error() -> None:
     # §5.3.6 — fail: abort on first error
     io = StaticIOLayer({"https://rows": '["ok", "bad"]', "/api/ok": "OK"})
     with pytest.raises(ResolutionError):
-        await run("https://rows*(/api/$item);iteration.on_error=fail", io)
+        await run("https://rows*(r=/api/$item)!'$r';iteration.on_error=fail", io)
 
 
 @pytest.mark.asyncio

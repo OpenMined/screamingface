@@ -90,10 +90,11 @@ def _render_top(node: Node) -> str:
     elif isinstance(node, Iteration):
         result = _render_top_iteration(node)
     elif isinstance(node, (Binding, Source, RelExpr, RemoteExpr)):
-        # WHY: composite source nodes parenthesize — bare at top level,
-        # build()'s first depth-0 '!' split would hoist a sub-expression's
-        # intent (and a descriptor's ';' tail) to expression level.
-        result = f"({_render_source(node)})"
+        # WHY: a composite source renders as a bare fragment root — the old
+        # paren wrap became an intent-less group, which the grammar rejects
+        # (`OME-508`). Shapes whose fragment form reparses differently (an
+        # inline `!` or a hoistable tail) fail _verify and raise RenderError.
+        result = _render_source(node)
     else:
         result = _render_value(node)
     return result
@@ -120,6 +121,15 @@ def _verify(node: Node, text: str) -> None:
 def _render_expression(e: Expression, *, top: bool = False) -> str:
     if e.intent is None and e.broadcast:
         raise RenderError("broadcast (!*) requires an intent")
+    if e.intent is None:
+        # INVARIANT: expression = "(" source-list ")" intent-op intent — an
+        # intent-less Expression is an internal carrier (paren-collections,
+        # envelope assembly) with no surface form outside collection position
+        # (`OME-508`, rendered via _render_collection).
+        raise RenderError(
+            "an Expression without an intent has no surface form — a "
+            "parenthesized source group must carry !intent (or !*intent)"
+        )
     if top and e.intent is not None and _iteration_decode_hazard(e):
         # AIDEV-NOTE: the TOP-LEVEL envelope's reduce-over-iteration decode is
         # greedy — in "(…, A*(b)!'p')!'r'" it takes everything before the first
@@ -501,17 +511,35 @@ def _render_top_iteration(node: Iteration) -> str:
 
 
 def _render_iteration_core(node: Iteration) -> str:
-    collection = _render_source(node.collection)
+    collection = _render_collection(node.collection)
     if isinstance(node.collection, Iteration):
         raise RenderError("an iteration cannot be another iteration's collection")
     if balanced_body(f"({node.body})", 1) != node.body:
         raise RenderError(f"iteration body {node.body!r} is unbalanced")
-    out = f"{collection}*({node.body})"
-    if node.intent is not None:
-        if find_top_level(node.intent, ";") is not None:
-            raise RenderError(f"iteration intent {node.intent!r} contains a depth-0 ';'")
-        out += f"!{node.intent}"
-    return out
+    if node.intent is None:
+        # INVARIANT: iteration-expr takes a full expression after "*" — the
+        # per-row intent is mandatory (`OME-508`), so a map-only Iteration has
+        # no surface form.
+        raise RenderError(
+            "an Iteration without a per-row intent has no surface form — the "
+            "expression after '*' must carry !intent (src*(body)!intent)"
+        )
+    if find_top_level(node.intent, ";") is not None:
+        raise RenderError(f"iteration intent {node.intent!r} contains a depth-0 ';'")
+    return f"{collection}*({node.body})!{node.intent}"
+
+
+def _render_collection(node: Node) -> str:
+    """Render a collection-ref — the one position where a bare paren group is
+    legal (``paren-collection`` is its own intent-less production)."""
+    if isinstance(node, Expression) and node.intent is None:
+        if node.broadcast or node.params:
+            raise RenderError(
+                "a paren-collection carries no broadcast flag or params — those "
+                "belong to an intent-bearing expression"
+            )
+        return "(" + ", ".join(_render_source(s) for s in node.sources) + ")"
+    return _render_source(node)
 
 
 def _check_value_iteration(node: Iteration) -> None:

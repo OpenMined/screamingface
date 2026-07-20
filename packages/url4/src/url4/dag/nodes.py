@@ -592,8 +592,11 @@ def _check_quorum(g: _Gathered, quorum: int | None) -> None:
 
 @dataclass(eq=False)
 class GatherNode:
-    """A bare group ``(a, b, c)`` — join the non-binding sources.
+    """An intent-less group — join the non-binding sources.
 
+    AST-only (`OME-508`): the surface grammar's expression always carries an
+    intent, so this node is reached via hand-built ``Expression(intent=None)``
+    trees and the engine's own internal wrappers, never from user text.
     A pure-binding group falls back to joining every slot value. ``quorum``
     (spec §9.1) gates on the post-expansion resolved-source count.
     """

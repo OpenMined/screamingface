@@ -19,10 +19,11 @@ from url4.subrequest import decode_subrequest
 
 @pytest.mark.asyncio
 async def test_pure_binding_group_falls_back_to_binding_values() -> None:
-    # A bare group of only bindings has an empty sources_text; the binding
-    # values themselves are returned instead.
+    # A group of only bindings has an empty sources_text; the intent is pure
+    # interpolation over the binding values (`OME-508`: the group carries an
+    # intent — all-binding groups resolve it without a processor).
     resolver = StaticIOLayer(fetch_map={"https://x": "VALUE"})
-    result = await run("(a=https://x)", resolver)
+    result = await run("(a=https://x)!'$a'", resolver)
     assert result == "VALUE"
 
 
@@ -106,7 +107,7 @@ async def test_intent_quotes_are_delimiters_everywhere() -> None:
 
     io = StaticIOLayer(routes={"/claude": route})
     await run("/claude(top)!'sum'", io)  # top-level intent
-    await run("(/claude(nested)!'sum')", io)  # the call's own intent
+    await run("(/claude(nested)!'sum')!'outer'", io)  # the call's own intent
     assert seen["top"] == "sum"
     assert seen["nested"] == "sum"
 

@@ -29,6 +29,7 @@ from typing import Literal
 
 from url4.errors import ResolutionError
 from url4.io_layer import IOLayer, SupportsProcessorRoutes
+from url4.parser import build
 
 ProcessorForm = Literal["expression", "uri", "route", "id"]
 
@@ -81,6 +82,11 @@ async def _evaluate(value: str, spawn: Callable[[str], Awaitable[str]] | None) -
             code="unknown_processor",
             permanent=True,
         )
+    # INVARIANT: a Form-3 processor value is USER surface (§27.3's
+    # expression-body), so it must satisfy the grammar — including the
+    # mandatory intent (`OME-508`) — even though the spawn boundary itself
+    # compiles permissively for the engine's own wrappers.
+    build(value)
     resolved = (await spawn(value)).strip()
     # INVARIANT: reclassification is SINGLE-PASS. An expression resolving to
     # another expression is an error, not a further round — re-entering here

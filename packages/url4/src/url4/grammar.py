@@ -468,7 +468,30 @@ def _parse_iteration(token: str, star: int) -> Iteration:
         intent = after[1:].strip() or None
     elif after.strip():
         raise ParseError(f"unexpected text after iteration body: {after!r}")
-    return Iteration(collection=_parse_value(token[:star]), body=body.strip(), intent=intent)
+    if intent is None:
+        # INVARIANT: iteration-expr = collection-ref "*" expression — the
+        # expression after "*" carries a mandatory intent (`OME-508`), so a
+        # map-only `src*(body)` has no grammar form.
+        raise ParseError(
+            f"iteration {token!r} has no per-row intent — the expression after "
+            "'*' must carry !intent (src*(body)!intent)",
+            code="missing_intent",
+            position=star,
+        )
+    return Iteration(collection=_parse_collection(token[:star]), body=body.strip(), intent=intent)
+
+
+def _parse_collection(token: str) -> Node:
+    """Parse a collection-ref: a bare paren-collection is legal HERE only.
+
+    ``paren-collection`` is its own production, disambiguated by the ``*(``
+    lookahead — it never carries an intent, so it must not go through the
+    strict local-expr path.
+    """
+    stripped = token.strip()
+    if (body := _one_paren_layer(stripped)) is not None:
+        return Expression(sources=_parse_group_sources(body))
+    return _parse_value(token)
 
 
 # --- local expressions (§5.2 rule 1) --------------------------------------------------
@@ -481,12 +504,42 @@ def _parse_local_expr(token: str) -> Expression:
     after = token[len(body) + 2 :]
     sources = _parse_group_sources(body)
     if not after:
-        return Expression(sources=sources)
+        # INVARIANT: local-expr = "(" source-list ")" intent-op intent — the
+        # intent is not optional (`OME-508`). Intent-less parens are legal only
+        # as a paren-collection (before "*", parsed by _parse_iteration) or via
+        # parse_group_root, where an envelope holds the intent externally.
+        raise ParseError(
+            f"expression group {token!r} has no intent — a parenthesized source "
+            "group must be followed by !intent (or !*intent)",
+            code="missing_intent",
+        )
     if after.startswith("!*"):
         return Expression(sources=sources, intent=intent_atom(after[2:]), broadcast=True)
     if after.startswith("!"):
         return Expression(sources=sources, intent=intent_atom(after[1:]))
     raise ParseError(f"unexpected text after group: {after!r}")
+
+
+def _one_paren_layer(token: str) -> str | None:
+    """The interior of ``token`` if it is exactly one balanced paren layer."""
+    if not token.startswith("("):
+        return None
+    body = balanced_body(token, 1)
+    return body if body is not None and len(body) == len(token) - 2 else None
+
+
+def parse_group_root(text: str) -> Node:
+    """Parse text whose intent, if any, is held EXTERNALLY by the caller.
+
+    The envelope decoders split the top-level ``!intent`` off before the
+    grammar ever sees the source side, and an iteration's paren-collection
+    never carries one — both positions legally present a bare ``(…)`` here.
+    Everything else routes through the strict :func:`parse`.
+    """
+    stripped = text.strip()
+    if (body := _one_paren_layer(stripped)) is not None:
+        return Expression(sources=_parse_group_sources(body))
+    return parse(stripped)
 
 
 def _parse_group_sources(body: str) -> tuple[Node, ...]:

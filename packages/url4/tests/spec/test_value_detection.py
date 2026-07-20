@@ -9,8 +9,10 @@ from url4.nodes import Binding, Expression, RelUrl, Text, Url
 
 
 def test_group_of_sources() -> None:
-    # §5.2 rule 1
-    assert parse("(a, https://x)") == Expression(sources=(Text("a"), Url("https://x")))
+    # §5.2 rule 1; the intent is mandatory (`OME-508`)
+    assert parse("(a, https://x)!go") == Expression(
+        sources=(Text("a"), Url("https://x")), intent=Text("go")
+    )
 
 
 def test_group_with_intent() -> None:
@@ -127,8 +129,8 @@ def test_quoted_text_escaped_backslash() -> None:
 
 def test_quoted_text_protects_structural_characters() -> None:
     # §7.2 — ',', '!', ';' inside quotes are content, not separators
-    node = parse("('a, b!c;d', other)")
-    assert node == Expression(sources=(Text("a, b!c;d"), Text("other")))
+    node = parse("('a, b!c;d', other)!go")
+    assert node == Expression(sources=(Text("a, b!c;d"), Text("other")), intent=Text("go"))
 
 
 # --- rule 5: any scheme '://' → absolute URI -----------------------------------
@@ -164,7 +166,7 @@ def test_struct_object_commas_not_split_in_group() -> None:
     # §5.3.11.5 depth tracking through {} — braces protect inner commas
     from url4.nodes import StructObject
 
-    node = parse("({a: 'x', b: 'y'}, other)")
+    node = parse("({a: 'x', b: 'y'}, other)!go")
     assert isinstance(node, Expression)
     assert len(node.sources) == 2
     assert isinstance(node.sources[0], StructObject)
@@ -213,7 +215,9 @@ def test_self_and_identity_in_group() -> None:
     # §5.6.5.1 "Self- + identity-reference"
     from url4.nodes import IdentityRef, SelfRef
 
-    assert parse("(@, @emily)") == Expression(sources=(SelfRef(), IdentityRef("emily")))
+    assert parse("(@, @emily)!go") == Expression(
+        sources=(SelfRef(), IdentityRef("emily")), intent=Text("go")
+    )
 
 
 # --- rule 8: '$' → variable reference with field path ---------------------------
