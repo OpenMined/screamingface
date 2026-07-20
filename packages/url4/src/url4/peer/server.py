@@ -1,6 +1,6 @@
 """The node-side SDK — :class:`Url4Node`: registries, evaluation, and ASGI serving.
 
-A node IS an :class:`~url4.io_layer.IOLayer`: it implements ``fetch`` (routing
+A node IS an :class:`~url4.io.layer.IOLayer`: it implements ``fetch`` (routing
 relative targets to its own endpoints / eval path / data routes and delegating
 absolute URIs outbound), ``fetch_ex``, and ``fetch_holdings`` (``@`` and
 ``@identity``, spec §5.6). In-process evaluation is therefore just
@@ -225,7 +225,7 @@ class Url4Node:
         """Register a principal's ``@name`` holdings (§5.6.2).
 
         The handler takes the requested collection (or nothing) and may raise
-        :class:`~url4.errors.ResolutionError` with the spec's codes
+        :class:`~url4.core.errors.ResolutionError` with the spec's codes
         (``identity_access_denied``, ``consent_required``, …) to gate access.
         """
         if not _IDENTITY_NAME_RE.fullmatch(name) or name in self._identities:
@@ -242,7 +242,7 @@ class Url4Node:
         return list(self._endpoints)
 
     def default_route(self) -> str | None:
-        """The node's reduce route (:class:`~url4.io_layer.SupportsDefaultRoute`).
+        """The node's reduce route (:class:`~url4.io.layer.SupportsDefaultRoute`).
 
         The explicit ``default_processor`` when one was given, else the FIRST
         registered endpoint — the node hardcodes no route names; with neither,
@@ -456,7 +456,7 @@ def _reassemble(q: str, params: Mapping[str, str]) -> str:
     """Rebuild the eval-path expression, re-attaching non-transport params.
 
     The dual-convention decode lives with the wire codec
-    (:func:`url4.subrequest.decode_expression_http` — one owner, spec §3.4).
+    (:func:`url4.core.subrequest.decode_expression_http` — one owner, spec §3.4).
     ``broadcast`` and friends keep their §9 semantics by riding the trailing
     ``;`` chain the envelope decode reads (a flag param decodes to value "").
     """

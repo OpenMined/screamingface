@@ -1,7 +1,7 @@
 """Configuration, backend handlers, and node/app assembly for ``url4 serve``.
 
 This is the transport-adapter layer behind the CLI (:mod:`url4.cli`). It builds a
-:class:`~url4.server.Url4Node` from a :class:`ServeConfig` — registering one
+:class:`~url4.peer.server.Url4Node` from a :class:`ServeConfig` — registering one
 intent-processor endpoint per configured ``[commands]`` route (a local
 subprocess, doctrine N4; there is no other intent-processor kind — a user's LLM
 backend is their own gateway script mounted as a command) — and wraps the node's
@@ -40,7 +40,7 @@ from url4.core.errors import ResolutionError
 # WHY: the principal-name production belongs to the grammar, so config validation
 # reads it from there — the same deliberate private-name import render.py and
 # server.py make, for the same reason (re-declaring it would let the two drift).
-# Importing it via url4.server instead would lean on a re-export server never
+# Importing it via url4.peer.server instead would lean on a re-export server never
 # promised: it is absent from server's __all__, so a tidy-up there would break
 # config validation with no signal.
 from url4.core.grammar import _IDENTITY_NAME_RE
@@ -365,7 +365,7 @@ def _as_provider(value: object, label: str, *, allow_media_type: bool = False) -
 def make_command_handler(argv: Sequence[str], timeout: float) -> EndpointHandler:
     """An intent processor that runs a local subprocess (doctrine N4).
 
-    The argv template mirrors the full :class:`~url4.server.Request` surface a
+    The argv template mirrors the full :class:`~url4.peer.server.Request` surface a
     Python endpoint handler sees (1:1): ``{intent}``, ``{context}`` (also piped
     to stdin), ``{param:<name>}`` (one decoded protocol param, "" when absent),
     and ``{params}`` (the whole mapping as JSON, for backends that want
@@ -373,10 +373,11 @@ def make_command_handler(argv: Sequence[str], timeout: float) -> EndpointHandler
 
     # AIDEV-NOTE: security — the argv is OPERATOR config; only the piped stdin
     # (resolved context) and the token substitutions are caller-influenced.
-    # No shell: exec an argv LIST, never a command string. Substitution is
-    # SINGLE-PASS: tokens are recognized in the operator's template only —
-    # a "{param:x}" (or "{intent}") appearing inside caller-supplied intent,
-    # context, or param values stays literal instead of cascading.
+    # No shell: exec an argv LIST, never a command string.
+    # INVARIANT: substitution is single-pass — tokens are recognized in the
+    # operator's template only, so a "{param:x}" (or "{intent}") appearing in
+    # caller-supplied intent, context, or param values stays literal instead
+    # of cascading (blocks token-injection through caller input).
     """
     template = tuple(argv)
 

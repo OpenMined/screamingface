@@ -3,11 +3,11 @@
 These functions carry no I/O and no dependency on the execution layer — they
 format reducer input and perform the string-level ``$``-substitutions. The
 executable nodes in :mod:`url4.dag` compose them with the
-:class:`~url4.io_layer.IOLayer` port.
+:class:`~url4.io.layer.IOLayer` port.
 
 Variable substitution
 ----------------------
-- ``$name`` / ``$N`` — replaced from the :class:`~url4.context.Context`
+- ``$name`` / ``$N`` — replaced from the :class:`~url4.core.context.Context`
   (:func:`substitute_env_vars`). Unknown names are left verbatim.
 - ``$item`` — replaced per collection row (:func:`substitute_item`).
 - Field paths (spec §5.3.4 / §6.2 / §8.2): every reference accepts nested dot
@@ -16,7 +16,7 @@ Variable substitution
   the JSON-decoded referenced value. Error handling is mode-dependent
   (spec §5.3.4.1): the lenient/LLM default substitutes ``""`` for a missing
   field, type error, or out-of-bounds index; ``strict=True`` (RDS mode) raises
-  :class:`~url4.errors.ScopeError` with code ``malformed_source``.
+  :class:`~url4.core.errors.ScopeError` with code ``malformed_source``.
 - ``$$`` → literal ``$``. Handled once, in :func:`substitute_env_vars`; the
   ``(?<!\\$)`` lookbehind in :func:`substitute_item` keeps ``$$item`` from being
   captured as ``$item`` before the escape collapses.

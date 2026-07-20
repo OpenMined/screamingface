@@ -1,10 +1,10 @@
-"""The in-memory, deterministic :class:`~url4.io_layer.IOLayer` adapter.
+"""The in-memory, deterministic :class:`~url4.io.layer.IOLayer` adapter.
 
 No network, fully reproducible — the default for tests. Serves static reads
 from ``fetch_map``, localhost ``?q=`` expression endpoints from ``routes``,
 ``@`` / ``@identity`` references from ``holdings``
-(:class:`~url4.io_layer.SupportsHoldings`), and declared media types from
-``media_types`` (:class:`~url4.io_layer.SupportsFetchEx`). Depends only on the
+(:class:`~url4.io.layer.SupportsHoldings`), and declared media types from
+``media_types`` (:class:`~url4.io.layer.SupportsFetchEx`). Depends only on the
 sub-request codec and the error hierarchy, never on httpx.
 """
 
@@ -21,7 +21,7 @@ RouteHandler = Callable[[str, str], str | Awaitable[str]]
 
 
 class StaticIOLayer:
-    """An in-memory :class:`~url4.io_layer.IOLayer` — no network, fully deterministic.
+    """An in-memory :class:`~url4.io.layer.IOLayer` — no network, fully deterministic.
 
     ``fetch_map`` maps an exact URL/path to its content (a static data read).
     ``routes`` maps a localhost path (e.g. ``/claude``) to a handler
@@ -33,7 +33,7 @@ class StaticIOLayer:
     ``@name/coll``; omitting it makes this adapter behave like a non-URL4
     source (spec §5.6.6). ``media_types`` maps a target to the media type
     ``fetch_ex`` reports for it. Missing keys raise
-    :class:`~url4.errors.ResolutionError`.
+    :class:`~url4.core.errors.ResolutionError`.
     """
 
     def __init__(
@@ -71,7 +71,7 @@ class StaticIOLayer:
 
     def default_route(self) -> str | None:
         """The first declared route — the engine's ``processor`` default
-        (:class:`~url4.io_layer.SupportsDefaultRoute`); ``None`` without routes."""
+        (:class:`~url4.io.layer.SupportsDefaultRoute`); ``None`` without routes."""
         return next(iter(self._routes), None)
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:

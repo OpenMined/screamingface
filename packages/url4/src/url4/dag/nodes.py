@@ -10,9 +10,9 @@ collection row, and :class:`ReduceNode` parses its reducer only when the rows
 exist.
 
 All I/O flows through ``ctx.io`` (the port); every ``$`` substitution
-reuses the pure helpers in :mod:`url4.ensemble`. Reference-edge inputs use the
+reuses the pure helpers in :mod:`url4.core.ensemble`. Reference-edge inputs use the
 ``bind:<name>`` / ``pos:<N>`` role convention — :func:`_frame` turns them into
-a :class:`~url4.context.Context` frame chained onto ``ctx.scope``.
+a :class:`~url4.core.context.Context` frame chained onto ``ctx.scope``.
 
 Terminal-state additions (spec Part A / §10): :class:`GuardNode` wraps a
 source's subtree with the per-source execution disposition (``;optional``,
@@ -86,13 +86,13 @@ def _frame(inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Context:
     return Context(bindings=bindings, parent=ctx.scope) if bindings else ctx.scope
 
 
-# The current collection row is bound into the spawned scope under this reserved
-# key rather than substituted into the expression text: a row value carrying a
+# WHY: the current collection row is bound into the spawned scope under this
+# reserved key rather than substituted into the expression text — a row value carrying a
 # stray "(" or "!" would otherwise desync the paren/intent scanners when the row
 # expression is re-compiled. The NUL prefix keeps it out of the $name namespace.
 _ITEM_KEY = "\x00item"
 
-# The default per-MapNode fan-out cap when ``;iteration.concurrency`` is not
+# WHY: the default per-MapNode fan-out cap when ``;iteration.concurrency`` is not
 # given. Without a default bound, a collection with no directive spawns one
 # concurrent sub-executor PER ROW (thousands, for a large collection) before any
 # backpressure exists — an accidental-explosion hazard against whatever backend
@@ -246,7 +246,7 @@ class RelUrlNode:
     - a relative *expression* ``/claude(context)!intent`` (``is_expr=True``) →
       a fetch of the encoded sub-request ``/claude?[params&]q=(context)!intent``,
       which the local node evaluates. ``name`` / ``weight`` come from the
-      enclosing :class:`~url4.nodes.Source` descriptor and let the ensemble
+      enclosing :class:`~url4.core.nodes.Source` descriptor and let the ensemble
       reducer format and weight this source.
     """
 
@@ -402,7 +402,7 @@ def _decode_struct_value(value: str, scope: Context, ctx: ExecutionContext) -> o
         if end >= 2 and end == len(value):
             value = value[1:-1].replace("\\'", "'").replace("\\\\", "\\")
             quoted = True
-    # A bare literal keeps its JSON scalar type (canonical JSON); a quoted value
+    # WHY: a bare literal keeps its JSON scalar type (canonical JSON); a quoted value
     # is always a string, and a value carrying a $reference stays the substituted
     # string so a resolved id like "007" is never silently renumbered to 7.
     if not quoted and "$" not in value:
@@ -692,7 +692,7 @@ class MergeNode:
         source = _as_text(inputs["source"])
         scope = Context(bindings={"current": source}, parent=ctx.scope)
         if self.intent_template is not None:
-            # _substitute (not bare substitute_env_vars) so a broadcast intent
+            # WHY: _substitute (not bare substitute_env_vars) so a broadcast intent
             # nested inside an iteration resolves $item too, exactly as the
             # non-broadcast ProcessNode path does — $current still resolves via
             # the substitute_env_vars pass _substitute ends with.
@@ -770,7 +770,7 @@ class FanoutReduceNode:
 
     The N sources (each a relative expression, ``call:i``) resolve in parallel;
     ``meta[i]`` carries the i-th one's ``(name, weight)`` label. The formatted
-    reducer input (:func:`~url4.ensemble.build_reducer_input`) is then fetched
+    reducer input (:func:`~url4.core.ensemble.build_reducer_input`) is then fetched
     from the configured ``ctx.processor`` route as ``processor?q=()!<input>`` —
     the reduce step is itself a localhost fetch. A failed optional call is
     excluded from the reducer input (it is not a resolved response).
@@ -797,7 +797,7 @@ class FanoutReduceNode:
                 "a route/endpoint on the node"
             )
         # §27.3: the processor may be an id, a URI, a route path, or an
-        # expression that computes one — url4.processor owns that classification.
+        # expression that computes one — url4.dag.processor owns that classification.
         scope = _frame(inputs, ctx)
         base, relative = await resolve_processor_target(
             ctx.processor, io=ctx.io, spawn=lambda text: ctx.spawn(text, scope)
@@ -874,7 +874,7 @@ class MapNode:
         return [task.result() for task in tasks]
 
     async def _row(self, item: str, sem: asyncio.Semaphore | None, ctx: ExecutionContext) -> str:
-        # The body is spawned verbatim (with $item still in it) and the row is
+        # WHY: the body is spawned verbatim (with $item still in it) and the row is
         # bound into scope, so arbitrary row data never enters the re-parse.
         scope = Context(bindings={_ITEM_KEY: item}, parent=ctx.scope)
         expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
@@ -935,7 +935,7 @@ class ReduceNode:
 
     async def _dispatch(self, expr: AstRelExpr, array_json: str, ctx: ExecutionContext) -> str:
         context = substitute_env_vars(expr.context or "", ctx.scope, strict=ctx.strict_fields)
-        # array_json is the row data, not a template: pass it through verbatim.
+        # WHY: array_json is the row data, not a template: pass it through verbatim.
         # Running $-substitution over it would collapse a row's literal "$$" or
         # replace a "$1" that happens to match an in-scope binding — corrupting
         # the very data the reducer is meant to see. encode_subrequest wire-escapes

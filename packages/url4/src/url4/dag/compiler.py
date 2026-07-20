@@ -2,7 +2,7 @@
 
 Hybrid laziness: only the *top-level* structure is decoded eagerly — the
 intent/params/iteration envelope (reusing the depth/quote-aware scanners from
-:mod:`url4.parser`, in :func:`~url4.parser.build`'s exact order, which is what
+:mod:`url4.core.parser`, in :func:`~url4.core.parser.build`'s exact order, which is what
 preserves its pinned quirks) plus a per-segment classification. Non-group
 segments are parsed with the recursive-descent grammar and lowered to typed
 nodes; a group-shaped segment defers its inner text into a
@@ -22,7 +22,7 @@ reference engine's two-phase list resolution:
 Named slots therefore never depend on unnamed sources and named→named edges
 are strictly left-to-right, so compiled graphs are cycle-free by construction.
 
-Descriptor lowering (spec §4.3): a :class:`~url4.nodes.Source` wrapper lowers
+Descriptor lowering (spec §4.3): a :class:`~url4.core.nodes.Source` wrapper lowers
 its value, pushes the attribution label into the fan-out metadata, then wraps
 outward — :class:`~url4.dag.nodes.ExpandNode` for ``;expand``/``*source``,
 :class:`~url4.dag.nodes.GuardNode` for ``;optional``/``;t=``/``;retry=``. A
@@ -141,7 +141,7 @@ def _lower_url(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
 
 def _lower_relurl(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     assert isinstance(node, RelUrl)
-    # A bare relative URI may embed dot-path refs (/data/$topic, spec §8.2.3),
+    # WHY: a bare relative URI may embed dot-path refs (/data/$topic, spec §8.2.3),
     # so its sibling-binding edges must reach the node's scope frame — the same
     # deps every other substituting leaf (_lower_text/_lower_struct) carries.
     return RelUrlNode(node.value, deps=dict(edges))
@@ -240,7 +240,7 @@ def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> Da
 def _lower_collection(node: Node, registry: LoweringRegistry) -> DagNode:
     """Lower an iteration's collection source (spec §5.3.7 / §5.3.11).
 
-    A bare parenthesized group ``(e1, …)`` — an :class:`~url4.nodes.Expression`
+    A bare parenthesized group ``(e1, …)`` — an :class:`~url4.core.nodes.Expression`
     with no top-level intent — is an *inline* collection: its authored elements
     are lowered as a real ordered list (:class:`~url4.dag.nodes.InlineCollectionNode`),
     not gathered-to-text and re-sniffed, so one-element inline collections
@@ -695,9 +695,9 @@ def _compile_group_text(
 
 
 def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool = False) -> DagNode:
-    """Lower the decoded surface envelope — the lazy twin of :func:`url4.parser.build`.
+    """Lower the decoded surface envelope — the lazy twin of :func:`url4.core.parser.build`.
 
-    Both consume the same :func:`~url4.parser.decode_envelope`, so the two paths
+    Both consume the same :func:`~url4.core.parser.decode_envelope`, so the two paths
     cannot diverge; they differ only in what each terminal produces (a lazy DAG
     here, an eager AST in ``build``).
 
@@ -781,7 +781,7 @@ class Graph:
     def validate(self) -> None:
         """Force full expansion of every lazy fragment, for fail-fast linting.
 
-        Raises :class:`~url4.errors.ParseError` on the first malformed deferred
+        Raises :class:`~url4.core.errors.ParseError` on the first malformed deferred
         fragment (lazy sub-expressions and reducers; MapNode row bodies cannot
         be validated without ``$item`` data).
         """

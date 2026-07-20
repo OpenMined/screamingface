@@ -24,9 +24,9 @@ Two optional capability protocols widen the port without breaking old adapters:
 The batteries-included adapters live in their own modules so importing the port
 never pulls one in:
 
-- :class:`~url4.io_static.StaticIOLayer` — in-memory, no network, deterministic;
+- :class:`~url4.io.static.StaticIOLayer` — in-memory, no network, deterministic;
   the default for tests.
-- :class:`~url4.io_http.HttpIOLayer` — httpx ``GET`` adapter; what
+- :class:`~url4.io.http.HttpIOLayer` — httpx ``GET`` adapter; what
   :func:`~url4.run` uses when no layer is supplied.
 
 :func:`parse_collection` turns fetched text into iterable items for the ``*``
@@ -115,7 +115,7 @@ class SupportsProcessorRoutes(Protocol):
     """Optional adapter capability: the processor routes this world declares.
 
     A `processor=` id (§27.3 Form 1) names one of these. The adapter only
-    DECLARES what it has; the matching rule lives in :mod:`url4.processor` so it
+    DECLARES what it has; the matching rule lives in :mod:`url4.dag.processor` so it
     has one definition rather than one per adapter. Adapters with no route
     registry simply don't implement this, and a bare id then cannot resolve.
     """
@@ -245,7 +245,7 @@ def _declared_ndjson(body: str) -> list[str]:
 
 
 def _declared_csv(body: str, delimiter: str = ",") -> list[str]:
-    # A declared table is trusted: no header heuristics, rows as JSON objects.
+    # WHY: a declared table is trusted — no header heuristics, rows as JSON objects.
     try:
         rows = list(csv.DictReader(io.StringIO(body), delimiter=delimiter))
     except csv.Error as exc:

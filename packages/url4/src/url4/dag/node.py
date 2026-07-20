@@ -6,7 +6,7 @@ executor can all depend on it without cycles.
 
 Design notes
 ------------
-- **Expression-problem flip.** The parse tree (:mod:`url4.nodes`) is a closed
+- **Expression-problem flip.** The parse tree (:mod:`url4.core.nodes`) is a closed
   union of pure-data nodes with external operations. DAG nodes invert that:
   behavior lives ON the node (``resolve``), so the node set is *open* — any
   object satisfying :class:`DagNode` executes, which is what custom-node
@@ -17,7 +17,7 @@ Design notes
   Scheduling policy (memoization, parallelism, cancellation) lives entirely in
   the executor, and nodes stay pure and unit-testable with a plain dict. The
   one capability a node reaches for is I/O, via ``ctx.io`` (the injected
-  :class:`~url4.io_layer.IOLayer` port).
+  :class:`~url4.io.layer.IOLayer` port).
 - **Payloads are strings** at every language-level boundary. ``list[str]`` is
   an internal contract between the multi-valued producers
   (:class:`~url4.dag.nodes.MapNode` rows, :class:`~url4.dag.nodes.ExpandNode`
@@ -94,7 +94,7 @@ class _ErrorTally:
         self.count = 0
 
 
-# The default run-wide fan-out cap (see BoundedIOLayer below). Without it, a
+# WHY: the default run-wide fan-out cap (see BoundedIOLayer below). Without it, a
 # bare fan-out group, a FanoutReduceNode's parallel calls, or the aggregate of
 # many MapNode rows each issue unboundedly many concurrent ctx.io.fetch calls,
 # with only an IOLayer's own (possibly nonexistent) backstop — httpx's
@@ -106,7 +106,7 @@ DEFAULT_RUN_CONCURRENCY = 32
 
 
 class BoundedIOLayer:
-    """Wraps an :class:`~url4.io_layer.IOLayer` with a semaphore-bounded ``fetch``.
+    """Wraps an :class:`~url4.io.layer.IOLayer` with a semaphore-bounded ``fetch``.
 
     This is the run-wide admission-control gate: the semaphore is acquired
     only around the inner ``fetch`` call itself — never across substitution,
@@ -125,7 +125,7 @@ class BoundedIOLayer:
     the wrapped adapter's capabilities, never more.
     """
 
-    # Conditionally bound in __init__ (annotation only — no class attribute, so
+    # WHY: conditionally bound in __init__ (annotation only — no class attribute, so
     # hasattr/isinstance stay false when the inner adapter lacks the port).
     fetch_ex: Callable[[FetchRequest], Awaitable[FetchResult]]
     fetch_holdings: Callable[[str | None, str | None], Awaitable[str]]
@@ -166,10 +166,10 @@ def _declared_default_route(io: IOLayer) -> str | None:
 class ExecutionContext:
     """Per-run capabilities handed to every ``resolve`` call.
 
-    Carries the :class:`~url4.io_layer.IOLayer` port ``io`` (all I/O flows
+    Carries the :class:`~url4.io.layer.IOLayer` port ``io`` (all I/O flows
     through it), the reducer ``processor`` path (unset, it resolves to the io
     world's first declared route via
-    :class:`~url4.io_layer.SupportsDefaultRoute`), the lexical ``scope`` for
+    :class:`~url4.io.layer.SupportsDefaultRoute`), the lexical ``scope`` for
     ``$name`` fallback in dynamically spawned fragments, the overridable
     ``process`` merge hook, ``strict_fields`` (the spec §5.3.4.1 field-path
     error mode: lenient/LLM by default, strict/RDS when True), and two
@@ -203,8 +203,8 @@ class ExecutionContext:
         self.io = io
         # The self-holdings collection for THIS run — spec §5.6.3.1: "a path
         # qualifier after the endpoint selects which collection `@` refers to".
-        # It lives here, not on the node, because a node serves concurrent
-        # requests: per-request state on a shared node would race.
+        # WHY: it lives here, not on the node, because a node serves concurrent
+        # requests — per-request state on a shared node would race.
         self.self_collection = self_collection
         # WHY: no hardcoded processor route in the core — unset resolves to the
         # io world's first declared route (SupportsDefaultRoute), or stays None
@@ -258,7 +258,7 @@ def first_error(group: BaseExceptionGroup) -> BaseException | None:
     """The first non-cancellation leaf of an exception group, or ``None``.
 
     TaskGroup failures arrive as (possibly nested) groups; url4 callers catch
-    plain :class:`~url4.errors.Url4Error` subclasses, so the executor and
+    plain :class:`~url4.core.errors.Url4Error` subclasses, so the executor and
     MapNode unwrap with this before re-raising.
     """
     for exc in group.exceptions:

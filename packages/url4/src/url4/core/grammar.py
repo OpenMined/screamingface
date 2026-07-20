@@ -2,9 +2,9 @@
 
 This module owns the low-level :func:`parse`. It parses a *source expression* —
 the part to the left of a top-level ``!`` — into the typed AST in
-:mod:`url4.nodes`. The top-level ``!intent`` split, the ``;`` expression-param
+:mod:`url4.core.nodes`. The top-level ``!intent`` split, the ``;`` expression-param
 envelope, and the top-level ``src*(body)`` iteration split are handled one
-level up in :mod:`url4.parser` / :mod:`url4.dag.compiler`.
+level up in :mod:`url4.core.parser` / :mod:`url4.dag.compiler`.
 
 Why recursive descent rather than a PEG: the spec's parsing rules are
 procedural and *committing*. The §4.1.1.4 structured-value classifier commits
@@ -14,15 +14,15 @@ exact positions (§5.3.3); and canonical-form detection scans for ``q=(`` with
 an explicit rewind rule (§5.2 rule 16). Ordered-choice PEG backtracking cannot
 express commitment, so the spec's numbered rules are implemented directly —
 one small function per rule — on top of the depth/quote-aware scanners in
-:mod:`url4._scan`.
+:mod:`url4.core._scan`.
 
 Layering: descriptor decoding (§4.3) wraps value detection (§5.2). A source
 token is first split on depth-0 ``;`` (the execution chain), the head is
 classified as a bare value / ``name=`` sugar / attribution chain, and the
 trailing annotations are routed by the §8.1.2 boundary algorithm — expression
-params onto :class:`~url4.nodes.RelExpr` / :class:`~url4.nodes.RemoteExpr` /
-:class:`~url4.nodes.Expression`, everything else onto the
-:class:`~url4.nodes.Source` wrapper.
+params onto :class:`~url4.core.nodes.RelExpr` / :class:`~url4.core.nodes.RemoteExpr` /
+:class:`~url4.core.nodes.Expression`, everything else onto the
+:class:`~url4.core.nodes.Source` wrapper.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ _VARREF_HEAD_RE = re.compile(r"\$([A-Za-z_]\w*|\d+)", re.ASCII)
 _FIELD_SEG_RE = re.compile(r"[A-Za-z_]\w*", re.ASCII)
 # path-segment (§ identity-collection) — the ABNF's explicit character class.
 _PATH_SEGMENT_RE = re.compile(r"[A-Za-z0-9\-_.~:@!$&+=]+", re.ASCII)
-# budget-key = 1*( ALPHA / "_" ) — digits are deliberately excluded.
+# INVARIANT: budget-key = 1*( ALPHA / "_" ) — digits are deliberately excluded.
 _BUDGET_KEY_RE = re.compile(r"[A-Za-z_]+", re.ASCII)
 # scalar-budget-value = 1*( ALPHA / DIGIT / "." / "-" / "_" )
 _SCALAR_BUDGET_RE = re.compile(r"[A-Za-z0-9.\-_]+", re.ASCII)
@@ -84,19 +84,21 @@ _STRUCT_TOKEN_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 
 # §8 `path = segment *( "/" segment )`, `segment = *( ALPHA / DIGIT / "-" /
 # "_" / "." / "~" )` — the NARROW charset, for expression-bearing paths
-# (relative-expr / remote-expr). `render._check_path` reads this same pattern,
-# which is what keeps parse and render from drifting (`OME-507`).
+# (relative-expr / remote-expr).
+# WHY: `render._check_path` reads this same pattern — keeps parse and render
+# from drifting (`OME-507`).
 _PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~]*)+", re.ASCII)
 
-# `relative-uri`'s `path-segment` — the WIDE charset. It admits "$", which is
-# what makes a variable-bearing data reference like `/data/$topic` legal. A
-# data path is a DIFFERENT production from an expression path; narrowing it to
-# match would break those references.
+# `relative-uri`'s `path-segment` — the WIDE charset.
+# WHY: it admits "$", which is what makes a variable-bearing data reference like
+# `/data/$topic` legal. A data path is a DIFFERENT production from an expression
+# path; narrowing it to match would break those references.
 _DATA_PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~:@!$&+=]+)+", re.ASCII)
 
-# `port = 1*DIGIT`. `host = hostname / IPv4address` is deliberately NOT
-# validated: the grammar defines neither `hostname` nor `IPv4address`, so a
-# charset here would be asserting a rule the spec does not state.
+# `port = 1*DIGIT`.
+# WHY: `host = hostname / IPv4address` is deliberately NOT validated — the grammar
+# defines neither `hostname` nor `IPv4address`, so a charset here would assert a
+# rule the spec does not state.
 _PORT_RE = re.compile(r"[0-9]+", re.ASCII)
 
 
@@ -123,7 +125,7 @@ def _check_data_path(token: str) -> None:
 def parse(text: str) -> Node:
     """Parse a url4 source expression into a typed AST node.
 
-    Raises :class:`~url4.errors.ParseError` (code ``malformed_source``) if the
+    Raises :class:`~url4.core.errors.ParseError` (code ``malformed_source``) if the
     text is not valid url4.
     """
     stripped = text.strip()
@@ -642,7 +644,7 @@ def _find_expression_param(token: str, qmark: int) -> int | None:
     """The offset of ``q=(`` as a query parameter after ``qmark``, or None.
 
     # INVARIANT: ``&`` separates query parameters only at depth 0 outside
-    # quotes — the same rule :func:`url4.subrequest.extract_expression_params`
+    # quotes — the same rule :func:`url4.core.subrequest.extract_expression_params`
     # applies on the wire. A quote-only scan mistook an ``&`` nested inside a
     # parenthesized expression-bearing value (``processor=(/x?a=1&b=2&q=(y)!z)``)
     # for a parameter boundary and locked onto the INNER ``q=(`` (`OME-501`).
@@ -921,13 +923,13 @@ _INTENT_VALUE_HEADS = frozenset("({@")
 def intent_atom(intent: str) -> Node:
     """Classify a raw intent string into an AST node (§6).
 
-    Quoted → :class:`~url4.nodes.Text` content (quotes are delimiters);
-    ``/path`` → :class:`~url4.nodes.RelUrl` (the fan-out reducer route form,
-    ``!/reduce()``); any ``scheme://…`` → :class:`~url4.nodes.Url`. Otherwise
+    Quoted → :class:`~url4.core.nodes.Text` content (quotes are delimiters);
+    ``/path`` → :class:`~url4.core.nodes.RelUrl` (the fan-out reducer route form,
+    ``!/reduce()``); any ``scheme://…`` → :class:`~url4.core.nodes.Url`. Otherwise
     ``intent = value`` applies and the token runs through full value detection,
     so a nested expression, an iteration, a struct object or a self/identity ref
     keeps its structure. Anything else is natural-language
-    :class:`~url4.nodes.Text`.
+    :class:`~url4.core.nodes.Text`.
 
     # WHY value detection matters here: the DAG compiler dispatches lowering by
     # node type, so an intent flattened to `Text` is never compiled into a

@@ -9,7 +9,7 @@ Tasks live in one :class:`asyncio.TaskGroup`: the first failure cancels every
 in-flight sibling (a deliberate improvement over the reference engine's bare
 ``gather``, which left siblings running). The group's ``ExceptionGroup`` is
 unwrapped back to the first real error so callers keep catching plain
-:class:`~url4.errors.Url4Error` subclasses.
+:class:`~url4.core.errors.Url4Error` subclasses.
 
 Dependency tasks are created (scheduled) in ``deps`` insertion order, which
 keeps *dispatch* deterministic — the sequence of ``create_task`` calls. That is
@@ -155,8 +155,8 @@ class Executor:
 
     async def _run(self, node: DagNode) -> Payload:
         assert self._tg is not None
-        # Check-then-act on ``_memo`` is safe ONLY because there is no ``await``
-        # between the ``.get()`` and the store below: ``create_task`` schedules
+        # INVARIANT: check-then-act on ``_memo`` is safe ONLY because there is no
+        # ``await`` between the ``.get()`` and the store below: ``create_task`` schedules
         # without yielding, so on this single-threaded loop the whole block is an
         # atomic critical section. Two parents of a diamond dependency can both
         # call ``_run(shared_child)`` "concurrently", but never interleave here.
@@ -202,13 +202,13 @@ def _wire_spawn(ctx: ExecutionContext, registry: LoweringRegistry | None) -> Non
     async def spawn(text: str, scope: Context) -> str:
         graph = compiled.get(text)
         if graph is None:
-            # Safe under concurrent rows: ``compile_expression`` is synchronous
-            # (no ``await``), so the get → compile → store is an atomic critical
-            # section on this single-threaded loop — the second row to reach the
-            # same text always hits the cache (mirrors the ``_memo`` invariant
+            # INVARIANT: safe under concurrent rows — ``compile_expression`` is
+            # synchronous (no ``await``), so the get → compile → store is an atomic
+            # critical section on this single-threaded loop — the second row to reach
+            # the same text always hits the cache (mirrors the ``_memo`` invariant
             # in ``_run``). A duplicate compile would only be wasted work anyway
             # (same text → an equivalent graph), never a correctness bug.
-            # bare_root_ok: spawn is the ENGINE's boundary — its texts are
+            # AIDEV-NOTE: bare_root_ok — spawn is the ENGINE's boundary; its texts are
             # engine-authored wrappers (a map row's "(body)", a deferred
             # collection) whose intent is held outside the text (`OME-508`).
             # User bare groups never reach here: every user entry
@@ -259,17 +259,17 @@ async def run(
 ) -> str:
     """Evaluate a url4 expression (text, parse tree, graph, or node) to a string.
 
-    ``io`` is the :class:`~url4.io_layer.IOLayer` performing fetches and backend
-    calls; it defaults to a batteries-included :class:`~url4.io_http.HttpIOLayer`
-    (httpx GET). Pass a :class:`~url4.io_static.StaticIOLayer` for deterministic,
+    ``io`` is the :class:`~url4.io.layer.IOLayer` performing fetches and backend
+    calls; it defaults to a batteries-included :class:`~url4.io.http.HttpIOLayer`
+    (httpx GET). Pass a :class:`~url4.io.static.StaticIOLayer` for deterministic,
     network-free runs. Pass an explicit ``ctx`` instead to inspect per-run state
     afterwards (e.g. ``ctx.collected_errors``).
 
     ``processor`` is the route a fan-out reduce dispatches to. Unset, it
     resolves to the io world's first declared route
-    (:class:`~url4.io_layer.SupportsDefaultRoute`) — the core hardcodes no
+    (:class:`~url4.io.layer.SupportsDefaultRoute`) — the core hardcodes no
     route names; with neither, a reduce raises a clear
-    :class:`~url4.errors.ResolutionError`.
+    :class:`~url4.core.errors.ResolutionError`.
 
     When ``ctx`` is supplied, ``io``/``processor``/``process`` must be left at
     their defaults — the ctx already carries them, and combining both is
@@ -293,7 +293,7 @@ async def run(
     ``strict_fields`` selects the spec §5.3.4.1 field-path error mode: the
     default (False) is the lenient LLM mode — a missing field / bad index
     substitutes ``""``; True is the strict RDS mode — it raises
-    :class:`~url4.errors.ScopeError` with code ``malformed_source``. With a
+    :class:`~url4.core.errors.ScopeError` with code ``malformed_source``. With a
     supplied ``ctx``, ``strict_fields=True`` tightens the run; the ctx's own
     mode otherwise applies.
     """

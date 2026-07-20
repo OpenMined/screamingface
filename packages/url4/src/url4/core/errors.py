@@ -99,7 +99,7 @@ class CycleError(Url4Error):
 class RenderError(Url4Error):
     """An AST node cannot be rendered as url4 text that reparses to itself.
 
-    Raised by :func:`url4.render.render` for values the grammar cannot carry
+    Raised by :func:`url4.core.render.render` for values the grammar cannot carry
     (a bare URI with unbalanced parens or depth-0 separators, a negative
     weight, over-deep structured annotations) and for node shapes whose
     rendered form would reparse differently (spec §8.1.2 boundary hazards,

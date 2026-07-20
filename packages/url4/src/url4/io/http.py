@@ -1,4 +1,4 @@
-"""The httpx-backed :class:`~url4.io_layer.IOLayer` adapter (the ``run`` default).
+"""The httpx-backed :class:`~url4.io.layer.IOLayer` adapter (the ``run`` default).
 
 The only module in the package that imports httpx. It owns a single, lazily
 created :class:`httpx.AsyncClient` so the many fetches of one expression (a
@@ -15,7 +15,7 @@ from url4.io.layer import FetchRequest, FetchResult
 
 
 class HttpIOLayer:
-    """A batteries-included :class:`~url4.io_layer.IOLayer` over httpx.
+    """A batteries-included :class:`~url4.io.layer.IOLayer` over httpx.
 
     :meth:`fetch` issues ``GET target`` (or ``GET base_url + target`` for a
     relative ``/path``) and returns the response body. A relative expression
@@ -32,7 +32,7 @@ class HttpIOLayer:
     release it; :func:`~url4.run` closes the default adapter it creates. Pass
     your own ``client`` to control pooling, auth, or to inject a test transport —
     an injected client is used as-is and never closed here. Any HTTP failure
-    surfaces as :class:`~url4.errors.ResolutionError`.
+    surfaces as :class:`~url4.core.errors.ResolutionError`.
     """
 
     def __init__(
@@ -78,7 +78,7 @@ class HttpIOLayer:
             response = await self._get_client().get(url)
             response.raise_for_status()
         except (httpx.HTTPError, httpx.InvalidURL) as exc:
-            # httpx.InvalidURL is not an HTTPError subclass; catch it too so a
+            # WHY: httpx.InvalidURL is not an HTTPError subclass; catch it too so a
             # malformed target (e.g. control chars in a reducer query) still
             # surfaces as ResolutionError rather than a raw httpx exception.
             raise ResolutionError(f"GET {url!r} failed: {exc}") from exc

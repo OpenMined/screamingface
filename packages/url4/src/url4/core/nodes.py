@@ -39,7 +39,7 @@ the packed sources and is referenceable by name.
 
 Deliberately absent: there is no structural node for *embedded* ``$name`` /
 ``$N`` references inside text — those are resolved by string interpolation at
-evaluation time (spec §8.2; see :mod:`url4.ensemble`). Only a *standalone*
+evaluation time (spec §8.2; see :mod:`url4.core.ensemble`). Only a *standalone*
 reference in a value position parses structurally, as :class:`VarRef`.
 """
 
@@ -82,7 +82,7 @@ class RelUrl:
 class Binding:
     """A name-only descriptor: ``name=value`` (``kind="="``) or ``name:value``.
 
-    The bound value is registered in the evaluation :class:`~url4.context.Context`
+    The bound value is registered in the evaluation :class:`~url4.core.context.Context`
     so sibling sources and the intent can read it back via ``$name``. ``kind``
     records the surface form for faithful round-tripping and error messages.
     """

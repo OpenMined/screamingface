@@ -5,8 +5,8 @@ and ``{``/``}`` nesting plus ``'…'`` quote runs (``\\'`` and ``\\\\`` escapes
 honored), so callers can find balanced spans or the characters that sit outside
 all nesting — spec §8 parse rule 8: only separators at depth 0 outside quotes
 are structural. Kept as a dependency-free leaf (imports nothing internal) so
-the parser envelope-decoders (:mod:`url4.parser`), the grammar
-(:mod:`url4.grammar`), and the sub-request codec (:mod:`url4.subrequest`) share
+the parser envelope-decoders (:mod:`url4.core.parser`), the grammar
+(:mod:`url4.core.grammar`), and the sub-request codec (:mod:`url4.core.subrequest`) share
 one implementation instead of each carrying their own copy.
 """
 

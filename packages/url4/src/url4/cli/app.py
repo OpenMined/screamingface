@@ -1,10 +1,10 @@
 """Command-line entry point for the url4 node server (``url4`` console script).
 
-``url4 serve`` stands up the engine as an HTTP node (assembly in :mod:`url4._serve`);
+``url4 serve`` stands up the engine as an HTTP node (assembly in :mod:`url4.cli._serve`);
 ``url4 eval`` evaluates one expression network-free. This module is kept free of any
 web framework at import time so ``url4 --version`` and ``url4 eval`` work on the base
 install — uvicorn (the ``url4[server]`` extra) is imported only when serving, and the
-serve assembly (:mod:`url4._serve`) is imported lazily inside :func:`_run_serve`.
+serve assembly (:mod:`url4.cli._serve`) is imported lazily inside :func:`_run_serve`.
 
 # STORY: as an operator, I run `url4 serve` to expose the url4 engine over HTTP with my
 # own [commands] backends (my gateway script is just another command), and

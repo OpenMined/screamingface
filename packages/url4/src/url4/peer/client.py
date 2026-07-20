@@ -1,8 +1,8 @@
 """The requestor facade — :class:`Client` and the :class:`Url4Result` envelope.
 
 One execution path serves local and remote queries alike: helper methods build
-an AST via :mod:`url4.builders`, a node target (when set) wraps it into a
-:class:`~url4.nodes.RemoteExpr` — so the wire hop is just another DAG node —
+an AST via :mod:`url4.core.builders`, a node target (when set) wraps it into a
+:class:`~url4.core.nodes.RemoteExpr` — so the wire hop is just another DAG node —
 the tree renders to canonical text, and :func:`url4.dag.run` executes it. The
 rendered string is returned as :attr:`Url4Result.request`: the loggable,
 shareable, re-runnable audit artifact the protocol is built around (spec §1.2).
@@ -20,7 +20,7 @@ Remote encodings (all reparse-verified by the renderer):
 
 Known grammar limit: multi-valued params (``triggers=1,2``) cannot ride a
 *nested* remote expression — a depth-0 comma would split the enclosing source
-list — so they raise :class:`~url4.errors.RenderError` on remote queries;
+list — so they raise :class:`~url4.core.errors.RenderError` on remote queries;
 local (top-level) queries carry them fine.
 
 Deliberately absent: a module-level async ``query()`` — a global async client
@@ -105,7 +105,7 @@ class Url4Result:
 class Client:
     """The requestor-side entry point for evaluating url4 expressions.
 
-    ``io`` is the outbound :class:`~url4.io_layer.IOLayer` — or, string-first,
+    ``io`` is the outbound :class:`~url4.io.layer.IOLayer` — or, string-first,
     a node target: ``Client("url4://host/v1")`` is ``Client(node=...)`` with
     an owned httpx adapter. With ``io`` omitted, that adapter is created
     lazily and owned (closed by :meth:`aclose` / ``async with``). ``node``
@@ -113,7 +113,7 @@ class Client:
     without one, expressions evaluate locally against ``io``. ``processor``
     is the endpoint local intent execution dispatches to (spec: the node's
     intent processor) — unset, it resolves to the io world's first declared
-    route (:class:`~url4.io_layer.SupportsDefaultRoute`); ``process_fn`` is
+    route (:class:`~url4.io.layer.SupportsDefaultRoute`); ``process_fn`` is
     the callable that executes it.
     """
 
@@ -346,7 +346,7 @@ def _with_params(root: Expression | Iteration, params: Params) -> Expression | I
     if not params:
         return root
     if isinstance(root, Iteration):
-        # The iteration envelope has no params slot: "coll*(b)!i;quorum=2" would
+        # WHY: the iteration envelope has no params slot: "coll*(b)!i;quorum=2" would
         # silently DROP quorum on decode (IterationEnvelope keeps directives only).
         raise ValueError(
             "protocol params cannot ride a local iteration — the envelope decode "

@@ -2,14 +2,14 @@
 
 A url4 relative expression ``/path(context)!intent`` is dispatched as a
 localhost fetch of ``/path?[params&]q=(context)!intent`` (there is no separate
-"backend call" primitive — see :mod:`url4.io_layer`). This module is the single
+"backend call" primitive — see :mod:`url4.io.layer`). This module is the single
 owner of that encoding: the executable nodes in :mod:`url4.dag.nodes` build
 sub-requests with :func:`encode_subrequest`, and
-:class:`~url4.io_layer.StaticIOLayer` decodes the ``?q=`` payload back with
+:class:`~url4.io.layer.StaticIOLayer` decodes the ``?q=`` payload back with
 :func:`decode_subrequest`. :func:`extract_expression_params` is the spec §3.3.1
 depth-aware query-string splitter a receiving node runs first. Keeping all
 sides here means the wire format has exactly one definition, and the balanced
-paren scan it needs is reused from :mod:`url4._scan` rather than re-derived.
+paren scan it needs is reused from :mod:`url4.core._scan` rather than re-derived.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ _EXPRESSION_BEARING = frozenset({"q", "processor"})
 # INVARIANT (spec §11.6.3): transport-only parameters are scoped to the single
 # hop that received them and MUST NOT appear on an outbound sub-request. This
 # frozenset is the ONE definition of that rule — the HTTP ingress
-# (`url4.server._reassemble`) and the sub-request builder
+# (`url4.peer.server._reassemble`) and the sub-request builder
 # (`url4.dag.nodes._wire_params`) both consume it. They previously enforced it
 # independently, so a `resume=`/`rid=` written in expression text was stripped
 # inbound but leaked outbound (`OME-501`).
@@ -161,7 +161,7 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
     the expression-bearing value.
 
     ``q=`` closes the query string (`OME-507`): a depth-0 parameter after it
-    raises :class:`~url4.errors.ParseError`. A query with NO ``q=`` is not an
+    raises :class:`~url4.core.errors.ParseError`. A query with NO ``q=`` is not an
     error — that is a ``relative-uri`` data query, and the caller decides.
 
     The expression-bearing values (``q``, and ``processor`` inside the params

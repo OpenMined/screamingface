@@ -28,7 +28,7 @@ Iteration (``src*(body)!intent``) resolves to a JSON array of per-row results
 (spec §5.3.8); broadcast (``!*``) to a JSON array of per-source result objects
 (spec §6.1.4).
 
-SDK facades — build expressions in Python (:mod:`url4.builders`), print them
+SDK facades — build expressions in Python (:mod:`url4.core.builders`), print them
 canonically (:func:`render`, the certified inverse of :func:`build`), query as
 a requestor (:class:`Client`), or stand up a node (:class:`Url4Node`)::
 
@@ -52,7 +52,7 @@ a requestor (:class:`Client`), or stand up a node (:class:`Url4Node`)::
 
 The execution engine — DAG compilation, the executor, lowering — lives one
 level down: ``from url4.dag import compile_expression, run``; the wire codecs
-in :mod:`url4.subrequest`; scope internals in :mod:`url4.context`.
+in :mod:`url4.core.subrequest`; scope internals in :mod:`url4.core.context`.
 """
 
 from __future__ import annotations

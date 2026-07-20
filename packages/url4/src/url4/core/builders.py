@@ -1,21 +1,21 @@
 """Python constructors for url4 expressions — the builder facade.
 
-Builders lower directly to the frozen AST in :mod:`url4.nodes` (no parallel
+Builders lower directly to the frozen AST in :mod:`url4.core.nodes` (no parallel
 representation) and normalize exactly the way the parser does, so Python-side
 construction and text-side parsing can never disagree:
 
 - a **string source** goes through the full descriptor grammar
-  (:func:`url4.grammar.parse`): ``"article:0.9:https://x"`` builds a weighted
+  (:func:`url4.core.grammar.parse`): ``"article:0.9:https://x"`` builds a weighted
   Source, ``"(a)!'go'"`` a nested expression;
 - a **string value** (the ``value`` argument of :func:`src`) goes through §5.2
-  value detection (:func:`url4.grammar.parse_value`): a URL is a Url, ``@`` a
+  value detection (:func:`url4.core.grammar.parse_value`): a URL is a Url, ``@`` a
   SelfRef, a plain word a Text — never re-read as an attribution chain;
 - a **mapping** becomes an inline ``{…}`` structured object (§5.3.11.3);
-- :func:`src` with only a name yields :class:`~url4.nodes.Binding`, with no
+- :func:`src` with only a name yields :class:`~url4.core.nodes.Binding`, with no
   descriptor at all the bare value node — mirroring the parser (§4.3).
 
 INVARIANT: every node a builder returns is accepted by
-:func:`url4.render.render` (whose default ``check=True`` certifies the text
+:func:`url4.core.render.render` (whose default ``check=True`` certifies the text
 round-trip). Shapes the grammar cannot carry are rewritten when a faithful
 equivalent exists — a reduce-over-iteration source becomes its explicit
 ``(iteration)!reducer`` group, a bare iteration source in an intent-bearing

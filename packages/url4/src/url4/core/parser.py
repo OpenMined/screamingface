@@ -5,7 +5,7 @@ Two layers live here:
 1. :class:`Parser` — the public facade over the grammar. ``build(text)``
    splits the top-level intent, decodes the trailing ``;`` expression params,
    parses the source group, and returns a single unified
-   :class:`~url4.nodes.Expression` (or :class:`~url4.nodes.Iteration`) root.
+   :class:`~url4.core.nodes.Expression` (or :class:`~url4.core.nodes.Iteration`) root.
    ``walk(node)`` traverses it.
 
 2. String decoders (:func:`split_intent`, :func:`split_expr_params`,
@@ -123,7 +123,7 @@ def split_expr_params(expr: str) -> tuple[str, Params, IterationDirectives]:
 
     Returns ``(clean_expr, params, directives)``: the ``iteration.*`` keys
     (§5.3.6; deprecated ``foreach.*`` spellings warn) decode into
-    :class:`~url4.nodes.IterationDirectives`, every other key is preserved
+    :class:`~url4.core.nodes.IterationDirectives`, every other key is preserved
     verbatim in ``params`` (flags carry a None value).
     """
     parts = _split_top_level(expr, ";")
@@ -409,8 +409,8 @@ def build(text: str) -> Node:
     Decodes the surface envelope (:func:`decode_envelope`) — the top-level
     ``!intent``, the ``;`` expression params, and the ``src*(body)`` iteration
     syntax — and eagerly parses the rest into a single parse-tree root: an
-    :class:`~url4.nodes.Iteration` for the iteration forms, an
-    :class:`~url4.nodes.Expression` otherwise. The DAG compiler accepts either
+    :class:`~url4.core.nodes.Iteration` for the iteration forms, an
+    :class:`~url4.core.nodes.Expression` otherwise. The DAG compiler accepts either
     surface text or this tree (see :func:`url4.dag.compile_expression`).
     """
     env = decode_envelope(text)
@@ -426,7 +426,7 @@ def build(text: str) -> Node:
 
 
 def walk(node: Node) -> Iterator[Node]:
-    """Yield ``node`` and every descendant in preorder. See :func:`url4.nodes.walk`."""
+    """Yield ``node`` and every descendant in preorder. See :func:`url4.core.nodes.walk`."""
     yield from _walk(node)
 
 
@@ -434,8 +434,8 @@ class Parser:
     """Facade over the url4 grammar. Stateless; safe to reuse or re-instantiate."""
 
     def build(self, text: str) -> Node:
-        """Parse ``text`` into its AST root (an :class:`~url4.nodes.Expression`
-        or, for the ``src*(body)`` forms, an :class:`~url4.nodes.Iteration`)."""
+        """Parse ``text`` into its AST root (an :class:`~url4.core.nodes.Expression`
+        or, for the ``src*(body)`` forms, an :class:`~url4.core.nodes.Iteration`)."""
         return build(text)
 
     def walk(self, node: Node) -> Iterator[Node]:

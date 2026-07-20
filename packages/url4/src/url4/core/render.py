@@ -1,14 +1,14 @@
 """AST → canonical url4 text — the exact inverse of :func:`url4.build`.
 
 INVARIANT: for every node this module renders, ``build(render(x)) == x`` when
-``x`` is an :class:`~url4.nodes.Expression`/:class:`~url4.nodes.Iteration`
+``x`` is an :class:`~url4.core.nodes.Expression`/:class:`~url4.core.nodes.Iteration`
 root, and ``build(render(x)) == Expression(sources=(x,))`` for any other node
 (mirroring ``build()``'s envelope, which always returns one of those two
 roots). ``render(check=True)`` (the default) re-parses its own output and
 compares ASTs, so a value returned from this module is a *certified*
 round-trip — wire text can never silently drift from the tree it encodes.
 
-Values the grammar cannot carry raise :class:`~url4.errors.RenderError`
+Values the grammar cannot carry raise :class:`~url4.core.errors.RenderError`
 instead of degrading: a bare URI with a depth-0 ``, ; ! '`` or unbalanced
 parens (quoting it would change the node type to Text, spec §7.2), a negative
 weight, structured annotations deeper than two levels (§24.4.6), a nested

@@ -1,15 +1,15 @@
 """Shared ``;``-chain decoding: annotation pairs, iteration directives, and the
 §8.1.2 expression/source boundary.
 
-Both the grammar (:mod:`url4.grammar`, for ``;`` tails on individual sources)
-and the envelope decoders (:mod:`url4.parser`, for top-level trailing params)
+Both the grammar (:mod:`url4.core.grammar`, for ``;`` tails on individual sources)
+and the envelope decoders (:mod:`url4.core.parser`, for top-level trailing params)
 need the same three pieces of logic; this dependency-free leaf holds the single
 definition so the two layers cannot drift:
 
 - :func:`split_annotation_pairs` — ``;key[=value]`` chain → ordered pairs.
 - :func:`extract_directives` — pull ``iteration.*`` keys (and their deprecated
   ``foreach.*`` spellings) out of a pair list into
-  :class:`~url4.nodes.IterationDirectives`, validating values.
+  :class:`~url4.core.nodes.IterationDirectives`, validating values.
 - :func:`classify_boundary` — the §8.1.2 desugaring algorithm: expression-level
   params are consumed greedily until the first *exclusively source-level* key;
   everything from that key on is a source-level execution annotation.
@@ -62,10 +62,10 @@ _PARAM_KEY_RE = re.compile(r"[A-Za-z0-9._]+", re.ASCII)
 # values (iteration.slice=1:3, accept=application/json) fit without quoting.
 _PARAM_VALUE_RE = re.compile(r"[A-Za-z0-9.\-_,:/]+", re.ASCII)
 
-# `nested-param-value = param-value / processor-value`, and a processor-value
+# WHY: `nested-param-value = param-value / processor-value`, and a processor-value
 # may be a whole expression body — which can never satisfy param-value. These
 # keys are expression-bearing, so their values are validated by their own
-# owner (`url4.processor` for §27.3, the expression parser for `q`) rather
+# owner (`url4.dag.processor` for §27.3, the expression parser for `q`) rather
 # than by the charset here. Naming them keeps that carve-out in one place.
 EXPRESSION_BEARING_KEYS = frozenset({"q", "processor"})
 
