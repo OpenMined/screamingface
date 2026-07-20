@@ -118,6 +118,6 @@ async def test_parenthesized_single_relexpr_still_reduces() -> None:
     # list is a genuine fan-out + reduce (two calls), even for one member —
     # matching the reference engine's ``_is_fanout and raw_intent`` gate.
     resolver = RecordingIOLayer()
-    await run("(/claude(https://n))!'sum'", resolver, processor="/claude")
+    await run("(/claude(https://n)!'go')!'sum'", resolver, processor="/claude")
     paths = [target.split("?q=")[0] for target in resolver.fetches]
     assert paths == ["/claude", "/claude"]

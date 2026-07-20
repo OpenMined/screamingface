@@ -1,10 +1,15 @@
 ---
 ticket: OME-508
 stack: url4
-status: done
+status: in_progress
 started: 2026-07-20
-finished: 2026-07-20
+finished:
 ---
+
+> **Cycle 2 (reopened 2026-07-20).** Cycle 1 enforced the intent on `expression`
+> / `local-expr` / `iteration-expr` but left the OTHER two productions that
+> carry `intent-op intent` untouched — so the ticket's own acceptance ("every
+> surface entry") was not met. See "Cycle 2" below.
 
 # OME-508 — mandatory `intent-op intent` on expression groups and iteration bodies
 
@@ -131,3 +136,94 @@ Enforcement sites — the boundary, not the dataclass:
   WITHOUT `!intent` remain accepted as source values while the grammar's
   relative/remote sugar productions carry `intent-op intent`; same vein as
   the `OME-507` deferred items — candidate for that ticket's next pass.
+
+---
+
+# Cycle 2 — relative and remote expressions
+
+## Intent
+
+Four productions in the grammar carry `intent-op intent`. Cycle 1 enforced two
+(`expression` / `local-expr`) plus `iteration-expr`. The remaining two were
+missed:
+
+```
+relative-expr-canonical = "/" path "?" rel-query-params "q=" expression
+relative-expr-sugar     = "/" path "(" source-list ")" intent-op intent [ expr-params ]
+remote-expr-canonical   = "url4://" authority "/" path "?" rel-query-params "q=" expression
+remote-expr-sugar       = "url4://" authority "/" path "(" source-list ")" intent-op intent [ expr-params ]
+```
+
+The sugar forms name `intent-op intent` directly; the canonical forms inherit it
+by taking a full `expression` after `q=`. Verified missing: `(/path(ctx))!'x'`,
+`(/path?q=(ctx))!'x'`, `(url4://h/v1(ctx))!'x'`, `(url4://h/v1?q=(ctx))!'x'`
+all parse today.
+
+## Design
+
+`grammar._parse_expr_sugar` / `_parse_expr_canonical` raise `missing_intent`
+when no `!intent` follows the context. The distinction that keeps this safe:
+
+| Form | Production | Intent |
+|---|---|---|
+| `/path` (no parens, no `?q=`) | `relative-uri` | none — a DATA fetch, unchanged |
+| `/path?a=1` | `relative-uri` + `query-tail` | none — data fetch with a query, unchanged |
+| `/path(ctx)!i` | `relative-expr-sugar` | MANDATORY |
+| `/path?a=1&q=(ctx)!i` | `relative-expr-canonical` | MANDATORY |
+
+So `RelUrl` (data) is untouched; only `RelExpr`/`RemoteExpr` (expression-bearing)
+gain the requirement. The engine's own context-only sub-request
+(`encode_subrequest(path, ctx, intent=None)` → `/path?q=(ctx)`) is a WIRE
+artifact decoded by `decode_subrequest`, never re-parsed by the grammar — it is
+unaffected, and `test_relexpr_roundtrip["(/claude())!'Empty context call'"]`
+pins the empty-CONTEXT (not empty-intent) shape, which stays legal.
+
+## Planned changes
+
+- `tests/spec/test_mandatory_intent.py` — appended: rel/remote RED tests
+- `src/url4/grammar.py` — `_parse_expr_sugar` / `_parse_expr_canonical` enforcement
+- `src/url4/render.py` — `_render_target_expr` rejects an intent-less RelExpr/RemoteExpr
+- `src/url4/builders.py` — the rel/remote builders require an intent
+- prior tests using intent-less rel/remote calls: rewritten
+
+## Acceptance
+
+- [x] All four rel/remote forms reject a missing intent, nested and top-level
+- [x] `RelUrl` data fetches (`/path`, `/path?a=1`, `/data/$topic`) unchanged
+- [x] The context-only WIRE sub-request still decodes and dispatches
+- [x] `run_gates.py url4` green
+
+## Outcome
+
+- **Actual files:** `tests/spec/test_mandatory_intent_calls.py` (NEW, 28),
+  `grammar.py` (`_parse_expr_intent`), `render.py` (`_render_target_expr`), and
+  — not anticipated — `parser.py` (`_is_backend_call_tail`, see deviation 1).
+- **Gates:** ALL GREEN. Suite 941 → 969.
+- **Prior tests rewritten (9 files):** every one is the same idiom — a call
+  that omitted its intent (`/solve($item.q)`, `/reduce(all)`, `/claude(ctx)`)
+  now names one. Plus `test_value_detection.py::test_relative_expression_
+  without_intent`, whose comment asserted the opposite rule ("§5.2 rule 2.2 —
+  intent tail is optional"); it is now a rejection test.
+
+- **Deviations:**
+  1. **The envelope no longer hoists a lone call's intent** — the change this
+     cycle turned on. `split_intent("/claude(ctx)!'sum'")` used to split at the
+     depth-0 `!`, producing `RelExpr(intent=None)` + an expression-level intent.
+     That tree is now underivable AND unrenderable, so the split had to go.
+     `_is_backend_call_tail` was generalized from "a `!` right after `()`" to
+     "a `!` closing a leading call token" (`/path(…)`, `url4://auth/path(…)`),
+     which is what `grammar.parse` has always done with the same text.
+     **This removes a real duplication:** `compiler._fold_intent_into_call`
+     exists precisely to undo that disagreement between the text and AST paths;
+     the two now agree at the parse layer. (The fold is still reached for the
+     single-call GROUP shape and is left alone.)
+  2. **`!*` on a call is left as-is.** `intent-op` admits `!*` in the call
+     productions, but `RelExpr`/`RemoteExpr` carry no broadcast flag — folding
+     it in would silently drop the semantics. The `*` keeps its existing
+     reading as intent text; representing a broadcast call needs a node field.
+     Recorded as a follow-up, not smuggled in here.
+  3. **Empty source lists are still accepted** (`()!'x'`, `/p()!'i'`).
+     `source-list = source *( "," source )` requires ≥ 1 source, so strictly
+     these are underivable too — but that is a `source-list` cardinality rule,
+     not the intent rule this ticket owns. Filed separately rather than
+     widened into scope.

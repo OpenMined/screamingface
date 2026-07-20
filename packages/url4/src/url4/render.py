@@ -460,9 +460,17 @@ def _render_remoteexpr(node: RemoteExpr) -> str:
 
 
 def _render_target_expr(prefix: str, path: str, node: RelExpr | RemoteExpr) -> str:
+    if node.intent is None:
+        # INVARIANT: every call production carries `intent-op intent`
+        # (`OME-508`) — an intent-less RelExpr/RemoteExpr has no surface form.
+        # A path with no context is a RelUrl (`relative-uri`), a different node.
+        raise RenderError(
+            f"call {path!r} has no intent — a relative or remote expression must "
+            "carry !intent; for a plain data fetch use RelUrl instead"
+        )
     _check_path(path)
     context = _checked_context(node.context)
-    intent = "" if node.intent is None else "!" + _render_intent(node.intent)
+    intent = "!" + _render_intent(node.intent)
     if not node.params:
         return f"{prefix}{path}({context}){intent}"
     query = "&".join(_render_query_param(k, v) for k, v in node.params)

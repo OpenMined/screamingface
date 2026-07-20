@@ -194,7 +194,7 @@ async def test_map_concurrency_bound_respected() -> None:
         fetch_map={"https://data": '[{"q": "1"}, {"q": "2"}, {"q": "3"}, {"q": "4"}]'},
         routes={"/solve": solve},
     )
-    await run("https://data*(r=/solve($item.q))!'$r';iteration.concurrency=2", resolver)
+    await run("https://data*(r=/solve($item.q)!'go')!'$r';iteration.concurrency=2", resolver)
     assert seen_max <= 2
 
 
@@ -218,7 +218,7 @@ async def test_map_default_concurrency_is_bounded() -> None:
         fetch_map={"https://data": json.dumps(rows)},
         routes={"/solve": solve},
     )
-    await run("https://data*(r=/solve($item.q))!'$r'", resolver)
+    await run("https://data*(r=/solve($item.q)!'go')!'$r'", resolver)
     assert seen_max <= DEFAULT_MAP_CONCURRENCY
     assert seen_max > 1  # still parallel, just bounded — not accidentally serial
 
@@ -259,7 +259,7 @@ async def test_abort_cancels_sibling_rows() -> None:
         routes={"/solve": solve},
     )
     with pytest.raises(RuntimeError, match="boom"):
-        await run("https://data*(r=/solve($item.q))!'$r';iteration.on_error=fail", resolver)
+        await run("https://data*(r=/solve($item.q)!'go')!'$r';iteration.on_error=fail", resolver)
     assert slow_cancelled.is_set()
 
 
@@ -387,7 +387,7 @@ async def test_explicit_context_reports_collected_errors() -> None:
         routes={"/solve": lambda context, intent: context},
     )
     ctx = ExecutionContext(resolver, strict_fields=True)
-    await run("https://data*(r=/solve($item.q))!'$r'", ctx=ctx)
+    await run("https://data*(r=/solve($item.q)!'go')!'$r'", ctx=ctx)
     assert ctx.collected_errors == 1
 
 
@@ -908,7 +908,7 @@ def test_validate_parses_reducer_instruction() -> None:
     # compiler.py Graph.validate(): a ReduceNode's reducer template is parsed
     # by validate() too, not just LazyExprNode fragments — a malformed reducer
     # fails fast at validate() instead of only surfacing at execution.
-    good = compile_expression("(https://data*(x)!p)!/reduce(all)")
+    good = compile_expression("(https://data*(x)!p)!/reduce(all)!'agg'")
     good.validate()  # does not raise
     bad = compile_expression("(https://data*(x)!p)!/reduce((bad")
     with pytest.raises(ParseError):

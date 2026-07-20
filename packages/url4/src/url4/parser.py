@@ -21,12 +21,13 @@ Two layers live here:
 
 from __future__ import annotations
 
+import re
 import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from url4._annotations import extract_directives, split_annotation_pairs
-from url4._scan import balanced_body
+from url4._scan import balanced_body, skip_quoted
 from url4._scan import iter_top_level as _iter_top_level
 from url4._scan import split_top_level as _split_top_level
 from url4.errors import ParseError
@@ -42,6 +43,11 @@ from url4.nodes import (
     Source,
 )
 from url4.nodes import walk as _walk
+
+# The `path` production (§8): "/" segment *( "/" segment ), segment charset
+# ALPHA / DIGIT / "-" / "_" / "." / "~". Anchored ASCII, like every other
+# grammar pattern (`OME-504`).
+_CALL_PATH_RE = re.compile(r"(?:/[A-Za-z0-9\-_.~]*)+", re.ASCII)
 
 
 def split_intent(expr: str) -> tuple[str, str | None, bool]:
@@ -61,17 +67,55 @@ def split_intent(expr: str) -> tuple[str, str | None, bool]:
 
 
 def _is_backend_call_tail(expr: str, bang: int) -> bool:
-    """True if the ``!`` at ``bang`` follows a sub-request's ``()`` (``/path()!``).
+    """True if the ``!`` at ``bang`` closes a leading relative/remote CALL.
 
-    A ``()`` preceded by a path character is a relative expression's empty
-    context; a ``()`` at the start of a group (``()!intent``) is an empty
-    source list, and a ``()`` after ``*`` (``src*()!intent``) is an empty
-    iteration body — both of those ``!`` ARE top-level intent separators.
+    ``/path(ctx)!intent`` and ``url4://node/path(ctx)!intent`` are single call
+    tokens: every call production carries its own ``intent-op intent``
+    (`OME-508`), so that ``!`` belongs to the CALL, not to an enclosing
+    envelope. Splitting it off produced a ``RelExpr(intent=None)`` that the
+    grammar cannot derive and the renderer cannot emit — and left the text path
+    disagreeing with ``grammar.parse``, which has always read the whole token
+    as one RelExpr (the disagreement ``_fold_intent_into_call`` exists to undo).
+
+    The discriminator: the FIRST depth-0 ``(`` closes immediately before the
+    ``!``, and everything before it is a call target (``/path`` or
+    ``url4://authority/path``). So ``()!intent`` (empty source list) and
+    ``src*()!intent`` (iteration body) still split — their head is not a call
+    target — and ``https://x!go`` still splits, since no ``)`` precedes it.
     """
-    if bang < 2 or expr[bang - 2 : bang] != "()":
+    if bang < 1 or expr[bang - 1] != ")":
         return False
-    before = expr[bang - 3] if bang >= 3 else ""
-    return bool(before) and before not in "(,*"
+    opener = _first_unquoted_paren(expr)
+    body = None if opener is None else balanced_body(expr, opener + 1)
+    if opener is None or body is None or opener + 1 + len(body) != bang - 1:
+        return False
+    return _is_call_target(expr[:opener])
+
+
+def _first_unquoted_paren(text: str) -> int | None:
+    """Index of the first ``(`` outside quotes.
+
+    ``iter_top_level`` cannot serve here: it skips whole paren groups, so it
+    never yields the opener itself.
+    """
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "'":
+            i = skip_quoted(text, i)
+        elif text[i] == "(":
+            return i
+        else:
+            i += 1
+    return None
+
+
+def _is_call_target(head: str) -> bool:
+    """True when ``head`` is a relative or remote call's ``/path`` prefix."""
+    if head.startswith("url4://"):
+        rest = head[len("url4://") :]
+        slash = rest.find("/")
+        return slash > 0 and _CALL_PATH_RE.fullmatch(rest[slash:]) is not None
+    return _CALL_PATH_RE.fullmatch(head) is not None
 
 
 def split_expr_params(expr: str) -> tuple[str, Params, IterationDirectives]:

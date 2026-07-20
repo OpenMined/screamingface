@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from url4.grammar import parse
 from url4.nodes import Binding, Expression, RelUrl, Text, Url
 
@@ -55,13 +57,13 @@ def test_relative_expression_sugar_form() -> None:
     )
 
 
-def test_relative_expression_without_intent() -> None:
-    # §5.2 rule 2.2 — intent tail is optional
-    from url4.nodes import RelExpr
+def test_relative_expression_without_intent_is_rejected() -> None:
+    # `OME-508`: `relative-expr-sugar` carries `intent-op intent` — the tail is
+    # NOT optional. A path with no context is a `relative-uri` data fetch.
+    from url4.errors import ParseError
 
-    node = parse("/claude(ctx)")
-    assert isinstance(node, RelExpr)
-    assert node.path == "/claude" and node.context == "ctx" and node.intent is None
+    with pytest.raises(ParseError, match="intent"):
+        parse("/claude(ctx)")
 
 
 def test_relative_uri_with_query_is_data_reference() -> None:

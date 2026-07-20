@@ -629,10 +629,28 @@ def _decode_query_params(params_text: str) -> Params:
     return tuple(pairs)
 
 
-def _parse_expr_intent(after: str, token: str) -> Node | None:
+def _parse_expr_intent(after: str, token: str) -> Node:
+    """The mandatory ``!intent`` tail of a relative/remote expression.
+
+    # INVARIANT: all four call productions carry ``intent-op intent`` — the
+    # sugar forms name it directly, the canonical forms inherit it from the
+    # ``expression`` after ``q=`` (`OME-508`). This is the one choke point both
+    # ``_parse_expr_sugar`` and ``_parse_expr_canonical`` funnel through, so
+    # they cannot drift. An intent-LESS ``/path`` or ``/path?a=1`` never
+    # reaches here: it has no ``(`` context and no depth-0 ``q=(``, so it is a
+    # ``relative-uri`` data fetch and returns earlier as a RelUrl.
+    """
     if not after:
-        return None
+        raise ParseError(
+            f"call {token!r} has no intent — a relative or remote expression must "
+            "be followed by !intent (a path with no context is a data URI)",
+            code="missing_intent",
+        )
     if after.startswith("!"):
+        # AIDEV-NOTE: `intent-op` admits `!*` here too, but RelExpr/RemoteExpr
+        # carry no broadcast flag — a `!*` tail keeps its existing reading (the
+        # `*` lands in the intent text) rather than being silently dropped.
+        # Representing a broadcast call needs a node field; out of `OME-508`.
         return intent_atom(after[1:])
     raise ParseError(f"unexpected text after expression body in {token!r}")
 

@@ -42,7 +42,7 @@ def _resolver() -> StaticIOLayer:
 @pytest.mark.asyncio
 async def test_iteration_map_returns_json_array() -> None:
     # Spec §5.3.8 — the protocol-default collection serialization is a JSON array.
-    node = Iteration(collection=Url("https://data"), body="/solve($item.q)")
+    node = Iteration(collection=Url("https://data"), body="/solve($item.q)!'go'")
     result = await run(node, _resolver())
     assert json.loads(result) == ["A=2+2", "A=3+3"]
 
@@ -58,7 +58,7 @@ async def test_iteration_declared_ndjson_single_row_iterates() -> None:
         routes={"/solve": lambda context, intent: f"A={context}"},
         media_types={"https://rows": "application/x-ndjson"},
     )
-    node = Iteration(collection=Url("https://rows"), body="/solve($item.q)")
+    node = Iteration(collection=Url("https://rows"), body="/solve($item.q)!'go'")
     result = await run(node, io)
     assert json.loads(result) == ["A=2+2"]
 
@@ -76,8 +76,8 @@ async def test_reduce_scalar_rows_stay_strings_like_collect() -> None:
     )
     node = Iteration(
         collection=Expression(sources=(Text("1"), Text("2"))),
-        body="/n($item)",
-        reducer="/reduce(all)",
+        body="/n($item)!'go'",
+        reducer="/reduce(all)!'agg'",
     )
     result = await run(node, io)
     assert json.loads(result) == ["1", "2"]
@@ -120,7 +120,9 @@ async def test_iteration_top_level_intent_reduces_each_row() -> None:
     # A top-level intent AFTER the iteration reduces each 1-element row-group
     # through the explicit processor (/claude — the resolver declares /solve
     # first, so relying on the first-declared-route default would mis-dispatch).
-    result = await run("https://data*(/solve($item.q))!topintent", _resolver(), processor="/claude")
+    result = await run(
+        "https://data*(/solve($item.q)!'go')!topintent", _resolver(), processor="/claude"
+    )
     # The reducer input is repr'd by the fake /claude, so its real newlines show
     # as literal \n; the per-row results assemble into the JSON-array result.
     assert json.loads(result) == [
@@ -131,7 +133,9 @@ async def test_iteration_top_level_intent_reduces_each_row() -> None:
 
 @pytest.mark.asyncio
 async def test_reduce_over_iteration_via_backend_call() -> None:
-    node = Iteration(collection=Url("https://data"), body="/solve($item.q)", reducer="/reduce(all)")
+    node = Iteration(
+        collection=Url("https://data"), body="/solve($item.q)!'go'", reducer="/reduce(all)!'agg'"
+    )
     result = await run(node, _resolver())
     assert result == 'REDUCED[intent=\'["A=2+2", "A=3+3"]\']'
 
@@ -149,7 +153,9 @@ async def test_reduce_passes_row_data_verbatim_without_substitution() -> None:
             "/reduce": lambda context, intent: seen.setdefault("intent", intent) or "ok",
         },
     )
-    node = Iteration(collection=Url("https://data"), body="/solve($item.q)", reducer="/reduce(all)")
+    node = Iteration(
+        collection=Url("https://data"), body="/solve($item.q)!'go'", reducer="/reduce(all)!'agg'"
+    )
     await run(node, io)
     assert seen["intent"] == '["cost: $$5"]'
 
@@ -157,7 +163,7 @@ async def test_reduce_passes_row_data_verbatim_without_substitution() -> None:
 @pytest.mark.asyncio
 async def test_reduce_over_iteration_via_text_reducer() -> None:
     node = Iteration(
-        collection=Url("https://data"), body="/solve($item.q)", reducer="combine these"
+        collection=Url("https://data"), body="/solve($item.q)!'go'", reducer="combine these"
     )
     result = await run(node, _resolver())
     assert result == 'combine these\n\n["A=2+2", "A=3+3"]'
@@ -166,7 +172,7 @@ async def test_reduce_over_iteration_via_text_reducer() -> None:
 @pytest.mark.asyncio
 async def test_reduce_over_iteration_with_per_row_intent() -> None:
     node = Iteration(
-        collection=Url("https://data"), body="/solve($item.q)!go", reducer="/reduce(all)"
+        collection=Url("https://data"), body="/solve($item.q)!go", reducer="/reduce(all)!'agg'"
     )
     result = await run(node, _resolver())
     assert result == 'REDUCED[intent=\'["A=2+2", "A=3+3"]\']'
@@ -178,8 +184,8 @@ async def test_reduce_over_iteration_with_inner_directive() -> None:
 
     node = Iteration(
         collection=Url("https://data"),
-        body="/solve($item.q)",
-        reducer="/reduce(all)",
+        body="/solve($item.q)!'go'",
+        reducer="/reduce(all)!'agg'",
         directives=IterationDirectives(concurrency=1),
     )
     result = await run(node, _resolver())
@@ -192,7 +198,7 @@ async def test_iteration_with_concurrency_directive() -> None:
 
     node = Iteration(
         collection=Url("https://data"),
-        body="/solve($item.q)",
+        body="/solve($item.q)!'go'",
         directives=IterationDirectives(concurrency=1),
     )
     result = await run(node, _resolver())
@@ -220,7 +226,7 @@ async def test_iteration_on_error_collect_captures_failures() -> None:
 async def test_empty_collection_resolves_to_empty_array() -> None:
     # Spec §5.3.9 — zero elements is a SUCCESS with an empty result collection.
     resolver = StaticIOLayer(fetch_map={"https://data": "[]"})
-    node = Iteration(collection=Url("https://data"), body="/solve($item.q)")
+    node = Iteration(collection=Url("https://data"), body="/solve($item.q)!'go'")
     assert await run(node, resolver) == "[]"
 
 
@@ -228,7 +234,7 @@ async def test_empty_collection_resolves_to_empty_array() -> None:
 async def test_scalar_collection_raises_malformed_source() -> None:
     # Spec §5.3.9 — a non-iterable collection reference is malformed_source.
     resolver = StaticIOLayer(fetch_map={"https://data": "one scalar value"})
-    node = Iteration(collection=Url("https://data"), body="/solve($item.q)")
+    node = Iteration(collection=Url("https://data"), body="/solve($item.q)!'go'")
     with pytest.raises(CollectionError) as exc_info:
         await run(node, resolver)
     assert exc_info.value.code == "malformed_source"
@@ -239,7 +245,7 @@ async def test_directive_after_top_level_intent_is_parsed_not_swallowed() -> Non
     # Pre-0.2 QUIRK, now fixed per spec §5.3.6: a trailing ';iteration.*' after
     # the intent is an execution annotation on the iteration, never intent text.
     result = await run(
-        "https://data*(/solve($item.q))!topintent;iteration.concurrency=1",
+        "https://data*(/solve($item.q)!'go')!topintent;iteration.concurrency=1",
         _resolver(),
         processor="/claude",
     )
@@ -272,7 +278,7 @@ async def test_map_rows_share_one_compile_per_unique_body(monkeypatch) -> None:
         fetch_map={"https://data": rows},
         routes={"/solve": lambda context, intent: f"A={context}"},
     )
-    node = Iteration(collection=Url("https://data"), body="/solve($item.q)")
+    node = Iteration(collection=Url("https://data"), body="/solve($item.q)!'go'")
     result = await run(node, io)
 
     assert json.loads(result) == [f"A=r{i}" for i in range(5)]  # correctness preserved
@@ -280,7 +286,7 @@ async def test_map_rows_share_one_compile_per_unique_body(monkeypatch) -> None:
     # (5 rows, but the body text is identical, so it lowers once).
     assert len(calls) == 2
     assert calls[0] is node
-    assert calls[1] == "(/solve($item.q))"
+    assert calls[1] == "(/solve($item.q)!'go')"
 
 
 @pytest.mark.asyncio
@@ -341,7 +347,7 @@ async def test_acyclic_check_runs_once_per_unique_fragment_not_per_row(monkeypat
         fetch_map={"https://data": rows},
         routes={"/solve": lambda context, intent: f"A={context}"},
     )
-    node = Iteration(collection=Url("https://data"), body="/solve($item.q)")
+    node = Iteration(collection=Url("https://data"), body="/solve($item.q)!'go'")
     result = await run(node, io)
 
     assert json.loads(result) == [f"A=r{i}" for i in range(5)]  # correctness preserved
@@ -368,9 +374,9 @@ async def test_iteration_ast_path_matches_text_path() -> None:
     # parity is asserted over those; the intent-less shapes are AST-only now
     # (pinned by the AST-path tests above).
     cases = [
-        "https://data*(/solve($item.q))!topintent",
-        "(https://data*(/solve($item.q))!go)!/reduce(all)",
-        "https://data*(/solve($item.q))!topintent;iteration.concurrency=1",
+        "https://data*(/solve($item.q)!'go')!topintent",
+        "(https://data*(/solve($item.q)!'go')!go)!/reduce(all)!'agg'",
+        "https://data*(/solve($item.q)!'go')!topintent;iteration.concurrency=1",
     ]
     for expr in cases:
         text_io = RecordingIOLayer(fetch_map={"https://data": ROWS}, routes=routes)
@@ -392,7 +398,7 @@ async def test_iteration_ast_path_matches_text_path_for_map_only() -> None:
         fetch_map={"https://data": rows},
         routes={"/solve": lambda context, intent: f"A={context}"},
     )
-    node = Iteration(collection=Url("https://data"), body="/solve($item.q)")
+    node = Iteration(collection=Url("https://data"), body="/solve($item.q)!'go'")
     assert json.loads(await run(node, io)) == ["A=1", "A=2", "A=3"]
 
 

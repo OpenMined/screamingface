@@ -97,13 +97,12 @@ def test_binding_renders_bare_at_top_level():
     assert build(render(node)) == Expression(sources=(node,))
 
 
-def test_relexpr_with_intent_has_no_top_level_form():
-    # Bare "/p(c)!'i'" at top level HOISTS the intent to expression level on
-    # reparse (build() splits at the first depth-0 '!'), and the old paren wrap
-    # is an intent-less group (`OME-508`) — the shape has no faithful text.
+def test_relexpr_with_intent_renders_bare_at_top_level():
+    # `OME-508` cycle 2: the envelope no longer hoists a lone call's intent —
+    # that "!" belongs to the CALL — so the fragment root round-trips.
     node = RelExpr(path="/claude", context="https://x", intent=Text("summarize"))
-    with pytest.raises(RenderError):
-        render(node)
+    assert render(node) == "/claude(https://x)!'summarize'"
+    assert build(render(node)) == Expression(sources=(node,))
 
 
 def test_source_parenthesized_at_top_level():
@@ -261,7 +260,7 @@ def test_intent_forms():
         "(url4://node.ai/v1?quorum=1&q=(https://d.com)!'Go')!'Use $1'",
         "(url4://registry.ai/nodes)!'Pick one'",  # bare remote reference (Url)
         "(/chef?q=(https://allrecipes.com)!'Find recipes')!'Cook'",
-        "(/claude())!'Empty context call'",
+        "(/claude()!'go')!'Empty context call'",
         "(/claude?stream&q=(x)!'go')!'flags carry no value'",
     ],
 )
@@ -508,12 +507,12 @@ def test_remoteexpr_invalid_authority_raises(authority):
 
 def test_expression_path_invalid_raises():
     with pytest.raises(RenderError, match="invalid expression path"):
-        render(RelExpr(path="noslash"))
+        render(RelExpr(path="noslash", intent=Text("go")))
 
 
 def test_expression_context_unbalanced_raises():
     with pytest.raises(RenderError, match="unbalanced or unstripped"):
-        render(RelExpr(path="/claude", context="a(b"))
+        render(RelExpr(path="/claude", context="a(b", intent=Text("go")))
 
 
 def test_top_iteration_descriptored_collection_reducer_raises():

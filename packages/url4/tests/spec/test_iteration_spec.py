@@ -233,7 +233,7 @@ async def test_reducer_receives_json_array_of_rows() -> None:
         return "REDUCED"
 
     io = StaticIOLayer({"https://rows": '["a", "b"]'}, routes={"/reduce": reducer})
-    result = await run("(https://rows*()!'R $item')!/reduce()", io)
+    result = await run("(https://rows*()!'R $item')!/reduce()!'agg'", io)
     assert result == "REDUCED"
     assert json.loads(seen["intent"]) == ["R a", "R b"]
 
