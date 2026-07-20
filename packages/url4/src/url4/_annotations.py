@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 import warnings
 
+from url4._scan import skip_quoted
 from url4.errors import ParseError
 from url4.nodes import IterationDirectives, Params
 
@@ -53,6 +54,21 @@ def split_annotation_pairs(parts: list[str]) -> Params:
 # exec-key = 1*( ALPHA / "_" / "." ) — the extensible form. No digits.
 _EXEC_KEY_RE = re.compile(r"[A-Za-z_.]+", re.ASCII)
 
+# `param-key = 1*( ALPHA / DIGIT / "." / "_" )` — note NO "-", unlike
+# `param-value`. Dots namespace a key (coord.rounds, iteration.slice).
+_PARAM_KEY_RE = re.compile(r"[A-Za-z0-9._]+", re.ASCII)
+# `param-value = 1*( ALPHA / DIGIT / "." / "-" / "_" / "," / ":" / "/" )` —
+# ":" and "/" are admitted so URI-shaped values (cb=https://host/p) and typed
+# values (iteration.slice=1:3, accept=application/json) fit without quoting.
+_PARAM_VALUE_RE = re.compile(r"[A-Za-z0-9.\-_,:/]+", re.ASCII)
+
+# `nested-param-value = param-value / processor-value`, and a processor-value
+# may be a whole expression body — which can never satisfy param-value. These
+# keys are expression-bearing, so their values are validated by their own
+# owner (`url4.processor` for §27.3, the expression parser for `q`) rather
+# than by the charset here. Naming them keeps that carve-out in one place.
+EXPRESSION_BEARING_KEYS = frozenset({"q", "processor"})
+
 # exec-value. ":" and "/" are included so the typed forms this engine supports
 # parse: `;iteration.slice=1:3` and `;accept=application/json`.
 _EXEC_VALUE_RE = re.compile(r"[A-Za-z0-9.\-_,:/]+", re.ASCII)
@@ -82,6 +98,50 @@ def validate_exec_annotations(pairs: Params) -> None:
             raise ParseError(
                 f"invalid execution-annotation value {value!r} for {key!r} (spec §4.2)"
             )
+
+
+def validate_param(key: str, value: str | None) -> None:
+    """Validate one protocol parameter against `param-key` / `param-value`.
+
+    The single owner of that rule: the wire splitter, the nested query params
+    of a rel/remote expression, and the `;` expression chain all call this, so
+    a node cannot accept over HTTP what it refuses in text (`OME-507`).
+
+    Two shapes the grammar does not define are ACCEPTED EXTENSIONS and are
+    checked on the key alone (owner decision, `OME-507`):
+
+    * a valueless flag (``?stream``, ``;stream``) — ``value`` is ``None``, or
+      ``""`` from the decoders that spell a flag that way;
+    * a fully QUOTED value (``?note='a&b'``) — the only way to carry ``&``,
+      ``(`` or a space in a param, since `param-value` has no quoting form.
+
+    Callers that can tell a flag from a present-but-empty value (the wire
+    splitter knows, from the ``=``) reject the empty one before calling.
+    """
+    if not _PARAM_KEY_RE.fullmatch(key):
+        raise ParseError(
+            f"invalid param key {key!r} — `param-key` takes ALPHA / DIGIT / '.' / '_'",
+            code="malformed_source",
+        )
+    if not value or key in EXPRESSION_BEARING_KEYS or _is_quoted(value):
+        return
+    if not _PARAM_VALUE_RE.fullmatch(value):
+        raise ParseError(
+            f"invalid param value {value!r} for {key!r} — `param-value` takes "
+            "ALPHA / DIGIT / '.' / '-' / '_' / ',' / ':' / '/'",
+            code="malformed_source",
+        )
+
+
+def _is_quoted(value: str) -> bool:
+    """True when ``value`` is one complete ``'…'`` run (the quoted extension)."""
+    return len(value) >= 2 and value.startswith("'") and skip_quoted(value, 0) == len(value)
+
+
+def validate_params(params: Params) -> None:
+    """Validate every pair in a decoded parameter list."""
+    for key, value in params:
+        validate_param(key, value)
 
 
 def is_source_level_key(key: str) -> bool:
@@ -192,6 +252,9 @@ def _parse_slice(value: str) -> tuple[int, int]:
 
 
 __all__ = [
+    "EXPRESSION_BEARING_KEYS",
+    "validate_param",
+    "validate_params",
     "EXCLUSIVE_SOURCE_KEYS",
     "classify_boundary",
     "extract_directives",

@@ -36,6 +36,7 @@ from url4._annotations import (
     extract_directives,
     split_annotation_pairs,
     validate_exec_annotations,
+    validate_param,
 )
 from url4._scan import balanced_body, iter_top_level, skip_quoted, split_top_level
 from url4.errors import ParseError
@@ -667,7 +668,9 @@ def _decode_query_params(params_text: str) -> Params:
     for segment in split_top_level(params_text, "&"):
         if segment:
             key, eq, value = segment.partition("=")
-            pairs.append((key, value if eq else None))
+            decoded = value if eq else None
+            validate_param(key, decoded)
+            pairs.append((key, decoded))
     return tuple(pairs)
 
 

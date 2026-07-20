@@ -18,6 +18,7 @@ import re
 from collections.abc import Sequence
 from urllib.parse import unquote, unquote_plus
 
+from url4._annotations import validate_param
 from url4._scan import balanced_body, split_top_level
 from url4.errors import ParseError
 
@@ -76,7 +77,13 @@ def encode_subrequest(
     query = f"({_wire_escape(context)})"
     if intent is not None:
         query += f"!{_wire_escape(intent)}"
-    prefix = "".join(f"{key}={_wire_escape(value)}&" for key, value in params)
+    # A valueless flag is emitted BARE (`?broadcast&…`), never as `key=`:
+    # `param-value = 1*( … )` admits no empty value, so `broadcast=` is a shape
+    # the decoder now rejects. Encoder and decoder agree on the flag form
+    # (`OME-507`).
+    prefix = "".join(
+        f"{key}&" if not value else f"{key}={_wire_escape(value)}&" for key, value in params
+    )
     return f"{path}?{prefix}q={query}"
 
 
@@ -183,11 +190,29 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
             )
         key, sep, value = segment.partition("=")
         if not sep:
+            # A valueless flag: an accepted extension the grammar does not
+            # define, so only its KEY is checked (`OME-507`, owner decision).
+            validate_param(segment, None)
             params[segment] = ""
-        elif key == "q":
+            continue
+        # INVARIANT: validate the DECODED value (`OME-507`, owner decision).
+        # Percent-encoding is transport beneath the grammar, so `tone=very%20
+        # formal` is judged as the space-bearing value it decodes to — a node
+        # refuses over HTTP exactly what it refuses in expression text.
+        decoded = value if key in _EXPRESSION_BEARING else unquote_plus(value)
+        if not decoded and key not in _EXPRESSION_BEARING:
+            # `param-value = 1*( … )` — an empty value is not a flag (the flag
+            # form has no "=" at all, handled above) and has no production.
+            raise ParseError(
+                f"param {key!r} has an empty value — `param-value` needs at least "
+                "one character; omit the '=' for a valueless flag",
+                code="malformed_source",
+            )
+        validate_param(key, decoded)
+        if key == "q":
             q = value
         else:
-            params[key] = value if key in _EXPRESSION_BEARING else unquote_plus(value)
+            params[key] = decoded
     return params, q
 
 

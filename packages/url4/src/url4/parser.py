@@ -26,7 +26,7 @@ import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from url4._annotations import extract_directives, split_annotation_pairs
+from url4._annotations import extract_directives, split_annotation_pairs, validate_params
 from url4._scan import balanced_body, skip_quoted
 from url4._scan import iter_top_level as _iter_top_level
 from url4._scan import split_top_level as _split_top_level
@@ -299,6 +299,13 @@ def decode_envelope(text: str, *, require_intent: bool = True) -> Envelope:
         directives = _merge_directives(directives, tail_directives)
     broadcast = broadcast or any(key == "broadcast" for key, _ in params)
     params = tuple(pair for pair in params if pair[0] != "broadcast")
+    # `expr-param = param-key "=" param-value` — the SAME two productions the
+    # query sites use, so one validator serves all three (`OME-507`). It runs
+    # here, on the resolved expression params, rather than inside
+    # `split_expr_params`: at split time `_split_source_side` has not yet
+    # decided which `;` pairs are expression-level and which are a bare
+    # source's own exec chain (whose keys obey a different rule, `OME-504`).
+    validate_params(params)
 
     envelope = _decode_iteration(source_expr, raw_intent, directives)
     if envelope is not None:
