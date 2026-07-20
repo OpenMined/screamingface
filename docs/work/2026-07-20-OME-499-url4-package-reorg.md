@@ -1,9 +1,9 @@
 ---
 ticket: OME-499
 stack: url4
-status: in_progress
+status: done
 started: 2026-07-20
-finished:
+finished: 2026-07-20
 ---
 
 # OME-499 — reorganize src/url4 into core/io/dag/peer/cli subpackages
@@ -57,7 +57,8 @@ internal reorg — no public API or behavior change.
   `__init__.py` and `pyproject.toml` edited in place. 32 test files' imports
   updated (spec estimated ~24 — actual grep-confirmed count was 32; no test
   logic changed, import-lines only, confirmed by `design-reviewer`).
-- **Commits:** none yet — awaiting explicit instruction to commit.
+- **Commits:** `6aa464f` — refactor(url4): reorganize src/url4 into
+  core/io/dag/peer/cli subpackages
 - **Gates:** `uv run ruff check` clean · `uv run ruff format --check` 67
   files formatted · `uv run pyright` 0 errors/0 warnings ·
   `uv run pytest -q` 812 passed (baseline 812 collected pre-reorg, unchanged)
