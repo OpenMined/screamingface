@@ -107,16 +107,12 @@ class EngineASGI:
                 try:
                     await self._startup()
                 except Exception as exc:
-                    if self.research is not None:
-                        await self.research.aclose()
-                    await self.gateway.aclose()
+                    await self._close_adapters()
                     await send({"type": "lifespan.startup.failed", "message": str(exc)})
                 else:
                     await send({"type": "lifespan.startup.complete"})
             elif message["type"] == "lifespan.shutdown":
-                if self.research is not None:
-                    await self.research.aclose()
-                await self.gateway.aclose()
+                await self._close_adapters()
                 if self.node is not None:
                     await self.node.aclose()
                 await send({"type": "lifespan.shutdown.complete"})
@@ -133,6 +129,13 @@ class EngineASGI:
         node = await self._initialize()
         self.node = node
         self._base = node.asgi()
+
+    async def _close_adapters(self) -> None:
+        if self.research is not None:
+            await self.research.aclose()
+        if self.connections is not None:
+            await self.connections.aclose()
+        await self.gateway.aclose()
 
 
 class _StartGuard:

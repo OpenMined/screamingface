@@ -13,10 +13,10 @@ def notebook() -> nbformat.NotebookNode:
 
     cells = [
         nbformat.v4.new_markdown_cell(
-            """# ScreamingFace · provider connections
+            """# ScreamingFace · service connections
 
-Connect the model providers advertised by your configured ScreamingFace engine, then see how
-execution preflight prevents repeated authentication failures before any model spend.
+Connect the model providers and tool services advertised by your configured ScreamingFace engine,
+then see how execution preflight prevents repeated authentication failures before any model spend.
 
 Start the local stack first:
 
@@ -25,8 +25,9 @@ cd packages/screamingface/apps/screamingface-engine
 ./dev.sh
 ```
 
-The boundary is always **SDK → screamingface-engine → AI Gateway → provider**. The SDK never sends
-credentials directly to AI Gateway or a model provider."""
+For model providers the boundary is **SDK → screamingface-engine → AI Gateway → provider**.
+Tavily is engine-owned: **SDK → screamingface-engine → Tavily**. The SDK never sends credentials
+directly to AI Gateway, a model provider, or Tavily."""
         ),
         nbformat.v4.new_markdown_cell("## 1 · Open the provider panel"),
         nbformat.v4.new_code_cell("import screamingface as sf\n\npanel = sf.connect()\npanel"),
@@ -35,8 +36,10 @@ credentials directly to AI Gateway or a model provider."""
 will be stored. API-key inputs are masked and cleared after every attempt. OAuth displays an
 authorization link only after you press its button; it **does not open a browser automatically**.
 
-Connected means the engine's AI Gateway securely holds a credential. It does not claim that the
-account can use every advertised model."""
+For model providers, connected means the engine's AI Gateway holds a credential. For Tavily, it
+means Tavily validated the key and this local engine process currently holds it; restart requires
+reconnection. Neither status claims that every advertised model or future tool action will
+succeed."""
         ),
         nbformat.v4.new_markdown_cell("## 2 · Read status from Python"),
         nbformat.v4.new_code_cell("connections = sf.connections.list()\nconnections"),
@@ -51,6 +54,9 @@ examples are comments so running this guide never starts or replaces a connectio
             "# API key — read it from your process environment, never a shared notebook literal:\n"
             "# import os\n"
             '# gemini = sf.connect("gemini", api_key=os.environ["GEMINI_API_KEY"])\n\n'
+            "# Tavily is validated directly and retained only by this local engine process:\n"
+            '# tavily = sf.connect("tavily", api_key=os.environ["TAVILY_API_KEY"])\n'
+            '# sf.connections.get("tavily")\n\n'
             "# Disconnect is idempotent:\n"
             '# sf.disconnect("gemini")'
         ),
@@ -72,7 +78,8 @@ the first request. Missing credentials raise one actionable `ConnectionRequiredE
 failure per case. This guide performs **no paid model call**.
 
 Dataset access remains separate. GPQA and other Hugging Face datasets use the researcher's native
-Hugging Face session; `sf.connect()` never receives `HF_TOKEN` or dataset credentials."""
+Hugging Face session; `sf.connect()` never receives `HF_TOKEN` or dataset credentials. This phase
+connects Tavily but does not yet route model tools through it."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

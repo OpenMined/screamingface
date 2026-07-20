@@ -10,10 +10,12 @@ from screamingface_engine.asgi import EngineASGI
 from screamingface_engine.catalog import ModelRoute, registry_document, resolve_model_routes
 from screamingface_engine.connection_asgi import ConnectionASGI
 from screamingface_engine.connection_gateway import ConnectionGateway
+from screamingface_engine.connection_manager import ConnectionManager
 from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE, majority_vote
 from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES, Settings
+from screamingface_engine.tavily_connection import TavilyConnection
 from screamingface_engine.web_research import WebResearchClient
 
 
@@ -51,6 +53,7 @@ def create_app(
     gateway: GatewayClient | None = None,
     research: WebResearchClient | None = None,
     model_routes: tuple[ModelRoute, ...] | None = None,
+    tavily: TavilyConnection | None = None,
 ) -> EngineASGI:
     """Compose the persistent node, Gateway adapter, and thin ASGI lifecycle."""
 
@@ -59,6 +62,7 @@ def create_app(
         resolved.gateway_url,
         timeout=resolved.gateway_timeout,
     )
+    tavily_adapter = tavily or TavilyConnection()
     research_adapter = research
     if research_adapter is None and resolved.searxng_url is not None:
         research_adapter = WebResearchClient(
@@ -101,9 +105,12 @@ def create_app(
         initialize=initialize_node if node is None else None,
         research=research_adapter,
         connections=ConnectionASGI(
-            ConnectionGateway(
-                adapter,
-                codex_oauth_redirect_uri=resolved.codex_oauth_redirect_uri,
+            ConnectionManager(
+                ConnectionGateway(
+                    adapter,
+                    codex_oauth_redirect_uri=resolved.codex_oauth_redirect_uri,
+                ),
+                tavily_adapter,
             )
         ),
         max_inflight=resolved.max_inflight,

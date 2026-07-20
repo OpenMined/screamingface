@@ -45,13 +45,14 @@ connection control plane. All other request dispatch remains owned by `Url4Node`
 
 ## Provider connections
 
-The public registry advertises `codex`, `gemini`, `anthropic`, and `huggingface` capabilities and
-explicitly maps every discovered model owned by those supported Gateway providers to one public
-provider. Gateway order is preserved. Adding or removing one of those providers' models takes
-effect on engine restart without a ScreamingFace availability edit. Models owned by providers
-without a ScreamingFace connection contract remain hidden. Private AI Gateway provider names,
-connection UUIDs, credential locators, claims, and tokens never appear in registry or connection
-responses.
+The public registry advertises model-provider connections for `codex`, `gemini`, `anthropic`, and
+`huggingface`, plus the engine-owned `tavily` tool-service connection. Every discovered model owned
+by a supported Gateway provider maps to one public provider. Gateway order is preserved, with
+Tavily appended because it is not a Gateway provider. Adding or removing one of the supported
+providers' models takes effect on engine restart without a ScreamingFace availability edit.
+Models owned by providers without a ScreamingFace connection contract remain hidden. Private AI
+Gateway provider names, connection UUIDs, credential locators, claims, and tokens never appear in
+registry or connection responses.
 
 Provider display names and supported authentication methods are temporarily explicit
 ScreamingFace policy. They are expected soon to come from a protected AI Gateway provider
@@ -82,12 +83,24 @@ sf.connect("gemini", api_key="...")
 sf.disconnect("gemini")
 
 sf.connect("huggingface", api_key="hf_...")
+sf.connect("tavily", api_key="tvly-...")
 ```
 
 ScreamingFace owns exactly the AI Gateway connection whose private label is `default`, and model
 calls select it using `X-Profile: default`. Other Gateway connections are ignored. API keys travel
 once in the engine request body and once in the internal Gateway request body; neither service
-echoes them. AI Gateway remains the only credential store.
+echoes them. AI Gateway remains the only credential store for model-provider connections.
+
+Tavily is intentionally different. The engine validates a submitted key directly through
+Tavily's authenticated `GET /usage` endpoint and retains it only in process memory. The key never
+enters AI Gateway, URL4 expressions, model messages, responses, or logs. Failed replacement is
+atomic, disconnect clears the key, and restarting the engine requires the researcher to reconnect.
+No environment-variable or persistence fallback exists. Search/extract execution is not part of
+this connection-only phase, so Hugging Face routes remain tool-free.
+
+This memory-only connection is suitable for the researcher-owned local engine, not an
+unauthenticated shared deployment. A hosted engine must add HTTPS, researcher identity,
+authorization, and encrypted per-user credential storage before accepting Tavily credentials.
 
 OAuth providers require their registered callback paths, so the browser returns to the engine at
 `/auth/callback` (Codex), `/oauth2callback` (Gemini), or `/callback` (Anthropic). Gemini OAuth is
@@ -177,7 +190,9 @@ CODEX_OAUTH_HOST_PORT=1457 \
 Codex OAuth uses the provider-registered loopback ports `1455` or `1457`; use `1457` only when
 `1455` is occupied. Other provider callbacks continue to use `SCREAMINGFACE_ENGINE_HOST_PORT`.
 
-This builds the engine, AI Gateway, and internal SearXNG containers. SearXNG has no host port and
+This builds the engine, AI Gateway, and internal SearXNG containers. SearXNG remains the current
+temporary search runtime until the later Tavily execution phase removes it; connecting Tavily in
+the current phase does not route searches to Tavily. SearXNG has no host port and
 requires no researcher API key. It still uses public upstream search engines, so research requests
 need outbound network access. SDK-local benchmark loading does not contact any of these services;
 model routes do.

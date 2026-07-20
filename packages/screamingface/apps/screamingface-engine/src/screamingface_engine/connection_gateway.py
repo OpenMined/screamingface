@@ -2,39 +2,23 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, NoReturn, cast
+from typing import NoReturn, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
 
 from screamingface_engine.catalog import PROVIDER_ROUTES, AuthMethod, ProviderRoute
+from screamingface_engine.connection_contract import (
+    ConnectionControlError,
+    parse_unique_json_object,
+)
 from screamingface_engine.gateway import GatewayClient, GatewayResponseTooLargeError
 
 MANAGED_LABEL = "default"
 MAX_GATEWAY_RESPONSE_BYTES = 262_144
-
-
-class ConnectionGatewayError(Exception):
-    """A sanitized connection-control failure safe for the public engine boundary."""
-
-    def __init__(
-        self,
-        status: int,
-        code: str,
-        message: str,
-        *,
-        provider: str | None = None,
-        retryable: bool = False,
-    ) -> None:
-        self.status = status
-        self.code = code
-        self.provider = provider
-        self.retryable = retryable
-        super().__init__(message)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +63,7 @@ class ConnectionGateway:
     def provider(self, provider_id: str) -> ProviderRoute:
         provider = next((item for item in PROVIDER_ROUTES if item.id == provider_id), None)
         if provider is None:
-            raise ConnectionGatewayError(
+            raise ConnectionControlError(
                 404,
                 "unknown_provider",
                 f"The engine does not advertise provider {provider_id!r}.",
@@ -177,7 +161,7 @@ class ConnectionGateway:
     async def complete_callback(self, path: str, code: str, state: str) -> None:
         provider = next((item for item in PROVIDER_ROUTES if item.callback_path == path), None)
         if provider is None:
-            raise ConnectionGatewayError(404, "unknown_callback", "Unknown OAuth callback path.")
+            raise ConnectionControlError(404, "unknown_callback", "Unknown OAuth callback path.")
         # Keep callback credentials out of the internal request target and access logs.
         await self._request(
             "POST",
@@ -267,7 +251,7 @@ class ConnectionGateway:
 
     def _require_method(self, provider: ProviderRoute, method: AuthMethod) -> None:
         if method not in provider.auth_methods:
-            raise ConnectionGatewayError(
+            raise ConnectionControlError(
                 400,
                 "auth_method_not_supported",
                 f"{provider.display_name} does not support {method!r} authentication.",
@@ -301,7 +285,7 @@ class ConnectionGateway:
             json_body=json_body,
         )
         try:
-            return _unique_json_object(response.text)
+            return parse_unique_json_object(response.text)
         except (TypeError, ValueError) as exc:
             self._invalid_gateway_response(provider, exc)
 
@@ -324,7 +308,7 @@ class ConnectionGateway:
                 max_response_bytes=MAX_GATEWAY_RESPONSE_BYTES,
             )
         except httpx.TimeoutException as exc:
-            raise ConnectionGatewayError(
+            raise ConnectionControlError(
                 504,
                 "gateway_timeout",
                 "AI Gateway timed out.",
@@ -332,7 +316,7 @@ class ConnectionGateway:
                 retryable=True,
             ) from exc
         except httpx.RequestError as exc:
-            raise ConnectionGatewayError(
+            raise ConnectionControlError(
                 503,
                 "gateway_unavailable",
                 "AI Gateway is temporarily unavailable.",
@@ -350,7 +334,7 @@ class ConnectionGateway:
     ) -> NoReturn:
         gateway_code = _gateway_error_code(response)
         code, status, message, retryable = _normalized_error(gateway_code, response.status_code)
-        raise ConnectionGatewayError(
+        raise ConnectionControlError(
             status,
             code,
             message,
@@ -359,7 +343,7 @@ class ConnectionGateway:
         )
 
     def _invalid_gateway_response(self, provider: ProviderRoute | None, exc: Exception) -> NoReturn:
-        raise ConnectionGatewayError(
+        raise ConnectionControlError(
             502,
             "gateway_unavailable",
             "AI Gateway returned an invalid connection response.",
@@ -399,7 +383,7 @@ def _absolute_authorize_url(value: object) -> str:
 
 def _gateway_error_code(response: httpx.Response) -> str | None:
     try:
-        payload = _unique_json_object(response.text)
+        payload = parse_unique_json_object(response.text)
         detail = payload.get("detail")
         if isinstance(detail, Mapping):
             code = detail.get("code")
@@ -423,24 +407,6 @@ def _normalized_error(gateway_code: str | None, status: int) -> tuple[str, int, 
     return "gateway_unavailable", 503, "AI Gateway is temporarily unavailable.", True
 
 
-def _unique_json_object(body: str) -> dict[str, object]:
-    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"duplicate JSON field {key!r}")
-            result[key] = value
-        return result
-
-    try:
-        value = json.loads(body, object_pairs_hook=unique)
-    except json.JSONDecodeError as exc:
-        raise ValueError("response is not JSON") from exc
-    if not isinstance(value, dict):
-        raise TypeError("expected a JSON object")
-    return value
-
-
 def _exact_fields(payload: Mapping[str, object], expected: set[str], label: str) -> None:
     missing = expected - set(payload)
     unknown = set(payload) - expected
@@ -458,7 +424,6 @@ def _nonblank(value: object, label: str) -> str:
 
 __all__ = [
     "ConnectionGateway",
-    "ConnectionGatewayError",
     "GatewayConnection",
     "MAX_GATEWAY_RESPONSE_BYTES",
 ]

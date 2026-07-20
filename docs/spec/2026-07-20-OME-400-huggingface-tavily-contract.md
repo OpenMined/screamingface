@@ -70,6 +70,23 @@ The future Gateway provider response must distinguish static capability, deploym
 and current-user connection state. The engine will reflect available Gateway methods and combine
 them with its own tool providers; the SDK will continue to read only the engine registry.
 
+Phase 9B.2 implements the Tavily connection for the researcher-owned local engine as follows:
+
+- `PUT /v1/connections/tavily/api-key` validates the candidate directly with authenticated
+  `GET https://api.tavily.com/usage` before reporting `connected`;
+- the validated key is retained only in the running engine process, is cleared by disconnect or
+  restart, and has no environment-variable or persistence fallback;
+- replacement is atomic: an invalid candidate leaves the previous validated connection active;
+- the public registry advertises Tavily as API-key-only, while SDK list/get/disconnect behavior
+  remains the same generic connection contract used by model providers; and
+- invalid credentials, rate limits, service/network failures, and malformed success responses
+  become safe structured errors without exposing either the candidate key or Tavily's body.
+
+This process-memory implementation is deliberately for a researcher-owned local engine. It is not
+a credential design for a shared hosted deployment. A hosted engine must add HTTPS, authenticated
+researcher identity, authorization, and encrypted per-user credential storage before accepting
+Tavily keys. The current implementation must not be exposed as an unauthenticated shared service.
+
 ## 4. Researcher-facing tool configuration
 
 Tools belong to the benchmark because they are experimental policy applied consistently across
@@ -183,7 +200,8 @@ acceptance exercises the real HF and Tavily path.
 
 - **9B.1:** Gateway-derived HF routes, URL4-safe aliases, and HF API-key connection support; no
   tool claims.
-- **9B.2:** engine-owned Tavily connection capability and credential boundary.
+- **9B.2 (implemented):** engine-owned, directly validated, process-local Tavily connection and
+  explicit shared-hosting boundary.
 - **9B.3:** typed SDK tool values, benchmark policy, and URL4 compilation.
 - **9B.4:** Tavily adapter plus bounded HF agent loop; remove SearXNG.
 - **9B.5:** canonical DRACO configuration, notebook, real one-case/two-member acceptance, then full

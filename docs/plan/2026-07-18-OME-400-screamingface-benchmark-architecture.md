@@ -588,7 +588,8 @@ Phase 9 is split into separately testable units:
 
 - **9B.1 (implemented):** discover pinned Hugging Face models from Gateway, derive URL4-safe
   `~provider` aliases, and bridge HF API-key connections without advertising tools.
-- **9B.2:** add Tavily as an engine-owned API-key tool provider.
+- **9B.2 (implemented):** add Tavily as an engine-owned, process-local API-key tool-service
+  connection, validated directly through Tavily without Gateway traffic.
 - **9B.3:** replace the unreleased string-tool representation with typed Tavily benchmark policy
   and scalar URL4 compilation.
 - **9B.4:** implement the bounded HF model/tool loop and remove SearXNG/direct page fetching.

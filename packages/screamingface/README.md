@@ -31,6 +31,22 @@ one structured `sf.ConnectionRequiredError` before model spend instead of produc
 per case. Deterministic grading, aggregation, benchmark loading, and discovery remain independent
 of provider connections.
 
+The same generic connection surface also discovers `tavily`, an engine-owned tool service rather
+than a model provider:
+
+```python
+sf.connect("tavily", api_key="tvly-...")
+sf.connections.get("tavily")
+sf.disconnect("tavily")
+```
+
+For the current researcher-owned local engine, the key is validated directly through Tavily and
+kept only in engine process memory. It never passes through AI Gateway. Restarting the engine
+disconnects Tavily by design. This connection phase does not yet add Tavily search/extract to
+model routes; Hugging Face routes remain tool-free until the bounded tool-loop phase. A shared
+hosted engine needs identity, authorization, HTTPS, and encrypted per-user storage before it can
+accept this credential safely.
+
 `Fusion.run(...)`, `Run.grade(...)`, and `Fusion.evaluate(...)` accept `progress=True | False |
 None`. The default `None` shows one live progress surface in Jupyter and remains silent in ordinary
 scripts; `True` forces progress and `False` disables it. `evaluate(...)` follows requirement checks,

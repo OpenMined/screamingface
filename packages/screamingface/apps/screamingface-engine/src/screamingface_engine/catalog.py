@@ -42,6 +42,19 @@ class ProviderRoute:
     auth_methods: tuple[AuthMethod, ...]
     callback_path: str | None
 
+    @property
+    def public(self) -> PublicProvider:
+        return PublicProvider(self.id, self.display_name, self.auth_methods)
+
+
+@dataclass(frozen=True, slots=True)
+class PublicProvider:
+    """Provider metadata safe to advertise through the engine registry."""
+
+    id: str
+    display_name: str
+    auth_methods: tuple[AuthMethod, ...]
+
 
 @dataclass(frozen=True, slots=True)
 class ModelRoute:
@@ -82,6 +95,12 @@ PROVIDER_ROUTES = (
         ("api_key",),
         None,
     ),
+)
+
+# WHY: Model providers come from AI Gateway, while Tavily is appended because its
+# credential and future tool execution are owned by ScreamingFace engine itself.
+PUBLIC_PROVIDERS = tuple(provider.public for provider in PROVIDER_ROUTES) + (
+    PublicProvider("tavily", "Tavily", ("api_key",)),
 )
 
 # AIDEV-NOTE: This explicit provider/auth policy is temporary. AI Gateway is expected
@@ -174,7 +193,7 @@ def registry_document(
                 "display_name": provider.display_name,
                 "auth_methods": list(provider.auth_methods),
             }
-            for provider in PROVIDER_ROUTES
+            for provider in PUBLIC_PROVIDERS
         ],
         "models": [
             {

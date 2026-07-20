@@ -8,11 +8,11 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from screamingface_engine.catalog import PROVIDER_ROUTES
-from screamingface_engine.connection_gateway import (
-    ConnectionGateway,
-    ConnectionGatewayError,
-    _unique_json_object,
+from screamingface_engine.connection_contract import (
+    ConnectionControlError,
+    parse_unique_json_object,
 )
+from screamingface_engine.connection_manager import ConnectionManager
 
 type Message = MutableMapping[str, Any]
 type Receive = Callable[[], Awaitable[Message]]
@@ -33,8 +33,8 @@ _CALLBACK_FAILURE = """<!doctype html>
 class ConnectionASGI:
     """Intercept connection control and OAuth browser callbacks before URL4 dispatch."""
 
-    def __init__(self, gateway: ConnectionGateway) -> None:
-        self._gateway = gateway
+    def __init__(self, connections: ConnectionManager) -> None:
+        self._connections = connections
 
     @staticmethod
     def handles(scope: Mapping[str, Any]) -> bool:
@@ -53,7 +53,7 @@ class ConnectionASGI:
                 await self._callback(path, method, scope, send)
                 return
             await self._control(path, method, scope, receive, send)
-        except ConnectionGatewayError as exc:
+        except ConnectionControlError as exc:
             await _send_error(send, exc)
 
     async def _control(
@@ -66,15 +66,15 @@ class ConnectionASGI:
     ) -> None:
         if path == "/v1/connections":
             _require_method(method, {"GET"})
-            await _send_json(send, 200, await self._gateway.list_public())
+            await _send_json(send, 200, await self._connections.list_public())
             return
         parts = path.removeprefix("/v1/connections/").split("/")
-        provider = self._gateway.provider(parts[0])
+        provider = self._connections.provider(parts[0])
         if len(parts) == 1:
             if method == "GET":
-                await _send_json(send, 200, await self._gateway.get_public(provider))
+                await _send_json(send, 200, await self._connections.get_public(provider))
             elif method == "DELETE":
-                await self._gateway.disconnect(provider)
+                await self._connections.disconnect(provider)
                 await _send_empty(send, 204)
             else:
                 _method_not_allowed()
@@ -82,14 +82,14 @@ class ConnectionASGI:
         if parts[1:] == ["oauth"]:
             _require_method(method, {"POST"})
             await _require_empty_body(scope, receive)
-            await _send_json(send, 200, await self._gateway.start_oauth(provider))
+            await _send_json(send, 200, await self._connections.start_oauth(provider))
             return
         if parts[1:] == ["api-key"]:
             _require_method(method, {"PUT"})
             api_key = await _api_key(scope, receive, provider.id)
-            await _send_json(send, 200, await self._gateway.set_api_key(provider, api_key))
+            await _send_json(send, 200, await self._connections.set_api_key(provider, api_key))
             return
-        raise ConnectionGatewayError(
+        raise ConnectionControlError(
             404,
             "unknown_connection_route",
             "Unknown provider connection route.",
@@ -114,8 +114,8 @@ class ConnectionASGI:
             values = parse_qs(query.decode("ascii"), keep_blank_values=True)
             code = _single_query(values, "code")
             state = _single_query(values, "state")
-            await self._gateway.complete_callback(path, code, state)
-        except ConnectionGatewayError as exc:
+            await self._connections.complete_callback(path, code, state)
+        except ConnectionControlError as exc:
             await _send_html(send, exc.status, _CALLBACK_FAILURE)
             return
         except (UnicodeDecodeError, ValueError):
@@ -123,10 +123,13 @@ class ConnectionASGI:
             return
         await _send_html(send, 200, _CALLBACK_SUCCESS)
 
+    async def aclose(self) -> None:
+        await self._connections.aclose()
+
 
 async def _api_key(scope: Mapping[str, Any], receive: Receive, provider: str) -> str:
     if _content_type(scope) != "application/json":
-        raise ConnectionGatewayError(
+        raise ConnectionControlError(
             415,
             "invalid_api_key",
             "API keys require an application/json request body.",
@@ -134,7 +137,7 @@ async def _api_key(scope: Mapping[str, Any], receive: Receive, provider: str) ->
         )
     body = await _read_body(scope, receive, provider)
     try:
-        payload = _unique_json_object(body.decode("utf-8"))
+        payload = parse_unique_json_object(body.decode("utf-8"))
         if set(payload) != {"api_key"}:
             raise ValueError("expected only api_key")
         api_key = payload["api_key"]
@@ -142,7 +145,7 @@ async def _api_key(scope: Mapping[str, Any], receive: Receive, provider: str) ->
             raise ValueError("api_key is missing or too short")
         return api_key.strip()
     except (UnicodeDecodeError, TypeError, ValueError) as exc:
-        raise ConnectionGatewayError(
+        raise ConnectionControlError(
             400,
             "invalid_api_key",
             "The API key request is invalid.",
@@ -153,7 +156,7 @@ async def _api_key(scope: Mapping[str, Any], receive: Receive, provider: str) ->
 async def _require_empty_body(scope: Mapping[str, Any], receive: Receive) -> None:
     body = await _read_body(scope, receive, None)
     if body:
-        raise ConnectionGatewayError(
+        raise ConnectionControlError(
             400,
             "invalid_request",
             "This connection request does not accept a body.",
@@ -172,7 +175,7 @@ async def _read_body(scope: Mapping[str, Any], receive: Receive, provider: str |
             continue
         chunk = message.get("body", b"")
         if not isinstance(chunk, bytes):
-            raise ConnectionGatewayError(400, "invalid_request", "Invalid HTTP request body.")
+            raise ConnectionControlError(400, "invalid_request", "Invalid HTTP request body.")
         size += len(chunk)
         if size > MAX_CONNECTION_BODY_BYTES:
             _body_too_large(provider)
@@ -182,7 +185,7 @@ async def _read_body(scope: Mapping[str, Any], receive: Receive, provider: str |
 
 
 def _body_too_large(provider: str | None) -> None:
-    raise ConnectionGatewayError(
+    raise ConnectionControlError(
         413,
         "request_body_too_large",
         f"Connection request bodies are limited to {MAX_CONNECTION_BODY_BYTES} bytes.",
@@ -202,9 +205,9 @@ def _content_length(scope: Mapping[str, Any]) -> int | None:
     try:
         parsed = int(value)
     except ValueError as exc:
-        raise ConnectionGatewayError(400, "invalid_request", "Invalid Content-Length.") from exc
+        raise ConnectionControlError(400, "invalid_request", "Invalid Content-Length.") from exc
     if parsed < 0:
-        raise ConnectionGatewayError(400, "invalid_request", "Invalid Content-Length.")
+        raise ConnectionControlError(400, "invalid_request", "Invalid Content-Length.")
     return parsed
 
 
@@ -218,7 +221,7 @@ def _header(scope: Mapping[str, Any], name: bytes) -> str | None:
         if isinstance(key, bytes) and isinstance(value, bytes) and key.lower() == name
     ]
     if len(values) > 1:
-        raise ConnectionGatewayError(400, "invalid_request", "Duplicate HTTP header.")
+        raise ConnectionControlError(400, "invalid_request", "Duplicate HTTP header.")
     return values[0] if values else None
 
 
@@ -235,14 +238,14 @@ def _require_method(method: str, allowed: set[str]) -> None:
 
 
 def _method_not_allowed() -> None:
-    raise ConnectionGatewayError(
+    raise ConnectionControlError(
         405,
         "method_not_allowed",
         "HTTP method is not allowed for this connection route.",
     )
 
 
-async def _send_error(send: Send, error: ConnectionGatewayError) -> None:
+async def _send_error(send: Send, error: ConnectionControlError) -> None:
     await _send_json(
         send,
         error.status,

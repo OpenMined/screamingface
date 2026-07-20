@@ -759,3 +759,26 @@ Discovery is one startup snapshot and changes take effect after restart. The SDK
 remain unchanged and never contact AI Gateway directly. The live development stack exposed all 14
 supported-provider Gateway models after restart while omitting providers without ScreamingFace
 connection contracts.
+
+## Phase 9B.1 Hugging Face discovery — 2026-07-20
+
+Extended the Gateway-derived startup catalog with pinned Hugging Face Inference models. Private
+`repository:provider` IDs become URL4-safe public `repository~provider` routes while the exact
+Gateway ID is retained for dispatch. Hugging Face uses the existing engine-to-Gateway API-key
+connection bridge and initially advertises no named tools. Malformed, unpinned, or colliding IDs
+fail startup; no copied model list or availability fallback exists.
+
+## Phase 9B.2 engine-owned Tavily connection — 2026-07-20
+
+Added Tavily to the same generic SDK connection experience while keeping its ownership distinct:
+
+- `sf.connect("tavily", api_key=...)` sends the key only to the configured ScreamingFace engine;
+- the engine validates it directly through Tavily `GET /usage`, never through AI Gateway;
+- successful state is process-local, disconnect/restart clears it, and failed replacement retains
+  the last validated key;
+- registry, list, get, disconnect, and notebook-panel behavior remain generic and sanitized; and
+- stable safe errors cover invalid credentials, rate limits, outages, and malformed responses.
+
+This slice adds no Tavily search/extract execution or HF tool claim. Its memory-only credential
+lifecycle is explicitly limited to a researcher-owned local engine; hosted use requires HTTPS,
+authenticated identity, authorization, and encrypted per-user storage.

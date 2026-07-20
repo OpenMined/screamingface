@@ -118,6 +118,12 @@ def list() -> tuple[Connection, ...]:
     return _list_for_registry(registry)
 
 
+def get(provider: str) -> Connection:
+    """Return fresh, sanitized state for one advertised provider."""
+
+    return _get_connection(_provider(provider))
+
+
 def _list_for_registry(
     registry: Registry,
     *,
@@ -461,4 +467,4 @@ def _require_private_origin(engine_url: str) -> None:
     )
 
 
-__all__ = ["Connection", "OAuthFlow", "connect", "disconnect", "list"]
+__all__ = ["Connection", "OAuthFlow", "connect", "disconnect", "get", "list"]
