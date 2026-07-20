@@ -1,9 +1,9 @@
 ---
 ticket: OME-508
 stack: url4
-status: in_progress
+status: done
 started: 2026-07-20
-finished:
+finished: 2026-07-20
 ---
 
 > **Cycle 2 (reopened 2026-07-20).** Cycle 1 enforced the intent on `expression`

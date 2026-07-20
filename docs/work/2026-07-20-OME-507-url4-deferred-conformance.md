@@ -1,9 +1,9 @@
 ---
 ticket: OME-507
 stack: url4
-status: in_progress
+status: done
 started: 2026-07-20
-finished:
+finished: 2026-07-20
 ---
 
 # OME-507 — deferred conformance items (`q=` ordering, `path`/`port`, `param-key`/`param-value`)
@@ -49,10 +49,9 @@ depth-0 `q=` is present, and data routes need no exemption:
 The engine's own `encode_subrequest` already documents and emits `q` last, so
 nothing url4 generates is affected — only hand-written or third-party queries.
 
-**Sites:** `subrequest.extract_expression_params` (wire) and
-`grammar._find_expression_param` (expression text) — the same depth-0 scan
-both already run; each gains the "nothing follows the q segment" check via one
-shared helper.
+**Site:** `subrequest.extract_expression_params` only — see deviation 1. The
+grammar already enforces this by construction, so a second check there would
+be dead code.
 
 ## Cycle 2 — `path` / `port` charsets
 
@@ -93,27 +92,71 @@ three-way split, so the validator dispatches on the key: `processor` → validat
 as a `processor-value` (an expression form is parsed by `build`, an id/uri by
 its own charset); every other key → `param-value`.
 
-**Sites (one validator, `subrequest.validate_param`):**
-`extract_expression_params` (wire, decoded), `grammar._decode_query_params`
-(nested rel/remote params), and `parser.split_expr_params` (the `;` chain —
-`expr-param` uses the very same two productions).
+**Sites (one validator, `_annotations.validate_param` — the module already
+owning `validate_exec_annotations`, and low enough that grammar, parser and
+subrequest can all import it):** `extract_expression_params` (wire, decoded),
+`grammar._decode_query_params` (nested rel/remote params), and
+`parser.decode_envelope` (the `;` chain — `expr-param` uses the very same two
+productions; see deviation 5 for why not `split_expr_params`).
 
 ## Planned changes
 
-- `tests/spec/test_query_conformance.py` — NEW; RED tests for all three cycles
-- `src/url4/subrequest.py` — `validate_param`, `q`-last check, charset patterns
+- `tests/spec/test_query_ordering.py`, `test_path_port_conformance.py`,
+  `test_param_conformance.py` — NEW, one per cycle (separate files so the
+  append-only gate stays green as each cycle commits)
+- `src/url4/_annotations.py` — `validate_param` / `validate_params` + charsets
+- `src/url4/subrequest.py` — `q`-last check, wire validation, flag encoding
 - `src/url4/grammar.py` — path/port guards; `_decode_query_params` validation
-- `src/url4/parser.py` — `split_expr_params` validation
+- `src/url4/parser.py` — expression-param validation in `decode_envelope`
 - `src/url4/render.py` — `_check_path` reads the shared pattern
 
 ## Acceptance
 
-- [ ] `q=` not last raises; `q=`-absent data queries unchanged
-- [ ] Expression paths narrow; `RelUrl` data paths (incl. `$ref`) unchanged; non-numeric port raises
-- [ ] `param-key`/`param-value` enforced at all three sites via one validator; `processor=` expression values still accepted
-- [ ] Valueless flags still parse (owner decision 1)
-- [ ] `run_gates.py url4` green; every cycle a separate commit
+- [x] `q=` not last raises; `q=`-absent data queries unchanged
+- [x] Expression paths narrow; `RelUrl` data paths (incl. `$ref`) unchanged; non-numeric port raises
+- [x] `param-key`/`param-value` enforced at all three sites via one validator; `processor=` expression values still accepted
+- [x] Valueless flags still parse (owner decision 1)
+- [x] `run_gates.py url4` green; every cycle a separate commit
 
 ## Outcome
 
-(pending)
+Three cycles, three commits, gates green at each.
+
+| Cycle | Commit | New tests | Prior tests changed |
+|---|---|---|---|
+| 1 — `q=` last | `7aeee2c` | `test_query_ordering.py` (13) | 3 |
+| 2 — path/port | `2def759` | `test_path_port_conformance.py` (26) | 0 |
+| 3 — param charsets | `eca6164` | `test_param_conformance.py` (38) | 0 |
+
+Suite 969 -> 1046.
+
+- **Deviations:**
+  1. **Cycle 1 needed no grammar change.** The grammar ALREADY implements
+     "`q=` is last" by construction — `_parse_expr_canonical` takes everything
+     after the `q=` body as the intent tail, so it rejects
+     `/p?q=(a)!'go'&tone=formal` outright. Only the wire splitter tolerated it,
+     and the two therefore disagreed: a node honoured over HTTP what it refused
+     in text. The fix is one-sided, and that asymmetry is the whole
+     justification — recorded because "enforce on both sides" was the plan.
+  2. **`host` is not charset-checked.** `host = hostname / IPv4address`, and
+     the grammar defines NEITHER. Validating would mean inventing a rule the
+     spec does not state, so only `port = 1*DIGIT` is enforced. The same
+     reasoning excluded `query-tail`, which depends on an undefined
+     `unreserved`.
+  3. **Quoted param values are an accepted extension** — not covered by the
+     owner's flag ruling, decided here on the same grounds. `param-value` has
+     no quoting form, so `?note='a&b'` is underivable; but quoting is the ONLY
+     way to carry `&`, `(` or a space in a param, it is long-standing tested
+     behaviour (`test_ampersand_inside_quotes_is_not_a_param_boundary`,
+     `test_quoted_segment_skipped_when_scanning_relative_expression`), and
+     removing it would leave no replacement. Checked on the key alone.
+     **Owner: overrule this if quoted values should go.**
+  4. **`encode_subrequest` gained a flag form.** It emitted a valueless param
+     as `key=`, which the new decoder rejects (an empty value has no
+     production). It now emits `key` bare, so encoder and decoder agree — found
+     by `test_remote_broadcast_rides_as_param`, not by inspection.
+  5. **Expression-chain validation runs on the RESOLVED params**, not inside
+     `split_expr_params`: at split time `_split_source_side` has not yet
+     decided which `;` pairs are expression-level and which belong to a bare
+     source's exec chain (whose keys obey `OME-504`'s different rule). Same
+     trap `OME-504` deviation 2 recorded.
