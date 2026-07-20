@@ -179,11 +179,10 @@ def _render_param(key: str, value: str | None, *, top: bool) -> str:
 
 
 def _render_intent(node: Node) -> str:
-    # INVARIANT: this must stay in lockstep with `grammar.intent_atom`. The ABNF's
-    # `intent = value` means an intent can be any value form, so anything
-    # intent_atom can PRODUCE, this must be able to render back — otherwise a
-    # legal expression becomes unrenderable and render() stops being parse()'s
-    # inverse (`OME-502`).
+    # INVARIANT: this must stay in lockstep with `grammar.intent_atom` —
+    # anything intent_atom can PRODUCE, this must render back, or a parseable
+    # expression becomes unrenderable and render() stops being parse()'s
+    # inverse.
     if isinstance(node, Text):
         return _quote(node.value)
     if isinstance(node, (Url, RelUrl)):
@@ -192,7 +191,7 @@ def _render_intent(node: Node) -> str:
             _scan_uri(text, allow_parens=True, forbid="';")
         return text
     if isinstance(node, VarRef):
-        # INVARIANT: `intent_atom` never PRODUCES a VarRef (see its
+        # INVARIANT: `intent_atom` does not produce a VarRef (see its
         # `_INTENT_VALUE_HEADS`), so rendering one would emit `$a`, which reparses
         # as Text — render would stop being parse's inverse. Reject it instead.
         raise RenderError(

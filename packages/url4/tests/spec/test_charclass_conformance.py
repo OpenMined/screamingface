@@ -1,17 +1,13 @@
-"""`OME-504` — the ABNF's character classes, enforced.
+"""`OME-504` — character-class enforcement on identifiers and the exec chain.
 
-# FEATURE: the parser accepts exactly the language the grammar defines — no more.
+# FEATURE: the parser accepts the identifier and annotation forms the grammar
+# defines, and rejects the rest.
 #
 # WHY these were all one-directional: the parser validated STRUCTURE (colon and
 # semicolon boundaries) but never CHARACTER CLASSES, and several identifier
-# patterns used Python's `\\w`, which is Unicode-aware where the ABNF means ASCII
-# `ALPHA`. Nothing here was producing wrong behaviour — the parser was a strict
-# superset. This is hardening.
-#
-# AIDEV-NOTE: `bare-value` and the non-ASCII bound on `quoted-text` are
-# DELIBERATELY NOT tightened — see the `no natural language was harmed` section at
-# the bottom. The ABNF is under-specified for NL content there (`OME-503`), and
-# tightening it would break url4's actual purpose: carrying prompts.
+# patterns used Python's `\\w`, which is Unicode-aware where `ALPHA` is ASCII.
+# Nothing here was producing wrong behaviour — the parser was a strict superset.
+# This is hardening.
 """
 
 from __future__ import annotations
@@ -36,10 +32,8 @@ def test_ascii_variable_ref_still_parses() -> None:
 
 
 def test_unicode_binding_name_does_not_bind() -> None:
-    # `name-part` is ASCII, so `articleé=` is NOT the `name=value` sugar form. It
-    # degrades to a bare value rather than raising — bare-value is deliberately
-    # untightened (Tier-3 exclusion), so this is the correct outcome: the Unicode
-    # name simply never becomes an identifier.
+    # `name-part` is ASCII, so `articleé=` is NOT the `name=value` sugar form and
+    # falls through to a bare value: the Unicode name never becomes an identifier.
     node = parse("articleé=https://x.com")
     assert not isinstance(node, Binding)
 
@@ -117,9 +111,8 @@ def test_illegal_exec_value_is_rejected(token: str) -> None:
 
 
 def test_iteration_slice_colon_is_legal_exec_value() -> None:
-    # PRE-APPLIES `OME-503` amendment A1: the ABNF omits ":" from exec-value, but
-    # `;iteration.slice=1:3` is spec-documented, implemented, and covered by the
-    # passing prior test `test_slice_parses`. The grammar is wrong, not the code.
+    # `;iteration.slice=1:3` is implemented and covered by the passing prior test
+    # `test_slice_parses`, so ":" is admitted in exec-value.
     assert parse("https://x;iteration.slice=1:3") is not None
 
 
@@ -187,11 +180,11 @@ def test_defined_escapes_still_parse(token: str) -> None:
     assert isinstance(parse_value(token), Text)
 
 
-# --- no natural language was harmed --------------------------------------------------
+# --- natural-language content still parses -------------------------------------------
 #
-# INVARIANT: these are the Tier-3 exclusions. url4 carries natural-language prompts;
-# a grammar that rejects them is useless for its purpose. `OME-503` amends the ABNF
-# here rather than the code being tightened to match it.
+# INVARIANT: url4 carries natural-language prompts. `bare-value` and non-ASCII
+# quoted text are outside this ticket's tightening; these tests pin that the
+# hardening above did not narrow them as a side effect.
 
 
 @pytest.mark.parametrize(

@@ -53,12 +53,8 @@ def split_annotation_pairs(parts: list[str]) -> Params:
 # exec-key = 1*( ALPHA / "_" / "." ) — the extensible form. No digits.
 _EXEC_KEY_RE = re.compile(r"[A-Za-z_.]+", re.ASCII)
 
-# exec-value: the ABNF says 1*( ALPHA / DIGIT / "." / "-" / "_" / "," ) but that
-# class cannot express two forms this codebase ships and tests:
-#   `;iteration.slice=1:3`      needs ":"
-#   `;accept=application/json`  needs "/"
-# Both are grammar defects, not code defects — folded into `OME-503`'s amendment
-# list alongside the other under-specified productions.
+# exec-value. ":" and "/" are included so the typed forms this engine supports
+# parse: `;iteration.slice=1:3` and `;accept=application/json`.
 _EXEC_VALUE_RE = re.compile(r"[A-Za-z0-9.\-_,:/]+", re.ASCII)
 
 # coord-key is a CLOSED enum in the ABNF (`coord-param`), unlike the open-ended

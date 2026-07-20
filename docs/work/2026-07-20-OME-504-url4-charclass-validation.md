@@ -10,11 +10,10 @@ finished: 2026-07-20
 
 ## Intent
 
-The `OME-500` audit found the parser is a strict **superset** of the ABNF in a dozen places:
-it validates *structure* (colon/semicolon boundaries) but never *character classes*, and
-several identifier patterns use Python's `\w`, which is Unicode-aware where the ABNF means
-ASCII `ALPHA`. None of this causes wrong behaviour today — it accepts input the grammar
-rejects. This is hardening.
+The `OME-500` audit found the parser validates *structure* (colon/semicolon boundaries) but
+never *character classes*, and several identifier patterns use Python's `\w`, which is
+Unicode-aware where `ALPHA` is ASCII. None of this causes wrong behaviour today — it accepts
+input the grammar does not define. This is hardening.
 
 ## Scope — what is IN
 
@@ -31,10 +30,9 @@ rejects. This is hardening.
 
 ## Scope — what is OUT, and why
 
-- **`bare-value` charset** and **non-ASCII in `quoted-text`** — Tier-3 items. The ABNF is
-  under-specified for natural-language content; tightening these would reject `'a b c'` and
-  `'héllo 世界 🎉'` and break url4's actual purpose. Gated on `OME-503`. Item 10 above
-  deliberately tightens ONLY escapes and control chars, NOT the non-ASCII bound.
+- **`bare-value` charset** and **non-ASCII in `quoted-text`** — out of scope for this
+  ticket. url4 carries natural-language prompts, and narrowing these would reject `'a b c'`
+  and `'héllo 世界 🎉'`. Item 9 tightens ONLY escapes and control chars.
 - **`q=` ordering / mandatoriness** — deferred. The same `_dispatch` path serves plain data
   routes that legitimately have no `q=`, so "q= is mandatory and always last" is an
   architectural/wire-compatibility decision, not a charset fix. Needs its own ticket.
@@ -48,10 +46,8 @@ rejects. This is hardening.
   enforces on output, so a leniently-parsed value can raise `RenderError` on re-render), but
   tightening the parse side risks rejecting paths that work today. Own ticket.
 
-- **`exec-value` includes `:`** — pre-applies `OME-503` amendment A1. Without it, tightening
-  `exec-value` would break `;iteration.slice=1:3`, which is spec-documented, implemented, and
-  covered by the PASSING prior test `test_slice_parses`. The ABNF omitting `:` is the
-  grammar's bug, not the code's.
+- **`exec-value` admits `:` and `/`** so the typed forms this engine supports keep parsing:
+  `;iteration.slice=1:3` and `;accept=application/json`, both covered by passing prior tests.
 
 ## Planned changes
 
@@ -71,7 +67,7 @@ NON-regression tests that NL content still parses: `'a b c'`, `'héllo 世界 �
 ## Acceptance
 
 - [ ] Every in-scope production rejects its illegal inputs and accepts its legal ones
-- [ ] NL content (bare values, non-ASCII quoted text) still parses — the Tier-3 exclusion holds
+- [ ] NL content (bare values, non-ASCII quoted text) still parses — not narrowed as a side effect
 - [ ] Every prior test passes unmodified; `run_gates.py url4` green
 - [ ] Deferred items recorded as follow-up tickets
 
@@ -84,11 +80,9 @@ NON-regression tests that NL content still parses: `'a b c'`, `'héllo 世界 �
 - **Gates:** `run_gates.py url4` — ALL GREEN (908 tests, coverage >=95%)
 
 - **Deviations:**
-  1. **`exec-value` must admit `:` AND `/`.** The ABNF's class cannot express two forms
-     this codebase ships and tests: `;iteration.slice=1:3` needs `:` and
-     `;accept=application/json` needs `/`. Found empirically by surveying real annotation
-     values before tightening. **Both are grammar defects** — added to `OME-503`'s
-     amendment list, which previously recorded only the `slice`/`:` case.
+  1. **`exec-value` admits `:` and `/`.** Found empirically by surveying real annotation
+     values before tightening: `;iteration.slice=1:3` needs `:` and
+     `;accept=application/json` needs `/`. Both are covered by passing prior tests.
   2. **Exec validation runs from `grammar._attach_tail`, not `split_annotation_pairs`.**
      At split time the §8.1.2 boundary has not yet separated expression params from source
      annotations, and expression `param-key`s legally contain digits while exec-keys do
@@ -101,7 +95,6 @@ NON-regression tests that NL content still parses: `'a b c'`, `'héllo 世界 �
      `test_grammar.py::test_malformed_nested_struct_value_raises` reporting `(b:1)x` as
      "nested too deep" when it is simply malformed. Fixed in the CODE — the prior test
      passes unmodified.
-  5. **A Unicode-named binding degrades to bare text rather than raising.** `articleé=…` is
-     not the `name=value` sugar form once `name-part` is ASCII, so it falls through to
-     `bare-value` — which is a deliberate Tier-3 exclusion. Correct outcome: the Unicode
-     name simply never becomes an identifier.
+  5. **A Unicode-named binding falls through to bare text rather than raising.** `articleé=…`
+     is not the `name=value` sugar form once `name-part` is ASCII, so the Unicode name simply
+     never becomes an identifier.

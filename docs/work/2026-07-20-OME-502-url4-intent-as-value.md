@@ -10,7 +10,7 @@ finished: 2026-07-20
 
 ## Intent
 
-The ABNF says `intent = value`: an intent may be any value form. `grammar.intent_atom` — the
+`intent = value`: an intent may be any value form. `grammar.intent_atom` — the
 single classifier for EVERY `!intent` position — recognises only four shapes (quoted → `Text`,
 `scheme://` → `Url`, `/path` → `RelUrl`, else → `Text`), so nested expressions, struct
 objects, self/identity refs and variable refs all collapse to `Text`.
@@ -34,17 +34,13 @@ Two sides must widen in lockstep, or round-tripping breaks:
 2. `render._render_intent` — currently hard-raises `RenderError` for anything but
    Text/Url/RelUrl. Delegate the widened kinds to the existing `_render_value` registry.
 
-### Deliberate non-change
+### Out of scope
 
-`/path` intents keep classifying as `RelUrl`, NOT as a relative-expression. Strict
-`intent = value` would parse `!/reduce()` as a `RelExpr`, but:
-- the audit flagged only the four COLLAPSED shapes; `/path → RelUrl` was recorded as
-  existing, correct behaviour;
-- `!/reduce()` and `!/score()` are the fan-out **reducer route** form, load-bearing in
-  `tests/unit/test_parser.py` and `tests/spec/test_iteration_spec.py`.
-
-Changing it is out of scope and would rewire reduce dispatch. Recorded here as a known,
-deliberate deviation from a literal reading of `intent = value`.
+`/path` intents keep classifying as `RelUrl`. The audit flagged only the four COLLAPSED
+shapes; `/path → RelUrl` was recorded as existing, correct behaviour, and `!/reduce()` /
+`!/score()` are the fan-out **reducer route** form, load-bearing in
+`tests/unit/test_parser.py` and `tests/spec/test_iteration_spec.py`. Changing it would
+rewire reduce dispatch and is not part of this unit.
 
 ## Planned changes
 
@@ -80,9 +76,9 @@ deliberate deviation from a literal reading of `intent = value`.
 - **Gates:** `run_gates.py url4` — ALL GREEN (862 tests, coverage >=95%)
 
 - **Deviations:**
-  1. **`$ref` intents deliberately stay `Text` — the audit's premise was wrong.** The
-     `OME-500` audit claimed `$var` intents "degrade harmlessly" because their proper
-     lowering re-renders to the same text. Widening `$` proved that FALSE: it broke
+  1. **`$ref` intents stay `Text` — the audit's premise was wrong.** The `OME-500` audit
+     claimed `$var` intents "degrade harmlessly" because their proper lowering re-renders
+     to the same text. Widening `$` proved that FALSE: it broke
      `test_execution.py::test_later_source_sees_earlier_binding`, which regressed to the
      literal string `$b`. A `Text` intent is substituted against the run scope by
      `TextNode._substitute`; a `VarRef` intent lowers to a node that does not resolve the
@@ -95,6 +91,6 @@ deliberate deviation from a literal reading of `intent = value`.
      `test_render.py::test_non_leaf_intent_raises` passing UNMODIFIED, and turns
      "render rejects what the parser cannot produce" into a stated invariant.
   3. **`/path` intents keep classifying as `RelUrl`** rather than as a relative
-     expression, per the ledger's Design section. `!/reduce()` is the fan-out reducer
-     route form. Known, deliberate deviation from a literal `intent = value` reading.
+     expression, per the ledger's Design section — `!/reduce()` is the fan-out reducer
+     route form. Out of scope for this unit.
   4. `intent_atom` split into two functions to satisfy ruff PLR0911 (max 3 returns).

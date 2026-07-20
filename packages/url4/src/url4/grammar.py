@@ -618,16 +618,11 @@ def _unquote(token: str) -> str:
 
 
 def _unescape(content: str) -> str:
-    """Decode a quoted body, enforcing the ``quoted-char`` production.
+    """Decode a quoted body: the ``\\'`` and ``\\\\`` escapes, no raw control chars.
 
-    # INVARIANT: the ABNF defines exactly two escapes, ``\\'`` and ``\\\\``. A
-    # backslash before anything else is not a legal quoted-char, and neither is a
-    # raw control character (< %x20, or DEL) — httpx rejects those in a URL
-    # anyway (`OME-504`).
-    #
-    # WHY the upper bound is NOT checked: the ABNF caps quoted-char at %x7E, but
-    # url4 carries natural-language prompts and `'héllo 世界 🎉'` must parse. That
-    # is a grammar defect, amended by `OME-503` — deliberately not enforced here.
+    # INVARIANT: exactly two escapes are defined. A backslash before anything
+    # else is rejected, as is a raw control character (< %x20, or DEL) — httpx
+    # rejects those in a URL anyway.
     """
     out: list[str] = []
     i = 0
@@ -798,21 +793,17 @@ def intent_atom(intent: str) -> Node:
     """Classify a raw intent string into an AST node (§6).
 
     Quoted → :class:`~url4.nodes.Text` content (quotes are delimiters);
-    ``/path`` → :class:`~url4.nodes.RelUrl`; any ``scheme://…`` →
-    :class:`~url4.nodes.Url`. Otherwise the ABNF's ``intent = value`` applies and
-    the token runs through full value detection, so a nested expression, an
-    iteration, a struct object, a self/identity ref, or a variable ref keeps its
-    structure. Anything else is natural-language :class:`~url4.nodes.Text`.
+    ``/path`` → :class:`~url4.nodes.RelUrl` (the fan-out reducer route form,
+    ``!/reduce()``); any ``scheme://…`` → :class:`~url4.nodes.Url`. Otherwise
+    ``intent = value`` applies and the token runs through full value detection,
+    so a nested expression, an iteration, a struct object or a self/identity ref
+    keeps its structure. Anything else is natural-language
+    :class:`~url4.nodes.Text`.
 
-    # WHY: these forms used to collapse to `Text`. That is not cosmetic — the DAG
-    # compiler dispatches lowering by node type, so a nested-expression intent was
-    # never compiled into a subgraph; the literal string `"(c,d)!agg"` was handed
-    # to the model as a prompt (`OME-502`).
-    #
-    # INVARIANT: `/path` stays a `RelUrl` rather than parsing as a relative
-    # EXPRESSION. `!/reduce()` is the fan-out reducer ROUTE form and is
-    # load-bearing; a literal `intent = value` reading would rewire reduce
-    # dispatch. Deliberate, recorded deviation — see the `OME-502` ledger.
+    # WHY value detection matters here: the DAG compiler dispatches lowering by
+    # node type, so an intent flattened to `Text` is never compiled into a
+    # subgraph — `(a,b)!(c,d)!agg` would hand the literal string `"(c,d)!agg"` to
+    # the model as a prompt instead of evaluating it.
     """
     text = intent.strip()
     if text.startswith("'"):

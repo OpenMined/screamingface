@@ -1,4 +1,4 @@
-"""`OME-502` — the ABNF's `intent = value`, honored.
+"""`OME-502` — `intent = value`, honored.
 
 # FEATURE: an intent may be any value form, not just text — so an intent that IS
 # a computation (`!(c,d)!agg`) is compiled and executed, not pasted into a prompt.
@@ -94,9 +94,8 @@ def test_nested_expression_intent_keeps_its_structure() -> None:
     ],
 )
 def test_existing_intent_shapes_are_unchanged(expression: str, expected_type: type) -> None:
-    # AIDEV-NOTE: `/path` deliberately stays RelUrl rather than becoming a
-    # relative-expression. `!/reduce()` is the fan-out reducer ROUTE form and is
-    # load-bearing; see the OME-502 ledger for the rationale.
+    # AIDEV-NOTE: `/path` classifies as RelUrl — `!/reduce()` is the fan-out
+    # reducer ROUTE form and is load-bearing.
     assert isinstance(_intent_of(expression), expected_type)
 
 
