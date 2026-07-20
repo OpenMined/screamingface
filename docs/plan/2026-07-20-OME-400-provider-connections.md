@@ -1,6 +1,6 @@
 # OME-400 — Provider connections implementation plan
 
-**Status:** Phase 6A complete; Phases 6B–6C approved but not started
+**Status:** Phases 6A–6B complete; Phase 6C approved but not started
 **Date:** 2026-07-20
 **Normative contract:**
 [`docs/spec/2026-07-20-OME-400-provider-connections-contract.md`](../spec/2026-07-20-OME-400-provider-connections-contract.md)
@@ -34,6 +34,8 @@ Gateway connection is required in 6A.
 
 ## Phase 6B — screamingface-engine connection bridge
 
+**Implementation status:** complete on 2026-07-20.
+
 Add the protected JSON control plane to the temporary development engine profile.
 
 - extend the canonical engine catalog with public provider definitions and private Gateway
@@ -44,7 +46,8 @@ Add the protected JSON control plane to the temporary development engine profile
 - adapt list/status, OAuth start/completion, API-key create/replace, and idempotent disconnect to
   AI Gateway's existing `default` provider profiles;
 - normalize Gateway responses and errors into the approved public schemas;
-- relay OAuth callbacks through the engine and return minimal escaped HTML;
+- relay OAuth callbacks through the engine's provider-specific registered paths and return
+  minimal escaped HTML;
 - add bounded connection-client lifecycle, timeouts, response limits, and secret-safe logging;
 - persist the local Gateway database, encrypted credential blobs, and generated local master key
   on a named Docker volume; and

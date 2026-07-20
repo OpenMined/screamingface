@@ -172,7 +172,11 @@ GET    /v1/connections/{provider}
 POST   /v1/connections/{provider}/oauth
 PUT    /v1/connections/{provider}/api-key
 DELETE /v1/connections/{provider}
-GET    /v1/connections/oauth/callback
+
+# Browser-only provider callback paths intercepted by screamingface-engine:
+GET    /auth/callback       # Codex
+GET    /oauth2callback      # Gemini
+GET    /callback            # Anthropic
 ```
 
 `/v1/api` is redundant and `/v1/auth` would conflate provider connections with authentication to
@@ -180,9 +184,9 @@ the ScreamingFace service. Control-plane paths are intercepted by the applicatio
 wrapper; they are not URL4 endpoints or expressions. URL4 success results remain plaintext.
 Connection management responses are JSON.
 
-Except for the callback, all connection routes are private and scoped to the current user. Only
-`/healthz` and `/.well-known/screamingface` are public. The OAuth callback is unauthenticated by
-necessity and protected by a short-lived, single-use state nonce.
+All `/v1/connections` routes are private and scoped to the current user. Only `/healthz`,
+`/.well-known/screamingface`, and the three browser callback paths are public. OAuth callbacks are
+unauthenticated by necessity and protected by AI Gateway's short-lived, single-use state nonce.
 
 `GET /v1/connections` returns sanitized current-user state:
 
@@ -230,10 +234,13 @@ SDK -> engine start route -> Gateway OAuth start
     -> engine status route -> SDK
 ```
 
-The browser never needs a public AI Gateway origin. The engine supplies its callback URL when
-starting the Gateway flow, relays `code` and `state` for completion, and returns a minimal escaped
-success or failure page. Provider deployment configuration must register the engine callback
-origin.
+The browser never needs a public AI Gateway origin. The deployment configures AI Gateway's public
+origin as the ScreamingFace engine, so Gateway builds each authorize URL with the provider's
+already-registered callback path on the engine origin. The engine relays only `code` and `state`
+to the matching existing Gateway callback and returns a fixed generic success or failure page.
+This provider-specific path correction is required because AI Gateway validates each OAuth
+client's registered callback path; no AI Gateway source change or universal callback fallback is
+introduced.
 
 Starting a new OAuth attempt replaces a stale pending attempt for that provider. Attempts expire
 after ten minutes. The SDK, not the engine, performs bounded status polling and stops on a final

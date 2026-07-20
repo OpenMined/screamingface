@@ -14,8 +14,13 @@ services:
       AIGW_HOST: 0.0.0.0
       AIGW_PORT: "9105"
       AIGATEWAY_AUTH_ENABLED: "0"
-      AIGATEWAY_DATABASE_URL: sqlite:///tmp/aigateway.sqlite3
+      AIGATEWAY_DATABASE_URL: sqlite:///home/app/aigateway.sqlite3
+      AIGATEWAY_PUBLIC_URL: http://localhost:${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}
     init: true
+    volumes:
+      # The image creates /home/app with uid 1000; mounting at that existing
+      # directory preserves a writable volume without changing AI Gateway.
+      - aigateway-data:/home/app
     ports:
       - "127.0.0.1:${AIGATEWAY_HOST_PORT:-9105}:9105"
       # The engine shares this network namespace so auth-disabled Gateway calls
@@ -78,3 +83,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 12
+
+volumes:
+  aigateway-data:

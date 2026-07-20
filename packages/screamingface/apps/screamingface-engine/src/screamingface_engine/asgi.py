@@ -9,6 +9,7 @@ from typing import Any
 
 from url4 import Url4Node
 
+from screamingface_engine.connection_asgi import ConnectionASGI
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES
 from screamingface_engine.web_research import WebResearchClient
@@ -28,6 +29,7 @@ class EngineASGI:
         gateway: GatewayClient,
         *,
         research: WebResearchClient | None = None,
+        connections: ConnectionASGI | None = None,
         max_inflight: int,
         timeout: float,
         max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES,
@@ -35,6 +37,7 @@ class EngineASGI:
         self.node = node
         self.gateway = gateway
         self.research = research
+        self.connections = connections
         self._base: AsgiApp = node.asgi()
         self._max_inflight = max_inflight
         self._timeout = timeout
@@ -57,6 +60,9 @@ class EngineASGI:
                 "request_target_too_large",
                 f"request target exceeds {self._max_request_target_bytes} bytes",
             )
+            return
+        if self.connections is not None and self.connections.handles(scope):
+            await self.connections(scope, receive, send)
             return
         if self._inflight >= self._max_inflight:
             await _send_error(

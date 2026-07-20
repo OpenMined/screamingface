@@ -68,7 +68,7 @@ Gateway mutations, execution preflight, or notebook widgets.
   `screamingface.connections` and the pure `_requirements` planner; extended `_profile`, public
   exports, and typed errors; added the Phase 6A contract suite; and replaced the owner-approved
   Phase 1 registry fixture with the new strict provider-aware shape.
-- **Commits:** pending owner commit.
+- **Commits:** `feat(screamingface): add provider connection foundation` (`Refs OME-400`).
 - **Gates:** `uv run .claude/scripts/run_gates.py screamingface --skip-append-only` passed all
   Ruff lint, Ruff formatting, Pyright, pytest, and 95% coverage gates; direct full-suite proof was
   431 passed. The skip covered only the explicitly approved prior registry-fixture replacement.

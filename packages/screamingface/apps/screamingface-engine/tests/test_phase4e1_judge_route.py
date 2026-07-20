@@ -59,7 +59,7 @@ async def test_judge_route_maps_exact_request_and_keeps_passes_independent() -> 
     await gateway.aclose()
 
     judge_record = next(model for model in registry["models"] if model["id"] == PUBLIC_JUDGE)
-    assert judge_record == {"id": PUBLIC_JUDGE, "supported_tools": []}
+    assert judge_record == {"id": PUBLIC_JUDGE, "provider": "gemini", "supported_tools": []}
     assert [response.status_code for response in responses] == [200, 200, 200]
     assert [response.headers["content-type"] for response in responses] == [
         "text/plain; charset=utf-8"

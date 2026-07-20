@@ -8,6 +8,8 @@ from url4 import Url4Node
 
 from screamingface_engine.asgi import EngineASGI
 from screamingface_engine.catalog import MODEL_ROUTES, registry_document
+from screamingface_engine.connection_asgi import ConnectionASGI
+from screamingface_engine.connection_gateway import ConnectionGateway
 from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE, majority_vote
@@ -78,6 +80,7 @@ def create_app(
         node,
         adapter,
         research=research_adapter,
+        connections=ConnectionASGI(ConnectionGateway(adapter)),
         max_inflight=resolved.max_inflight,
         timeout=resolved.evaluation_timeout,
         max_request_target_bytes=resolved.max_request_target_bytes,

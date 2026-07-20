@@ -25,13 +25,24 @@ async def test_profile_serves_only_executable_capability_discovery() -> None:
     assert health.text == "ok"
     assert registry["schema"] == "screamingface.registry.v1"
     assert registry["models"] == [
-        {"id": "codex/gpt-5.5", "supported_tools": []},
-        {"id": "gemini/2.5", "supported_tools": []},
-        {"id": "claude/sonnet-4.6", "supported_tools": []},
-        {"id": "gemini/3.1-pro-preview", "supported_tools": []},
+        {"id": "codex/gpt-5.5", "provider": "codex", "supported_tools": []},
+        {"id": "gemini/2.5", "provider": "gemini", "supported_tools": []},
+        {"id": "claude/sonnet-4.6", "provider": "anthropic", "supported_tools": []},
+        {
+            "id": "gemini/3.1-pro-preview",
+            "provider": "gemini",
+            "supported_tools": [],
+        },
     ]
     assert registry["limits"] == {"max_request_target_bytes": 61440}
-    assert set(registry) == {"schema", "response_schemas", "limits", "models", "reducers"}
+    assert set(registry) == {
+        "schema",
+        "response_schemas",
+        "limits",
+        "providers",
+        "models",
+        "reducers",
+    }
     assert gpqa_response.status_code == 404
     assert draco_response.status_code == 404
     assert registry_response.headers["content-type"].startswith("text/plain")

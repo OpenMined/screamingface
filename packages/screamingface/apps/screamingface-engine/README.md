@@ -26,16 +26,52 @@ GET /claude/sonnet-4.6?[params&]q=(context)!intent
 GET /gemini/3.1-pro-preview?[params&]q=(context)!intent
 GET /reducers/majority-vote?q=(resolved-member-object)
 GET /v1?q=<complete URL4 expression>
+GET /v1/connections
+GET /v1/connections/{provider}
+POST /v1/connections/{provider}/oauth
+PUT /v1/connections/{provider}/api-key
+DELETE /v1/connections/{provider}
 ```
 
-All successful bodies are plaintext. The registry body contains JSON text. Model routes return
-only the first AI Gateway assistant message text. The SDK parses and validates structured
-plaintext on the client.
+URL4 and model success bodies remain plaintext. The registry is JSON text, while the separate
+private connection control plane returns sanitized JSON. Model routes return only the first AI
+Gateway assistant message text. The SDK never contacts AI Gateway directly.
 
 The application is one persistent `Url4Node` process. Its model handlers call AI Gateway
 in-process through one shared asynchronous HTTP client; they do not launch route subprocesses or
-another engine. The thin ASGI wrapper owns only client lifecycle, global admission control, a
-whole-evaluation timeout, and the advertised encoded request-target limit.
+another engine. The thin ASGI wrapper owns client lifecycle, global admission control, a
+whole-evaluation timeout, the advertised encoded request-target limit, and the application-owned
+connection control plane. All other request dispatch remains owned by `Url4Node`.
+
+## Provider connections
+
+The public registry advertises `codex`, `gemini`, and `anthropic` capabilities and explicitly maps
+every model to one of those public providers. Private AI Gateway provider names, connection UUIDs,
+credential locators, claims, and tokens never appear in registry or connection responses.
+
+Use the SDK-facing engine API:
+
+```python
+import screamingface as sf
+
+sf.connections.list()
+flow = sf.connect("codex")
+print(flow.authorize_url)
+connection = flow.wait()
+
+sf.connect("gemini", api_key="...")
+sf.disconnect("gemini")
+```
+
+ScreamingFace owns exactly the AI Gateway connection whose private label is `default`, and model
+calls select it using `X-Profile: default`. Other Gateway connections are ignored. API keys travel
+once in the engine request body and once in the internal Gateway request body; neither service
+echoes them. AI Gateway remains the only credential store.
+
+OAuth providers require their registered callback paths, so the browser returns to the engine at
+`/auth/callback` (Codex), `/oauth2callback` (Gemini), or `/callback` (Anthropic). The engine relays
+only `code` and `state` over its loopback Gateway connection and returns its own generic HTML page.
+The SDK never handles callback codes or provider tokens.
 
 The Compose profile also configures an internal SearXNG service. Gemini and Claude then advertise
 the named `web_search` capability; Codex remains tool-free. A capable model may call the engine's
@@ -104,11 +140,12 @@ requires no researcher API key. It still uses public upstream search engines, so
 need outbound network access. SDK-local benchmark loading does not contact any of these services;
 model routes do.
 
-AI Gateway starts with an empty, ephemeral provider profile store in this development profile.
-ScreamingFace does not inject provider credentials or implement a parallel authentication path.
-Until credentials are provisioned through AI Gateway, model routes therefore return the ordinary
-provider-access failure (currently HTTP 401 from Gateway, safely surfaced as a URL4 502), while
-health, registry, compilation, and deterministic reducer routes remain usable.
+AI Gateway starts with an empty provider connection store. Its SQLite database, encrypted
+credential blobs, generated local master key, and generated JWT secret live on the named
+`aigateway-data` volume. Ordinary `./dev.sh` rebuilds and `docker compose down` preserve the
+volume; `docker compose down -v` is the explicit destructive credential reset. Until a provider is
+connected through the engine, model routes return the ordinary provider-access failure while
+health, registry, connection status, compilation, and deterministic reducer routes remain usable.
 
 The engine and AI Gateway remain separate processes and containers, but share one Docker network
 namespace in this local profile. The engine therefore calls AI Gateway at `127.0.0.1:9105`, which
@@ -116,6 +153,10 @@ satisfies AI Gateway's deliberately loopback-only policy when authentication is 
 Gateway service owns both published host ports because Docker requires published ports to belong
 to the container whose network namespace is shared. This is development topology only; a hosted
 deployment should enable authentication rather than rely on this arrangement.
+
+`AIGATEWAY_PUBLIC_URL` points to the engine's browser-visible localhost origin so AI Gateway builds
+provider authorize URLs with the engine callback paths. When overriding
+`SCREAMINGFACE_ENGINE_HOST_PORT`, Compose uses that same port in the OAuth redirect URI.
 
 Verify:
 

@@ -612,3 +612,28 @@ Implemented the approved SDK-only provider connection foundation:
 
 The append-only gate was skipped only for the owner-approved replacement of the pre-provider
 registry fixture; all format, lint, type, test, and coverage gates passed unchanged with 431 tests.
+
+## Phase 6B provider-connections implementation — 2026-07-20
+
+Implemented the approved engine-owned provider connection bridge without changing AI Gateway or
+URL4 source:
+
+- published public provider capabilities and explicit model-provider ownership while keeping
+  Gateway aliases, profile labels, connection UUIDs, and credentials private;
+- added the engine JSON control plane for fresh status, OAuth start, API-key replacement, and
+  idempotent disconnect before delegating all other requests unchanged to `Url4Node`;
+- adapted only to AI Gateway's existing connection APIs and private `default` profile, with model
+  requests consistently selecting that profile;
+- corrected OAuth relay to the provider-specific callback paths already registered by AI Gateway,
+  forwarding only `code` and `state` and returning bounded generic HTML;
+- normalized upstream failures into safe ScreamingFace errors and bounded request bodies,
+  responses, redirects, timeouts, and client lifecycle;
+- persisted the local Gateway database and secret material in a named Compose volume while
+  keeping host ports loopback-only; and
+- documented that the SDK talks only to `screamingface-engine`, which is the sole AI Gateway
+  adapter.
+
+The full engine suite passed with 113 tests and 95.82% coverage, the authoritative ScreamingFace
+gate passed, and an isolated Docker smoke test proved status, secret redaction, restart
+persistence, disconnect, and engine-owned OAuth callback generation. Phase 6C preflight and
+notebook widgets remain unimplemented.

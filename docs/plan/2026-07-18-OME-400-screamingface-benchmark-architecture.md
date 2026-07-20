@@ -1,6 +1,6 @@
 # OME-400 — ScreamingFace benchmark architecture implementation plan
 
-**Status:** Phase 5 implemented; Phase 6 provider-connections contract approved
+**Status:** Phase 5 and provider-connection Phases 6A–6B implemented; Phase 6C approved
 **Date:** 2026-07-18
 **Last updated:** 2026-07-20
 **Normative contracts:**
@@ -542,8 +542,8 @@ callbacks relay through the engine; AI Gateway remains the encrypted credential 
 evaluation remains the plaintext transactional `GET /v1?q=...` data plane.
 
 Implementation is split into 6A SDK foundations, 6B engine/Gateway bridge, and 6C SDK flows,
-stage-specific preflight, and the brand-aligned notebook widget. Each slice still requires explicit
-execution approval.
+stage-specific preflight, and the brand-aligned notebook widget. Phases 6A–6B are complete; Phase
+6C still requires explicit execution approval.
 
 ### Future phases — explicitly deferred
 

@@ -17,6 +17,10 @@ _ALLOWED_PARAMS = frozenset({"temperature", "max_tokens", "reasoning"})
 _REASONING_VALUES = frozenset({"low", "medium", "high"})
 
 
+class GatewayResponseTooLargeError(Exception):
+    """An internal Gateway response exceeded its caller's explicit byte budget."""
+
+
 @dataclass(frozen=True, slots=True)
 class ToolCall:
     id: str
@@ -90,9 +94,13 @@ class GatewayClient:
         tools: tuple[dict[str, object], ...],
     ) -> AssistantTurn:
         body = _turn_body(model, messages=messages, params=params, tools=tools)
-        client = await self._get_client()
         try:
-            response = await client.post("/v1/chat/completions", json=body)
+            response = await self.request(
+                "POST",
+                "/v1/chat/completions",
+                json=body,
+                headers={"X-Profile": "default"},
+            )
             response.raise_for_status()
         except httpx.TimeoutException as exc:
             raise ResolutionError(f"AI Gateway timed out while running {model.id!r}") from exc
@@ -103,6 +111,42 @@ class GatewayClient:
         except httpx.RequestError as exc:
             raise ResolutionError(f"AI Gateway request failed for {model.id!r}: {exc}") from exc
         return _response_turn(response, model)
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, str] | None = None,
+        json: Mapping[str, object] | None = None,
+        headers: Mapping[str, str] | None = None,
+        max_response_bytes: int | None = None,
+    ) -> httpx.Response:
+        """Send one bounded internal request through the shared Gateway client."""
+
+        client = await self._get_client()
+        if max_response_bytes is None:
+            return await client.request(method, path, params=params, json=json, headers=headers)
+        request = client.build_request(method, path, params=params, json=json, headers=headers)
+        response = await client.send(request, stream=True)
+        chunks: list[bytes] = []
+        size = 0
+        try:
+            async for chunk in response.aiter_bytes():
+                size += len(chunk)
+                if size > max_response_bytes:
+                    raise GatewayResponseTooLargeError(
+                        f"Gateway response exceeded {max_response_bytes} bytes"
+                    )
+                chunks.append(chunk)
+        finally:
+            await response.aclose()
+        return httpx.Response(
+            response.status_code,
+            headers=response.headers,
+            content=b"".join(chunks),
+            request=request,
+        )
 
     async def _get_client(self) -> httpx.AsyncClient:
         async with self._client_lock:
@@ -220,4 +264,4 @@ def _invalid(message: str) -> NoReturn:
     raise ResolutionError(message, code="malformed_source", permanent=True)
 
 
-__all__ = ["AssistantTurn", "GatewayClient", "ToolCall"]
+__all__ = ["AssistantTurn", "GatewayClient", "GatewayResponseTooLargeError", "ToolCall"]

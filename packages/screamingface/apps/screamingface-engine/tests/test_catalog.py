@@ -18,7 +18,18 @@ def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> Non
         "schema": "screamingface.registry.v1",
         "response_schemas": ["screamingface.fusion-result.v1"],
         "limits": {"max_request_target_bytes": 61440},
-        "models": [{"id": model.id, "supported_tools": []} for model in catalog.MODEL_ROUTES],
+        "providers": [
+            {
+                "id": provider.id,
+                "display_name": provider.display_name,
+                "auth_methods": list(provider.auth_methods),
+            }
+            for provider in catalog.PROVIDER_ROUTES
+        ],
+        "models": [
+            {"id": model.id, "provider": model.provider, "supported_tools": []}
+            for model in catalog.MODEL_ROUTES
+        ],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
     }
 
