@@ -18,7 +18,35 @@ class ModelConfig(TypedDict):
     params: NotRequired[dict[str, ParameterValue]]
 
 
-type ModelInput = str | ModelConfig
+@dataclass(frozen=True, slots=True, init=False)
+class Model:
+    """One named, reusable model call in a FusionMonster graph."""
+
+    name: str
+    model: str
+    prompt: str
+    _parameter_items: tuple[tuple[str, ParameterValue], ...] = field(repr=False)
+
+    def __init__(
+        self,
+        name: str,
+        model: str,
+        *,
+        prompt: str = "Answer the question.",
+        params: Mapping[str, ParameterValue] | None = None,
+    ) -> None:
+        call = make_model_call(model=model, prompt=prompt, params=params)
+        object.__setattr__(self, "name", _system_name(name, "model name"))
+        object.__setattr__(self, "model", call.model)
+        object.__setattr__(self, "prompt", call.prompt)
+        object.__setattr__(self, "_parameter_items", call.parameter_items)
+
+    @property
+    def params(self) -> dict[str, ParameterValue]:
+        return dict(self._parameter_items)
+
+
+type ModelInput = str | ModelConfig | Model
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,12 +65,15 @@ class _FusionMember:
     id: str
     call: _ModelCall
     explicit: bool = field(repr=False)
+    model_value: Model | None = field(default=None, repr=False)
 
     @property
     def model(self) -> str:
         return self.call.model
 
     def to_model_input(self) -> ModelInput:
+        if self.model_value is not None:
+            return self.model_value
         if not self.explicit:
             return self.model
         config: ModelConfig = {"model": self.model}
@@ -64,6 +95,7 @@ def normalize_model_inputs(
             id=f"member_{index}",
             call=_model_call(value, prompt),
             explicit=not isinstance(value, str),
+            model_value=value if isinstance(value, Model) else None,
         )
         for index, value in enumerate(values, 1)
     )
@@ -80,10 +112,12 @@ def make_model_call(
 
 
 def _model_call(value: ModelInput, default_prompt: str) -> _ModelCall:
+    if isinstance(value, Model):
+        return _ModelCall(value.model, value.prompt, value._parameter_items)
     if isinstance(value, str):
         return make_model_call(model=value, prompt=default_prompt)
     if not isinstance(value, Mapping):
-        raise TypeError("fusion models must be model IDs or mappings")
+        raise TypeError("fusion models must be model IDs, mappings, or sf.Model values")
     unknown = set(value) - {"model", "prompt", "params"}
     if unknown:
         fields = ", ".join(sorted(str(field) for field in unknown))
@@ -101,6 +135,10 @@ def _nonempty(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must not be empty")
     return value.strip()
+
+
+def _system_name(value: object, label: str) -> str:
+    return "-".join(_nonempty(value, label).lower().split())
 
 
 def _parameter_items(

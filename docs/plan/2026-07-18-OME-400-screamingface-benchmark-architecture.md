@@ -66,7 +66,9 @@ The complete contract is normative; this is the implementation checklist.
 
 - `sf.Case(id, input, reference=None, metadata=...)`
 - `sf.Benchmark(id, title, cases, grader, aggregator, tools=(), max_tool_rounds=None)`
+- `sf.Model(name, model, prompt=..., params=...)` for named reusable model-call leaves
 - `sf.Fusion(name, models, reducer, prompt=...)`
+- `sf.FusionMonster(name, systems)` for an ordered comparison graph of Models and Fusions
 - abstract interfaces: `sf.Reducer`, `sf.Grader`, `sf.Aggregator`
 - concrete strategies:
   - `sf.reducers.Model`, `sf.reducers.MajorityVote`
@@ -77,6 +79,8 @@ The complete contract is normative; this is the implementation checklist.
   `MemberReport`)
 
 There are no top-level concrete-strategy aliases and no `sf.judges` namespace.
+Inline Fusion strings/dictionaries remain the quickstart shorthand. There are no `Solo`, `Lineup`,
+or generic `Experiment` compatibility aliases.
 
 ### Discovery and loading
 

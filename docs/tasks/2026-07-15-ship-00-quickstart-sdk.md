@@ -853,3 +853,21 @@ progress distinguish attempted from scored cases. An all-failed evaluation omits
 `Grading responses 0/0` stage and ends as stopped rather than complete. Phase 9B.5 remains blocked
 on completing the unchanged one-case Preview inside its pinned policy; do not silently increase
 the budget, substitute a model, or claim DRACO readiness.
+
+## Phase 10A reusable FusionMonster authoring — 2026-07-20
+
+Added the approved network-free graph vocabulary needed to express the historical DRACO matrix:
+
+- `sf.Model(name, model, prompt=..., params=...)` is an immutable named model-call leaf;
+- existing Fusion strings and dictionaries remain unchanged as the concise quickstart forms;
+- `Fusion.models` additionally accepts Model values while URL4 member slots remain the generic
+  `member_1..member_n` engine schema;
+- `sf.FusionMonster(name, systems=[...])` owns an ordered set of explicitly named Models and
+  Fusions and rejects duplicate system names, ambiguous model identities, and system/dependency
+  name collisions before any network request; and
+- reusing the same Model value establishes future answer-reuse identity, while separately named
+  values using the same model route represent independent samples.
+
+No `Solo`, `Lineup`, `Experiment`, or compatibility alias was added. This phase defines and proves
+authoring only; shared execution, grading/reporting, and the guarded one-case full DRACO topology
+remain Phases 10B through 10D.

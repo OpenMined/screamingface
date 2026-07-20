@@ -13,8 +13,8 @@ finished:
 Add the smallest reusable-system abstraction needed to express and run the historical DRACO
 matrix correctly. Researchers should be able to name reusable model calls with `Model`, compose
 those same values into existing `Fusion` objects, and evaluate a `FusionMonster` of models and
-Fusions without
-regenerating or re-grading shared panel answers. The first worked target is the complete historical
+Fusions without regenerating or re-grading shared panel answers. The first worked target is the
+complete historical
 DRACO topology on one case, with unavailable models substituted and the result labeled as a
 non-comparable reproduction of the protocol rather than the published scores.
 
@@ -53,25 +53,26 @@ Contract decisions to approve before implementation:
 - `Model(name, model, *, prompt, params)` is the typed, reusable model-call leaf.
 - Ordinary `Fusion.models` continues accepting model strings and dictionaries, and additionally
   accepts `Model` values. Strings remain the quickstart shorthand for anonymous model leaves.
-- `FusionMonster.systems` accepts only explicitly named `Model` and `Fusion` values so report keys and
-  execution identity are stable.
+- `FusionMonster.systems` accepts only explicitly named `Model` and `Fusion` values so report keys
+  and execution identity are stable.
 - Reusing the same `Model` value across Fusions means one answer is generated per case and reused.
 - Two separately named `Model` values may use the same model route and still produce independent
   samples.
-- A Fusion may reference a `Model` that is not listed as a top-level FusionMonster system; its answer is
-  generated and reused but is not independently graded or reported.
+- A Fusion may reference a `Model` that is not listed as a top-level FusionMonster system; its
+  answer is generated and reused but is not independently graded or reported.
 - A reducer model call is always a new synthesis call and never aliases a Model response.
 - Every system name in a FusionMonster is unique; named dependency identities are unambiguous across
   the graph.
-- FusionMonster execution emits multiple ordinary URL4 requests rather than one oversized expression:
-  shared Model requests first, Fusion synthesis requests second, and judge requests during grading.
-- `FusionMonsterReport.systems` maps each listed system name to its result. A FusionMonster does not invent a
-  single score or `gain`; comparisons remain explicit across the included systems.
+- FusionMonster execution emits multiple ordinary URL4 requests rather than one oversized
+  expression: shared Model requests first, Fusion synthesis requests second, and judge requests
+  during grading.
+- `FusionMonsterReport.systems` maps each listed system name to its result. A FusionMonster does not
+  invent a single score or `gain`; comparisons remain explicit across the included systems.
 - `Suite` remains reserved for running one or more FusionMonsters across multiple benchmarks.
 
 ## Planned changes
 
-### Phase 10A — authoring and graph contract
+### Phase 10A — authoring and graph contract (implemented)
 
 - Add immutable `Model` and `FusionMonster` public values.
 - Allow `Fusion` members to reference `Model` values without breaking string/dictionary shorthand.
@@ -89,8 +90,8 @@ Contract decisions to approve before implementation:
 
 - Grade each listed Model/Fusion output exactly once using the loaded benchmark grader.
 - Aggregate one result per listed system without duplicating member grading.
-- Add immutable `FusionMonsterRun`, `FusionMonsterGrades`, and `FusionMonsterReport` values only where staged API parity
-  requires them.
+- Add immutable `FusionMonsterRun`, `FusionMonsterGrades`, and `FusionMonsterReport` values only
+  where staged API parity requires them.
 - Prove `monster.evaluate(...)` matches explicit `run().grade().aggregate()` orchestration.
 
 ### Phase 10D — one-case DRACO topology notebook
@@ -130,9 +131,18 @@ Contract decisions to approve before implementation:
 - The worked notebook clearly separates protocol parity from result comparability and cannot begin
   the expensive live run accidentally.
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome (current Phase 10A checkpoint)
 
-- **Actual files:** pending
-- **Commits:** pending
-- **Gates:** pending
-- **Deviations:** pending
+- **Actual files:** added `Model` normalization and identity to `model_inputs.py`, added the
+  network-free `FusionMonster` graph value, exported both public types, added an append-only Phase
+  10A suite, and updated the README, architecture plan, normative contract, and OME-400 task
+  mirror. No notebook or runtime execution file changed.
+- **Commits:** Phase 10A checkpoint — `feat(screamingface): add FusionMonster authoring graph`.
+- **Gates:** focused RED then 15/15 GREEN; 56/56 value/compiler compatibility tests; Ruff,
+  formatting, and Pyright pass; 451/451 package tests pass when the known quickstart saved-output
+  assertion is excluded. The authoritative substantive gate reaches 95.46% coverage and 660/661
+  tests; its only failure is the pre-existing modified `00_quickstart.ipynb` output-free assertion.
+  The append-only precheck is intentionally skipped because all seven researcher-owned notebooks
+  remain modified and untouched.
+- **Deviations:** the named dependency order is private implementation state rather than a new
+  public inspection property. Phase 10A adds authoring only; execution and reports remain pending.

@@ -73,7 +73,9 @@ Phase 0 establishes:
 
 ```python
 sf.config
+sf.Model
 sf.Fusion
+sf.FusionMonster
 sf.Benchmark
 sf.Case
 sf.Reducer
@@ -115,6 +117,36 @@ Low-level result records are immutable values surfaced through `Run` and `Grades
 `MemberResult`, and `RunFailure` are exported for inspection and type checking, but users receive
 them from `Fusion.run()` rather than constructing them as configuration.
 
+Phase 10 adds a reusable comparison graph without complicating the short path. Strings and model
+configuration dictionaries in `Fusion.models` remain shorthand model calls. A named `sf.Model`
+is the explicit leaf form used when the same answer must be reused across Fusions or reported as
+its own system:
+
+```python
+opus = sf.Model(
+    "opus",
+    "anthropic/claude-opus-4.8",
+    prompt=DRACO_ANSWER_PROMPT,
+    params={"max_tokens": 8192},
+)
+gpt = sf.Model("gpt", "openai/gpt-5.5", prompt=DRACO_ANSWER_PROMPT)
+fusion = sf.Fusion(
+    "opus-plus-gpt",
+    models=[opus, gpt],
+    reducer=sf.reducers.Model(
+        model="anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+    ),
+)
+monster = sf.FusionMonster("draco", systems=[opus, gpt, fusion])
+```
+
+`FusionMonster.systems` contains only explicitly named Models and Fusions. System names are unique.
+Reusing the same Model value establishes shared answer identity; separately named Model values on
+the same route are independent samples. A Fusion-only named Model may be reused without becoming a
+top-level reported system. URL4 response member slots remain `member_1..member_n`; graph names do
+not change the generic engine schema. `sf.Experiment`, `sf.Solo`, and `sf.Lineup` do not exist.
+
 Not included in the benchmark-core MVP:
 
 - a public `Engine`, `Client`, `Runner`, `Loader`, `Row`, or `Task`;
@@ -145,7 +177,7 @@ The configured value must be an HTTP(S) origin: scheme and authority only, with 
 or fragment. This keeps discovery resources and `/v1` evaluation on one unambiguous engine
 boundary.
 
-Importing ScreamingFace and directly constructing a `Fusion`, `Case`, or `Benchmark` perform no
+Importing ScreamingFace and directly constructing a `Model`, `Fusion`, `FusionMonster`, `Case`, or `Benchmark` perform no
 network request. Model discovery, Fusion execution, and model-backed grading use the configured
 HTTP engine. Named benchmark discovery is SDK-local; loading may contact the canonical dataset
 source through the researcher's own credentials but never contacts the engine.

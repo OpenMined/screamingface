@@ -225,6 +225,26 @@ fusion = sf.Fusion(
     reducer=sf.reducers.MajorityVote(),
 )
 
+# Name model calls only when a larger comparison graph needs to reuse them.
+opus = sf.Model(
+    "opus",
+    "anthropic/claude-opus-4.8",
+    params={"temperature": 0.7},
+)
+gpt = sf.Model("gpt", "openai/gpt-5.5")
+opus_plus_gpt = sf.Fusion(
+    "opus-plus-gpt",
+    models=[opus, gpt],
+    reducer=sf.reducers.Model(
+        model="anthropic/claude-opus-4.8",
+        prompt="Synthesize the panel answers.",
+    ),
+)
+monster = sf.FusionMonster(
+    "research-comparison",
+    systems=[opus, gpt, opus_plus_gpt],
+)
+
 # Canonical recipe template: contains $question, but no case or answer key.
 fusion.url4
 
@@ -272,7 +292,9 @@ report.to_dict()
 report = fusion.evaluate(benchmark)
 ```
 
-Construction and `fusion.url4` are network-free. Model discovery and execution contact only the
+Construction of Models, Fusions, FusionMonsters, and `fusion.url4` is network-free. Inline model
+IDs remain the preferred quickstart form; `sf.Model` adds stable names only when a call must be
+reused across multiple Fusions or evaluated as a top-level system. Model discovery and execution contact only the
 configured URL4 engine. Provider connection calls also contact only that engine; the SDK never
 contacts AI Gateway directly. Benchmark discovery is package-local; loading `gpqa@1` uses the caller's
 Hugging Face session and returns ordinary immutable SDK values. `fusion.run("gpqa@1", first=20)`
