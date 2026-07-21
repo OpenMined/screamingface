@@ -5,13 +5,18 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from screamingface.aggregators import Aggregator, Mean
 from screamingface.graders import Grader
 from screamingface.tools import Tool, _tool_values
 
 type CaseProducer = Callable[[], Iterable[Case]]
+
+if TYPE_CHECKING:
+    from screamingface._progress import ProgressSetting
+    from screamingface.recipe import Recipe
+    from screamingface.report import Report
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -69,7 +74,10 @@ class Benchmark:
     aggregator: Aggregator
     tools: tuple[Tool, ...]
     max_tool_rounds: int | None
-    _case_source: tuple[Case, ...] | CaseProducer = field(repr=False)
+    _case_source: tuple[Case, ...] | CaseProducer | None = field(repr=False)
+    _cases_route: str | None = field(repr=False)
+    _grader_route: str | None = field(repr=False)
+    _aggregator_route: str | None = field(repr=False)
 
     def __init__(
         self,
@@ -107,8 +115,69 @@ class Benchmark:
             _tool_rounds(max_tool_rounds, has_tools=bool(selected_tools)),
         )
         object.__setattr__(self, "_case_source", source)
+        object.__setattr__(self, "_cases_route", None)
+        object.__setattr__(self, "_grader_route", None)
+        object.__setattr__(self, "_aggregator_route", None)
+
+    @classmethod
+    def _from_engine(
+        cls,
+        id: str,
+        *,
+        title: str,
+        cases_route: str,
+        grader: Grader,
+        grader_route: str,
+        aggregator: Aggregator,
+        aggregator_route: str,
+        tools: Sequence[Tool] = (),
+        max_tool_rounds: int | None = None,
+    ) -> Benchmark:
+        """Construct one immutable engine-advertised benchmark manifest."""
+
+        value = object.__new__(cls)
+        benchmark_id = _nonempty(id, "benchmark id")
+        if not isinstance(grader, Grader):
+            raise TypeError("benchmark grader must be an sf.Grader")
+        if not isinstance(aggregator, Aggregator):
+            raise TypeError("benchmark aggregator must be an sf.Aggregator")
+        selected_tools = _tool_values(tools)
+        object.__setattr__(value, "id", benchmark_id)
+        object.__setattr__(value, "title", _nonempty(title, "benchmark title"))
+        object.__setattr__(value, "grader", grader)
+        object.__setattr__(value, "aggregator", aggregator)
+        object.__setattr__(value, "tools", selected_tools)
+        object.__setattr__(
+            value,
+            "max_tool_rounds",
+            _tool_rounds(max_tool_rounds, has_tools=bool(selected_tools)),
+        )
+        object.__setattr__(value, "_case_source", None)
+        object.__setattr__(value, "_cases_route", _route(cases_route, "benchmark cases route"))
+        object.__setattr__(value, "_grader_route", _route(grader_route, "benchmark grader route"))
+        object.__setattr__(
+            value,
+            "_aggregator_route",
+            _route(aggregator_route, "benchmark aggregator route"),
+        )
+        return value
+
+    def evaluate(
+        self,
+        recipe: Recipe,
+        *,
+        first: int | None = None,
+        progress: ProgressSetting = None,
+    ) -> Report:
+        """Evaluate one Recipe through this benchmark's complete URL4 graph."""
+
+        from screamingface._benchmark_execution import evaluate_benchmark
+
+        return evaluate_benchmark(self, recipe, first=first, progress=progress)
 
     def _materialize_cases(self) -> tuple[Case, ...]:
+        if self._case_source is None:
+            raise RuntimeError("engine-advertised benchmark cases are evaluated by the engine")
         values = self._case_source() if callable(self._case_source) else self._case_source
         return _validate_cases(tuple(values))
 
@@ -149,3 +218,10 @@ def _json_text(value: Any, label: str, *, require_object: bool = False) -> str:
         return json.dumps(value, allow_nan=False, separators=(",", ":"), sort_keys=True)
     except (TypeError, ValueError) as exc:
         raise TypeError(f"{label} must contain only JSON values") from exc
+
+
+def _route(value: object, label: str) -> str:
+    route = _nonempty(value, label)
+    if not route.startswith("/") or route.startswith("//") or "?" in route or "#" in route:
+        raise ValueError(f"{label} must be a same-engine absolute path")
+    return route

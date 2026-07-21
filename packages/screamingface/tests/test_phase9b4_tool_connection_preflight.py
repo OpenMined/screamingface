@@ -18,8 +18,12 @@ def _registry() -> Registry:
                 "huggingface",
             ),
         ),
-        reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
-        response_schemas=("screamingface.recipe-result.v1",),
+        reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote/1"),),
+        response_schemas=(
+            "screamingface.recipe-result.v1",
+            "screamingface.case-grade.v1",
+            "screamingface.report.v1",
+        ),
         max_request_target_bytes=61_440,
         providers=(
             ProviderRecord("huggingface", "Hugging Face", ("api_key",)),

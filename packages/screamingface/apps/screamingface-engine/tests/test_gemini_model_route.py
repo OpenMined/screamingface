@@ -49,8 +49,8 @@ async def test_gemini_route_maps_exact_request_and_keeps_calls_independent() -> 
     transport = httpx.ASGITransport(app=app)
     expression = (
         "(model_context='<criterion>Be correct.</criterion>',"
-        "/gemini/2.5-flash?temperature=0.2&reasoning=low&max_tokens=4096"
-        "&q=($model_context)!'Apply the pinned judge prompt.')"
+        "model_result=/gemini/2.5-flash?temperature=0.2&reasoning=low&max_tokens=4096"
+        "&q=($model_context)!'Apply the pinned judge prompt.')!'$model_result'"
     )
 
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:

@@ -82,7 +82,7 @@ async def test_payment_required_survives_the_public_engine_boundary() -> None:
 @pytest.mark.asyncio
 async def test_round_budget_failure_reports_limit_and_safe_tool_counts() -> None:
     params = {
-        "tools": "web_search web_fetch",
+        "tools": "web_search:web_fetch",
         "max_tool_rounds": "2",
         "tavily.search.search_depth": "basic",
         "tavily.search.max_results": "5",

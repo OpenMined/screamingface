@@ -17,7 +17,6 @@ def main() -> None:
         ("build_discovery.py", "02_discovery.ipynb"),
         ("build_fusions.py", "03_fusions.ipynb"),
         ("build_custom_benchmarks.py", "04_custom_benchmarks.ipynb"),
-        ("build_draco_walkthrough.py", "05_draco.ipynb"),
         ("build_connections.py", "06_connections.ipynb"),
     )
     mismatches: list[str] = []

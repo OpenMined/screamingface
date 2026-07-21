@@ -56,6 +56,9 @@ services:
     environment:
       AIGATEWAY_TIMEOUT: "120"
       AIGATEWAY_URL: http://127.0.0.1:9105
+      # GPQA is gated and is loaded by this engine process. This credential is
+      # distinct from the Hugging Face inference connection stored by AI Gateway.
+      HF_TOKEN: ${HF_TOKEN:-}
       SCREAMINGFACE_ENGINE_MAX_INFLIGHT: "16"
       SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES: "61440"
       SCREAMINGFACE_CODEX_OAUTH_REDIRECT_URI: http://localhost:${CODEX_OAUTH_HOST_PORT:-1455}/auth/callback

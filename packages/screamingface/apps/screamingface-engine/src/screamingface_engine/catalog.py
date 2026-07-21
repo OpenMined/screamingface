@@ -7,6 +7,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from screamingface_engine.aggregators import MEAN_ROUTE, REPORT_SCHEMA
+from screamingface_engine.benchmarks import (
+    GPQA_CASES_ROUTE,
+    GPQA_ID,
+    GPQA_TITLE,
+    BenchmarkRoute,
+)
+from screamingface_engine.graders import CASE_GRADE_SCHEMA, EXACT_CHOICE_ROUTE
 from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE
 from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES
 
@@ -21,6 +29,18 @@ _CAPABILITY_POLICY = {
     "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra": ("web_search", "web_fetch"),
     "huggingface/zai-org/GLM-5.2~deepinfra": ("web_search", "web_fetch"),
 }
+
+BENCHMARK_ROUTES = (
+    BenchmarkRoute(
+        GPQA_ID,
+        GPQA_TITLE,
+        GPQA_CASES_ROUTE,
+        "exact_choice",
+        EXACT_CHOICE_ROUTE,
+        "mean",
+        MEAN_ROUTE,
+    ),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,7 +206,11 @@ def registry_document(
 ) -> dict[str, object]:
     return {
         "schema": "screamingface.registry.v1",
-        "response_schemas": ["screamingface.recipe-result.v1"],
+        "response_schemas": [
+            "screamingface.recipe-result.v1",
+            CASE_GRADE_SCHEMA,
+            REPORT_SCHEMA,
+        ],
         "limits": {"max_request_target_bytes": max_request_target_bytes},
         "providers": [
             {
@@ -204,6 +228,7 @@ def registry_document(
             }
             for model in model_routes
         ],
+        "benchmarks": [benchmark.public for benchmark in BENCHMARK_ROUTES],
         "reducers": [{"id": "majority_vote", "route": MAJORITY_VOTE_ROUTE}],
     }
 

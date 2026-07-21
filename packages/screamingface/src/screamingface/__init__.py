@@ -25,41 +25,31 @@ from screamingface.errors import (
 )
 from screamingface.fusion import Fusion
 from screamingface.graders import Grader
-from screamingface.grades import CaseGrades, CriterionVerdict, Grade, GradeFailure, Grades
 from screamingface.model import Model
 from screamingface.recipe import Recipe
 from screamingface.reducers import Reducer
-from screamingface.report import MemberReport, Report
-from screamingface.run import CaseResult, MemberResult, Run, RunFailure
+from screamingface.report import EvaluationFailure, MemberReport, Report
 
 __all__ = [
     "Aggregator",
     "Benchmark",
     "Case",
-    "CaseGrades",
-    "CaseResult",
     "Connection",
     "ConnectionRequiredError",
-    "CriterionVerdict",
     "EngineConnectionError",
     "EngineProfileError",
     "EngineProtocolError",
     "EngineRequestTooLargeError",
     "Fusion",
-    "Grade",
-    "GradeFailure",
     "Grader",
-    "Grades",
     "InvalidBenchmarkError",
-    "MemberResult",
+    "EvaluationFailure",
     "MemberReport",
     "Model",
     "OAuthFlow",
     "ProviderConnectionError",
     "Reducer",
     "Recipe",
-    "Run",
-    "RunFailure",
     "Report",
     "ScreamingFaceError",
     "SecureTransportRequiredError",

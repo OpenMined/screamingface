@@ -72,14 +72,15 @@ examples are comments so running this guide never starts or replaces a connectio
             "    }"
         ),
         nbformat.v4.new_markdown_cell(
-            """`fusion.run(...)` checks member and model-reducer providers. `run.grade()` checks a
-model judge only when the benchmark uses one. `fusion.evaluate(...)` checks their union once before
-the first request. Missing credentials raise one actionable `ConnectionRequiredError`, not one
-failure per case. This guide performs **no paid model call**.
+            """`benchmark.evaluate(recipe, ...)` checks the Recipe's member, reducer, grader, and
+tool-service requirements once before sending the complete run URL4. Missing credentials raise one
+actionable `ConnectionRequiredError`, not one failure per case. This guide performs **no paid
+model call**.
 
-Dataset access remains separate. GPQA and other Hugging Face datasets use the researcher's native
-Hugging Face session; `sf.connect()` never receives `HF_TOKEN` or dataset credentials. This phase
-connects Tavily but does not yet route model tools through it."""
+Dataset access remains separate from inference-provider connections. The development engine reads
+`HF_TOKEN` from its environment when a registered benchmark must load a gated Hugging Face source;
+`sf.connect()` does not manage that dataset token. Tavily credentials are engine-owned and never
+pass through AI Gateway."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):

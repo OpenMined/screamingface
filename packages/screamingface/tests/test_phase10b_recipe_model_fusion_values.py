@@ -100,37 +100,6 @@ def test_model_and_fusion_execute_through_the_same_recipe_compiler() -> None:
     }
 
 
-def test_recipe_run_records_use_recipe_terminology() -> None:
-    model = sf.Model("provider/solo")
-    benchmark = sf.Benchmark(
-        "tiny@1",
-        cases=[sf.Case("q1", "Choose A.", reference="A")],
-        grader=sf.graders.ExactChoice(),
-    )
-    run = sf.Run(
-        benchmark=benchmark,
-        recipe_name=model.name,
-        recipe_url4=model.url4,
-        members={"member_1": model.model},
-        cases=benchmark._materialize_cases(),
-        results=[
-            sf.CaseResult(
-                "q1",
-                members={"member_1": sf.MemberResult(model.model, "A")},
-                answer="A",
-            )
-        ],
-    )
-
-    report = run.grade(progress=False).aggregate()
-
-    assert run.recipe_name == "provider/solo"
-    assert run.to_dict()["recipe_name"] == "provider/solo"
-    assert report.recipe_name == "provider/solo"
-    assert report.score == report.baseline == 1.0
-    assert report.gain == 0.0
-
-
 @pytest.mark.parametrize(
     ("factory", "message"),
     [

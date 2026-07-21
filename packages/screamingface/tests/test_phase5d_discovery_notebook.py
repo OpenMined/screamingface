@@ -65,7 +65,7 @@ def test_discovery_notebook_teaches_engine_backed_model_filters() -> None:
     assert "sf.models.list(limit=2)" in code
 
 
-def test_discovery_notebook_teaches_sdk_local_benchmark_filters() -> None:
+def test_discovery_notebook_teaches_engine_benchmark_filters() -> None:
     code = _sources("code")
 
     assert "sf.benchmarks.list()" in code
@@ -74,15 +74,13 @@ def test_discovery_notebook_teaches_sdk_local_benchmark_filters() -> None:
     assert "sf.benchmarks.list(limit=1)" in code
 
 
-def test_discovery_notebook_keeps_source_loading_explicit_and_default_off() -> None:
+def test_discovery_notebook_loads_only_the_engine_manifest() -> None:
     code = _sources("code")
     markdown = _sources("markdown")
 
-    assert "LOAD_GPQA = False" in code
-    assert "if LOAD_GPQA:" in code
-    assert 'sf.benchmarks.load("gpqa@1")' in code
+    assert 'gpqa = sf.benchmarks.load("gpqa@1")' in code
     assert "Hugging Face" in markdown
-    assert "materialize" in markdown
+    assert "does not download cases" in markdown
     assert "Docker" in markdown
 
     # INVARIANT: Discovery never becomes an execution, mock, auth, or private-API tutorial.
@@ -103,10 +101,10 @@ def test_discovery_notebook_explains_the_two_ownership_boundaries() -> None:
 
     assert "configured engine" in markdown
     assert "executable model IDs" in markdown
-    assert "installed SDK" in markdown
+    assert "benchmark manifests" in markdown
     assert "plain IDs" in markdown
     assert "does not prove that provider credentials are connected" in markdown
-    assert "does not contact the engine" in markdown
+    assert "same engine registry" in markdown
 
 
 def test_discovery_notebook_is_public_and_ci_regenerated() -> None:

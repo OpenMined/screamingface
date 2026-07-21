@@ -6,9 +6,55 @@ import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import Literal
 
-from screamingface.grades import GradeFailure, GradingFailure
-from screamingface.run import RunFailure
+type FailureKind = Literal[
+    "connection",
+    "timeout",
+    "http",
+    "url4",
+    "protocol",
+    "skipped",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationFailure:
+    """One typed case failure returned by the complete engine-side evaluation graph."""
+
+    case_id: str
+    kind: FailureKind
+    message: str
+    status: int | None = None
+    code: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "case_id", _nonblank(self.case_id, "failure case ID"))
+        if self.kind not in {
+            "connection",
+            "timeout",
+            "http",
+            "url4",
+            "protocol",
+            "skipped",
+        }:
+            raise ValueError(f"unknown evaluation failure kind {self.kind!r}")
+        object.__setattr__(self, "message", _nonblank(self.message, "failure message"))
+        if self.status is not None and (
+            isinstance(self.status, bool) or not isinstance(self.status, int) or self.status < 100
+        ):
+            raise ValueError("failure status must be an HTTP status or None")
+        if self.code is not None:
+            object.__setattr__(self, "code", _nonblank(self.code, "failure code"))
+
+    def _to_wire(self) -> dict[str, object]:
+        return {
+            "case_id": self.case_id,
+            "kind": self.kind,
+            "message": self.message,
+            "status": self.status,
+            "code": self.code,
+        }
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -52,14 +98,14 @@ class Report:
 
     benchmark_id: str
     recipe_name: str
-    recipe_url4: str
+    url4: str
     n_cases: int
     n_scored: int
     coverage: float
     score: float | None
     baseline: float | None
     gain: float | None
-    failures: tuple[GradingFailure, ...]
+    failures: tuple[EvaluationFailure, ...]
     _member_items: tuple[tuple[str, MemberReport], ...] = field(repr=False)
     _metric_items: tuple[tuple[str, float], ...] = field(repr=False)
 
@@ -68,7 +114,7 @@ class Report:
         *,
         benchmark_id: str,
         recipe_name: str,
-        recipe_url4: str,
+        url4: str,
         n_cases: int,
         n_scored: int,
         coverage: float,
@@ -77,7 +123,7 @@ class Report:
         gain: float | None,
         members: Mapping[str, MemberReport] | Sequence[tuple[str, MemberReport]],
         metrics: Mapping[str, float],
-        failures: Sequence[GradingFailure],
+        failures: Sequence[EvaluationFailure],
     ) -> None:
         total, scored, normalized_coverage = _counts(n_cases, n_scored, coverage)
         member_items = tuple(members.items()) if isinstance(members, Mapping) else tuple(members)
@@ -99,7 +145,7 @@ class Report:
         values = {
             "benchmark_id": _nonblank(benchmark_id, "report benchmark ID"),
             "recipe_name": _nonblank(recipe_name, "report recipe name"),
-            "recipe_url4": _nonblank(recipe_url4, "report recipe URL4"),
+            "url4": _nonblank(url4, "report URL4"),
             "n_cases": total,
             "n_scored": scored,
             "coverage": normalized_coverage,
@@ -143,7 +189,7 @@ class Report:
         return {
             "benchmark_id": self.benchmark_id,
             "recipe_name": self.recipe_name,
-            "recipe_url4": self.recipe_url4,
+            "url4": self.url4,
             "n_cases": self.n_cases,
             "n_scored": self.n_scored,
             "coverage": self.coverage,
@@ -224,10 +270,10 @@ def _counts(n_cases: object, n_scored: object, coverage: object) -> tuple[int, i
     return total, scored, normalized_coverage
 
 
-def _failures(values: Sequence[GradingFailure]) -> tuple[GradingFailure, ...]:
+def _failures(values: Sequence[EvaluationFailure]) -> tuple[EvaluationFailure, ...]:
     failures = tuple(values)
-    if not all(isinstance(failure, (RunFailure, GradeFailure)) for failure in failures):
-        raise TypeError("report failures must be run or grade failure values")
+    if not all(isinstance(failure, EvaluationFailure) for failure in failures):
+        raise TypeError("report failures must be sf.EvaluationFailure values")
     return failures
 
 
@@ -292,4 +338,4 @@ def _nonblank(value: object, label: str) -> str:
     return value
 
 
-__all__ = ["MemberReport", "Report"]
+__all__ = ["EvaluationFailure", "FailureKind", "MemberReport", "Report"]

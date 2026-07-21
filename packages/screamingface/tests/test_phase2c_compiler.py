@@ -4,7 +4,7 @@ import pytest
 from url4 import Url4Node, build, evaluate_sync
 
 import screamingface as sf
-from screamingface._compiler import compile_recipe
+from screamingface._compiler import _tool_params, compile_model_expression, compile_recipe
 
 
 def test_majority_recipe_is_canonical_parameterized_and_network_free() -> None:
@@ -29,8 +29,9 @@ def test_majority_recipe_is_canonical_parameterized_and_network_free() -> None:
     assert "question=" not in recipe
     assert "member_1=/codex/gpt-5.5($question)!'Answer the question.'" in recipe
     assert "/gemini/2.5-flash?temperature=0.2&enabled=true&q=($question)" in recipe
-    assert "recipe_answer=/reducers/majority-vote($member_answers)" in recipe
+    assert "recipe_answer=/reducers/majority-vote/1()!'$member_answers'" in recipe
     assert "schema: 'screamingface.recipe-result.v1'" in recipe
+    assert recipe.endswith(")!'$recipe_result'")
     assert gemini.prompt == "Answer the question."
 
 
@@ -63,9 +64,9 @@ def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4()
     )
 
     assert build(expression)
-    assert expression.count("tools=web_search+web_fetch") == 2
+    assert expression.count("tools=web_search:web_fetch") == 2
     assert expression.count("max_tool_rounds=8") == 2
-    assert "recipe_answer=/reducers/majority-vote($member_answers)" in expression
+    assert "recipe_answer=/reducers/majority-vote/1()!'$member_answers'" in expression
     assert "fusion_answer=/reducers/majority-vote?" not in expression
     assert "tools=" not in fusion.url4
 
@@ -84,16 +85,17 @@ def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4()
         reducer_requests.append(request)
         return "A"
 
-    node.endpoint("/reducers/majority-vote")(reduce)
+    node.endpoint("/reducers/majority-vote/1")(reduce)
 
     result = evaluate_sync(expression, node)
 
     assert result.text
     assert len(requests) == 2
-    assert all(request.params["tools"] == "web_search web_fetch" for request in requests)
+    assert all(request.params["tools"] == "web_search:web_fetch" for request in requests)
     assert all(request.params["max_tool_rounds"] == "8" for request in requests)
     assert len(reducer_requests) == 1
     assert reducer_requests[0].params == {}
+    assert reducer_requests[0].context == ""
 
 
 def test_model_reducer_receives_automatic_labeled_context_and_its_own_intent() -> None:
@@ -130,3 +132,25 @@ def test_unknown_reducer_has_no_fallback_compilation() -> None:
 
     with pytest.raises(sf.UnsupportedReducerError, match="unsupported reducer"):
         _ = fusion.url4
+
+
+def test_tool_round_configuration_is_strict() -> None:
+    with pytest.raises(ValueError, match="must be None"):
+        _tool_params((), 1)
+    with pytest.raises(ValueError, match="is required"):
+        _tool_params((sf.tools.TavilySearch(),), None)
+    with pytest.raises(ValueError, match="is required"):
+        _tool_params((sf.tools.TavilySearch(),), True)
+    with pytest.raises(ValueError, match="positive integer"):
+        _tool_params((sf.tools.TavilySearch(),), 0)
+
+
+def test_model_expression_accepts_default_parameters() -> None:
+    expression = compile_model_expression(
+        model="codex/gpt-5.5",
+        context="Question",
+        intent="Answer",
+    )
+
+    assert build(expression)
+    assert "model_result=/codex/gpt-5.5($model_context)!'Answer'" in expression

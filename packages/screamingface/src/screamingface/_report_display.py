@@ -9,8 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from screamingface._display import STYLE
 
 if TYPE_CHECKING:
-    from screamingface.grades import GradingFailure
-    from screamingface.report import Report
+    from screamingface.report import EvaluationFailure, Report
 
 type ReportStatus = Literal["complete", "partial", "failed", "stopped"]
 
@@ -298,13 +297,13 @@ def _failure_rows(report: Report, status: ReportStatus) -> str:
 
 def _split_failures(
     report: Report,
-) -> tuple[tuple[GradingFailure, ...], tuple[GradingFailure, ...]]:
+) -> tuple[tuple[EvaluationFailure, ...], tuple[EvaluationFailure, ...]]:
     skipped = tuple(failure for failure in report.failures if failure.code == "not_scheduled")
     failures = tuple(failure for failure in report.failures if failure.code != "not_scheduled")
     return failures, skipped
 
 
-def _failure_section(failures: Sequence[GradingFailure], label: str) -> str:
+def _failure_section(failures: Sequence[EvaluationFailure], label: str) -> str:
     if not failures:
         return ""
     counts: dict[str, int] = {}

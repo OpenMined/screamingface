@@ -30,7 +30,7 @@ class EngineRequestTooLargeError(ScreamingFaceError):
 
 
 class UnknownBenchmarkError(ScreamingFaceError):
-    """The installed SDK catalog does not contain a requested benchmark."""
+    """The configured engine does not advertise a requested benchmark."""
 
 
 class UnknownModelError(ScreamingFaceError):

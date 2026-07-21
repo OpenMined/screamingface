@@ -10,14 +10,12 @@ from uuid import UUID
 import pytest
 
 import screamingface as sf
-from screamingface import _execution
 from screamingface._benchmarks import draco
 from screamingface._benchmarks._draco_prompt import (
     DRACO_JUDGE_PROMPT,
     DRACO_JUDGE_PROMPT_BYTES,
     DRACO_JUDGE_PROMPT_SHA256,
 )
-from screamingface._profile import ModelRecord, ProviderRecord, ReducerRecord, Registry
 
 
 def _criterion(index: int) -> dict[str, object]:
@@ -80,14 +78,14 @@ def _install_dataset(
     return calls
 
 
-def test_named_draco_load_is_local_pinned_cached_and_canonical(
+def test_engine_draco_definition_is_pinned_cached_and_canonical(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rows = _draco_rows()
     calls = _install_dataset(monkeypatch, rows)
 
-    first = sf.benchmarks.load("draco@1")
-    second = sf.benchmarks.load("draco@1")
+    first = draco.benchmark()
+    second = draco.benchmark()
     first_cases = first._materialize_cases()
     second_cases = second._materialize_cases()
 
@@ -124,52 +122,6 @@ def test_draco_prompt_is_byte_pinned() -> None:
 
     assert len(encoded) == DRACO_JUDGE_PROMPT_BYTES == 5_196
     assert hashlib.sha256(encoded).hexdigest() == DRACO_JUDGE_PROMPT_SHA256
-
-
-def test_draco_catalog_visibility_and_tool_filter() -> None:
-    assert sf.benchmarks.list() == ["gpqa@1", "draco@1", "draco-preview@1"]
-    assert sf.benchmarks.list(query="DRACO") == ["draco@1", "draco-preview@1"]
-    assert sf.benchmarks.list(tools=["web_search"]) == ["draco@1", "draco-preview@1"]
-
-
-def test_draco_evaluation_fails_preflight_without_engine_spend(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    rows = _draco_rows()
-    _install_dataset(monkeypatch, rows)
-    monkeypatch.setattr(
-        _execution,
-        "load_registry",
-        lambda: Registry(
-            models=(
-                ModelRecord(
-                    "claude/sonnet-4.6",
-                    ("web_search", "web_fetch"),
-                    "anthropic",
-                ),
-            ),
-            reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
-            response_schemas=("screamingface.recipe-result.v1",),
-            max_request_target_bytes=61440,
-            providers=(
-                ProviderRecord("anthropic", "Anthropic", ("oauth", "api_key")),
-                ProviderRecord("tavily", "Tavily", ("api_key",)),
-            ),
-        ),
-    )
-    monkeypatch.setattr(
-        _execution.httpx,
-        "Client",
-        lambda *_args, **_kwargs: pytest.fail("evaluation sent an engine request"),
-    )
-    fusion = sf.Fusion(
-        "pair",
-        members=["claude/sonnet-4.6", "claude/sonnet-4.6"],
-        reducer=sf.reducers.MajorityVote(),
-    )
-
-    with pytest.raises(sf.UnknownModelError, match="gemini/3.1-pro-preview"):
-        fusion.evaluate("draco@1", first=1)
 
 
 def test_draco_source_requires_the_canonical_row_count() -> None:

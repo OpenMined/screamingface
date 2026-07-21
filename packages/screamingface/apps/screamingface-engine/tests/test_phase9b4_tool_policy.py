@@ -8,7 +8,7 @@ from screamingface_engine.tool_policy import parse_tool_policy
 
 def _search_params() -> dict[str, str]:
     return {
-        "tools": "web_fetch web_search",
+        "tools": "web_fetch:web_search",
         "max_tool_rounds": "12",
         "temperature": "0.2",
         "tavily.search.search_depth": "advanced",
@@ -73,7 +73,7 @@ def test_tool_free_policy_forwards_only_model_parameters() -> None:
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ({"tools": "web_search web_search"}, "unique"),
+        ({"tools": "web_search:web_search"}, "unique"),
         ({"tools": "unknown"}, "unsupported tool"),
         ({"max_tool_rounds": "12"}, "tool-free"),
         ({"tools": "web_search"}, "max_tool_rounds"),

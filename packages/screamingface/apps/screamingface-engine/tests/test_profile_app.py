@@ -40,6 +40,7 @@ async def test_profile_serves_only_executable_capability_discovery() -> None:
         "limits",
         "providers",
         "models",
+        "benchmarks",
         "reducers",
     }
     assert gpqa_response.status_code == 404
@@ -82,7 +83,7 @@ async def test_model_route_and_eval_surface_share_gateway_dispatch() -> None:
                 "q": (
                     "(question='What is 2 + 2?',"
                     "answer=/codex/gpt-5.5($question)!'Answer briefly',"
-                    "{answer:'$answer'})"
+                    "result={answer:'$answer'})!'$result'"
                 )
             },
         )

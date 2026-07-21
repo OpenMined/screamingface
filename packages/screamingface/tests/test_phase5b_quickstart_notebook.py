@@ -60,12 +60,11 @@ def test_quickstart_is_the_minimal_public_compose_evaluate_compare_flow() -> Non
     assert '"gemini/2.5-flash"' in code
     assert '"claude/sonnet-4.6"' in code
     assert code.count("sf.reducers.MajorityVote()") == 1
-    assert code.count('fusion.evaluate("gpqa@1", first=5)') == 1
-    assert "# Equivalent staged API:" in code
-    assert '# benchmark = sf.benchmarks.load("gpqa@1")' in code
-    assert "# run = fusion.run(benchmark, first=5)" in code
-    assert "# grades = run.grade()" in code
-    assert "# report = grades.aggregate()" in code
+    assert code.count('benchmark = sf.benchmarks.load("gpqa@1")') == 1
+    assert code.count("report = benchmark.evaluate(fusion, first=5)") == 1
+    assert ".run(" not in code
+    assert ".grade(" not in code
+    assert ".aggregate(" not in code
     assert code.rstrip().endswith("report")
 
     # INVARIANT: Deep execution and discovery APIs do not leak into the shortest path.
@@ -87,6 +86,7 @@ def test_quickstart_is_safe_and_honest_by_default() -> None:
     assert "simulated" not in code.lower()
 
     assert "15 model calls" in markdown
+    assert "one URL4 HTTP request" in markdown
     assert "compose → evaluate → compare" in markdown
     assert "Hugging Face" in markdown
     assert "provider credentials" in markdown

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-import screamingface as sf
-from screamingface import _execution
 from screamingface._exact_choice import exact_choice_score, validate_exact_reference
 
 
@@ -77,20 +75,3 @@ def test_exact_choice_rejects_unusable_references(reference: object) -> None:
 @pytest.mark.parametrize("reference", [str(index) for index in range(10)])
 def test_exact_choice_accepts_numeric_string_indices_zero_through_nine(reference: str) -> None:
     assert validate_exact_reference(reference) == reference
-
-
-def test_run_preflight_uses_the_shared_exact_reference_contract() -> None:
-    valid = sf.Benchmark(
-        "valid@1",
-        cases=[sf.Case("q1", "Question", reference="3")],
-        grader=sf.graders.ExactChoice(),
-    )
-    _execution._references(valid._materialize_cases(), valid)
-
-    invalid = sf.Benchmark(
-        "invalid@1",
-        cases=[sf.Case("q1", "Question", reference=3)],
-        grader=sf.graders.ExactChoice(),
-    )
-    with pytest.raises(sf.InvalidBenchmarkError, match="exact-choice reference"):
-        _execution._references(invalid._materialize_cases(), invalid)

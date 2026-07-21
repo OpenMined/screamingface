@@ -235,7 +235,7 @@ def test_tavily_policy_compiles_to_scalar_member_params_only() -> None:
     _fusion, expression = _full_policy_expression()
 
     assert build(expression)
-    assert expression.count("tools=web_search+web_fetch") == 2
+    assert expression.count("tools=web_search:web_fetch") == 2
     assert expression.count("max_tool_rounds=12") == 2
     assert expression.count("tavily.search.search_depth=advanced") == 2
     assert expression.count("tavily.search.include_domain.1=one.example") == 2
@@ -268,7 +268,7 @@ def test_tavily_policy_round_trips_through_url4_without_reaching_reducer() -> No
 
     assert result.text
     assert len(requests) == 2
-    assert all(request.params["tools"] == "web_search web_fetch" for request in requests)
+    assert all(request.params["tools"] == "web_search:web_fetch" for request in requests)
     assert all(request.params["max_tool_rounds"] == "12" for request in requests)
     assert all(request.params["tavily.extract.format"] == "text" for request in requests)
     assert len(reducer_requests) == 1

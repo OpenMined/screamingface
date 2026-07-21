@@ -6,12 +6,8 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from screamingface._progress import ProgressSetting
-    from screamingface.benchmark import Benchmark
     from screamingface.model_inputs import _RecipeMember
     from screamingface.reducers import Reducer
-    from screamingface.report import Report
-    from screamingface.run import Run
 
 
 class Recipe(ABC):
@@ -24,28 +20,6 @@ class Recipe(ABC):
         from screamingface._compiler import compile_recipe
 
         return compile_recipe(self)
-
-    def run(
-        self,
-        benchmark: str | Benchmark,
-        *,
-        first: int | None = None,
-        progress: ProgressSetting = None,
-    ) -> Run:
-        from screamingface._execution import run_recipe
-
-        return run_recipe(self, benchmark, first=first, progress=progress)
-
-    def evaluate(
-        self,
-        benchmark: str | Benchmark,
-        *,
-        first: int | None = None,
-        progress: ProgressSetting = None,
-    ) -> Report:
-        from screamingface._execution import evaluate_recipe
-
-        return evaluate_recipe(self, benchmark, first=first, progress=progress)
 
     @property
     @abstractmethod

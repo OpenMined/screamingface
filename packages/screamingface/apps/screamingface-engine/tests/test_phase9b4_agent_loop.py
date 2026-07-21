@@ -63,7 +63,7 @@ class Tavily:
         return {"url": url, "content": "Evidence", "truncated": False}
 
 
-def _params(*, tools: str = "web_search web_fetch", rounds: int = 12) -> dict[str, str]:
+def _params(*, tools: str = "web_search:web_fetch", rounds: int = 12) -> dict[str, str]:
     values = {
         "tools": tools,
         "max_tool_rounds": str(rounds),

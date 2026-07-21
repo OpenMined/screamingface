@@ -65,9 +65,6 @@ jobs:
             --cov-fail-under=95 \
             -q
 
-      - name: Construct Phase 0 contract fixtures
-        run: uv run python scripts/check_phase1_fixtures.py
-
       - name: Verify deterministic notebooks
         run: uv run --extra notebook python scripts/check_notebooks.py
 

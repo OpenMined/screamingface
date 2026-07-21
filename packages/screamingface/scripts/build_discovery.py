@@ -15,11 +15,10 @@ def notebook() -> nbformat.NotebookNode:
         nbformat.v4.new_markdown_cell(
             """# ScreamingFace · discover models and benchmarks
 
-Discover what this ScreamingFace setup can run without mixing discovery with execution. Models and
-benchmarks intentionally come from different places:
+Discover what this ScreamingFace engine can run without mixing discovery with execution:
 
-- executable model IDs come from the configured engine;
-- canonical benchmark IDs come from the installed SDK.
+- executable model IDs come from its model routes;
+- canonical benchmark IDs come from its benchmark manifests.
 
 This notebook shows both lists and their shared filters, then makes the separate benchmark-loading
 boundary explicit.
@@ -33,8 +32,8 @@ cd packages/screamingface/apps/screamingface-engine
 ./dev.sh
 ```
 
-Docker is the only prerequisite for the default run. Listing models does not call them, so no
-provider credentials are needed. Benchmark source loading is shown later but remains disabled."""
+Docker is the only prerequisite. Listing or loading a manifest does not call a model or download
+benchmark cases, so no provider or dataset credentials are needed."""
         ),
         nbformat.v4.new_markdown_cell("## 1 · Configure the engine"),
         nbformat.v4.new_code_cell(
@@ -77,12 +76,12 @@ listed route can still fail at execution time if its provider is unavailable or 
 Here, `web_search` means the engine route advertises that named executable capability. It does not
 mean the model learned web content during training, and it does not validate provider access."""
         ),
-        nbformat.v4.new_markdown_cell("## 4 · List installed benchmarks"),
+        nbformat.v4.new_markdown_cell("## 4 · List executable benchmarks"),
         nbformat.v4.new_code_cell("benchmark_ids = sf.benchmarks.list()\nbenchmark_ids"),
         nbformat.v4.new_markdown_cell(
-            """`sf.benchmarks.list()` reads the canonical definitions shipped by the installed SDK.
-It does not contact the engine or download benchmark rows. Like model discovery, it deliberately
-returns plain IDs rather than introducing a second summary or metadata object."""
+            """`sf.benchmarks.list()` validates the same engine registry and returns its benchmark
+IDs. It does not download cases. Like model discovery, it deliberately returns plain IDs rather
+than introducing a second summary object."""
         ),
         nbformat.v4.new_markdown_cell("## 5 · Filter the benchmark IDs"),
         nbformat.v4.new_code_cell(
@@ -100,40 +99,33 @@ returns plain IDs rather than introducing a second summary or metadata object.""
 of compatibility. For models it means capabilities the route supports; for benchmarks it means
 capabilities the benchmark requires from each answer-producing Fusion member."""
         ),
-        nbformat.v4.new_markdown_cell("## 6 · Listing is not loading"),
+        nbformat.v4.new_markdown_cell("## 6 · Load a manifest"),
         nbformat.v4.new_markdown_cell(
-            """A benchmark ID is enough to select a definition, but it is not the dataset.
-`sf.benchmarks.load("gpqa@1")` asks the installed definition to fetch and validate its pinned
-source, then returns an immutable `sf.Benchmark` ready for execution.
-
-GPQA is gated on Hugging Face. Log in in the researcher process before enabling the next cell:
-
-```bash
-huggingface-cli login
-```
-
-The Hugging Face token stays with the researcher process. Neither screamingface-engine nor AI
-Gateway receives it."""
+            """A benchmark ID selects a manifest, not its dataset rows.
+`sf.benchmarks.load("gpqa@1")` returns an immutable `sf.Benchmark` containing the engine-advertised
+case, grader, aggregator, and tool routes. Cases remain on the engine until evaluation."""
         ),
         nbformat.v4.new_code_cell(
-            "LOAD_GPQA = False\n\n"
-            "loaded_gpqa = None\n"
-            "if LOAD_GPQA:\n"
-            '    loaded_gpqa = sf.benchmarks.load("gpqa@1")\n\n'
-            "loaded_gpqa"
+            'gpqa = sf.benchmarks.load("gpqa@1")\n\n'
+            "{\n"
+            '    "id": gpqa.id,\n'
+            '    "title": gpqa.title,\n'
+            '    "grader": gpqa.grader,\n'
+            '    "aggregator": gpqa.aggregator,\n'
+            "}"
         ),
         nbformat.v4.new_markdown_cell(
-            """The default value performs no dataset request and invents no substitute benchmark.
-Set `LOAD_GPQA = True` only after authenticating if you want to materialize and validate all pinned
-GPQA cases.
+            """This performs no dataset request and invents no substitute benchmark. During
+`gpqa.evaluate(...)`, the engine loads the pinned Hugging Face source using its `HF_TOKEN`, applies
+the stable slice inside URL4, runs the Recipe, grades it, and aggregates the report.
 
 ## Recap
 
 - configure one engine with `sf.config(...)`;
 - use `sf.models.list(...)` for model routes executable by that deployment;
-- use `sf.benchmarks.list(...)` for canonical definitions installed in the SDK;
+- use `sf.benchmarks.list(...)` for benchmark manifests advertised by that deployment;
 - both list APIs return plain IDs and accept `query`, `tools`, and `limit`;
-- listing a benchmark is local and network-free; loading can fetch its pinned source; and
+- listing and loading contact the engine registry but do not fetch cases; and
 - discovery performs no Fusion, model, grader, or aggregation work.
 
 Continue to the quickstart to compose and evaluate a Fusion, or the architecture notebook to inspect

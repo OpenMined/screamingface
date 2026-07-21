@@ -13,11 +13,16 @@ from screamingface import _profile, connections
 def _registry() -> dict[str, object]:
     return {
         "schema": "screamingface.registry.v1",
-        "response_schemas": ["screamingface.recipe-result.v1"],
+        "response_schemas": [
+            "screamingface.recipe-result.v1",
+            "screamingface.case-grade.v1",
+            "screamingface.report.v1",
+        ],
         "limits": {"max_request_target_bytes": 61440},
         "providers": [{"id": "tavily", "display_name": "Tavily", "auth_methods": ["api_key"]}],
         "models": [],
-        "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
+        "benchmarks": [],
+        "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote/1"}],
     }
 
 

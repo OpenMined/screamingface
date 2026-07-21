@@ -17,20 +17,20 @@ from screamingface_engine.settings import Settings
 
 
 def _request(
-    context: str,
+    intent: str,
     *,
-    intent: str = "",
+    context: str = "",
     params: dict[str, str] | None = None,
 ) -> Request:
     return Request(
-        path="/reducers/majority-vote",
+        path="/reducers/majority-vote/1",
         context=context,
         intent=intent,
         params=params or {},
     )
 
 
-def test_majority_vote_parses_resolved_context_and_orders_members_numerically() -> None:
+def test_majority_vote_parses_resolved_intent_and_orders_members_numerically() -> None:
     assert majority_vote(_request('{"member_3":"A","member_1":"B","member_2":"A"}')) == "A"
     assert majority_vote(_request('{"member_2":"A","member_1":"B"}')) == "B"
 
@@ -46,7 +46,7 @@ def test_majority_vote_parses_resolved_context_and_orders_members_numerically() 
         (_request('{"panel_1":"A","member_2":"B"}'), "keys"),
         (_request('{"member_1":"A","member_2":2}'), "strings"),
         (_request('{"member_1":"A","member_2":" "}'), "blank"),
-        (_request('{"member_1":"A","member_2":"B"}', intent="vote"), "intent"),
+        (_request('{"member_1":"A","member_2":"B"}', context="unexpected"), "context"),
         (
             _request('{"member_1":"A","member_2":"B"}', params={"mode": "strict"}),
             "parameters",
@@ -86,16 +86,17 @@ async def test_reducer_route_and_complete_literal_expression_return_plaintext() 
     transport = httpx.ASGITransport(app=_app(gateway))
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         direct = await client.get(
-            "/reducers/majority-vote",
-            params={"q": '({"member_2":"B","member_1":"A","member_3":"B"})'},
+            "/reducers/majority-vote/1",
+            params={"q": '()!{"member_2":"B","member_1":"A","member_3":"B"}'},
         )
         evaluated = await client.get(
             "/v1",
             params={
                 "q": (
                     "(member_answers={member_1:'A',member_2:'B',member_3:'A'},"
-                    "recipe_answer=/reducers/majority-vote($member_answers),"
-                    "{schema:'screamingface.recipe-result.v1',answer:'$recipe_answer'})"
+                    "recipe_answer=/reducers/majority-vote/1()!$member_answers,"
+                    "result={schema:'screamingface.recipe-result.v1',answer:'$recipe_answer'})"
+                    "!'$result'"
                 )
             },
         )
@@ -137,12 +138,12 @@ async def test_complete_model_and_reducer_expression_makes_only_panel_gateway_ca
         "member_2=/gemini/2.5-flash($question)!'Answer',"
         "member_3=/claude/sonnet-4.6($question)!'Answer',"
         "member_answers={member_1:'$member_1',member_2:'$member_2',member_3:'$member_3'},"
-        "recipe_answer=/reducers/majority-vote($member_answers),"
-        "{schema:'screamingface.recipe-result.v1',"
+        "recipe_answer=/reducers/majority-vote/1()!$member_answers,"
+        "result={schema:'screamingface.recipe-result.v1',"
         "members:{member_1:{model:'codex/gpt-5.5',answer:'$member_1'},"
         "member_2:{model:'gemini/2.5-flash',answer:'$member_2'},"
         "member_3:{model:'claude/sonnet-4.6',answer:'$member_3'}},"
-        "answer:'$recipe_answer'})"
+        "answer:'$recipe_answer'})!'$result'"
     )
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         response = await client.get("/v1", params={"q": expression})
@@ -263,7 +264,8 @@ async def test_reducer_errors_surface_as_atomic_url4_failures() -> None:
             params={
                 "q": (
                     "(answers={member_1:'A',member_3:'B'},"
-                    "winner=/reducers/majority-vote($answers),{answer:'$winner'})"
+                    "winner=/reducers/majority-vote/1()!$answers,"
+                    "result={answer:'$winner'})!'$result'"
                 )
             },
         )

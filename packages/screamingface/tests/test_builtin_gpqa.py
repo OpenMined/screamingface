@@ -32,7 +32,7 @@ def clear_gpqa_cache():
     gpqa.gpqa_cases.cache_clear()
 
 
-def test_named_gpqa_load_is_local_pinned_cached_and_canonical(
+def test_engine_gpqa_definition_is_pinned_cached_and_canonical(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
@@ -43,8 +43,8 @@ def test_named_gpqa_load_is_local_pinned_cached_and_canonical(
 
     monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(load_dataset=load_dataset))
 
-    first = sf.benchmarks.load("gpqa@1")
-    second = sf.benchmarks.load("gpqa@1")
+    first = gpqa.benchmark()
+    second = gpqa.benchmark()
     first_cases = first._materialize_cases()
     second_cases = second._materialize_cases()
 

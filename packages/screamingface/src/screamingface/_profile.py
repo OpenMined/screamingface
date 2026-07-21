@@ -16,6 +16,8 @@ from screamingface.errors import EngineConnectionError, EngineProfileError, Engi
 REGISTRY_PATH = "/.well-known/screamingface"
 REGISTRY_SCHEMA = "screamingface.registry.v1"
 RECIPE_RESULT_SCHEMA = "screamingface.recipe-result.v1"
+CASE_GRADE_SCHEMA = "screamingface.case-grade.v1"
+REPORT_SCHEMA = "screamingface.report.v1"
 type AuthMethod = Literal["oauth", "api_key"]
 
 
@@ -40,12 +42,30 @@ class ReducerRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class StrategyRecord:
+    kind: str
+    route: str
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkRecord:
+    id: str
+    title: str
+    cases_route: str
+    grader: StrategyRecord
+    aggregator: StrategyRecord
+    tools: tuple[str, ...]
+    max_tool_rounds: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class Registry:
     models: tuple[ModelRecord, ...]
     reducers: tuple[ReducerRecord, ...]
     response_schemas: tuple[str, ...]
     max_request_target_bytes: int
     providers: tuple[ProviderRecord, ...]
+    benchmarks: tuple[BenchmarkRecord, ...] = ()
 
 
 def load_registry() -> Registry:
@@ -53,7 +73,15 @@ def load_registry() -> Registry:
     try:
         _exact_fields(
             payload,
-            {"schema", "response_schemas", "limits", "providers", "models", "reducers"},
+            {
+                "schema",
+                "response_schemas",
+                "limits",
+                "providers",
+                "models",
+                "benchmarks",
+                "reducers",
+            },
             "engine registry",
         )
         if payload["schema"] != REGISTRY_SCHEMA:
@@ -63,11 +91,15 @@ def load_registry() -> Registry:
             _provider_record(item) for item in _object_list(payload["providers"], "providers")
         )
         models = tuple(_model_record(item) for item in _object_list(payload["models"], "models"))
+        benchmarks = tuple(
+            _benchmark_record(item) for item in _object_list(payload["benchmarks"], "benchmarks")
+        )
         reducers = tuple(
             _reducer_record(item) for item in _object_list(payload["reducers"], "reducers")
         )
         limits = _limits(payload["limits"])
         _unique((record.id for record in models), "model")
+        _unique((record.id for record in benchmarks), "benchmark")
         _unique((record.id for record in providers), "provider")
         _unique((record.id for record in reducers), "reducer")
         provider_ids = {record.id for record in providers}
@@ -78,9 +110,11 @@ def load_registry() -> Registry:
                 )
         if RECIPE_RESULT_SCHEMA not in response_schemas:
             raise ValueError(f"missing response schema {RECIPE_RESULT_SCHEMA!r}")
+        if REPORT_SCHEMA not in response_schemas:
+            raise ValueError(f"missing response schema {REPORT_SCHEMA!r}")
     except (KeyError, TypeError, ValueError) as exc:
         raise EngineProfileError(f"invalid engine registry: {exc}") from exc
-    return Registry(models, reducers, response_schemas, limits, providers)
+    return Registry(models, reducers, response_schemas, limits, providers, benchmarks)
 
 
 def _get_text(path: str) -> str:
@@ -134,6 +168,55 @@ def _reducer_record(payload: dict[str, object]) -> ReducerRecord:
     return ReducerRecord(
         _nonempty(payload["id"], "reducer ID"),
         _relative_path(payload["route"], "reducer route"),
+    )
+
+
+def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
+    _exact_fields(
+        payload,
+        {
+            "id",
+            "title",
+            "cases_route",
+            "grader",
+            "aggregator",
+            "tools",
+            "max_tool_rounds",
+        },
+        "benchmark record",
+    )
+    tools = tool_ids(
+        _string_list(payload["tools"], "benchmark tools"),
+        label="benchmark tools",
+    )
+    max_tool_rounds = payload["max_tool_rounds"]
+    if tools:
+        if (
+            isinstance(max_tool_rounds, bool)
+            or not isinstance(max_tool_rounds, int)
+            or max_tool_rounds < 1
+        ):
+            raise ValueError("tool-enabled benchmark max_tool_rounds must be a positive integer")
+    elif max_tool_rounds is not None:
+        raise ValueError("tool-free benchmark max_tool_rounds must be null")
+    return BenchmarkRecord(
+        _nonempty(payload["id"], "benchmark ID"),
+        _nonempty(payload["title"], "benchmark title"),
+        _relative_path(payload["cases_route"], "benchmark cases route"),
+        _strategy_record(payload["grader"], "benchmark grader"),
+        _strategy_record(payload["aggregator"], "benchmark aggregator"),
+        tools,
+        max_tool_rounds,
+    )
+
+
+def _strategy_record(value: object, label: str) -> StrategyRecord:
+    if not isinstance(value, dict):
+        raise TypeError(f"{label} must be an object")
+    _exact_fields(value, {"kind", "route"}, label)
+    return StrategyRecord(
+        _public_id(value["kind"], f"{label} kind"),
+        _relative_path(value["route"], f"{label} route"),
     )
 
 

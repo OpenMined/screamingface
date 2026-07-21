@@ -1,280 +1,157 @@
 # screamingface-engine — temporary package development app
 
-This application is **temporarily located under `packages/screamingface/apps/`** so the
-ScreamingFace SDK and its URL4 engine profile can be developed and tested together under the
-existing `screamingface` package workstream.
+This app is temporarily under `packages/screamingface/apps/` while the SDK and its URL4 engine
+profile are developed together. It is not included in the `screamingface` wheel. Once ownership
+and deployment responsibilities are agreed, it can move to `apps/screamingface-engine/` without
+changing its HTTP contract.
 
-It is not part of the `screamingface` Python wheel and this path is not the intended production
-deployment boundary. Once application ownership, CI, and release responsibilities are approved,
-promote it without changing its HTTP contract to:
+## What it is
 
-```text
-apps/screamingface-engine/
-```
-
-## Implemented responsibilities
-
-This tracked development profile composes the generic `Url4Node` with ScreamingFace-owned
-executable capabilities:
+One persistent `Url4Node` hosts the ScreamingFace execution profile:
 
 ```text
 GET /healthz
 GET /.well-known/screamingface
-GET /{public-provider}/{model}?[params&]q=(context)!intent
-GET /reducers/majority-vote?q=(resolved-member-object)
 GET /v1?q=<complete URL4 expression>
-GET /v1/connections
-GET /v1/connections/{provider}
-POST /v1/connections/{provider}/oauth
-PUT /v1/connections/{provider}/api-key
+GET /{provider}/{model}?q=(context)!intent
+GET /benchmarks/gpqa/1/cases
+GET /reducers/majority-vote/1
+GET /graders/exact-choice/1
+GET /aggregators/mean/1
+
+GET    /v1/connections
+GET    /v1/connections/{provider}
+POST   /v1/connections/{provider}/oauth
+PUT    /v1/connections/{provider}/api-key
 DELETE /v1/connections/{provider}
 ```
 
-URL4 and model success bodies remain plaintext. The registry is JSON text, while the separate
-private connection control plane returns sanitized JSON. Model routes return only the first AI
-Gateway assistant message text. At startup, the engine reads AI Gateway's protected
-`GET /v1/models` catalog once, derives public routes for supported providers, and builds the URL4
-node and public registry from the same immutable snapshot. There is no static availability
-fallback or per-request catalog lookup. The SDK never contacts AI Gateway directly.
+URL4 success bodies are plaintext. The public registry is JSON serialized as plaintext. The
+private connection control plane returns sanitized JSON.
 
-The application is one persistent `Url4Node` process. Its model handlers call AI Gateway
-in-process through one shared asynchronous HTTP client; they do not launch route subprocesses or
-another engine. The thin ASGI wrapper owns client lifecycle, global admission control, a
-whole-evaluation timeout, the advertised encoded request-target limit, and the application-owned
-connection control plane. All other request dispatch remains owned by `Url4Node`.
+The engine snapshots AI Gateway's protected model catalog once at startup and builds its model
+routes and registry from the same immutable data. Model handlers use one shared HTTP client to
+call AI Gateway; they never spawn route subprocesses. The ScreamingFace SDK never contacts AI
+Gateway directly.
+
+## Complete benchmark runs
+
+The client submits one URL4 expression containing:
+
+1. a benchmark cases data route and stable slice;
+2. a Model or Fusion answer graph for each selected case;
+3. a grader route for the Recipe and every member; and
+4. an aggregator route over the case-grade records.
+
+`/benchmarks/gpqa/1/cases` loads the pinned GPQA Diamond source and returns NDJSON so URL4
+iteration receives structured `$item` values. The reference stays inside the engine graph and is
+passed only to `/graders/exact-choice/1`; model routes receive the question, never the answer key.
+`/aggregators/mean/1` returns `screamingface.report.v1` as plaintext JSON.
+
+The registry advertises the benchmark manifest, cases/grader/aggregator routes, supported result
+schemas, and encoded request-target limit. `sf.benchmarks.load("gpqa@1")` loads this manifest; it
+does not fetch cases.
+
+GPQA may require accepting its Hugging Face terms. In local development, supply the dataset token
+to the engine container:
+
+```bash
+export HF_TOKEN=hf_...
+./dev.sh restart
+```
+
+This token is separate from `sf.connect("huggingface")`, which configures Hugging Face as an AI
+Gateway inference provider. No synthetic or mock dataset fallback exists.
+
+DRACO is not advertised yet. A complete multi-system DRACO run still needs a documented URL4
+composition or generic all-settled primitive that preserves independent named-system outcomes,
+typed per-system failures, and shared dependency execution.
+
+## Models, reducers, and tools
+
+The majority-vote handler accepts a resolved JSON object with contiguous `member_1` through
+`member_n` string values in the URL4 intent, applies exact-string voting, and breaks ties by member
+position. It never contacts AI Gateway.
+
+The engine advertises `web_search` and `web_fetch` only on the verified pinned Hugging Face
+DeepSeek V4 Pro/DeepInfra and GLM 5.2/DeepInfra routes. Tool-enabled requests carry a colon-separated
+URL4 scalar (`tools=web_search:web_fetch`), a positive `max_tool_rounds`, and explicit Tavily policy.
+Every model turn goes through AI Gateway; Tavily calls go directly from the engine.
+
+Tavily API keys are validated directly and retained only in process memory. They never enter AI
+Gateway, URL4, model messages, responses, or logs. This is appropriate only for a researcher-owned
+local engine. A shared deployment needs HTTPS, identity, authorization, and encrypted per-user
+storage.
 
 ## Provider connections
 
-The public registry advertises model-provider connections for `codex`, `gemini`, `anthropic`, and
-`huggingface`, plus the engine-owned `tavily` tool-service connection. Every discovered model owned
-by a supported Gateway provider maps to one public provider. Gateway order is preserved, with
-Tavily appended because it is not a Gateway provider. Adding or removing one of the supported
-providers' models takes effect on engine restart without a ScreamingFace availability edit.
-Models owned by providers without a ScreamingFace connection contract remain hidden. Private AI
-Gateway provider names, connection UUIDs, credential locators, claims, and tokens never appear in
-registry or connection responses.
+The registry exposes supported provider ownership and authentication methods. These declarations
+are currently explicit engine policy and should later be sourced from an AI Gateway provider
+discovery endpoint. Model availability itself is already derived from AI Gateway at startup.
 
-Provider display names and supported authentication methods are temporarily explicit
-ScreamingFace policy. They are expected soon to come from a protected AI Gateway provider
-discovery endpoint, read and validated with the model catalog at engine startup. Until that
-contract exists, the engine does not infer authentication methods from model IDs.
+ScreamingFace owns the Gateway connection labeled `default` and selects it with
+`X-Profile: default`. API keys and OAuth actions travel through the engine control plane; secrets
+are never returned in public responses.
 
-ScreamingFace still owns its public aliases and request IDs. For example,
-`claude-sonnet-4-6` becomes public `claude/sonnet-4.6` and is sent to chat completion as
-`anthropic/claude-sonnet-4-6`; `gemini-cli/gemini-2.5-flash` becomes public
-`gemini/2.5-flash`; Codex IDs are already public and pass through unchanged. A pinned Hugging Face
-ID such as `huggingface/deepseek-ai/DeepSeek-V4-Pro:deepinfra` is exposed as the URL4-safe public
-ID `huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra`, while the exact colon-pinned ID is retained
-for AI Gateway calls. A malformed supported provider record, an unpinned Hugging Face model, a
-duplicate public alias, an unavailable catalog, or a catalog containing no supported models
-prevents startup rather than exposing a stale or partial service.
-
-Use the SDK-facing engine API:
+Use the SDK:
 
 ```python
 import screamingface as sf
 
+sf.connect()
 sf.connections.list()
-flow = sf.connect("codex")
-print(flow.authorize_url)
-connection = flow.wait()
-
 sf.connect("gemini", api_key="...")
-sf.disconnect("gemini")
-
-sf.connect("huggingface", api_key="hf_...")
 sf.connect("tavily", api_key="tvly-...")
+sf.disconnect("gemini")
 ```
 
-ScreamingFace owns exactly the AI Gateway connection whose private label is `default`, and model
-calls select it using `X-Profile: default`. Other Gateway connections are ignored. API keys travel
-once in the engine request body and once in the internal Gateway request body; neither service
-echoes them. AI Gateway remains the only credential store for model-provider connections.
+## Limits and errors
 
-Tavily is intentionally different. The engine validates a submitted key directly through
-Tavily's authenticated `GET /usage` endpoint and retains it only in process memory. The key never
-enters AI Gateway, URL4 expressions, model messages, responses, or logs. Failed replacement is
-atomic, disconnect clears the key, and restarting the engine requires the researcher to reconnect.
-No environment-variable or persistence fallback exists.
+The registry's `limits.max_request_target_bytes` is the encoded request target, not decoded URL4
+length. It defaults to 61,440 bytes, leaving headroom below HTTPX's 64 KiB absolute-URL limit. The
+ASGI wrapper returns HTTP 414 before evaluation if the target is too large; the SDK preflights the
+same limit before spend.
 
-This memory-only connection is suitable for the researcher-owned local engine, not an
-unauthenticated shared deployment. A hosted engine must add HTTPS, researcher identity,
-authorization, and encrypted per-user credential storage before accepting Tavily credentials.
-
-OAuth providers require their registered callback paths, so the browser returns to the engine at
-`/auth/callback` (Codex), `/oauth2callback` (Gemini), or `/callback` (Anthropic). Gemini OAuth is
-temporarily not advertised while AI Gateway's Code Assist onboarding/readiness flow is incomplete;
-Gemini API-key connections remain available. The engine relays
-only `code` and `state` over its loopback Gateway connection and returns its own generic HTML page.
-The SDK never handles callback codes or provider tokens.
-
-The explicit capability overlay adds `web_search` and `web_fetch` only to the exact
-`huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra` and
-`huggingface/zai-org/GLM-5.2~deepinfra` routes when AI Gateway discovers them. Other dynamically
-discovered routes remain tool-free. Tool-enabled requests must carry the complete typed benchmark
-policy and a positive `max_tool_rounds`. The engine rejects malformed policy and disconnected
-Tavily before model spend, sends each model turn through AI Gateway, executes emitted calls through
-Tavily in order, and returns only final assistant plaintext. One member is limited to eight calls
-per turn, 32 calls total, and the benchmark's explicit model-round budget.
-
-Application failures retain actionable HTTP semantics at the public engine boundary. In
-particular, AI Gateway payment-required responses remain HTTP 402 with `payment_required`, and an
-exhausted model-round budget is HTTP 422 with the configured `max_tool_rounds`, model-turn count,
-and safe executed `web_search`/`web_fetch` counts. Tool arguments, result content, credentials, and
-raw provider payloads are never included in those diagnostics.
-
-The local Compose profile supplies both private Gateway IDs through AI Gateway's existing
-`AIGW_HUGGINGFACE_DEFAULT_MODELS` deployment setting. Because that setting replaces the complete
-plugin default, the profile repeats the five existing HF seeds and appends the two verified
-DeepInfra pins. This is deployment configuration, not a copied ScreamingFace availability list:
-AI Gateway still owns registration, the engine still reads `GET /v1/models` once at startup, and
-no AI Gateway source is modified. Hugging Face's public model API reported both DeepInfra mappings
-live when this local acceptance profile was recorded on 2026-07-20.
-
-The majority-vote handler is also registered once in that process. It accepts a resolved JSON
-object with contiguous `member_1` through `member_n` string values, applies exact-string voting, and
-breaks ties by numeric member position. It returns only the winning text and never contacts AI
-Gateway. Nonempty intent, parameters, missing members, non-string values, and blank answers are
-permanent URL4 `malformed_source` errors.
-
-Registry capability claims are independent of the current researcher's connection state. The two
-verified HF pins advertise their executable tools even when Tavily is disconnected; fresh
-connection status comes from `/v1/connections`, and execution preflight requires it. The tool-free `gemini/2.5-flash` route
-maps to AI Gateway's registered `gemini-cli/gemini-2.5-flash` model and is the bounded judge used
-by the explicitly non-comparable `draco-preview@1` SDK profile. Gemini research is not advertised
-because Gemini 3 function-calling continuations require the
-provider's encrypted `thoughtSignature`, which the current Gateway normalization drops. The
-engine must not claim a named capability that fails after its first tool call. The provisional
-`gemini/3.1-pro-preview` route is deliberately absent: canonical `draco@1` retains that pinned
-judge requirement and therefore fails SDK preflight until AI Gateway officially registers it.
-The engine never advertises an assumed model, bypasses Gateway, or substitutes another judge.
-
-The registry also advertises `limits.max_request_target_bytes`. It defaults to 61440 bytes and
-is configurable with `SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES`. This is the exact encoded
-HTTP request target—path, `?`, and query string—not the decoded URL4 expression length. The ASGI
-wrapper returns HTTP 414 with `request_target_too_large` before URL4 evaluation when the limit is
-exceeded. The maximum is deliberately 60 KiB: `httpx` limits absolute URLs to 64 KiB, leaving
-roughly 4 KiB for the configured HTTP(S) origin. Uvicorn/h11 receives 128 KiB for parser and header
-headroom; the SDK still preflights the stricter advertised value before model or judge spend.
-
-## Benchmark boundary
-
-The engine does not publish benchmark manifests, cases, answer keys, graders, or aggregators.
-Those are local SDK concerns. For example, `sf.benchmarks.load("gpqa@1")` loads the pinned
-Hugging Face source through the researcher's own process and credentials, then engine requests
-contain only the concrete case prompt needed for model execution.
-
-GPQA may require accepting its dataset terms and authenticating before loading it:
-
-```bash
-huggingface-cli login
-```
-
-No Hugging Face token is forwarded to either container. No synthetic or mock dataset fallback
-exists.
+AI Gateway and tool failures are mapped to stable, sanitized engine errors. Credentials, raw
+provider payloads, tool arguments, and tool result content are not included in diagnostics.
 
 ## Run the local stack
 
-From this directory:
-
 ```bash
-./dev.sh          # build, start detached, and wait until every service is healthy
-./dev.sh restart  # recreate this stack without deleting provider credentials
-./dev.sh status   # show Compose service health
-./dev.sh logs     # follow recent logs; Ctrl-C leaves the services running
-./dev.sh down     # stop this stack without deleting provider credentials
+./dev.sh          # build/start detached and wait for health
+./dev.sh restart  # recreate while preserving AI Gateway credentials
+./dev.sh status
+./dev.sh logs
+./dev.sh down
 ```
 
-`./dev.sh start` is the explicit form of the default command. Startup waits up to three minutes
-for AI Gateway and the ScreamingFace engine health checks. Because services start
-detached, closing the invoking terminal or interrupting `./dev.sh logs` does not stop them. An
-unknown command fails before Docker with the supported-command list.
+The stack contains the ScreamingFace engine and AI Gateway. Tavily remains an external service.
+AI Gateway data lives on the named `aigateway-data` volume; the commands above preserve it.
+`docker compose down -v` is the explicit destructive credential reset.
 
-If another local stack owns the default host ports, select isolated host ports while preserving
-the containers' internal topology:
+Default host endpoints:
 
-```bash
-AIGATEWAY_HOST_PORT=19105 \
-SCREAMINGFACE_ENGINE_HOST_PORT=14404 \
-CODEX_OAUTH_HOST_PORT=1457 \
-./dev.sh
+```text
+ScreamingFace engine  http://127.0.0.1:4404
+AI Gateway            http://127.0.0.1:9105
 ```
-
-Codex OAuth uses the provider-registered loopback ports `1455` or `1457`; use `1457` only when
-`1455` is occupied. Other provider callbacks continue to use `SCREAMINGFACE_ENGINE_HOST_PORT`.
-
-This builds the engine and AI Gateway containers. Tavily is an external API rather than another
-container: connect it with `sf.connect("tavily", api_key=...)` after each engine restart. The engine
-uses the key directly for bounded search/extract calls; it never forwards the key to AI Gateway.
-SDK-local benchmark loading contacts neither service, while model-backed tool execution needs
-outbound access to both AI Gateway's configured providers and Tavily.
-
-AI Gateway starts with an empty provider connection store. Its SQLite database, encrypted
-credential blobs, generated local master key, and generated JWT secret live on the named
-`aigateway-data` volume. Ordinary `./dev.sh`, `./dev.sh restart`, and `./dev.sh down` preserve the
-volume; `docker compose down -v` is the explicit destructive credential reset and is deliberately
-not exposed by `dev.sh`. Until a provider is
-connected through the engine, model routes return the ordinary provider-access failure while
-health, registry, connection status, compilation, and deterministic reducer routes remain usable.
-
-The engine and AI Gateway remain separate processes and containers, but share one Docker network
-namespace in this local profile. The engine therefore calls AI Gateway at `127.0.0.1:9105`, which
-satisfies AI Gateway's deliberately loopback-only policy when authentication is disabled. The AI
-Gateway service owns both published host ports because Docker requires published ports to belong
-to the container whose network namespace is shared. This is development topology only; a hosted
-deployment should enable authentication rather than rely on this arrangement.
-
-`AIGATEWAY_PUBLIC_URL` points to the engine's browser-visible localhost origin so AI Gateway builds
-Gemini and Anthropic authorize URLs with the engine callback paths. Codex is the deliberate
-exception: the engine requests
-`SCREAMINGFACE_CODEX_OAUTH_REDIRECT_URI=http://localhost:1455/auth/callback`, and Compose publishes
-that host port to the same engine listener. The browser therefore still returns to the
-ScreamingFace engine; the SDK never contacts AI Gateway directly. Callback credentials are relayed
-to AI Gateway in a JSON body, and raw engine access logging is disabled so OAuth codes, state
-values, and URL4 query expressions do not appear in request-target logs.
 
 Verify:
 
 ```bash
 curl -s http://127.0.0.1:4404/healthz
 curl -s http://127.0.0.1:4404/.well-known/screamingface | python -m json.tool
-
-curl -G http://127.0.0.1:4404/codex/gpt-5.5 \
-  --data-urlencode "q=(What is 2 + 2?)!Answer briefly"
-
-cd ../..
-uv run python apps/screamingface-engine/scripts/smoke_phase2b.py
-uv run python apps/screamingface-engine/scripts/smoke_phase2c.py
 ```
 
-Neither smoke uses a mocked runtime component. Set `SCREAMINGFACE_ENGINE_URL` when the stack uses
-an overridden host port. Phase 2B sends a literal reducer expression. Phase 2C constructs the
-public SDK values, compiles the canonical recipe and concrete case expression, then invokes
-`Fusion.run()`. It accepts either a validated provider-backed result or the engine's propagated
-credential-free AI Gateway failure, proving the container topology without claiming an authorized
-provider call.
-
-Stop the stack:
-
-```bash
-docker compose down
-```
-
-## Native development
+## Native development and validation
 
 ```bash
 uv sync
 uv run screamingface-engine
-```
 
-## Validation
-
-The app is currently covered by the parent ScreamingFace package gates. From this directory:
-
-```bash
 cd ../..
-uv run ruff check src tests apps/screamingface-engine/src apps/screamingface-engine/tests
-uv run ruff format --check src tests apps/screamingface-engine/src apps/screamingface-engine/tests
+uv run ruff check
+uv run ruff format --check
 uv run pyright
 uv run pytest --cov=screamingface --cov-fail-under=95 -q
 PYTHONPATH=apps/screamingface-engine/src uv run pytest apps/screamingface-engine/tests \

@@ -20,7 +20,7 @@ HF_GATEWAY_MODELS = (
 
 def _params() -> dict[str, str]:
     return {
-        "tools": "web_search web_fetch",
+        "tools": "web_search:web_fetch",
         "max_tool_rounds": "3",
         "tavily.search.search_depth": "basic",
         "tavily.search.max_results": "5",

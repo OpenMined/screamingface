@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
+import pytest
+
 import screamingface as sf
 
 
@@ -16,7 +20,7 @@ def _complete_report() -> sf.Report:
     return sf.Report(
         benchmark_id="example@1",
         recipe_name="complete-fusion",
-        recipe_url4="(recipe)",
+        url4="(benchmark-run)",
         n_cases=2,
         n_scored=2,
         coverage=1.0,
@@ -30,11 +34,11 @@ def _complete_report() -> sf.Report:
 
 
 def _partial_report() -> sf.Report:
-    failure = sf.RunFailure("q3", "timeout", "Judge timed out")
+    failure = sf.EvaluationFailure("q3", "timeout", "Judge timed out")
     return sf.Report(
         benchmark_id="example@1",
         recipe_name="partial-fusion",
-        recipe_url4="(recipe)",
+        url4="(benchmark-run)",
         n_cases=3,
         n_scored=2,
         coverage=2 / 3,
@@ -49,14 +53,14 @@ def _partial_report() -> sf.Report:
 
 def _failed_report() -> sf.Report:
     failures = (
-        sf.RunFailure("q1", "url4", "Gateway rejected <request>"),
-        sf.RunFailure("q2", "url4", "Gateway rejected <request>"),
-        sf.RunFailure("q3", "connection", "Gateway unavailable"),
+        sf.EvaluationFailure("q1", "url4", "Gateway rejected <request>"),
+        sf.EvaluationFailure("q2", "url4", "Gateway rejected <request>"),
+        sf.EvaluationFailure("q3", "connection", "Gateway unavailable"),
     )
     return sf.Report(
         benchmark_id="example@1",
         recipe_name="failed-fusion",
-        recipe_url4="(recipe)",
+        url4="(benchmark-run)",
         n_cases=3,
         n_scored=0,
         coverage=0.0,
@@ -71,7 +75,7 @@ def _failed_report() -> sf.Report:
 
 def _stopped_report() -> sf.Report:
     failures = (
-        sf.RunFailure(
+        sf.EvaluationFailure(
             "q1",
             "url4",
             "AI Gateway returned HTTP 502 (provider_unavailable) for 'gemini/2.5-flash'",
@@ -79,7 +83,7 @@ def _stopped_report() -> sf.Report:
             code="provider_unavailable",
         ),
         *(
-            sf.RunFailure(
+            sf.EvaluationFailure(
                 f"q{index}",
                 "skipped",
                 "Case was not scheduled after evaluation stopped on 'provider_unavailable'.",
@@ -91,7 +95,7 @@ def _stopped_report() -> sf.Report:
     return sf.Report(
         benchmark_id="gpqa@1",
         recipe_name="frontier-trio",
-        recipe_url4="(recipe)",
+        url4="(benchmark-run)",
         n_cases=5,
         n_scored=0,
         coverage=0.0,
@@ -186,3 +190,87 @@ def test_notebook_display_follows_screamingface_visual_rules_in_both_themes() ->
     assert "border-radius" not in html
     assert "box-shadow" not in html
     assert "gradient" not in html
+
+
+@pytest.mark.parametrize(
+    ("factory", "message"),
+    [
+        (lambda: sf.EvaluationFailure("", "url4", "failed"), "case ID"),
+        (
+            lambda: sf.EvaluationFailure("q1", cast(Any, "unknown"), "failed"),
+            "unknown evaluation failure kind",
+        ),
+        (lambda: sf.EvaluationFailure("q1", "url4", ""), "message"),
+        (lambda: sf.EvaluationFailure("q1", "url4", "failed", status=99), "status"),
+        (lambda: sf.EvaluationFailure("q1", "url4", "failed", code=" "), "code"),
+    ],
+)
+def test_evaluation_failure_is_strict(factory, message: str) -> None:
+    with pytest.raises((TypeError, ValueError), match=message):
+        factory()
+
+
+def _report_changes(**changes: object) -> dict[str, object]:
+    values: dict[str, object] = {
+        "benchmark_id": "example@1",
+        "recipe_name": "fusion",
+        "url4": "(run)",
+        "n_cases": 2,
+        "n_scored": 2,
+        "coverage": 1.0,
+        "score": 0.75,
+        "baseline": 0.5,
+        "gain": 0.25,
+        "members": _members(0.5, 0.25),
+        "metrics": {},
+        "failures": (),
+    }
+    values.update(changes)
+    return values
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"n_cases": 0}, "positive integer"),
+        ({"n_scored": -1}, "non-negative"),
+        ({"n_scored": 3}, "cannot exceed"),
+        ({"coverage": 0.5}, "must equal"),
+        ({"score": None}, "requires all headline"),
+        ({"members": _members(None, 0.25)}, "requires every member score"),
+        ({"baseline": 0.25}, "best member"),
+        ({"gain": 0.0}, "score - baseline"),
+        ({"members": {}}, "at least one member"),
+        ({"members": {"panel": sf.MemberReport(model="m", score=0.5, metrics={})}}, "contiguous"),
+        ({"members": {"member_1": "wrong"}}, "sf.MemberReport"),
+        ({"metrics": cast(Any, [])}, "mapping"),
+        ({"score": 2.0}, "between 0 and 1"),
+        ({"gain": 2.0}, "between -1 and 1"),
+        ({"failures": cast(Any, ["wrong"])}, "sf.EvaluationFailure"),
+    ],
+)
+def test_report_rejects_incoherent_states(changes: dict[str, object], message: str) -> None:
+    with pytest.raises((TypeError, ValueError), match=message):
+        sf.Report(**cast(Any, _report_changes(**changes)))
+
+
+def test_unscored_report_rejects_hidden_scores_and_metrics() -> None:
+    common = {
+        "n_cases": 1,
+        "n_scored": 0,
+        "coverage": 0.0,
+        "score": None,
+        "baseline": None,
+        "gain": None,
+        "failures": (sf.EvaluationFailure("q1", "url4", "failed"),),
+    }
+    with pytest.raises(ValueError, match="headline"):
+        sf.Report(**cast(Any, _report_changes(**{**common, "score": 0.0})))
+    with pytest.raises(ValueError, match="member scores or metrics"):
+        sf.Report(**cast(Any, _report_changes(**{**common, "metrics": {"accuracy": 0.0}})))
+    members = {
+        "member_1": sf.MemberReport(model="worker/one", score=None, metrics={"x": 0.0}),
+        "member_2": sf.MemberReport(model="worker/two", score=None, metrics={}),
+    }
+    with pytest.raises(ValueError, match="member metrics"):
+        sf.Report(**cast(Any, _report_changes(**{**common, "members": members})))

@@ -111,20 +111,16 @@ def test_custom_benchmarks_notebook_keeps_loading_and_tools_at_the_right_boundar
     assert "sf.benchmarks.load(" not in code
 
 
-def test_custom_benchmarks_notebook_live_path_is_honest_and_default_off() -> None:
+def test_custom_benchmarks_notebook_is_honest_about_engine_registration() -> None:
     code = _sources("code")
     markdown = _sources("markdown")
 
-    assert "RUN_LIVE = False" in code
-    assert "if RUN_LIVE:" in code
-    assert "sf.config(engine=ENGINE_URL)" in code
-    assert "fusion = sf.Fusion(" in code
-    assert "reducer=sf.reducers.MajorityVote()" in code
-    assert "report = fusion.evaluate(benchmark)" in code
-    assert "report = None" in code
-    assert "nine provider calls" in markdown
-    assert "No substitute report" in markdown
-    assert "Hugging Face" in markdown
+    assert "RUN_LIVE" not in code
+    assert ".evaluate(" not in code
+    assert "engine deployment" in markdown
+    assert "not an\nupload API" in markdown
+    assert 'sf.benchmarks.load("tiny-science@1")' in markdown
+    assert "silently falling back" in markdown
 
     assert "httpx" not in code
     assert "mock" not in code.lower()

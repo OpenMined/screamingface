@@ -49,7 +49,7 @@ def test_preview_uses_real_cases_with_one_real_positive_criterion(
 ) -> None:
     monkeypatch.setattr(draco_preview, "draco_cases", lambda: (_case(),))
 
-    benchmark = sf.benchmarks.load("draco-preview@1")
+    benchmark = draco_preview.benchmark()
     cases = benchmark._materialize_cases()
 
     assert benchmark.id == "draco-preview@1"
@@ -68,12 +68,6 @@ def test_preview_uses_real_cases_with_one_real_positive_criterion(
     criteria = cast(list[dict[str, object]], sections[0]["criteria"])
     assert sections[0]["id"] == "accuracy"
     assert criteria == [{"id": "fact", "requirement": "State the fact", "weight": 4}]
-
-
-def test_preview_is_explicitly_discoverable_but_does_not_replace_draco() -> None:
-    assert sf.benchmarks.list() == ["gpqa@1", "draco@1", "draco-preview@1"]
-    assert sf.benchmarks.list(query="preview") == ["draco-preview@1"]
-    assert sf.benchmarks.list(tools=["web_search"]) == ["draco@1", "draco-preview@1"]
 
 
 def test_preview_requires_a_positive_criterion() -> None:

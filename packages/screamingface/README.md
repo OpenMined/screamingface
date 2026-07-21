@@ -1,219 +1,50 @@
 # screamingface
 
-Compose model panels and benchmark them through a configured URL4 engine.
+Compose URL4-native model Recipes and evaluate them against engine-advertised benchmarks.
 
-## Current implementation
+## Current architecture
 
-The SDK currently supports:
+The researcher-facing SDK talks only to the configured ScreamingFace engine. It never calls AI
+Gateway, model providers, or Tavily directly.
 
-- `sf.config(engine=...)`, defaulting temporarily to `http://127.0.0.1:4404`;
-- `sf.connect()` for the engine-scoped notebook panel, plus explicit
-  `sf.connect(provider, ...)`, `sf.disconnect(provider)`, and `sf.connections.list()` flows;
-- immutable `sf.Case`, `sf.Benchmark`, and `sf.Fusion` authoring;
-- namespaced reducers, graders, and aggregators;
-- `sf.models.list(...)` against the configured engine's executable capability registry;
-- `sf.benchmarks.list(...)` against the SDK's installed canonical benchmark catalog;
-- eager, validated `sf.benchmarks.load(...)` through the researcher's ordinary dataset access;
-- canonical, shareable `fusion.url4` recipe compilation; and
-- typed Tavily search/extract benchmark policy with an explicit agent-round bound, compiled onto
-  concrete answer-producing member requests only;
-- synchronous `fusion.run(...)` through only the configured URL4 engine, returning immutable
-  in-memory result records;
-- immutable grading record types (`Grades`, `CaseGrades`, `Grade`, `CriterionVerdict`, and
-  `GradeFailure`); and
-- `run.grade()` with deterministic local ExactChoice grading and URL4-backed Rubric judging,
-  strict evidence coverage, validation-only retries, and weighted DRACO-compatible scoring; and
-- strict paired `sf.aggregators.Mean()` reports plus the exact `fusion.evaluate(...)` facade.
-
-Before model-backed work, the SDK reads fresh provider status from the configured engine.
-`fusion.run(...)` checks member and model-reducer requirements, `run.grade()` checks a model
-judge when present, and `fusion.evaluate(...)` checks their union once. Missing credentials raise
-one structured `sf.ConnectionRequiredError` before model spend instead of producing one failure
-per case. Deterministic grading, aggregation, benchmark loading, and discovery remain independent
-of provider connections.
-
-The same generic connection surface also discovers `tavily`, an engine-owned tool service rather
-than a model provider:
-
-```python
-sf.connect("tavily", api_key="tvly-...")
-sf.connections.get("tavily")
-sf.disconnect("tavily")
+```text
+ScreamingFace SDK
+  └─ GET /v1?q=<complete benchmark-run URL4>
+       └─ screamingface-engine / Url4Node
+            ├─ benchmark case data route
+            ├─ model routes → AI Gateway → providers
+            ├─ Tavily tools for verified Hugging Face routes
+            ├─ reducer and grader routes
+            └─ aggregator route → plaintext report
 ```
 
-For the current researcher-owned local engine, the key is validated directly through Tavily and
-kept only in engine process memory. It never passes through AI Gateway. Restarting the engine
-disconnects Tavily by design. Typed benchmark policy compiles into each answer-producing URL4
-member request. The engine executes it through bounded Tavily search/extract calls and a
-multi-turn AI Gateway loop only on the explicitly verified DeepSeek V4 Pro/DeepInfra and GLM
-5.2/DeepInfra routes. A shared hosted engine needs identity, authorization, HTTPS, and encrypted
-per-user storage before it can accept this credential safely.
+`fusion.url4` is a reusable answer recipe with an unresolved `$question`. Evaluation wraps that
+recipe with the benchmark case route, stable slice, grader, and aggregator. The resulting
+`report.url4` expresses the complete reproducible run.
 
-`Model.run(...)`, `Fusion.run(...)`, `Run.grade(...)`, and either Recipe's `evaluate(...)` accept
-`progress=True | False | None`. The default `None` shows one live progress surface in Jupyter and remains silent in ordinary
-scripts; `True` forces progress and `False` disables it. `evaluate(...)` follows requirement checks,
-case completion, individual rubric judge responses, and aggregation, then yields to the final
-`Report`. Progress is presentation-only and never changes scheduling, retries, spend, or results.
+The SDK sends exactly one `GET /v1?q=...` request per evaluation. The engine executes all cases,
+model calls, grading, and aggregation represented by that URL4, then returns plaintext JSON using
+`screamingface.report.v1`. The SDK strictly validates it into an immutable `sf.Report`.
 
-The development `screamingface-engine` runs four model routes through one persistent `Url4Node`
-and a shared AI Gateway client. It accepts direct endpoint requests and complete expressions
-through `GET /v1?q=...`, with no subprocess route adapter. Its
-`/reducers/majority-vote` endpoint executes the same SDK-owned exact-string selection logic,
-without contacting AI Gateway.
+There is no mock, in-process execution fallback, client-side case loop, or public
+`Run → Grades → aggregate` compatibility path.
 
-The engine advertises `web_search` and `web_fetch` only on the two verified pinned Hugging Face
-routes. It translates those named capabilities into a bounded standard model-tool loop: every
-model turn goes through AI Gateway, while search and extraction go directly from the engine to
-Tavily. Other discovered Hugging Face routes and all reducers and judges remain tool-free.
+## Quickstart
 
-Benchmark definitions, source loading, references, grading, and aggregation are SDK concerns.
-The engine does not publish benchmark manifests or cases and never needs the researcher's
-Hugging Face token. This keeps gated datasets in the researcher's process while all model-backed
-work still crosses the configured URL4 engine.
-
-Each selected benchmark case becomes one complete URL4 expression sent as
-`GET /v1?q=<expression>`. Successful plaintext JSON is validated strictly as
-`screamingface.recipe-result.v1`; connection, timeout, HTTP, URL4, and protocol failures are
-recorded atomically at the case's original position. Execution performs no retries and never calls
-AI Gateway directly. `run.grade()` grades those captured Recipe/member answers without rerunning
-them. ExactChoice stays local; Rubric sends one ordinary URL4 judge-model expression per target,
-criterion, and pass, with at most 16 requests in flight. Aggregation and
-`fusion.evaluate(...)` remain ordinary local SDK stages after model-backed work. There is no mock,
-simulated, or in-process engine fallback.
-
-The registry advertises the engine's exact encoded request-target limit. Before opening an HTTP
-client, the SDK measures every selected `/v1?q=...` target using the same percent encoding as the
-request library. An oversize case or rubric-judge expression raises
-`sf.EngineRequestTooLargeError` with its actual and allowed byte sizes, before any model or judge
-spend. Literal judge context is carried in a quoted URL4 binding, so model answers containing
-parentheses, quotes, backslashes, newlines, or dollar signs remain data rather than URL4 syntax.
-The development profile allows 61440-byte request targets and independently returns HTTP 414 to
-direct callers that exceed it.
-
-## Walkthrough notebooks
-
-[`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb) is the shortest public path. It
-opens the engine-scoped provider panel, constructs one three-member majority-vote Fusion, evaluates
-five canonical GPQA cases, and compares `score`, `baseline`, and `gain`. The evaluation makes the
-documented 15 provider calls only after connection preflight succeeds.
-
-[`examples/01_architecture.ipynb`](examples/01_architecture.ipynb) is the executable configuration
-and architecture guide. It shows the SDK/engine boundary, raw registry plaintext, validated model
-discovery, `fusion.url4` recipe semantics, and one real provider-free deterministic URL4 request.
-
-[`examples/02_discovery.ipynb`](examples/02_discovery.ipynb) separates engine-backed model
-discovery from SDK-local benchmark discovery. It demonstrates the shared `query`, `tools`, and
-`limit` filters, returns only IDs, and keeps the Hugging Face-backed GPQA load disabled by default.
-
-[`examples/03_fusions.ipynb`](examples/03_fusions.ipynb) is the network-free Fusion authoring
-guide. It covers concise model IDs, per-member prompt and parameter overrides, repeated models,
-deterministic majority voting, model-backed synthesis, and public `.url4` inspection.
-
-[`examples/04_custom_benchmarks.ipynb`](examples/04_custom_benchmarks.ipynb) constructs a local
-benchmark from ordinary `sf.Case` values. It explains sealed references, researcher-owned loading,
-grader and aggregator selection, benchmark tools, and an optional default-off live evaluation.
-
-[`examples/05_draco.ipynb`](examples/05_draco.ipynb) is the concise real-engine DRACO Preview
-walkthrough. It connects providers, composes the verified DeepSeek V4 Pro and GLM 5.2 DeepInfra
-research routes with a Codex reducer, evaluates one `draco-preview@1` case, and reads the resulting
-comparison. Preview keeps every real DRACO question but retains one positive criterion and one
-Gemini 2.5 Flash judge pass. The equivalent explicit `load -> run -> grade -> aggregate` stages
-remain as a commented learning aid; the notebook neither runs nor fabricates canonical `draco@1`
-results.
-
-[`examples/06_connections.ipynb`](examples/06_connections.ipynb) explains the provider connection
-control plane in isolation: interactive panel use, script-oriented OAuth and API-key calls,
-connection status, disconnect, preflight errors, and the separate Hugging Face dataset session.
-It makes no paid model call.
-
-No superseded notebook is retained as API documentation.
-
-## Start the development engine
-
-The screamingface-engine app is temporarily kept under this package while its deployment ownership is
-resolved:
+Start the local development engine first:
 
 ```bash
 cd packages/screamingface/apps/screamingface-engine
-./dev.sh
+export HF_TOKEN=hf_...  # required when the engine loads gated benchmark data
+./dev.sh restart
 ```
 
-Only one development stack can own ports 4404 and 9105. Stop any earlier URL4 or AI Gateway
-containers before starting this one.
-
-This starts:
-
-```text
-URL4 engine  http://127.0.0.1:4404
-AI Gateway   http://127.0.0.1:9105
-Tavily       engine-owned external API connection
-```
-
-Model routes contact AI Gateway only through `screamingface-engine`. Loading GPQA happens in the
-notebook or SDK process, not in either container. Authenticate in that process before requesting
-gated datasets:
-
-```bash
-huggingface-cli login
-```
-
-No synthetic dataset fallback exists.
-
-The deterministic reducer and SDK run path can be smoke-tested without provider credentials:
-
-```bash
-uv run python apps/screamingface-engine/scripts/smoke_phase2b.py
-uv run python apps/screamingface-engine/scripts/smoke_phase2c.py
-```
-
-Run those commands from `packages/screamingface` while the Compose stack is running. The Phase 2B
-smoke evaluates a complete literal reducer expression. The Phase 2C smoke uses the public SDK to
-compile and submit a complete model-backed Fusion expression. A provider-backed success is
-validated when credentials exist; otherwise the expected atomic URL4 failure proves the
-engine-to-Gateway topology without pretending a provider answered.
-
-## Run the walkthrough
-
-From `packages/screamingface` in another terminal:
-
-```bash
-uv sync --extra notebook
-uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
-# or
-uv run --extra notebook jupyter lab examples/01_architecture.ipynb
-# or
-uv run --extra notebook jupyter lab examples/02_discovery.ipynb
-# or
-uv run --extra notebook jupyter lab examples/03_fusions.ipynb
-# or
-uv run --extra notebook jupyter lab examples/04_custom_benchmarks.ipynb
-# or
-uv run --extra notebook jupyter lab examples/05_draco.ipynb
-# or
-uv run --extra notebook jupyter lab examples/06_connections.ipynb
-```
-
-The notebooks are generated from `scripts/build_quickstart.py`, `scripts/build_architecture.py`,
-`scripts/build_discovery.py`, `scripts/build_fusions.py`, `scripts/build_custom_benchmarks.py`, and
-`scripts/build_draco_walkthrough.py`, and `scripts/build_connections.py`; edit the generators
-rather than notebook JSON.
-
-## Current API example
+Then, from the SDK environment:
 
 ```python
 import screamingface as sf
 
-# Optional locally: this URL is currently the default.
-sf.config(engine="http://127.0.0.1:4404")  # HTTP(S) origin only
-
-# Notebook panel for every provider advertised by that engine.
 sf.connect()
-
-# Plain status for scripts and applications.
-sf.connections.list()
-
-models = sf.models.list()
-benchmarks = sf.benchmarks.list()
 
 fusion = sf.Fusion(
     "frontier-trio",
@@ -225,108 +56,122 @@ fusion = sf.Fusion(
     reducer=sf.reducers.MajorityVote(),
 )
 
-# A Model is an atomic Recipe and can run alone or as a Fusion member.
-opus = sf.Model(
-    "anthropic/claude-opus-4.8",
-    name="opus",
-    params={"temperature": 0.7},
-)
-gpt = sf.Model("openai/gpt-5.5", name="gpt")
+gpqa = sf.benchmarks.load("gpqa@1")
+report = gpqa.evaluate(fusion, first=5)
 
-# A Fusion is a composite Recipe combining Models or nested Fusions.
-opus_plus_gpt = sf.Fusion(
-    "opus-plus-gpt",
-    members=[opus, gpt],
-    reducer=sf.reducers.Model(
-        model="anthropic/claude-opus-4.8",
-        prompt="Synthesize the panel answers.",
-    ),
-)
-
-# Canonical recipe template: contains $question, but no case or answer key.
-fusion.url4
-
-benchmark = sf.Benchmark(
-    "arithmetic@1",
-    cases=[sf.Case("addition", "What is 2 + 2?", reference="4")],
-    grader=sf.graders.ExactChoice(),
-)
-
-# Research benchmarks own reproducible tool policy, never credentials.
-research_benchmark = sf.Benchmark(
-    "research@1",
-    cases=[sf.Case("q1", "Research this question", reference="...")],
-    grader=sf.graders.ExactChoice(),
-    tools=(
-        sf.tools.TavilySearch(max_results=5),
-        sf.tools.TavilyExtract(),
-    ),
-    max_tool_rounds=12,
-)
-
-run = fusion.run(benchmark)
-run.recipe_name
-run.members
-run.results[0].members["member_1"].answer
-run.results[0].answer
-run.failures
-run.to_dict()
-
-grades = run.grade()
-grades.recipe_name
-grades.members
-grades.results[0].recipe.score
-grades.results[0].members["member_1"].score
-grades.failures
-grades.to_dict()
-
-report = grades.aggregate()
-report  # rich complete / partial / failed comparison in notebooks
 report.score, report.baseline, report.gain
-report.members["member_1"].score
-report.to_dict()
-
-# Exact shorthand for run -> grade -> aggregate:
-report = fusion.evaluate(benchmark)
+report.url4
 ```
 
-Construction of Models and Fusions and inspection of `.url4` are network-free. `Recipe` is the
-public, non-constructible umbrella type: a `Model` is an atomic Recipe and a `Fusion` is a
-composite Recipe combining Models or nested Fusions through `members=...` and a reducer. Inline
-model IDs remain the preferred shorthand for default Models; explicit Models provide stable names,
-prompts, parameters, standalone evaluation, and shared execution identity.
-Model discovery and execution contact only the
-configured URL4 engine. Provider connection calls also contact only that engine; the SDK never
-contacts AI Gateway directly. Benchmark discovery is package-local; loading `gpqa@1` uses the caller's
-Hugging Face session and returns ordinary immutable SDK values. `fusion.run("gpqa@1", first=20)`
-is shorthand for local load followed by engine execution over a stable prefix. The SDK now
-installs `gpqa@1`, canonical `draco@1`, and the explicitly non-comparable `draco-preview@1` development
-profile; all can be loaded and inspected locally. The development
-engine executes typed `web_search` and `web_fetch` policies only on the verified DeepSeek V4 Pro
-and GLM 5.2 DeepInfra pins. Tool-enabled evaluation requires both the Hugging Face and Tavily
-connections and fails before model spend when either is unavailable. The engine exposes the tool-free
-`gemini/2.5-flash` route used for bounded DRACO Preview judging.
-Gemini research is deliberately not advertised: Gemini 3 requires an encrypted thought signature
-on function-calling continuations, and the current AI Gateway normalization does not preserve it.
-Canonical `draco@1` still pins its `gemini/3.1-pro-preview` judge, but the development engine does
-not advertise that route until AI Gateway officially registers it. SDK preflight therefore stops
-canonical evaluation before provider spend; no substitute judge or runtime fallback is used.
+The SDK temporarily defaults to `http://127.0.0.1:4404`. Override it with an origin-only URL:
 
-`sf.connect()`, live evaluation progress, and `Report` use one shared square, shadow-free,
-light/dark-safe visual foundation. Notebook reports show complete, partial, and zero-scored runs
-with paired coverage and structured failure summaries; they never render unavailable numeric
-metrics as empty cards. Plain Python `repr(report)` carries the same status concisely, while
-`report.score`, `report.baseline`, and `report.gain` remain correctly typed as `None` when no case
-was scorable. Ordinary values and `models.list()`/`benchmarks.list()` remain plain Python rather
-than being turned into decorative widgets.
+```python
+sf.config(engine="https://screamingface.example")
+```
+
+## Public concepts
+
+- `sf.Model` is one configured model-backed answer Recipe.
+- `sf.Fusion` combines Models or nested Fusions through an explicit reducer.
+- `sf.Recipe` is their non-constructible umbrella type.
+- `sf.benchmarks.list(...)` returns benchmark IDs advertised by the configured engine.
+- `sf.benchmarks.load(id)` loads and validates an engine manifest, not dataset cases.
+- `benchmark.evaluate(recipe, first=...)` executes one complete URL4 run.
+- `sf.Report` contains paired Recipe/member metrics, typed failures, and the complete run URL4.
+
+Models and Fusions are network-free to construct. `sf.models.list(...)`, benchmark discovery,
+connections, and evaluation contact only the configured engine.
+
+## Connections and dataset access
+
+`sf.connect()` renders the engine-scoped connection panel. Script APIs are explicit:
+
+```python
+sf.connections.list()
+sf.connect("gemini", api_key="...")
+sf.connect("codex", method="oauth")
+sf.connect("tavily", api_key="tvly-...")
+sf.disconnect("gemini")
+```
+
+Model-provider credentials are managed through the engine's AI Gateway integration. Tavily is an
+engine-owned service connection and does not pass through AI Gateway.
+
+Dataset access is separate. In the local MVP, the engine reads `HF_TOKEN` from its environment
+when a benchmark data route loads a gated Hugging Face source. `sf.connect("huggingface")` is an
+inference-provider connection and is not the dataset token.
+
+Before sending the run URL4, the SDK checks the Recipe's member, reducer, grader, and tool-service
+requirements against fresh registry and connection state. Missing credentials raise one
+`sf.ConnectionRequiredError` before model spend.
+
+## Discovery
+
+Both discovery surfaces reflect the configured engine registry and return plain IDs:
+
+```python
+sf.models.list()
+sf.models.list(query="gemini", tools=("web_search",), limit=10)
+
+sf.benchmarks.list()
+sf.benchmarks.list(query="gpqa", limit=10)
+```
+
+Loading a benchmark returns its immutable manifest. The engine does not load cases until it
+evaluates the URL4 data route.
+
+## Custom benchmark authoring
+
+`sf.Case` and `sf.Benchmark` remain compact authoring values. They intentionally stop after
+validated cases plus strategy selection; ScreamingFace is not an ETL DSL.
+
+```python
+definition = sf.Benchmark(
+    "tiny-science@1",
+    cases=[sf.Case("q1", "Choose A or B", reference="A")],
+    grader=sf.graders.ExactChoice(),
+    aggregator=sf.aggregators.Mean(),
+)
+```
+
+This object is input for an engine deployment, not a client-side upload or execution fallback.
+Register its cases, grader, aggregator, and manifest on an engine; consumers then load it using
+the same `sf.benchmarks.load(...)` API without changing evaluation syntax.
+
+## Current benchmark scope
+
+The development engine advertises `gpqa@1`. It loads the pinned GPQA Diamond source through its
+`HF_TOKEN`, exposes cases as NDJSON, grades with `/graders/exact-choice/1`, and aggregates with
+`/aggregators/mean/1`.
+
+DRACO source definitions remain useful engine-building references, but DRACO is not currently
+advertised as executable. A complete multi-system DRACO URL4 still needs a documented URL4
+composition (or generic all-settled primitive) that preserves independent named-system results,
+typed per-system failures, and shared dependency execution. The SDK does not pretend otherwise.
+
+## Walkthrough notebooks
+
+- [`examples/00_quickstart.ipynb`](examples/00_quickstart.ipynb): minimal supported GPQA flow.
+- [`examples/01_architecture.ipynb`](examples/01_architecture.ipynb): registry, URL4, and ownership.
+- [`examples/02_discovery.ipynb`](examples/02_discovery.ipynb): engine model/benchmark discovery.
+- [`examples/03_fusions.ipynb`](examples/03_fusions.ipynb): network-free Recipe authoring.
+- [`examples/04_custom_benchmarks.ipynb`](examples/04_custom_benchmarks.ipynb): authoring boundary.
+- [`examples/06_connections.ipynb`](examples/06_connections.ipynb): provider/tool connections.
+
+Notebooks are deterministic outputs of `scripts/build_quickstart.py`,
+`scripts/build_architecture.py`, `scripts/build_discovery.py`, `scripts/build_fusions.py`,
+`scripts/build_custom_benchmarks.py`, and `scripts/build_connections.py`. Edit the builders, then
+regenerate the notebooks.
 
 ## Validation
 
 ```bash
-uv run ruff check src tests apps/screamingface-engine/src apps/screamingface-engine/tests scripts
-uv run ruff format --check src tests apps/screamingface-engine/src apps/screamingface-engine/tests scripts
+uv run ruff check
+uv run ruff format --check
 uv run pyright
 uv run pytest --cov=screamingface --cov-fail-under=95 -q
 PYTHONPATH=apps/screamingface-engine/src uv run pytest apps/screamingface-engine/tests \
   --cov=screamingface_engine --cov-fail-under=95 -q
+uv run --extra notebook python scripts/check_notebooks.py
+uv build
 ```

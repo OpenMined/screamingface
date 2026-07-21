@@ -48,15 +48,17 @@ Hugging Face does not provide Gemini through this integration. The forthcoming H
 is for open models such as DeepSeek and GLM through pinned inference providers; Gemini 3 still
 requires explicit AI Gateway support.
 
-GPQA is fetched through this notebook's Hugging Face session, so accept its dataset terms and
-authenticate this Python environment when required:
+GPQA is fetched by the local ScreamingFace engine. Accept the dataset terms and export a Hugging
+Face token in the terminal that starts the stack:
 
 ```bash
-huggingface-cli login
+export HF_TOKEN=hf_...
+./dev.sh restart
 ```
 
-The five-case example makes 15 model calls: three Fusion members for each question. Majority vote,
-answer-key grading, and the final comparison make no additional provider calls."""
+The SDK sends one URL4 HTTP request. Inside that graph, the engine loads the first five cases and
+makes 15 model calls: three Fusion members per question. Majority vote, exact-choice grading, and
+mean aggregation are engine routes and make no additional provider calls."""
         ),
         nbformat.v4.new_markdown_cell("## 1 · Connect"),
         nbformat.v4.new_code_cell("import screamingface as sf\n\nsf.connect()"),
@@ -86,20 +88,15 @@ does not call a model.
 ## 3 · Evaluate"""
         ),
         nbformat.v4.new_code_cell(
-            'report = fusion.evaluate("gpqa@1", first=5)\n\n'
-            "# Equivalent staged API:\n"
-            '# benchmark = sf.benchmarks.load("gpqa@1")\n'
-            "# run = fusion.run(benchmark, first=5)\n"
-            "# grades = run.grade()\n"
-            "# report = grades.aggregate()"
+            'benchmark = sf.benchmarks.load("gpqa@1")\nreport = benchmark.evaluate(fusion, first=5)'
         ),
         nbformat.v4.new_markdown_cell(
-            """`evaluate(...)` loads the pinned GPQA Diamond definition through this process,
-executes the three-member Fusion for the first five canonical cases, checks the answers against the
-sealed answer key, and returns one paired comparison. Missing work remains an explicit failure; it
-is never silently scored as zero. In a notebook, one compact live panel shows requirement checks,
-case execution, grading, and aggregation before giving way to the final report. Pass
-`progress=False` to hide it, or `progress=True` to force the same progress outside notebooks.
+            """`load(...)` reads the benchmark manifest advertised by the configured engine; it
+does not download questions. `benchmark.evaluate(...)` then compiles the benchmark, stable
+`first=5` slice, Fusion, grader, and aggregator into one reproducible URL4 expression. The engine
+executes that graph and returns one validated report. Missing work remains
+an explicit failure; it is never silently scored as zero. Pass `progress=False` to hide the compact
+live status, or `progress=True` to force it outside notebooks.
 
 ## 4 · Compare"""
         ),

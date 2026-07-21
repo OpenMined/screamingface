@@ -17,7 +17,11 @@ from screamingface import _profile
 def _registry() -> dict[str, object]:
     return {
         "schema": "screamingface.registry.v1",
-        "response_schemas": ["screamingface.recipe-result.v1"],
+        "response_schemas": [
+            "screamingface.recipe-result.v1",
+            "screamingface.case-grade.v1",
+            "screamingface.report.v1",
+        ],
         "limits": {"max_request_target_bytes": 61440},
         "providers": [
             {
@@ -39,7 +43,18 @@ def _registry() -> dict[str, object]:
             },
             {"id": "gemini/2.5-flash", "provider": "gemini", "supported_tools": []},
         ],
-        "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
+        "benchmarks": [
+            {
+                "id": "gpqa@1",
+                "title": "GPQA Diamond",
+                "cases_route": "/benchmarks/gpqa/1/cases",
+                "grader": {"kind": "exact_choice", "route": "/graders/exact-choice/1"},
+                "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
+                "tools": [],
+                "max_tool_rounds": None,
+            }
+        ],
+        "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote/1"}],
     }
 
 
@@ -79,7 +94,7 @@ def _profile_server(routes: Mapping[str, str]) -> Iterator[str]:
         thread.join()
 
 
-def test_engine_model_discovery_and_sdk_benchmark_discovery_are_separate() -> None:
+def test_engine_registry_drives_model_and_benchmark_discovery() -> None:
     routes = {"/.well-known/screamingface": json.dumps(_registry())}
     with _profile_server(routes) as engine:
         sf.config(engine=engine)
@@ -87,12 +102,9 @@ def test_engine_model_discovery_and_sdk_benchmark_discovery_are_separate() -> No
         assert sf.models.list() == ["codex/gpt-5.5", "gemini/2.5-flash"]
         assert sf.models.list(query="GEMINI", limit=1) == ["gemini/2.5-flash"]
         assert sf.models.list(tools=["web_search"]) == ["codex/gpt-5.5"]
-        assert sf.benchmarks.list() == ["gpqa@1", "draco@1", "draco-preview@1"]
+        assert sf.benchmarks.list() == ["gpqa@1"]
         assert sf.benchmarks.list(query="GPQA") == ["gpqa@1"]
-        assert sf.benchmarks.list(tools=["web_search"]) == [
-            "draco@1",
-            "draco-preview@1",
-        ]
+        assert sf.benchmarks.list(tools=["web_search"]) == []
 
 
 def test_sdk_discovers_url4_safe_huggingface_aliases_from_engine_registry() -> None:
@@ -122,18 +134,17 @@ def test_sdk_discovers_url4_safe_huggingface_aliases_from_engine_registry() -> N
         ]
 
 
-def test_benchmark_discovery_does_not_contact_the_engine(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        _profile.httpx,
-        "get",
-        lambda *_args, **_kwargs: pytest.fail("benchmark discovery contacted the engine"),
-    )
+def test_benchmark_load_returns_the_engine_manifest() -> None:
+    routes = {"/.well-known/screamingface": json.dumps(_registry())}
+    with _profile_server(routes) as engine:
+        sf.config(engine=engine)
 
-    assert sf.benchmarks.list() == ["gpqa@1", "draco@1", "draco-preview@1"]
-    with pytest.raises(sf.UnknownBenchmarkError, match="missing@1"):
-        sf.benchmarks.load("missing@1")
+        benchmark = sf.benchmarks.load("gpqa@1")
+
+        assert benchmark.id == "gpqa@1"
+        assert benchmark.title == "GPQA Diamond"
+        with pytest.raises(sf.UnknownBenchmarkError, match="missing@1"):
+            sf.benchmarks.load("missing@1")
 
 
 @pytest.mark.parametrize(
@@ -141,11 +152,22 @@ def test_benchmark_discovery_does_not_contact_the_engine(
     [
         (lambda value: value.pop("models"), "missing field.*models"),
         (lambda value: value.pop("providers"), "missing field.*providers"),
+        (lambda value: value.pop("benchmarks"), "missing field.*benchmarks"),
         (lambda value: value.update(extra=True), "unknown field.*extra"),
         (lambda value: value.update(schema="wrong"), "expected schema"),
         (lambda value: value.update(models={}), "models must be a list"),
         (lambda value: value.update(reducers={}), "reducers must be a list"),
         (lambda value: value.update(response_schemas=[]), "missing response schema"),
+        (
+            lambda value: value.update(response_schemas=["screamingface.recipe-result.v1"]),
+            "missing response schema.*screamingface.report.v1",
+        ),
+        (
+            lambda value: cast(list[dict[str, object]], value["models"])[0].update(
+                provider="missing"
+            ),
+            "references unknown provider",
+        ),
         (lambda value: value.pop("limits"), "missing field.*limits"),
         (
             lambda value: value.update(limits={"max_request_target_bytes": 0}),
@@ -166,6 +188,10 @@ def test_benchmark_discovery_does_not_contact_the_engine(
         (
             lambda value: _duplicate_record(value, "reducers"),
             "duplicate reducer ID",
+        ),
+        (
+            lambda value: _duplicate_record(value, "benchmarks"),
+            "duplicate benchmark ID",
         ),
     ],
 )
@@ -222,6 +248,87 @@ def test_registry_transport_and_json_failures_are_typed(monkeypatch: pytest.Monk
         _profile.load_registry()
 
 
+def test_registry_http_status_failures_are_typed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        _profile.httpx,
+        "get",
+        lambda *_args, **_kwargs: httpx.Response(503),
+    )
+    with pytest.raises(sf.EngineProtocolError, match="HTTP 503"):
+        _profile._get_text(_profile.REGISTRY_PATH)
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (
+            {"id": "provider", "display_name": "Provider", "auth_methods": ["token"]},
+            "unsupported provider auth method",
+        ),
+        (
+            {"id": "provider", "display_name": "Provider", "auth_methods": []},
+            "must not be empty",
+        ),
+    ],
+)
+def test_provider_records_are_strict(payload: dict[str, object], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        _profile._provider_record(payload)
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (
+            {
+                "id": "research@1",
+                "title": "Research",
+                "cases_route": "/benchmarks/research/1/cases",
+                "grader": {"kind": "rubric", "route": "/graders/rubric/1"},
+                "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
+                "tools": ["web_search"],
+                "max_tool_rounds": None,
+            },
+            "tool-enabled benchmark max_tool_rounds",
+        ),
+        (
+            {
+                "id": "gpqa@1",
+                "title": "GPQA",
+                "cases_route": "/benchmarks/gpqa/1/cases",
+                "grader": {"kind": "exact_choice", "route": "/graders/exact-choice/1"},
+                "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
+                "tools": [],
+                "max_tool_rounds": 1,
+            },
+            "tool-free benchmark max_tool_rounds",
+        ),
+        (
+            {
+                "id": "gpqa@1",
+                "title": "GPQA",
+                "cases_route": "/benchmarks/gpqa/1/cases",
+                "grader": "exact_choice",
+                "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
+                "tools": [],
+                "max_tool_rounds": None,
+            },
+            "benchmark grader must be an object",
+        ),
+    ],
+)
+def test_benchmark_records_are_strict(payload: dict[str, object], message: str) -> None:
+    with pytest.raises((TypeError, ValueError), match=message):
+        _profile._benchmark_record(payload)
+
+
+def test_registry_collection_shapes_are_strict() -> None:
+    with pytest.raises(TypeError, match="engine limits must be an object"):
+        _profile._limits([])
+    with pytest.raises(TypeError, match="must be a list"):
+        _profile._string_list({}, "values")
+
+
 @pytest.mark.parametrize(
     ("factory", "message"),
     [
@@ -235,3 +342,41 @@ def test_registry_transport_and_json_failures_are_typed(monkeypatch: pytest.Monk
 def test_benchmark_catalog_arguments_are_strict(factory, message: str) -> None:
     with pytest.raises((TypeError, ValueError), match=message):
         factory()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("grader", _profile.StrategyRecord("rubric", "/graders/rubric/1"), "grader"),
+        (
+            "aggregator",
+            _profile.StrategyRecord("median", "/aggregators/median/1"),
+            "aggregator",
+        ),
+        ("tools", ("code_execution",), "tool"),
+    ],
+)
+def test_benchmark_manifest_support_is_explicit(field: str, value: object, message: str) -> None:
+    record = _profile.BenchmarkRecord(
+        "gpqa@1",
+        "GPQA Diamond",
+        "/benchmarks/gpqa/1/cases",
+        _profile.StrategyRecord("exact_choice", "/graders/exact-choice/1"),
+        _profile.StrategyRecord("mean", "/aggregators/mean/1"),
+        (),
+        None,
+    )
+    values = {
+        "id": record.id,
+        "title": record.title,
+        "cases_route": record.cases_route,
+        "grader": record.grader,
+        "aggregator": record.aggregator,
+        "tools": record.tools,
+        "max_tool_rounds": record.max_tool_rounds,
+    }
+    values[field] = value
+    changed = _profile.BenchmarkRecord(**values)
+
+    with pytest.raises(ValueError, match=message):
+        sf.benchmarks._benchmark(changed)

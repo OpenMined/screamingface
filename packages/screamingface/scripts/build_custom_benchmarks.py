@@ -101,9 +101,9 @@ ScreamingFace does not add a second case browser or iteration DSL."""
             """The version is part of the opaque benchmark ID, so changing the cases or scoring
 contract can produce a new identity such as `tiny-science@2`.
 
-`ExactChoice()` compares a normalized choice answer with each sealed reference. `Mean()` produces
-paired Fusion and member accuracy, then derives the best-member baseline and gain. Both stages are
-deterministic and local."""
+`ExactChoice()` selects the deterministic grader contract. `Mean()` selects paired Recipe/member
+accuracy, best-member baseline, and gain. When this benchmark is registered on an engine, those
+strategies become grader and aggregator routes inside the complete URL4 run."""
         ),
         nbformat.v4.new_markdown_cell("## 4 · Inspect the public definition"),
         nbformat.v4.new_code_cell(
@@ -162,41 +162,20 @@ research_benchmark = sf.Benchmark(
 )
 ```
 
-ScreamingFace then requires every answer-producing member to support the capability and adds it to
-their concrete engine requests. The explicit round budget prevents an unbounded agent loop. Tools
-do not belong in individual model parameters, and credentials never belong in this definition.
-
-This typed policy is the Phase 9 SDK-to-engine contract. Tavily execution for Hugging Face models
-lands in Phase 9B.4; until then, a tool-enabled benchmark correctly fails capability preflight."""
+The engine then requires every answer-producing member to support the capability and adds it to
+their model calls. The explicit round budget prevents an unbounded agent loop. Tools
+do not belong in individual model parameters, and credentials never belong in this definition."""
         ),
-        nbformat.v4.new_markdown_cell("## 7 · Optionally run the local benchmark"),
         nbformat.v4.new_markdown_cell(
-            """The benchmark is already complete. The next cell only demonstrates that the same
-value can enter the ordinary evaluation path.
+            """## 7 · Register it before execution
 
-It defaults off. Enabling it requires the local Docker stack and working provider access, but no
-Hugging Face access because all three cases are local. The live path makes nine provider calls:
-three cases × three members. Majority voting, exact-choice grading, and mean aggregation add none.
-No substitute report is created while execution is disabled."""
-        ),
-        nbformat.v4.new_code_cell(
-            "import os\n\n"
-            "RUN_LIVE = False\n"
-            'ENGINE_URL = os.environ.get("SCREAMINGFACE_ENGINE_URL", "http://127.0.0.1:4404")\n\n'
-            "report = None\n"
-            "if RUN_LIVE:\n"
-            "    sf.config(engine=ENGINE_URL)\n"
-            "    fusion = sf.Fusion(\n"
-            '        "tiny-science-panel",\n'
-            "        members=[\n"
-            '            "codex/gpt-5.5",\n'
-            '            "gemini/2.5-flash",\n'
-            '            "claude/sonnet-4.6",\n'
-            "        ],\n"
-            "        reducer=sf.reducers.MajorityVote(),\n"
-            "    )\n"
-            "    report = fusion.evaluate(benchmark)\n\n"
-            "report"
+This typed definition is authoring input for an engine deployment; it is not an
+upload API. To execute it as one reproducible URL4 today, add its case, grader, and aggregator
+routes to a ScreamingFace engine profile. Once the engine advertises its manifest,
+`sf.benchmarks.load("tiny-science@1")` returns the executable benchmark.
+
+Keeping registration explicit prevents the client from silently falling back to local case loops
+that cannot be represented by the shared run URL4."""
         ),
         nbformat.v4.new_markdown_cell(
             """## Recap
@@ -206,7 +185,7 @@ No substitute report is created while execution is disabled."""
 - choose a grader and aggregator explicitly;
 - keep source loading and cleaning in researcher-owned code;
 - put shared tool requirements on the benchmark; and
-- pass the resulting immutable benchmark to any Fusion.
+- register the definition on an engine before evaluating it with any Recipe.
 
 This is the complete custom-benchmark boundary—small enough for three handwritten cases and
 flexible enough for a loader that produces thousands."""

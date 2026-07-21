@@ -70,8 +70,9 @@ def test_architecture_notebook_shows_configuration_registry_and_recipe() -> None
 def test_architecture_notebook_uses_public_url4_builders_for_one_real_get() -> None:
     code = _sources("code")
 
-    assert "from url4 import Expression, RelExpr, render, src, struct" in code
-    assert 'path="/reducers/majority-vote"' in code
+    assert "from url4 import Expression, RelExpr, Text, render, src, struct" in code
+    assert 'path="/reducers/majority-vote/1"' in code
+    assert 'intent=Text("$member_answers")' in code
     assert 'name="member_answers"' in code
     assert 'name="recipe_answer"' in code
     assert 'httpx.Request("GET", f"{ENGINE_URL}/v1", params={"q": expression})' in code
@@ -97,7 +98,7 @@ def test_architecture_notebook_explains_the_approved_ownership_boundary() -> Non
     assert "AI Gateway" in markdown
     assert "Tavily" in markdown
     assert "Benchmark source and references" in markdown
-    assert "Exact grading and aggregation" in markdown
+    assert "Grading and aggregation" in markdown
     assert "GET /v1?q=<encoded URL4 expression>" in markdown
     assert "plaintext" in markdown
     assert "No provider credentials" in markdown

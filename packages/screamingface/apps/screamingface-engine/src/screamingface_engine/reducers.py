@@ -9,24 +9,21 @@ from typing import NoReturn
 from screamingface._reduction import select_majority
 from url4 import Request, ResolutionError
 
-MAJORITY_VOTE_ROUTE = "/reducers/majority-vote"
+MAJORITY_VOTE_ROUTE = "/reducers/majority-vote/1"
 _MEMBER_KEY = re.compile(r"member_([1-9][0-9]*)\Z")
 
 
 def majority_vote(request: Request) -> str:
-    """Select a member answer from URL4's resolved structured context."""
+    """Select a member answer from URL4's resolved structured intent."""
 
-    if request.intent:
-        _invalid("majority vote does not accept an intent")
+    if request.context:
+        _invalid("majority vote does not accept context")
+    if not request.intent:
+        _invalid("majority vote requires an intent payload")
     if request.params:
         _invalid(f"majority vote does not accept parameters: {sorted(request.params)}")
 
-    try:
-        payload = json.loads(request.context)
-    except json.JSONDecodeError:
-        _invalid("majority-vote context must be a JSON object")
-    if not isinstance(payload, dict):
-        _invalid("majority-vote context must be a JSON object")
+    payload = _payload(request.intent)
 
     indexed: dict[int, str] = {}
     for key, answer in payload.items():
@@ -45,6 +42,16 @@ def majority_vote(request: Request) -> str:
         return select_majority([indexed[position] for position in expected])
     except (TypeError, ValueError) as exc:
         _invalid(str(exc))
+
+
+def _payload(intent: str) -> dict[str, object]:
+    try:
+        value = json.loads(intent)
+    except json.JSONDecodeError:
+        _invalid("majority-vote intent must be a JSON object")
+    if not isinstance(value, dict):
+        _invalid("majority-vote intent must be a JSON object")
+    return value
 
 
 def _invalid(message: str) -> NoReturn:

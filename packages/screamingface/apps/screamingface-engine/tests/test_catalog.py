@@ -17,7 +17,11 @@ def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> Non
     assert all(model.gateway_model for model in MODEL_ROUTES)
     assert registry == {
         "schema": "screamingface.registry.v1",
-        "response_schemas": ["screamingface.recipe-result.v1"],
+        "response_schemas": [
+            "screamingface.recipe-result.v1",
+            "screamingface.case-grade.v1",
+            "screamingface.report.v1",
+        ],
         "limits": {"max_request_target_bytes": 61440},
         "providers": [
             {
@@ -31,7 +35,8 @@ def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> Non
             {"id": model.id, "provider": model.provider, "supported_tools": []}
             for model in MODEL_ROUTES
         ],
-        "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote"}],
+        "benchmarks": [benchmark.public for benchmark in catalog.BENCHMARK_ROUTES],
+        "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote/1"}],
     }
 
 

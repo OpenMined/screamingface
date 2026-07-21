@@ -6,13 +6,16 @@ import json
 
 from url4 import Url4Node
 
+from screamingface_engine.aggregators import MEAN_ROUTE, mean
 from screamingface_engine.asgi import EngineASGI
+from screamingface_engine.benchmarks import GPQA_CASES_ROUTE, gpqa_cases
 from screamingface_engine.catalog import ModelRoute, registry_document, resolve_model_routes
 from screamingface_engine.connection_asgi import ConnectionASGI
 from screamingface_engine.connection_gateway import ConnectionGateway
 from screamingface_engine.connection_manager import ConnectionManager
 from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import GatewayClient
+from screamingface_engine.graders import EXACT_CHOICE_ROUTE, exact_choice
 from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE, majority_vote
 from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES, Settings
 from screamingface_engine.tavily import TavilyService
@@ -30,6 +33,9 @@ def create_node(
     for model in model_routes:
         node.endpoint(model.route)(executor.handler(model))
     node.endpoint(MAJORITY_VOTE_ROUTE)(majority_vote)
+    node.endpoint(EXACT_CHOICE_ROUTE)(exact_choice)
+    node.endpoint(MEAN_ROUTE)(mean)
+    node.data(GPQA_CASES_ROUTE, media_type="application/x-ndjson")(gpqa_cases)
     node.data("/healthz", "ok")
     node.data(
         "/.well-known/screamingface",

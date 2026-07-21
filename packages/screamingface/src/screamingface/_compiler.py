@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from url4 import Expression, Node, RelExpr, Text, render, src, struct, text
+from url4 import Expression, Node, RelExpr, Text, iterate, render, src, struct, text
 
 from screamingface._profile import RECIPE_RESULT_SCHEMA
 from screamingface._tooling import TOOL_PARAMETER
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from screamingface.fusion import Fusion
     from screamingface.recipe import Recipe
 
-MAJORITY_VOTE_ROUTE = "/reducers/majority-vote"
+MAJORITY_VOTE_ROUTE = "/reducers/majority-vote/1"
 
 
 def compile_recipe(
@@ -62,23 +62,36 @@ class _RecipeCompiler:
         self._reduction_count = 0
 
     def compile(self, recipe: Recipe) -> str:
-        root = self._recipe(recipe, is_root=True)
-        self._sources.append(
-            struct(
-                {
-                    "schema": RECIPE_RESULT_SCHEMA,
-                    "members": {
-                        member.id: {
-                            "model": _literal(member.model),
-                            "answer": f"${member.id}",
-                        }
-                        for member in self._members
-                    },
-                    "answer": root.reference,
-                }
+        return render(
+            Expression(
+                sources=self.sources(recipe),
+                intent=Text("$recipe_result"),
             )
         )
-        return render(Expression(sources=tuple(self._sources)))
+
+    def sources(self, recipe: Recipe) -> tuple[Node, ...]:
+        """Return the named Recipe graph for an enclosing URL4 computation."""
+
+        root = self._recipe(recipe, is_root=True)
+        self._sources.append(
+            src(
+                struct(
+                    {
+                        "schema": RECIPE_RESULT_SCHEMA,
+                        "members": {
+                            member.id: {
+                                "model": _literal(member.model),
+                                "answer": f"${member.id}",
+                            }
+                            for member in self._members
+                        },
+                        "answer": root.reference,
+                    }
+                ),
+                name="recipe_result",
+            )
+        )
+        return tuple(self._sources)
 
     def _recipe(self, recipe: Recipe, *, is_root: bool = False) -> _ResolvedInput:
         from screamingface.fusion import Fusion
@@ -133,7 +146,10 @@ class _RecipeCompiler:
                     name=answers_name,
                 )
             )
-            call = RelExpr(path=MAJORITY_VOTE_ROUTE, context=f"${answers_name}")
+            call = RelExpr(
+                path=MAJORITY_VOTE_ROUTE,
+                intent=Text(f"${answers_name}"),
+            )
         elif isinstance(reducer, Model):
             call = RelExpr(
                 path=_model_route(reducer.model),
@@ -160,14 +176,77 @@ def compile_model_expression(
     return render(
         Expression(
             sources=(
-                RelExpr(
-                    path=_model_route(model),
-                    context="$model_context",
-                    intent=Text(_literal(intent)),
-                    params=_params(items),
-                ),
                 src(text(_literal(context)), name="model_context"),
-            )
+                src(
+                    RelExpr(
+                        path=_model_route(model),
+                        context="$model_context",
+                        intent=Text(_literal(intent)),
+                        params=_params(items),
+                    ),
+                    name="model_result",
+                ),
+            ),
+            intent=Text("$model_result"),
+        )
+    )
+
+
+def compile_benchmark_expression(
+    *,
+    benchmark_id: str,
+    cases_route: str,
+    grader_route: str,
+    aggregator_route: str,
+    recipe: Recipe,
+    tools: Sequence[Tool] = (),
+    max_tool_rounds: int | None = None,
+    first: int | None = None,
+) -> str:
+    """Render one complete benchmark slice, Recipe, grading, and aggregation graph."""
+
+    compiler = _RecipeCompiler(
+        tool_params=_tool_params(tools, max_tool_rounds),
+        question=None,
+    )
+    sources: list[Node] = [src("$item.input", name="question")]
+    sources.extend(compiler.sources(recipe))
+    sources.extend(
+        (
+            src(
+                struct(
+                    {
+                        "benchmark_id": _literal(benchmark_id),
+                        "case_id": "$item.id",
+                        "reference": "$item.reference",
+                    }
+                ),
+                name="grade_input",
+            ),
+            src(
+                RelExpr(
+                    path=grader_route,
+                    context="$recipe_result",
+                    intent=Text("$grade_input"),
+                ),
+                name="case_result",
+            ),
+        )
+    )
+    reducer = render(
+        RelExpr(
+            path=aggregator_route,
+            intent=Text("Aggregate benchmark results"),
+        )
+    )
+    return render(
+        iterate(
+            cases_route,
+            body=tuple(sources),
+            intent=Text("$case_result"),
+            reduce=reducer,
+            slice=None if first is None else (0, first),
+            on_error="collect",
         )
     )
 
@@ -213,7 +292,7 @@ def _tool_params(tools: Sequence[Tool], max_tool_rounds: int | None) -> tuple[tu
         raise ValueError("max_tool_rounds must be a positive integer")
     typed_tools = tuple(tools)
     values: list[tuple[str, str]] = [
-        (TOOL_PARAMETER, "+".join(_tool_ids(typed_tools))),
+        (TOOL_PARAMETER, ":".join(_tool_ids(typed_tools))),
         ("max_tool_rounds", str(max_tool_rounds)),
     ]
     for tool in typed_tools:
@@ -233,4 +312,9 @@ def _literal(value: str) -> str:
     return value.replace("$", "$$")
 
 
-__all__ = ["MAJORITY_VOTE_ROUTE", "compile_model_expression", "compile_recipe"]
+__all__ = [
+    "MAJORITY_VOTE_ROUTE",
+    "compile_benchmark_expression",
+    "compile_model_expression",
+    "compile_recipe",
+]

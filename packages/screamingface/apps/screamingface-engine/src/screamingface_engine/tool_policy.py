@@ -150,7 +150,7 @@ def parse_tool_policy(params: Mapping[str, str]) -> ParsedToolPolicy:
             _malformed("tool-free requests cannot contain tool policy")
         return ParsedToolPolicy(model_params, None)
 
-    tools = tuple(raw_tools.split())
+    tools = tuple(raw_tools.split(":"))
     if not tools or len(tools) != len(set(tools)):
         _malformed("tools must contain unique non-empty capability IDs")
     unsupported = set(tools) - _SUPPORTED_TOOLS

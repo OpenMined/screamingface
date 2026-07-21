@@ -37,7 +37,7 @@ or use Hugging Face access."""
             "import json\n"
             "import os\n\n"
             "import httpx\n"
-            "from url4 import Expression, RelExpr, render, src, struct\n\n"
+            "from url4 import Expression, RelExpr, Text, render, src, struct\n\n"
             "import screamingface as sf\n\n"
             'ENGINE_URL = os.environ.get("SCREAMINGFACE_ENGINE_URL", "http://127.0.0.1:4404")\n'
             "sf.config(engine=ENGINE_URL)\n\n"
@@ -60,18 +60,18 @@ The explicit health check above is this notebook's first request."""
 ```text
 Researcher process
 ├─ ScreamingFace SDK
-│  ├─ loads benchmark sources and keeps references sealed
-│  ├─ compiles Fusion definitions into URL4
+│  ├─ loads and validates engine benchmark manifests
+│  ├─ compiles complete benchmark-run URL4
 │  ├─ reads provider status and sends connection actions
-│  ├─ validates returned run evidence
-│  ├─ performs deterministic graders
-│  └─ aggregates paired comparisons
+│  └─ parses and validates the returned report
 │
 └─ screamingface-engine · persistent Url4Node
    ├─ plaintext URL4 data plane · GET /v1?q=...
+   │  ├─ benchmark case data routes
    │  ├─ model routes ── AI Gateway ── model providers
    │  ├─ verified HF tool routes ── Tavily search/extract
-   │  └─ deterministic reducer routes
+   │  ├─ reducer and grader routes
+   │  └─ aggregator routes
    └─ JSON connection control plane · /v1/connections/...
       ├─ AI Gateway model-provider credential profiles
       └─ process-local Tavily connection
@@ -103,10 +103,10 @@ registers the model, tool, reducer, and connection capabilities needed by the SD
             """The registry is JSON serialized inside a plaintext HTTP body. `sf.models.list()`
 fetches and validates the complete `screamingface.registry.v1` document before returning model IDs.
 
-The registry advertises executable routes, transport limits, and provider ownership/auth methods.
+The registry advertises executable model and benchmark routes, response schemas, transport limits,
+and provider ownership/auth methods.
 Fresh connection status comes from the engine's protected connection API rather than this public
-capability document. Benchmarks are installed SDK definitions because their sources and sealed
-references belong in the researcher's process."""
+capability document. Loading a benchmark validates its manifest but does not fetch its cases."""
         ),
         nbformat.v4.new_markdown_cell("## 4 · A Fusion recipe is URL4, but not yet a request"),
         nbformat.v4.new_code_cell(
@@ -118,12 +118,12 @@ references belong in the researcher's process."""
             "fusion.url4"
         ),
         nbformat.v4.new_markdown_cell(
-            """`fusion.url4` is a canonical parameterized recipe. Its `$question` binding is still
-unresolved, so displaying it performs no model call. When a benchmark case is evaluated, the SDK
-binds the concrete question and sends the complete encoded expression to the configured engine.
+            """`fusion.url4` is a canonical parameterized answer recipe. Its `$question` binding is
+still unresolved, so displaying it performs no model call. `benchmark.evaluate(fusion, first=...)`
+wraps it with the benchmark case route, stable slice, grader, and aggregator.
 
-The recipe is shareable Fusion identity. The HTTP request is one execution of that recipe for one
-concrete input."""
+The returned `report.url4` is the complete shareable run: another compatible engine can read the
+same expression and reproduce the selected slice."""
         ),
         nbformat.v4.new_markdown_cell("## 5 · Build one provider-free URL4 transaction"),
         nbformat.v4.new_code_cell(
@@ -136,18 +136,22 @@ concrete input."""
             "            ),\n"
             "            src(\n"
             "                RelExpr(\n"
-            '                    path="/reducers/majority-vote",\n'
-            '                    context="$member_answers",\n'
+            '                    path="/reducers/majority-vote/1",\n'
+            '                    intent=Text("$member_answers"),\n'
             "                ),\n"
             '                name="recipe_answer",\n'
             "            ),\n"
-            "            struct(\n"
-            "                {\n"
-            '                    "schema": "screamingface.recipe-result.v1",\n'
-            '                    "answer": "$recipe_answer",\n'
-            "                }\n"
+            "            src(\n"
+            "                struct(\n"
+            "                    {\n"
+            '                        "schema": "screamingface.recipe-result.v1",\n'
+            '                        "answer": "$recipe_answer",\n'
+            "                    }\n"
+            "                ),\n"
+            '                name="recipe_result",\n'
             "            ),\n"
-            "        )\n"
+            "        ),\n"
+            '        intent=Text("$recipe_result"),\n'
             "    )\n"
             ")\n\n"
             "expression"
@@ -195,16 +199,17 @@ plaintext when it runs a Fusion; this cell performs those two steps visibly for 
 
 | Concern | Owner |
 |---|---|
-| Benchmark source and references | Researcher's SDK process |
-| URL4 recipe compilation | ScreamingFace SDK |
+| Benchmark manifest | ScreamingFace SDK from engine registry |
+| Benchmark source and references | ScreamingFace engine data route |
+| Complete run URL4 compilation | ScreamingFace SDK |
 | URL4 graph execution | `screamingface-engine` / URL4 |
 | Provider calls | Engine through AI Gateway |
 | Provider credential control | SDK through engine to AI Gateway |
 | Web research | Engine directly through Tavily on verified HF routes |
-| Exact grading and aggregation | Researcher's SDK process |
+| Grading and aggregation | ScreamingFace engine routes inside URL4 |
 
-Rubric grading is the one model-backed grading mode: the SDK schedules each judge task through the
-same configured URL4 engine. The SDK still never opens a direct provider or Gateway connection.
+Model-backed graders call their judge route inside the same URL4 graph. The SDK never opens a
+direct provider or Gateway connection.
 
 ## Recap
 
@@ -212,13 +217,13 @@ same configured URL4 engine. The SDK still never opens a direct provider or Gate
 - The engine registry describes what that deployment can execute.
 - `sf.connect()` displays fresh connection state and sends credentials only to that engine.
 - model-backed work checks required connections once before spend.
-- `fusion.url4` is a reusable parameterized recipe.
-- one concrete execution is an encoded `GET /v1?q=...` transaction.
+- `fusion.url4` is a reusable parameterized answer recipe.
+- `report.url4` is the complete benchmark, slice, Recipe, grading, and aggregation run.
+- evaluation sends that expression in one encoded `GET /v1?q=...` transaction.
 - successful bodies are plaintext that the SDK parses and validates.
-- benchmark data and deterministic scoring remain in the researcher's process.
+- benchmark data and scoring remain engine-side and reproducible in URL4.
 
-Continue to the quickstart to evaluate GPQA, or the DRACO walkthrough for web-research members,
-model synthesis, and rubric judging."""
+Continue to the quickstart to evaluate GPQA."""
         ),
     ]
     for index, cell in enumerate(cells, start=1):
