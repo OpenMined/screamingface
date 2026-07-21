@@ -1,0 +1,138 @@
+@import "tailwindcss";
+@import "@fontsource/open-sans/400.css";
+@import "@fontsource/open-sans/500.css";
+@import "@fontsource/open-sans/600.css";
+@import "@fontsource/open-sans/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Open Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: #f4f3f6;
+  --foreground: #17161d;
+  --card: #ffffff;
+  --card-foreground: #17161d;
+  --popover: #ffffff;
+  --popover-foreground: #17161d;
+  --primary: #b8520a;
+  --primary-foreground: #ffffff;
+  --secondary: #e9e1ea;
+  --secondary-foreground: #464158;
+  --muted: #eceaef;
+  --muted-foreground: #6f6a7a;
+  --accent: #256b24;
+  --accent-foreground: #ffffff;
+  --destructive: #ca492c;
+  --border: rgba(23, 22, 29, 0.1);
+  --input: rgba(23, 22, 29, 0.12);
+  --input-background: #fcfcfd;
+  --ring: #b8520a;
+  --sidebar: #fcfcfd;
+  --sidebar-foreground: #17161d;
+  --sidebar-primary: #b8520a;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ede9ee;
+  --sidebar-accent-foreground: #17161d;
+  --sidebar-border: rgba(23, 22, 29, 0.07);
+  --sidebar-ring: #b8520a;
+}
+
+.dark {
+  --background: #17161d;
+  --foreground: #f4f3f6;
+  --card: #232230;
+  --card-foreground: #f4f3f6;
+  --popover: #2e2b3b;
+  --popover-foreground: #f4f3f6;
+  --primary: #f79763;
+  --primary-foreground: #17161d;
+  --secondary: #2e2b3b;
+  --secondary-foreground: #dee1ed;
+  --muted: #2a2836;
+  --muted-foreground: #9b9aa5;
+  --accent: #96d195;
+  --accent-foreground: #17161d;
+  --destructive: #ca492c;
+  --border: rgba(255, 255, 255, 0.09);
+  --input: rgba(255, 255, 255, 0.12);
+  --input-background: #2a2836;
+  --ring: #f79763;
+  --sidebar: #131219;
+  --sidebar-foreground: #f4f3f6;
+  --sidebar-primary: #f79763;
+  --sidebar-primary-foreground: #17161d;
+  --sidebar-accent: #232230;
+  --sidebar-accent-foreground: #f4f3f6;
+  --sidebar-border: rgba(255, 255, 255, 0.07);
+  --sidebar-ring: #f79763;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    scrollbar-color: transparent transparent;
+    scrollbar-width: thin;
+  }
+  *:hover {
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 28%, transparent) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 0.375rem;
+    height: 0.375rem;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: transparent;
+  }
+  *:hover::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--muted-foreground) 25%, transparent);
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+  }
+  html, body { @apply h-full; }
+  body { @apply fixed m-0 h-screen w-screen overflow-hidden bg-background font-sans text-foreground antialiased; }
+  button, a { @apply outline-none; }
+}
