@@ -26,7 +26,7 @@ decoding, and notebook UX.
 1. Migrate Recipe rendering and reducer adapters to mandatory-intent URL4.
 2. Advertise and register versioned GPQA cases, exact-choice grader, and mean aggregator routes.
 3. Load benchmark manifests from the configured engine.
-4. Compile `Benchmark.evaluate(recipe, first=...)` into one full URL4 expression and decode one
+4. Compile `Benchmark.evaluate(candidate, first=...)` into one full URL4 expression and decode one
    `screamingface.report.v1` plaintext response.
 5. Remove the client-side execution fallback and update tests, Docker credentials, notebooks, and
    public documentation.

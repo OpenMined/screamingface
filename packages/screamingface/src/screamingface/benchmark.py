@@ -164,16 +164,16 @@ class Benchmark:
 
     def evaluate(
         self,
-        recipe: Recipe,
+        candidate: Recipe,
         *,
         first: int | None = None,
         progress: ProgressSetting = None,
     ) -> Report:
-        """Evaluate one Recipe through this benchmark's complete URL4 graph."""
+        """Evaluate one candidate Recipe through this benchmark's complete URL4 graph."""
 
         from screamingface._benchmark_execution import evaluate_benchmark
 
-        return evaluate_benchmark(self, recipe, first=first, progress=progress)
+        return evaluate_benchmark(self, candidate, first=first, progress=progress)
 
     def _materialize_cases(self) -> tuple[Case, ...]:
         if self._case_source is None:

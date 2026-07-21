@@ -66,7 +66,7 @@ report = gpqa.evaluate(fusion, first=5)
 an immutable engine-advertised manifest; it does not fetch cases into the SDK. The loaded manifest
 gives early validation and type discovery before evaluation.
 
-`Benchmark.evaluate(recipe, first=...)`:
+`Benchmark.evaluate(candidate, first=...)`:
 
 1. refreshes and validates the engine registry;
 2. validates the loaded manifest, models, reducer, tools, and connections;

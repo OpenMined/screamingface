@@ -43,11 +43,11 @@ The current reproduction configuration contains **16 named Recipes over 100 case
 - Tavily `web_search` and `web_fetch`, with at most 12 model/tool rounds, on answer-producing calls;
 - tool-free synthesis calls;
 - one official rubric-judge request per criterion, repeated 5 times; and
-- one final DRACO aggregation across cases and Recipes.
+- one final DRACO aggregation across cases and candidates.
 
 `Recipe` is the umbrella SDK type. `sf.Model` is an atomic Recipe and `sf.Fusion` is a composite
-Recipe. `members` belongs inside a Fusion result; `recipes` names the independently compared roots
-of the benchmark run.
+Recipe. `members` belongs inside a Fusion result; `candidates` names the independently compared
+roots of the benchmark run.
 
 The source configuration currently says `judge_runs: 3` even though its own production comments
 require 5. The final reproducible protocol below intentionally uses **5**. The configuration and
@@ -211,9 +211,10 @@ best_open_source = sf.Fusion(
 draco = sf.benchmarks.load("draco@1")
 
 # Proposed minimal extension: Benchmark.evaluate accepts one Recipe today; the production form
-# accepts several independently named Recipe roots and compiles them into one URL4 transaction.
+# accepts several independently named candidate Recipe roots and compiles them into one URL4
+# transaction.
 report = draco.evaluate(
-    recipes=[
+    candidates=[
         fable,
         opus,
         gpt,
@@ -275,7 +276,7 @@ versioned grader route similarly owns the Appendix C.5 judge prompts and scoring
       rubric:'$item.reference'
     },
 
-    recipe_results=settle(
+    candidate_results=settle(
       sources=(
     fable_answer=/anthropic/claude-fable-5
       ?temperature=0&max_tokens=8192
@@ -465,7 +466,7 @@ versioned grader route similarly owns the Appendix C.5 judge prompts and scoring
       schema:'screamingface.draco-case-results.v1',
       benchmark_id:'draco@1',
       case_id:'$item.id',
-      recipes:'$recipe_results'
+      candidates:'$candidate_results'
     }
   )!'$case_result';
   iteration.slice=0:100;
@@ -526,7 +527,7 @@ ScreamingFace SDK validates:
   "schema": "screamingface.benchmark-report.v1",
   "benchmark_id": "draco@1",
   "case_slice": {"start": 0, "stop": 100},
-  "recipes": {
+  "candidates": {
     "claude-fable-5": {
       "score": 0.53,
       "metrics": {
@@ -551,7 +552,7 @@ ScreamingFace SDK validates:
 }
 ```
 
-The other 14 Recipes follow the same mapping shape. JSON arrays are valid in returned plaintext;
+The other 14 candidates follow the same mapping shape. JSON arrays are valid in returned plaintext;
 URL4 inline-struct grammar does not constrain an endpoint's serialized response body."""
         ),
         nbformat.v4.new_markdown_cell(

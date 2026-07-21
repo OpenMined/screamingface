@@ -76,7 +76,7 @@ sf.config(engine="https://screamingface.example")
 - `sf.Recipe` is their non-constructible umbrella type.
 - `sf.benchmarks.list(...)` returns benchmark IDs advertised by the configured engine.
 - `sf.benchmarks.load(id)` loads and validates an engine manifest, not dataset cases.
-- `benchmark.evaluate(recipe, first=...)` executes one complete URL4 run.
+- `benchmark.evaluate(candidate, first=...)` executes one complete URL4 run.
 - `sf.Report` contains paired Recipe/member metrics, typed failures, and the complete run URL4.
 
 Models and Fusions are network-free to construct. `sf.models.list(...)`, benchmark discovery,
@@ -102,8 +102,8 @@ Dataset access is separate. In the local MVP, the engine reads `HF_TOKEN` from i
 when a benchmark data route loads a gated Hugging Face source. `sf.connect("huggingface")` is an
 inference-provider connection and is not the dataset token.
 
-Before sending the run URL4, the SDK checks the Recipe's member, reducer, grader, and tool-service
-requirements against fresh registry and connection state. Missing credentials raise one
+Before sending the run URL4, the SDK checks the candidate Recipe's member, reducer, grader, and
+tool-service requirements against fresh registry and connection state. Missing credentials raise one
 `sf.ConnectionRequiredError` before model spend.
 
 ## Discovery

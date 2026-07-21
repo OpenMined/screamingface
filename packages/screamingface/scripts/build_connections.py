@@ -72,10 +72,10 @@ examples are comments so running this guide never starts or replaces a connectio
             "    }"
         ),
         nbformat.v4.new_markdown_cell(
-            """`benchmark.evaluate(recipe, ...)` checks the Recipe's member, reducer, grader, and
-tool-service requirements once before sending the complete run URL4. Missing credentials raise one
-actionable `ConnectionRequiredError`, not one failure per case. This guide performs **no paid
-model call**.
+            """`benchmark.evaluate(candidate, ...)` checks the candidate Recipe's member,
+reducer, grader, and tool-service requirements once before sending the complete run URL4. Missing
+credentials raise one actionable `ConnectionRequiredError`, not one failure per case.
+This guide performs **no paid model call**.
 
 Dataset access remains separate from inference-provider connections. The development engine reads
 `HF_TOKEN` from its environment when a registered benchmark must load a gated Hugging Face source;
