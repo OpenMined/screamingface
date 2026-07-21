@@ -187,8 +187,9 @@ def openapi_document(
                 "executable": False,
                 "benchmark_id": "draco@1",
                 "blocking_capability": (
-                    "URL4 needs documented named multi-root all-settled DAG execution that "
-                    "preserves typed per-root failures and executes shared dependencies once."
+                    "Register and verify the production DRACO cases, grader protocol, model "
+                    "routes, Tavily policy, and candidate configuration. Each candidate already "
+                    "fits one complete URL4 benchmark transaction."
                 ),
             },
             "hosted_deployment": (

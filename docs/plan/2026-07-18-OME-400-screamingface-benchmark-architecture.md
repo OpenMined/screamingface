@@ -137,15 +137,16 @@ use stable positional IDs such as `row_2`. This is explicit rather than guessing
 ## Deferred deliberately
 
 - DRACO publication and exact-result claims;
-- a generic URL4 all-settled/named-multi-root primitive that preserves independent system results,
-  typed per-system failures, and shared dependency reuse;
+- optional future cross-candidate caching or multi-root execution; the MVP deliberately uses one
+  independently reproducible URL4 benchmark transaction per candidate;
 - hosted engine identity and dataset-secret policy;
 - uploads or remote registration for researcher-authored benchmarks; and
 - retries, persistence, resume, billing, or leaderboard publication.
 
-DRACO should not be advertised until the URL4 settlement question is resolved. This limitation is
-about encoding the complete multi-system run as one reproducible URL4, not about basic model,
-Tavily, grading, or aggregation routes.
+DRACO should not be advertised until its cases, exact grader protocol, model routes, Tavily policy,
+and production configuration are registered and verified end to end. URL4 settlement is not an MVP
+blocker: each DRACO candidate is already representable as one independently reproducible benchmark
+URL4.
 
 ## Repository map
 

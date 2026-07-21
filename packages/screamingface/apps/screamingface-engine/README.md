@@ -70,9 +70,10 @@ export HF_TOKEN=hf_...
 This token is separate from `sf.connect("huggingface")`, which configures Hugging Face as an AI
 Gateway inference provider. No synthetic or mock dataset fallback exists.
 
-DRACO is not advertised yet. A complete multi-system DRACO run still needs a documented URL4
-composition or generic all-settled primitive that preserves independent named-system outcomes,
-typed per-system failures, and shared dependency execution.
+DRACO is not advertised yet. Its remaining work is registering and verifying the production cases,
+grader protocol, routes, tool policy, and model configuration. A complete study runs one URL4
+benchmark transaction per candidate and compares the resulting reports client-side; it does not
+depend on a generic all-settled multi-root primitive.
 
 ## Models, reducers, and tools
 

@@ -113,5 +113,5 @@ is automatically available inside a remote deployment.
 - no direct SDK traffic to AI Gateway, Tavily, or Hugging Face datasets;
 - no bundled GPQA rows or answer keys;
 - no compatibility aliases for the old unversioned execution routes; and
-- no claim that URL4 yet preserves independent typed failures for every nested named system in a
-  full DRACO graph. That remains the separately raised URL4 settlement question.
+- no requirement that unrelated benchmark candidates execute as nested roots in one URL4. Each
+  candidate is a separate complete transaction with its own typed case failures and report.

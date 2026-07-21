@@ -146,9 +146,10 @@ The development engine advertises `gpqa@1`. It loads the pinned GPQA Diamond sou
 `/aggregators/mean/1`.
 
 DRACO source definitions remain useful engine-building references, but DRACO is not currently
-advertised as executable. A complete multi-system DRACO URL4 still needs a documented URL4
-composition (or generic all-settled primitive) that preserves independent named-system results,
-typed per-system failures, and shared dependency execution. The SDK does not pretend otherwise.
+advertised as executable. The production comparison is represented as one complete URL4 benchmark
+transaction per candidate. A multi-candidate study therefore produces an ordered mapping of
+candidate names to URL4-backed reports; it does not require every candidate to be nested into one
+larger URL4.
 
 ## Walkthrough notebooks
 
@@ -158,8 +159,8 @@ typed per-system failures, and shared dependency execution. The SDK does not pre
 - [`examples/03_fusions.ipynb`](examples/03_fusions.ipynb): network-free Recipe authoring.
 - [`examples/04_custom_benchmarks.ipynb`](examples/04_custom_benchmarks.ipynb): authoring boundary.
 - [`examples/06_connections.ipynb`](examples/06_connections.ipynb): provider/tool connections.
-- [`examples/07_full_draco_url4.ipynb`](examples/07_full_draco_url4.ipynb): non-runnable full
-  production DRACO/URL4 design handoff.
+- [`examples/07_full_draco_url4.ipynb`](examples/07_full_draco_url4.ipynb): non-runnable production
+  DRACO handoff showing one flat, complete benchmark URL4 per candidate.
 
 Notebooks are deterministic outputs of `scripts/build_quickstart.py`,
 `scripts/build_architecture.py`, `scripts/build_discovery.py`, `scripts/build_fusions.py`,
