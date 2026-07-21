@@ -12,7 +12,7 @@ from url4_cloud.rest import router as rest_router
 from url4_cloud.schemas import customize_openapi
 from url4_cloud.ws import ConnectionRegistry
 from url4_cloud.ws import router as ws_router
-from url4_cloud_nats import Bus
+from url4_cloud_nats import Bus, NatsBus
 
 router = APIRouter()
 
@@ -55,4 +55,19 @@ def create_app(
     app.include_router(ops_router)
     # Enrich the generated OpenAPI 3.1 with the CloudEvents component schemas + rich info (§12).
     customize_openapi(app)
+    return app
+
+
+def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INFRA rule, spec §11)
+    """Env-wired App for the docker-compose e2e (spec §11): a live NATS ``Bus`` + shutdown close.
+
+    The console/helm ``create_app`` factory injects deps in tests; the compose App service instead
+    reads ``URL4_CLOUD_*`` (``Settings``) and binds a real :class:`~url4_cloud_nats.NatsBus`.
+    Owner-run only — it touches live NATS, so it is excluded from the headless suite (INFRA rule).
+    """
+    settings = Settings()
+    bus = NatsBus(settings.nats_url)
+    app = create_app(settings, bus=bus)
+    # Close the NATS connection on ASGI shutdown (Starlette lifespan hook).
+    app.router.on_shutdown.append(bus.close)
     return app
