@@ -30,6 +30,8 @@ decoding, and notebook UX.
    `screamingface.report.v1` plaintext response.
 5. Remove the client-side execution fallback and update tests, Docker credentials, notebooks, and
    public documentation.
+6. Record the production 7-solo/9-Fusion DRACO target and the unresolved generic named multi-root
+   settlement requirement in a deterministic notebook for URL4 design review.
 
 ## Acceptance
 
@@ -46,6 +48,10 @@ decoding, and notebook UX.
   exercised independently and through one complete URL4 request.
 - Generated notebooks are deterministic.
 - Ruff and Pyright pass for both SDK and engine.
+
+The design handoff is `packages/screamingface/examples/07_full_draco_url4.ipynb`. Its
+`settle({...})` spelling is explicitly illustrative; it records the required generic semantics
+without claiming that current URL4 accepts that grammar.
 
 If at least one selected case succeeds, the engine returns a complete or partial paired report. If
 every selected case fails, `/aggregators/mean/1` raises `benchmark_evaluation_failed`; the SDK does

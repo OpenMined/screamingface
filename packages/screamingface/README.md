@@ -157,11 +157,13 @@ typed per-system failures, and shared dependency execution. The SDK does not pre
 - [`examples/03_fusions.ipynb`](examples/03_fusions.ipynb): network-free Recipe authoring.
 - [`examples/04_custom_benchmarks.ipynb`](examples/04_custom_benchmarks.ipynb): authoring boundary.
 - [`examples/06_connections.ipynb`](examples/06_connections.ipynb): provider/tool connections.
+- [`examples/07_full_draco_url4.ipynb`](examples/07_full_draco_url4.ipynb): non-runnable full
+  production DRACO/URL4 design handoff.
 
 Notebooks are deterministic outputs of `scripts/build_quickstart.py`,
 `scripts/build_architecture.py`, `scripts/build_discovery.py`, `scripts/build_fusions.py`,
-`scripts/build_custom_benchmarks.py`, and `scripts/build_connections.py`. Edit the builders, then
-regenerate the notebooks.
+`scripts/build_custom_benchmarks.py`, `scripts/build_connections.py`, and
+`scripts/build_full_draco_url4_contract.py`. Edit the builders, then regenerate the notebooks.
 
 ## Validation
 
