@@ -63,9 +63,9 @@ raw non-`(` heads → `()!<text>`. Same failure family as OME-501. This makes
   (+8 tests), `tests/unit/test_server.py` (+2 tests). Also lint-cleaned
   `demo/backends/mock.py` (complexity/dispatch refactor) so the stack's ruff
   gate is green — committed separately as demo work, not part of this unit.
-- **Commits:** (sha recorded post-commit) `fix(url4): classify every wire
-  head in the dual-convention decode + stop truncating raw non-envelope
-  payloads` — Refs: OME-530.
+- **Commits:** `61a8144` — fix(url4): classify every wire head in the
+  dual-convention decode + stop truncating raw non-envelope payloads
+  (demo lint-clean split out as `0d372e5`, Refs: OME-466).
 - **Gates:** ALL GREEN — ruff check, ruff format --check, pyright,
   pytest --cov=url4 --cov-fail-under=95 (1056 passed). Append-only check run
   with `--skip-append-only` after verifying by `git diff HEAD -- tests/`:
