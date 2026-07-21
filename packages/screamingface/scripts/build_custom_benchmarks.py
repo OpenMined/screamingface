@@ -164,7 +164,12 @@ research_benchmark = sf.Benchmark(
 
 The engine then requires every answer-producing member to support the capability and adds it to
 their model calls. The explicit tool-call budget prevents an unbounded agent loop. Tools
-do not belong in individual model parameters, and credentials never belong in this definition."""
+do not belong in individual model parameters, and credentials never belong in this definition.
+
+Because this researcher-authored definition has no immutable engine policy route yet, its portable
+policy is represented inline when an engine profile registers it. An official benchmark manifest
+instead points to one versioned policy data route that every answer-producing member shares. Both
+forms express the same provider-neutral behavior; neither selects Tavily or OpenRouter."""
         ),
         nbformat.v4.new_markdown_cell(
             """## 7 · Register it before execution

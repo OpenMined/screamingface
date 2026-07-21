@@ -17,6 +17,7 @@ GET /openapi.json
 GET /v1?q=<complete URL4 expression>
 GET /{provider}/{model}?q=(context)!intent
 GET /benchmarks/gpqa/1/cases
+GET /benchmarks/draco/1/tool-policy
 GET /reducers/majority-vote/1
 GET /graders/exact-choice/1
 GET /aggregators/mean/1
@@ -70,8 +71,9 @@ export HF_TOKEN=hf_...
 This token is separate from `sf.connect("huggingface")`, which configures Hugging Face as an AI
 Gateway inference provider. No synthetic or mock dataset fallback exists.
 
-DRACO is not advertised yet. Its remaining work is registering and verifying the production cases,
-grader protocol, routes, tool policy, and model configuration. A complete study runs one URL4
+DRACO is not advertised yet. Its versioned provider-neutral tool-policy data route is registered,
+but the remaining work includes its production cases, grader protocol, manifest, model routes, and
+candidate configuration. A complete study runs one URL4
 benchmark transaction per candidate and compares the resulting reports client-side; it does not
 depend on a generic all-settled multi-root primitive.
 
@@ -83,7 +85,10 @@ position. It never contacts AI Gateway.
 
 The engine advertises `web_search` and `web_fetch` on OpenRouter routes and on the verified pinned
 Hugging Face DeepSeek V4 Pro/DeepInfra and GLM 5.2/DeepInfra routes. Tool-enabled requests carry a
-provider-neutral policy: `tools=web_search:web_fetch`, `tools.max_calls=<n>`, and optional
+provider-neutral policy. An official benchmark manifest points to one immutable versioned policy
+data route; its URL4 resolves that route once per case and sends one shared
+`screamingface.model-input.v1` value to each answer-producing member. A custom Benchmark without an
+engine-owned route uses inline `tools=web_search:web_fetch`, `tools.max_calls=<n>`, and optional
 `web_search.*` controls. The engine selects the implementation per route: OpenRouter-managed
 server tools for OpenRouter models, or its bounded Tavily agent loop for the pinned Hugging Face
 models. Every model request still goes through AI Gateway; only Tavily calls go directly from the

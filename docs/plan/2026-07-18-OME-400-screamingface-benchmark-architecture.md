@@ -36,6 +36,9 @@ Load-bearing rules:
   aggregation.
 - Only engine model routes contact AI Gateway. Tool policy is provider-neutral; the engine maps
   OpenRouter routes to managed server tools and verified Hugging Face routes to Tavily.
+- Official tool-enabled manifests point to one immutable versioned policy data route. The URL4
+  graph resolves it once per case and shares it with answer-producing members through a strict
+  model-input envelope. Custom local Benchmarks retain portable inline policy.
 - GPQA rows and answer keys are not bundled in the SDK or engine image.
 - `HF_TOKEN` is an engine dataset credential and never appears in URL4 or AI Gateway traffic.
 - The SDK has no mock engine, in-process runtime, direct Gateway client, or legacy case loop.
@@ -89,9 +92,11 @@ schemas, and the request-target limit. The GPQA v1 execution graph uses:
 - `/aggregators/mean/1`
 
 The persistent `Url4Node` registers these routes in-process. Model routes map URL4 context to the
-user message, intent to the system message, and validated params to AI Gateway. Tool-enabled model
-requests use `tools.max_calls` plus portable `web_search.*` policy. The route selects
-OpenRouter-managed tools or the engine-owned Tavily adapter.
+user message, intent to the system message, and validated params to AI Gateway. Official
+tool-enabled runs resolve a versioned `screamingface.tool-policy.v1` route and pass it with the
+question as `screamingface.model-input.v1`; custom Benchmarks use `tools.max_calls` plus portable
+`web_search.*` inline policy. The route selects OpenRouter-managed tools or the engine-owned Tavily
+adapter.
 
 GPQA's cases route returns NDJSON so URL4 iteration exposes structured `$item` fields. The grader
 receives the resolved Recipe result as context and sealed case metadata as intent. The aggregator
@@ -145,8 +150,9 @@ use stable positional IDs such as `row_2`. This is explicit rather than guessing
 - uploads or remote registration for researcher-authored benchmarks; and
 - retries, persistence, resume, billing, or leaderboard publication.
 
-DRACO should not be advertised until its cases, exact grader protocol, model routes, web-tool policy,
-and production configuration are registered and verified end to end. URL4 settlement is not an MVP
+DRACO should not be advertised until its cases, exact grader protocol, model routes, manifest, and
+production configuration are registered and verified end to end. Its versioned tool-policy data
+route is already registered. URL4 settlement is not an MVP
 blocker: each DRACO candidate is already representable as one independently reproducible benchmark
 URL4.
 

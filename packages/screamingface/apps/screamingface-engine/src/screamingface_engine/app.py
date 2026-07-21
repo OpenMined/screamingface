@@ -8,7 +8,12 @@ from url4 import Url4Node
 
 from screamingface_engine.aggregators import MEAN_ROUTE, mean
 from screamingface_engine.asgi import EngineASGI
-from screamingface_engine.benchmarks import GPQA_CASES_ROUTE, gpqa_cases
+from screamingface_engine.benchmarks import (
+    DRACO_TOOL_POLICY_ROUTE,
+    GPQA_CASES_ROUTE,
+    draco_tool_policy,
+    gpqa_cases,
+)
 from screamingface_engine.catalog import ModelRoute, registry_document, resolve_model_routes
 from screamingface_engine.connection_asgi import ConnectionASGI
 from screamingface_engine.connection_gateway import ConnectionGateway
@@ -37,6 +42,7 @@ def create_node(
     node.endpoint(EXACT_CHOICE_ROUTE)(exact_choice)
     node.endpoint(MEAN_ROUTE)(mean)
     node.data(GPQA_CASES_ROUTE, media_type="application/x-ndjson")(gpqa_cases)
+    node.data(DRACO_TOOL_POLICY_ROUTE, media_type="application/json")(draco_tool_policy)
     node.data("/healthz", "ok")
     node.data(
         "/.well-known/screamingface",

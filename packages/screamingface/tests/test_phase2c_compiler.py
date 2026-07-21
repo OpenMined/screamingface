@@ -4,7 +4,12 @@ import pytest
 from url4 import Url4Node, build, evaluate_sync
 
 import screamingface as sf
-from screamingface._compiler import _tool_params, compile_model_expression, compile_recipe
+from screamingface._compiler import (
+    _tool_params,
+    compile_benchmark_expression,
+    compile_model_expression,
+    compile_recipe,
+)
 
 
 def test_majority_recipe_is_canonical_parameterized_and_network_free() -> None:
@@ -96,6 +101,47 @@ def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4()
     assert len(reducer_requests) == 1
     assert reducer_requests[0].params == {}
     assert reducer_requests[0].context == ""
+
+
+def test_official_benchmark_compiles_one_shared_versioned_tool_policy() -> None:
+    fusion = sf.Fusion(
+        "research",
+        members=["codex/gpt-5.5", "gemini/2.5-flash"],
+        reducer=sf.reducers.MajorityVote(),
+    )
+
+    expression = compile_benchmark_expression(
+        benchmark_id="research@1",
+        cases_route="/benchmarks/research/1/cases",
+        grader_route="/graders/exact-choice/1",
+        aggregator_route="/aggregators/mean/1",
+        recipe=fusion,
+        tools=(sf.tools.WebSearch(), sf.tools.WebFetch()),
+        max_tool_calls=12,
+        tool_policy_route="/benchmarks/research/1/tool-policy",
+        first=1,
+    )
+
+    assert build(expression)
+    assert expression.count("tool_policy=/benchmarks/research/1/tool-policy") == 1
+    assert expression.count("schema: 'screamingface.model-input.v1'") == 1
+    assert expression.count("tool_policy: '$tool_policy'") == 1
+    assert expression.count("($model_input)!") == 2
+    assert "member_1=/codex/gpt-5.5($model_input)" in expression
+    assert "member_2=/gemini/2.5-flash($model_input)" in expression
+    assert "tools=" not in expression
+    assert "tools.max_calls=" not in expression
+    assert "web_search." not in expression
+    assert "recipe_answer=/reducers/majority-vote/1()!'$member_answers'" in expression
+
+
+def test_tool_policy_route_requires_tools() -> None:
+    with pytest.raises(ValueError, match="requires benchmark tools"):
+        compile_recipe(
+            sf.Model("codex/gpt-5.5"),
+            question="Question",
+            tool_policy_route="/benchmarks/research/1/tool-policy",
+        )
 
 
 def test_model_reducer_receives_automatic_labeled_context_and_its_own_intent() -> None:

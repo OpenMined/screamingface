@@ -7,6 +7,7 @@ import pytest
 from model_fixtures import MODEL_ROUTES
 
 from screamingface_engine import catalog, cli
+from screamingface_engine.benchmarks import BenchmarkRoute
 
 
 def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> None:
@@ -43,6 +44,36 @@ def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> Non
         "benchmarks": [benchmark.public for benchmark in catalog.BENCHMARK_ROUTES],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote/1"}],
     }
+
+
+def test_benchmark_tool_policy_contract_is_explicit() -> None:
+    with pytest.raises(ValueError, match="requires a same-engine"):
+        BenchmarkRoute(
+            "research@1",
+            "Research",
+            "/benchmarks/research/1/cases",
+            "rubric",
+            "/graders/rubric/1",
+            "mean",
+            "/aggregators/mean/1",
+            ("web_search",),
+            12,
+            None,
+        )
+
+    with pytest.raises(ValueError, match="tool-free"):
+        BenchmarkRoute(
+            "gpqa@1",
+            "GPQA",
+            "/benchmarks/gpqa/1/cases",
+            "exact_choice",
+            "/graders/exact-choice/1",
+            "mean",
+            "/aggregators/mean/1",
+            (),
+            None,
+            "/benchmarks/gpqa/1/tool-policy",
+        )
 
 
 def test_cli_serves_configured_host_port_and_h11_headroom(

@@ -11,6 +11,23 @@ from url4 import ResolutionError
 GPQA_ID = "gpqa@1"
 GPQA_TITLE = "GPQA Diamond"
 GPQA_CASES_ROUTE = "/benchmarks/gpqa/1/cases"
+DRACO_TOOL_POLICY_ROUTE = "/benchmarks/draco/1/tool-policy"
+
+DRACO_TOOL_POLICY = {
+    "schema": "screamingface.tool-policy.v1",
+    "tools": ["web_search", "web_fetch"],
+    "max_calls": 12,
+    "web_search": {
+        "max_results": 5,
+        "include_domains": [],
+        "exclude_domains": [
+            "huggingface.co/datasets/perplexity-ai/draco",
+            "openrouter.ai/blog/announcements/fusion-beats-frontier",
+            "paperswithcode.com/dataset/draco",
+            "arxiv.org/abs/2509",
+        ],
+    },
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +43,28 @@ class BenchmarkRoute:
     aggregator_route: str
     tools: tuple[str, ...] = ()
     max_tool_calls: int | None = None
+    tool_policy_route: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.tools:
+            if (
+                isinstance(self.max_tool_calls, bool)
+                or not isinstance(self.max_tool_calls, int)
+                or not 1 <= self.max_tool_calls <= 32
+            ):
+                raise ValueError(
+                    "tool-enabled benchmark max_tool_calls must be an integer from 1 to 32"
+                )
+            if (
+                not isinstance(self.tool_policy_route, str)
+                or not self.tool_policy_route.startswith("/")
+                or self.tool_policy_route.startswith("//")
+                or "?" in self.tool_policy_route
+                or "#" in self.tool_policy_route
+            ):
+                raise ValueError("tool-enabled benchmark requires a same-engine tool policy route")
+        elif self.max_tool_calls is not None or self.tool_policy_route is not None:
+            raise ValueError("tool-free benchmark cannot declare a tool policy")
 
     @property
     def public(self) -> dict[str, object]:
@@ -40,6 +79,7 @@ class BenchmarkRoute:
             },
             "tools": list(self.tools),
             "max_tool_calls": self.max_tool_calls,
+            "tool_policy_route": self.tool_policy_route,
         }
 
 
@@ -68,10 +108,19 @@ def gpqa_cases() -> str:
     )
 
 
+def draco_tool_policy() -> str:
+    """Return the immutable portable research policy pinned by draco@1."""
+
+    return json.dumps(DRACO_TOOL_POLICY, allow_nan=False, separators=(",", ":"))
+
+
 __all__ = [
     "BenchmarkRoute",
+    "DRACO_TOOL_POLICY",
+    "DRACO_TOOL_POLICY_ROUTE",
     "GPQA_CASES_ROUTE",
     "GPQA_ID",
     "GPQA_TITLE",
+    "draco_tool_policy",
     "gpqa_cases",
 ]

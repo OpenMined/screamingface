@@ -21,6 +21,7 @@ async def test_profile_serves_only_executable_capability_discovery() -> None:
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         health = await client.get("/healthz")
         registry_response = await client.get("/.well-known/screamingface")
+        draco_policy_response = await client.get("/benchmarks/draco/1/tool-policy")
         gpqa_response = await client.get("/benchmarks/gpqa@1")
         draco_response = await client.get("/benchmarks/draco@1")
 
@@ -61,6 +62,22 @@ async def test_profile_serves_only_executable_capability_discovery() -> None:
     assert gpqa_response.status_code == 404
     assert draco_response.status_code == 404
     assert registry_response.headers["content-type"].startswith("text/plain")
+    assert draco_policy_response.status_code == 200
+    assert draco_policy_response.json() == {
+        "schema": "screamingface.tool-policy.v1",
+        "tools": ["web_search", "web_fetch"],
+        "max_calls": 12,
+        "web_search": {
+            "max_results": 5,
+            "include_domains": [],
+            "exclude_domains": [
+                "huggingface.co/datasets/perplexity-ai/draco",
+                "openrouter.ai/blog/announcements/fusion-beats-frontier",
+                "paperswithcode.com/dataset/draco",
+                "arxiv.org/abs/2509",
+            ],
+        },
+    }
 
 
 @pytest.mark.asyncio

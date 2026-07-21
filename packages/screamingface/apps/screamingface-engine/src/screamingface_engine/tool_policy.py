@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from url4 import ResolutionError
 
@@ -15,6 +16,7 @@ _SUPPORTED_TOOLS = frozenset({WEB_SEARCH, WEB_FETCH})
 _SEARCH_PREFIX = "web_search."
 _FETCH_PREFIX = "web_fetch."
 _SEARCH_FIELDS = frozenset({"max_results"})
+TOOL_POLICY_SCHEMA = "screamingface.tool-policy.v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +151,40 @@ def parse_tool_policy(params: Mapping[str, str]) -> ParsedToolPolicy:
     )
 
 
+def parse_tool_policy_document(body: str) -> ToolPolicy:
+    """Decode one immutable benchmark-policy data-route response."""
+
+    payload = _json_object(body)
+    _exact_fields(payload, {"schema", "tools", "max_calls", "web_search"}, "tool policy")
+    if payload["schema"] != TOOL_POLICY_SCHEMA:
+        _malformed(f"tool policy schema must be {TOOL_POLICY_SCHEMA!r}")
+    tools = _document_tools(payload["tools"])
+    max_calls = _document_integer(payload["max_calls"], 1, 32, "max_calls")
+    raw_search = payload["web_search"]
+    search = None
+    if WEB_SEARCH in tools:
+        if not isinstance(raw_search, dict):
+            _malformed("web_search must be an object when web_search is enabled")
+        _exact_fields(
+            raw_search,
+            {"max_results", "include_domains", "exclude_domains"},
+            "web_search",
+        )
+        search = SearchPolicy(
+            _document_integer(raw_search["max_results"], 1, 20, "web_search.max_results"),
+            _document_domains(raw_search["include_domains"], 150, "include_domains"),
+            _document_domains(raw_search["exclude_domains"], 150, "exclude_domains"),
+        )
+    elif raw_search is not None:
+        _malformed("web_search must be null when web_search is disabled")
+    return ToolPolicy(
+        frozenset(tools),
+        max_calls,
+        search,
+        FetchPolicy() if WEB_FETCH in tools else None,
+    )
+
+
 def _tools(value: str) -> tuple[str, ...]:
     tools = tuple(value.split(":"))
     if not tools or any(not tool for tool in tools) or len(tools) != len(set(tools)):
@@ -157,6 +193,67 @@ def _tools(value: str) -> tuple[str, ...]:
     if unsupported:
         _unsupported(f"unsupported tool capability: {sorted(unsupported)}")
     return tools
+
+
+def _document_tools(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list) or not value or not all(isinstance(item, str) for item in value):
+        _malformed("tools must be a non-empty list of capability IDs")
+    tools = tuple(value)
+    if len(tools) != len(set(tools)):
+        _malformed("tools must contain unique capability IDs")
+    unsupported = set(tools) - _SUPPORTED_TOOLS
+    if unsupported:
+        _unsupported(f"unsupported tool capability: {sorted(unsupported)}")
+    return tools
+
+
+def _document_domains(value: object, maximum: int, label: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        _malformed(f"{label} must be a list of domain strings")
+    values = tuple(_nonblank(item, f"{label} item") for item in value)
+    if len(values) > maximum:
+        _malformed(f"{label} supports at most {maximum} domains")
+    if len(values) != len(set(values)):
+        _malformed(f"{label} must be unique")
+    return values
+
+
+def _document_integer(value: object, minimum: int, maximum: int, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        _malformed(f"{label} must be an integer from {minimum} to {maximum}")
+    return value
+
+
+def _json_object(body: str) -> dict[str, object]:
+    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                _malformed(f"duplicate JSON field {key!r}")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(body, object_pairs_hook=unique)
+    except json.JSONDecodeError as exc:
+        raise ResolutionError(
+            "tool policy route returned invalid JSON",
+            code="malformed_tool_policy",
+            permanent=True,
+        ) from exc
+    if not isinstance(value, dict):
+        _malformed("tool policy route must return a JSON object")
+    return value
+
+
+def _exact_fields(value: Mapping[str, object], expected: set[str], label: str) -> None:
+    fields = set(value)
+    if fields != expected:
+        missing = sorted(expected - fields)
+        unknown = sorted(fields - expected)
+        _malformed(
+            f"{label} fields do not match the contract: missing={missing}, unknown={unknown}"
+        )
 
 
 def _group_search(
@@ -229,8 +326,10 @@ __all__ = [
     "FetchPolicy",
     "ParsedToolPolicy",
     "SearchPolicy",
+    "TOOL_POLICY_SCHEMA",
     "ToolPolicy",
     "WEB_FETCH",
     "WEB_SEARCH",
     "parse_tool_policy",
+    "parse_tool_policy_document",
 ]

@@ -37,6 +37,7 @@ def test_openapi_document_covers_http_and_url4_contracts() -> None:
         "/gemini/2.5-flash",
         "/claude/sonnet-4.6",
         "/benchmarks/gpqa/1/cases",
+        "/benchmarks/draco/1/tool-policy",
         "/reducers/majority-vote/1",
         "/graders/exact-choice/1",
         "/aggregators/mean/1",
@@ -46,6 +47,15 @@ def test_openapi_document_covers_http_and_url4_contracts() -> None:
     assert document["x-screamingface-status"]["draco"]["executable"] is False
     assert document["x-screamingface-status"]["draco"]["blocking_capability"]
     assert document["x-screamingface-url4"]["limits"]["max_request_target_bytes"] == 61_440
+    assert document["components"]["schemas"]["BenchmarkManifest"]["required"][-1] == (
+        "tool_policy_route"
+    )
+    assert document["components"]["schemas"]["ToolPolicy"]["properties"]["schema"] == {
+        "const": "screamingface.tool-policy.v1"
+    }
+    assert document["components"]["schemas"]["ModelInput"]["properties"]["schema"] == {
+        "const": "screamingface.model-input.v1"
+    }
 
     model_operation = document["paths"]["/codex/gpt-5.5"]["get"]
     assert model_operation["x-screamingface-url4-route"] == "model"

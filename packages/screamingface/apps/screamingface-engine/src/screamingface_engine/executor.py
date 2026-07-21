@@ -17,10 +17,12 @@ from screamingface_engine.tool_policy import (
     SearchPolicy,
     ToolPolicy,
     parse_tool_policy,
+    parse_tool_policy_document,
 )
 
 MAX_TOOL_CALLS_PER_TURN = 8
 MAX_TOTAL_TOOL_CALLS = 32
+MODEL_INPUT_SCHEMA = "screamingface.model-input.v1"
 
 _TOOL_SPECS: Mapping[str, dict[str, object]] = {
     WEB_SEARCH: {
@@ -105,11 +107,18 @@ class ModelExecutor:
 
     async def complete(self, model: ModelRoute, request: Request) -> str:
         parsed = parse_tool_policy(request.params)
-        policy = parsed.policy
+        context, referenced_policy = _model_input(request.context)
+        if referenced_policy is not None and parsed.policy is not None:
+            _resolution(
+                "model request cannot combine referenced and inline tool policy",
+                "malformed_tool_policy",
+                permanent=True,
+            )
+        policy = referenced_policy or parsed.policy
         if policy is None:
             turn = await self._gateway.turn(
                 model,
-                messages=_initial_messages(request),
+                messages=_initial_messages(request, context),
                 params=parsed.model_params,
                 tools=(),
             )
@@ -123,7 +132,7 @@ class ModelExecutor:
                 permanent=True,
             )
         if model.tool_backend == "openrouter":
-            return await self._run_openrouter(model, request, parsed.model_params, policy)
+            return await self._run_openrouter(model, request, context, parsed.model_params, policy)
         if model.tool_backend != "tavily":
             _resolution(
                 f"model route {model.id!r} has no tool backend",
@@ -136,18 +145,19 @@ class ModelExecutor:
                 "authentication_required",
                 permanent=True,
             )
-        return await self._run_agent(model, request, parsed.model_params, policy)
+        return await self._run_agent(model, request, context, parsed.model_params, policy)
 
     async def _run_openrouter(
         self,
         model: ModelRoute,
         request: Request,
+        context: str,
         params: Mapping[str, str],
         policy: ToolPolicy,
     ) -> str:
         turn = await self._gateway.turn(
             model,
-            messages=_initial_messages(request),
+            messages=_initial_messages(request, context),
             params=params,
             tools=_openrouter_tool_specs(policy),
         )
@@ -165,10 +175,11 @@ class ModelExecutor:
         self,
         model: ModelRoute,
         request: Request,
+        context: str,
         params: Mapping[str, str],
         policy: ToolPolicy,
     ) -> str:
-        messages = _initial_messages(request)
+        messages = _initial_messages(request, context)
         specifications = tuple(
             _TOOL_SPECS[name] for name in (WEB_SEARCH, WEB_FETCH) if name in policy.tools
         )
@@ -269,12 +280,56 @@ def _optional_nonblank(value: object, label: str) -> str | None:
     return _nonblank(value, f"{label} must be non-empty")
 
 
-def _initial_messages(request: Request) -> list[dict[str, object]]:
+def _initial_messages(request: Request, context: str) -> list[dict[str, object]]:
     messages: list[dict[str, object]] = []
     if request.intent:
         messages.append({"role": "system", "content": request.intent})
-    messages.append({"role": "user", "content": request.context})
+    messages.append({"role": "user", "content": context})
     return messages
+
+
+def _model_input(context: str) -> tuple[str, ToolPolicy | None]:
+    """Decode the explicit ScreamingFace envelope while preserving arbitrary JSON questions."""
+
+    try:
+        value = json.loads(context)
+    except json.JSONDecodeError:
+        return context, None
+    if not isinstance(value, dict) or value.get("schema") != MODEL_INPUT_SCHEMA:
+        return context, None
+    try:
+        value = json.loads(context, object_pairs_hook=_unique_object)
+    except (json.JSONDecodeError, ValueError):
+        _resolution(
+            "model input must contain unique JSON fields",
+            "malformed_tool_policy",
+            permanent=True,
+        )
+    if set(value) != {"schema", "question", "tool_policy"}:
+        _resolution(
+            "model input fields do not match the ScreamingFace contract",
+            "malformed_tool_policy",
+            permanent=True,
+        )
+    question = value["question"]
+    raw_policy = value["tool_policy"]
+    if not isinstance(question, str) or not question:
+        _resolution(
+            "model input question must be a non-empty string",
+            "malformed_tool_policy",
+            permanent=True,
+        )
+    if isinstance(raw_policy, dict):
+        policy_text = json.dumps(raw_policy, allow_nan=False, separators=(",", ":"))
+    elif isinstance(raw_policy, str):
+        policy_text = raw_policy
+    else:
+        _resolution(
+            "model input tool_policy must be a JSON object or object string",
+            "malformed_tool_policy",
+            permanent=True,
+        )
+    return question, parse_tool_policy_document(policy_text)
 
 
 def _final_text(turn: AssistantTurn, model: ModelRoute) -> str:

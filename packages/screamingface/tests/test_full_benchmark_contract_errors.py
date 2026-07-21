@@ -36,6 +36,7 @@ def _benchmark(*, tools: tuple[sf.tools.Tool, ...] = ()) -> sf.Benchmark:
         grader_route="/graders/exact-choice/1",
         aggregator=sf.aggregators.Mean(),
         aggregator_route="/aggregators/mean/1",
+        tool_policy_route="/benchmarks/gpqa/1/tool-policy" if tools else None,
         tools=tools,
         max_tool_calls=8 if tools else None,
     )
@@ -62,6 +63,7 @@ def _registry(
         StrategyRecord("exact_choice", "/graders/exact-choice/1"),
         StrategyRecord("mean", "/aggregators/mean/1"),
         (),
+        None,
         None,
     )
     return Registry(
@@ -297,6 +299,7 @@ def test_manifest_and_capability_preflight_are_strict() -> None:
         StrategyRecord("exact_choice", "/graders/exact-choice/1"),
         StrategyRecord("mean", "/aggregators/mean/1"),
         (),
+        None,
         None,
     )
     with pytest.raises(sf.EngineProtocolError, match="no longer matches"):

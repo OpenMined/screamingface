@@ -68,6 +68,7 @@ Researcher process
 └─ screamingface-engine · persistent Url4Node
    ├─ plaintext URL4 data plane · GET /v1?q=...
    │  ├─ benchmark case data routes
+   │  ├─ versioned official benchmark tool-policy routes
    │  ├─ model routes ── AI Gateway ── model providers
    │  ├─ verified HF tool routes ── Tavily search/extract
    │  ├─ reducer and grader routes
@@ -205,8 +206,9 @@ plaintext when it runs a Fusion; this cell performs those two steps visibly for 
 | URL4 graph execution | `screamingface-engine` / URL4 |
 | Provider calls | Engine through AI Gateway |
 | Provider credential control | SDK through engine to AI Gateway |
-| Web research | Route-selected by the engine: OpenRouter managed tools or Tavily on verified HF
-routes |
+| Web research policy | Official benchmark data route, or portable inline custom policy |
+| Web research execution | Route-selected by the engine: OpenRouter managed tools or Tavily on
+verified HF routes |
 | Grading and aggregation | ScreamingFace engine routes inside URL4 |
 
 Model-backed graders call their judge route inside the same URL4 graph. The SDK never opens a
@@ -220,6 +222,7 @@ direct provider or Gateway connection.
 - model-backed work checks required connections once before spend.
 - `fusion.url4` is a reusable parameterized answer recipe.
 - `report.url4` is the complete benchmark, slice, Recipe, grading, and aggregation run.
+- official tool-enabled manifests share one versioned policy data source across each case graph.
 - evaluation sends that expression in one encoded `GET /v1?q=...` transaction.
 - successful bodies are plaintext that the SDK parses and validates.
 - benchmark data and scoring remain engine-side and reproducible in URL4.

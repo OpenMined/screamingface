@@ -233,15 +233,22 @@ The SDK never calls AI Gateway, Tavily, or a model provider directly."""
 This is the readable, non-percent-encoded shape for one solo candidate. The benchmark iteration is
 structural URL4 composition; the per-case candidate graph itself is a flat ordered binding list.
 
+The versioned policy route is resolved once per case. It contains portable capability and budget
+data, not a Tavily/OpenRouter choice or credential.
+
 ```url4
 (
   /benchmarks/draco/1/cases*(
+    tool_policy=/benchmarks/draco/1/tool-policy,
     question=$item.input,
+    model_input={
+      schema:'screamingface.model-input.v1',
+      question:'$question',
+      tool_policy:'$tool_policy'
+    },
     member_1=/openrouter/anthropic/claude-opus-4.8
       ?temperature=0&max_tokens=8192
-      &tools=web_search:web_fetch&tools.max_calls=12
-      &web_search.max_results=5
-      ($question)!'Answer the research question completely.',
+      ($model_input)!'Answer the research question completely.',
     recipe_result={
       schema:'screamingface.recipe-result.v1',
       members:{
@@ -273,19 +280,18 @@ context.
 ```url4
 (
   /benchmarks/draco/1/cases*(
+    tool_policy=/benchmarks/draco/1/tool-policy,
     question=$item.input,
+    model_input={schema:'screamingface.model-input.v1',question:'$question',tool_policy:'$tool_policy'},
     member_1=/openrouter/anthropic/claude-opus-4.8
       ?temperature=0&max_tokens=8192
-      &tools=web_search:web_fetch&tools.max_calls=12&web_search.max_results=5
-      ($question)!'Answer the research question completely.',
+      ($model_input)!'Answer the research question completely.',
     member_2=/openrouter/openai/gpt-5.5
       ?temperature=0&max_tokens=8192
-      &tools=web_search:web_fetch&tools.max_calls=12&web_search.max_results=5
-      ($question)!'Answer the research question completely.',
+      ($model_input)!'Answer the research question completely.',
     member_3=/openrouter/google/gemini-3.1-pro-preview
       ?temperature=0&max_tokens=8192
-      &tools=web_search:web_fetch&tools.max_calls=12&web_search.max_results=5
-      ($question)!'Answer the research question completely.',
+      ($model_input)!'Answer the research question completely.',
     recipe_answer=/openrouter/anthropic/claude-opus-4.8
       ?temperature=0&max_tokens=8192
       (
@@ -372,7 +378,7 @@ ScreamingFace engine profile and benchmark implementation:
 - register the pinned DRACO cases route;
 - implement and verify the exact rubric-judge protocol and five passes;
 - register the final model/provider routes;
-- apply the versioned provider-neutral search/fetch policy used by the reproduction;
+- advertise the already registered versioned tool-policy route in the completed DRACO manifest;
 - return usage, failure, and coverage telemetry; and
 - run the production candidate set to validate result parity.
 

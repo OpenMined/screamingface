@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from screamingface.recipe import Recipe
 
 MAJORITY_VOTE_ROUTE = "/reducers/majority-vote/1"
+MODEL_INPUT_SCHEMA = "screamingface.model-input.v1"
 
 
 def compile_recipe(
@@ -29,14 +30,19 @@ def compile_recipe(
     question: str | None = None,
     tools: Sequence[Tool] = (),
     max_tool_calls: int | None = None,
+    tool_policy_route: str | None = None,
 ) -> str:
     """Render one parameterized Recipe or one concrete case expression."""
 
+    inline_tool_params = _tool_params(tools, max_tool_calls)
+    if tool_policy_route is not None and not inline_tool_params:
+        raise ValueError("a tool policy route requires benchmark tools")
     compiler = _RecipeCompiler(
-        tool_params=_tool_params(tools, max_tool_calls),
+        tool_params=(() if tool_policy_route is not None else inline_tool_params),
+        tool_policy_reference=("$tool_policy" if tool_policy_route is not None else None),
         question=question,
     )
-    return compiler.compile(recipe)
+    return compiler.compile(recipe, tool_policy_route=tool_policy_route)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,9 +56,11 @@ class _RecipeCompiler:
         self,
         *,
         tool_params: tuple[tuple[str, str], ...],
+        tool_policy_reference: str | None,
         question: str | None,
     ) -> None:
         self._tool_params = tool_params
+        self._tool_policy_reference = tool_policy_reference
         self._sources: list[Node] = []
         if question is not None:
             self._sources.append(src(text(_literal(question)), name="question"))
@@ -60,8 +68,11 @@ class _RecipeCompiler:
         self._resolved: dict[int, _ResolvedInput] = {}
         self._active: set[int] = set()
         self._reduction_count = 0
+        self._model_input_added = False
 
-    def compile(self, recipe: Recipe) -> str:
+    def compile(self, recipe: Recipe, *, tool_policy_route: str | None = None) -> str:
+        if tool_policy_route is not None:
+            self._sources.append(src(tool_policy_route, name="tool_policy"))
         return render(
             Expression(
                 sources=self.sources(recipe),
@@ -117,7 +128,26 @@ class _RecipeCompiler:
     def _atomic(self, call: _ModelCall, *, label: str) -> _ResolvedInput:
         member = _RecipeMember(id=f"member_{len(self._members) + 1}", call=call)
         self._members.append(member)
-        self._sources.append(src(_model_call(call, self._tool_params), name=member.id))
+        context = "$question"
+        if self._tool_policy_reference is not None:
+            if not self._model_input_added:
+                self._sources.append(
+                    src(
+                        struct(
+                            {
+                                "schema": MODEL_INPUT_SCHEMA,
+                                "question": "$question",
+                                "tool_policy": self._tool_policy_reference,
+                            }
+                        ),
+                        name="model_input",
+                    )
+                )
+                self._model_input_added = True
+            context = "$model_input"
+        self._sources.append(
+            src(_model_call(call, self._tool_params, context=context), name=member.id)
+        )
         return _ResolvedInput(f"${member.id}", label)
 
     def _reduce(
@@ -201,15 +231,23 @@ def compile_benchmark_expression(
     recipe: Recipe,
     tools: Sequence[Tool] = (),
     max_tool_calls: int | None = None,
+    tool_policy_route: str | None = None,
     first: int | None = None,
 ) -> str:
     """Render one complete benchmark slice, Recipe, grading, and aggregation graph."""
 
+    inline_tool_params = _tool_params(tools, max_tool_calls)
+    if tool_policy_route is not None and not inline_tool_params:
+        raise ValueError("a tool policy route requires benchmark tools")
     compiler = _RecipeCompiler(
-        tool_params=_tool_params(tools, max_tool_calls),
+        tool_params=(() if tool_policy_route is not None else inline_tool_params),
+        tool_policy_reference=("$tool_policy" if tool_policy_route is not None else None),
         question=None,
     )
-    sources: list[Node] = [src("$item.input", name="question")]
+    sources: list[Node] = []
+    if tool_policy_route is not None:
+        sources.append(src(tool_policy_route, name="tool_policy"))
+    sources.append(src("$item.input", name="question"))
     sources.extend(compiler.sources(recipe))
     sources.extend(
         (
@@ -254,10 +292,12 @@ def compile_benchmark_expression(
 def _model_call(
     call: _ModelCall,
     tool_params: tuple[tuple[str, str], ...],
+    *,
+    context: str,
 ) -> RelExpr:
     return RelExpr(
         path=_model_route(call.model),
-        context="$question",
+        context=context,
         intent=Text(call.prompt),
         params=_params(call.parameter_items) + tool_params,
     )
@@ -314,6 +354,7 @@ def _literal(value: str) -> str:
 
 __all__ = [
     "MAJORITY_VOTE_ROUTE",
+    "MODEL_INPUT_SCHEMA",
     "compile_benchmark_expression",
     "compile_model_expression",
     "compile_recipe",

@@ -928,3 +928,22 @@ Superseded the unreleased Tavily-specific authoring and wire contract:
 The current contract is recorded in
 `docs/spec/2026-07-21-OME-400-provider-neutral-web-tools.md`. Earlier Phase 9B sections remain
 historical implementation notes, not current public API.
+
+## Versioned official benchmark tool policy — 2026-07-21
+
+Removed repeated official benchmark tool parameters from every model route while preserving the
+portable custom-benchmark form:
+
+- engine benchmark manifests now declare `tool_policy_route` explicitly;
+- an official run resolves one immutable `screamingface.tool-policy.v1` data route per case;
+- the case graph constructs one strict `screamingface.model-input.v1` envelope containing the
+  resolved question and shared policy, then reuses it for every answer-producing member;
+- reducer, synthesis, and grader calls remain tool-free;
+- the engine validates the envelope, rejects mixed inline/referenced policy, and privately selects
+  OpenRouter-managed tools or its Tavily loop; and
+- custom local Benchmarks still serialize provider-neutral policy inline because they have no
+  engine-owned versioned route.
+
+The current engine registers `/benchmarks/draco/1/tool-policy` as an immutable data route for the
+DRACO handoff, but continues to hide `draco@1` from discovery until its cases, grader, model routes,
+and candidate configuration are production-complete.

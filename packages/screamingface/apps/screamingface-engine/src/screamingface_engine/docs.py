@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequen
 from typing import Any
 
 from screamingface_engine.aggregators import MEAN_ROUTE, REPORT_SCHEMA
-from screamingface_engine.benchmarks import GPQA_CASES_ROUTE
+from screamingface_engine.benchmarks import DRACO_TOOL_POLICY_ROUTE, GPQA_CASES_ROUTE
 from screamingface_engine.catalog import (
     BENCHMARK_ROUTES,
     PUBLIC_PROVIDERS,
@@ -102,6 +102,7 @@ def openapi_document(
         "/oauth2callback": _callback_path("Google Gemini", advertised=False),
         "/callback": _callback_path("Anthropic"),
         GPQA_CASES_ROUTE: _cases_path(),
+        DRACO_TOOL_POLICY_ROUTE: _tool_policy_path(),
         MAJORITY_VOTE_ROUTE: _majority_vote_path(),
         EXACT_CHOICE_ROUTE: _exact_choice_path(),
         MEAN_ROUTE: _mean_path(),
@@ -188,7 +189,8 @@ def openapi_document(
                 "benchmark_id": "draco@1",
                 "blocking_capability": (
                     "Register and verify the production DRACO cases, grader protocol, model "
-                    "routes, web-tool policy, and candidate configuration. Each candidate already "
+                    "routes, and candidate configuration. The versioned web-tool policy route "
+                    "already exists. Each candidate already "
                     "fits one complete URL4 benchmark transaction."
                 ),
             },
@@ -220,6 +222,16 @@ def openapi_document(
                 },
                 "limits": {"max_tool_calls_per_turn": 8, "max_total_tool_calls": 32},
                 "policy": _tool_policy_reference(),
+                "official_benchmarks": (
+                    "The manifest names one immutable same-engine tool-policy data route. The "
+                    "SDK resolves it once in each case graph and passes the value beside the "
+                    "question in screamingface.model-input.v1. Model routes select the private "
+                    "OpenRouter or Tavily backend."
+                ),
+                "custom_benchmarks": (
+                    "Portable custom benchmarks serialize the same policy inline as generic "
+                    "tools, tools.max_calls, and web_search.* URL4 parameters."
+                ),
             },
             "benchmarks": [benchmark.public for benchmark in BENCHMARK_ROUTES],
         },
@@ -480,7 +492,9 @@ def _model_path(route: ModelRoute) -> dict[str, Any]:
             f"Invoke {route.id}",
             (
                 "URL4 intent-processor route. `q` is a URL4 request fragment whose context becomes "
-                "the user message and whose intent becomes the system instruction. The engine "
+                "the user message and whose intent becomes the system instruction. An official "
+                "tool-enabled benchmark instead supplies a `screamingface.model-input.v1` context "
+                "holding the question and its resolved versioned tool policy. The engine "
                 f"forwards the decoded model request to AI Gateway.{capability}"
             ),
             {
@@ -571,6 +585,29 @@ def _cases_path() -> dict[str, Any]:
                 },
                 "401": _engine_error_response("Dataset authentication required"),
                 "502": _engine_error_response("Dataset unavailable"),
+            },
+            extensions={"x-screamingface-url4-route": "data"},
+        )
+    }
+
+
+def _tool_policy_path() -> dict[str, Any]:
+    return {
+        "get": _operation(
+            "read_draco_1_tool_policy",
+            "URL4 benchmark data",
+            "Resolve the pinned DRACO web-tool policy",
+            (
+                "Immutable provider-neutral policy data used by the future draco@1 manifest. "
+                "The route contains no credentials or backend names. DRACO itself remains "
+                "unadvertised until its other production contracts are complete."
+            ),
+            {
+                "200": _text_response(
+                    "Serialized benchmark tool policy",
+                    '{"schema":"screamingface.tool-policy.v1","tools":["web_search","web_fetch"]}',
+                    schema={"$ref": "#/components/schemas/ToolPolicy"},
+                )
             },
             extensions={"x-screamingface-url4-route": "data"},
         )
@@ -810,6 +847,7 @@ def _schemas() -> dict[str, Any]:
                 "aggregator",
                 "tools",
                 "max_tool_calls",
+                "tool_policy_route",
             ],
             "properties": {
                 "id": {"type": "string"},
@@ -819,6 +857,55 @@ def _schemas() -> dict[str, Any]:
                 "aggregator": {"$ref": "#/components/schemas/BenchmarkStage"},
                 "tools": {"type": "array", "items": {"type": "string"}},
                 "max_tool_calls": {"type": ["integer", "null"], "minimum": 1, "maximum": 32},
+                "tool_policy_route": nullable_string,
+            },
+            "additionalProperties": False,
+        },
+        "ToolPolicy": {
+            "type": "object",
+            "required": ["schema", "tools", "max_calls", "web_search"],
+            "properties": {
+                "schema": {"const": "screamingface.tool-policy.v1"},
+                "tools": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["web_search", "web_fetch"]},
+                    "minItems": 1,
+                    "uniqueItems": True,
+                },
+                "max_calls": {"type": "integer", "minimum": 1, "maximum": 32},
+                "web_search": {
+                    "oneOf": [
+                        {"type": "null"},
+                        {
+                            "type": "object",
+                            "required": ["max_results", "include_domains", "exclude_domains"],
+                            "properties": {
+                                "max_results": {"type": "integer", "minimum": 1, "maximum": 20},
+                                "include_domains": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "uniqueItems": True,
+                                },
+                                "exclude_domains": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "uniqueItems": True,
+                                },
+                            },
+                            "additionalProperties": False,
+                        },
+                    ]
+                },
+            },
+            "additionalProperties": False,
+        },
+        "ModelInput": {
+            "type": "object",
+            "required": ["schema", "question", "tool_policy"],
+            "properties": {
+                "schema": {"const": "screamingface.model-input.v1"},
+                "question": {"type": "string", "minLength": 1},
+                "tool_policy": {"$ref": "#/components/schemas/ToolPolicy"},
             },
             "additionalProperties": False,
         },
@@ -1045,12 +1132,17 @@ def _schemas() -> dict[str, Any]:
 
 def _tool_policy_reference() -> dict[str, object]:
     return {
-        "tools": "colon-separated unique IDs; web_search and/or web_fetch",
-        "tools.max_calls": "required positive integer from 1 to 32 when tools is present",
-        "search_prefix": "web_search.",
-        "search_required": ["max_results"],
-        "search_optional": ["include_domain.1..n", "exclude_domain.1..n"],
-        "fetch_parameters": [],
+        "versioned_route": "/benchmarks/{benchmark}/{version}/tool-policy",
+        "document_schema": "screamingface.tool-policy.v1",
+        "model_input_schema": "screamingface.model-input.v1",
+        "inline_custom_policy": {
+            "tools": "colon-separated unique IDs; web_search and/or web_fetch",
+            "tools.max_calls": "required positive integer from 1 to 32 when tools is present",
+            "search_prefix": "web_search.",
+            "search_required": ["max_results"],
+            "search_optional": ["include_domain.1..n", "exclude_domain.1..n"],
+            "fetch_parameters": [],
+        },
     }
 
 

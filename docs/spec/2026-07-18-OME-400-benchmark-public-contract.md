@@ -642,28 +642,30 @@ same template.
 
 For execution, the SDK adds one literal `question` binding to the template. Dollar signs in case
 input are escaped as URL4 literal data; dollar references in researcher-authored prompt templates
-remain active. It also adds the selected Benchmark's complete typed tool policy only to each
-answer-producing member. Tool IDs render as `tools=web_search:web_fetch`; the explicit call budget
-renders as `tools.max_calls=12`; portable search fields render as stable scalar
-`web_search.*` parameters. Repeated domains use numbered keys such as
-`web_search.exclude_domain.1`. The engine resolves this policy through the route's declared
-backend: OpenRouter-managed tools for OpenRouter models or the engine's Tavily loop for supported
-Hugging Face models. The expression records behavior without carrying credentials. Neither the
+remain active. An engine-advertised, tool-enabled Benchmark also supplies an immutable versioned
+`tool_policy_route`. The case graph resolves that route once, constructs one shared
+`screamingface.model-input.v1` value containing the ordinary question and policy, and passes it to
+each answer-producing member. The engine resolves this policy through the route's declared backend:
+OpenRouter-managed tools for OpenRouter models or the engine's Tavily loop for supported Hugging
+Face models. The expression records behavior without carrying credentials. Neither the
 benchmark-independent stored recipe nor any reducer or judge call inherits this overlay.
+
+A researcher-authored custom Benchmark has no engine-owned policy route, so its portable policy is
+serialized inline on answer-producing members. Tool IDs render as
+`tools=web_search:web_fetch`, the call budget as `tools.max_calls=12`, and search fields as stable
+`web_search.*` parameters with numbered domains. This is the explicit custom-benchmark form.
 
 One selected case produces one complete URL4 expression containing the question binding, panel
 fan-out, reducer, and final result structure. Conceptually:
 
 ```url4
 (
+  tool_policy=/benchmarks/research/1/tool-policy,
   question='<resolved case input>',
 
-  member_1=/hf/deepseek-v3?tools=web_search:web_fetch&tools.max_calls=12
-    &web_search.max_results=5
-    &q=($question)!'Build the evidence case',
-  member_2=/hf/glm-4?tools=web_search:web_fetch&tools.max_calls=12
-    &web_search.max_results=5
-    &q=($question)!'Challenge the evidence case',
+  model_input={schema:'screamingface.model-input.v1',question:'$question',tool_policy:'$tool_policy'},
+  member_1=/hf/deepseek-v3($model_input)!'Build the evidence case',
+  member_2=/hf/glm-4($model_input)!'Challenge the evidence case',
 
   member_answers={
     member_1: '$member_1',

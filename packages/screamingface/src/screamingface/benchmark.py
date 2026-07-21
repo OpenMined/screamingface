@@ -78,6 +78,7 @@ class Benchmark:
     _cases_route: str | None = field(repr=False)
     _grader_route: str | None = field(repr=False)
     _aggregator_route: str | None = field(repr=False)
+    _tool_policy_route: str | None = field(repr=False)
 
     def __init__(
         self,
@@ -118,6 +119,7 @@ class Benchmark:
         object.__setattr__(self, "_cases_route", None)
         object.__setattr__(self, "_grader_route", None)
         object.__setattr__(self, "_aggregator_route", None)
+        object.__setattr__(self, "_tool_policy_route", None)
 
     @classmethod
     def _from_engine(
@@ -130,6 +132,7 @@ class Benchmark:
         grader_route: str,
         aggregator: Aggregator,
         aggregator_route: str,
+        tool_policy_route: str | None = None,
         tools: Sequence[Tool] = (),
         max_tool_calls: int | None = None,
     ) -> Benchmark:
@@ -142,6 +145,10 @@ class Benchmark:
         if not isinstance(aggregator, Aggregator):
             raise TypeError("benchmark aggregator must be an sf.Aggregator")
         selected_tools = _tool_values(tools)
+        if selected_tools and tool_policy_route is None:
+            raise ValueError("engine tool-enabled benchmark requires a tool policy route")
+        if not selected_tools and tool_policy_route is not None:
+            raise ValueError("engine tool-free benchmark cannot declare a tool policy route")
         object.__setattr__(value, "id", benchmark_id)
         object.__setattr__(value, "title", _nonempty(title, "benchmark title"))
         object.__setattr__(value, "grader", grader)
@@ -159,6 +166,15 @@ class Benchmark:
             value,
             "_aggregator_route",
             _route(aggregator_route, "benchmark aggregator route"),
+        )
+        object.__setattr__(
+            value,
+            "_tool_policy_route",
+            (
+                _route(tool_policy_route, "benchmark tool policy route")
+                if tool_policy_route is not None
+                else None
+            ),
         )
         return value
 

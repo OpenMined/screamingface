@@ -3,7 +3,8 @@ from __future__ import annotations
 import pytest
 from url4 import ResolutionError
 
-from screamingface_engine.tool_policy import parse_tool_policy
+from screamingface_engine.benchmarks import DRACO_TOOL_POLICY
+from screamingface_engine.tool_policy import parse_tool_policy, parse_tool_policy_document
 
 
 def _params() -> dict[str, str]:
@@ -60,6 +61,39 @@ def test_tool_free_policy_forwards_only_model_parameters() -> None:
     parsed = parse_tool_policy({"temperature": "0", "max_tokens": "8"})
     assert parsed.model_params == {"temperature": "0", "max_tokens": "8"}
     assert parsed.policy is None
+
+
+def test_versioned_policy_document_decodes_the_same_portable_contract() -> None:
+    import json
+
+    policy = parse_tool_policy_document(json.dumps(DRACO_TOOL_POLICY))
+
+    assert policy.tools == frozenset({"web_search", "web_fetch"})
+    assert policy.max_calls == 12
+    assert policy.search is not None
+    assert policy.search.max_results == 5
+    assert policy.search.include_domains == ()
+    assert policy.search.exclude_domains[0].startswith("huggingface.co/")
+    assert policy.fetch is not None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "not-json",
+        "[]",
+        '{"schema":"wrong","tools":[],"max_calls":1,"web_search":null}',
+        '{"schema":"screamingface.tool-policy.v1","tools":["web_search"],'
+        '"max_calls":12,"web_search":null}',
+        '{"schema":"screamingface.tool-policy.v1","tools":["web_fetch"],'
+        '"max_calls":12,"web_search":{}}',
+    ],
+)
+def test_versioned_policy_document_fails_closed(body: str) -> None:
+    with pytest.raises(ResolutionError) as captured:
+        parse_tool_policy_document(body)
+    assert captured.value.code in {"malformed_tool_policy", "unsupported_tool"}
+    assert captured.value.permanent is True
 
 
 @pytest.mark.parametrize(

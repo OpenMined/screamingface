@@ -9,7 +9,7 @@ from url4 import Request, ResolutionError
 from screamingface_engine.catalog import ModelRoute
 from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import AssistantTurn, ToolCall
-from screamingface_engine.tool_policy import FetchPolicy, SearchPolicy
+from screamingface_engine.tool_policy import TOOL_POLICY_SCHEMA, FetchPolicy, SearchPolicy
 
 HF_MODEL = ModelRoute(
     "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",
@@ -81,6 +81,27 @@ def _params(*, tools: str = "web_search:web_fetch", calls: int = 12) -> dict[str
         values["web_search.max_results"] = "5"
         values["web_search.exclude_domain.1"] = "blocked.example"
     return values
+
+
+def _referenced_context(question: str = "Research question") -> str:
+    return json.dumps(
+        {
+            "schema": "screamingface.model-input.v1",
+            "question": question,
+            "tool_policy": json.dumps(
+                {
+                    "schema": TOOL_POLICY_SCHEMA,
+                    "tools": ["web_search", "web_fetch"],
+                    "max_calls": 3,
+                    "web_search": {
+                        "max_results": 5,
+                        "include_domains": [],
+                        "exclude_domains": ["blocked.example"],
+                    },
+                }
+            ),
+        }
+    )
 
 
 @pytest.mark.asyncio
@@ -155,6 +176,59 @@ async def test_openrouter_uses_managed_tools_without_tavily() -> None:
             },
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_openrouter_resolves_versioned_policy_envelope_without_inline_tool_params() -> None:
+    gateway = Gateway((AssistantTurn("Managed answer", ()),))
+    tavily = Tavily(connected=False)
+
+    answer = await ModelExecutor(gateway, tavily).complete(
+        OPENROUTER_MODEL,
+        Request(
+            OPENROUTER_MODEL.route,
+            _referenced_context(),
+            "Research",
+            {"temperature": "0.2"},
+        ),
+    )
+
+    assert answer == "Managed answer"
+    assert gateway.requests[0][1][-1] == {"role": "user", "content": "Research question"}
+    assert gateway.requests[0][2] == {"temperature": "0.2"}
+    assert gateway.requests[0][3][0]["type"] == "openrouter:web_search"
+    assert tavily.calls == []
+
+
+@pytest.mark.asyncio
+async def test_model_input_rejects_ambiguous_inline_and_referenced_policy() -> None:
+    gateway = Gateway(())
+    with pytest.raises(ResolutionError) as captured:
+        await ModelExecutor(gateway, Tavily()).complete(
+            OPENROUTER_MODEL,
+            Request(OPENROUTER_MODEL.route, _referenced_context(), "Research", _params()),
+        )
+    assert captured.value.code == "malformed_tool_policy"
+    assert gateway.requests == []
+
+
+@pytest.mark.asyncio
+async def test_model_input_rejects_duplicate_envelope_fields() -> None:
+    gateway = Gateway(())
+    context = (
+        '{"schema":"screamingface.model-input.v1",'
+        '"schema":"screamingface.model-input.v1",'
+        '"question":"Question","tool_policy":{}}'
+    )
+
+    with pytest.raises(ResolutionError, match="unique JSON fields") as captured:
+        await ModelExecutor(gateway, Tavily()).complete(
+            OPENROUTER_MODEL,
+            Request(OPENROUTER_MODEL.route, context, "Research", {}),
+        )
+
+    assert captured.value.code == "malformed_tool_policy"
+    assert gateway.requests == []
 
 
 @pytest.mark.asyncio

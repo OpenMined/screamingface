@@ -57,6 +57,7 @@ class BenchmarkRecord:
     aggregator: StrategyRecord
     tools: tuple[str, ...]
     max_tool_calls: int | None
+    tool_policy_route: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +199,7 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
             "aggregator",
             "tools",
             "max_tool_calls",
+            "tool_policy_route",
         },
         "benchmark record",
     )
@@ -206,6 +208,7 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
         label="benchmark tools",
     )
     max_tool_calls = payload["max_tool_calls"]
+    raw_tool_policy_route = payload["tool_policy_route"]
     if tools:
         if (
             isinstance(max_tool_calls, bool)
@@ -215,8 +218,16 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
             raise ValueError(
                 "tool-enabled benchmark max_tool_calls must be a positive integer from 1 to 32"
             )
+        tool_policy_route = _relative_path(
+            raw_tool_policy_route,
+            "benchmark tool policy route",
+        )
     elif max_tool_calls is not None:
         raise ValueError("tool-free benchmark max_tool_calls must be null")
+    elif raw_tool_policy_route is not None:
+        raise ValueError("tool-free benchmark tool_policy_route must be null")
+    else:
+        tool_policy_route = None
     return BenchmarkRecord(
         _nonempty(payload["id"], "benchmark ID"),
         _nonempty(payload["title"], "benchmark title"),
@@ -225,6 +236,7 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
         _strategy_record(payload["aggregator"], "benchmark aggregator"),
         tools,
         max_tool_calls,
+        tool_policy_route,
     )
 
 

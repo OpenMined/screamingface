@@ -58,6 +58,7 @@ def _registry() -> dict[str, object]:
                 "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
                 "tools": [],
                 "max_tool_calls": None,
+                "tool_policy_route": None,
             }
         ],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote/1"}],
@@ -150,8 +151,24 @@ def test_benchmark_load_returns_the_engine_manifest() -> None:
 
         assert benchmark.id == "gpqa@1"
         assert benchmark.title == "GPQA Diamond"
+        assert benchmark._tool_policy_route is None
         with pytest.raises(sf.UnknownBenchmarkError, match="missing@1"):
             sf.benchmarks.load("missing@1")
+
+
+def test_engine_benchmark_tool_policy_route_is_not_optional() -> None:
+    with pytest.raises(ValueError, match="requires a tool policy route"):
+        sf.Benchmark._from_engine(
+            "research@1",
+            title="Research",
+            cases_route="/benchmarks/research/1/cases",
+            grader=sf.graders.ExactChoice(),
+            grader_route="/graders/exact-choice/1",
+            aggregator=sf.aggregators.Mean(),
+            aggregator_route="/aggregators/mean/1",
+            tools=(sf.tools.WebSearch(),),
+            max_tool_calls=12,
+        )
 
 
 @pytest.mark.parametrize(
@@ -313,6 +330,7 @@ def test_provider_records_are_strict(payload: dict[str, object], message: str) -
                 "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
                 "tools": ["web_search"],
                 "max_tool_calls": None,
+                "tool_policy_route": "/benchmarks/research/1/tool-policy",
             },
             "tool-enabled benchmark max_tool_calls",
         ),
@@ -325,8 +343,35 @@ def test_provider_records_are_strict(payload: dict[str, object], message: str) -
                 "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
                 "tools": [],
                 "max_tool_calls": 1,
+                "tool_policy_route": None,
             },
             "tool-free benchmark max_tool_calls",
+        ),
+        (
+            {
+                "id": "research@1",
+                "title": "Research",
+                "cases_route": "/benchmarks/research/1/cases",
+                "grader": {"kind": "rubric", "route": "/graders/rubric/1"},
+                "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
+                "tools": ["web_search"],
+                "max_tool_calls": 12,
+                "tool_policy_route": None,
+            },
+            "benchmark tool policy route",
+        ),
+        (
+            {
+                "id": "gpqa@1",
+                "title": "GPQA",
+                "cases_route": "/benchmarks/gpqa/1/cases",
+                "grader": {"kind": "exact_choice", "route": "/graders/exact-choice/1"},
+                "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
+                "tools": [],
+                "max_tool_calls": None,
+                "tool_policy_route": "/benchmarks/gpqa/1/tool-policy",
+            },
+            "tool-free benchmark tool_policy_route",
         ),
         (
             {
@@ -337,6 +382,7 @@ def test_provider_records_are_strict(payload: dict[str, object], message: str) -
                 "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
                 "tools": [],
                 "max_tool_calls": None,
+                "tool_policy_route": None,
             },
             "benchmark grader must be an object",
         ),
@@ -390,6 +436,7 @@ def test_benchmark_manifest_support_is_explicit(field: str, value: object, messa
         _profile.StrategyRecord("mean", "/aggregators/mean/1"),
         (),
         None,
+        None,
     )
     values = {
         "id": record.id,
@@ -399,6 +446,7 @@ def test_benchmark_manifest_support_is_explicit(field: str, value: object, messa
         "aggregator": record.aggregator,
         "tools": record.tools,
         "max_tool_calls": record.max_tool_calls,
+        "tool_policy_route": record.tool_policy_route,
     }
     values[field] = value
     changed = _profile.BenchmarkRecord(**values)

@@ -29,19 +29,46 @@ There are no public `TavilySearch`/`TavilyExtract` aliases and no vendor paramet
 
 ## URL4 wire contract
 
-The SDK applies this policy to answer-producing member calls only:
+An engine-advertised benchmark owns one immutable versioned policy data route. Its manifest names
+that route explicitly:
 
-```url4
-/openrouter/google/gemini-3.1-pro-preview
-  ?tools=web_search:web_fetch
-  &tools.max_calls=12
-  &web_search.max_results=5
-  &web_search.exclude_domain.1=example.invalid
-  ($question)!'Answer with evidence.'
+```json
+{
+  "id": "draco@1",
+  "tools": ["web_search", "web_fetch"],
+  "max_tool_calls": 12,
+  "tool_policy_route": "/benchmarks/draco/1/tool-policy"
+}
 ```
 
-The policy is backend-neutral and contains no credentials. Domains use contiguous one-based
-query keys. Reducers, synthesis calls, and graders do not inherit benchmark research tools.
+The complete run URL4 resolves that route once in each case graph, builds one shared model-input
+envelope, and passes that same resolved value to every answer-producing member:
+
+```url4
+(
+  tool_policy=/benchmarks/draco/1/tool-policy,
+  question=$item.input,
+  model_input={
+    schema:'screamingface.model-input.v1',
+    question:'$question',
+    tool_policy:'$tool_policy'
+  },
+  member_1=/openrouter/google/gemini-3.1-pro-preview($model_input)!'Answer with evidence.',
+  member_2=/huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra($model_input)
+    !'Answer with evidence.'
+)
+```
+
+The route returns `screamingface.tool-policy.v1` JSON as URL4 data. The policy is backend-neutral
+and contains no credentials. Reducers, synthesis calls, and graders do not inherit benchmark
+research tools. Reusing the named `tool_policy` and `model_input` sources prevents both the policy
+document and its envelope from being copied onto every member route and makes the benchmark
+version the authority.
+
+A researcher-authored local `sf.Benchmark` has no engine-owned policy route. Its complete run URL4
+therefore carries the same portable policy inline as `tools`, `tools.max_calls`, and
+`web_search.*` scalar query parameters. Repeated domains use contiguous one-based keys. This is
+the portable custom-benchmark form, not a legacy fallback.
 
 ## Engine routing
 
@@ -53,6 +80,9 @@ The ScreamingFace engine owns tool backend selection:
 - The two verified Hugging Face/DeepInfra routes translate the same policy into standard function
   tools. The engine runs the bounded model → Tavily → model loop itself.
 - Routes without a complete adapter advertise no support and fail before model traffic.
+- Model routes strictly decode `screamingface.model-input.v1`, recover the ordinary question, and
+  validate the referenced policy before selecting a backend. They also reject a request that
+  combines a referenced policy with inline policy parameters.
 
 OpenRouter owns its internal server-tool loop. The engine maps `tools.max_calls` to the available
 server limits (`max_total_results` and fetch `max_uses`). The Hugging Face/Tavily path enforces it

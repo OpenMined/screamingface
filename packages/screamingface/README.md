@@ -108,6 +108,13 @@ Before sending the run URL4, the SDK checks the candidate Recipe's member, reduc
 tool-service requirements against fresh registry and connection state. Missing credentials raise one
 `sf.ConnectionRequiredError` before model spend.
 
+For an official tool-enabled benchmark, its engine manifest points to one immutable versioned
+tool-policy data route. The complete run URL4 resolves that policy once per case and shares it with
+answer-producing members; it contains capability names and limits, never Tavily/OpenRouter
+credentials or backend selection. A custom local Benchmark instead serializes the same portable
+policy inline because it has no engine-owned route. In both forms, the engine privately chooses the
+registered model route's OpenRouter-managed or Tavily implementation.
+
 ## Discovery
 
 Both discovery surfaces reflect the configured engine registry and return plain IDs:
