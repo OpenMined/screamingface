@@ -57,7 +57,6 @@ private benchmark definition must be corrected before calling a result a full DR
         nbformat.v4.new_code_cell(
             '''import screamingface as sf
 
-
 DRACO_ANSWER_PROMPT = """You are answering a research-quality prompt. Provide a thorough,
 well-reasoned answer in prose. Address every aspect the prompt raises. Use clear structure
 (headings, bullet lists where appropriate) and cite specific facts, methodologies, or sources
@@ -88,38 +87,54 @@ synthesis_params = {"temperature": 0, "max_tokens": 8192}
 
 # Seven solo Recipes. Reusing these exact objects in Fusions makes their answers shared DAG nodes.
 fable = sf.Model(
-    "anthropic/claude-fable-5", name="claude-fable-5",
-    prompt=DRACO_ANSWER_PROMPT, params=answer_params,
+    "anthropic/claude-fable-5",
+    name="claude-fable-5",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=answer_params,
 )
 opus = sf.Model(
-    "anthropic/claude-opus-4.8", name="claude-opus-4.8",
-    prompt=DRACO_ANSWER_PROMPT, params=answer_params,
+    "anthropic/claude-opus-4.8",
+    name="claude-opus-4.8",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=answer_params,
 )
 gpt = sf.Model(
-    "openai/gpt-5.5", name="gpt-5.5",
-    prompt=DRACO_ANSWER_PROMPT, params=answer_params,
+    "openai/gpt-5.5",
+    name="gpt-5.5",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=answer_params,
 )
 gemini_pro = sf.Model(
-    "google/gemini-3.1-pro-preview", name="gemini-3.1-pro",
-    prompt=DRACO_ANSWER_PROMPT, params=answer_params,
+    "google/gemini-3.1-pro-preview",
+    name="gemini-3.1-pro",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=answer_params,
 )
 gemini_flash = sf.Model(
-    "google/gemini-3-flash-preview", name="gemini-3-flash",
-    prompt=DRACO_ANSWER_PROMPT, params=answer_params,
+    "google/gemini-3-flash-preview",
+    name="gemini-3-flash",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=answer_params,
 )
 kimi = sf.Model(
-    "moonshotai/kimi-k2.6", name="kimi-k2.6",
-    prompt=DRACO_ANSWER_PROMPT, params=answer_params,
+    "moonshotai/kimi-k2.6",
+    name="kimi-k2.6",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=answer_params,
 )
 deepseek = sf.Model(
-    "deepseek/deepseek-v4-pro", name="deepseek-v4-pro",
-    prompt=DRACO_ANSWER_PROMPT, params=answer_params,
+    "deepseek/deepseek-v4-pro",
+    name="deepseek-v4-pro",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=answer_params,
 )
 
 # Fusion-only shared leaf.
 qwen = sf.Model(
-    "qwen/qwen3.6-plus", name="qwen-3.6-plus",
-    prompt=DRACO_ANSWER_PROMPT, params=answer_params,
+    "qwen/qwen3.6-plus",
+    name="qwen-3.6-plus",
+    prompt=DRACO_ANSWER_PROMPT,
+    params=answer_params,
 )
 
 
@@ -132,15 +147,18 @@ def synth(model: str) -> sf.Reducer:
 
 
 fable_plus_gpt = sf.Fusion(
-    "fable-plus-gpt", members=[fable, gpt],
+    "fable-plus-gpt",
+    members=[fable, gpt],
     reducer=synth("anthropic/claude-opus-4.8"),
 )
 frontier_trio = sf.Fusion(
-    "frontier-trio", members=[opus, gpt, gemini_pro],
+    "frontier-trio",
+    members=[opus, gpt, gemini_pro],
     reducer=synth("anthropic/claude-opus-4.8"),
 )
 opus_plus_gpt = sf.Fusion(
-    "opus-plus-gpt", members=[opus, gpt],
+    "opus-plus-gpt",
+    members=[opus, gpt],
     reducer=synth("anthropic/claude-opus-4.8"),
 )
 
@@ -149,12 +167,14 @@ opus_self_fusion = sf.Fusion(
     members=[
         # Two independent samples—not one shared answer used twice.
         sf.Model(
-            "anthropic/claude-opus-4.8", name="opus-sample-1",
+            "anthropic/claude-opus-4.8",
+            name="opus-sample-1",
             prompt=DRACO_ANSWER_PROMPT,
             params={"temperature": 0.7, "max_tokens": 8192},
         ),
         sf.Model(
-            "anthropic/claude-opus-4.8", name="opus-sample-2",
+            "anthropic/claude-opus-4.8",
+            name="opus-sample-2",
             prompt=DRACO_ANSWER_PROMPT,
             params={"temperature": 0.7, "max_tokens": 8192},
         ),
@@ -163,23 +183,28 @@ opus_self_fusion = sf.Fusion(
 )
 
 budget_trio = sf.Fusion(
-    "budget-trio", members=[gemini_flash, kimi, deepseek],
+    "budget-trio",
+    members=[gemini_flash, kimi, deepseek],
     reducer=synth("anthropic/claude-opus-4.8"),
 )
 beat_runner_up = sf.Fusion(
-    "beat-runner-up", members=[opus, gpt, deepseek],
+    "beat-runner-up",
+    members=[opus, gpt, deepseek],
     reducer=synth("anthropic/claude-opus-4.8"),
 )
 pareto_cross = sf.Fusion(
-    "pareto-cross", members=[deepseek, kimi, gpt],
+    "pareto-cross",
+    members=[deepseek, kimi, gpt],
     reducer=synth("deepseek/deepseek-v4-pro"),
 )
 pareto_lean = sf.Fusion(
-    "pareto-lean", members=[deepseek, kimi],
+    "pareto-lean",
+    members=[deepseek, kimi],
     reducer=synth("deepseek/deepseek-v4-pro"),
 )
 best_open_source = sf.Fusion(
-    "best-open-source", members=[deepseek, kimi, qwen],
+    "best-open-source",
+    members=[deepseek, kimi, qwen],
     reducer=synth("deepseek/deepseek-v4-pro"),
 )
 
@@ -189,9 +214,22 @@ draco = sf.benchmarks.load("draco@1")
 # accepts several independently named Recipe roots and compiles them into one URL4 transaction.
 report = draco.evaluate(
     recipes=[
-        fable, opus, gpt, gemini_pro, gemini_flash, kimi, deepseek,
-        fable_plus_gpt, frontier_trio, opus_plus_gpt, opus_self_fusion,
-        budget_trio, beat_runner_up, pareto_cross, pareto_lean, best_open_source,
+        fable,
+        opus,
+        gpt,
+        gemini_pro,
+        gemini_flash,
+        kimi,
+        deepseek,
+        fable_plus_gpt,
+        frontier_trio,
+        opus_plus_gpt,
+        opus_self_fusion,
+        budget_trio,
+        beat_runner_up,
+        pareto_cross,
+        pareto_lean,
+        best_open_source,
     ],
     first=100,
 )
@@ -222,8 +260,8 @@ To keep the expression reviewable, the exact answer and synthesis text are refer
 versioned DRACO data routes. A compatible engine must keep those versioned values immutable. The
 versioned grader route similarly owns the Appendix C.5 judge prompts and scoring protocol."""
         ),
-        nbformat.v4.new_code_cell(
-            r'''PROPOSED_FULL_DRACO_URL4 = r"""
+        nbformat.v4.new_markdown_cell(
+            r"""```text
 (
   /benchmarks/draco/1/cases*(
     question=$item.input,
@@ -433,9 +471,7 @@ versioned grader route similarly owns the Appendix C.5 judge prompts and scoring
   iteration.slice=0:100;
   iteration.on_error=collect
 )!/aggregators/draco/1()!'Aggregate DRACO Recipe results'
-"""
-
-print(PROPOSED_FULL_DRACO_URL4)'''
+```"""
         ),
         nbformat.v4.new_markdown_cell(
             """## Required semantics of the proposed primitive
