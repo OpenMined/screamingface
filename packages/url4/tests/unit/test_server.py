@@ -178,6 +178,30 @@ async def test_eval_path_reattaches_protocol_params(node):
     assert isinstance(json.loads(body), list)
 
 
+async def test_eval_path_accepts_standard_encoded_call_expression(node, wire):
+    # WHY (OME-530): curl --data-urlencode / browsers percent-encode EVERY
+    # head. A fully-encoded bare relative call (%2F head) must evaluate
+    # exactly as its in-process `evaluate()` twin — not mis-decode into a
+    # bogus endpoint_not_found.
+    from urllib.parse import quote
+
+    q = quote("/claude(https://x)!'Go'", safe="")
+    body = await node.fetch(f"/v1?q={q}", relative=True)
+    assert body.startswith("CLAUDE(")
+    assert wire[0].context == "https://x"
+    assert wire[0].intent == "Go"
+
+
+async def test_eval_path_accepts_standard_encoded_group(node):
+    # Control: the group head (%28) stays on the fully-encoded path, spaces
+    # and $refs intact end-to-end.
+    from urllib.parse import quote
+
+    q = quote("(a=https://x)!'Summarize $a'", safe="")
+    body = await node.fetch(f"/v1?q={q}", relative=True)
+    assert "ARTICLE" in body
+
+
 async def test_unknown_path_fails(node):
     with pytest.raises(Url4Error) as err:
         await node.fetch("/nope?q=()!'x'", relative=True)

@@ -130,17 +130,49 @@ def decode_expression_http(query: str) -> str:
     """A ``?q=`` payload (either convention) as full expression text.
 
     The eval-surface counterpart of :func:`decode_subrequest_http`: the whole
-    ``(context)!intent`` (with any trailing ``;`` chain) as one string, ready
-    for the expression parser.
+    expression — a ``(context)!intent`` group (with any trailing ``;`` chain),
+    a ``/path(…)!intent`` call, a ``url4://…`` remote, an iteration — as one
+    string, ready for the expression parser.
     """
     if _fully_encoded(query):
         return unquote_plus(query)
-    context, intent = decode_subrequest(query)
-    return f"({context})" + (f"!{intent}" if intent else "")
+    return _decode_raw_expression(query.strip())
+
+
+def _decode_raw_expression(text: str) -> str:
+    """Decode a raw-convention eval payload without assuming the envelope shape.
+
+    The §7.4 locate-structure-then-unquote-parts pipeline applies ONLY to the
+    exact ``(context)[!intent]`` envelope. Every other grammar-legal shape — a
+    ``/path(…)`` call head, a ``url4://`` remote, a paren-collection whose
+    ``*(body)`` tail follows the closing paren — is a full expression: one
+    whole-text ``unquote``, and the parser judges the decoded result. The old
+    envelope-only reassembly silently truncated those shapes (`OME-530`).
+    """
+    if text.startswith("("):
+        context = balanced_body(text, 1)
+        if context is not None:
+            rest = text[len(context) + 2 :]
+            if not rest:
+                return f"({unquote(context)})"
+            if rest.startswith("!"):
+                return f"({unquote(context)})!{unquote(rest[1:])}"
+    return unquote(text)
 
 
 def _fully_encoded(query: str) -> bool:
-    return query[:3].lower() == "%28"
+    # WHY: url4's raw convention wire-escapes every CONTENT paren (see
+    # _WIRE_UNSAFE), so a raw "(" in a payload is always STRUCTURAL — and every
+    # raw-convention envelope/expression carries at least one. A standard
+    # client (curl --data-urlencode, URLSearchParams, httpx) percent-encodes
+    # "(" unconditionally. A paren-free, percent-bearing payload can therefore
+    # only be fully-encoded. The previous "%28"-head sniff missed every
+    # non-group head — %2F relative calls, url4%3A remotes — sending them
+    # through the raw decoder mangled (`OME-530`). A payload with neither raw
+    # parens nor escapes is inert: both conventions decode it identically.
+    if "(" in query:
+        return False
+    return "%" in query
 
 
 def _split_decoded(text: str) -> tuple[str, str]:

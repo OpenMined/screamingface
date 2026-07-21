@@ -96,3 +96,77 @@ def test_extract_then_decode_pipeline() -> None:
     assert params == {"t": "90"}
     assert q is not None
     assert decode_subrequest(q) == ("a b", "go")
+
+
+# --- §3.4 dual wire conventions — every grammar head, both conventions (OME-530) ---
+#
+# INVARIANT: a node accepts over HTTP exactly the expression set it accepts
+# in-process — the convention discriminator must classify EVERY grammar-legal
+# head, and the raw-convention reassembly must never truncate a legal payload.
+
+
+def test_fully_encoded_relative_call_head_round_trips() -> None:
+    # §3.4 — a standard client (curl --data-urlencode) encodes EVERY head; a
+    # fully-encoded relative-call sugar payload (%2F head) must decode to the
+    # author's expression, not fall into the raw decoder and come out mangled.
+    from urllib.parse import quote
+
+    from url4.core.subrequest import decode_expression_http
+
+    text = "/opus(hi there)!'answer'"
+    assert decode_expression_http(quote(text, safe="")) == text
+
+
+def test_fully_encoded_canonical_call_head_round_trips() -> None:
+    # §3.4 — same for the canonical /path?params&q=… form.
+    from urllib.parse import quote
+
+    from url4.core.subrequest import decode_expression_http
+
+    text = "/judge?t=0.2&q=(a b)!'grade'"
+    assert decode_expression_http(quote(text, safe="")) == text
+
+
+def test_fully_encoded_remote_call_head_round_trips() -> None:
+    # §3.4 — and for the url4:// remote form (url4%3A head).
+    from urllib.parse import quote
+
+    from url4.core.subrequest import decode_expression_http
+
+    text = "url4://peer:4404/gpt(x)!'go'"
+    assert decode_expression_http(quote(text, safe="")) == text
+
+
+def test_raw_relative_call_head_is_not_mangled() -> None:
+    # §3.4 raw convention — a /path(...)!intent eval payload is a full
+    # expression, not a (context)!intent envelope; it must not become ()!text.
+    from url4.core.subrequest import decode_expression_http
+
+    assert decode_expression_http("/opus(hi%20there)!'go'") == "/opus(hi there)!'go'"
+
+
+def test_raw_paren_collection_iteration_keeps_its_tail() -> None:
+    # §5.3 — a raw iteration with a paren-collection head is NOT the envelope
+    # shape; the decoder must not truncate `('a','b')*(body)!''` to "('a','b')".
+    from url4.core.subrequest import decode_expression_http
+
+    text = "('a','b')*(/p($item)!'x')!''"
+    assert decode_expression_http(text) == text
+
+
+def test_raw_envelope_still_part_unquotes() -> None:
+    # INVARIANT guard: the raw-convention (context)!intent envelope keeps the
+    # §7.4 locate-structure-then-unquote-parts pipeline unchanged — with and
+    # without an intent tail.
+    from url4.core.subrequest import decode_expression_http
+
+    assert decode_expression_http("(a%26b)!go") == "(a&b)!go"
+    assert decode_expression_http("(a%26b)") == "(a&b)"
+
+
+def test_raw_unbalanced_payload_decodes_whole_for_the_parser() -> None:
+    # An unbalanced raw payload is not an envelope; it decodes as one text so
+    # the PARSER reports the malformed expression (never silently rewrapped).
+    from url4.core.subrequest import decode_expression_http
+
+    assert decode_expression_http("(a%20b") == "(a b"
