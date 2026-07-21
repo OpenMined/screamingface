@@ -67,6 +67,11 @@ async def test_registry_advertises_public_provider_ownership_without_gateway_ali
             "auth_methods": ["oauth", "api_key"],
         },
         {
+            "id": "openrouter",
+            "display_name": "OpenRouter",
+            "auth_methods": ["api_key"],
+        },
+        {
             "id": "huggingface",
             "display_name": "Hugging Face",
             "auth_methods": ["api_key"],
@@ -152,6 +157,12 @@ async def test_connection_list_and_status_are_sanitized_and_fresh() -> None:
             },
             {
                 "provider": "anthropic",
+                "status": "not_connected",
+                "auth_method": None,
+                "account_label": None,
+            },
+            {
+                "provider": "openrouter",
                 "status": "not_connected",
                 "auth_method": None,
                 "account_label": None,

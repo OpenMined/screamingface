@@ -95,6 +95,8 @@ storage.
 The registry exposes supported provider ownership and authentication methods. These declarations
 are currently explicit engine policy and should later be sourced from an AI Gateway provider
 discovery endpoint. Model availability itself is already derived from AI Gateway at startup.
+The local profile enables AI Gateway's API-key-only OpenRouter plugin; its advertised models are
+therefore reflected from `GET /v1/models` rather than duplicated in this engine.
 
 ScreamingFace owns the Gateway connection labeled `default` and selects it with
 `X-Profile: default`. API keys and OAuth actions travel through the engine control plane; secrets
@@ -108,6 +110,7 @@ import screamingface as sf
 sf.connect()
 sf.connections.list()
 sf.connect("gemini", api_key="...")
+sf.connect("openrouter", api_key="sk-or-...")
 sf.connect("tavily", api_key="tvly-...")
 sf.disconnect("gemini")
 ```

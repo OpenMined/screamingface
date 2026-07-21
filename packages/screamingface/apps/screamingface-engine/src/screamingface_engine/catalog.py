@@ -25,6 +25,10 @@ _HUGGINGFACE_MODEL = re.compile(
     r"^huggingface/(?P<organization>[A-Za-z0-9._-]+)/"
     r"(?P<model>[A-Za-z0-9._-]+):(?P<inference_provider>[A-Za-z0-9._-]+)$"
 )
+_OPENROUTER_MODEL = re.compile(
+    r"^openrouter/~?[A-Za-z0-9][A-Za-z0-9._-]*/"
+    r"[A-Za-z0-9][A-Za-z0-9._-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?$"
+)
 _CAPABILITY_POLICY = {
     "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra": ("web_search", "web_fetch"),
     "huggingface/zai-org/GLM-5.2~deepinfra": ("web_search", "web_fetch"),
@@ -112,6 +116,13 @@ PROVIDER_ROUTES = (
         "/callback",
     ),
     ProviderRoute(
+        "openrouter",
+        "OpenRouter",
+        "openrouter",
+        ("api_key",),
+        None,
+    ),
+    ProviderRoute(
         "huggingface",
         "Hugging Face",
         "huggingface",
@@ -153,38 +164,59 @@ def resolve_model_routes(models: Sequence[GatewayModel]) -> tuple[ModelRoute, ..
 
 def _model_route(model: GatewayModel) -> ModelRoute | None:
     if model.owned_by == "anthropic":
-        match = _CLAUDE_MODEL.fullmatch(model.id)
-        if match is None:
-            raise _alias_error(model)
-        family, major, minor = match.groups()
-        public_id = f"claude/{family}-{major}.{minor}"
-        gateway_model = f"anthropic/{model.id}"
-        provider = "anthropic"
-    elif model.owned_by == "codex":
-        if not model.id.startswith("codex/") or not model.id.removeprefix("codex/"):
-            raise _alias_error(model)
-        public_id = model.id
-        gateway_model = model.id
-        provider = "codex"
-    elif model.owned_by == "gemini-cli":
-        prefix = "gemini-cli/gemini-"
-        if not model.id.startswith(prefix) or not model.id.removeprefix(prefix):
-            raise _alias_error(model)
-        public_id = f"gemini/{model.id.removeprefix(prefix)}"
-        gateway_model = model.id
-        provider = "gemini"
-    elif model.owned_by == "huggingface":
-        match = _HUGGINGFACE_MODEL.fullmatch(model.id)
-        if match is None:
-            raise _alias_error(model)
-        organization, name, inference_provider = match.groups()
-        # INVARIANT: ':' remains private to AI Gateway's provider pin; '~' keeps the
-        # public model ID unambiguous inside URL4 paths and expressions.
-        public_id = f"huggingface/{organization}/{name}~{inference_provider}"
-        gateway_model = model.id
-        provider = "huggingface"
-    else:
-        return None
+        return _anthropic_route(model)
+    if model.owned_by == "codex":
+        return _codex_route(model)
+    if model.owned_by == "gemini-cli":
+        return _gemini_route(model)
+    if model.owned_by == "huggingface":
+        return _huggingface_route(model)
+    if model.owned_by == "openrouter":
+        return _openrouter_route(model)
+    return None
+
+
+def _anthropic_route(model: GatewayModel) -> ModelRoute:
+    match = _CLAUDE_MODEL.fullmatch(model.id)
+    if match is None:
+        raise _alias_error(model)
+    family, major, minor = match.groups()
+    return _route(f"claude/{family}-{major}.{minor}", f"anthropic/{model.id}", "anthropic")
+
+
+def _codex_route(model: GatewayModel) -> ModelRoute:
+    if not model.id.startswith("codex/") or not model.id.removeprefix("codex/"):
+        raise _alias_error(model)
+    return _route(model.id, model.id, "codex")
+
+
+def _gemini_route(model: GatewayModel) -> ModelRoute:
+    prefix = "gemini-cli/gemini-"
+    if not model.id.startswith(prefix) or not model.id.removeprefix(prefix):
+        raise _alias_error(model)
+    return _route(f"gemini/{model.id.removeprefix(prefix)}", model.id, "gemini")
+
+
+def _huggingface_route(model: GatewayModel) -> ModelRoute:
+    match = _HUGGINGFACE_MODEL.fullmatch(model.id)
+    if match is None:
+        raise _alias_error(model)
+    organization, name, inference_provider = match.groups()
+    # INVARIANT: ':' remains private to AI Gateway's provider pin; '~' keeps the
+    # public model ID unambiguous inside URL4 paths and expressions.
+    public_id = f"huggingface/{organization}/{name}~{inference_provider}"
+    return _route(public_id, model.id, "huggingface")
+
+
+def _openrouter_route(model: GatewayModel) -> ModelRoute:
+    if _OPENROUTER_MODEL.fullmatch(model.id) is None:
+        raise _alias_error(model)
+    # OpenRouter's gateway ID is already an unambiguous public URL4 path.
+    # Preserve it byte-for-byte so only AI Gateway owns the upstream catalog.
+    return _route(model.id, model.id, "openrouter")
+
+
+def _route(public_id: str, gateway_model: str, provider: str) -> ModelRoute:
     return ModelRoute(
         public_id,
         gateway_model,

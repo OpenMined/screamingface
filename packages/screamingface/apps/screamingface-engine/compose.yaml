@@ -16,6 +16,9 @@ services:
       AIGATEWAY_AUTH_ENABLED: "0"
       AIGATEWAY_DATABASE_URL: sqlite:///home/app/aigateway.sqlite3
       AIGATEWAY_PUBLIC_URL: http://localhost:${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}
+      # OpenRouter is opt-in at AI Gateway. Local ScreamingFace development enables its
+      # API-key-only plugin so /v1/models and the engine registry reflect it automatically.
+      AIGW_OPENROUTER_ENABLED: "true"
       # INVARIANT: This plugin setting replaces its complete default list; retain the existing
       # routes while adding only the two HF/provider pins verified for the Tavily agent loop.
       AIGW_HUGGINGFACE_DEFAULT_MODELS: >-

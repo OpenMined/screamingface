@@ -90,6 +90,7 @@ connections, and evaluation contact only the configured engine.
 sf.connections.list()
 sf.connect("gemini", api_key="...")
 sf.connect("codex", method="oauth")
+sf.connect("openrouter", api_key="sk-or-...")
 sf.connect("tavily", api_key="tvly-...")
 sf.disconnect("gemini")
 ```

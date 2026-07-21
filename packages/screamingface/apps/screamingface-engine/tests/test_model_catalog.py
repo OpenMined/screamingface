@@ -16,6 +16,7 @@ def test_gateway_catalog_forwards_every_supported_provider_model_in_order() -> N
             GatewayModel("gemini-cli/gemini-2.0-flash", "gemini-cli"),
             GatewayModel("antigravity/gemini-3-flash", "antigravity"),
             GatewayModel("huggingface/Qwen/Qwen3:novita", "huggingface"),
+            GatewayModel("openrouter/anthropic/claude-opus-4.8", "openrouter"),
         )
     )
 
@@ -31,6 +32,11 @@ def test_gateway_catalog_forwards_every_supported_provider_model_in_order() -> N
             "huggingface/Qwen/Qwen3:novita",
             "huggingface",
         ),
+        (
+            "openrouter/anthropic/claude-opus-4.8",
+            "openrouter/anthropic/claude-opus-4.8",
+            "openrouter",
+        ),
     ]
     assert routes[0].tool_capabilities == ()
     assert routes[1].tool_capabilities == ()
@@ -40,7 +46,7 @@ def test_gateway_catalog_forwards_every_supported_provider_model_in_order() -> N
     "models",
     [
         (),
-        (GatewayModel("openrouter/model", "openrouter"),),
+        (GatewayModel("unknown/model", "unknown"),),
     ],
 )
 def test_catalog_requires_at_least_one_supported_provider_model(
@@ -67,6 +73,7 @@ def test_catalog_rejects_duplicate_public_routes() -> None:
         GatewayModel("gpt-5.5", "codex"),
         GatewayModel("gemini-cli/not-gemini", "gemini-cli"),
         GatewayModel("huggingface/Qwen/Qwen3", "huggingface"),
+        GatewayModel("openrouter/only-one-segment", "openrouter"),
     ],
 )
 def test_supported_provider_aliases_are_strict(model: GatewayModel) -> None:
