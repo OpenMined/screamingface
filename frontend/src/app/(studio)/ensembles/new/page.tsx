@@ -57,6 +57,7 @@ import {
   useModelStore,
 } from "@/lib/model-store";
 import { useOpenMinedStore } from "@/lib/openmined-store";
+import { useScriptStore } from "@/lib/script-store";
 import { cn } from "@/lib/utils";
 
 type ReduceStrategy =
@@ -193,12 +194,21 @@ function parseRecipe(raw: string) {
     .filter((model): model is Model => Boolean(model))
     .map((model) => ({ model, systemPrompt: "", weight: 0.5 }));
   const reduce = params.get("reduce") as ReduceStrategy | null;
+  const reduceScriptId = reduce?.startsWith("script:")
+    ? reduce.slice(7)
+    : null;
+  const loop = params.get("loop");
+  const loopScriptId = loop?.startsWith("script:") ? loop.slice(7) : null;
   return {
     name: decodeURIComponent(match[1]).replace(/\s+/g, "-").toLowerCase(),
     slots,
     strategy: strategies.some((item) => item.value === reduce)
       ? reduce!
       : ("majority_vote" as ReduceStrategy),
+    customReduce: Boolean(reduceScriptId),
+    reduceScriptId,
+    loopMode: loopScriptId ? ("custom" as const) : ("parallel" as const),
+    loopScriptId,
     judgeId: params.get("judge"),
   };
 }
@@ -1318,13 +1328,24 @@ function EnsembleComposer() {
   );
   const library = useModelStore((state) => state.library);
   const addLibraryModels = useModelStore((state) => state.addLibraryModels);
+  const scripts = useScriptStore((state) => state.scripts);
+  const loopScripts = useMemo(
+    () => scripts.filter((script) => script.kind === "loop"),
+    [scripts],
+  );
+  const reduceScripts = useMemo(
+    () => scripts.filter((script) => script.kind === "reduce"),
+    [scripts],
+  );
   const [name, setName] = useState("ensemble-1");
   const [editingName, setEditingName] = useState(false);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [strategy, setStrategy] =
     useState<ReduceStrategy>("majority_vote");
   const [customReduce, setCustomReduce] = useState(false);
+  const [reduceScriptId, setReduceScriptId] = useState<string | null>(null);
   const [loopMode, setLoopMode] = useState<"parallel" | "custom">("parallel");
+  const [loopScriptId, setLoopScriptId] = useState<string | null>(null);
   const [judgeId, setJudgeId] = useState<string | null>(null);
   const [runHistory, setRunHistory] = useState<SavedRun[]>([]);
   const [tab, setTab] = useState<"compose" | "runs">("compose");
@@ -1349,12 +1370,16 @@ function EnsembleComposer() {
         addLibraryModels(saved.slots.map((slot) => slot.model));
         setStrategy(saved.strategy);
         setCustomReduce(saved.customReduce);
+        setReduceScriptId(saved.reduceScriptId ?? null);
         setLoopMode(saved.loopMode);
+        setLoopScriptId(saved.loopScriptId ?? null);
         setJudgeId(saved.judgeId);
         setRunHistory(savedRunHistory);
         setSavedSnapshot(
           JSON.stringify({
             ...saved,
+            reduceScriptId: saved.reduceScriptId ?? null,
+            loopScriptId: saved.loopScriptId ?? null,
             runs: savedRunHistory.length,
             runHistory: savedRunHistory,
             updatedAt: 0,
@@ -1365,8 +1390,10 @@ function EnsembleComposer() {
         setSlots(parsed.slots);
         addLibraryModels(parsed.slots.map((slot) => slot.model));
         setStrategy(parsed.strategy);
-        setCustomReduce(false);
-        setLoopMode("parallel");
+        setCustomReduce(parsed.customReduce);
+        setReduceScriptId(parsed.reduceScriptId);
+        setLoopMode(parsed.loopMode);
+        setLoopScriptId(parsed.loopScriptId);
         setJudgeId(null);
         setRunHistory([]);
         setSavedSnapshot("");
@@ -1381,7 +1408,9 @@ function EnsembleComposer() {
         setSlots([]);
         setStrategy("majority_vote");
         setCustomReduce(false);
+        setReduceScriptId(null);
         setLoopMode("parallel");
+        setLoopScriptId(null);
         setJudgeId(null);
         setRunHistory([]);
         setSavedSnapshot(
@@ -1391,7 +1420,9 @@ function EnsembleComposer() {
             slots: [],
             strategy: "majority_vote",
             customReduce: false,
+            reduceScriptId: null,
             loopMode: "parallel",
+            loopScriptId: null,
             judgeId: null,
             runs: 0,
             runHistory: [],
@@ -1413,11 +1444,29 @@ function EnsembleComposer() {
   ]);
 
   const selectedStrategy = strategies.find((item) => item.value === strategy)!;
+  const resolvedLoopScriptId = useMemo(
+    () =>
+      loopMode === "custom"
+        ? loopScripts.some((script) => script.id === loopScriptId)
+          ? loopScriptId
+          : loopScripts[0]?.id ?? null
+        : null,
+    [loopMode, loopScriptId, loopScripts],
+  );
+  const resolvedReduceScriptId = useMemo(
+    () =>
+      customReduce
+        ? reduceScripts.some((script) => script.id === reduceScriptId)
+          ? reduceScriptId
+          : reduceScripts[0]?.id ?? null
+        : null,
+    [customReduce, reduceScriptId, reduceScripts],
+  );
   const judge = slots.find((slot) => slot.model.id === judgeId)?.model;
   const weightSum = slots
     .filter((slot) => slot.model.id !== judgeId)
     .reduce((sum, slot) => sum + slot.weight, 0);
-  const recipe = `url4://${name}?models=${slots.map((slot) => slot.model.id).join("+")}&reduce=${customReduce ? "script:custom" : strategy}&loop=${loopMode === "custom" ? "script:custom" : "parallel"}${!customReduce && judgeId ? `&judge=${judgeId}` : ""}`;
+  const recipe = `url4://${name}?models=${slots.map((slot) => slot.model.id).join("+")}&reduce=${customReduce ? `script:${resolvedReduceScriptId ?? "custom"}` : strategy}&loop=${loopMode === "custom" ? `script:${resolvedLoopScriptId ?? "custom"}` : "parallel"}${!customReduce && judgeId ? `&judge=${judgeId}` : ""}`;
   const draft = useMemo<SavedEnsemble>(
     () => ({
       id: ensembleId,
@@ -1425,7 +1474,9 @@ function EnsembleComposer() {
       slots,
       strategy,
       customReduce,
+      reduceScriptId: resolvedReduceScriptId,
       loopMode,
+      loopScriptId: resolvedLoopScriptId,
       judgeId,
       runs: runHistory.length,
       runHistory,
@@ -1437,6 +1488,8 @@ function EnsembleComposer() {
       judgeId,
       loopMode,
       name,
+      resolvedLoopScriptId,
+      resolvedReduceScriptId,
       runHistory,
       slots,
       strategy,
@@ -1707,7 +1760,12 @@ function EnsembleComposer() {
                   <Repeat className="size-3.5 text-muted-foreground" />
                   <span className="text-sm font-medium">Loop</span>
                   <span className="text-xs text-muted-foreground">
-                    · {loopMode === "custom" ? "Custom script…" : "runs the models"}
+                    · {loopMode === "custom"
+                      ? loopScripts.find(
+                          (script) => script.id === resolvedLoopScriptId,
+                        )
+                          ?.name ?? "Custom script…"
+                      : "runs the models"}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1725,11 +1783,28 @@ function EnsembleComposer() {
                         description: "Plug in a loop script",
                       },
                     ]}
-                    onChange={(value) =>
-                      setLoopMode(value as "parallel" | "custom")
-                    }
+                    onChange={(value) => {
+                      const nextMode = value as "parallel" | "custom";
+                      setLoopMode(nextMode);
+                      setLoopScriptId(
+                        nextMode === "custom"
+                          ? resolvedLoopScriptId
+                          : null,
+                      );
+                    }}
                   />
-                  {loopMode === "custom" && (
+                  {loopMode === "custom" && loopScripts.length > 0 && (
+                    <StageSelect
+                      value={resolvedLoopScriptId ?? loopScripts[0].id}
+                      options={loopScripts.map((script) => ({
+                        value: script.id,
+                        label: script.name,
+                        description: "Custom response loop",
+                      }))}
+                      onChange={setLoopScriptId}
+                    />
+                  )}
+                  {loopMode === "custom" && loopScripts.length === 0 && (
                     <span className="text-xs text-muted-foreground/70">
                       No loop scripts — add one in Scripts
                     </span>
@@ -1896,14 +1971,29 @@ function EnsembleComposer() {
                     onChange={(value) => {
                       if (value === "custom") {
                         setCustomReduce(true);
+                        setReduceScriptId(
+                          resolvedReduceScriptId,
+                        );
                         setJudgeId(null);
                       } else {
                         setCustomReduce(false);
+                        setReduceScriptId(null);
                         setStrategy(value as ReduceStrategy);
                       }
                     }}
                   />
-                  {customReduce && (
+                  {customReduce && reduceScripts.length > 0 && (
+                    <StageSelect
+                      value={resolvedReduceScriptId ?? reduceScripts[0].id}
+                      options={reduceScripts.map((script) => ({
+                        value: script.id,
+                        label: script.name,
+                        description: "Custom reduce script",
+                      }))}
+                      onChange={setReduceScriptId}
+                    />
+                  )}
+                  {customReduce && reduceScripts.length === 0 && (
                     <span className="text-xs text-muted-foreground/70">
                       No reduce scripts — add one in Scripts
                     </span>
@@ -1918,7 +2008,11 @@ function EnsembleComposer() {
                   </div>
                   <div className="min-w-0">
                     <h3 className="truncate text-sm font-medium">
-                      {customReduce ? "Choose a script" : selectedStrategy.label}
+                      {customReduce
+                          ? reduceScripts.find(
+                            (script) => script.id === resolvedReduceScriptId,
+                          )?.name ?? "Choose a script"
+                        : selectedStrategy.label}
                     </h3>
                     <p className="truncate text-xs text-muted-foreground">
                       {customReduce

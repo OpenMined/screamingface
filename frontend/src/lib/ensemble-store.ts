@@ -43,7 +43,9 @@ export type SavedEnsemble = {
   slots: SavedSlot[];
   strategy: "majority_vote" | "weighted_avg" | "best_of_n" | "merge";
   customReduce: boolean;
+  reduceScriptId?: string | null;
   loopMode: "parallel" | "custom";
+  loopScriptId?: string | null;
   judgeId: string | null;
   runs: number;
   runHistory?: SavedRun[];
