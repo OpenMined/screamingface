@@ -232,8 +232,8 @@ def _failures(values: Sequence[GradingFailure]) -> tuple[GradingFailure, ...]:
 
 
 def _members(items: tuple[tuple[str, MemberReport], ...]) -> None:
-    if len(items) < 2:
-        raise ValueError("a report requires at least two members")
+    if not items:
+        raise ValueError("a report requires at least one member")
     expected = tuple(f"member_{position}" for position in range(1, len(items) + 1))
     observed: list[str] = []
     for member_id, member in items:

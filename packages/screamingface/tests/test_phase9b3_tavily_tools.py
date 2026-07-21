@@ -190,7 +190,7 @@ def test_benchmark_retains_typed_tool_policy_and_round_budget() -> None:
 def _full_policy_expression() -> tuple[sf.Fusion, str]:
     fusion = sf.Fusion(
         "research",
-        ["hf/deepseek-v3", "hf/glm-4"],
+        inputs=["hf/deepseek-v3", "hf/glm-4"],
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Synthesize the panel answers.",
@@ -278,7 +278,7 @@ def test_tavily_policy_round_trips_through_url4_without_reaching_reducer() -> No
 def test_default_tavily_policy_is_serialized_explicitly_for_reproducibility() -> None:
     fusion = sf.Fusion(
         "research",
-        ["hf/deepseek-v3", "hf/glm-4"],
+        inputs=["hf/deepseek-v3", "hf/glm-4"],
         reducer=sf.reducers.MajorityVote(),
     )
 

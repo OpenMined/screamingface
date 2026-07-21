@@ -1,16 +1,17 @@
-"""Compile Fusion definitions into canonical URL4 recipe and case expressions."""
+"""Compile recursive Fusion definitions into canonical URL4 expressions."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from url4 import Expression, RelExpr, Text, render, src, struct, text
+from url4 import Expression, Node, RelExpr, Text, render, src, struct, text
 
 from screamingface._profile import FUSION_RESULT_SCHEMA
 from screamingface._tooling import TOOL_PARAMETER
 from screamingface.errors import UnsupportedReducerError
-from screamingface.model_inputs import ParameterValue, _FusionMember
+from screamingface.model_inputs import ParameterValue, _FusionMember, _ModelCall, make_model_call
 from screamingface.reducers import MajorityVote, Model
 from screamingface.tools import Tool, _tool_ids
 
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from screamingface.fusion import Fusion
 
 MAJORITY_VOTE_ROUTE = "/reducers/majority-vote"
+_DEFAULT_PROMPT = "Answer the question."
 
 
 def compile_fusion(
@@ -27,48 +29,129 @@ def compile_fusion(
     tools: Sequence[Tool] = (),
     max_tool_rounds: int | None = None,
 ) -> str:
-    """Render one parameterized recipe or one concrete case expression."""
+    """Render one parameterized recursive recipe or one concrete case expression."""
 
-    tool_params = _tool_params(tools, max_tool_rounds)
-    sources = []
-    if question is not None:
-        sources.append(src(text(_literal(question)), name="question"))
-    sources.extend(_member_source(member, tool_params) for member in fusion._members)
-
-    if isinstance(fusion.reducer, MajorityVote):
-        member_answers = {member.id: f"${member.id}" for member in fusion._members}
-        sources.append(src(struct(member_answers), name="member_answers"))
-        reducer_call = RelExpr(
-            path=MAJORITY_VOTE_ROUTE,
-            context="$member_answers",
-        )
-    elif isinstance(fusion.reducer, Model):
-        reducer_call = RelExpr(
-            path=_model_route(fusion.reducer.model),
-            context=_model_reducer_context(fusion._members),
-            intent=Text(fusion.reducer.prompt),
-            params=_params(fusion.reducer._parameter_items),
-        )
-    else:
-        raise UnsupportedReducerError(f"unsupported reducer {type(fusion.reducer).__name__!r}")
-
-    sources.append(src(reducer_call, name="fusion_answer"))
-    sources.append(
-        struct(
-            {
-                "schema": FUSION_RESULT_SCHEMA,
-                "members": {
-                    member.id: {
-                        "model": _literal(member.model),
-                        "answer": f"${member.id}",
-                    }
-                    for member in fusion._members
-                },
-                "answer": "$fusion_answer",
-            }
-        )
+    compiler = _FusionCompiler(
+        tool_params=_tool_params(tools, max_tool_rounds),
+        question=question,
     )
-    return render(Expression(sources=tuple(sources)))
+    return compiler.compile(fusion)
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedInput:
+    reference: str
+    label: str
+
+
+class _FusionCompiler:
+    def __init__(
+        self,
+        *,
+        tool_params: tuple[tuple[str, str], ...],
+        question: str | None,
+    ) -> None:
+        self._tool_params = tool_params
+        self._sources: list[Node] = []
+        if question is not None:
+            self._sources.append(src(text(_literal(question)), name="question"))
+        self._members: list[_FusionMember] = []
+        self._resolved: dict[int, _ResolvedInput] = {}
+        self._active: set[int] = set()
+        self._fusion_count = 0
+
+    def compile(self, fusion: Fusion) -> str:
+        root = self._fusion(fusion, is_root=True)
+        self._sources.append(
+            struct(
+                {
+                    "schema": FUSION_RESULT_SCHEMA,
+                    "members": {
+                        member.id: {
+                            "model": _literal(member.model),
+                            "answer": f"${member.id}",
+                        }
+                        for member in self._members
+                    },
+                    "answer": root.reference,
+                }
+            )
+        )
+        return render(Expression(sources=tuple(self._sources)))
+
+    def _fusion(self, fusion: Fusion, *, is_root: bool = False) -> _ResolvedInput:
+        identity = id(fusion)
+        existing = self._resolved.get(identity)
+        if existing is not None:
+            return existing
+        if identity in self._active:
+            raise ValueError(f"Fusion graph contains a cycle at {fusion.name!r}")
+        self._active.add(identity)
+        if fusion.model is not None:
+            assert fusion.prompt is not None
+            resolved = self._atomic(
+                _ModelCall(fusion.model, fusion.prompt, fusion._parameter_items),
+                label=fusion.model,
+            )
+        else:
+            inputs = tuple(self._input(value) for value in fusion.inputs)
+            resolved = self._reduce(fusion, inputs, is_root=is_root)
+        self._active.remove(identity)
+        self._resolved[identity] = resolved
+        return resolved
+
+    def _input(self, value: str | Fusion) -> _ResolvedInput:
+        if isinstance(value, str):
+            return self._atomic(
+                make_model_call(model=value, prompt=_DEFAULT_PROMPT),
+                label=value.strip(),
+            )
+        return self._fusion(value)
+
+    def _atomic(self, call: _ModelCall, *, label: str) -> _ResolvedInput:
+        member = _FusionMember(id=f"member_{len(self._members) + 1}", call=call)
+        self._members.append(member)
+        self._sources.append(src(_model_call(call, self._tool_params), name=member.id))
+        return _ResolvedInput(f"${member.id}", label)
+
+    def _reduce(
+        self,
+        fusion: Fusion,
+        inputs: tuple[_ResolvedInput, ...],
+        *,
+        is_root: bool,
+    ) -> _ResolvedInput:
+        reducer = fusion.reducer
+        if reducer is None:
+            raise UnsupportedReducerError("a composite Fusion requires a reducer")
+        self._fusion_count += 1
+        index = self._fusion_count
+        answer_name = "fusion_answer" if is_root else f"fusion_{index}"
+        if isinstance(reducer, MajorityVote):
+            answers_name = "member_answers" if is_root else f"fusion_inputs_{index}"
+            self._sources.append(
+                src(
+                    struct(
+                        {
+                            f"member_{position}": value.reference
+                            for position, value in enumerate(inputs, 1)
+                        }
+                    ),
+                    name=answers_name,
+                )
+            )
+            call = RelExpr(path=MAJORITY_VOTE_ROUTE, context=f"${answers_name}")
+        elif isinstance(reducer, Model):
+            call = RelExpr(
+                path=_model_route(reducer.model),
+                context=_model_reducer_context(inputs),
+                intent=Text(reducer.prompt),
+                params=_params(reducer._parameter_items),
+            )
+        else:
+            raise UnsupportedReducerError(f"unsupported reducer {type(reducer).__name__!r}")
+        self._sources.append(src(call, name=answer_name))
+        return _ResolvedInput(f"${answer_name}", fusion.name)
 
 
 def compile_model_expression(
@@ -96,26 +179,24 @@ def compile_model_expression(
     )
 
 
-def _member_source(
-    member: _FusionMember,
+def _model_call(
+    call: _ModelCall,
     tool_params: tuple[tuple[str, str], ...],
-):
-    return src(
-        RelExpr(
-            path=_model_route(member.model),
-            context="$question",
-            intent=Text(member.call.prompt),
-            params=_params(member.call.parameter_items) + tool_params,
-        ),
-        name=member.id,
+) -> RelExpr:
+    return RelExpr(
+        path=_model_route(call.model),
+        context="$question",
+        intent=Text(call.prompt),
+        params=_params(call.parameter_items) + tool_params,
     )
 
 
-def _model_reducer_context(members: tuple[_FusionMember, ...]) -> str:
-    member_sections = []
-    for position, member in enumerate(members, 1):
-        member_sections.append(f"Panel {position} [{_literal(member.model)}]:\n${member.id}")
-    return "Question:\n$question\n\nPanel answers:\n" + "\n\n".join(member_sections)
+def _model_reducer_context(inputs: tuple[_ResolvedInput, ...]) -> str:
+    sections = [
+        f"Panel {position} [{_literal(value.label)}]:\n{value.reference}"
+        for position, value in enumerate(inputs, 1)
+    ]
+    return "Question:\n$question\n\nPanel answers:\n" + "\n\n".join(sections)
 
 
 def _model_route(model: str) -> str:

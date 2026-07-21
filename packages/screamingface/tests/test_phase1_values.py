@@ -7,7 +7,6 @@ from typing import cast
 import pytest
 
 import screamingface as sf
-from screamingface.model_inputs import ModelInput
 
 
 def test_config_is_network_free_and_returns_none() -> None:
@@ -75,18 +74,19 @@ def test_benchmark_uses_one_compact_definition_for_local_cases() -> None:
 
 def test_fusion_authoring_is_network_free_and_uses_namespaced_strategies() -> None:
     sf.config(engine="http://engine-that-does-not-exist.invalid")
+    gemini = sf.Fusion(
+        "gemini",
+        model="gemini/2.5-flash",
+        prompt="Answer carefully: $question",
+        params={"temperature": 0.2},
+    )
     fusion = sf.Fusion(
         "frontier-trio",
-        models=[
+        inputs=[
             "codex/gpt-5.5",
-            {
-                "model": "gemini/2.5-flash",
-                "prompt": "Answer carefully: $question",
-                "params": {"temperature": 0.2},
-            },
+            gemini,
             "claude/sonnet-4.6",
         ],
-        prompt="Answer: $question",
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Synthesize $member_answers",
@@ -99,7 +99,7 @@ def test_fusion_authoring_is_network_free_and_uses_namespaced_strategies() -> No
         "gemini/2.5-flash",
         "claude/sonnet-4.6",
     )
-    assert isinstance(fusion.models[1], Mapping)
+    assert fusion.inputs[1] is gemini
     assert isinstance(fusion.reducer, sf.reducers.Model)
 
 
@@ -200,83 +200,6 @@ def test_callable_case_source_is_validated_when_materialized() -> None:
         benchmark._materialize_cases()
 
 
-@pytest.mark.parametrize(
-    ("factory", "message"),
-    [
-        (
-            lambda: sf.Fusion("", ["a", "b"], reducer=sf.reducers.MajorityVote()),
-            "name",
-        ),
-        (
-            lambda: sf.Fusion("x", ["a"], reducer=sf.reducers.MajorityVote()),
-            "two",
-        ),
-        (
-            lambda: sf.Fusion("x", ["a", "b"], reducer=cast(sf.Reducer, "wrong")),
-            "sf.Reducer",
-        ),
-        (
-            lambda: sf.Fusion(
-                "x",
-                cast(Sequence[str], "not-a-sequence"),
-                reducer=sf.reducers.MajorityVote(),
-            ),
-            "sequence",
-        ),
-        (
-            lambda: sf.Fusion(
-                "x",
-                cast(Sequence[ModelInput], [{"prompt": "missing"}, "b"]),
-                reducer=sf.reducers.MajorityVote(),
-            ),
-            "missing",
-        ),
-        (
-            lambda: sf.Fusion(
-                "x",
-                cast(
-                    Sequence[ModelInput],
-                    [{"model": "a", "extra": 1}, "b"],
-                ),
-                reducer=sf.reducers.MajorityVote(),
-            ),
-            "unknown",
-        ),
-        (
-            lambda: sf.Fusion(
-                "x",
-                cast(
-                    Sequence[ModelInput],
-                    [
-                        {
-                            "model": "a",
-                            "params": cast(Mapping[str, object], []),
-                        },
-                        "b",
-                    ],
-                ),
-                reducer=sf.reducers.MajorityVote(),
-            ),
-            "mapping",
-        ),
-        (
-            lambda: sf.Fusion(
-                "x",
-                [
-                    {"model": "a", "params": {"temperature": math.inf}},
-                    "b",
-                ],
-                reducer=sf.reducers.MajorityVote(),
-            ),
-            "finite",
-        ),
-    ],
-)
-def test_fusion_and_member_validation(factory: Callable[[], object], message: str) -> None:
-    with pytest.raises((TypeError, ValueError), match=message):
-        factory()
-
-
 def test_strategy_parameters_are_defensive_and_validated() -> None:
     reducer = sf.reducers.Model(model="judge", prompt="reduce", params={"temperature": 0.2})
     reducer.params["temperature"] = 1.0
@@ -293,8 +216,8 @@ def test_strategy_parameters_are_defensive_and_validated() -> None:
     [
         lambda: sf.Fusion(
             "reserved",
-            [{"model": "one", "params": {"tools": "web_search"}}, "two"],
-            reducer=sf.reducers.MajorityVote(),
+            model="one",
+            params={"tools": "web_search"},
         ),
         lambda: sf.reducers.Model(
             model="judge",
@@ -316,7 +239,7 @@ def test_tools_are_not_generic_model_parameters(factory: Callable[[], object]) -
 def test_fusion_repr_is_compact_and_does_not_contact_the_engine() -> None:
     fusion = sf.Fusion(
         "My Fusion",
-        ["model/a", "model/b"],
+        inputs=["model/a", "model/b"],
         reducer=sf.reducers.MajorityVote(),
     )
 

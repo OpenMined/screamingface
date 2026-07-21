@@ -58,28 +58,26 @@ def test_fusions_notebook_code_cells_are_valid_python() -> None:
 def test_fusions_notebook_starts_with_concise_members_and_majority_vote() -> None:
     code = _sources("code")
 
-    assert "SHARED_PROMPT =" in code
     assert '"codex/gpt-5.5"' in code
     assert '"gemini/2.5-flash"' in code
     assert '"claude/sonnet-4.6"' in code
-    assert "prompt=SHARED_PROMPT" in code
     assert "reducer=sf.reducers.MajorityVote()" in code
 
 
-def test_fusions_notebook_uses_mappings_only_for_member_overrides() -> None:
+def test_fusions_notebook_uses_atomic_fusions_for_input_overrides() -> None:
     code = _sources("code")
 
-    assert '"model": "gemini/2.5-flash"' in code
-    assert '"prompt": "Check the scientific reasoning and answer directly."' in code
-    assert '"params": {"temperature": 0.2, "max_tokens": 512}' in code
-    assert "specialist_fusion.models" in code
+    assert 'model="gemini/2.5-flash"' in code
+    assert 'prompt="Check the scientific reasoning and answer directly."' in code
+    assert 'params={"temperature": 0.2, "max_tokens": 512}' in code
+    assert "specialist_fusion.inputs" in code
 
 
 def test_fusions_notebook_supports_duplicate_models_and_model_reduction() -> None:
     code = _sources("code")
 
     assert 'SELF_MODEL = "claude/sonnet-4.6"' in code
-    assert code.count('"model": SELF_MODEL') == 2
+    assert code.count("model=SELF_MODEL") == 2
     assert '"temperature": 0.2' in code
     assert '"temperature": 0.8' in code
     assert "reducer=sf.reducers.Model(" in code
@@ -91,7 +89,7 @@ def test_fusions_notebook_inspects_only_the_public_authoring_values() -> None:
     code = _sources("code")
     markdown = _sources("markdown")
 
-    assert "frontier_fusion.models" in code
+    assert "frontier_fusion.inputs" in code
     assert "frontier_fusion.model_ids" in code
     assert "frontier_fusion.reducer" in code
     assert "frontier_fusion.url4" in code

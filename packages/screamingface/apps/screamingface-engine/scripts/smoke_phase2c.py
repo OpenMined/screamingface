@@ -18,7 +18,7 @@ def main() -> None:
     )
     fusion = sf.Fusion(
         "phase2c-smoke",
-        models=["codex/gpt-5.5", "gemini/2.5-flash", "claude/sonnet-4.6"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash", "claude/sonnet-4.6"],
         prompt="Answer with only the final number.",
         reducer=sf.reducers.MajorityVote(),
     )

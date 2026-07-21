@@ -21,7 +21,7 @@ import screamingface as sf
 
 fusion = sf.Fusion(
     "frontier-trio",
-    models=[
+    inputs=[
         "codex/gpt-5.5",
         "gemini/2.5-flash",
         "claude/sonnet-4.6",
@@ -73,9 +73,7 @@ Phase 0 establishes:
 
 ```python
 sf.config
-sf.Model
 sf.Fusion
-sf.FusionMonster
 sf.Benchmark
 sf.Case
 sf.Reducer
@@ -117,35 +115,35 @@ Low-level result records are immutable values surfaced through `Run` and `Grades
 `MemberResult`, and `RunFailure` are exported for inspection and type checking, but users receive
 them from `Fusion.run()` rather than constructing them as configuration.
 
-Phase 10 adds a reusable comparison graph without complicating the short path. Strings and model
-configuration dictionaries in `Fusion.models` remain shorthand model calls. A named `sf.Model`
-is the explicit leaf form used when the same answer must be reused across Fusions or reported as
-its own system:
+Phase 10 makes Fusion itself recursive without complicating the short path. A Fusion is a
+shareable answer recipe. It either calls one model directly or combines the answers of other
+Fusions. A string in `inputs` is concise shorthand for an anonymous atomic Fusion. Use an explicit
+atomic Fusion when a call needs its own prompt, parameters, name, or shared execution identity:
 
 ```python
-opus = sf.Model(
+opus = sf.Fusion(
     "opus",
-    "anthropic/claude-opus-4.8",
+    model="anthropic/claude-opus-4.8",
     prompt=DRACO_ANSWER_PROMPT,
     params={"max_tokens": 8192},
 )
-gpt = sf.Model("gpt", "openai/gpt-5.5", prompt=DRACO_ANSWER_PROMPT)
+gpt = sf.Fusion("gpt", model="openai/gpt-5.5", prompt=DRACO_ANSWER_PROMPT)
 fusion = sf.Fusion(
     "opus-plus-gpt",
-    models=[opus, gpt],
+    inputs=[opus, gpt],
     reducer=sf.reducers.Model(
         model="anthropic/claude-opus-4.8",
         prompt=DRACO_SYNTHESIS_PROMPT,
     ),
 )
-monster = sf.FusionMonster("draco", systems=[opus, gpt, fusion])
 ```
 
-`FusionMonster.systems` contains only explicitly named Models and Fusions. System names are unique.
-Reusing the same Model value establishes shared answer identity; separately named Model values on
-the same route are independent samples. A Fusion-only named Model may be reused without becoming a
-top-level reported system. URL4 response member slots remain `member_1..member_n`; graph names do
-not change the generic engine schema. `sf.Experiment`, `sf.Solo`, and `sf.Lineup` do not exist.
+Exactly one of `model` or `inputs` is required. Atomic Fusions reject reducers; composite Fusions
+require a reducer and reject model prompts/parameters of their own. Reusing the same Fusion value
+establishes shared execution identity; separately constructed atomic Fusions on the same route are
+independent samples. Explicit Fusion names are unique within a graph. URL4 response member slots
+remain `member_1..member_n` for the graph's atomic leaves. `sf.Model`, `sf.FusionMonster`,
+`sf.Experiment`, `sf.Solo`, and `sf.Lineup` do not exist.
 
 Not included in the benchmark-core MVP:
 
@@ -177,7 +175,7 @@ The configured value must be an HTTP(S) origin: scheme and authority only, with 
 or fragment. This keeps discovery resources and `/v1` evaluation on one unambiguous engine
 boundary.
 
-Importing ScreamingFace and directly constructing a `Model`, `Fusion`, `FusionMonster`, `Case`, or `Benchmark` perform no
+Importing ScreamingFace and directly constructing a `Fusion`, `Case`, or `Benchmark` performs no
 network request. Model discovery, Fusion execution, and model-backed grading use the configured
 HTTP engine. Named benchmark discovery is SDK-local; loading may contact the canonical dataset
 source through the researcher's own credentials but never contacts the engine.
@@ -529,21 +527,20 @@ references, credentials, and result sources must remain inaccessible to every to
 
 ## 8. Fusion authoring
 
-The final model-input shape is:
+A Fusion is a shareable answer recipe. It can call one model directly or combine the answers of
+other Fusions:
 
 ```python
+claude = sf.Fusion(
+    "claude-researcher",
+    model="claude/sonnet-4.6",
+    prompt=CLAUDE_PROMPT,
+    params={"temperature": 0.3},
+)
+
 fusion = sf.Fusion(
     "frontier-trio",
-    models=[
-        "codex/gpt-5.5",
-        "gemini/2.5-flash",
-        {
-            "model": "claude/sonnet-4.6",
-            "prompt": CLAUDE_PROMPT,
-            "params": {"temperature": 0.3},
-        },
-    ],
-    prompt=DEFAULT_PANEL_PROMPT,
+    inputs=["codex/gpt-5.5", "gemini/2.5-flash", claude],
     reducer=sf.reducers.Model(
         model="codex/gpt-5.5",
         prompt=SYNTHESIS_PROMPT,
@@ -554,12 +551,14 @@ fusion = sf.Fusion(
 
 Rules:
 
-- a string is the common member shorthand;
-- a mapping configures only that member's model, prompt, or model parameters;
-- `Fusion.prompt` is the default panel intent and a member prompt overrides it;
-- omitted prompts use the minimal SDK default `"Answer the question."`;
-- repeated models remain distinct ordered execution slots (`member_1`, `member_2`, ...);
-- model parameters become query parameters on that model route;
+- exactly one of `model` or `inputs` is required;
+- an atomic Fusion accepts `model`, optional `prompt`, and optional scalar `params`;
+- an omitted atomic prompt uses the minimal SDK default `"Answer the question."`;
+- a composite Fusion accepts one or more `str | Fusion` inputs and requires a reducer;
+- a string is shorthand for a new anonymous atomic input using the default prompt;
+- there is no public dictionary input form;
+- reusing one explicit Fusion value reuses its answer node, while repeated strings or separately
+  constructed Fusions remain independent calls;
 - reducers are explicit strategy objects; and
 - a DRACO reproduction pins its research-answer prompt in the Fusion.
 
@@ -567,14 +566,14 @@ Rules:
 `Run`, `Grades`, and `Report`. “Panel” remains descriptive research language for the members
 answering together; it is not a second identifier namespace.
 
-`reducers.Model` uses the same conceptual `model`, `prompt`, and `params` fields as a configured
-member. `reducers.MajorityVote()` performs deterministic exact-string voting and breaks ties by
-stable member order.
+`reducers.Model` uses the same conceptual `model`, `prompt`, and `params` fields as an atomic
+Fusion. `reducers.MajorityVote()` performs deterministic exact-string voting and breaks ties by
+stable input order.
 
 URL4 interpolates embedded references in prompt templates. Researchers may therefore reference
-`$question` deliberately, but they do not need to repeat the question in the prompt: every panel
-route already receives it as URL4 context. The prompt is normally just the model's system-level
-instruction.
+`$question` deliberately, but they do not need to repeat the question in an atomic prompt: every
+model route already receives it as URL4 context. The prompt is normally just the model's
+system-level instruction.
 
 For `reducers.Model`, the compiler—not the researcher—constructs the reducer's user context from
 the resolved question and every labeled panel answer:

@@ -164,7 +164,7 @@ def test_draco_evaluation_fails_preflight_without_engine_spend(
     )
     fusion = sf.Fusion(
         "pair",
-        models=["claude/sonnet-4.6", "claude/sonnet-4.6"],
+        inputs=["claude/sonnet-4.6", "claude/sonnet-4.6"],
         reducer=sf.reducers.MajorityVote(),
     )
 

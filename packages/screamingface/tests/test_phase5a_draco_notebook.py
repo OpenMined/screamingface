@@ -53,10 +53,10 @@ def test_draco_preview_matches_the_quickstart_public_workflow() -> None:
     markdown = _sources("markdown")
 
     assert "sf.connect()" in code
-    assert '"model": "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra"' in code
-    assert '"model": "huggingface/zai-org/GLM-5.2~deepinfra"' in code
-    assert '"prompt": EVIDENCE_PROMPT' in code
-    assert '"prompt": CHALLENGE_PROMPT' in code
+    assert 'model="huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra"' in code
+    assert 'model="huggingface/zai-org/GLM-5.2~deepinfra"' in code
+    assert "prompt=EVIDENCE_PROMPT" in code
+    assert "prompt=CHALLENGE_PROMPT" in code
     assert "sf.reducers.Model(" in code
     assert 'model="codex/gpt-5.5"' in code
     assert 'report = fusion.evaluate("draco-preview@1", first=1)' in code

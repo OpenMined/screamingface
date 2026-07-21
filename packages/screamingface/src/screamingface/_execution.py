@@ -417,21 +417,21 @@ def _preflight(fusion: Fusion, benchmark: Benchmark, registry: Registry) -> None
 
 def _required_models(fusion: Fusion, _benchmark: Benchmark) -> tuple[str, ...]:
     models = list(fusion.model_ids)
-    if isinstance(fusion.reducer, Model):
-        models.append(fusion.reducer.model)
+    models.extend(reducer.model for reducer in fusion._reducers if isinstance(reducer, Model))
     return tuple(models)
 
 
 def _reducer(fusion: Fusion, registry: Registry) -> None:
-    if isinstance(fusion.reducer, MajorityVote):
-        reducer = next(
-            (record for record in registry.reducers if record.id == fusion.reducer.kind),
-            None,
-        )
-        if reducer is None or reducer.route != MAJORITY_VOTE_ROUTE:
-            raise UnsupportedReducerError(f"engine does not advertise {MAJORITY_VOTE_ROUTE!r}")
-    elif not isinstance(fusion.reducer, Model):
-        raise UnsupportedReducerError(f"unsupported reducer {type(fusion.reducer).__name__!r}")
+    for strategy in fusion._reducers:
+        if isinstance(strategy, MajorityVote):
+            reducer = next(
+                (record for record in registry.reducers if record.id == strategy.kind),
+                None,
+            )
+            if reducer is None or reducer.route != MAJORITY_VOTE_ROUTE:
+                raise UnsupportedReducerError(f"engine does not advertise {MAJORITY_VOTE_ROUTE!r}")
+        elif not isinstance(strategy, Model):
+            raise UnsupportedReducerError(f"unsupported reducer {type(strategy).__name__!r}")
 
 
 def _references(cases: Sequence[Case], benchmark: Benchmark) -> None:

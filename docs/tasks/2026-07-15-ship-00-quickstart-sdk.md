@@ -854,7 +854,7 @@ progress distinguish attempted from scored cases. An all-failed evaluation omits
 on completing the unchanged one-case Preview inside its pinned policy; do not silently increase
 the budget, substitute a model, or claim DRACO readiness.
 
-## Phase 10A reusable FusionMonster authoring — 2026-07-20
+## Superseded Phase 10A reusable FusionMonster checkpoint — 2026-07-20
 
 Added the approved network-free graph vocabulary needed to express the historical DRACO matrix:
 
@@ -871,3 +871,22 @@ Added the approved network-free graph vocabulary needed to express the historica
 No `Solo`, `Lineup`, `Experiment`, or compatibility alias was added. This phase defines and proves
 authoring only; shared execution, grading/reporting, and the guarded one-case full DRACO topology
 remain Phases 10B through 10D.
+
+This checkpoint was superseded before release by the recursive Fusion contract below. None of its
+`Model` or `FusionMonster` names remain in the SDK's current public surface.
+
+## Phase 10A-R recursive Fusion authoring and compilation — 2026-07-20
+
+Replaced the discarded graph vocabulary with one recursive abstraction:
+
+- a Fusion is a shareable answer recipe;
+- `sf.Fusion(name, model=..., prompt=..., params=...)` is an atomic model call;
+- `sf.Fusion(name, inputs=[...], reducer=...)` combines other Fusions;
+- model-ID strings are concise anonymous atomic inputs;
+- reusing the same explicit Fusion value shares its URL4 answer node;
+- separately constructed Fusions and repeated strings remain independent calls; and
+- `sf.Model`, `sf.FusionMonster`, `sf.Experiment`, `sf.Solo`, and `sf.Lineup` do not exist.
+
+Recursive compilation emits one URL4 generation DAG per case and reports the flattened atomic
+leaves as `member_1..member_n`, preserving baseline and gain semantics. Multi-root evaluation,
+multi-root reports, and visualization remain Phases 10B through 10D.

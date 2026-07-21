@@ -24,10 +24,8 @@ from screamingface.errors import (
     UnsupportedToolError,
 )
 from screamingface.fusion import Fusion
-from screamingface.fusion_monster import FusionMonster
 from screamingface.graders import Grader
 from screamingface.grades import CaseGrades, CriterionVerdict, Grade, GradeFailure, Grades
-from screamingface.model_inputs import Model
 from screamingface.reducers import Reducer
 from screamingface.report import MemberReport, Report
 from screamingface.run import CaseResult, MemberResult, Run, RunFailure
@@ -46,7 +44,6 @@ __all__ = [
     "EngineProtocolError",
     "EngineRequestTooLargeError",
     "Fusion",
-    "FusionMonster",
     "Grade",
     "GradeFailure",
     "Grader",
@@ -54,7 +51,6 @@ __all__ = [
     "InvalidBenchmarkError",
     "MemberResult",
     "MemberReport",
-    "Model",
     "OAuthFlow",
     "ProviderConnectionError",
     "Reducer",

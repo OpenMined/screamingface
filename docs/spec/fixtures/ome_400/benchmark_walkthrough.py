@@ -13,14 +13,22 @@ clear prose.
 # service at http://127.0.0.1:4404. Override it for another deployment:
 # sf.config(engine="https://url4.example.org")
 
+researchers = tuple(
+    sf.Fusion(
+        name,
+        model=model,
+        prompt=RESEARCH_PROMPT,
+    )
+    for name, model in (
+        ("codex-researcher", "codex/gpt-5.5"),
+        ("gemini-researcher", "gemini/2.5-flash"),
+        ("claude-researcher", "claude/sonnet-4.6"),
+    )
+)
+
 fusion = sf.Fusion(
     "frontier-trio",
-    models=[
-        "codex/gpt-5.5",
-        "gemini/2.5-flash",
-        "claude/sonnet-4.6",
-    ],
-    prompt=RESEARCH_PROMPT,
+    inputs=researchers,
     reducer=sf.reducers.Model(
         model="codex/gpt-5.5",
         prompt="Synthesize the labeled panel answers into one final answer.",

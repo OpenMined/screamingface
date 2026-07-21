@@ -312,7 +312,7 @@ def test_stage_requirement_planning_uses_explicit_provider_metadata(
     registry = _profile.load_registry()
     fusion = sf.Fusion(
         "panel",
-        models=["codex/gpt-5.5", "gemini/2.5-flash"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Reduce: $panel_answers",
@@ -342,7 +342,7 @@ def test_deterministic_strategies_add_no_model_requirement(monkeypatch: pytest.M
     registry = _profile.load_registry()
     fusion = sf.Fusion(
         "vote",
-        models=["codex/gpt-5.5", "gemini/2.5-flash"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
     benchmark = sf.Benchmark(
@@ -359,7 +359,7 @@ def test_deterministic_strategies_add_no_model_requirement(monkeypatch: pytest.M
 
     repeated = sf.Fusion(
         "repeated",
-        models=["codex/gpt-5.5", "codex/gpt-5.5"],
+        inputs=["codex/gpt-5.5", "codex/gpt-5.5"],
         reducer=sf.reducers.MajorityVote(),
     )
     repeated_requirements = run_requirements(repeated, benchmark, registry)

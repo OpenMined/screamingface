@@ -9,14 +9,16 @@ from screamingface._compiler import compile_fusion
 
 def test_majority_recipe_is_canonical_parameterized_and_network_free() -> None:
     sf.config(engine="http://engine-that-does-not-exist.invalid")
+    gemini = sf.Fusion(
+        "gemini",
+        model="gemini/2.5-flash",
+        params={"temperature": 0.2, "enabled": True},
+    )
     fusion = sf.Fusion(
         "frontier",
-        [
+        inputs=[
             "codex/gpt-5.5",
-            {
-                "model": "gemini/2.5-flash",
-                "params": {"temperature": 0.2, "enabled": True},
-            },
+            gemini,
         ],
         reducer=sf.reducers.MajorityVote(),
     )
@@ -29,13 +31,13 @@ def test_majority_recipe_is_canonical_parameterized_and_network_free() -> None:
     assert "/gemini/2.5-flash?temperature=0.2&enabled=true&q=($question)" in recipe
     assert "fusion_answer=/reducers/majority-vote($member_answers)" in recipe
     assert "schema: 'screamingface.fusion-result.v1'" in recipe
-    assert fusion.prompt == "Answer the question."
+    assert fusion.prompt is None
 
 
 def test_concrete_expression_binds_literal_question_without_a_reference() -> None:
     fusion = sf.Fusion(
         "money",
-        ["codex/gpt-5.5", "gemini/2.5-flash"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -49,7 +51,7 @@ def test_concrete_expression_binds_literal_question_without_a_reference() -> Non
 def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4() -> None:
     fusion = sf.Fusion(
         "research",
-        ["codex/gpt-5.5", "gemini/2.5-flash"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -97,7 +99,7 @@ def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4()
 def test_model_reducer_receives_automatic_labeled_context_and_its_own_intent() -> None:
     fusion = sf.Fusion(
         "synthesis",
-        ["codex/gpt-5.5", "gemini/2.5-flash"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Synthesize the panel answers.",
@@ -124,7 +126,7 @@ def test_unknown_reducer_has_no_fallback_compilation() -> None:
     class Other(sf.Reducer):
         kind = "other"
 
-    fusion = sf.Fusion("other", ["a", "b"], reducer=Other())
+    fusion = sf.Fusion("other", inputs=["a", "b"], reducer=Other())
 
     with pytest.raises(sf.UnsupportedReducerError, match="unsupported reducer"):
         _ = fusion.url4

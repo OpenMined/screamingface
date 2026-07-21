@@ -226,7 +226,7 @@ def test_fusion_evaluate_delegates_to_the_union_preflight_pipeline(
     monkeypatch.setattr(_execution, "evaluate_fusion", fake_evaluate)
     fusion = sf.Fusion(
         "paired-fusion",
-        ["worker/one", "worker/two"],
+        inputs=["worker/one", "worker/two"],
         reducer=sf.reducers.MajorityVote(),
     )
 

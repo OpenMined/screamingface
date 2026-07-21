@@ -25,8 +25,11 @@ def run_requirements(
     fusion: Fusion, benchmark: Benchmark, registry: Registry
 ) -> tuple[ConnectionRequirement, ...]:
     requirements = [_requirement(model, "member", registry) for model in fusion.model_ids]
-    if isinstance(fusion.reducer, Model):
-        requirements.append(_requirement(fusion.reducer.model, "reducer", registry))
+    requirements.extend(
+        _requirement(reducer.model, "reducer", registry)
+        for reducer in fusion._reducers
+        if isinstance(reducer, Model)
+    )
     if benchmark.tools:
         requirements.append(_tool_requirement(registry))
     return _unique(requirements)

@@ -40,7 +40,7 @@ def _benchmark() -> sf.Benchmark:
 def _fusion() -> sf.Fusion:
     return sf.Fusion(
         "research-duo",
-        models=["codex/gpt-5.5", "gemini/2.5-flash"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 

@@ -208,8 +208,8 @@ def _member_items(items: tuple[tuple[str, MemberResult], ...]) -> None:
 
 
 def _run_member_items(items: tuple[tuple[str, str], ...]) -> None:
-    if len(items) < 2:
-        raise ValueError("a run requires at least two member slots")
+    if not items:
+        raise ValueError("a run requires at least one member slot")
     expected = tuple(f"member_{position}" for position in range(1, len(items) + 1))
     observed: list[str] = []
     for member_id, model in items:

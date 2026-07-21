@@ -41,7 +41,7 @@ def _benchmark() -> sf.Benchmark:
 def _fusion() -> sf.Fusion:
     return sf.Fusion(
         "research",
-        models=[
+        inputs=[
             "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",
             "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",
         ],

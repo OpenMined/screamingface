@@ -174,7 +174,7 @@ async def test_sdk_compiler_expression_executes_on_the_persistent_node() -> None
 
     fusion = sf.Fusion(
         "compiled",
-        ["codex/gpt-5.5", "gemini/2.5-flash", "claude/sonnet-4.6"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash", "claude/sonnet-4.6"],
         reducer=sf.reducers.MajorityVote(),
     )
     expression = compile_fusion(fusion, question="Choose A or B")
@@ -218,7 +218,7 @@ async def test_sdk_model_reducer_receives_resolved_question_and_labeled_answers(
 
     fusion = sf.Fusion(
         "compiled-model-reducer",
-        ["codex/gpt-5.5", "gemini/2.5-flash"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Synthesize the panel answers.",

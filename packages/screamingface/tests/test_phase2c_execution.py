@@ -68,7 +68,7 @@ def _connected_providers(monkeypatch: pytest.MonkeyPatch) -> None:
 def _fusion(reducer=None) -> sf.Fusion:
     return sf.Fusion(
         "frontier",
-        ["codex/gpt-5.5", "gemini/2.5-flash"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=reducer or sf.reducers.MajorityVote(),
     )
 

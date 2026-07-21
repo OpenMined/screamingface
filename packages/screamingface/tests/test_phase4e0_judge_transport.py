@@ -104,7 +104,7 @@ def test_run_rejects_every_oversize_expression_before_engine_spend(
 ) -> None:
     fusion = sf.Fusion(
         "pair",
-        ["codex/gpt-5.5", "gemini/2.5-flash"],
+        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
     benchmark = sf.Benchmark(
