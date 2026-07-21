@@ -19,7 +19,7 @@ def _registry(*, limit: int) -> Registry:
             ModelRecord("judge/model", (), "judge"),
         ),
         reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
-        response_schemas=("screamingface.fusion-result.v1",),
+        response_schemas=("screamingface.recipe-result.v1",),
         max_request_target_bytes=limit,
         providers=(
             ProviderRecord("codex", "OpenAI Codex", ("oauth",)),
@@ -104,7 +104,7 @@ def test_run_rejects_every_oversize_expression_before_engine_spend(
 ) -> None:
     fusion = sf.Fusion(
         "pair",
-        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
+        members=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
     benchmark = sf.Benchmark(
@@ -149,8 +149,8 @@ def test_rubric_rejects_all_oversize_judge_calls_before_judge_spend(
     )
     run = sf.Run(
         benchmark=benchmark,
-        fusion_name="pair",
-        fusion_url4="(recipe)",
+        recipe_name="pair",
+        recipe_url4="(recipe)",
         members={
             "member_1": "codex/gpt-5.5",
             "member_2": "gemini/2.5-flash",
@@ -178,4 +178,4 @@ def test_rubric_rejects_all_oversize_judge_calls_before_judge_spend(
         run.grade()
 
     assert caught.value.actual_bytes > caught.value.allowed_bytes == 96
-    assert "case 'q1' fusion criterion 'fact' pass 1" in str(caught.value)
+    assert "case 'q1' recipe criterion 'fact' pass 1" in str(caught.value)

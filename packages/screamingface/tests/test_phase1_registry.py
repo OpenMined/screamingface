@@ -17,7 +17,7 @@ from screamingface import _profile
 def _registry() -> dict[str, object]:
     return {
         "schema": "screamingface.registry.v1",
-        "response_schemas": ["screamingface.fusion-result.v1"],
+        "response_schemas": ["screamingface.recipe-result.v1"],
         "limits": {"max_request_target_bytes": 61440},
         "providers": [
             {

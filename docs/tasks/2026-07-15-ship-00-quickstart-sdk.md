@@ -120,7 +120,7 @@ Implemented the approved SDK run boundary:
 - registry, model, reducer, tool, case, reference, and response-schema preflight;
 - one `GET /v1?q=...` request per selected case with four-way bounded concurrency, stable result
   order, and no retries;
-- strict plaintext `screamingface.fusion-result.v1` decoding with atomic typed failures; and
+- strict plaintext `screamingface.recipe-result.v1` decoding with atomic typed failures; and
 - immutable `Run`, `CaseResult`, `MemberResult`, and `RunFailure` records plus `run.to_dict()`.
 
 The no-runtime-mock Docker smoke now exercises public `Fusion.run()` through the persistent URL4
@@ -310,7 +310,7 @@ Implemented the approved SDK-only benchmark capability overlay:
   capability declarations and discovery filters;
 - reserves `tools` from generic member, model-reducer, and rubric-grader parameters;
 - compiles benchmark tools only onto concrete answer-producing member calls;
-- preserves the benchmark-independent `fusion.url4` and `run.fusion_url4` recipes;
+- preserves the benchmark-independent `fusion.url4` and `run.recipe_url4` recipes;
 - leaves deterministic reducers, model synthesizers, and rubric judges tool-free; and
 - proves single/multiple capability rendering and decoded `Url4Node` request parameters without
   introducing an in-process runtime fallback.
@@ -881,7 +881,7 @@ Replaced the discarded graph vocabulary with one recursive abstraction:
 
 - a Fusion is a shareable answer recipe;
 - `sf.Fusion(name, model=..., prompt=..., params=...)` is an atomic model call;
-- `sf.Fusion(name, inputs=[...], reducer=...)` combines other Fusions;
+- `sf.Fusion(name, members=[...], reducer=...)` combines other Fusions;
 - model-ID strings are concise anonymous atomic inputs;
 - reusing the same explicit Fusion value shares its URL4 answer node;
 - separately constructed Fusions and repeated strings remain independent calls; and
@@ -890,3 +890,22 @@ Replaced the discarded graph vocabulary with one recursive abstraction:
 Recursive compilation emits one URL4 generation DAG per case and reports the flattened atomic
 leaves as `member_1..member_n`, preserving baseline and gain semantics. Multi-root evaluation,
 multi-root reports, and visualization remain Phases 10B through 10D.
+
+This checkpoint was superseded before release by the Recipe / Model / Fusion contract below.
+
+## Phase 10B Recipe / Model / Fusion contract — 2026-07-21
+
+Separated atomic and composite authoring while retaining one shared execution interface:
+
+- `sf.Recipe` is the public, non-constructible umbrella type for a shareable URL4 answer graph;
+- `sf.Model(model, name=None, prompt=None, params=None)` is an atomic Recipe;
+- `sf.Fusion(name, members=[...], reducer=...)` is a composite Recipe;
+- member strings are concise default-Model shorthand and normalize to `sf.Model` values;
+- Models and Fusions both expose `.url4`, `.run(...)`, and `.evaluate(...)`;
+- execution records use neutral `recipe_name`, `recipe_url4`, and `CaseGrades.recipe` fields;
+- plaintext engine results use `screamingface.recipe-result.v1`; and
+- there are no atomic-Fusion, `inputs=`, `FusionMonster`, or top-level execution fallbacks.
+
+“Fusion monster” remains optional product language for a substantial nested Fusion; it is not an
+SDK type. Importing a ScreamingFace-generated URL4 back into an editable Recipe remains the
+explicit OME-408 round-trip phase rather than an incomplete compatibility path in this change.

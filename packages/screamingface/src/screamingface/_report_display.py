@@ -151,7 +151,7 @@ def report_repr(report: Report) -> str:
     status = _status(report)
     failures, skipped = _split_failures(report)
     identity = (
-        f"fusion_name={report.fusion_name!r}, benchmark_id={report.benchmark_id!r}, "
+        f"recipe_name={report.recipe_name!r}, benchmark_id={report.benchmark_id!r}, "
         f"status={status!r}, scored={report.n_scored}/{report.n_cases}"
     )
     if report.n_scored == 0:
@@ -198,7 +198,7 @@ def _status(report: Report) -> ReportStatus:
 def _header(report: Report, status: ReportStatus) -> str:
     return (
         "<div class='sf-report-head'><div>"
-        f"<div class='sf-report-title'>{escape(report.fusion_name)}</div>"
+        f"<div class='sf-report-title'>{escape(report.recipe_name)}</div>"
         f"<div class='sf-report-meta'>{escape(report.benchmark_id)}</div>"
         "</div>"
         f"<div class='sf-report-status {status}'>"
@@ -228,7 +228,7 @@ def _headline(report: Report, status: ReportStatus) -> str:
         )
     return (
         "<div class='sf-report-stats'>"
-        f"{_metric(_percent(report.score), 'fusion score')}"
+        f"{_metric(_percent(report.score), 'recipe score')}"
         f"{_metric(_gain(report.gain), 'gain over best', gain=report.gain)}"
         f"{_metric(_percent(report.baseline), 'best member')}"
         f"{_metric(str(report.n_scored) + '/' + str(report.n_cases), 'coverage')}"

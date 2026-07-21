@@ -18,15 +18,17 @@ def main() -> None:
     )
     fusion = sf.Fusion(
         "phase2c-smoke",
-        inputs=["codex/gpt-5.5", "gemini/2.5-flash", "claude/sonnet-4.6"],
-        prompt="Answer with only the final number.",
+        members=[
+            sf.Model(model, prompt="Answer with only the final number.")
+            for model in ("codex/gpt-5.5", "gemini/2.5-flash", "claude/sonnet-4.6")
+        ],
         reducer=sf.reducers.MajorityVote(),
     )
 
     run = fusion.run(benchmark)
     assert run.benchmark_id == "phase2c-smoke@1"
     assert run.case_ids == ("arithmetic",)
-    assert run.fusion_url4 == fusion.url4
+    assert run.recipe_url4 == fusion.url4
 
     if run.complete:
         result = run.results[0]

@@ -149,7 +149,7 @@ def test_draco_evaluation_fails_preflight_without_engine_spend(
                 ),
             ),
             reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
-            response_schemas=("screamingface.fusion-result.v1",),
+            response_schemas=("screamingface.recipe-result.v1",),
             max_request_target_bytes=61440,
             providers=(
                 ProviderRecord("anthropic", "Anthropic", ("oauth", "api_key")),
@@ -164,7 +164,7 @@ def test_draco_evaluation_fails_preflight_without_engine_spend(
     )
     fusion = sf.Fusion(
         "pair",
-        inputs=["claude/sonnet-4.6", "claude/sonnet-4.6"],
+        members=["claude/sonnet-4.6", "claude/sonnet-4.6"],
         reducer=sf.reducers.MajorityVote(),
     )
 

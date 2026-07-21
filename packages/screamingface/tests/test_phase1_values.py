@@ -74,15 +74,15 @@ def test_benchmark_uses_one_compact_definition_for_local_cases() -> None:
 
 def test_fusion_authoring_is_network_free_and_uses_namespaced_strategies() -> None:
     sf.config(engine="http://engine-that-does-not-exist.invalid")
-    gemini = sf.Fusion(
-        "gemini",
-        model="gemini/2.5-flash",
+    gemini = sf.Model(
+        "gemini/2.5-flash",
+        name="gemini",
         prompt="Answer carefully: $question",
         params={"temperature": 0.2},
     )
     fusion = sf.Fusion(
         "frontier-trio",
-        inputs=[
+        members=[
             "codex/gpt-5.5",
             gemini,
             "claude/sonnet-4.6",
@@ -99,7 +99,7 @@ def test_fusion_authoring_is_network_free_and_uses_namespaced_strategies() -> No
         "gemini/2.5-flash",
         "claude/sonnet-4.6",
     )
-    assert fusion.inputs[1] is gemini
+    assert fusion.members[1] is gemini
     assert isinstance(fusion.reducer, sf.reducers.Model)
 
 
@@ -214,9 +214,9 @@ def test_strategy_parameters_are_defensive_and_validated() -> None:
 @pytest.mark.parametrize(
     "factory",
     [
-        lambda: sf.Fusion(
-            "reserved",
-            model="one",
+        lambda: sf.Model(
+            "one",
+            name="reserved",
             params={"tools": "web_search"},
         ),
         lambda: sf.reducers.Model(
@@ -239,7 +239,7 @@ def test_tools_are_not_generic_model_parameters(factory: Callable[[], object]) -
 def test_fusion_repr_is_compact_and_does_not_contact_the_engine() -> None:
     fusion = sf.Fusion(
         "My Fusion",
-        inputs=["model/a", "model/b"],
+        members=["model/a", "model/b"],
         reducer=sf.reducers.MajorityVote(),
     )
 

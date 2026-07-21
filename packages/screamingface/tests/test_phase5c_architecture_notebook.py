@@ -73,7 +73,7 @@ def test_architecture_notebook_uses_public_url4_builders_for_one_real_get() -> N
     assert "from url4 import Expression, RelExpr, render, src, struct" in code
     assert 'path="/reducers/majority-vote"' in code
     assert 'name="member_answers"' in code
-    assert 'name="fusion_answer"' in code
+    assert 'name="recipe_answer"' in code
     assert 'httpx.Request("GET", f"{ENGINE_URL}/v1", params={"q": expression})' in code
     assert "client.send(request)" in code
     assert "response.text" in code

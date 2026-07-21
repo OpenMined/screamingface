@@ -7,7 +7,7 @@ import httpx
 import pytest
 import screamingface as sf
 from model_fixtures import MODEL_ROUTES
-from screamingface._compiler import compile_fusion
+from screamingface._compiler import compile_recipe
 from url4 import Request, ResolutionError
 
 from screamingface_engine.app import create_app
@@ -94,8 +94,8 @@ async def test_reducer_route_and_complete_literal_expression_return_plaintext() 
             params={
                 "q": (
                     "(member_answers={member_1:'A',member_2:'B',member_3:'A'},"
-                    "fusion_answer=/reducers/majority-vote($member_answers),"
-                    "{schema:'screamingface.fusion-result.v1',answer:'$fusion_answer'})"
+                    "recipe_answer=/reducers/majority-vote($member_answers),"
+                    "{schema:'screamingface.recipe-result.v1',answer:'$recipe_answer'})"
                 )
             },
         )
@@ -104,7 +104,7 @@ async def test_reducer_route_and_complete_literal_expression_return_plaintext() 
     assert direct.status_code == 200
     assert direct.text == "B"
     assert evaluated.status_code == 200
-    assert evaluated.json() == {"schema": "screamingface.fusion-result.v1", "answer": "A"}
+    assert evaluated.json() == {"schema": "screamingface.recipe-result.v1", "answer": "A"}
     assert calls == 0
 
 
@@ -137,12 +137,12 @@ async def test_complete_model_and_reducer_expression_makes_only_panel_gateway_ca
         "member_2=/gemini/2.5-flash($question)!'Answer',"
         "member_3=/claude/sonnet-4.6($question)!'Answer',"
         "member_answers={member_1:'$member_1',member_2:'$member_2',member_3:'$member_3'},"
-        "fusion_answer=/reducers/majority-vote($member_answers),"
-        "{schema:'screamingface.fusion-result.v1',"
+        "recipe_answer=/reducers/majority-vote($member_answers),"
+        "{schema:'screamingface.recipe-result.v1',"
         "members:{member_1:{model:'codex/gpt-5.5',answer:'$member_1'},"
         "member_2:{model:'gemini/2.5-flash',answer:'$member_2'},"
         "member_3:{model:'claude/sonnet-4.6',answer:'$member_3'}},"
-        "answer:'$fusion_answer'})"
+        "answer:'$recipe_answer'})"
     )
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         response = await client.get("/v1", params={"q": expression})
@@ -174,10 +174,10 @@ async def test_sdk_compiler_expression_executes_on_the_persistent_node() -> None
 
     fusion = sf.Fusion(
         "compiled",
-        inputs=["codex/gpt-5.5", "gemini/2.5-flash", "claude/sonnet-4.6"],
+        members=["codex/gpt-5.5", "gemini/2.5-flash", "claude/sonnet-4.6"],
         reducer=sf.reducers.MajorityVote(),
     )
-    expression = compile_fusion(fusion, question="Choose A or B")
+    expression = compile_recipe(fusion, question="Choose A or B")
     gateway = GatewayClient(
         "http://gateway.test",
         timeout=5,
@@ -190,7 +190,7 @@ async def test_sdk_compiler_expression_executes_on_the_persistent_node() -> None
 
     assert response.status_code == 200
     assert response.json() == {
-        "schema": "screamingface.fusion-result.v1",
+        "schema": "screamingface.recipe-result.v1",
         "members": {
             "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
             "member_2": {"model": "gemini/2.5-flash", "answer": "B"},
@@ -218,13 +218,13 @@ async def test_sdk_model_reducer_receives_resolved_question_and_labeled_answers(
 
     fusion = sf.Fusion(
         "compiled-model-reducer",
-        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
+        members=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Synthesize the panel answers.",
         ),
     )
-    expression = compile_fusion(fusion, question="Research question")
+    expression = compile_recipe(fusion, question="Research question")
     gateway = GatewayClient(
         "http://gateway.test",
         timeout=5,

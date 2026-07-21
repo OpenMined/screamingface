@@ -1,4 +1,4 @@
-"""Preflight and bounded synchronous execution for Fusion.run()."""
+"""Preflight and bounded synchronous execution for Recipe.run()."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Protocol
 import httpx
 
 from screamingface import connections
-from screamingface._compiler import MAJORITY_VOTE_ROUTE, compile_fusion
+from screamingface._compiler import MAJORITY_VOTE_ROUTE, compile_recipe
 from screamingface._config import current_engine_url
 from screamingface._connection_preflight import require_connections
 from screamingface._engine_http import (
@@ -22,7 +22,7 @@ from screamingface._engine_http import (
     unique_json_object,
 )
 from screamingface._exact_choice import validate_exact_reference
-from screamingface._profile import FUSION_RESULT_SCHEMA, Registry, load_registry
+from screamingface._profile import RECIPE_RESULT_SCHEMA, Registry, load_registry
 from screamingface._progress import Progress, ProgressSetting
 from screamingface._requirements import evaluate_requirements, run_requirements
 from screamingface.benchmark import Benchmark, Case
@@ -33,8 +33,8 @@ from screamingface.errors import (
     UnsupportedReducerError,
     UnsupportedToolError,
 )
-from screamingface.fusion import Fusion
 from screamingface.graders import ExactChoice
+from screamingface.recipe import Recipe
 from screamingface.reducers import MajorityVote, Model
 from screamingface.run import CaseResult, FailureKind, MemberResult, Run, RunFailure
 
@@ -66,8 +66,8 @@ class _EngineClient(Protocol):
     ) -> httpx.Response: ...
 
 
-def run_fusion(
-    fusion: Fusion,
+def run_recipe(
+    recipe: Recipe,
     benchmark: str | Benchmark,
     *,
     first: int | None,
@@ -81,13 +81,13 @@ def run_fusion(
     benchmark_id = (
         benchmark if isinstance(benchmark, str) else getattr(benchmark, "id", "benchmark")
     )
-    tracker = _tracker or Progress(fusion.name, benchmark_id, progress)
+    tracker = _tracker or Progress(recipe.name, benchmark_id, progress)
     owns_tracker = _tracker is None
     if owns_tracker:
         tracker.stage("checking", "Checking requirements")
     try:
-        result = _run_fusion(
-            fusion,
+        result = _run_recipe(
+            recipe,
             benchmark,
             first=first,
             _connections_checked=_connections_checked,
@@ -103,8 +103,8 @@ def run_fusion(
     return result
 
 
-def _run_fusion(
-    fusion: Fusion,
+def _run_recipe(
+    recipe: Recipe,
     benchmark: str | Benchmark,
     *,
     first: int | None,
@@ -115,21 +115,21 @@ def _run_fusion(
     limit = _first(first)
     if not isinstance(benchmark, (str, Benchmark)):
         raise TypeError("benchmark must be a benchmark ID or sf.Benchmark")
-    recipe = compile_fusion(fusion)
+    recipe_url4 = compile_recipe(recipe)
     resolved = load_benchmark(benchmark) if isinstance(benchmark, str) else benchmark
     cases = resolved._materialize_cases()
     selected = cases if limit is None else cases[:limit]
     _references(selected, resolved)
     registry = _registry or load_registry()
-    _preflight(fusion, resolved, registry)
+    _preflight(recipe, resolved, registry)
     if not _connections_checked:
-        require_connections(run_requirements(fusion, resolved, registry), registry)
+        require_connections(run_requirements(recipe, resolved, registry), registry)
 
     expressions = tuple(
         (
             case,
-            compile_fusion(
-                fusion,
+            compile_recipe(
+                recipe,
                 question=case.input,
                 tools=resolved.tools,
                 max_tool_rounds=resolved.max_tool_rounds,
@@ -146,12 +146,12 @@ def _run_fusion(
     tracker.stage("running", "Attempting cases", total=len(selected))
     base_url = current_engine_url()
     with httpx.Client(base_url=base_url, timeout=_RUN_TIMEOUT) as client:
-        results = _execute_cases(client, fusion, expressions, registry, tracker)
+        results = _execute_cases(client, recipe, expressions, registry, tracker)
     return Run(
         benchmark=resolved,
-        fusion_name=fusion.name,
-        fusion_url4=recipe,
-        members=tuple((member.id, member.model) for member in fusion._members),
+        recipe_name=recipe.name,
+        recipe_url4=recipe_url4,
+        members=tuple((member.id, member.model) for member in recipe._members),
         cases=selected,
         results=results,
     )
@@ -159,7 +159,7 @@ def _run_fusion(
 
 def _execute_cases(
     client: _EngineClient,
-    fusion: Fusion,
+    recipe: Recipe,
     expressions: tuple[tuple[Case, str], ...],
     registry: Registry,
     tracker: Progress | None = None,
@@ -167,23 +167,23 @@ def _execute_cases(
     if not expressions:
         return ()
     canary_case, canary_expression = expressions[0]
-    canary = _execute_case(client, fusion, canary_case, canary_expression)
+    canary = _execute_case(client, recipe, canary_case, canary_expression)
     if canary.failure is not None and _retryable(canary.failure):
         # WHY: One retry distinguishes a brief upstream wobble from a benchmark-wide outage while
         # bounding duplicate model spend before the parallel fan-out begins.
-        canary = _execute_case(client, fusion, canary_case, canary_expression)
+        canary = _execute_case(client, recipe, canary_case, canary_expression)
     _advance(tracker)
     if canary.failure is not None:
         _refresh_rejected_connections(canary.failure.code, registry)
         skipped = tuple(_unscheduled(case.id, canary.failure) for case, _ in expressions[1:])
         _advance(tracker, len(skipped))
         return (canary, *skipped)
-    return (canary, *_execute_remaining(client, fusion, expressions[1:], registry, tracker))
+    return (canary, *_execute_remaining(client, recipe, expressions[1:], registry, tracker))
 
 
 def _execute_remaining(
     client: _EngineClient,
-    fusion: Fusion,
+    recipe: Recipe,
     expressions: tuple[tuple[Case, str], ...],
     registry: Registry,
     tracker: Progress | None,
@@ -194,7 +194,7 @@ def _execute_remaining(
     with ThreadPoolExecutor(max_workers=min(_CASE_CONCURRENCY, len(expressions))) as pool:
         for start in range(0, len(expressions), _CASE_CONCURRENCY):
             batch = expressions[start : start + _CASE_CONCURRENCY]
-            completed = tuple(pool.map(lambda value: _execute_case(client, fusion, *value), batch))
+            completed = tuple(pool.map(lambda value: _execute_case(client, recipe, *value), batch))
             results.extend(completed)
             _advance(tracker, len(completed))
             failure = _stopping_failure(completed)
@@ -248,8 +248,8 @@ def _unscheduled(case_id: str, cause: RunFailure) -> CaseResult:
     )
 
 
-def evaluate_fusion(
-    fusion: Fusion,
+def evaluate_recipe(
+    recipe: Recipe,
     benchmark: str | Benchmark,
     *,
     first: int | None,
@@ -262,7 +262,7 @@ def evaluate_fusion(
     benchmark_id = (
         benchmark if isinstance(benchmark, str) else getattr(benchmark, "id", "benchmark")
     )
-    tracker = Progress(fusion.name, benchmark_id, progress)
+    tracker = Progress(recipe.name, benchmark_id, progress)
     tracker.stage("checking", "Checking requirements")
     try:
         _first(first)
@@ -270,14 +270,14 @@ def evaluate_fusion(
             raise TypeError("benchmark must be a benchmark ID or sf.Benchmark")
         resolved = load_benchmark(benchmark) if isinstance(benchmark, str) else benchmark
         registry = load_registry()
-        _preflight(fusion, resolved, registry)
+        _preflight(recipe, resolved, registry)
         try:
-            requirements = evaluate_requirements(fusion, resolved, registry)
+            requirements = evaluate_requirements(recipe, resolved, registry)
         except ValueError as exc:
             raise UnknownModelError(str(exc)) from exc
         require_connections(requirements, registry)
-        run = run_fusion(
-            fusion,
+        run = run_recipe(
+            recipe,
             resolved,
             first=first,
             _connections_checked=True,
@@ -319,7 +319,7 @@ def _attempted_cases(run: Run) -> int:
 
 def _execute_case(
     client: _EngineClient,
-    fusion: Fusion,
+    recipe: Recipe,
     case: Case,
     expression: str,
 ) -> CaseResult:
@@ -329,13 +329,13 @@ def _execute_case(
         return _failed(case.id, "timeout", "URL4 engine evaluation timed out")
     except (httpx.RequestError, httpx.InvalidURL):
         return _failed(case.id, "connection", "could not reach the configured URL4 engine")
-    return _response_result(case.id, fusion, response)
+    return _response_result(case.id, recipe, response)
 
 
-def _response_result(case_id: str, fusion: Fusion, response: httpx.Response) -> CaseResult:
+def _response_result(case_id: str, recipe: Recipe, response: httpx.Response) -> CaseResult:
     if not response.is_success:
         return _error_result(case_id, response)
-    return _success_result(case_id, fusion, response)
+    return _success_result(case_id, recipe, response)
 
 
 def _error_result(case_id: str, response: httpx.Response) -> CaseResult:
@@ -358,36 +358,36 @@ def _error_result(case_id: str, response: httpx.Response) -> CaseResult:
     )
 
 
-def _success_result(case_id: str, fusion: Fusion, response: httpx.Response) -> CaseResult:
+def _success_result(case_id: str, recipe: Recipe, response: httpx.Response) -> CaseResult:
 
     content_type = response.headers.get("content-type", "")
     if content_type.split(";", 1)[0].strip().lower() != "text/plain":
         return _protocol(case_id, "engine success must be plaintext", response.status_code)
     try:
         payload = unique_json_object(response.text)
-        members, answer = _fusion_result(payload, fusion)
+        members, answer = _recipe_result(payload, recipe)
     except (KeyError, TypeError, ValueError) as exc:
-        return _protocol(case_id, f"invalid fusion result: {exc}", response.status_code)
+        return _protocol(case_id, f"invalid recipe result: {exc}", response.status_code)
     return CaseResult(case_id, members=members, answer=answer)
 
 
-def _fusion_result(
-    payload: dict[str, object], fusion: Fusion
+def _recipe_result(
+    payload: dict[str, object], recipe: Recipe
 ) -> tuple[tuple[tuple[str, MemberResult], ...], str]:
-    exact_fields(payload, {"schema", "members", "answer"}, "fusion result")
-    if payload["schema"] != FUSION_RESULT_SCHEMA:
-        raise ValueError(f"expected schema {FUSION_RESULT_SCHEMA!r}")
-    wire_members = object_value(payload["members"], "fusion members")
-    expected_ids = tuple(member.id for member in fusion._members)
+    exact_fields(payload, {"schema", "members", "answer"}, "recipe result")
+    if payload["schema"] != RECIPE_RESULT_SCHEMA:
+        raise ValueError(f"expected schema {RECIPE_RESULT_SCHEMA!r}")
+    wire_members = object_value(payload["members"], "recipe members")
+    expected_ids = tuple(member.id for member in recipe._members)
     if set(wire_members) != set(expected_ids):
-        raise ValueError("member slots do not match the Fusion")
+        raise ValueError("member slots do not match the Recipe")
 
     members: list[tuple[str, MemberResult]] = []
-    for expected in fusion._members:
+    for expected in recipe._members:
         item = object_value(wire_members[expected.id], f"member {expected.id!r}")
         exact_fields(item, {"model", "answer"}, f"member {expected.id!r}")
         if item["model"] != expected.model:
-            raise ValueError(f"member {expected.id!r} model does not match the Fusion")
+            raise ValueError(f"member {expected.id!r} model does not match the Recipe")
         members.append(
             (
                 expected.id,
@@ -397,32 +397,32 @@ def _fusion_result(
                 ),
             )
         )
-    return tuple(members), nonblank(payload["answer"], "fusion answer")
+    return tuple(members), nonblank(payload["answer"], "recipe answer")
 
 
-def _preflight(fusion: Fusion, benchmark: Benchmark, registry: Registry) -> None:
+def _preflight(recipe: Recipe, benchmark: Benchmark, registry: Registry) -> None:
     models = {record.id: record for record in registry.models}
-    for model in _required_models(fusion, benchmark):
+    for model in _required_models(recipe, benchmark):
         if model not in models:
             raise UnknownModelError(f"unknown model {model!r}")
-    for member in fusion._members:
+    for member in recipe._members:
         supported = set(models[member.model].supported_tools)
         missing = {tool.id for tool in benchmark.tools} - supported
         if missing:
             raise UnsupportedToolError(
                 f"model {member.model!r} does not support benchmark tool(s): {sorted(missing)}"
             )
-    _reducer(fusion, registry)
+    _reducer(recipe, registry)
 
 
-def _required_models(fusion: Fusion, _benchmark: Benchmark) -> tuple[str, ...]:
-    models = list(fusion.model_ids)
-    models.extend(reducer.model for reducer in fusion._reducers if isinstance(reducer, Model))
+def _required_models(recipe: Recipe, _benchmark: Benchmark) -> tuple[str, ...]:
+    models = list(recipe.model_ids)
+    models.extend(reducer.model for reducer in recipe._reducers if isinstance(reducer, Model))
     return tuple(models)
 
 
-def _reducer(fusion: Fusion, registry: Registry) -> None:
-    for strategy in fusion._reducers:
+def _reducer(recipe: Recipe, registry: Registry) -> None:
+    for strategy in recipe._reducers:
         if isinstance(strategy, MajorityVote):
             reducer = next(
                 (record for record in registry.reducers if record.id == strategy.kind),
@@ -476,4 +476,4 @@ def _protocol(case_id: str, message: str, status: int) -> CaseResult:
     return _failed(case_id, "protocol", message, status=status)
 
 
-__all__ = ["evaluate_fusion", "run_fusion"]
+__all__ = ["evaluate_recipe", "run_recipe"]

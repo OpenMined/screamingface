@@ -106,5 +106,5 @@ def test_quickstart_keeps_architecture_details_out_of_the_main_path() -> None:
     assert "GET /v1" not in markdown
     assert ".well-known" not in markdown
     assert "plaintext" not in markdown
-    assert "screamingface.fusion-result" not in markdown
+    assert "screamingface.recipe-result" not in markdown
     assert "run → grade → aggregate" not in markdown

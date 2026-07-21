@@ -14,7 +14,7 @@ from screamingface._profile import Registry
 def _fusion() -> sf.Fusion:
     return sf.Fusion(
         "panel",
-        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
+        members=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -28,7 +28,7 @@ def _success() -> httpx.Response:
         200,
         text=json.dumps(
             {
-                "schema": "screamingface.fusion-result.v1",
+                "schema": "screamingface.recipe-result.v1",
                 "members": {
                     "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
                     "member_2": {"model": "gemini/2.5-flash", "answer": "A"},
@@ -71,7 +71,7 @@ def _expressions(count: int) -> tuple[tuple[sf.Case, str], ...]:
 
 
 def _registry() -> Registry:
-    return Registry((), (), ("screamingface.fusion-result.v1",), 61_440, ())
+    return Registry((), (), ("screamingface.recipe-result.v1",), 61_440, ())
 
 
 def test_permanent_canary_failure_stops_every_later_case(

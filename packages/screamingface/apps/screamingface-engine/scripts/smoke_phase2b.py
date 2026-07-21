@@ -27,13 +27,13 @@ def main() -> None:
 
     expression = (
         "(member_answers={member_1:'A',member_2:'B',member_3:'A'},"
-        "fusion_answer=/reducers/majority-vote($member_answers),"
-        "{schema:'screamingface.fusion-result.v1',answer:'$fusion_answer'})"
+        "recipe_answer=/reducers/majority-vote($member_answers),"
+        "{schema:'screamingface.recipe-result.v1',answer:'$recipe_answer'})"
     )
     reducer_status, reducer_body = _get("/v1", expression)
     assert reducer_status == 200, reducer_body
     assert json.loads(reducer_body) == {
-        "schema": "screamingface.fusion-result.v1",
+        "schema": "screamingface.recipe-result.v1",
         "answer": "A",
     }
 

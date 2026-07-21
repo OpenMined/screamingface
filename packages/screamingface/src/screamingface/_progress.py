@@ -52,7 +52,7 @@ _PROGRESS_STYLE = (
 
 @dataclass(frozen=True, slots=True)
 class _State:
-    fusion_name: str
+    recipe_name: str
     benchmark_id: str
     stage: ProgressStage
     label: str
@@ -86,7 +86,7 @@ class _TextBackend:
 
     def update(self, state: _State) -> None:
         count = "" if state.total is None else f" {state.completed}/{state.total}"
-        line = f"{state.fusion_name} · {state.benchmark_id} · {state.label}{count}"
+        line = f"{state.recipe_name} · {state.benchmark_id} · {state.label}{count}"
         padding = " " * max(0, self._last_length - len(line))
         ending = "\n" if state.stage in {"complete", "stopped", "failed"} else ""
         print(f"\r{line}{padding}", end=ending, file=sys.stderr, flush=True)
@@ -98,21 +98,21 @@ class Progress:
 
     def __init__(
         self,
-        fusion_name: str,
+        recipe_name: str,
         benchmark_id: str,
         setting: ProgressSetting,
     ) -> None:
         _validate_setting(setting)
         self._enabled = _in_notebook() if setting is None else setting
         self._notebook = self._enabled and _in_notebook()
-        self._state = _State(fusion_name, benchmark_id, "checking", "Checking requirements")
+        self._state = _State(recipe_name, benchmark_id, "checking", "Checking requirements")
         self._backend: _Backend | None = None
         self._lock = RLock()
 
     def stage(self, stage: ProgressStage, label: str, *, total: int | None = None) -> None:
         with self._lock:
             self._state = _State(
-                self._state.fusion_name,
+                self._state.recipe_name,
                 self._state.benchmark_id,
                 stage,
                 label,
@@ -129,7 +129,7 @@ class Progress:
             if total is not None:
                 completed = min(completed, total)
             self._state = _State(
-                self._state.fusion_name,
+                self._state.recipe_name,
                 self._state.benchmark_id,
                 self._state.stage,
                 self._state.label,
@@ -142,7 +142,7 @@ class Progress:
         total = self._state.total
         with self._lock:
             self._state = _State(
-                self._state.fusion_name,
+                self._state.recipe_name,
                 self._state.benchmark_id,
                 "complete",
                 label,
@@ -154,7 +154,7 @@ class Progress:
     def fail(self, message: str) -> None:
         with self._lock:
             self._state = _State(
-                self._state.fusion_name,
+                self._state.recipe_name,
                 self._state.benchmark_id,
                 "failed",
                 message,
@@ -168,7 +168,7 @@ class Progress:
             raise ValueError("stopped progress requires 0 <= completed <= total")
         with self._lock:
             self._state = _State(
-                self._state.fusion_name,
+                self._state.recipe_name,
                 self._state.benchmark_id,
                 "stopped",
                 label,
@@ -203,7 +203,7 @@ def progress_html(state: _State) -> str:
         f"{_PROGRESS_STYLE}<div class='sf-ui sf-progress' "
         "aria-label='ScreamingFace evaluation progress'>"
         "<div class='sf-progress__head'><div class='sf-progress__identity'>"
-        f"<div class='sf-progress__title'>{escape(state.fusion_name)}</div>"
+        f"<div class='sf-progress__title'>{escape(state.recipe_name)}</div>"
         f"<div class='sf-progress__benchmark'>{escape(state.benchmark_id)}</div></div>"
         f"<div class='sf-progress__status {state.stage}'>{escape(state.stage)}</div></div>"
         "<div class='sf-progress__body'><div class='sf-progress__line'>"

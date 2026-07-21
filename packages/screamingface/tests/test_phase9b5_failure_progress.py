@@ -40,7 +40,7 @@ def _benchmark() -> sf.Benchmark:
 def _fusion() -> sf.Fusion:
     return sf.Fusion(
         "research-duo",
-        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
+        members=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -55,8 +55,8 @@ def _failed_run(fusion: sf.Fusion, benchmark: sf.Benchmark) -> Run:
     )
     return Run(
         benchmark=benchmark,
-        fusion_name=fusion.name,
-        fusion_url4=fusion.url4,
+        recipe_name=fusion.name,
+        recipe_url4=fusion.url4,
         members=(("member_1", fusion.model_ids[0]), ("member_2", fusion.model_ids[1])),
         cases=benchmark._materialize_cases(),
         results=(CaseResult("q1", members=(), answer=None, failure=failure),),
@@ -76,7 +76,7 @@ def test_incomplete_evaluate_skips_empty_grading_progress_and_stops(
     monkeypatch.setattr(_execution, "require_connections", lambda *_args: None)
     monkeypatch.setattr(
         _execution,
-        "run_fusion",
+        "run_recipe",
         lambda *_args, **_kwargs: _failed_run(fusion, benchmark),
     )
 

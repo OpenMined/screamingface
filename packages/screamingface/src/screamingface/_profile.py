@@ -15,7 +15,7 @@ from screamingface.errors import EngineConnectionError, EngineProfileError, Engi
 
 REGISTRY_PATH = "/.well-known/screamingface"
 REGISTRY_SCHEMA = "screamingface.registry.v1"
-FUSION_RESULT_SCHEMA = "screamingface.fusion-result.v1"
+RECIPE_RESULT_SCHEMA = "screamingface.recipe-result.v1"
 type AuthMethod = Literal["oauth", "api_key"]
 
 
@@ -76,8 +76,8 @@ def load_registry() -> Registry:
                 raise ValueError(
                     f"model {model.id!r} references unknown provider {model.provider!r}"
                 )
-        if FUSION_RESULT_SCHEMA not in response_schemas:
-            raise ValueError(f"missing response schema {FUSION_RESULT_SCHEMA!r}")
+        if RECIPE_RESULT_SCHEMA not in response_schemas:
+            raise ValueError(f"missing response schema {RECIPE_RESULT_SCHEMA!r}")
     except (KeyError, TypeError, ValueError) as exc:
         raise EngineProfileError(f"invalid engine registry: {exc}") from exc
     return Registry(models, reducers, response_schemas, limits, providers)

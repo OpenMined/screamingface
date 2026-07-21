@@ -42,8 +42,8 @@ def _run(benchmark: sf.Benchmark | None = None) -> sf.Run:
     selected_benchmark = benchmark or _benchmark()
     return sf.Run(
         benchmark=selected_benchmark,
-        fusion_name="paired-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="paired-fusion",
+        recipe_url4="(recipe)",
         members=MEMBERS,
         cases=selected_benchmark._materialize_cases(),
         results=[_result("q1"), _result("q2"), _result("q3")],
@@ -72,7 +72,7 @@ def _paired_grades() -> sf.Grades:
         results=[
             sf.CaseGrades(
                 "q1",
-                fusion=_grade(0.8, {"pass_rate": 0.8, "fusion_only": 0.4}),
+                recipe=_grade(0.8, {"pass_rate": 0.8, "fusion_only": 0.4}),
                 members={
                     "member_1": _grade(0.6, {"quality": 0.4}),
                     "member_2": _grade(0.7, {"quality": 0.9}),
@@ -80,7 +80,7 @@ def _paired_grades() -> sf.Grades:
             ),
             sf.CaseGrades(
                 "q2",
-                fusion=_grade(1.0, {"pass_rate": 0.6}),
+                recipe=_grade(1.0, {"pass_rate": 0.6}),
                 members={
                     "member_1": _grade(0.4, {"quality": 0.6}),
                     "member_2": _grade(0.9),
@@ -88,7 +88,7 @@ def _paired_grades() -> sf.Grades:
             ),
             sf.CaseGrades(
                 "q3",
-                fusion=_grade(1.0, {"pass_rate": 1.0, "fusion_only": 1.0}),
+                recipe=_grade(1.0, {"pass_rate": 1.0, "fusion_only": 1.0}),
                 members={
                     "member_1": _grade(1.0, {"quality": 1.0}),
                     "member_2": invalid,
@@ -104,8 +104,8 @@ def test_mean_uses_one_strict_paired_set_and_preserves_failures() -> None:
     report = grades.aggregate()
 
     assert report.benchmark_id == "paired@1"
-    assert report.fusion_name == "paired-fusion"
-    assert report.fusion_url4 == "(recipe)"
+    assert report.recipe_name == "paired-fusion"
+    assert report.recipe_url4 == "(recipe)"
     assert report.n_cases == 3
     assert report.n_scored == 2
     assert report.coverage == pytest.approx(2 / 3)
@@ -136,7 +136,7 @@ def test_report_values_are_immutable_and_json_compatible() -> None:
     with pytest.raises(AttributeError):
         report.score = 0.0  # type: ignore[misc]
     assert json.loads(json.dumps(report.to_dict())) == report.to_dict()
-    assert report.to_dict()["fusion_name"] == "paired-fusion"
+    assert report.to_dict()["recipe_name"] == "paired-fusion"
     wire_members = report.to_dict()["members"]
     assert isinstance(wire_members, dict)
     assert tuple(wire_members) == ("member_1", "member_2")
@@ -149,8 +149,8 @@ def test_no_paired_cases_retains_every_member_without_fabricating_scores() -> No
     third = sf.RunFailure("q3", "connection", "third failed")
     run = sf.Run(
         benchmark=benchmark,
-        fusion_name="all-failed",
-        fusion_url4="(recipe)",
+        recipe_name="all-failed",
+        recipe_url4="(recipe)",
         members=MEMBERS,
         cases=benchmark._materialize_cases(),
         results=[
@@ -162,9 +162,9 @@ def test_no_paired_cases_retains_every_member_without_fabricating_scores() -> No
     grades = sf.Grades(
         run=run,
         results=[
-            sf.CaseGrades("q1", fusion=None, members={}, run_failure=first),
-            sf.CaseGrades("q2", fusion=None, members={}, run_failure=second),
-            sf.CaseGrades("q3", fusion=None, members={}, run_failure=third),
+            sf.CaseGrades("q1", recipe=None, members={}, run_failure=first),
+            sf.CaseGrades("q2", recipe=None, members={}, run_failure=second),
+            sf.CaseGrades("q3", recipe=None, members={}, run_failure=third),
         ],
     )
 
@@ -193,7 +193,7 @@ def test_unsupported_aggregator_fails_without_fallback() -> None:
         results=[
             sf.CaseGrades(
                 case_id,
-                fusion=_grade(1.0),
+                recipe=_grade(1.0),
                 members={"member_1": _grade(1.0), "member_2": _grade(1.0)},
             )
             for case_id in ("q1", "q2", "q3")
@@ -223,10 +223,10 @@ def test_fusion_evaluate_delegates_to_the_union_preflight_pipeline(
         calls.append((benchmark, first))
         return grades.aggregate()
 
-    monkeypatch.setattr(_execution, "evaluate_fusion", fake_evaluate)
+    monkeypatch.setattr(_execution, "evaluate_recipe", fake_evaluate)
     fusion = sf.Fusion(
         "paired-fusion",
-        inputs=["worker/one", "worker/two"],
+        members=["worker/one", "worker/two"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -252,8 +252,8 @@ def test_report_rejects_inconsistent_summary_state(
 ) -> None:
     values: dict[str, object] = {
         "benchmark_id": "paired@1",
-        "fusion_name": "paired-fusion",
-        "fusion_url4": "(recipe)",
+        "recipe_name": "paired-fusion",
+        "recipe_url4": "(recipe)",
         "n_cases": 3,
         "n_scored": 3,
         "coverage": 1.0,

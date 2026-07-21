@@ -53,8 +53,8 @@ def test_draco_preview_matches_the_quickstart_public_workflow() -> None:
     markdown = _sources("markdown")
 
     assert "sf.connect()" in code
-    assert 'model="huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra"' in code
-    assert 'model="huggingface/zai-org/GLM-5.2~deepinfra"' in code
+    assert 'sf.Model(\n    "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra"' in code
+    assert 'sf.Model(\n    "huggingface/zai-org/GLM-5.2~deepinfra"' in code
     assert "prompt=EVIDENCE_PROMPT" in code
     assert "prompt=CHALLENGE_PROMPT" in code
     assert "sf.reducers.Model(" in code
@@ -74,7 +74,7 @@ def test_draco_preview_matches_the_quickstart_public_workflow() -> None:
     # INVARIANT: The teaching notebook never bypasses the SDK's HTTP URL4 boundary.
     assert "aigateway" not in code.lower()
     assert "_compiler" not in code
-    assert "compile_fusion" not in code
+    assert "compile_recipe" not in code
 
 
 def test_draco_preview_puts_every_material_caveat_before_execution() -> None:

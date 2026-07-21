@@ -8,7 +8,7 @@ import pytest
 from url4 import Url4Node, build, evaluate_sync
 
 import screamingface as sf
-from screamingface._compiler import compile_fusion
+from screamingface._compiler import compile_recipe
 
 
 def _case() -> sf.Case:
@@ -190,7 +190,7 @@ def test_benchmark_retains_typed_tool_policy_and_round_budget() -> None:
 def _full_policy_expression() -> tuple[sf.Fusion, str]:
     fusion = sf.Fusion(
         "research",
-        inputs=["hf/deepseek-v3", "hf/glm-4"],
+        members=["hf/deepseek-v3", "hf/glm-4"],
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Synthesize the panel answers.",
@@ -226,7 +226,7 @@ def _full_policy_expression() -> tuple[sf.Fusion, str]:
         include_usage=True,
     )
 
-    return fusion, compile_fusion(
+    return fusion, compile_recipe(
         fusion, question="Research this", tools=(search, extract), max_tool_rounds=12
     )
 
@@ -278,11 +278,11 @@ def test_tavily_policy_round_trips_through_url4_without_reaching_reducer() -> No
 def test_default_tavily_policy_is_serialized_explicitly_for_reproducibility() -> None:
     fusion = sf.Fusion(
         "research",
-        inputs=["hf/deepseek-v3", "hf/glm-4"],
+        members=["hf/deepseek-v3", "hf/glm-4"],
         reducer=sf.reducers.MajorityVote(),
     )
 
-    expression = compile_fusion(
+    expression = compile_recipe(
         fusion,
         question="Research this",
         tools=(sf.tools.TavilySearch(), sf.tools.TavilyExtract()),

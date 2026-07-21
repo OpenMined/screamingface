@@ -29,8 +29,8 @@ def test_successful_run_is_immutable_typed_and_json_compatible() -> None:
     )
     run = sf.Run(
         benchmark=benchmark,
-        fusion_name="tiny-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="tiny-fusion",
+        recipe_url4="(recipe)",
         members={"member_1": member.model, "member_2": second.model},
         cases=benchmark._materialize_cases(),
         results=[result],
@@ -41,7 +41,7 @@ def test_successful_run_is_immutable_typed_and_json_compatible() -> None:
     assert result.members["member_1"].answer == " A\n"
     with pytest.raises(TypeError):
         result.members["member_2"] = member  # type: ignore[index]
-    assert run.fusion_name == "tiny-fusion"
+    assert run.recipe_name == "tiny-fusion"
     assert run.members == {
         "member_1": "codex/gpt-5.5",
         "member_2": "gemini/2.5-flash",
@@ -52,7 +52,7 @@ def test_successful_run_is_immutable_typed_and_json_compatible() -> None:
     assert run.failures == ()
     assert run.complete is True
     assert json.loads(json.dumps(run.to_dict())) == run.to_dict()
-    assert run.to_dict()["fusion_name"] == "tiny-fusion"
+    assert run.to_dict()["recipe_name"] == "tiny-fusion"
     assert run.to_dict()["members"] == {
         "member_1": "codex/gpt-5.5",
         "member_2": "gemini/2.5-flash",
@@ -73,8 +73,8 @@ def test_failed_result_is_atomic_and_surfaces_a_standalone_failure() -> None:
     result = sf.CaseResult("q1", members={}, answer=None, failure=failure)
     run = sf.Run(
         benchmark=benchmark,
-        fusion_name="tiny-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="tiny-fusion",
+        recipe_url4="(recipe)",
         members={"member_1": "codex/gpt-5.5", "member_2": "gemini/2.5-flash"},
         cases=benchmark._materialize_cases(),
         results=[result],
@@ -179,8 +179,8 @@ def test_run_rejects_member_identity_drift(
     with pytest.raises(ValueError, match=message):
         sf.Run(
             benchmark=benchmark,
-            fusion_name="tiny-fusion",
-            fusion_url4="(recipe)",
+            recipe_name="tiny-fusion",
+            recipe_url4="(recipe)",
             members=members,
             cases=benchmark._materialize_cases(),
             results=results,
@@ -192,8 +192,8 @@ def test_run_rejects_results_that_do_not_match_the_selected_cases() -> None:
     with pytest.raises(ValueError, match="selected cases"):
         sf.Run(
             benchmark=benchmark,
-            fusion_name="tiny-fusion",
-            fusion_url4="(recipe)",
+            recipe_name="tiny-fusion",
+            recipe_url4="(recipe)",
             members={"member_1": "model/one", "member_2": "model/two"},
             cases=benchmark._materialize_cases(),
             results=[

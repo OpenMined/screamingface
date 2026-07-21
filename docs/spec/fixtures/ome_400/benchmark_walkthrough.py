@@ -14,9 +14,9 @@ clear prose.
 # sf.config(engine="https://url4.example.org")
 
 researchers = tuple(
-    sf.Fusion(
-        name,
-        model=model,
+    sf.Model(
+        model,
+        name=name,
         prompt=RESEARCH_PROMPT,
     )
     for name, model in (
@@ -28,7 +28,7 @@ researchers = tuple(
 
 fusion = sf.Fusion(
     "frontier-trio",
-    inputs=researchers,
+    members=researchers,
     reducer=sf.reducers.Model(
         model="codex/gpt-5.5",
         prompt="Synthesize the labeled panel answers into one final answer.",
@@ -61,13 +61,13 @@ def inspect_run(run: sf.Run):
     first_result = run.results[0]
     first_member = first_result.members["member_1"]
     return {
-        "fusion": run.fusion_name,
-        "recipe": run.fusion_url4,
+        "recipe": run.recipe_name,
+        "url4": run.recipe_url4,
         "members": run.members,
         "case_ids": run.case_ids,
         "first_member_model": first_member.model,
         "first_member_answer": first_member.answer,
-        "fusion_answer": first_result.answer,
+        "recipe_answer": first_result.answer,
         "failure": first_result.failure,
         "complete": run.complete,
         "json_compatible": run.to_dict(),
@@ -76,22 +76,22 @@ def inspect_run(run: sf.Run):
 
 def inspect_grades(grades: sf.Grades):
     """Phase 3A nested grading evidence without rerunning captured answers."""
-    first_case = next(case for case in grades.results if case.fusion is not None)
-    fusion_grade = first_case.fusion
-    assert fusion_grade is not None
+    first_case = next(case for case in grades.results if case.recipe is not None)
+    recipe_grade = first_case.recipe
+    assert recipe_grade is not None
     first_member_grade = first_case.members["member_1"]
-    first_verdict = fusion_grade.verdicts[0] if fusion_grade.verdicts else None
+    first_verdict = recipe_grade.verdicts[0] if recipe_grade.verdicts else None
     return {
         "benchmark": grades.benchmark_id,
-        "fusion": grades.fusion_name,
-        "recipe": grades.fusion_url4,
+        "recipe": grades.recipe_name,
+        "url4": grades.recipe_url4,
         "members": grades.members,
         "grader": grades.grader,
         "case_ids": grades.case_ids,
-        "fusion_score": fusion_grade.score,
-        "fusion_metrics": fusion_grade.metrics,
-        "fusion_coverage": fusion_grade.coverage,
-        "fusion_valid": fusion_grade.valid,
+        "recipe_score": recipe_grade.score,
+        "recipe_metrics": recipe_grade.metrics,
+        "recipe_coverage": recipe_grade.coverage,
+        "recipe_valid": recipe_grade.valid,
         "member_score": first_member_grade.score,
         "first_verdict": first_verdict,
         "run_failure": first_case.run_failure,
@@ -106,15 +106,15 @@ def inspect_report(report: sf.Report):
     first_member = report.members["member_1"]
     return {
         "benchmark": report.benchmark_id,
-        "fusion": report.fusion_name,
-        "recipe": report.fusion_url4,
+        "recipe": report.recipe_name,
+        "url4": report.recipe_url4,
         "n_cases": report.n_cases,
         "n_scored": report.n_scored,
         "coverage": report.coverage,
         "score": report.score,
         "baseline": report.baseline,
         "gain": report.gain,
-        "fusion_metrics": report.metrics,
+        "recipe_metrics": report.metrics,
         "first_member_model": first_member.model,
         "first_member_score": first_member.score,
         "first_member_metrics": first_member.metrics,

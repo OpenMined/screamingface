@@ -7,8 +7,8 @@ from typing import Literal
 
 from screamingface._profile import Registry
 from screamingface.benchmark import Benchmark
-from screamingface.fusion import Fusion
 from screamingface.graders import Rubric
+from screamingface.recipe import Recipe
 from screamingface.reducers import Model
 
 type RequirementRole = Literal["member", "reducer", "grader", "tool"]
@@ -22,12 +22,12 @@ class ConnectionRequirement:
 
 
 def run_requirements(
-    fusion: Fusion, benchmark: Benchmark, registry: Registry
+    recipe: Recipe, benchmark: Benchmark, registry: Registry
 ) -> tuple[ConnectionRequirement, ...]:
-    requirements = [_requirement(model, "member", registry) for model in fusion.model_ids]
+    requirements = [_requirement(model, "member", registry) for model in recipe.model_ids]
     requirements.extend(
         _requirement(reducer.model, "reducer", registry)
-        for reducer in fusion._reducers
+        for reducer in recipe._reducers
         if isinstance(reducer, Model)
     )
     if benchmark.tools:
@@ -44,10 +44,10 @@ def grade_requirements(
 
 
 def evaluate_requirements(
-    fusion: Fusion, benchmark: Benchmark, registry: Registry
+    recipe: Recipe, benchmark: Benchmark, registry: Registry
 ) -> tuple[ConnectionRequirement, ...]:
     return _unique(
-        run_requirements(fusion, benchmark, registry) + grade_requirements(benchmark, registry)
+        run_requirements(recipe, benchmark, registry) + grade_requirements(benchmark, registry)
     )
 
 

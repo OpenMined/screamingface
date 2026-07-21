@@ -17,7 +17,7 @@ def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> Non
     assert all(model.gateway_model for model in MODEL_ROUTES)
     assert registry == {
         "schema": "screamingface.registry.v1",
-        "response_schemas": ["screamingface.fusion-result.v1"],
+        "response_schemas": ["screamingface.recipe-result.v1"],
         "limits": {"max_request_target_bytes": 61440},
         "providers": [
             {

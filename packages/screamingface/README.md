@@ -49,8 +49,8 @@ multi-turn AI Gateway loop only on the explicitly verified DeepSeek V4 Pro/DeepI
 5.2/DeepInfra routes. A shared hosted engine needs identity, authorization, HTTPS, and encrypted
 per-user storage before it can accept this credential safely.
 
-`Fusion.run(...)`, `Run.grade(...)`, and `Fusion.evaluate(...)` accept `progress=True | False |
-None`. The default `None` shows one live progress surface in Jupyter and remains silent in ordinary
+`Model.run(...)`, `Fusion.run(...)`, `Run.grade(...)`, and either Recipe's `evaluate(...)` accept
+`progress=True | False | None`. The default `None` shows one live progress surface in Jupyter and remains silent in ordinary
 scripts; `True` forces progress and `False` disables it. `evaluate(...)` follows requirement checks,
 case completion, individual rubric judge responses, and aggregation, then yields to the final
 `Report`. Progress is presentation-only and never changes scheduling, retries, spend, or results.
@@ -73,9 +73,9 @@ work still crosses the configured URL4 engine.
 
 Each selected benchmark case becomes one complete URL4 expression sent as
 `GET /v1?q=<expression>`. Successful plaintext JSON is validated strictly as
-`screamingface.fusion-result.v1`; connection, timeout, HTTP, URL4, and protocol failures are
+`screamingface.recipe-result.v1`; connection, timeout, HTTP, URL4, and protocol failures are
 recorded atomically at the case's original position. Execution performs no retries and never calls
-AI Gateway directly. `run.grade()` grades those captured Fusion/member answers without rerunning
+AI Gateway directly. `run.grade()` grades those captured Recipe/member answers without rerunning
 them. ExactChoice stays local; Rubric sends one ordinary URL4 judge-model expression per target,
 criterion, and pass, with at most 16 requests in flight. Aggregation and
 `fusion.evaluate(...)` remain ordinary local SDK stages after model-backed work. There is no mock,
@@ -217,7 +217,7 @@ benchmarks = sf.benchmarks.list()
 
 fusion = sf.Fusion(
     "frontier-trio",
-    inputs=[
+    members=[
         "codex/gpt-5.5",
         "gemini/2.5-flash",
         "claude/sonnet-4.6",
@@ -225,18 +225,18 @@ fusion = sf.Fusion(
     reducer=sf.reducers.MajorityVote(),
 )
 
-# A Fusion is a shareable answer recipe. An atomic Fusion calls one model.
-opus = sf.Fusion(
-    "opus",
-    model="anthropic/claude-opus-4.8",
+# A Model is an atomic Recipe and can run alone or as a Fusion member.
+opus = sf.Model(
+    "anthropic/claude-opus-4.8",
+    name="opus",
     params={"temperature": 0.7},
 )
-gpt = sf.Fusion("gpt", model="openai/gpt-5.5")
+gpt = sf.Model("openai/gpt-5.5", name="gpt")
 
-# A composite Fusion combines the answers of other Fusions.
+# A Fusion is a composite Recipe combining Models or nested Fusions.
 opus_plus_gpt = sf.Fusion(
     "opus-plus-gpt",
-    inputs=[opus, gpt],
+    members=[opus, gpt],
     reducer=sf.reducers.Model(
         model="anthropic/claude-opus-4.8",
         prompt="Synthesize the panel answers.",
@@ -265,7 +265,7 @@ research_benchmark = sf.Benchmark(
 )
 
 run = fusion.run(benchmark)
-run.fusion_name
+run.recipe_name
 run.members
 run.results[0].members["member_1"].answer
 run.results[0].answer
@@ -273,9 +273,9 @@ run.failures
 run.to_dict()
 
 grades = run.grade()
-grades.fusion_name
+grades.recipe_name
 grades.members
-grades.results[0].fusion.score
+grades.results[0].recipe.score
 grades.results[0].members["member_1"].score
 grades.failures
 grades.to_dict()
@@ -290,10 +290,11 @@ report.to_dict()
 report = fusion.evaluate(benchmark)
 ```
 
-Construction of Fusions and `fusion.url4` is network-free. A Fusion is a shareable answer recipe:
-it either calls one model directly with `model=...`, or combines other Fusions through `inputs=...`
-and a reducer. Inline model IDs remain the preferred shorthand for anonymous atomic inputs;
-explicit atomic Fusions provide stable names, prompts, parameters, and shared execution identity.
+Construction of Models and Fusions and inspection of `.url4` are network-free. `Recipe` is the
+public, non-constructible umbrella type: a `Model` is an atomic Recipe and a `Fusion` is a
+composite Recipe combining Models or nested Fusions through `members=...` and a reducer. Inline
+model IDs remain the preferred shorthand for default Models; explicit Models provide stable names,
+prompts, parameters, standalone evaluation, and shared execution identity.
 Model discovery and execution contact only the
 configured URL4 engine. Provider connection calls also contact only that engine; the SDK never
 contacts AI Gateway directly. Benchmark discovery is package-local; loading `gpqa@1` uses the caller's

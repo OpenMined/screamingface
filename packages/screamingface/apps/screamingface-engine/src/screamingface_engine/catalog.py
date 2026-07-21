@@ -186,7 +186,7 @@ def registry_document(
 ) -> dict[str, object]:
     return {
         "schema": "screamingface.registry.v1",
-        "response_schemas": ["screamingface.fusion-result.v1"],
+        "response_schemas": ["screamingface.recipe-result.v1"],
         "limits": {"max_request_target_bytes": max_request_target_bytes},
         "providers": [
             {

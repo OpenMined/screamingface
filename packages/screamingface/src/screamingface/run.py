@@ -1,4 +1,4 @@
-"""Immutable public records produced by the Fusion run stage."""
+"""Immutable public records produced by the Recipe run stage."""
 
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ class CaseResult:
         if failure is None:
             if not items:
                 raise ValueError("a successful case result requires members")
-            normalized_answer: str | None = _nonblank(answer, "fusion answer")
+            normalized_answer: str | None = _nonblank(answer, "recipe answer")
         else:
             if failure.case_id != normalized_id:
                 raise ValueError("result and failure case IDs must match")
@@ -116,11 +116,11 @@ class CaseResult:
 
 @dataclass(frozen=True, slots=True, init=False)
 class Run:
-    """One immutable, in-memory Fusion run over a selected case sequence."""
+    """One immutable, in-memory Recipe run over a selected case sequence."""
 
     benchmark_id: str
-    fusion_name: str
-    fusion_url4: str
+    recipe_name: str
+    recipe_url4: str
     case_ids: tuple[str, ...]
     results: tuple[CaseResult, ...]
     _cases: tuple[Case, ...] = field(repr=False, compare=False)
@@ -131,16 +131,16 @@ class Run:
         self,
         *,
         benchmark: Benchmark,
-        fusion_name: str,
-        fusion_url4: str,
+        recipe_name: str,
+        recipe_url4: str,
         members: Mapping[str, str] | Sequence[tuple[str, str]],
         cases: Sequence[Case],
         results: Sequence[CaseResult],
     ) -> None:
         if not isinstance(benchmark, Benchmark):
             raise TypeError("run benchmark must be an sf.Benchmark")
-        normalized_name = _nonblank(fusion_name, "fusion name")
-        recipe = _nonblank(fusion_url4, "fusion URL4")
+        normalized_name = _nonblank(recipe_name, "recipe name")
+        recipe = _nonblank(recipe_url4, "recipe URL4")
         member_items = tuple(members.items()) if isinstance(members, Mapping) else tuple(members)
         _run_member_items(member_items)
         selected_cases = _selected_cases(cases)
@@ -155,8 +155,8 @@ class Run:
             raise ValueError("run result case IDs and order must match the selected cases")
         _result_members(member_items, values)
         object.__setattr__(self, "benchmark_id", benchmark.id)
-        object.__setattr__(self, "fusion_name", normalized_name)
-        object.__setattr__(self, "fusion_url4", recipe)
+        object.__setattr__(self, "recipe_name", normalized_name)
+        object.__setattr__(self, "recipe_url4", recipe)
         object.__setattr__(self, "case_ids", case_ids)
         object.__setattr__(self, "results", values)
         object.__setattr__(self, "_cases", selected_cases)
@@ -180,8 +180,8 @@ class Run:
 
         return {
             "benchmark_id": self.benchmark_id,
-            "fusion_name": self.fusion_name,
-            "fusion_url4": self.fusion_url4,
+            "recipe_name": self.recipe_name,
+            "recipe_url4": self.recipe_url4,
             "members": dict(self._member_items),
             "case_ids": list(self.case_ids),
             "results": [result._to_wire() for result in self.results],
@@ -190,7 +190,7 @@ class Run:
         }
 
     def grade(self, *, progress: ProgressSetting = None) -> Grades:
-        """Grade the captured Fusion and member answers without rerunning them."""
+        """Grade the captured Recipe and member answers without rerunning them."""
 
         from screamingface._grading import grade_run
 

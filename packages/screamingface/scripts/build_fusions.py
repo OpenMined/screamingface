@@ -15,8 +15,8 @@ def notebook() -> nbformat.NotebookNode:
         nbformat.v4.new_markdown_cell(
             """# ScreamingFace · compose Fusions
 
-Build reusable answer recipes without running them. A Fusion can call one model directly or
-combine the answers of other Fusions.
+Build reusable answer recipes without running them. A `Model` is an atomic recipe; a `Fusion`
+combines the answers of Models or other Fusions.
 
 Construction and `.url4` compilation are entirely network-free. This notebook needs no Docker,
 provider credentials, or benchmark data."""
@@ -26,7 +26,7 @@ provider credentials, or benchmark data."""
             "import screamingface as sf\n\n"
             "frontier_fusion = sf.Fusion(\n"
             '    "frontier-trio",\n'
-            "    inputs=[\n"
+            "    members=[\n"
             '        "codex/gpt-5.5",\n'
             '        "gemini/2.5-flash",\n'
             '        "claude/sonnet-4.6",\n'
@@ -36,8 +36,8 @@ provider credentials, or benchmark data."""
             "frontier_fusion"
         ),
         nbformat.v4.new_markdown_cell(
-            """Use model-ID strings by default. Each string is shorthand for an anonymous atomic
-Fusion using the minimal prompt `Answer the question.`. The list preserves stable input order.
+            """Use model-ID strings by default. Each string is shorthand for a default `Model`
+using the minimal prompt `Answer the question.`. The list preserves stable member order.
 
 `MajorityVote()` selects the most common exact answer. Ties resolve by stable member order, and the
 reducer makes no additional model call."""
@@ -45,7 +45,7 @@ reducer makes no additional model call."""
         nbformat.v4.new_markdown_cell("## 2 · Inspect the public authoring values"),
         nbformat.v4.new_code_cell(
             "{\n"
-            '    "inputs": frontier_fusion.inputs,\n'
+            '    "members": frontier_fusion.members,\n'
             '    "model_ids": frontier_fusion.model_ids,\n'
             '    "reducer": frontier_fusion.reducer,\n'
             '    "url4": frontier_fusion.url4,\n'
@@ -54,31 +54,31 @@ reducer makes no additional model call."""
         nbformat.v4.new_markdown_cell(
             """These four values are enough to inspect or share the definition:
 
-- `inputs` preserves the concise strings and explicit input Fusions;
+- `members` contains the normalized Models and nested Fusions;
 - `model_ids` provides the ordered route IDs alone;
 - `reducer` is the immutable reduction strategy; and
 - `url4` is the canonical recipe with its `$question` input still unbound.
 
 Reading any of them remains network-free."""
         ),
-        nbformat.v4.new_markdown_cell("## 3 · Configure an atomic Fusion explicitly"),
+        nbformat.v4.new_markdown_cell("## 3 · Configure a Model explicitly"),
         nbformat.v4.new_code_cell(
-            "scientist = sf.Fusion(\n"
-            '    "gemini-scientist",\n'
-            '    model="gemini/2.5-flash",\n'
+            "scientist = sf.Model(\n"
+            '    "gemini/2.5-flash",\n'
+            '    name="gemini-scientist",\n'
             '    prompt="Check the scientific reasoning and answer directly.",\n'
             '    params={"temperature": 0.2, "max_tokens": 512},\n'
             ")\n\n"
             "specialist_fusion = sf.Fusion(\n"
             '    "specialist-pair",\n'
-            '    inputs=["codex/gpt-5.5", scientist],\n'
+            '    members=["codex/gpt-5.5", scientist],\n'
             "    reducer=sf.reducers.MajorityVote(),\n"
             ")\n\n"
-            "specialist_fusion.inputs"
+            "specialist_fusion.members"
         ),
         nbformat.v4.new_markdown_cell(
-            """An atomic Fusion owns one model call and may define its own prompt and parameters.
-Use it anywhere an input needs more than the string shorthand.
+            """A `Model` owns one model call and may define its own prompt and parameters. Use it
+anywhere a member needs more than the string shorthand—or evaluate it as a recipe on its own.
 
 Each parameter value must be a string, integer, finite float, or boolean. `tools` is reserved: tool
 requirements belong to the benchmark so ScreamingFace can apply them consistently to every
@@ -87,21 +87,21 @@ answer-producing member."""
         nbformat.v4.new_markdown_cell("## 4 · The same model can be more than one member"),
         nbformat.v4.new_code_cell(
             'SELF_MODEL = "claude/sonnet-4.6"\n\n'
-            "sample_1 = sf.Fusion(\n"
-            '    "claude-sample-1",\n'
-            "    model=SELF_MODEL,\n"
+            "sample_1 = sf.Model(\n"
+            "    SELF_MODEL,\n"
+            '    name="claude-sample-1",\n'
             '    prompt="Solve independently and favor precise evidence.",\n'
             '    params={"temperature": 0.2},\n'
             ")\n"
-            "sample_2 = sf.Fusion(\n"
-            '    "claude-sample-2",\n'
-            "    model=SELF_MODEL,\n"
+            "sample_2 = sf.Model(\n"
+            "    SELF_MODEL,\n"
+            '    name="claude-sample-2",\n'
             '    prompt="Challenge the obvious answer and check alternatives.",\n'
             '    params={"temperature": 0.8},\n'
             ")\n\n"
             "self_fusion = sf.Fusion(\n"
             '    "claude-independent-samples",\n'
-            "    inputs=[sample_1, sample_2],\n"
+            "    members=[sample_1, sample_2],\n"
             "    reducer=sf.reducers.Model(\n"
             '        model="codex/gpt-5.5",\n'
             '        prompt="Synthesize the strongest supported answer from the panel.",\n'
@@ -116,13 +116,13 @@ therefore valid: the two Claude members become separate ordered requests with se
 parameters.
 
 `reducers.Model(...)` makes one additional model call. It receives the original question plus
-every labeled input answer and synthesizes the Fusion answer. Reusing the same atomic Fusion object
+every labeled member answer and synthesizes the Fusion answer. Reusing the same Model object
 elsewhere reuses its answer node; constructing another one creates an independent sample."""
         ),
         nbformat.v4.new_markdown_cell("## 5 · Inspect the self-Fusion recipe"),
         nbformat.v4.new_code_cell(
             "{\n"
-            '    "inputs": self_fusion.inputs,\n'
+            '    "members": self_fusion.members,\n'
             '    "model_ids": self_fusion.model_ids,\n'
             '    "reducer": self_fusion.reducer,\n'
             '    "url4": self_fusion.url4,\n'
@@ -140,11 +140,11 @@ credentials. That compatibility is checked when execution begins.
 
 ## Recap
 
-- prefer model-ID strings for ordinary anonymous inputs;
-- use an atomic Fusion for a named prompt or parameters;
-- input order is stable and model IDs may repeat;
+- prefer model-ID strings for ordinary default members;
+- use `Model` for a named prompt, parameters, reuse, or standalone evaluation;
+- member order is stable and model IDs may repeat;
 - `MajorityVote()` is deterministic and adds no model call;
-- `Model(...)` makes one additional synthesis call; and
+- `reducers.Model(...)` makes one additional synthesis call; and
 - construction plus `.url4` inspection are network-free.
 
 Continue to the quickstart to evaluate a Fusion or to the custom-benchmark guide to define your own

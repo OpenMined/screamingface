@@ -1,4 +1,4 @@
-"""Validated model-call values shared by atomic Fusions and model reducers."""
+"""Validated model-call values shared by Models and model reducers."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class _ModelCall:
 
 
 @dataclass(frozen=True, slots=True)
-class _FusionMember:
+class _RecipeMember:
     id: str
     call: _ModelCall
 

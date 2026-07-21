@@ -23,7 +23,7 @@ def aggregate_grades(grades: Grades) -> Report:
 
 def _mean_report(grades: Grades) -> Report:
     paired = tuple(case for case in grades.results if _is_paired(case))
-    fusion_grades = tuple(case.fusion for case in paired if case.fusion is not None)
+    recipe_grades = tuple(case.recipe for case in paired if case.recipe is not None)
 
     member_reports: list[tuple[str, MemberReport]] = []
     for member_id, model in grades.members.items():
@@ -39,24 +39,24 @@ def _mean_report(grades: Grades) -> Report:
             )
         )
 
-    fusion_score = _mean_scores(fusion_grades)
+    recipe_score = _mean_scores(recipe_grades)
     member_scores = tuple(member.score for _, member in member_reports)
     baseline = None if not paired else max(score for score in member_scores if score is not None)
-    gain = None if fusion_score is None or baseline is None else fusion_score - baseline
+    gain = None if recipe_score is None or baseline is None else recipe_score - baseline
     n_cases = len(grades.results)
     n_scored = len(paired)
     return Report(
         benchmark_id=grades.benchmark_id,
-        fusion_name=grades.fusion_name,
-        fusion_url4=grades.fusion_url4,
+        recipe_name=grades.recipe_name,
+        recipe_url4=grades.recipe_url4,
         n_cases=n_cases,
         n_scored=n_scored,
         coverage=n_scored / n_cases,
-        score=fusion_score,
+        score=recipe_score,
         baseline=baseline,
         gain=gain,
         members=member_reports,
-        metrics=_mean_metrics(fusion_grades),
+        metrics=_mean_metrics(recipe_grades),
         failures=grades.failures,
     )
 
@@ -64,8 +64,8 @@ def _mean_report(grades: Grades) -> Report:
 def _is_paired(case: CaseGrades) -> bool:
     return (
         case.run_failure is None
-        and case.fusion is not None
-        and case.fusion.valid
+        and case.recipe is not None
+        and case.recipe.valid
         and all(grade.valid for grade in case.members.values())
     )
 

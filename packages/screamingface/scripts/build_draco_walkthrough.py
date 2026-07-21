@@ -78,19 +78,19 @@ actual cases and judge responses while the synchronous call runs."""
             "facts, arguments, and citations from every labeled member answer. Resolve\n"
             "disagreements in favor of the more specific and better-supported claim. Return only\n"
             'the unified prose answer."""\n\n'
-            "evidence = sf.Fusion(\n"
-            '    "deepseek-evidence",\n'
-            '    model="huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",\n'
+            "evidence = sf.Model(\n"
+            '    "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",\n'
+            '    name="deepseek-evidence",\n'
             "    prompt=EVIDENCE_PROMPT,\n"
             ")\n"
-            "challenge = sf.Fusion(\n"
-            '    "glm-challenge",\n'
-            '    model="huggingface/zai-org/GLM-5.2~deepinfra",\n'
+            "challenge = sf.Model(\n"
+            '    "huggingface/zai-org/GLM-5.2~deepinfra",\n'
+            '    name="glm-challenge",\n'
             "    prompt=CHALLENGE_PROMPT,\n"
             ")\n\n"
             "fusion = sf.Fusion(\n"
             '    "draco-research-duo",\n'
-            "    inputs=[evidence, challenge],\n"
+            "    members=[evidence, challenge],\n"
             "    reducer=sf.reducers.Model(\n"
             '        model="codex/gpt-5.5",\n'
             "        prompt=SYNTHESIS_PROMPT,\n"

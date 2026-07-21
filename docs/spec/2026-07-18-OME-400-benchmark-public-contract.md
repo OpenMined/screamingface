@@ -21,7 +21,7 @@ import screamingface as sf
 
 fusion = sf.Fusion(
     "frontier-trio",
-    inputs=[
+    members=[
         "codex/gpt-5.5",
         "gemini/2.5-flash",
         "claude/sonnet-4.6",
@@ -113,24 +113,25 @@ There are no duplicate aliases such as `sf.ModelReducer`, `sf.MajorityVote`, or
 
 Low-level result records are immutable values surfaced through `Run` and `Grades`. `CaseResult`,
 `MemberResult`, and `RunFailure` are exported for inspection and type checking, but users receive
-them from `Fusion.run()` rather than constructing them as configuration.
+them from `Model.run()` or `Fusion.run()` rather than constructing them as configuration.
 
-Phase 10 makes Fusion itself recursive without complicating the short path. A Fusion is a
-shareable answer recipe. It either calls one model directly or combines the answers of other
-Fusions. A string in `inputs` is concise shorthand for an anonymous atomic Fusion. Use an explicit
-atomic Fusion when a call needs its own prompt, parameters, name, or shared execution identity:
+`sf.Recipe` is the public, non-constructible umbrella interface for a shareable URL4 answer graph.
+A `Model` is an atomic Recipe. A `Fusion` is a composite Recipe combining Models or nested
+Fusions. A string in `Fusion.members` is concise shorthand for a default Model. Use an explicit
+Model when a call needs its own prompt, parameters, name, standalone evaluation, or shared
+execution identity:
 
 ```python
-opus = sf.Fusion(
-    "opus",
-    model="anthropic/claude-opus-4.8",
+opus = sf.Model(
+    "anthropic/claude-opus-4.8",
+    name="opus",
     prompt=DRACO_ANSWER_PROMPT,
     params={"max_tokens": 8192},
 )
-gpt = sf.Fusion("gpt", model="openai/gpt-5.5", prompt=DRACO_ANSWER_PROMPT)
+gpt = sf.Model("openai/gpt-5.5", name="gpt", prompt=DRACO_ANSWER_PROMPT)
 fusion = sf.Fusion(
     "opus-plus-gpt",
-    inputs=[opus, gpt],
+    members=[opus, gpt],
     reducer=sf.reducers.Model(
         model="anthropic/claude-opus-4.8",
         prompt=DRACO_SYNTHESIS_PROMPT,
@@ -138,12 +139,12 @@ fusion = sf.Fusion(
 )
 ```
 
-Exactly one of `model` or `inputs` is required. Atomic Fusions reject reducers; composite Fusions
-require a reducer and reject model prompts/parameters of their own. Reusing the same Fusion value
-establishes shared execution identity; separately constructed atomic Fusions on the same route are
-independent samples. Explicit Fusion names are unique within a graph. URL4 response member slots
-remain `member_1..member_n` for the graph's atomic leaves. `sf.Model`, `sf.FusionMonster`,
-`sf.Experiment`, `sf.Solo`, and `sf.Lineup` do not exist.
+A Model accepts its route plus optional name, prompt, and scalar parameters. A Fusion requires at
+least one member and one reducer. Reusing the same Model or nested Fusion value establishes shared
+execution identity; separately constructed Models on the same route are independent samples.
+Explicit Recipe names are unique within a graph. URL4 response member slots remain
+`member_1..member_n` for the graph's Model leaves. `sf.FusionMonster`, `sf.Experiment`, `sf.Solo`,
+and `sf.Lineup` do not exist.
 
 Not included in the benchmark-core MVP:
 
@@ -230,7 +231,7 @@ It is not part of generic URL4 core. The MVP shape is:
 ```json
 {
   "schema": "screamingface.registry.v1",
-  "response_schemas": ["screamingface.fusion-result.v1"],
+  "response_schemas": ["screamingface.recipe-result.v1"],
   "limits": {
     "max_request_target_bytes": 61440
   },
@@ -519,28 +520,28 @@ Benchmark `tools` are immutable typed request policies. Phase 9B.3 supports
 dictionaries are rejected. Tool-enabled benchmarks require an explicit positive
 `max_tool_rounds`, while a tool-free benchmark must leave it `None`.
 
-The compiler adds the policy only to answer-producing Fusion member routes. Reducers, model
+The compiler adds the policy only to answer-producing Model member routes. Reducers, model
 synthesizers, and graders do not inherit it. Registry and discovery boundaries continue to use
 ordinary capability IDs (`web_search`, `web_fetch`) because those surfaces describe what an
 engine route can execute rather than authoring request policy. Benchmark rubrics, sealed
 references, credentials, and result sources must remain inaccessible to every tool adapter.
 
-## 8. Fusion authoring
+## 8. Recipe authoring
 
-A Fusion is a shareable answer recipe. It can call one model directly or combine the answers of
-other Fusions:
+A Model is an atomic Recipe. A Fusion is a composite Recipe that combines Models or nested
+Fusions:
 
 ```python
-claude = sf.Fusion(
-    "claude-researcher",
-    model="claude/sonnet-4.6",
+claude = sf.Model(
+    "claude/sonnet-4.6",
+    name="claude-researcher",
     prompt=CLAUDE_PROMPT,
     params={"temperature": 0.3},
 )
 
 fusion = sf.Fusion(
     "frontier-trio",
-    inputs=["codex/gpt-5.5", "gemini/2.5-flash", claude],
+    members=["codex/gpt-5.5", "gemini/2.5-flash", claude],
     reducer=sf.reducers.Model(
         model="codex/gpt-5.5",
         prompt=SYNTHESIS_PROMPT,
@@ -551,14 +552,13 @@ fusion = sf.Fusion(
 
 Rules:
 
-- exactly one of `model` or `inputs` is required;
-- an atomic Fusion accepts `model`, optional `prompt`, and optional scalar `params`;
-- an omitted atomic prompt uses the minimal SDK default `"Answer the question."`;
-- a composite Fusion accepts one or more `str | Fusion` inputs and requires a reducer;
-- a string is shorthand for a new anonymous atomic input using the default prompt;
-- there is no public dictionary input form;
-- reusing one explicit Fusion value reuses its answer node, while repeated strings or separately
-  constructed Fusions remain independent calls;
+- a Model accepts its model route plus optional `name`, `prompt`, and scalar `params`;
+- an omitted Model prompt uses the minimal SDK default `"Answer the question."`;
+- a Fusion accepts one or more `str | Model | Fusion` members and requires a reducer;
+- a string is shorthand for a new default Model using the default prompt;
+- there is no public dictionary member form;
+- reusing one explicit Model or Fusion value reuses its answer node, while repeated strings or
+  separately constructed Models remain independent calls;
 - reducers are explicit strategy objects; and
 - a DRACO reproduction pins its research-answer prompt in the Fusion.
 
@@ -622,7 +622,7 @@ The Phase 2B request contract is deliberately narrow:
   expression rather than returning a partial Fusion object.
 
 The route's successful body is the winning answer's raw text. URL4 substitutes that resolved text
-into the outer expression's final `screamingface.fusion-result.v1` structure; the reducer does not
+into the outer expression's final `screamingface.recipe-result.v1` structure; the reducer does not
 return a result envelope or a rewritten URL4 expression.
 
 This route is legitimate SF execution behavior. It is distinct from adding an SF-specific output
@@ -633,7 +633,7 @@ packager merely to reshape JSON.
 `fusion.url4` is the canonical, shareable URL4 recipe template. It contains stable `member_n`
 slots and an intentionally unbound `$question`, but no benchmark case or answer key. The compiler
 constructs this template with URL4's public builder/AST facade and renders it with URL4's
-certified renderer; it does not concatenate ad-hoc URL4 strings. `run.fusion_url4` preserves this
+certified renderer; it does not concatenate ad-hoc URL4 strings. `run.recipe_url4` preserves this
 same template.
 
 For execution, the SDK adds one literal `question` binding to the template. Dollar signs in case
@@ -667,10 +667,10 @@ fan-out, reducer, and final result structure. Conceptually:
     member_2: '$member_2'
   },
 
-  fusion_answer=/reducers/majority-vote($member_answers),
+  recipe_answer=/reducers/majority-vote($member_answers),
 
   {
-    schema: 'screamingface.fusion-result.v1',
+    schema: 'screamingface.recipe-result.v1',
     members: {
       member_1: {
         model: 'claude/sonnet-4.6',
@@ -681,7 +681,7 @@ fan-out, reducer, and final result structure. Conceptually:
         answer: '$member_2'
       }
     },
-    answer: '$fusion_answer'
+    answer: '$recipe_answer'
   }
 )
 ```
@@ -696,7 +696,7 @@ The engine evaluates internal nodes and returns canonical JSON text:
 
 ```json
 {
-  "schema": "screamingface.fusion-result.v1",
+  "schema": "screamingface.recipe-result.v1",
   "members": {
     "member_1": {
       "model": "claude/sonnet-4.6",
@@ -767,15 +767,15 @@ the provider-connections contract; it does not change model discovery or benchma
 
 ## 12. `Run`
 
-`Fusion.run()` executes the selected cases and returns an immutable, serializable, in-memory
+`Model.run()` or `Fusion.run()` executes the selected cases and returns an immutable, serializable, in-memory
 artifact:
 
 ```python
 run = fusion.run("draco@1", first=5)
 
 run.benchmark_id
-run.fusion_name
-run.fusion_url4
+run.recipe_name
+run.recipe_url4
 run.members
 run.case_ids
 run.results
@@ -822,7 +822,7 @@ failure.code       # str | None
 `connection` means that the configured engine could not be reached. `timeout` includes a client
 deadline or the engine's structured 504 timeout. `url4` means a recognized structured execution
 error. `http` is an otherwise unrecognized non-success response. `protocol` means that a 200 body
-was not the exact plaintext `screamingface.fusion-result.v1` contract.
+was not the exact plaintext `screamingface.recipe-result.v1` contract.
 
 Required panel/reducer failures invalidate the whole case. The SDK does not construct a partial
 fusion answer. URL4-native optional/quorum behavior can be added explicitly later.
@@ -854,20 +854,20 @@ The `Run` privately captures the exact selected `Case` values used for execution
 uses that snapshot rather than rematerializing a callable benchmark source, so a mutable loader
 cannot change references between execution and grading.
 
-`Fusion.run()` is synchronous and safe to call from a normal script or a notebook with an active
+Recipe execution is synchronous and safe to call from a normal script or a notebook with an active
 event loop; bounded execution is an internal concern. Grading, aggregation, and `evaluate()` are
 the separate Phase 3 stages defined below; `evaluate()` never means “run only.”
 
 ## 13. Grading
 
-`run.grade()` grades the fusion and every member by default:
+`run.grade()` grades the Recipe answer and every member by default:
 
 ```python
 grades = run.grade()
 
 grades.benchmark_id
-grades.fusion_name
-grades.fusion_url4
+grades.recipe_name
+grades.recipe_url4
 grades.members
 grades.grader
 grades.case_ids
@@ -877,18 +877,18 @@ grades.complete
 grades.to_dict()
 ```
 
-`grades.results` is a stable tuple in selected-case order. Each entry separates the Fusion grade
+`grades.results` is a stable tuple in selected-case order. Each entry separates the Recipe grade
 from the grades for its ordered member slots:
 
 ```python
 case = grades.results[0]
 
 case.case_id
-case.fusion             # sf.Grade | None
+case.recipe             # sf.Grade | None
 case.members            # Mapping[str, sf.Grade]
 case.run_failure        # sf.RunFailure | None
 
-grade = case.fusion
+grade = case.recipe
 grade.score             # float in [0, 1] | None
 grade.metrics
 grade.coverage
@@ -902,10 +902,10 @@ The public inspection types are `sf.Grades`, `sf.CaseGrades`, `sf.Grade`,
 immutable and preserve stable case, member, criterion, and pass ordering. `to_dict()` returns a
 JSON-compatible snapshot.
 
-A successful run case always contains a Fusion `Grade` and one `Grade` for every captured member,
-including invalid grades whose `score` is `None`. A failed run case has `fusion=None`, an empty
+A successful run case always contains a Recipe `Grade` and one `Grade` for every captured member,
+including invalid grades whose `score` is `None`. A failed run case has `recipe=None`, an empty
 member mapping, and its original `RunFailure`; it receives no grading work. `Grades.complete` is
-true only when every selected run case succeeded and every Fusion/member grade is valid.
+true only when every selected run case succeeded and every Recipe/member grade is valid.
 
 There is no public `targets=` option in the MVP. Grading every member is required for the paired
 comparison contract in §15. Grading uses the already-captured answers and never reruns a panel or
@@ -1141,8 +1141,8 @@ member headline score. If no common valid cases remain, `score`, `baseline`, and
 report = grades.aggregate()
 
 report.benchmark_id
-report.fusion_name
-report.fusion_url4
+report.recipe_name
+report.recipe_url4
 report.n_cases
 report.n_scored
 report.coverage
@@ -1165,7 +1165,7 @@ member.metrics
 distinct `member_n` member reports. If multiple members tie for the best score, `baseline` is still
 that numeric maximum; no public tie-breaker is needed.
 
-`fusion_name` and the ordered `member_n -> model ID` mapping persist from `Fusion` through `Run`,
+`recipe_name` and the ordered `member_n -> model ID` mapping persist from `Fusion` through `Run`,
 `Grades`, and `Report`, including when every selected case fails. Successful case results must
 contain exactly those slots and models; failed cases remain atomic with no partial answers.
 

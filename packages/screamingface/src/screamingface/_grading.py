@@ -84,7 +84,7 @@ def grade_run(
 
     if not isinstance(run, Run):
         raise TypeError("grade_run requires an sf.Run")
-    tracker = _tracker or Progress(run.fusion_name, run.benchmark_id, progress)
+    tracker = _tracker or Progress(run.recipe_name, run.benchmark_id, progress)
     owns_tracker = _tracker is None
     tracker.stage("checking", "Preparing grading")
     try:
@@ -138,14 +138,14 @@ def _grade_exact(run: Run, cases: tuple[Case, ...]) -> Grades:
 
 def _exact_case(case: Case, result: CaseResult) -> CaseGrades:
     if result.failure is not None:
-        return CaseGrades(case.id, fusion=None, members=(), run_failure=result.failure)
+        return CaseGrades(case.id, recipe=None, members=(), run_failure=result.failure)
     assert result.answer is not None
-    fusion = _exact_grade(case.reference, result.answer)
+    recipe = _exact_grade(case.reference, result.answer)
     members = tuple(
         (target, _exact_grade(case.reference, member.answer))
         for target, member in result._member_items
     )
-    return CaseGrades(case.id, fusion=fusion, members=members)
+    return CaseGrades(case.id, recipe=recipe, members=members)
 
 
 def _exact_grade(reference: object, answer: str) -> Grade:
@@ -311,7 +311,7 @@ def _judge_tasks(
 def _targets(result: CaseResult) -> tuple[tuple[str, str], ...]:
     assert result.answer is not None
     return (
-        ("fusion", result.answer),
+        ("recipe", result.answer),
         *((target, member.answer) for target, member in result._member_items),
     )
 
@@ -559,8 +559,8 @@ def _rubric_case(
     grouped: Mapping[tuple[str, str], tuple[CriterionVerdict, ...]],
 ) -> CaseGrades:
     if result.failure is not None:
-        return CaseGrades(result.case_id, fusion=None, members=(), run_failure=result.failure)
-    fusion = _rubric_grade(result.case_id, "fusion", reference, grouped)
+        return CaseGrades(result.case_id, recipe=None, members=(), run_failure=result.failure)
+    recipe = _rubric_grade(result.case_id, "recipe", reference, grouped)
     members = tuple(
         (
             target,
@@ -568,7 +568,7 @@ def _rubric_case(
         )
         for target, _member in result._member_items
     )
-    return CaseGrades(result.case_id, fusion=fusion, members=members)
+    return CaseGrades(result.case_id, recipe=recipe, members=members)
 
 
 def _rubric_grade(

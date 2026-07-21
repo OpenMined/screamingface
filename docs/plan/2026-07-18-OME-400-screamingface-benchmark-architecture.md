@@ -66,9 +66,9 @@ The complete contract is normative; this is the implementation checklist.
 
 - `sf.Case(id, input, reference=None, metadata=...)`
 - `sf.Benchmark(id, title, cases, grader, aggregator, tools=(), max_tool_rounds=None)`
-- `sf.Fusion(name, model=..., prompt=..., params=...)` for an atomic model-call recipe
-- `sf.Fusion(name, inputs=[...], reducer=...)` for a recursive composite recipe
-- abstract interfaces: `sf.Reducer`, `sf.Grader`, `sf.Aggregator`
+- `sf.Model(model, name=None, prompt=None, params=None)` for an atomic Recipe
+- `sf.Fusion(name, members=[...], reducer=...)` for a composite Recipe
+- public interfaces: `sf.Recipe`, `sf.Reducer`, `sf.Grader`, `sf.Aggregator`
 - concrete strategies:
   - `sf.reducers.Model`, `sf.reducers.MajorityVote`
   - `sf.graders.ExactChoice`, `sf.graders.Rubric`
@@ -78,9 +78,9 @@ The complete contract is normative; this is the implementation checklist.
   `MemberReport`)
 
 There are no top-level concrete-strategy aliases and no `sf.judges` namespace.
-Inline model strings remain the quickstart shorthand for anonymous atomic inputs. There is no
-public dictionary input form and no `Model`, `FusionMonster`, `Solo`, `Lineup`, or generic
-`Experiment` compatibility alias.
+Inline model strings remain the quickstart shorthand for default Models. There is no public
+dictionary member form and no `FusionMonster`, `Solo`, `Lineup`, or generic `Experiment`
+compatibility alias. `Recipe` is a typing and conceptual interface, not a constructor.
 
 ### Discovery and loading
 
@@ -210,7 +210,7 @@ SDK:
 - automatic labeled question/panel context for model reducers;
 - one complete Fusion expression per case;
 - HTTP evaluation through only `GET /v1?q=...`;
-- plaintext JSON parsing and strict `screamingface.fusion-result.v1` validation;
+- plaintext JSON parsing and strict `screamingface.recipe-result.v1` validation;
 - deterministic reducer routing and model-reducer compilation;
 - bounded case concurrency (initial policy: four); and
 - immutable in-memory `Run`, `CaseResult`, `MemberResult`, and `RunFailure` values with
@@ -380,7 +380,7 @@ capabilities.
 typed Tavily tool values and require an explicit positive round bound. Concrete case expressions
 encode tool IDs, loop policy, and every stable Tavily request field as scalar parameters on member
 calls. Repeated domains use stable numbered keys. The benchmark-independent `fusion.url4` template
-and `run.fusion_url4` remain unchanged, and credentials never enter URL4.
+and `run.recipe_url4` remain unchanged, and credentials never enter URL4.
 
 **Phase 9B.4 supersedes the Phase 4D research adapter:** the development engine owns strict typed
 Tavily policy parsing and a bounded standard model-tool loop. Only the exact DeepSeek V4 Pro and

@@ -19,7 +19,7 @@ def _registry() -> Registry:
             ),
         ),
         reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
-        response_schemas=("screamingface.fusion-result.v1",),
+        response_schemas=("screamingface.recipe-result.v1",),
         max_request_target_bytes=61_440,
         providers=(
             ProviderRecord("huggingface", "Hugging Face", ("api_key",)),
@@ -41,7 +41,7 @@ def _benchmark() -> sf.Benchmark:
 def _fusion() -> sf.Fusion:
     return sf.Fusion(
         "research",
-        inputs=[
+        members=[
             "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",
             "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",
         ],

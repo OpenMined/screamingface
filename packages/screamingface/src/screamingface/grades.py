@@ -139,7 +139,7 @@ class CriterionVerdict:
 
 @dataclass(frozen=True, slots=True, init=False)
 class Grade:
-    """One immutable Fusion or member grade for a single case."""
+    """One immutable Recipe or member grade for a single case."""
 
     score: float | None
     coverage: float
@@ -198,10 +198,10 @@ class Grade:
 
 @dataclass(frozen=True, slots=True, init=False)
 class CaseGrades:
-    """Fusion and member grades, or the run failure, for one selected case."""
+    """Recipe and member grades, or the run failure, for one selected case."""
 
     case_id: str
-    fusion: Grade | None
+    recipe: Grade | None
     run_failure: RunFailure | None
     _member_items: tuple[tuple[str, Grade], ...] = field(repr=False)
 
@@ -209,7 +209,7 @@ class CaseGrades:
         self,
         case_id: str,
         *,
-        fusion: Grade | None,
+        recipe: Grade | None,
         members: Mapping[str, Grade] | Sequence[tuple[str, Grade]],
         run_failure: RunFailure | None = None,
     ) -> None:
@@ -217,8 +217,8 @@ class CaseGrades:
         items = tuple(members.items()) if isinstance(members, Mapping) else tuple(members)
         _grade_members(items)
         if run_failure is None:
-            if not isinstance(fusion, Grade):
-                raise TypeError("a successful case grade requires an sf.Grade Fusion value")
+            if not isinstance(recipe, Grade):
+                raise TypeError("a successful case grade requires an sf.Grade Recipe value")
             if not items:
                 raise ValueError("a successful case grade requires member grades")
         else:
@@ -226,10 +226,10 @@ class CaseGrades:
                 raise TypeError("case run failure must be an sf.RunFailure")
             if run_failure.case_id != normalized_id:
                 raise ValueError("case grade and run failure IDs must match")
-            if fusion is not None or items:
-                raise ValueError("a failed case grade cannot contain Fusion or member grades")
+            if recipe is not None or items:
+                raise ValueError("a failed case grade cannot contain Recipe or member grades")
         object.__setattr__(self, "case_id", normalized_id)
-        object.__setattr__(self, "fusion", fusion)
+        object.__setattr__(self, "recipe", recipe)
         object.__setattr__(self, "run_failure", run_failure)
         object.__setattr__(self, "_member_items", items)
 
@@ -240,7 +240,7 @@ class CaseGrades:
     def _to_wire(self) -> dict[str, object]:
         return {
             "case_id": self.case_id,
-            "fusion": None if self.fusion is None else self.fusion._to_wire(),
+            "recipe": None if self.recipe is None else self.recipe._to_wire(),
             "members": {target: grade._to_wire() for target, grade in self._member_items},
             "run_failure": (None if self.run_failure is None else self.run_failure._to_wire()),
         }
@@ -251,8 +251,8 @@ class Grades:
     """One immutable, in-memory grading artifact derived from a Run."""
 
     benchmark_id: str
-    fusion_name: str
-    fusion_url4: str
+    recipe_name: str
+    recipe_url4: str
     grader: Grader
     case_ids: tuple[str, ...]
     results: tuple[CaseGrades, ...]
@@ -266,8 +266,8 @@ class Grades:
             raise TypeError("grade results must be sf.CaseGrades values")
         _grade_results(run, values)
         object.__setattr__(self, "benchmark_id", run.benchmark_id)
-        object.__setattr__(self, "fusion_name", run.fusion_name)
-        object.__setattr__(self, "fusion_url4", run.fusion_url4)
+        object.__setattr__(self, "recipe_name", run.recipe_name)
+        object.__setattr__(self, "recipe_url4", run.recipe_url4)
         object.__setattr__(self, "grader", run._benchmark.grader)
         object.__setattr__(self, "case_ids", run.case_ids)
         object.__setattr__(self, "results", values)
@@ -284,8 +284,8 @@ class Grades:
             if case.run_failure is not None:
                 failures.append(case.run_failure)
                 continue
-            assert case.fusion is not None
-            for grade in (case.fusion, *(grade for _, grade in case._member_items)):
+            assert case.recipe is not None
+            for grade in (case.recipe, *(grade for _, grade in case._member_items)):
                 failures.extend(
                     verdict.failure for verdict in grade.verdicts if verdict.failure is not None
                 )
@@ -302,8 +302,8 @@ class Grades:
 
         return {
             "benchmark_id": self.benchmark_id,
-            "fusion_name": self.fusion_name,
-            "fusion_url4": self.fusion_url4,
+            "recipe_name": self.recipe_name,
+            "recipe_url4": self.recipe_url4,
             "members": dict(self.members),
             "grader": _grader_wire(self.grader),
             "case_ids": list(self.case_ids),
@@ -394,8 +394,8 @@ def _grade_results(run: Run, values: tuple[CaseGrades, ...]) -> None:
             raise ValueError("a successful Run result cannot become a failed case grade")
         if tuple(grades.members) != tuple(run_result.members):
             raise ValueError("grade member slots and order must match the Run")
-        assert grades.fusion is not None
-        _grade_identity(grades.case_id, "fusion", grades.fusion)
+        assert grades.recipe is not None
+        _grade_identity(grades.case_id, "recipe", grades.recipe)
         for target, grade in grades._member_items:
             _grade_identity(grades.case_id, target, grade)
 

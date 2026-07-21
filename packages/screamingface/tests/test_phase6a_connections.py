@@ -16,7 +16,7 @@ from screamingface.connections import ConnectionStatus, OAuthFlow
 def _registry() -> dict[str, object]:
     return {
         "schema": "screamingface.registry.v1",
-        "response_schemas": ["screamingface.fusion-result.v1"],
+        "response_schemas": ["screamingface.recipe-result.v1"],
         "limits": {"max_request_target_bytes": 61440},
         "providers": [
             {"id": "codex", "display_name": "OpenAI Codex", "auth_methods": ["oauth"]},
@@ -312,7 +312,7 @@ def test_stage_requirement_planning_uses_explicit_provider_metadata(
     registry = _profile.load_registry()
     fusion = sf.Fusion(
         "panel",
-        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
+        members=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.Model(
             model="codex/gpt-5.5",
             prompt="Reduce: $panel_answers",
@@ -342,7 +342,7 @@ def test_deterministic_strategies_add_no_model_requirement(monkeypatch: pytest.M
     registry = _profile.load_registry()
     fusion = sf.Fusion(
         "vote",
-        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
+        members=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
     benchmark = sf.Benchmark(
@@ -359,7 +359,7 @@ def test_deterministic_strategies_add_no_model_requirement(monkeypatch: pytest.M
 
     repeated = sf.Fusion(
         "repeated",
-        inputs=["codex/gpt-5.5", "codex/gpt-5.5"],
+        members=["codex/gpt-5.5", "codex/gpt-5.5"],
         reducer=sf.reducers.MajorityVote(),
     )
     repeated_requirements = run_requirements(repeated, benchmark, registry)

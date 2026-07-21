@@ -69,7 +69,7 @@ ScreamingFace engine and shows the engine origin before you act.
         nbformat.v4.new_code_cell(
             "fusion = sf.Fusion(\n"
             '    "frontier-trio",\n'
-            "    inputs=[\n"
+            "    members=[\n"
             '        "codex/gpt-5.5",\n'
             '        "gemini/2.5-flash",\n'
             '        "claude/sonnet-4.6",\n'

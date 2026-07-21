@@ -15,8 +15,8 @@ def _members(score_one: float | None, score_two: float | None) -> dict[str, sf.M
 def _complete_report() -> sf.Report:
     return sf.Report(
         benchmark_id="example@1",
-        fusion_name="complete-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="complete-fusion",
+        recipe_url4="(recipe)",
         n_cases=2,
         n_scored=2,
         coverage=1.0,
@@ -33,8 +33,8 @@ def _partial_report() -> sf.Report:
     failure = sf.RunFailure("q3", "timeout", "Judge timed out")
     return sf.Report(
         benchmark_id="example@1",
-        fusion_name="partial-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="partial-fusion",
+        recipe_url4="(recipe)",
         n_cases=3,
         n_scored=2,
         coverage=2 / 3,
@@ -55,8 +55,8 @@ def _failed_report() -> sf.Report:
     )
     return sf.Report(
         benchmark_id="example@1",
-        fusion_name="failed-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="failed-fusion",
+        recipe_url4="(recipe)",
         n_cases=3,
         n_scored=0,
         coverage=0.0,
@@ -90,8 +90,8 @@ def _stopped_report() -> sf.Report:
     )
     return sf.Report(
         benchmark_id="gpqa@1",
-        fusion_name="frontier-trio",
-        fusion_url4="(recipe)",
+        recipe_name="frontier-trio",
+        recipe_url4="(recipe)",
         n_cases=5,
         n_scored=0,
         coverage=0.0,

@@ -188,7 +188,7 @@ No substitute report is created while execution is disabled."""
             "    sf.config(engine=ENGINE_URL)\n"
             "    fusion = sf.Fusion(\n"
             '        "tiny-science-panel",\n'
-            "        inputs=[\n"
+            "        members=[\n"
             '            "codex/gpt-5.5",\n'
             '            "gemini/2.5-flash",\n'
             '            "claude/sonnet-4.6",\n'

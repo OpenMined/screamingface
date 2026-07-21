@@ -112,7 +112,7 @@ references belong in the researcher's process."""
         nbformat.v4.new_code_cell(
             "fusion = sf.Fusion(\n"
             '    "architecture-example",\n'
-            '    inputs=["codex/gpt-5.5", "gemini/2.5-flash"],\n'
+            '    members=["codex/gpt-5.5", "gemini/2.5-flash"],\n'
             "    reducer=sf.reducers.MajorityVote(),\n"
             ")\n\n"
             "fusion.url4"
@@ -139,12 +139,12 @@ concrete input."""
             '                    path="/reducers/majority-vote",\n'
             '                    context="$member_answers",\n'
             "                ),\n"
-            '                name="fusion_answer",\n'
+            '                name="recipe_answer",\n'
             "            ),\n"
             "            struct(\n"
             "                {\n"
-            '                    "schema": "screamingface.fusion-result.v1",\n'
-            '                    "answer": "$fusion_answer",\n'
+            '                    "schema": "screamingface.recipe-result.v1",\n'
+            '                    "answer": "$recipe_answer",\n'
             "                }\n"
             "            ),\n"
             "        )\n"
@@ -169,7 +169,7 @@ Tavily."""
             "response.raise_for_status()\n"
             "parsed_response = json.loads(response.text)\n"
             "assert parsed_response == {\n"
-            '    "schema": "screamingface.fusion-result.v1",\n'
+            '    "schema": "screamingface.recipe-result.v1",\n'
             '    "answer": "A",\n'
             "}\n\n"
             "{\n"

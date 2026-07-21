@@ -48,11 +48,11 @@ class MemberReport:
 
 @dataclass(frozen=True, slots=True, init=False)
 class Report:
-    """One paired Fusion-versus-members benchmark comparison."""
+    """One paired Recipe-versus-members benchmark comparison."""
 
     benchmark_id: str
-    fusion_name: str
-    fusion_url4: str
+    recipe_name: str
+    recipe_url4: str
     n_cases: int
     n_scored: int
     coverage: float
@@ -67,8 +67,8 @@ class Report:
         self,
         *,
         benchmark_id: str,
-        fusion_name: str,
-        fusion_url4: str,
+        recipe_name: str,
+        recipe_url4: str,
         n_cases: int,
         n_scored: int,
         coverage: float,
@@ -98,8 +98,8 @@ class Report:
 
         values = {
             "benchmark_id": _nonblank(benchmark_id, "report benchmark ID"),
-            "fusion_name": _nonblank(fusion_name, "report fusion name"),
-            "fusion_url4": _nonblank(fusion_url4, "report fusion URL4"),
+            "recipe_name": _nonblank(recipe_name, "report recipe name"),
+            "recipe_url4": _nonblank(recipe_url4, "report recipe URL4"),
             "n_cases": total,
             "n_scored": scored,
             "coverage": normalized_coverage,
@@ -142,8 +142,8 @@ class Report:
 
         return {
             "benchmark_id": self.benchmark_id,
-            "fusion_name": self.fusion_name,
-            "fusion_url4": self.fusion_url4,
+            "recipe_name": self.recipe_name,
+            "recipe_url4": self.recipe_url4,
             "n_cases": self.n_cases,
             "n_scored": self.n_scored,
             "coverage": self.coverage,

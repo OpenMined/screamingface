@@ -20,7 +20,7 @@ def _registry(*models: str) -> Registry:
     return Registry(
         models=tuple(ModelRecord(model, (), "test-provider") for model in selected),
         reducers=(),
-        response_schemas=("screamingface.fusion-result.v1",),
+        response_schemas=("screamingface.recipe-result.v1",),
         max_request_target_bytes=61440,
         providers=(ProviderRecord("test-provider", "Test Provider", ("api_key",)),),
     )
@@ -118,8 +118,8 @@ def _run(
     selected_cases = benchmark._materialize_cases()
     return sf.Run(
         benchmark=benchmark,
-        fusion_name="test-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="test-fusion",
+        recipe_url4="(recipe)",
         members={member_id: member.model for member_id, member in selected_members.items()},
         cases=selected_cases,
         results=[
@@ -222,8 +222,8 @@ def test_run_grade_dispatches_exact_choice_locally_without_engine(
 
     grades = run.grade()
 
-    assert grades.results[0].fusion is not None
-    assert grades.results[0].fusion.score == 1.0
+    assert grades.results[0].recipe is not None
+    assert grades.results[0].recipe.score == 1.0
     assert [grade.score for grade in grades.results[0].members.values()] == [0.0, 1.0]
     assert grades.complete is True
 
@@ -237,8 +237,8 @@ def test_exact_grading_preserves_failed_run_cases_and_revalidates_references() -
     failure = sf.RunFailure("q1", "timeout", "URL4 engine evaluation timed out")
     run = sf.Run(
         benchmark=benchmark,
-        fusion_name="test-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="test-fusion",
+        recipe_url4="(recipe)",
         members={"member_1": "worker/one", "member_2": "worker/two"},
         cases=benchmark._materialize_cases(),
         results=[sf.CaseResult("q1", members=(), answer=None, failure=failure)],
@@ -247,7 +247,7 @@ def test_exact_grading_preserves_failed_run_cases_and_revalidates_references() -
     grades = run.grade()
 
     assert grades.results[0].run_failure == failure
-    assert grades.results[0].fusion is None
+    assert grades.results[0].recipe is None
     assert grades.failures == (failure,)
 
     invalid = sf.Benchmark(
@@ -257,8 +257,8 @@ def test_exact_grading_preserves_failed_run_cases_and_revalidates_references() -
     )
     invalid_run = sf.Run(
         benchmark=invalid,
-        fusion_name="test-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="test-fusion",
+        recipe_url4="(recipe)",
         members={"member_1": "worker/one", "member_2": "worker/two"},
         cases=invalid._materialize_cases(),
         results=[sf.CaseResult("q1", members=(), answer=None, failure=failure)],
@@ -303,8 +303,8 @@ def test_grading_uses_the_exact_cases_captured_by_the_run() -> None:
     selected_cases = benchmark._materialize_cases()
     run = sf.Run(
         benchmark=benchmark,
-        fusion_name="test-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="test-fusion",
+        recipe_url4="(recipe)",
         members={"member_1": "worker/one", "member_2": "worker/two"},
         cases=selected_cases,
         results=[
@@ -322,8 +322,8 @@ def test_grading_uses_the_exact_cases_captured_by_the_run() -> None:
     grades = run.grade()
 
     assert calls == 1
-    assert grades.results[0].fusion is not None
-    assert grades.results[0].fusion.score == 1.0
+    assert grades.results[0].recipe is not None
+    assert grades.results[0].recipe.score == 1.0
 
 
 def test_rubric_preflight_validates_all_references_before_registry_or_judge_traffic(
@@ -335,8 +335,8 @@ def test_rubric_preflight_validates_all_references_before_registry_or_judge_traf
     failure = sf.RunFailure("q2", "timeout", "run failed")
     run = sf.Run(
         benchmark=benchmark,
-        fusion_name="test-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="test-fusion",
+        recipe_url4="(recipe)",
         members={"member_1": "worker/one", "member_2": "worker/two"},
         cases=benchmark._materialize_cases(),
         results=[
@@ -569,8 +569,8 @@ def test_failed_rubric_run_case_is_preflighted_but_receives_no_judge_calls(
     failure = sf.RunFailure("q1", "timeout", "run failed")
     run = sf.Run(
         benchmark=benchmark,
-        fusion_name="test-fusion",
-        fusion_url4="(recipe)",
+        recipe_name="test-fusion",
+        recipe_url4="(recipe)",
         members={"member_1": "worker/one", "member_2": "worker/two"},
         cases=benchmark._materialize_cases(),
         results=[sf.CaseResult("q1", members=(), answer=None, failure=failure)],
@@ -581,7 +581,7 @@ def test_failed_rubric_run_case_is_preflighted_but_receives_no_judge_calls(
 
     assert client.calls == []
     assert grades.results[0].run_failure == failure
-    assert grades.results[0].fusion is None
+    assert grades.results[0].recipe is None
     assert grades.failures == (failure,)
 
 
@@ -896,5 +896,5 @@ def test_judge_parser_accepts_a_preamble_or_fence_and_rejects_schema_drift() -> 
 
 def _all_grades(grades: sf.Grades) -> tuple[sf.Grade, ...]:
     case = grades.results[0]
-    assert case.fusion is not None
-    return (case.fusion, *case.members.values())
+    assert case.recipe is not None
+    return (case.recipe, *case.members.values())

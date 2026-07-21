@@ -19,7 +19,7 @@ def _registry() -> Registry:
             ModelRecord("judge/model", (), "judge"),
         ),
         reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote"),),
-        response_schemas=("screamingface.fusion-result.v1",),
+        response_schemas=("screamingface.recipe-result.v1",),
         max_request_target_bytes=61440,
         providers=(
             ProviderRecord("codex", "OpenAI Codex", ("oauth",)),
@@ -32,7 +32,7 @@ def _registry() -> Registry:
 def _fusion() -> sf.Fusion:
     return sf.Fusion(
         "panel",
-        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
+        members=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=sf.reducers.MajorityVote(),
     )
 
@@ -124,7 +124,7 @@ class EngineClient:
             )
         if "member_1=" in expression:
             body = {
-                "schema": "screamingface.fusion-result.v1",
+                "schema": "screamingface.recipe-result.v1",
                 "members": {
                     "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
                     "member_2": {"model": "gemini/2.5-flash", "answer": "A"},

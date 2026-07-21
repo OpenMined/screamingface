@@ -10,7 +10,7 @@ import pytest
 
 import screamingface as sf
 from screamingface import _execution, connections
-from screamingface._compiler import compile_fusion
+from screamingface._compiler import compile_recipe
 from screamingface._profile import ModelRecord, ProviderRecord, ReducerRecord, Registry
 
 
@@ -29,7 +29,7 @@ def _registry(
         reducers=reducers
         if reducers is not None
         else (ReducerRecord("majority_vote", "/reducers/majority-vote"),),
-        response_schemas=("screamingface.fusion-result.v1",),
+        response_schemas=("screamingface.recipe-result.v1",),
         max_request_target_bytes=61440,
         providers=(
             ProviderRecord("codex", "OpenAI Codex", ("oauth",)),
@@ -68,7 +68,7 @@ def _connected_providers(monkeypatch: pytest.MonkeyPatch) -> None:
 def _fusion(reducer=None) -> sf.Fusion:
     return sf.Fusion(
         "frontier",
-        inputs=["codex/gpt-5.5", "gemini/2.5-flash"],
+        members=["codex/gpt-5.5", "gemini/2.5-flash"],
         reducer=reducer or sf.reducers.MajorityVote(),
     )
 
@@ -97,7 +97,7 @@ def _success(fusion: sf.Fusion, case_id: str) -> httpx.Response:
                     "member_2": {"answer": "B", "model": "gemini/2.5-flash"},
                     "member_1": {"model": "codex/gpt-5.5", "answer": "A"},
                 },
-                "schema": "screamingface.fusion-result.v1",
+                "schema": "screamingface.recipe-result.v1",
             }
         ),
         headers={"content-type": "text/plain; charset=utf-8"},
@@ -151,7 +151,7 @@ def _install(
 ) -> FakeClient:
     monkeypatch.setattr(_execution, "load_registry", _registry)
     responses = {
-        compile_fusion(
+        compile_recipe(
             fusion,
             question=case.input,
             tools=benchmark.tools,
@@ -184,9 +184,9 @@ def test_supported_benchmark_tools_are_sent_only_in_concrete_member_requests(
     expression = client.calls[0]
     assert expression.count("tools=web_search") == 2
     assert expression.count("max_tool_rounds=8") == 2
-    assert "fusion_answer=/reducers/majority-vote($member_answers)" in expression
-    assert run.fusion_url4 == fusion.url4
-    assert "tools=" not in run.fusion_url4
+    assert "recipe_answer=/reducers/majority-vote($member_answers)" in expression
+    assert run.recipe_url4 == fusion.url4
+    assert "tools=" not in run.recipe_url4
 
 
 def test_run_executes_one_request_per_case_with_bounded_stable_order(
@@ -205,7 +205,7 @@ def test_run_executes_one_request_per_case_with_bounded_stable_order(
     assert tuple(run.results[0].members) == ("member_1", "member_2")
     assert len(client.calls) == 5
     assert 2 <= client.max_active <= 4
-    assert run.fusion_url4 == fusion.url4
+    assert run.recipe_url4 == fusion.url4
     assert run.complete is True
 
 
@@ -276,7 +276,7 @@ def test_transport_failures_are_safe_case_results(error: Exception, kind: str) -
         BrokenClient(),  # type: ignore[arg-type]
         _fusion(),
         case,
-        compile_fusion(_fusion(), question=case.input),
+        compile_recipe(_fusion(), question=case.input),
     )
 
     assert result.failure is not None
