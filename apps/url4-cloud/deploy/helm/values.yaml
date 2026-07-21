@@ -1,0 +1,133 @@
+replicaCount: 1
+
+# The one image carries both entrypoints (spec §1.1): the App (`url4-cloud`, this Deployment) and
+# the Runner (`url4-cloud-runner`, the Jobs the App schedules). The Runner reuses `image` unless
+# `runner.image` overrides it. Build-time OCI labels the image should carry are listed in README.md
+# (org.opencontainers.image.*).
+image:
+  repository: ghcr.io/openmined/screamingface-url4-cloud
+  tag: ""            # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # The App's ServiceAccount — the RoleBinding subject that lets the stateless App schedule Jobs in
+  # its own namespace (spec §9). Must exist for the RBAC bootstrap; keep `create: true` in-cluster.
+  create: true
+  annotations: {}
+  name: ""
+
+# RBAC bootstrap (spec §9): namespace-scoped Role + RoleBinding so the App can manage Runner Jobs
+# ONLY in its own namespace. Verbs are exactly what `K8sJobRunner` calls: create/get/list/watch/
+# delete on batch/jobs, get/list on pods (+ pods/log) for status and logs.
+rbac:
+  create: true
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+
+# App config → ConfigMap (env-prefixed URL4_CLOUD_*, consumed by url4_cloud.config.Settings).
+config:
+  # Where the App reaches NATS. Points at an in-cluster NATS Service (the dependency when
+  # nats.enabled, else an existing one). JetStream must be enabled on that NATS.
+  natsUrl: nats://url4-cloud-nats:4222
+  # Stateless iat-capability window in seconds — start rejected when now-iat exceeds it (spec §4).
+  iatWindowS: 60
+  # Sync-hold cap (seconds); a run outliving it degrades to 202 async (spec §5).
+  syncMaxWaitS: 30
+  # Idle interval between WS heartbeat frames for liveness (spec §6).
+  wsHeartbeatS: 15
+  # k8s Job activeDeadlineSeconds ceiling = 16h (spec §3); the Runner Job's hard timeout.
+  jobDeadlineS: 57600
+  # Container port the App (uvicorn) listens on — see url4_cloud/cli.py.
+  port: 9108
+
+# JWT topic-capability signing secret (spec §4). HS256; never logged. When `create: true` the chart
+# generates a random 64-char secret (reused across upgrades via lookup), else supply `existingSecret`.
+auth:
+  create: true
+  existingSecret: ""       # when set and create=false, read the JWT secret from this Secret
+  jwtSecret: ""            # explicit override; empty => generated (persisted across upgrades)
+  jwtSecretKey: jwt-secret
+
+service:
+  type: ClusterIP
+  port: 9108
+
+ingress:
+  # REST + WebSocket share one HTTP route; Traefik upgrades WS on the same path (no extra annotation).
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+  hosts:
+    - host: url4.screamingface.ai
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: url4-cloud-tls-staging
+      hosts:
+        - url4.screamingface.ai
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+# The App implements /healthz (url4_cloud/app.py); probes target it (k8s probe convention, §9).
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 20
+  timeoutSeconds: 5
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+# Runner Job template (spec §9). Rendered as a documented ConfigMap, NOT a live Job: the App builds
+# the real per-request Job in code (K8sJobRunner._manifest) — this is the operator reference so the
+# scheduled shape (run-once, 16 h deadline, labels the RBAC must cover) is visible and reviewable.
+runner:
+  # Reference ConfigMap emission; the App never reads it, so it is inert and safe to disable.
+  renderTemplate: true
+  image: ""               # defaults to the App `image`
+  command:
+    - url4-cloud-runner
+
+# Optional in-cluster NATS (JetStream) subchart — default-disabled (see Chart.yaml). Enable only
+# after `helm dependency build`; otherwise reuse an existing NATS via `config.natsUrl`.
+nats:
+  enabled: false
+  # Passed through to the nats-io/k8s subchart when enabled. JetStream is required by the bus.
+  config:
+    jetstream:
+      enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
