@@ -173,7 +173,7 @@ async def test_diamond_binding_resolved_once() -> None:
     # One binding read by two consumers and the intent → a single fetch.
     resolver = RecordingIOLayer(fetch_map={"https://x": "V"})
     result = await run("(a=https://x, use $a, also $a)!both: $a", resolver)
-    assert result == "both: V\n\nuse V\nalso V"
+    assert result == "both: V\n\na: V\nuse V\nalso V"  # `OME-534`: a packs too
     assert resolver.fetches.count("https://x") == 1
 
 
@@ -229,7 +229,7 @@ async def test_map_non_positive_concurrency_falls_back_to_default() -> None:
     # IterationDirectives directly — the surface `;iteration.concurrency`
     # syntax rejects n < 1) must mean "use the default bound", never "unbounded".
     resolver = StaticIOLayer(fetch_map={"https://data": '["1", "2"]'})
-    graph = compile_expression("https://data*(r=$item)!'$r'")
+    graph = compile_expression("https://data*(r:0:$item)!'$r'")
     map_node = graph.sink.deps["rows"]
     assert isinstance(map_node, MapNode)
     map_node.directives = ForeachDirectives(concurrency=0)
@@ -377,7 +377,9 @@ def test_graph_shape_for_mixed_group() -> None:
     # A text intent is ProcessNode's template, substituted against the
     # populated post-gather scope (expansion renumbers $N there — §5.3.12.4).
     assert sink.intent_template == "m"
-    assert sink.slots == (("a", True), (None, False))
+    # `OME-534`: the SlotSpec bool means INSTRUMENTAL (weight 0.0), and a
+    # name-only binding contributes — so it is False here.
+    assert sink.slots == (("a", False), (None, False))
 
 
 @pytest.mark.asyncio
@@ -413,8 +415,8 @@ async def test_shared_ctx_across_concurrent_runs_gets_independent_spawn_wiring()
     # "row $item" parses as a Text atom (a standalone "$item" is a VarRef and
     # would bypass the custom Text lowering this test observes).
     result_a, result_b = await asyncio.gather(
-        run("https://data*(r=row $item)!'$r'", ctx=ctx, registry=_make_registry("A:")),
-        run("https://data*(r=row $item)!'$r'", ctx=ctx, registry=_make_registry("B:")),
+        run("https://data*(r:0:'row $item')!'$r'", ctx=ctx, registry=_make_registry("A:")),
+        run("https://data*(r:0:'row $item')!'$r'", ctx=ctx, registry=_make_registry("B:")),
     )
     assert json.loads(result_a) == ["A:row 1"]
     assert json.loads(result_b) == ["B:row 1"]
@@ -519,7 +521,7 @@ async def test_frame_binds_positional_pos_role() -> None:
     # slot positionally.
     io = StaticIOLayer(fetch_map={"https://x": "V"})
     result = await run("(a=https://x, use $1)!go", io)
-    assert result == "go\n\nuse V"
+    assert result == "go\n\na: V\nuse V"  # `OME-534`: a packs too
 
 
 @pytest.mark.asyncio
@@ -567,7 +569,7 @@ async def test_struct_reference_value_is_never_numerically_coerced() -> None:
     # `OME-508`: the intent-less group is an internal carrier — built via
     # parse_group_root (the envelope entry that holds no intent) for this pin.
     result = await run(
-        compile_expression(parse_group_root("(uid=30, {id: $uid})")), StaticIOLayer()
+        compile_expression(parse_group_root("(uid:0:'30', {id: $uid})")), StaticIOLayer()
     )
     assert json.loads(result) == {"id": "30"}
 
@@ -588,7 +590,7 @@ async def test_relurl_bare_path_resolves_sibling_reference_text_path() -> None:
     # sibling-binding scope frame, so /data/$topic fetches /data/hello, not the
     # literal /data/$topic (which would raise "no fetch mapping").
     io = RecordingIOLayer(fetch_map={"/data/hello": "OK"})
-    assert await run("(topic=hello, r=/data/$topic)!'$r'", io) == "OK"
+    assert await run("(topic:0:'hello', r:0:/data/$topic)!'$r'", io) == "OK"
     assert "/data/hello" in io.fetches
 
 
@@ -597,7 +599,8 @@ async def test_relurl_bare_path_resolves_sibling_reference_ast_path() -> None:
     # The AST twin of the text path — the same edge wired via _refs_of_ast.
     io = RecordingIOLayer(fetch_map={"/data/hello": "OK"})
     ast = parse_group_root("(topic=hello, /data/$topic)")
-    assert await run(compile_expression(ast), io) == "OK"
+    # `OME-534`: the named source packs as a labeled line before the fetch value
+    assert await run(compile_expression(ast), io) == "topic: hello\nOK"
     assert "/data/hello" in io.fetches
 
 
@@ -696,7 +699,7 @@ async def test_run_all_success_path_returns_row_results() -> None:
     # nodes.py MapNode._run_all(): the success path (no row errors,
     # ;iteration.on_error=fail) returns every row's result, in order.
     io = StaticIOLayer(fetch_map={"https://data": '["1", "2", "3"]'})
-    result = await run("https://data*(r=$item)!'$r';iteration.on_error=fail", io)
+    result = await run("https://data*(r:0:$item)!'$r';iteration.on_error=fail", io)
     assert json.loads(result) == ["1", "2", "3"]
 
 
@@ -844,7 +847,8 @@ async def test_group_binding_rhs_lowers_to_lazy_binding_thunk() -> None:
     assert isinstance(binding, BindingNode)
     assert isinstance(binding.deps["value"], LazyExprNode)
     result = await run(graph, io)
-    assert result == "combine\n\nuse label\n\nX"
+    # `OME-534`: the deferred g binding contributes a labeled line too
+    assert result == "combine\n\ng: label\n\nX\nuse label\n\nX"
 
 
 @pytest.mark.asyncio

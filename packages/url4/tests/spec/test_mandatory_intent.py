@@ -128,10 +128,12 @@ def test_empty_source_list_with_intent_still_parses() -> None:
 
 
 def test_all_binding_interpolation_still_executes() -> None:
+    # `OME-534`: the name-only source both interpolates into the intent AND
+    # contributes to the packed context as a labeled line.
     from url4.dag import run
 
     result = asyncio.run(run("(x='value')!'got $x'", StaticIOLayer()))
-    assert result == "got value"
+    assert result == "got value\n\nx: value"
 
 
 def test_processor_expression_form_still_resolves_via_bindings() -> None:
@@ -147,7 +149,7 @@ def test_processor_expression_form_still_resolves_via_bindings() -> None:
         }
     )
     result = asyncio.run(
-        run("(/claude(a)!x, /gpt4(b)!y)!combine", io, processor="(p='/gpt4')!'$p'")
+        run("(/claude(a)!x, /gpt4(b)!y)!combine", io, processor="(p:0:'/gpt4')!'$p'")
     )
     assert result.startswith("gpt4:")
 

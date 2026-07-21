@@ -44,7 +44,7 @@ from url4.core.builders import expr as _expr
 from url4.core.builders import iterate as _iterate
 from url4.core.builders import reduce as _reduce
 from url4.core.context import Context
-from url4.core.nodes import Binding, Expression, Iteration, Node, Params, RemoteExpr, Text
+from url4.core.nodes import Expression, Iteration, Node, Params, RemoteExpr, Source, Text
 from url4.core.parser import build
 from url4.core.render import _render_source, render
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, run
@@ -363,11 +363,13 @@ def _with_params(root: Expression | Iteration, params: Params) -> Expression | I
 def _passthrough(node: RemoteExpr) -> Expression:
     """Wrap a lone remote call in the grammar's passthrough group.
 
-    ``(r=<call>)!'$r'`` — the group's intent is mandatory (`OME-508`), and an
-    all-binding group resolves its intent by pure interpolation, so the
-    wrapper adds no processor hop: the result IS the remote call's result.
+    ``(r:0:<call>)!'$r'`` — the group's intent is mandatory (`OME-508`), and
+    under the ABNF contribution semantics (`OME-534`) the weight-0.0
+    INSTRUMENTAL descriptor is what keeps the wrapper out of the packed
+    context AND out of the fan-out gate, so the wrapper adds no processor
+    hop: the intent's ``$r`` interpolation IS the remote call's result.
     """
-    return Expression(sources=(Binding("r", node, "="),), intent=Text("$r"))
+    return Expression(sources=(Source(node, name="r", weight=0.0),), intent=Text("$r"))
 
 
 def _as_remote(

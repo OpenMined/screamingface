@@ -19,12 +19,12 @@ from url4.dag import run
 
 @pytest.mark.asyncio
 async def test_pure_binding_group_falls_back_to_binding_values() -> None:
-    # A group of only bindings has an empty sources_text; the intent is pure
-    # interpolation over the binding values (`OME-508`: the group carries an
-    # intent — all-binding groups resolve it without a processor).
+    # `OME-534`: a name-only source contributes to the packed context as a
+    # labeled line AND interpolates into the intent — the intent resolves
+    # without a processor, over the interpolated binding values.
     resolver = StaticIOLayer(fetch_map={"https://x": "VALUE"})
     result = await run("(a=https://x)!'$a'", resolver)
-    assert result == "VALUE"
+    assert result == "VALUE\n\na: VALUE"
 
 
 @pytest.mark.asyncio
@@ -33,7 +33,7 @@ async def test_non_binding_source_sees_later_binding() -> None:
     # non-binding source may reference a binding declared AFTER it.
     resolver = StaticIOLayer(fetch_map={"https://x": "X"})
     result = await run("(use $a, a=https://x)!go", resolver)
-    assert result == "go\n\nuse X"
+    assert result == "go\n\nuse X\na: X"  # `OME-534`: the named source packs too
 
 
 @pytest.mark.asyncio

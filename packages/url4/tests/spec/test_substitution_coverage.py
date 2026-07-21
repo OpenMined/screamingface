@@ -31,13 +31,14 @@ _ECHO_IO = StaticIOLayer(routes={"/echo": lambda context, intent: context})  # n
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
-        # `OME-508`: every group carries an intent; all-binding groups resolve
-        # it by pure interpolation, keeping these substitution pins processor-free.
-        pytest.param("(v='$$literal')!'$v'", "$literal", id="bare-text-source"),
-        pytest.param("(v='cost: $$5')!'$v'", "cost: $5", id="escape-before-digit"),
-        pytest.param("(x='$$lit')!'$x'", "$lit", id="named-binding"),
-        pytest.param("(name:'$$w')!'$name'", "$w", id="colon-bound-descriptor"),
-        pytest.param("(v='a $$b c')!'$v'", "a $b c", id="mid-text"),
+        # `OME-508`: every group carries an intent; `OME-534`: the weight-0.0
+        # instrumental descriptor keeps these substitution pins processor-free
+        # and out of the packed context (name-only forms now contribute).
+        pytest.param("(v:0:'$$literal')!'$v'", "$literal", id="bare-text-source"),
+        pytest.param("(v:0:'cost: $$5')!'$v'", "cost: $5", id="escape-before-digit"),
+        pytest.param("(x:0:'$$lit')!'$x'", "$lit", id="named-binding"),
+        pytest.param("(name:0.0:'$$w')!'$name'", "$w", id="colon-bound-descriptor"),
+        pytest.param("(v:0:'a $$b c')!'$v'", "a $b c", id="mid-text"),
     ],
 )
 def test_dollar_escape_collapses_in_every_text_source_position(
@@ -49,4 +50,4 @@ def test_dollar_escape_collapses_in_every_text_source_position(
 def test_dollar_escape_collapses_inside_a_relative_expression_context() -> None:
     # The sub-case the audit could not confirm: a Text landing in a rel-expr
     # context rather than an intent/path template.
-    assert asyncio.run(run("(r=/echo('$$x')!go)!'$r'", _ECHO_IO)) == "'$x'"
+    assert asyncio.run(run("(r:0:/echo('$$x')!go)!'$r'", _ECHO_IO)) == "'$x'"

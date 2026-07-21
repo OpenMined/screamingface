@@ -81,9 +81,9 @@ def test_uri_processor_dispatches_absolutely(uri: str) -> None:
 
 def test_expression_processor_is_evaluated_then_dispatched() -> None:
     io = _routes_io()
-    # The all-binding expression interpolates to "/gpt4" (`OME-508`: the
-    # expression carries an intent), which is then the route.
-    result = asyncio.run(run(_FANOUT, io, processor="(p='/gpt4')!'$p'"))
+    # The instrumental (`OME-534` weight-0.0) source keeps the expression's
+    # result the pure "/gpt4" interpolation, which is then the route.
+    result = asyncio.run(run(_FANOUT, io, processor="(p:0:'/gpt4')!'$p'"))
     assert result.startswith("gpt4:")
 
 

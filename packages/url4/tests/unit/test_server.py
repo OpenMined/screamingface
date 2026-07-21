@@ -107,7 +107,7 @@ async def test_data_route_media_type_drives_collection_iteration():
     )
     # The single NDJSON row iterates; CollectNode embeds the JSON object row
     # structurally (spec §5.3.8).
-    result = (await n.evaluate("/api/nd*(r=$item)!'$r'")).text
+    result = (await n.evaluate("/api/nd*(r:0:$item)!'$r'")).text
     assert json.loads(result) == [{"q": "2+2"}]
 
 
@@ -237,7 +237,7 @@ async def test_asgi_full_client_loop(node, wire):
         client = Client(HttpIOLayer(client=http), node="url4://testnode/v1")
         res = await client.query(src("https://x", name="a"), intent="Summarize $a")
     assert "ARTICLE" in res.text or res.text.startswith("CLAUDE(")
-    assert res.request.startswith("(r=url4://testnode/v1")
+    assert res.request.startswith("(r:0.0:url4://testnode/v1")
 
 
 @pytest.mark.parametrize(

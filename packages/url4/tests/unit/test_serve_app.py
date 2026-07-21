@@ -54,7 +54,7 @@ async def test_command_route_dispatches_subprocess() -> None:
     config = _config()
     app = build_asgi_app(build_node(config), config)
     async with _driver(app) as http:
-        response = await http.get("/v1", params={"q": "(r=/echo(ping)!'noop')!'$r'"})
+        response = await http.get("/v1", params={"q": "(r:0:/echo(ping)!'noop')!'$r'"})
     assert response.status_code == 200
     assert "ping" in response.text
 

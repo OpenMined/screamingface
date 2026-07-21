@@ -138,7 +138,7 @@ async def test_remote_query_sends_context_and_intent(io, wire):
     assert wire == [("remote", "a=https://x", "Summarize $a")]
     # the request is the passthrough-wrapped remote expression (intent stays
     # remote; `OME-508` — the group's own intent is the pure `$r` interpolation)
-    assert res.request == "(r=url4://node.ai/v1(a=https://x)!'Summarize $a')!'$r'"
+    assert res.request == "(r:0.0:url4://node.ai/v1(a=https://x)!'Summarize $a')!'$r'"
 
 
 async def test_remote_target_forms(io, wire):
@@ -204,7 +204,7 @@ async def test_evaluate_routes_raw_text_to_the_node_target(io, wire):
     async with Client(io, node="url4://node.ai/v1") as client:
         res = await client.evaluate("(a=https://x)!'Summarize $a'")
     assert res.text == "REMOTE-RESULT"
-    assert res.request == "(r=url4://node.ai/v1(a=https://x)!'Summarize $a')!'$r'"
+    assert res.request == "(r:0.0:url4://node.ai/v1(a=https://x)!'Summarize $a')!'$r'"
     assert wire == [("remote", "a=https://x", "Summarize $a")]
 
 

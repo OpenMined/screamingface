@@ -349,15 +349,16 @@ def default_registry() -> LoweringRegistry:
 class _Slot:
     """One source segment awaiting edge wiring: ``make(edges)`` builds its node.
 
-    ``name`` is set for bindings AND named sources; ``is_binding`` separates
-    the two (a binding is excluded from the packed sources, a named source is
-    not — contract §4.3).
+    ``name`` is set for name-only descriptors AND annotated named sources —
+    under the ABNF contribution semantics (`OME-534`) BOTH contribute to the
+    packed context. ``instrumental`` marks a scalar-``weight 0.0`` source:
+    resolved and referenceable, excluded from the packed sources.
     """
 
     name: str | None
     refs: frozenset[str]
     make: Callable[[Edges], DagNode]
-    is_binding: bool = False
+    instrumental: bool = False
 
 
 @dataclass
@@ -416,7 +417,7 @@ def _build_slots(slots: list[_Slot]) -> list[DagNode]:
 
 
 def _slot_specs(slots: list[_Slot]) -> tuple[SlotSpec, ...]:
-    return tuple((slot.name, slot.is_binding) for slot in slots)
+    return tuple((slot.name, slot.instrumental) for slot in slots)
 
 
 def _compile_group(
@@ -437,17 +438,23 @@ def _compile_group(
     return _reduce_graph(built, slots, intent, from_list=from_list, quorum=quorum)
 
 
-def _fanout_call(node: DagNode) -> RelUrlNode | None:
-    """The relative-*expression* fetch behind ``node`` — through a guard — or None.
+def _fanout_call(node: DagNode) -> tuple[RelUrlNode, str | None] | None:
+    """The relative-*expression* fetch behind ``node`` (+ its label), or None.
 
     The fan-out unit (``/path(...)!...``) may be wrapped by a GuardNode
-    (``;optional``/``;t=``/``;retry=``); expansion changes the source count, so
-    an ExpandNode never fans out.
+    (``;optional``/``;t=``/``;retry=``) or — ABNF contribution semantics
+    (`OME-534`) — a name-only BindingNode (``named:/p(...)!x``), whose name
+    becomes the call's fan-out label instead of demoting the group to a local
+    merge. Expansion changes the source count, so an ExpandNode never fans out.
     """
+    label: str | None = None
+    if isinstance(node, BindingNode):
+        label = node.name
+        node = node.deps["value"]
     if isinstance(node, GuardNode):
         node = node.inner
     if isinstance(node, RelUrlNode) and node.is_expr:
-        return node
+        return node, label
     return None
 
 
@@ -466,7 +473,17 @@ def _reduce_graph(
     # intent is not a list: its intent folds into that one call — matching the
     # eager AST path's :func:`_lower_rel_expr` — instead of spawning a spurious
     # reducer call to "combine" a single response.
-    if from_list and built and all(_fanout_call(node) is not None for node in built):
+    # INVARIANT (`OME-534`): fan-out additionally needs at least one
+    # CONTRIBUTING call — instrumental (weight 0.0) members are not panel
+    # members, so an all-instrumental call group has nothing to reduce and
+    # takes the base path (its intent, with `$name` refs resolved, IS the
+    # result — the `(r:0:/call(…)!x)!'$r'` extraction idiom).
+    if (
+        from_list
+        and built
+        and all(_fanout_call(node) is not None for node in built)
+        and any(not slot.instrumental for slot in slots)
+    ):
         return _fanout_graph(built, intent)
     if not from_list and len(built) == 1 and isinstance(built[0], RelUrlNode) and built[0].is_expr:
         return _fold_intent_into_call(built[0], intent)
@@ -531,9 +548,10 @@ def _fanout_graph(built: list[DagNode], intent: _Intent) -> DagNode:
     deps.update({f"call:{i}": node for i, node in enumerate(built)})
     meta = []
     for node in built:
-        call = _fanout_call(node)
-        assert call is not None  # gated by _reduce_graph
-        meta.append((call.name, call.weight))
+        unwrapped = _fanout_call(node)
+        assert unwrapped is not None  # gated by _reduce_graph
+        call, label = unwrapped
+        meta.append((label or call.name, call.weight))
     return FanoutReduceNode(tuple(meta), deps=deps)
 
 
@@ -597,21 +615,37 @@ def _slot_from_text(segment: str, registry: LoweringRegistry) -> _Slot:
         if _is_lazy_group(rhs):
             _reject_bare_group(rhs)
             name, kind = group_binding.group(1), group_binding.group(2)
-            return _Slot(name, refs, _make_binding_thunk(name, kind, rhs), is_binding=True)
+            # ABNF (`OME-534`): a deferred name=(group) binding CONTRIBUTES like
+            # any named source — only weight 0.0 marks a source instrumental,
+            # and the binding forms carry no weight.
+            return _Slot(name, refs, _make_binding_thunk(name, kind, rhs))
     if _is_lazy_group(segment):
         _reject_bare_group(segment)
         return _Slot(None, refs, lambda edges: LazyExprNode(segment, deps=dict(edges)))
     ast = grammar_parse(segment)
-    name, is_binding = _slot_identity(ast)
-    return _Slot(name, refs, lambda edges: registry.lower(ast, edges), is_binding=is_binding)
+    name, instrumental = _slot_identity(ast)
+    return _Slot(name, refs, lambda edges: registry.lower(ast, edges), instrumental=instrumental)
 
 
 def _slot_identity(ast: Node) -> tuple[str | None, bool]:
+    """The slot's ``(name, instrumental)`` — ABNF contribution semantics.
+
+    WHY Binding is never instrumental (`OME-534`): the name-only forms
+    (``a: v`` / ``a=v``) are contributing sources under the ABNF; the ONLY
+    instrumental marker is an explicit scalar ``weight 0.0`` on a Source.
+    """
     if isinstance(ast, Binding):
-        return ast.name, True
-    if isinstance(ast, Source):
         return ast.name, False
+    if isinstance(ast, Source):
+        return ast.name, _is_instrumental_weight(ast.weight)
     return None, False
+
+
+def _is_instrumental_weight(weight: object) -> bool:
+    """True for the explicit scalar ``0.0`` (structured weights never qualify)."""
+    return (
+        isinstance(weight, (int, float)) and not isinstance(weight, bool) and float(weight) == 0.0
+    )
 
 
 def _make_binding_thunk(name: str, kind: str, rhs: str) -> Callable[[Edges], DagNode]:
@@ -725,12 +759,12 @@ def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool =
 
 
 def _slot_from_ast(source: Node, registry: LoweringRegistry) -> _Slot:
-    name, is_binding = _slot_identity(source)
+    name, instrumental = _slot_identity(source)
     return _Slot(
         name,
         frozenset(_refs_of_ast(source)),
         lambda edges: registry.lower(source, edges),
-        is_binding=is_binding,
+        instrumental=instrumental,
     )
 
 

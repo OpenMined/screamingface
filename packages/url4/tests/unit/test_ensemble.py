@@ -59,7 +59,7 @@ async def test_collection_iteration_with_item_field() -> None:
         fetch_map={"https://data": rows},
         routes={"/solve": lambda context, intent: f"Q={context}"},
     )
-    result = await run("https://data*(r=/solve($item.q)!go)!'$r'", io)
+    result = await run("https://data*(r:0:/solve($item.q)!go)!'$r'", io)
     assert json.loads(result) == ["Q=2+2", "Q=3+3"]
 
 
@@ -86,7 +86,7 @@ async def test_collection_on_error_collect() -> None:
         routes={"/solve": lambda context, intent: f"OK:{context}"},
     )
     ctx = ExecutionContext(io, strict_fields=True)
-    result = await run("https://data*(r=/solve($item.q)!go)!'$r'", ctx=ctx)
+    result = await run("https://data*(r:0:/solve($item.q)!go)!'$r'", ctx=ctx)
     assert "OK:ok" in result
     assert ctx.collected_errors == 1
     assert '"error"' in result
@@ -96,7 +96,7 @@ async def test_collection_on_error_collect() -> None:
 async def test_empty_collection_resolves_to_empty_array() -> None:
     # Spec §5.3.9 — an empty collection is a success with zero evaluations.
     io = StaticIOLayer(fetch_map={"https://data": "[]"})
-    assert await run("https://data*(r=/solve($item.q)!go)!'$r'", io) == "[]"
+    assert await run("https://data*(r:0:/solve($item.q)!go)!'$r'", io) == "[]"
 
 
 @pytest.mark.asyncio

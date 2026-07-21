@@ -26,7 +26,7 @@ async def echo_intent(sources: str, intent: str | None, scope: Context) -> str:
 async def test_named_reference_nested_dot_path() -> None:
     # §6.2 "Field path with dot notation"
     io = StaticIOLayer({"https://x": RECORD})
-    result = await run("(data=https://x)!'By $data.author.name'", io)
+    result = await run("(data:0:https://x)!'By $data.author.name'", io)
     assert result == "By Ada"
 
 
@@ -34,7 +34,7 @@ async def test_named_reference_nested_dot_path() -> None:
 async def test_named_reference_array_index() -> None:
     # §6.2 "Field path with array indexing"
     io = StaticIOLayer({"https://x": RECORD})
-    result = await run("(data=https://x)!'First $data.tags[0]'", io)
+    result = await run("(data:0:https://x)!'First $data.tags[0]'", io)
     assert result == "First t1"
 
 
@@ -42,7 +42,7 @@ async def test_named_reference_array_index() -> None:
 async def test_named_reference_combined_traversal() -> None:
     # §6.2 "Combined dot and bracket traversal"
     io = StaticIOLayer({"https://x": RECORD})
-    result = await run("(data=https://x)!'R: $data.reviews[0].text'", io)
+    result = await run("(data:0:https://x)!'R: $data.reviews[0].text'", io)
     assert result == "R: Great"
 
 
@@ -58,7 +58,9 @@ async def test_positional_reference_with_field_path() -> None:
 async def test_embedded_reference_in_quoted_text_with_brackets() -> None:
     # §8.2.2 — interpolation inside quoted text consumes bracket paths
     io = StaticIOLayer({"https://x": RECORD})
-    result = await run("(data=https://x)!'The first tag is $data.tags[0] by $data.author.name'", io)
+    result = await run(
+        "(data:0:https://x)!'The first tag is $data.tags[0] by $data.author.name'", io
+    )
     assert result == "The first tag is t1 by Ada"
 
 
@@ -69,7 +71,7 @@ async def test_embedded_reference_in_quoted_text_with_brackets() -> None:
 async def test_missing_field_lenient_default_substitutes_empty() -> None:
     # §5.3.4.1 — LLM mode: SHOULD substitute empty string (contract #8)
     io = StaticIOLayer({"https://x": RECORD})
-    result = await run("(data=https://x)!'X $data.missing Y'", io)
+    result = await run("(data:0:https://x)!'X $data.missing Y'", io)
     assert result == "X  Y"
 
 
@@ -77,7 +79,7 @@ async def test_missing_field_lenient_default_substitutes_empty() -> None:
 async def test_index_out_of_bounds_lenient_substitutes_empty() -> None:
     # §5.3.4.1 — out-of-bounds is lenient in LLM mode
     io = StaticIOLayer({"https://x": RECORD})
-    result = await run("(data=https://x)!'X $data.tags[9] Y'", io)
+    result = await run("(data:0:https://x)!'X $data.tags[9] Y'", io)
     assert result == "X  Y"
 
 
@@ -86,7 +88,7 @@ async def test_missing_field_strict_mode_raises() -> None:
     # §5.3.4.1 — RDS mode: MUST fail with malformed_source
     io = StaticIOLayer({"https://x": RECORD})
     with pytest.raises(ScopeError) as exc_info:
-        await run("(data=https://x)!'X $data.missing Y'", io, strict_fields=True)
+        await run("(data:0:https://x)!'X $data.missing Y'", io, strict_fields=True)
     assert exc_info.value.code == "malformed_source"
 
 
@@ -95,7 +97,7 @@ async def test_index_on_scalar_strict_mode_raises() -> None:
     # §5.3.4.1 — "Index on scalar" row
     io = StaticIOLayer({"https://x": '{"name": "Alice"}'})
     with pytest.raises(ScopeError):
-        await run("(data=https://x)!'$data.name[0]'", io, strict_fields=True)
+        await run("(data:0:https://x)!'$data.name[0]'", io, strict_fields=True)
 
 
 # --- escapes and unknowns (§6.2) ------------------------------------------------------

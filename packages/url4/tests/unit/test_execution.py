@@ -25,8 +25,8 @@ async def test_single_source_fetch_and_intent() -> None:
 async def test_named_binding_substitution_in_intent() -> None:
     resolver = StaticIOLayer(fetch_map={"https://x": "ARTICLE"})
     result = await run("(article=https://x)!use $article", resolver)
-    # Binding is a side-effect referenced via $article; not appended as a source.
-    assert result == "use ARTICLE"
+    # `OME-534`: the name-only source interpolates AND packs as a labeled line.
+    assert result == "use ARTICLE\n\narticle: ARTICLE"
 
 
 @pytest.mark.asyncio
@@ -61,7 +61,8 @@ async def test_later_source_sees_earlier_binding() -> None:
     resolver = StaticIOLayer(fetch_map={"https://x": "SHARED"})
     result = await run("(a=https://x, b='$a again')!$b", resolver)
     # Quotes are delimiters; $a substitutes inside the (unquoted) content.
-    assert result == "SHARED again"
+    # `OME-534`: both named sources pack as labeled lines after the intent.
+    assert result == "SHARED again\n\na: SHARED\nb: SHARED again"
 
 
 @pytest.mark.asyncio

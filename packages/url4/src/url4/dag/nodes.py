@@ -538,8 +538,11 @@ class BarrierNode:
 
 
 SlotSpec = tuple[str | None, bool]
-"""One group slot: ``(name, is_binding)``. A named Source has a name but is
-NOT a binding — it stays in the packed sources (contract: Binding vs Source)."""
+"""One group slot: ``(name, instrumental)``. ABNF conformance (`OME-534`):
+EVERY listed source contributes to the packed context — name-only descriptors
+(``a: v`` / ``a=v``) included. The bool marks a scalar-``weight 0.0``
+INSTRUMENTAL source: resolved and ``$name``-referenceable, excluded from the
+packed sources (the replacement for the old reference-only-Binding concept)."""
 
 
 @dataclass
@@ -547,37 +550,45 @@ class _Gathered:
     """The flattened view of a group's slots after failures and expansion."""
 
     positional: list[str]  # $N values, renumbered post-expansion
-    named: dict[str, str]  # $name values (bindings AND named sources)
-    sources: list[str]  # the packed non-binding source values, in order
-    resolved: int  # successfully-resolved non-binding source count
+    named: dict[str, str]  # $name values (RAW — scope substitution needs them unlabeled)
+    sources: list[str]  # the packed source values, in order (named → "name: value")
+    resolved: int  # successfully-resolved contributing source count
 
 
 def _gather(inputs: Mapping[str, Payload], slots: tuple[SlotSpec, ...]) -> _Gathered:
-    """Flatten group slots: skip failures, splice expansions, renumber positions."""
+    """Flatten group slots: skip failures, splice expansions, renumber positions.
+
+    WHY the ``name:`` label rides only ``sources``: the packed context a
+    processor sees keeps the author's key labels (`OME-534` owner decision),
+    while ``named`` feeds ``$name`` substitution and must stay the raw value.
+    """
     g = _Gathered([], {}, [], 0)
-    for i, (name, is_binding) in enumerate(slots):
+    for i, (name, instrumental) in enumerate(slots):
         value = inputs[f"src:{i}"]
         if isinstance(value, SourceFailure):
             continue
         if isinstance(value, list):
-            _gather_expanded(g, value, name, is_binding)
+            _gather_expanded(g, value, name, instrumental)
             continue
         g.positional.append(value)
         if name is not None:
             g.named[name] = value
-        if not is_binding:
-            g.sources.append(value)
+        if not instrumental:
+            g.sources.append(f"{name}: {value}" if name is not None else value)
             g.resolved += 1
     return g
 
 
-def _gather_expanded(g: _Gathered, elements: list[str], name: str | None, is_binding: bool) -> None:
+def _gather_expanded(
+    g: _Gathered, elements: list[str], name: str | None, instrumental: bool
+) -> None:
     """Expanded elements each take a position; the name binds the JSON array,
-    so a ``$name[i]`` field path selects one element (spec §5.3.12.5)."""
+    so a ``$name[i]`` field path selects one element (spec §5.3.12.5). The
+    elements pack BARE — the name labels the array binding, not each element."""
     g.positional.extend(elements)
     if name is not None:
         g.named[name] = json.dumps([_maybe_json(e) for e in elements])
-    if not is_binding:
+    if not instrumental:
         g.sources.extend(elements)
         g.resolved += len(elements)
 
@@ -592,13 +603,13 @@ def _check_quorum(g: _Gathered, quorum: int | None) -> None:
 
 @dataclass(eq=False)
 class GatherNode:
-    """An intent-less group — join the non-binding sources.
+    """An intent-less group — join the contributing sources (`OME-534`).
 
     AST-only (`OME-508`): the surface grammar's expression always carries an
     intent, so this node is reached via hand-built ``Expression(intent=None)``
     trees and the engine's own internal wrappers, never from user text.
-    A pure-binding group falls back to joining every slot value. ``quorum``
-    (spec §9.1) gates on the post-expansion resolved-source count.
+    A pure-instrumental group falls back to joining every slot value.
+    ``quorum`` (spec §9.1) gates on the post-expansion resolved-source count.
     """
 
     slots: tuple[SlotSpec, ...] = ()
@@ -786,7 +797,11 @@ class FanoutReduceNode:
             if not isinstance(inputs[f"call:{i}"], SourceFailure)
         ]
         instruction = substitute_response_vars(_as_text(inputs.get("intent", "")), entries)
-        reducer_input = build_reducer_input(entries, instruction)
+        # ABNF conformance (`OME-534`): a scalar weight 0.0 marks the call
+        # INSTRUMENTAL — its response is $name-substitutable above but forms no
+        # labeled section of the reducer input.
+        contributing = [e for e in entries if e.weight != 0.0]
+        reducer_input = build_reducer_input(contributing, instruction)
         if ctx.processor is None:
             # INVARIANT: the core hardcodes no processor route — with nothing
             # declared (SupportsDefaultRoute) and nothing passed, the reduce
