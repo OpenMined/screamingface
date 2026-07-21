@@ -1,126 +1,129 @@
-"""Frame message types — outbound events + inbound commands (spec §7, §7.1)."""
+"""Typed CloudEvents ``data`` payloads (docs/protocol.md §5)."""
 
 from datetime import datetime
 from typing import Literal
 
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from url4_cloud_protocol.envelope import FrameBase
 from url4_cloud_protocol.taxonomy import CostBreakdown, ErrorInfo, TokenUsage
 
 
-# ---- outbound events (engine/tool -> bridge -> client) ----
-class Started(FrameBase):
+class StartedData(BaseModel):
     """A node began executing its url4 expression."""
 
-    type: Literal["started"] = "started"
     url4: str
 
 
-class Log(FrameBase):
-    """A structured log record from a node."""
+class LogData(BaseModel):
+    """OTel Logs Data Model record (docs/protocol.md §5.2)."""
 
-    type: Literal["log"] = "log"
-    level: Literal["debug", "info", "warning", "error"]
-    message: str
-    fields: dict[str, str | int | float | bool | None] = {}
+    model_config = ConfigDict(use_attribute_docstrings=True)
+
+    severity_number: int
+    """OTel SeverityNumber (DEBUG=5, INFO=9, WARN=13, ERROR=17)."""
+    severity_text: Literal["DEBUG", "INFO", "WARN", "ERROR"]
+    body: str
+    attributes: dict[str, str | int | float | bool | None] = {}
 
 
-class Span(FrameBase):
-    """An OTel gen_ai span. Token counts live here; cost does NOT (see :class:`CostUsage`)."""
+class SpanData(BaseModel):
+    """OTel span + GenAI attributes (docs/protocol.md §5.1). Tokens here; cost NOT."""
 
-    model_config = ConfigDict(title="GenAI span")
+    model_config = ConfigDict(
+        populate_by_name=True, use_attribute_docstrings=True, title="GenAI span"
+    )
 
-    type: Literal["span"] = "span"
     name: str
-    operation: str
-    """gen_ai.operation.name, e.g. ``chat``."""
-    provider: str | None = None
-    request_model: str | None = None
-    response_model: str | None = None
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    start_ts: datetime
-    end_ts: datetime | None = None
+    kind: Literal["client", "internal", "server"] = "internal"
+    operation: str = Field(
+        validation_alias="gen_ai.operation.name",
+        serialization_alias="gen_ai.operation.name",
+    )
+    provider: str | None = Field(
+        default=None,
+        validation_alias="gen_ai.provider.name",
+        serialization_alias="gen_ai.provider.name",
+    )
+    request_model: str | None = Field(
+        default=None,
+        validation_alias="gen_ai.request.model",
+        serialization_alias="gen_ai.request.model",
+    )
+    response_model: str | None = Field(
+        default=None,
+        validation_alias="gen_ai.response.model",
+        serialization_alias="gen_ai.response.model",
+    )
+    input_tokens: int | None = Field(
+        default=None,
+        validation_alias="gen_ai.usage.input_tokens",
+        serialization_alias="gen_ai.usage.input_tokens",
+    )
+    output_tokens: int | None = Field(
+        default=None,
+        validation_alias="gen_ai.usage.output_tokens",
+        serialization_alias="gen_ai.usage.output_tokens",
+    )
+    start: datetime
+    end: datetime | None = None
     status: Literal["ok", "error"] = "ok"
 
 
-class CostUsage(FrameBase):
-    """A single node's cost + token usage — a taxonomy event, never a span attribute."""
+class CostUsageData(BaseModel):
+    """Cost + token usage — a taxonomy payload, never a span attribute (docs/protocol.md §5.3)."""
 
     model_config = ConfigDict(
-        title="Cost / usage event",
-        json_schema_extra={
-            "examples": [
-                {
-                    "type": "cost.usage",
-                    "trace_id": "9f2c1e...",
-                    "node_id": "root",
-                    "seq": 7,
-                    "ts": "2026-07-21T09:00:03Z",
-                    "scope": "self",
-                    "provider": "anthropic",
-                    "model": "claude-opus-4-8",
-                    "pricing_version": "2026-07-01",
-                    "usage": {"input_tokens": 1200, "output_tokens": 340},
-                    "cost": {"input_usd": "0.0180", "output_usd": "0.0255", "total_usd": "0.0435"},
-                }
-            ]
-        },
+        populate_by_name=True, use_attribute_docstrings=True, title="Cost / usage"
     )
 
-    type: Literal["cost.usage"] = "cost.usage"
     scope: Literal["self", "subtree"]
     """``self`` = this node only (authoritative); ``subtree`` = self + Σ descendants."""
-    provider: str
-    model: str
+    provider: str = Field(
+        validation_alias="gen_ai.provider.name",
+        serialization_alias="gen_ai.provider.name",
+    )
+    model: str = Field(
+        validation_alias="gen_ai.response.model",
+        serialization_alias="gen_ai.response.model",
+    )
     pricing_version: str
-    """Pricing table version the USD figures were derived from."""
     usage: TokenUsage
     cost: CostBreakdown
 
 
-class Heartbeat(FrameBase):
-    """Liveness beat from a running node."""
-
-    type: Literal["heartbeat"] = "heartbeat"
+class HeartbeatData(BaseModel):
+    """Liveness beat (no payload fields)."""
 
 
-class Result(FrameBase):
+class ResultData(BaseModel):
     """A node's final payload."""
 
-    type: Literal["result"] = "result"
     body: str
     media_type: str | None = None
 
 
-class Terminated(FrameBase):
+class TerminatedData(BaseModel):
     """A node reached a terminal state."""
 
-    type: Literal["terminated"] = "terminated"
     status: Literal["succeeded", "failed", "stopped", "timed_out"]
     error: ErrorInfo | None = None
 
 
-# ---- inbound commands (client -> bridge -> engine/tool) ----
-class Execute(FrameBase):
+class ExecuteData(BaseModel):
     """Start the run for this node's url4 expression."""
 
-    type: Literal["execute"] = "execute"
     url4: str
     params: dict[str, str] = {}
     timeout_s: float | None = None
 
 
-class Stop(FrameBase):
+class StopData(BaseModel):
     """Request the run stop."""
 
-    type: Literal["stop"] = "stop"
     reason: str | None = None
 
 
-class Attach(FrameBase):
-    """Subscribe / resume the stream from a given ``seq``."""
+class AttachData(BaseModel):
+    """Subscribe / resume the stream from a CloudEvents ``sequence``."""
 
-    type: Literal["attach"] = "attach"
-    from_seq: int | None = None
+    from_sequence: int | None = None

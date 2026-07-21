@@ -1,24 +1,47 @@
-"""Taxonomy models — tokens + USD cost (spec §7, §8). Money is Decimal; cost = Σ its parts."""
+"""Taxonomy payloads — OTel gen_ai token usage + USD cost (docs/protocol.md §5.1, §5.3)."""
 
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+# WHY: validation_alias + serialization_alias (not `alias`) so the JSON wire uses the OTel
+# `gen_ai.usage.*` keys while Python constructs/type-checks by the field name (populate_by_name).
 
 
 class TokenUsage(BaseModel):
-    """Token counts for one node's model call (OTel gen_ai usage)."""
+    """Token counts, keyed by OTel GenAI ``gen_ai.usage.*`` on the wire (docs/protocol.md §5.1)."""
 
-    model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True, use_attribute_docstrings=True)
 
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read_tokens: int = 0
-    cache_creation_tokens: int = 0
-    reasoning_tokens: int = 0
+    input_tokens: int = Field(
+        default=0,
+        validation_alias="gen_ai.usage.input_tokens",
+        serialization_alias="gen_ai.usage.input_tokens",
+    )
+    output_tokens: int = Field(
+        default=0,
+        validation_alias="gen_ai.usage.output_tokens",
+        serialization_alias="gen_ai.usage.output_tokens",
+    )
+    cache_read_tokens: int = Field(
+        default=0,
+        validation_alias="gen_ai.usage.cache_read_tokens",
+        serialization_alias="gen_ai.usage.cache_read_tokens",
+    )
+    cache_creation_tokens: int = Field(
+        default=0,
+        validation_alias="gen_ai.usage.cache_creation_tokens",
+        serialization_alias="gen_ai.usage.cache_creation_tokens",
+    )
+    reasoning_tokens: int = Field(
+        default=0,
+        validation_alias="gen_ai.usage.reasoning_tokens",
+        serialization_alias="gen_ai.usage.reasoning_tokens",
+    )
 
 
 class CostBreakdown(BaseModel):
-    """USD cost per usage type; ``total_usd`` MUST equal the sum of its parts (spec §8)."""
+    """USD cost per usage type; ``total_usd`` == Σ parts (docs/protocol.md §5.3)."""
 
     model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
 
@@ -46,12 +69,10 @@ class CostBreakdown(BaseModel):
 
 
 class ErrorInfo(BaseModel):
-    """A serialized failure; mirrors url4 ``Url4Error`` so Guard semantics survive (spec §7)."""
+    """A serialized failure; mirrors url4 ``Url4Error`` (docs/protocol.md §5.4)."""
 
     model_config = ConfigDict(use_attribute_docstrings=True)
 
     code: str
-    """Stable error code (== ``Url4Error.code``)."""
     message: str
     permanent: bool = False
-    """Whether the failure is permanent (== ``Url4Error.permanent``); drives Guard retry."""

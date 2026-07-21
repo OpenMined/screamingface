@@ -6,9 +6,11 @@ from pydantic import ValidationError
 
 from url4_cloud_protocol import (
     CostBreakdown,
-    CostUsage,
+    CostUsageData,
+    CostUsageEvent,
     OutboundFrameAdapter,
-    Span,
+    SpanData,
+    SpanEvent,
     TokenUsage,
 )
 
@@ -31,52 +33,60 @@ def test_cost_total_equals_sum_ok() -> None:
     assert cb.total_usd == Decimal("0.0435")
 
 
-def test_discriminated_union_parses_by_type() -> None:
+def test_cloudevent_parses_by_type_with_gen_ai_aliases() -> None:
     frame = OutboundFrameAdapter.validate_python(
         {
-            "type": "cost.usage",
-            "trace_id": "t",
-            "node_id": "n",
-            "ts": _ts(),
-            "scope": "self",
-            "provider": "anthropic",
-            "model": "m",
-            "pricing_version": "2026-07-01",
-            "usage": {"input_tokens": 10},
-            "cost": {"total_usd": "0"},
+            "specversion": "1.0",
+            "id": "e1",
+            "source": "/trace/t/node/root",
+            "type": "ai.url4.cost.usage",
+            "subject": "t",
+            "time": _ts(),
+            "sequence": "7",
+            "sequencetype": "Integer",
+            "data": {
+                "scope": "self",
+                "gen_ai.provider.name": "anthropic",
+                "gen_ai.response.model": "claude-opus-4-8",
+                "pricing_version": "2026-07-01",
+                "usage": {"gen_ai.usage.input_tokens": 10},
+                "cost": {"total_usd": "0"},
+            },
         }
     )
-    assert isinstance(frame, CostUsage)
-    assert frame.scope == "self"
+    assert isinstance(frame, CostUsageEvent)
+    assert frame.specversion == "1.0"
+    assert frame.data.scope == "self"
+    assert frame.data.provider == "anthropic"
+    assert frame.data.usage.input_tokens == 10
+
+
+def test_span_dumps_gen_ai_keys_and_no_cost() -> None:
+    span = SpanEvent(
+        id="e2",
+        source="/trace/t/node/n",
+        data=SpanData(
+            name="chat", operation="chat", input_tokens=100, output_tokens=50, start=_ts()
+        ),
+    )
+    dumped = span.model_dump(mode="json", by_alias=True)
+    assert dumped["type"] == "ai.url4.span"
+    assert dumped["data"]["gen_ai.usage.input_tokens"] == 100
+    assert "cost" not in dumped["data"]
 
 
 def test_money_serializes_as_string() -> None:
-    cu = CostUsage(
-        trace_id="t",
-        node_id="n",
-        ts=_ts(),
-        scope="self",
-        provider="p",
-        model="m",
-        pricing_version="v",
-        usage=TokenUsage(),
-        cost=CostBreakdown(total_usd=Decimal("0")),
+    ev = CostUsageEvent(
+        id="e3",
+        source="/trace/t/node/n",
+        data=CostUsageData(
+            scope="self",
+            provider="p",
+            model="m",
+            pricing_version="v",
+            usage=TokenUsage(),
+            cost=CostBreakdown(total_usd=Decimal("0")),
+        ),
     )
-    dumped = cu.model_dump(mode="json")
-    assert isinstance(dumped["cost"]["total_usd"], str)
-
-
-def test_span_has_tokens_not_cost() -> None:
-    span = Span(
-        trace_id="t",
-        node_id="n",
-        ts=_ts(),
-        name="chat",
-        operation="chat",
-        start_ts=_ts(),
-        input_tokens=100,
-        output_tokens=50,
-    )
-    fields = span.model_dump()
-    assert fields["input_tokens"] == 100
-    assert "cost" not in fields
+    dumped = ev.model_dump(mode="json", by_alias=True)
+    assert isinstance(dumped["data"]["cost"]["total_usd"], str)
