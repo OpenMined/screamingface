@@ -285,6 +285,7 @@ export default function ModelsPage() {
                       <button
                         type="button"
                         key={model.id}
+                        aria-pressed={selected}
                         className={cn(
                           "flex w-full items-center justify-between rounded-xl border bg-card px-4 py-3.5 text-left transition-colors",
                           selected

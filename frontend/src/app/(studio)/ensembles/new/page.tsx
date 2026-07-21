@@ -39,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -516,31 +517,28 @@ function RunDetail({
                 </Badge>
               )}
             </div>
-            <div className="flex rounded-lg bg-muted/60 p-0.5">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "h-7 rounded-md px-3 text-xs",
-                  ranking === "local" && "bg-card text-foreground shadow-sm",
-                )}
-                onClick={() => setRanking("local")}
-              >
-                My Runs
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "h-7 rounded-md px-3 text-xs",
-                  ranking === "public" && "bg-card text-foreground shadow-sm",
-                )}
-                onClick={() => setRanking("public")}
-              >
-                <Globe className="size-3" />
-                Public
-              </Button>
-            </div>
+            <Tabs
+              value={ranking}
+              onValueChange={(value) =>
+                setRanking(value as "local" | "public")
+              }
+            >
+              <TabsList className="gap-0 rounded-lg bg-muted/60 p-0.5">
+                <TabsTrigger
+                  value="local"
+                  className="h-7 rounded-md border-0 px-3 py-1.5 data-[state=active]:border-transparent data-[state=active]:bg-card data-[state=active]:shadow-sm"
+                >
+                  My Runs
+                </TabsTrigger>
+                <TabsTrigger
+                  value="public"
+                  className="h-7 rounded-md border-0 px-3 py-1.5 data-[state=active]:border-transparent data-[state=active]:bg-card data-[state=active]:shadow-sm"
+                >
+                  <Globe className="size-3" />
+                  Public
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
           {ranking === "public" && (
             <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -660,6 +658,7 @@ function RunDetail({
                 <button
                   type="button"
                   key={item.index}
+                  aria-current={item.index === question.index}
                   className={cn(
                     "flex items-center gap-2 border-b px-3 py-2.5 text-left transition-colors",
                     item.index === question.index
@@ -726,6 +725,7 @@ function RunDetail({
                 <Button
                   variant="outline"
                   size="sm"
+                  aria-pressed={participant === "reduce"}
                   className={cn(
                     "h-7 rounded-lg text-xs",
                     participant === "reduce" &&
@@ -746,6 +746,7 @@ function RunDetail({
                     key={`${model.name}-${index}`}
                     variant="outline"
                     size="sm"
+                    aria-pressed={participant === index}
                     className={cn(
                       "h-7 rounded-lg text-xs",
                       participant === index &&
@@ -1073,30 +1074,41 @@ function RunsPanel({
           <section>
             <p className="mb-3 text-xs text-muted-foreground">Benchmark</p>
             <div className="flex flex-col gap-1.5">
-              {allBenchmarks.map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  disabled={running}
-                  className={cn(
-                    "flex items-center justify-between rounded-lg border px-3 py-2.5 text-left transition-colors disabled:opacity-50",
-                    benchmarkId === item.id
-                      ? "border-primary/50 bg-primary/5"
-                      : "hover:bg-muted/20",
-                  )}
-                  onClick={() => setBenchmarkId(item.id)}
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-xs">{item.name}</span>
-                    <Badge variant="secondary" className="font-mono text-xs">
-                      {item.domain}
-                    </Badge>
-                  </span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {item.questions.toLocaleString()}q
-                  </span>
-                </button>
-              ))}
+              <RadioGroup
+                value={benchmarkId}
+                disabled={running}
+                onValueChange={setBenchmarkId}
+                aria-label="Benchmark"
+                className="gap-1.5"
+              >
+                {allBenchmarks.map((item) => (
+                  <label
+                    key={item.id}
+                    htmlFor={`benchmark-${item.id}`}
+                    className={cn(
+                      "flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                      running && "cursor-not-allowed opacity-50",
+                      benchmarkId === item.id
+                        ? "border-primary/50 bg-primary/5"
+                        : "hover:bg-muted/20",
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <RadioGroupItem
+                        id={`benchmark-${item.id}`}
+                        value={item.id}
+                      />
+                      <span className="truncate text-xs">{item.name}</span>
+                      <Badge variant="secondary" className="font-mono text-xs">
+                        {item.domain}
+                      </Badge>
+                    </span>
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {item.questions.toLocaleString()}q
+                    </span>
+                  </label>
+                ))}
+              </RadioGroup>
               <button
                 type="button"
                 disabled={running}
@@ -1125,6 +1137,7 @@ function RunsPanel({
                     key={size}
                     type="button"
                     size="sm"
+                    aria-pressed={!full && sampleSize === size}
                     variant={!full && sampleSize === size ? "default" : "outline"}
                     disabled={running}
                     className="font-mono"
@@ -1139,6 +1152,7 @@ function RunsPanel({
                 <Button
                   type="button"
                   size="sm"
+                  aria-pressed={full}
                   variant={full ? "default" : "outline"}
                   disabled={running}
                   className="font-mono"
@@ -1156,7 +1170,14 @@ function RunsPanel({
             <section>
               <p className="mb-3 text-xs text-muted-foreground">Compute</p>
               {omConnected ? (
-                <div className="flex flex-col gap-2">
+                <RadioGroup
+                  value={compute}
+                  disabled={running}
+                  onValueChange={(value) =>
+                    setCompute(value as "om" | "own")
+                  }
+                  aria-label="Compute"
+                >
                   {[
                     {
                       id: "om" as const,
@@ -1169,30 +1190,21 @@ function RunsPanel({
                       description: "Uses your connected provider credentials",
                     },
                   ].map((option) => (
-                    <button
-                      type="button"
+                    <label
                       key={option.id}
-                      disabled={running}
+                      htmlFor={`compute-${option.id}`}
                       className={cn(
-                        "flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors disabled:opacity-50",
+                        "flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors",
+                        running && "cursor-not-allowed opacity-50",
                         compute === option.id
                           ? "border-primary/50 bg-primary/5"
                           : "hover:bg-muted/20",
                       )}
-                      onClick={() => setCompute(option.id)}
                     >
-                      <span
-                        className={cn(
-                          "grid size-4 shrink-0 place-items-center rounded-full border-2",
-                          compute === option.id
-                            ? "border-primary"
-                            : "border-border",
-                        )}
-                      >
-                        {compute === option.id && (
-                          <span className="size-2 rounded-full bg-primary" />
-                        )}
-                      </span>
+                      <RadioGroupItem
+                        id={`compute-${option.id}`}
+                        value={option.id}
+                      />
                       <span>
                         <span className="block text-xs font-medium">
                           {option.label}
@@ -1201,9 +1213,9 @@ function RunsPanel({
                           {option.description}
                         </span>
                       </span>
-                    </button>
+                    </label>
                   ))}
-                </div>
+                </RadioGroup>
               ) : (
                 <div className="flex items-start gap-2.5 rounded-xl border bg-muted/20 px-4 py-3">
                   <Cpu className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />

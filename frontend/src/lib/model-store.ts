@@ -31,6 +31,10 @@ export const PROVIDER_COLORS: Record<string, string> = {
   perplexity: "#175c6d",
   openrouter: "#937098",
   hf: "#f79763",
+  mistral: "#f79763",
+  moonshot: "#563b59",
+  xai: "#464158",
+  meta: "#52aec5",
 };
 
 const providerModels: Record<string, SavedModel[]> = {
