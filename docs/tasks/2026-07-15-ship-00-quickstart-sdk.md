@@ -964,3 +964,16 @@ Added an additive ScreamingFace-engine transport without changing URL4 or AI Gat
 - completed grader events advance the real case counter while idle heartbeats stay invisible once
   meaningful work begins; and
 - the stream deliberately does not claim token-level or hidden Url4Node progress.
+
+## Executable DRACO notebooks and engine contract — 2026-07-21
+
+- added conditional engine manifests for `draco-preview@1` and production `draco@1`;
+- added pinned real-data case routes, provider-neutral tool policy, official per-criterion grading,
+  five production judge passes, one preview pass, metric-preserving aggregation, and a public
+  `benchmark.url4(candidate, first=...)` inspection method;
+- seeded the local AI Gateway OpenRouter catalog with the substituted 7-solo/9-Fusion lineup while
+  continuing to discover executable routes exclusively through `/v1/models`;
+- added a bare-bones paid one-case DRACO Preview notebook and a non-executing full architecture
+  notebook covering benchmark creation, URL4, transport, tools, grading, aggregation, responses,
+  costs, and exact-versus-substituted claims; and
+- left URL4 SDK and AI Gateway source unchanged.

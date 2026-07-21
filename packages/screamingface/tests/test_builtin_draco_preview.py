@@ -57,9 +57,13 @@ def test_preview_uses_real_cases_with_one_real_positive_criterion(
     assert benchmark.tools == (sf.tools.WebSearch(), sf.tools.WebFetch())
     assert benchmark.max_tool_calls == 12
     assert isinstance(benchmark.grader, sf.graders.Rubric)
-    assert benchmark.grader.model == "gemini/2.5-flash"
+    assert benchmark.grader.model == "openrouter/google/gemini-3.1-pro-preview"
     assert benchmark.grader.passes == 1
-    assert benchmark.grader.params == {"temperature": 0.2, "max_tokens": 4096}
+    assert benchmark.grader.params == {
+        "temperature": 0.2,
+        "reasoning": "low",
+        "max_tokens": 4096,
+    }
     assert cases[0].id == "case-1"
     assert cases[0].input == "Research question"
     assert cases[0].metadata == {"domain": "Academic"}

@@ -9,12 +9,23 @@ from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequen
 from typing import Any
 
 from screamingface_engine.aggregators import MEAN_ROUTE, REPORT_SCHEMA
-from screamingface_engine.benchmarks import DRACO_TOOL_POLICY_ROUTE, GPQA_CASES_ROUTE
+from screamingface_engine.benchmarks import (
+    DRACO_CASES_ROUTE,
+    DRACO_LITE_CASES_ROUTE,
+    DRACO_PREVIEW_CASES_ROUTE,
+    DRACO_TOOL_POLICY_ROUTE,
+    GPQA_CASES_ROUTE,
+)
 from screamingface_engine.catalog import (
-    BENCHMARK_ROUTES,
     PUBLIC_PROVIDERS,
     ModelRoute,
+    benchmark_routes,
     registry_document,
+)
+from screamingface_engine.draco_grader import (
+    DRACO_LITE_RUBRIC_ROUTE,
+    DRACO_PREVIEW_RUBRIC_ROUTE,
+    DRACO_RUBRIC_ROUTE,
 )
 from screamingface_engine.graders import CASE_GRADE_SCHEMA, EXACT_CHOICE_ROUTE
 from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE
@@ -88,6 +99,7 @@ def openapi_document(
     if not routes:
         raise ValueError("OpenAPI requires at least one model route")
     registry = registry_document(routes, max_request_target_bytes=max_request_target_bytes)
+    benchmarks = benchmark_routes(routes)
     paths: dict[str, Any] = {
         "/healthz": _health_path(),
         "/.well-known/screamingface": _registry_path(),
@@ -107,6 +119,39 @@ def openapi_document(
         EXACT_CHOICE_ROUTE: _exact_choice_path(),
         MEAN_ROUTE: _mean_path(),
     }
+    if any(benchmark.id == "draco-preview@1" for benchmark in benchmarks):
+        paths[DRACO_PREVIEW_CASES_ROUTE] = _draco_cases_path(
+            benchmark_id="draco-preview@1",
+            label="DRACO Preview",
+            rubric_description="one positive criterion per real case",
+        )
+        paths[DRACO_PREVIEW_RUBRIC_ROUTE] = _draco_rubric_path(
+            benchmark_id="draco-preview@1",
+            profile="preview",
+            passes=1,
+        )
+    if any(benchmark.id == "draco-lite@1" for benchmark in benchmarks):
+        paths[DRACO_LITE_CASES_ROUTE] = _draco_cases_path(
+            benchmark_id="draco-lite@1",
+            label="DRACO Lite",
+            rubric_description="the first two real cases with their complete rubrics",
+        )
+        paths[DRACO_LITE_RUBRIC_ROUTE] = _draco_rubric_path(
+            benchmark_id="draco-lite@1",
+            profile="lite",
+            passes=2,
+        )
+    if any(benchmark.id == "draco@1" for benchmark in benchmarks):
+        paths[DRACO_CASES_ROUTE] = _draco_cases_path(
+            benchmark_id="draco@1",
+            label="DRACO",
+            rubric_description="all 100 real cases with their complete rubrics",
+        )
+        paths[DRACO_RUBRIC_ROUTE] = _draco_rubric_path(
+            benchmark_id="draco@1",
+            profile="production",
+            passes=5,
+        )
     for route in routes:
         paths[route.route] = _model_path(route)
 
@@ -186,13 +231,13 @@ def openapi_document(
             "contract": "current executable engine",
             "gpqa": {"executable": True, "benchmark_id": "gpqa@1"},
             "draco": {
-                "executable": False,
+                "executable": any(benchmark.id == "draco@1" for benchmark in benchmarks),
                 "benchmark_id": "draco@1",
-                "blocking_capability": (
-                    "Register and verify the production DRACO cases, grader protocol, model "
-                    "routes, and candidate configuration. The versioned web-tool policy route "
-                    "already exists. Each candidate already "
-                    "fits one complete URL4 benchmark transaction."
+                "note": (
+                    "Advertised only when the pinned OpenRouter judge model is present in the "
+                    "AI Gateway startup snapshot. DRACO Preview uses one criterion and one pass; "
+                    "DRACO Lite uses two full-rubric cases and two passes; production DRACO uses "
+                    "all 100 full-rubric cases and five passes."
                 ),
             },
             "hosted_deployment": (
@@ -234,7 +279,7 @@ def openapi_document(
                     "tools, tools.max_calls, and web_search.* URL4 parameters."
                 ),
             },
-            "benchmarks": [benchmark.public for benchmark in BENCHMARK_ROUTES],
+            "benchmarks": [benchmark.public for benchmark in benchmarks],
         },
     }
 
@@ -632,9 +677,9 @@ def _tool_policy_path() -> dict[str, Any]:
             "URL4 benchmark data",
             "Resolve the pinned DRACO web-tool policy",
             (
-                "Immutable provider-neutral policy data used by the future draco@1 manifest. "
-                "The route contains no credentials or backend names. DRACO itself remains "
-                "unadvertised until its other production contracts are complete."
+                "Immutable provider-neutral policy used by DRACO Preview, DRACO Lite, and "
+                "production DRACO. The route contains capability names and limits, never "
+                "credentials or backend names."
             ),
             {
                 "200": _text_response(
@@ -685,6 +730,56 @@ def _exact_choice_path() -> dict[str, Any]:
                     schema={"$ref": "#/components/schemas/CaseGrade"},
                 ),
                 "400": _engine_error_response("Malformed Recipe or case input"),
+            },
+            parameters=[_url4_fragment_parameter()],
+            extensions={"x-screamingface-url4-route": "grader"},
+        )
+    }
+
+
+def _draco_cases_path(*, benchmark_id: str, label: str, rubric_description: str) -> dict[str, Any]:
+    return {
+        "get": _operation(
+            f"read_{benchmark_id.replace('@', '_').replace('-', '_')}_cases",
+            "URL4 benchmark data",
+            f"Resolve pinned {label} cases",
+            (
+                "Versioned NDJSON collection loaded from the pinned perplexity-ai/draco source. "
+                f"The engine environment must provide HF_TOKEN. This profile contains "
+                f"{rubric_description}."
+            ),
+            {
+                "200": {
+                    "description": f"{label} cases",
+                    "content": {"application/x-ndjson": {"schema": {"type": "string"}}},
+                },
+                "401": _engine_error_response("Dataset authentication required"),
+                "502": _engine_error_response("Dataset unavailable"),
+            },
+            extensions={"x-screamingface-url4-route": "data"},
+        )
+    }
+
+
+def _draco_rubric_path(*, benchmark_id: str, profile: str, passes: int) -> dict[str, Any]:
+    return {
+        "get": _operation(
+            f"grade_draco_{profile}_rubric_1",
+            "URL4 graders",
+            f"Grade one Recipe with the DRACO rubric ({passes} pass{'es' if passes > 1 else ''})",
+            (
+                "Expects screamingface.recipe-result.v1 as context and benchmark ID, case ID, "
+                "question, and sealed rubric as intent. Runs the official per-criterion judge "
+                "prompt for the Recipe answer and each member answer."
+            ),
+            {
+                "200": _text_response(
+                    "Serialized DRACO case grade",
+                    f'{{"schema":"{CASE_GRADE_SCHEMA}","benchmark_id":"{benchmark_id}"}}',
+                    schema={"$ref": "#/components/schemas/CaseGrade"},
+                ),
+                "400": _engine_error_response("Malformed Recipe or rubric input"),
+                "502": _engine_error_response("Judge model failure"),
             },
             parameters=[_url4_fragment_parameter()],
             extensions={"x-screamingface-url4-route": "grader"},
@@ -1015,10 +1110,30 @@ def _schemas() -> dict[str, Any]:
             "additionalProperties": False,
         },
         "BenchmarkStage": {
-            "type": "object",
-            "required": ["kind", "route"],
-            "properties": {"kind": {"type": "string"}, "route": {"type": "string"}},
-            "additionalProperties": False,
+            "oneOf": [
+                {
+                    "type": "object",
+                    "required": ["kind", "route"],
+                    "properties": {
+                        "kind": {"type": "string"},
+                        "route": {"type": "string"},
+                    },
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "required": ["kind", "route", "model", "prompt", "passes", "params"],
+                    "properties": {
+                        "kind": {"const": "rubric"},
+                        "route": {"type": "string"},
+                        "model": {"type": "string"},
+                        "prompt": {"type": "string"},
+                        "passes": {"type": "integer", "minimum": 1},
+                        "params": {"type": "object"},
+                    },
+                    "additionalProperties": False,
+                },
+            ]
         },
         "Registry": {
             "type": "object",
@@ -1608,8 +1723,8 @@ _DOCS_HTML = r"""<!doctype html>
           </section>
           <section id="status">
             <h2>Contract status</h2>
-            <p><span class="state current">Executable now</span> · GPQA, dynamic model calls, majority vote, exact-choice grading, mean aggregation, connection control, and provider-neutral web tooling on advertised model routes.</p>
-            <p><span class="state planned">Planned</span> · DRACO is not advertised or executable yet. ${escapeHtml(draco.blocking_capability)}</p>
+            <p><span class="state current">Executable now</span> · GPQA, dynamic model calls, reducers, grading, mean aggregation, connection control, and provider-neutral web tooling on advertised model routes.</p>
+            <p><span class="state ${draco.executable ? "current" : "planned"}">${draco.executable ? "Executable now" : "Unavailable in this snapshot"}</span> · DRACO. ${escapeHtml(draco.note)}</p>
           </section>
           <section id="capabilities">
             <h2>Executable capability registry</h2>

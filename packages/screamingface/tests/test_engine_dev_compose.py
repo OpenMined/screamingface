@@ -22,6 +22,7 @@ def test_auth_disabled_gateway_is_reached_over_shared_loopback() -> None:
 
     assert 'AIGATEWAY_AUTH_ENABLED: "0"' in source
     assert "AIGATEWAY_URL: http://127.0.0.1:9105" in source
+    assert 'AIGATEWAY_TIMEOUT: "300"' in source
     assert "network_mode: service:aigateway" in source
     assert "AIGATEWAY_URL: http://aigateway:9105" not in source
 

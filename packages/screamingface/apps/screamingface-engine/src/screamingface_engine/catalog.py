@@ -9,6 +9,16 @@ from typing import Literal
 
 from screamingface_engine.aggregators import MEAN_ROUTE, REPORT_SCHEMA
 from screamingface_engine.benchmarks import (
+    DRACO_CASES_ROUTE,
+    DRACO_ID,
+    DRACO_LITE_CASES_ROUTE,
+    DRACO_LITE_ID,
+    DRACO_LITE_TITLE,
+    DRACO_PREVIEW_CASES_ROUTE,
+    DRACO_PREVIEW_ID,
+    DRACO_PREVIEW_TITLE,
+    DRACO_TITLE,
+    DRACO_TOOL_POLICY_ROUTE,
     GPQA_CASES_ROUTE,
     GPQA_ID,
     GPQA_TITLE,
@@ -168,6 +178,75 @@ def resolve_model_routes(models: Sequence[GatewayModel]) -> tuple[ModelRoute, ..
     return tuple(routes)
 
 
+def benchmark_routes(model_routes: Sequence[ModelRoute]) -> tuple[BenchmarkRoute, ...]:
+    """Advertise DRACO only when its pinned judge route is executable."""
+
+    from screamingface._benchmarks._draco_prompt import DRACO_JUDGE_PROMPT
+
+    from screamingface_engine.draco_grader import (
+        DRACO_JUDGE_MODEL,
+        DRACO_JUDGE_PASSES,
+        DRACO_LITE_JUDGE_PASSES,
+        DRACO_LITE_RUBRIC_ROUTE,
+        DRACO_PREVIEW_JUDGE_PASSES,
+        DRACO_PREVIEW_RUBRIC_ROUTE,
+        DRACO_RUBRIC_ROUTE,
+    )
+
+    routes = list(BENCHMARK_ROUTES)
+    if DRACO_JUDGE_MODEL not in {model.id for model in model_routes}:
+        return tuple(routes)
+    common = (
+        ("model", DRACO_JUDGE_MODEL),
+        ("prompt", DRACO_JUDGE_PROMPT),
+        ("params", {"temperature": 0.2, "reasoning": "low", "max_tokens": 4096}),
+    )
+    routes.extend(
+        (
+            BenchmarkRoute(
+                DRACO_PREVIEW_ID,
+                DRACO_PREVIEW_TITLE,
+                DRACO_PREVIEW_CASES_ROUTE,
+                "rubric",
+                DRACO_PREVIEW_RUBRIC_ROUTE,
+                "mean",
+                MEAN_ROUTE,
+                ("web_search", "web_fetch"),
+                12,
+                DRACO_TOOL_POLICY_ROUTE,
+                common + (("passes", DRACO_PREVIEW_JUDGE_PASSES),),
+            ),
+            BenchmarkRoute(
+                DRACO_LITE_ID,
+                DRACO_LITE_TITLE,
+                DRACO_LITE_CASES_ROUTE,
+                "rubric",
+                DRACO_LITE_RUBRIC_ROUTE,
+                "mean",
+                MEAN_ROUTE,
+                ("web_search", "web_fetch"),
+                12,
+                DRACO_TOOL_POLICY_ROUTE,
+                common + (("passes", DRACO_LITE_JUDGE_PASSES),),
+            ),
+            BenchmarkRoute(
+                DRACO_ID,
+                DRACO_TITLE,
+                DRACO_CASES_ROUTE,
+                "rubric",
+                DRACO_RUBRIC_ROUTE,
+                "mean",
+                MEAN_ROUTE,
+                ("web_search", "web_fetch"),
+                12,
+                DRACO_TOOL_POLICY_ROUTE,
+                common + (("passes", DRACO_JUDGE_PASSES),),
+            ),
+        )
+    )
+    return tuple(routes)
+
+
 def _model_route(model: GatewayModel) -> ModelRoute | None:
     if model.owned_by == "anthropic":
         return _anthropic_route(model)
@@ -274,7 +353,7 @@ def registry_document(
             }
             for model in model_routes
         ],
-        "benchmarks": [benchmark.public for benchmark in BENCHMARK_ROUTES],
+        "benchmarks": [benchmark.public for benchmark in benchmark_routes(model_routes)],
         "reducers": [{"id": "majority_vote", "route": MAJORITY_VOTE_ROUTE}],
     }
 

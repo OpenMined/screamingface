@@ -61,6 +61,32 @@ def test_benchmark_tool_policy_contract_is_explicit() -> None:
             None,
         )
 
+
+def test_draco_benchmarks_are_advertised_only_with_the_pinned_judge() -> None:
+    assert [item.id for item in catalog.benchmark_routes(MODEL_ROUTES)] == ["gpqa@1"]
+
+    judge = catalog.ModelRoute(
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter",
+        ("web_search", "web_fetch"),
+        "openrouter",
+    )
+    routes = catalog.benchmark_routes((*MODEL_ROUTES, judge))
+
+    assert [item.id for item in routes] == [
+        "gpqa@1",
+        "draco-preview@1",
+        "draco-lite@1",
+        "draco@1",
+    ]
+    lite_grader = routes[-2].public["grader"]
+    assert isinstance(lite_grader, dict)
+    assert lite_grader["passes"] == 2
+    grader = routes[-1].public["grader"]
+    assert isinstance(grader, dict)
+    assert grader["passes"] == 5
+
     with pytest.raises(ValueError, match="tool-free"):
         BenchmarkRoute(
             "gpqa@1",

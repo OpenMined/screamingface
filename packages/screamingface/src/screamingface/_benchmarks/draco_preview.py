@@ -22,10 +22,10 @@ def benchmark() -> Benchmark:
         title="DRACO Preview",
         cases=draco_preview_cases(),
         grader=Rubric(
-            model="gemini/2.5-flash",
+            model="openrouter/google/gemini-3.1-pro-preview",
             prompt=DRACO_JUDGE_PROMPT,
             passes=1,
-            params={"temperature": 0.2, "max_tokens": 4096},
+            params={"temperature": 0.2, "reasoning": "low", "max_tokens": 4096},
         ),
         aggregator=Mean(),
         tools=(WebSearch(), WebFetch()),

@@ -9,7 +9,7 @@ import pytest
 from model_fixtures import MODEL_ROUTES
 
 from screamingface_engine.app import create_app
-from screamingface_engine.catalog import GatewayModel
+from screamingface_engine.catalog import GatewayModel, ModelRoute
 from screamingface_engine.docs import openapi_document
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.settings import Settings
@@ -45,7 +45,29 @@ def test_openapi_document_covers_http_and_url4_contracts() -> None:
     assert document["x-screamingface-architecture"]["sdk_calls_ai_gateway"] is False
     assert document["x-screamingface-architecture"]["primary_transport"] == "GET /v1?q=…"
     assert document["x-screamingface-status"]["draco"]["executable"] is False
-    assert document["x-screamingface-status"]["draco"]["blocking_capability"]
+    assert document["x-screamingface-status"]["draco"]["note"]
+
+
+def test_openapi_includes_executable_draco_routes_with_the_pinned_judge() -> None:
+    judge = ModelRoute(
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter",
+        ("web_search", "web_fetch"),
+        "openrouter",
+    )
+
+    document = openapi_document((*MODEL_ROUTES, judge), max_request_target_bytes=61_440)
+
+    assert document["x-screamingface-status"]["draco"]["executable"] is True
+    assert set(document["paths"]) >= {
+        "/benchmarks/draco-preview/1/cases",
+        "/benchmarks/draco-lite/1/cases",
+        "/benchmarks/draco/1/cases",
+        "/graders/draco-preview-rubric/1",
+        "/graders/draco-lite-rubric/1",
+        "/graders/draco-rubric/1",
+    }
     assert document["x-screamingface-url4"]["limits"]["max_request_target_bytes"] == 61_440
     assert document["components"]["schemas"]["BenchmarkManifest"]["required"][-1] == (
         "tool_policy_route"

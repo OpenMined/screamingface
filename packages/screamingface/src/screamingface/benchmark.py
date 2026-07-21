@@ -100,7 +100,7 @@ class Benchmark:
         source: tuple[Case, ...] | CaseProducer
         if callable(cases):
             source = cases
-        elif isinstance(cases, Sequence) and not isinstance(cases, (str, bytes)):
+        elif isinstance(cases, Sequence) and not isinstance(cases, str | bytes):
             source = _validate_cases(cases)
         else:
             raise TypeError("benchmark cases must be a sequence or zero-argument callable")
@@ -190,6 +190,13 @@ class Benchmark:
         from screamingface._benchmark_execution import evaluate_benchmark
 
         return evaluate_benchmark(self, candidate, first=first, progress=progress)
+
+    def url4(self, candidate: Recipe, *, first: int | None = None) -> str:
+        """Compile the complete benchmark slice without executing it."""
+
+        from screamingface._benchmark_execution import benchmark_url4
+
+        return benchmark_url4(self, candidate, first=first)
 
     def _materialize_cases(self) -> tuple[Case, ...]:
         if self._case_source is None:

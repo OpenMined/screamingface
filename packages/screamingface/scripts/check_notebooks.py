@@ -17,8 +17,10 @@ def main() -> None:
         ("build_discovery.py", "02_discovery.ipynb"),
         ("build_fusions.py", "03_fusions.ipynb"),
         ("build_custom_benchmarks.py", "04_custom_benchmarks.ipynb"),
+        ("build_draco_quickstart.py", "05_draco_quickstart.ipynb"),
         ("build_connections.py", "06_connections.ipynb"),
         ("build_full_draco_url4_contract.py", "07_full_draco_url4.ipynb"),
+        ("build_draco_explained.py", "08_draco_explained.ipynb"),
     )
     mismatches: list[str] = []
     for builder_name, notebook_name in pairs:

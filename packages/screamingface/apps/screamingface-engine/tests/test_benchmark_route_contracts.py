@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from typing import cast
 
 import pytest
 import screamingface._benchmarks.gpqa as gpqa_source
+from screamingface.benchmark import Case
 from url4 import Request, ResolutionError
 
 from screamingface_engine.aggregators import mean
-from screamingface_engine.benchmarks import gpqa_cases
+from screamingface_engine.benchmarks import (
+    draco_cases,
+    draco_lite_cases,
+    draco_preview_cases,
+    gpqa_cases,
+)
 from screamingface_engine.graders import exact_choice
 
 
@@ -180,6 +187,68 @@ def test_mean_aggregates_successes_and_preserves_typed_row_failures() -> None:
             "code": "resolution_failed",
         }
     ]
+
+
+def test_mean_preserves_average_recipe_and_member_metrics() -> None:
+    first = _case_grade(case_id="q1")
+    second = _case_grade(case_id="q2")
+    cast(dict[str, object], first["recipe"])["metrics"] = {"normalized_score": 0.5}
+    cast(dict[str, object], second["recipe"])["metrics"] = {"normalized_score": 1.0}
+    cast(dict[str, dict[str, object]], first["members"])["member_1"]["metrics"] = {
+        "normalized_score": 0.25
+    }
+    cast(dict[str, dict[str, object]], second["members"])["member_1"]["metrics"] = {
+        "normalized_score": 0.75
+    }
+
+    payload = json.loads(mean(_request("/aggregators/mean/1", intent=json.dumps([first, second]))))
+
+    assert payload["metrics"] == {"normalized_score": 0.75}
+    assert payload["members"]["member_1"]["metrics"] == {"normalized_score": 0.5}
+
+
+def test_draco_case_routes_use_real_sdk_loaders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = Case("q1", "Question", reference={"sections": []})
+    monkeypatch.setenv("HF_TOKEN", "hf_test")
+    monkeypatch.setattr("screamingface._benchmarks.draco.draco_cases", lambda: (case,))
+    monkeypatch.setattr(
+        "screamingface._benchmarks.draco_preview.draco_preview_cases",
+        lambda: (case,),
+    )
+    monkeypatch.setattr(
+        "screamingface._benchmarks.draco_lite.draco_lite_cases",
+        lambda: (case,),
+    )
+
+    assert json.loads(draco_cases()) == case._to_wire()
+    assert json.loads(draco_preview_cases()) == case._to_wire()
+    assert json.loads(draco_lite_cases()) == case._to_wire()
+
+
+def test_draco_case_routes_require_dataset_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+
+    with pytest.raises(ResolutionError, match="requires HF_TOKEN") as raised:
+        draco_cases()
+
+    assert raised.value.code == "dataset_authentication_required"
+
+
+def test_draco_case_routes_translate_dataset_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HF_TOKEN", "hf_test")
+    monkeypatch.setattr(
+        "screamingface._benchmarks.draco.draco_cases",
+        lambda: (_ for _ in ()).throw(RuntimeError("offline")),
+    )
+
+    with pytest.raises(ResolutionError, match="could not load") as raised:
+        draco_cases()
+
+    assert raised.value.code == "dataset_unavailable"
 
 
 @pytest.mark.parametrize(

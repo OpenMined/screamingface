@@ -37,6 +37,18 @@ The cases route returns NDJSON and registers `application/x-ndjson` with `Url4No
 type is what makes `$item.input`, `$item.reference`, and other structured row fields available to
 the iteration body.
 
+For DRACO the corresponding versioned routes are:
+
+- `/benchmarks/draco/1/cases` (full rubric) and `/benchmarks/draco-preview/1/cases` (one positive
+  criterion over the same real cases);
+- `/benchmarks/draco/1/tool-policy`;
+- `/graders/draco-rubric/1` (five passes) and `/graders/draco-preview-rubric/1` (one pass); and
+- `/aggregators/mean/1`.
+
+The rubric grader manifest includes its pinned model, byte-pinned system prompt, passes, and model
+params so SDK preflight and connection requirements reflect the engine route exactly. Rubric grade
+input adds the original `$question`; exact-choice grade input remains the smaller three-field form.
+
 ## Canonical expression shape
 
 The exact member graph is produced by the public URL4 builders, but the resulting execution has
@@ -109,6 +121,10 @@ engine image. The local Docker stack reads `HF_TOKEN` from its environment and t
 only to load the pinned gated dataset. It is never embedded in URL4 and is never sent to AI
 Gateway. The `huggingface` connection shown by `sf.connect()` remains a separate AI Gateway
 inference-provider credential.
+
+DRACO follows the same data boundary. Its engine case route loads the pinned
+`perplexity-ai/draco` revision with `HF_TOKEN`; no question, rubric, or dataset secret is bundled in
+the SDK wheel or embedded in URL4.
 
 For a future hosted engine, benchmark-data authorization must be supplied by that deployment's
 identity/secret boundary. This MVP does not pretend that a researcher's local Hugging Face login

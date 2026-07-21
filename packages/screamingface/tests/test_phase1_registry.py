@@ -156,6 +156,39 @@ def test_benchmark_load_returns_the_engine_manifest() -> None:
             sf.benchmarks.load("missing@1")
 
 
+def test_benchmark_load_reconstructs_an_engine_advertised_rubric_grader() -> None:
+    registry = _registry()
+    benchmarks = cast(list[dict[str, object]], registry["benchmarks"])
+    benchmarks.append(
+        {
+            "id": "draco@1",
+            "title": "DRACO",
+            "cases_route": "/benchmarks/draco/1/cases",
+            "grader": {
+                "kind": "rubric",
+                "route": "/graders/draco-rubric/1",
+                "model": "gemini/2.5-flash",
+                "prompt": "Judge one criterion",
+                "passes": 5,
+                "params": {"temperature": 0.2, "max_tokens": 4096},
+            },
+            "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
+            "tools": ["web_search"],
+            "max_tool_calls": 12,
+            "tool_policy_route": "/benchmarks/draco/1/tool-policy",
+        }
+    )
+
+    with _profile_server({"/.well-known/screamingface": json.dumps(registry)}) as engine:
+        sf.config(engine=engine)
+        benchmark = sf.benchmarks.load("draco@1")
+
+    assert isinstance(benchmark.grader, sf.graders.Rubric)
+    assert benchmark.grader.model == "gemini/2.5-flash"
+    assert benchmark.grader.passes == 5
+    assert benchmark.grader.params == {"temperature": 0.2, "max_tokens": 4096}
+
+
 def test_engine_benchmark_tool_policy_route_is_not_optional() -> None:
     with pytest.raises(ValueError, match="requires a tool policy route"):
         sf.Benchmark._from_engine(

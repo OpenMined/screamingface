@@ -54,6 +54,36 @@ def test_concrete_expression_binds_literal_question_without_a_reference() -> Non
     assert "sealed answer" not in expression
 
 
+def test_multiline_prompts_and_questions_use_url4_safe_line_separators() -> None:
+    fusion = sf.Fusion(
+        "multiline",
+        members=[
+            sf.Model(
+                "codex/gpt-5.5",
+                prompt="Answer carefully.\r\nCite evidence.\tBe concise.",
+            )
+        ],
+        reducer=sf.reducers.Model(
+            model="codex/gpt-5.5",
+            prompt="Combine the answer.\nReturn prose.",
+        ),
+    )
+
+    expression = compile_recipe(fusion, question="Question line one\nQuestion line two")
+
+    assert build(expression)
+    assert "question='Question line one\u2028Question line two'" in expression
+    assert "!'Answer carefully.\u2028Cite evidence. Be concise.'" in expression
+    assert "!'Combine the answer.\u2028Return prose.'" in expression
+
+
+def test_non_whitespace_ascii_controls_fail_before_transport() -> None:
+    model = sf.Model("codex/gpt-5.5", prompt="Answer\x00now")
+
+    with pytest.raises(ValueError, match="unsupported control character U\\+0000"):
+        _ = model.url4
+
+
 def test_benchmark_tools_compile_only_onto_members_and_round_trip_through_url4() -> None:
     fusion = sf.Fusion(
         "research",

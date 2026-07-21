@@ -143,18 +143,20 @@ use stable positional IDs such as `row_2`. This is explicit rather than guessing
 
 ## Deferred deliberately
 
-- DRACO publication and exact-result claims;
+- claims that the substituted OpenRouter lineup reproduces the paper's published model ranking;
 - optional future cross-candidate caching or multi-root execution; the MVP deliberately uses one
   independently reproducible URL4 benchmark transaction per candidate;
 - hosted engine identity and dataset-secret policy;
 - uploads or remote registration for researcher-authored benchmarks; and
 - retries, persistence, resume, billing, or leaderboard publication.
 
-DRACO should not be advertised until its cases, exact grader protocol, model routes, manifest, and
-production configuration are registered and verified end to end. Its versioned tool-policy data
-route is already registered. URL4 settlement is not an MVP
-blocker: each DRACO candidate is already representable as one independently reproducible benchmark
-URL4.
+The local engine now advertises `draco-preview@1`, `draco-lite@1`, and `draco@1` only when the
+pinned OpenRouter judge is part of AI Gateway's startup model snapshot. Preview uses the real cases
+with one positive criterion and one pass. Lite fixes the workload to the first two pinned cases,
+retains their complete rubrics, and uses two passes. Production uses all 100 complete rubrics and
+five passes. Exact published-result claims still require an audited full run with the original
+pinned model/provider configuration. URL4 settlement is not an MVP blocker: each candidate is one
+independently reproducible benchmark URL4.
 
 ## Repository map
 
@@ -166,7 +168,7 @@ packages/screamingface/apps/screamingface-engine/
   temporary package-local persistent Url4Node application and Docker stack
 
 packages/screamingface/examples/
-  generated quickstart, architecture, discovery, fusion, authoring, and connection notebooks
+  generated quickstart, architecture, discovery, fusion, authoring, connection, and DRACO notebooks
 
 docs/spec/2026-07-21-OME-400-full-run-url4-contract.md
   normative wire/runtime contract

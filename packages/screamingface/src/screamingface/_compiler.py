@@ -63,7 +63,7 @@ class _RecipeCompiler:
         self._tool_policy_reference = tool_policy_reference
         self._sources: list[Node] = []
         if question is not None:
-            self._sources.append(src(text(_literal(question)), name="question"))
+            self._sources.append(src(text(_literal(_url4_text(question))), name="question"))
         self._members: list[_RecipeMember] = []
         self._resolved: dict[int, _ResolvedInput] = {}
         self._active: set[int] = set()
@@ -184,7 +184,7 @@ class _RecipeCompiler:
             call = RelExpr(
                 path=_model_route(reducer.model),
                 context=_model_reducer_context(members),
-                intent=Text(reducer.prompt),
+                intent=Text(_url4_text(reducer.prompt)),
                 params=_params(reducer._parameter_items),
             )
         else:
@@ -211,7 +211,7 @@ def compile_model_expression(
                     RelExpr(
                         path=_model_route(model),
                         context="$model_context",
-                        intent=Text(_literal(intent)),
+                        intent=Text(_literal(_url4_text(intent))),
                         params=_params(items),
                     ),
                     name="model_result",
@@ -229,6 +229,7 @@ def compile_benchmark_expression(
     grader_route: str,
     aggregator_route: str,
     recipe: Recipe,
+    grader_kind: str = "exact_choice",
     tools: Sequence[Tool] = (),
     max_tool_calls: int | None = None,
     tool_policy_route: str | None = None,
@@ -249,16 +250,19 @@ def compile_benchmark_expression(
         sources.append(src(tool_policy_route, name="tool_policy"))
     sources.append(src("$item.input", name="question"))
     sources.extend(compiler.sources(recipe))
+    grade_fields: dict[str, str] = {
+        "benchmark_id": _literal(benchmark_id),
+        "case_id": "$item.id",
+        "reference": "$item.reference",
+    }
+    if grader_kind == "rubric":
+        grade_fields["question"] = "$question"
+    elif grader_kind != "exact_choice":
+        raise ValueError(f"unsupported benchmark grader {grader_kind!r}")
     sources.extend(
         (
             src(
-                struct(
-                    {
-                        "benchmark_id": _literal(benchmark_id),
-                        "case_id": "$item.id",
-                        "reference": "$item.reference",
-                    }
-                ),
+                struct(grade_fields),
                 name="grade_input",
             ),
             src(
@@ -298,7 +302,7 @@ def _model_call(
     return RelExpr(
         path=_model_route(call.model),
         context=context,
-        intent=Text(call.prompt),
+        intent=Text(_url4_text(call.prompt)),
         params=_params(call.parameter_items) + tool_params,
     )
 
@@ -350,6 +354,28 @@ def _literal(value: str) -> str:
     """Protect literal data from URL4's one-pass dollar interpolation."""
 
     return value.replace("$", "$$")
+
+
+def _url4_text(value: str) -> str:
+    """Carry common multiline text through URL4's control-free quoted grammar.
+
+    URL4 quoted text deliberately supports only printable characters. Unicode's
+    line separator preserves prompt paragraph boundaries without inventing a
+    URL4 escape sequence; tabs become ordinary spaces. Other ASCII controls are
+    rejected locally instead of becoming opaque engine parse failures.
+    """
+
+    normalized = value.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = normalized.replace("\n", "\u2028").replace("\t", " ")
+    unsupported = next(
+        (char for char in normalized if char < " " or char == "\x7f"),
+        None,
+    )
+    if unsupported is not None:
+        raise ValueError(
+            f"URL4 text contains unsupported control character U+{ord(unsupported):04X}"
+        )
+    return normalized
 
 
 __all__ = [

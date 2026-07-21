@@ -102,7 +102,7 @@ def test_engine_draco_definition_is_pinned_cached_and_canonical(
     assert isinstance(first.grader, sf.graders.Rubric)
     assert first.grader.model == "openrouter/google/gemini-3.1-pro-preview"
     assert first.grader.prompt == DRACO_JUDGE_PROMPT
-    assert first.grader.passes == 3
+    assert first.grader.passes == 5
     assert first.grader.params == {
         "temperature": 0.2,
         "reasoning": "low",

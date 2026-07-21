@@ -154,15 +154,17 @@ the same `sf.benchmarks.load(...)` API without changing evaluation syntax.
 
 ## Current benchmark scope
 
-The development engine advertises `gpqa@1`. It loads the pinned GPQA Diamond source through its
-`HF_TOKEN`, exposes cases as NDJSON, grades with `/graders/exact-choice/1`, and aggregates with
-`/aggregators/mean/1`.
+The development engine advertises `gpqa@1` plus DRACO when its pinned OpenRouter judge appears in
+the AI Gateway startup catalog. `draco-preview@1` uses real pinned DRACO cases, one positive
+criterion, and one judge pass for inexpensive integration checks. `draco-lite@1` fixes execution
+to the first two pinned cases, retains their complete rubrics, and makes two independent judge
+passes per criterion. `draco@1` keeps all 100 complete rubrics and five independent per-criterion
+judge passes. All three use the immutable provider-neutral research-tool policy route.
 
-DRACO source definitions remain useful engine-building references, but DRACO is not currently
-advertised as executable. The production comparison is represented as one complete URL4 benchmark
-transaction per candidate. A multi-candidate study therefore produces an ordered mapping of
-candidate names to URL4-backed reports; it does not require every candidate to be nested into one
-larger URL4.
+The production comparison is one complete URL4 transaction per candidate. A multi-candidate study
+therefore produces an ordered mapping of candidate names to URL4-backed reports; candidates are not
+nested into one larger expression. Use `benchmark.url4(candidate, first=...)` to inspect or share a
+complete transaction before executing it.
 
 ## Walkthrough notebooks
 
@@ -171,14 +173,19 @@ larger URL4.
 - [`examples/02_discovery.ipynb`](examples/02_discovery.ipynb): engine model/benchmark discovery.
 - [`examples/03_fusions.ipynb`](examples/03_fusions.ipynb): network-free Recipe authoring.
 - [`examples/04_custom_benchmarks.ipynb`](examples/04_custom_benchmarks.ipynb): authoring boundary.
+- [`examples/05_draco_quickstart.ipynb`](examples/05_draco_quickstart.ipynb): two-case DRACO Lite
+  run using complete rubrics, two judge passes, and available OpenRouter routes.
 - [`examples/06_connections.ipynb`](examples/06_connections.ipynb): provider/tool connections.
 - [`examples/07_full_draco_url4.ipynb`](examples/07_full_draco_url4.ipynb): non-runnable production
   DRACO handoff showing one flat, complete benchmark URL4 per candidate.
+- [`examples/08_draco_explained.ipynb`](examples/08_draco_explained.ipynb): full available-model
+  lineup, benchmark creation boundary, URL4, tools, grading, aggregation, and response deep dive.
 
 Notebooks are deterministic outputs of `scripts/build_quickstart.py`,
 `scripts/build_architecture.py`, `scripts/build_discovery.py`, `scripts/build_fusions.py`,
 `scripts/build_custom_benchmarks.py`, `scripts/build_connections.py`, and
-`scripts/build_full_draco_url4_contract.py`. Edit the builders, then regenerate the notebooks.
+`scripts/build_draco_quickstart.py`, `scripts/build_full_draco_url4_contract.py`, and
+`scripts/build_draco_explained.py`. Edit the builders, then regenerate the notebooks.
 
 ## Validation
 

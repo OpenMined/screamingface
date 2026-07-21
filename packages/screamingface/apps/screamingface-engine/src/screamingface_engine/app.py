@@ -9,16 +9,37 @@ from url4 import Url4Node
 from screamingface_engine.aggregators import MEAN_ROUTE, mean
 from screamingface_engine.asgi import EngineASGI
 from screamingface_engine.benchmarks import (
+    DRACO_CASES_ROUTE,
+    DRACO_LITE_CASES_ROUTE,
+    DRACO_PREVIEW_CASES_ROUTE,
     DRACO_TOOL_POLICY_ROUTE,
     GPQA_CASES_ROUTE,
+    draco_cases,
+    draco_lite_cases,
+    draco_preview_cases,
     draco_tool_policy,
     gpqa_cases,
 )
-from screamingface_engine.catalog import ModelRoute, registry_document, resolve_model_routes
+from screamingface_engine.catalog import (
+    ModelRoute,
+    benchmark_routes,
+    registry_document,
+    resolve_model_routes,
+)
 from screamingface_engine.connection_asgi import ConnectionASGI
 from screamingface_engine.connection_gateway import ConnectionGateway
 from screamingface_engine.connection_manager import ConnectionManager
 from screamingface_engine.docs import DocumentationASGI
+from screamingface_engine.draco_grader import (
+    DRACO_JUDGE_MODEL,
+    DRACO_JUDGE_PASSES,
+    DRACO_LITE_JUDGE_PASSES,
+    DRACO_LITE_RUBRIC_ROUTE,
+    DRACO_PREVIEW_JUDGE_PASSES,
+    DRACO_PREVIEW_RUBRIC_ROUTE,
+    DRACO_RUBRIC_ROUTE,
+    DracoRubricGrader,
+)
 from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.graders import EXACT_CHOICE_ROUTE, exact_choice
@@ -43,6 +64,23 @@ def create_node(
     node.endpoint(MEAN_ROUTE)(mean)
     node.data(GPQA_CASES_ROUTE, media_type="application/x-ndjson")(gpqa_cases)
     node.data(DRACO_TOOL_POLICY_ROUTE, media_type="application/json")(draco_tool_policy)
+    advertised = {benchmark.id for benchmark in benchmark_routes(model_routes)}
+    judge = next((model for model in model_routes if model.id == DRACO_JUDGE_MODEL), None)
+    if judge is not None and "draco-preview@1" in advertised:
+        node.endpoint(DRACO_PREVIEW_RUBRIC_ROUTE)(
+            DracoRubricGrader(executor, judge, passes=DRACO_PREVIEW_JUDGE_PASSES)
+        )
+        node.data(DRACO_PREVIEW_CASES_ROUTE, media_type="application/x-ndjson")(draco_preview_cases)
+    if judge is not None and "draco-lite@1" in advertised:
+        node.endpoint(DRACO_LITE_RUBRIC_ROUTE)(
+            DracoRubricGrader(executor, judge, passes=DRACO_LITE_JUDGE_PASSES)
+        )
+        node.data(DRACO_LITE_CASES_ROUTE, media_type="application/x-ndjson")(draco_lite_cases)
+    if judge is not None and "draco@1" in advertised:
+        node.endpoint(DRACO_RUBRIC_ROUTE)(
+            DracoRubricGrader(executor, judge, passes=DRACO_JUDGE_PASSES)
+        )
+        node.data(DRACO_CASES_ROUTE, media_type="application/x-ndjson")(draco_cases)
     node.data("/healthz", "ok")
     node.data(
         "/.well-known/screamingface",
@@ -115,3 +153,5 @@ def create_app(
         timeout=resolved.evaluation_timeout,
         max_request_target_bytes=resolved.max_request_target_bytes,
     )
+    (draco_cases,)
+    (draco_preview_cases,)

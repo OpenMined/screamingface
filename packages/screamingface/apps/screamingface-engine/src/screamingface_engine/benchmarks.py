@@ -13,6 +13,15 @@ from screamingface_engine.evaluation_events import emit_progress
 GPQA_ID = "gpqa@1"
 GPQA_TITLE = "GPQA Diamond"
 GPQA_CASES_ROUTE = "/benchmarks/gpqa/1/cases"
+DRACO_ID = "draco@1"
+DRACO_TITLE = "DRACO"
+DRACO_CASES_ROUTE = "/benchmarks/draco/1/cases"
+DRACO_LITE_ID = "draco-lite@1"
+DRACO_LITE_TITLE = "DRACO Lite"
+DRACO_LITE_CASES_ROUTE = "/benchmarks/draco-lite/1/cases"
+DRACO_PREVIEW_ID = "draco-preview@1"
+DRACO_PREVIEW_TITLE = "DRACO Preview"
+DRACO_PREVIEW_CASES_ROUTE = "/benchmarks/draco-preview/1/cases"
 DRACO_TOOL_POLICY_ROUTE = "/benchmarks/draco/1/tool-policy"
 
 DRACO_TOOL_POLICY = {
@@ -46,6 +55,7 @@ class BenchmarkRoute:
     tools: tuple[str, ...] = ()
     max_tool_calls: int | None = None
     tool_policy_route: str | None = None
+    grader_config: tuple[tuple[str, object], ...] = ()
 
     def __post_init__(self) -> None:
         if self.tools:
@@ -70,11 +80,13 @@ class BenchmarkRoute:
 
     @property
     def public(self) -> dict[str, object]:
+        grader: dict[str, object] = {"kind": self.grader_kind, "route": self.grader_route}
+        grader.update(dict(self.grader_config))
         return {
             "id": self.id,
             "title": self.title,
             "cases_route": self.cases_route,
-            "grader": {"kind": self.grader_kind, "route": self.grader_route},
+            "grader": grader,
             "aggregator": {
                 "kind": self.aggregator_kind,
                 "route": self.aggregator_route,
@@ -112,6 +124,64 @@ def gpqa_cases() -> str:
     )
 
 
+def draco_cases() -> str:
+    """Return the byte-pinned, fully validated DRACO rows as NDJSON."""
+
+    return _draco_rows(preview=False)
+
+
+def draco_lite_cases() -> str:
+    """Return two real DRACO cases with their complete rubrics."""
+
+    return _draco_rows(lite=True)
+
+
+def draco_preview_cases() -> str:
+    """Return real DRACO rows reduced to one positive criterion for a cheap walkthrough."""
+
+    return _draco_rows(preview=True)
+
+
+def _draco_rows(*, preview: bool = False, lite: bool = False) -> str:
+    if preview and lite:
+        raise ValueError("DRACO rows cannot be both preview and lite")
+    if preview:
+        benchmark_id, title = DRACO_PREVIEW_ID, DRACO_PREVIEW_TITLE
+    elif lite:
+        benchmark_id, title = DRACO_LITE_ID, DRACO_LITE_TITLE
+    else:
+        benchmark_id, title = DRACO_ID, DRACO_TITLE
+    emit_progress("dataset", "started", f"Loading {title} cases")
+    if not os.environ.get("HF_TOKEN", "").strip():
+        raise ResolutionError(
+            f"{benchmark_id} requires HF_TOKEN in the ScreamingFace engine environment",
+            code="dataset_authentication_required",
+            permanent=True,
+        )
+    try:
+        if preview:
+            from screamingface._benchmarks.draco_preview import (
+                draco_preview_cases as load_cases,
+            )
+        elif lite:
+            from screamingface._benchmarks.draco_lite import draco_lite_cases as load_cases
+        else:
+            from screamingface._benchmarks.draco import draco_cases as load_cases
+
+        cases = load_cases()
+    except ResolutionError:
+        raise
+    except Exception as exc:
+        raise ResolutionError(
+            f"the ScreamingFace engine could not load {benchmark_id} from Hugging Face",
+            code="dataset_unavailable",
+        ) from exc
+    emit_progress("dataset", "completed", f"Loaded {len(cases)} {title} cases")
+    return "\n".join(
+        json.dumps(case._to_wire(), allow_nan=False, separators=(",", ":")) for case in cases
+    )
+
+
 def draco_tool_policy() -> str:
     """Return the immutable portable research policy pinned by draco@1."""
 
@@ -120,11 +190,23 @@ def draco_tool_policy() -> str:
 
 __all__ = [
     "BenchmarkRoute",
+    "DRACO_CASES_ROUTE",
+    "DRACO_ID",
+    "DRACO_LITE_CASES_ROUTE",
+    "DRACO_LITE_ID",
+    "DRACO_LITE_TITLE",
+    "DRACO_PREVIEW_CASES_ROUTE",
+    "DRACO_PREVIEW_ID",
+    "DRACO_PREVIEW_TITLE",
+    "DRACO_TITLE",
     "DRACO_TOOL_POLICY",
     "DRACO_TOOL_POLICY_ROUTE",
     "GPQA_CASES_ROUTE",
     "GPQA_ID",
     "GPQA_TITLE",
     "draco_tool_policy",
+    "draco_cases",
+    "draco_lite_cases",
+    "draco_preview_cases",
     "gpqa_cases",
 ]

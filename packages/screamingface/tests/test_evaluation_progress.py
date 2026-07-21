@@ -30,6 +30,10 @@ def test_progress_html_is_safe_accessible_and_uses_shared_visual_tokens() -> Non
     assert "aria-valuemax='5'" in html
     assert "aria-valuenow='2'" in html
     assert "width:40.00%" in html
+    assert "data:image/gif;base64," in html
+    assert "class='sf-progress__loader running'" in html
+    assert "sf-progress__loader-fallback'>😱" in html
+    assert "prefers-reduced-motion:reduce" in html
     assert ".jp-mod-theme-dark .sf-ui" in html
     assert "border-radius" not in html
     assert "box-shadow" not in html
@@ -54,7 +58,7 @@ def test_forced_terminal_progress_is_concise_and_auto_progress_can_stay_silent(
     silent.finish()
 
     rendered = output.getvalue()
-    assert "frontier · gpqa@1 · Running cases 1/2" in rendered
+    assert "😱 frontier · gpqa@1 · Running cases 1/2" in rendered
     assert rendered.count("frontier · gpqa@1 · Complete 2/2") == 1
 
 
@@ -79,6 +83,7 @@ def test_notebook_progress_uses_live_widget_updates_and_keeps_completed_receipt(
 
     progress.finish()
     assert "class='sf-progress__status complete'" in widget.value
+    assert "class='sf-progress__loader complete'" in widget.value
     assert "Complete" in widget.value
     assert "2/2" in widget.value
 

@@ -12,6 +12,7 @@ from screamingface._config import current_engine_url
 from screamingface._engine_http import unique_json_object
 from screamingface._tooling import tool_ids
 from screamingface.errors import EngineConnectionError, EngineProfileError, EngineProtocolError
+from screamingface.model_inputs import ParameterValue
 
 REGISTRY_PATH = "/.well-known/screamingface"
 REGISTRY_SCHEMA = "screamingface.registry.v1"
@@ -46,6 +47,14 @@ class ReducerRecord:
 class StrategyRecord:
     kind: str
     route: str
+    model: str | None = None
+    prompt: str | None = None
+    passes: int | None = None
+    parameter_items: tuple[tuple[str, ParameterValue], ...] = ()
+
+    @property
+    def params(self) -> dict[str, ParameterValue]:
+        return dict(self.parameter_items)
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,11 +252,36 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
 def _strategy_record(value: object, label: str) -> StrategyRecord:
     if not isinstance(value, dict):
         raise TypeError(f"{label} must be an object")
-    _exact_fields(value, {"kind", "route"}, label)
-    return StrategyRecord(
-        _public_id(value["kind"], f"{label} kind"),
-        _relative_path(value["route"], f"{label} route"),
+    kind = _public_id(value.get("kind"), f"{label} kind")
+    route = _relative_path(value.get("route"), f"{label} route")
+    if kind != "rubric":
+        _exact_fields(value, {"kind", "route"}, label)
+        return StrategyRecord(kind, route)
+    _exact_fields(value, {"kind", "route", "model", "prompt", "passes", "params"}, label)
+    passes = value["passes"]
+    if isinstance(passes, bool) or not isinstance(passes, int) or passes < 1:
+        raise ValueError(f"{label} passes must be a positive integer")
+    params = value["params"]
+    if not isinstance(params, dict):
+        raise TypeError(f"{label} params must be an object")
+    parameter_items = tuple(
+        (_public_id(key, f"{label} parameter name"), _parameter(item, f"{label} {key!r}"))
+        for key, item in params.items()
     )
+    return StrategyRecord(
+        kind,
+        route,
+        _nonempty(value["model"], f"{label} model"),
+        _nonempty(value["prompt"], f"{label} prompt"),
+        passes,
+        parameter_items,
+    )
+
+
+def _parameter(value: object, label: str) -> ParameterValue:
+    if isinstance(value, bool) or isinstance(value, str | int | float):
+        return value
+    raise TypeError(f"{label} must be a string, number, or boolean")
 
 
 def _limits(value: object) -> int:

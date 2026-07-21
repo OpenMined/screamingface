@@ -9,7 +9,7 @@ from screamingface._profile import BenchmarkRecord, load_registry
 from screamingface.aggregators import Mean
 from screamingface.benchmark import Benchmark
 from screamingface.errors import UnknownBenchmarkError
-from screamingface.graders import ExactChoice
+from screamingface.graders import ExactChoice, Grader, Rubric
 from screamingface.models import _filters, _limit, _query
 from screamingface.tools import Tool, WebFetch, WebSearch
 
@@ -45,15 +45,13 @@ def load(benchmark_id: str) -> Benchmark:
 
 
 def _benchmark(record: BenchmarkRecord) -> Benchmark:
-    if record.grader.kind != "exact_choice":
-        raise ValueError(f"unsupported benchmark grader {record.grader.kind!r}")
     if record.aggregator.kind != "mean":
         raise ValueError(f"unsupported benchmark aggregator {record.aggregator.kind!r}")
     return Benchmark._from_engine(
         record.id,
         title=record.title,
         cases_route=record.cases_route,
-        grader=ExactChoice(),
+        grader=_grader(record),
         grader_route=record.grader.route,
         aggregator=Mean(),
         aggregator_route=record.aggregator.route,
@@ -61,6 +59,22 @@ def _benchmark(record: BenchmarkRecord) -> Benchmark:
         tools=_tools(record.tools),
         max_tool_calls=record.max_tool_calls,
     )
+
+
+def _grader(record: BenchmarkRecord) -> Grader:
+    strategy = record.grader
+    if strategy.kind == "exact_choice":
+        return ExactChoice()
+    if strategy.kind == "rubric":
+        if strategy.model is None or strategy.prompt is None or strategy.passes is None:
+            raise ValueError("rubric grader manifest is incomplete")
+        return Rubric(
+            model=strategy.model,
+            prompt=strategy.prompt,
+            passes=strategy.passes,
+            params=strategy.params,
+        )
+    raise ValueError(f"unsupported benchmark grader {strategy.kind!r}")
 
 
 def _tools(ids: tuple[str, ...]) -> tuple[Tool, ...]:

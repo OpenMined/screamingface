@@ -23,6 +23,7 @@ from screamingface.errors import (
     UnsupportedReducerError,
     UnsupportedToolError,
 )
+from screamingface.graders import Rubric
 from screamingface.recipe import Recipe
 from screamingface.reducers import MajorityVote, Model
 from screamingface.report import EvaluationFailure, FailureKind, MemberReport, Report
@@ -51,17 +52,7 @@ def evaluate_benchmark(
         _manifest(benchmark, registry)
         _preflight(recipe, benchmark, registry)
         require_connections(evaluate_requirements(recipe, benchmark, registry), registry)
-        expression = compile_benchmark_expression(
-            benchmark_id=benchmark.id,
-            cases_route=_required_route(benchmark._cases_route, "cases"),
-            grader_route=_required_route(benchmark._grader_route, "grader"),
-            aggregator_route=_required_route(benchmark._aggregator_route, "aggregator"),
-            recipe=recipe,
-            tools=benchmark.tools,
-            max_tool_calls=benchmark.max_tool_calls,
-            tool_policy_route=benchmark._tool_policy_route,
-            first=limit,
-        )
+        expression = benchmark_url4(benchmark, recipe, first=limit)
         require_eval_request_target(
             expression,
             registry.max_request_target_bytes,
@@ -86,6 +77,28 @@ def evaluate_benchmark(
             total=report.n_cases,
         )
     return report
+
+
+def benchmark_url4(benchmark: Benchmark, recipe: Recipe, *, first: int | None = None) -> str:
+    """Compile one complete engine-advertised benchmark transaction without HTTP."""
+
+    if not isinstance(benchmark, Benchmark):
+        raise TypeError("URL4 compilation requires an sf.Benchmark")
+    if not isinstance(recipe, Recipe):
+        raise TypeError("URL4 compilation requires an sf.Model or sf.Fusion")
+    limit = _first(first)
+    return compile_benchmark_expression(
+        benchmark_id=benchmark.id,
+        cases_route=_required_route(benchmark._cases_route, "cases"),
+        grader_route=_required_route(benchmark._grader_route, "grader"),
+        aggregator_route=_required_route(benchmark._aggregator_route, "aggregator"),
+        recipe=recipe,
+        grader_kind=benchmark.grader.kind,
+        tools=benchmark.tools,
+        max_tool_calls=benchmark.max_tool_calls,
+        tool_policy_route=benchmark._tool_policy_route,
+        first=limit,
+    )
 
 
 def _request(
@@ -186,7 +199,7 @@ def _manifest(benchmark: Benchmark, registry: Registry) -> None:
     expected = (
         benchmark.title,
         benchmark._cases_route,
-        benchmark.grader.kind,
+        _grader_signature(benchmark.grader),
         benchmark._grader_route,
         benchmark.aggregator.kind,
         benchmark._aggregator_route,
@@ -197,7 +210,13 @@ def _manifest(benchmark: Benchmark, registry: Registry) -> None:
     observed = (
         current.title,
         current.cases_route,
-        current.grader.kind,
+        (
+            current.grader.kind,
+            current.grader.model,
+            current.grader.prompt,
+            current.grader.passes,
+            tuple(current.grader.parameter_items),
+        ),
         current.grader.route,
         current.aggregator.kind,
         current.aggregator.route,
@@ -209,6 +228,19 @@ def _manifest(benchmark: Benchmark, registry: Registry) -> None:
         raise EngineProtocolError(
             f"loaded benchmark {benchmark.id!r} no longer matches the configured engine"
         )
+
+
+def _grader_signature(grader: object) -> tuple[object, ...]:
+    if isinstance(grader, Rubric):
+        return (
+            grader.kind,
+            grader.model,
+            grader.prompt,
+            grader.passes,
+            tuple(grader._parameter_items),
+        )
+    kind = getattr(grader, "kind", None)
+    return (kind, None, None, None, ())
 
 
 def _members(value: object, recipe: Recipe) -> tuple[tuple[str, MemberReport], ...]:
@@ -350,7 +382,7 @@ def _optional_integer(value: object, label: str) -> int | None:
 
 
 def _number(value: object, label: str, *, signed: bool = False) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, int | float):
         raise TypeError(f"{label} must be numeric")
     normalized = float(value)
     minimum = -1.0 if signed else 0.0
@@ -363,4 +395,4 @@ def _optional_number(value: object, label: str, *, signed: bool = False) -> floa
     return None if value is None else _number(value, label, signed=signed)
 
 
-__all__ = ["evaluate_benchmark"]
+__all__ = ["benchmark_url4", "evaluate_benchmark"]

@@ -50,13 +50,20 @@ def mean(request: Request) -> str:
             _invalid("case grades disagree on Recipe members")
 
     recipe_score = fmean(_score(row["recipe"], "Recipe grade") for row in successes)
+    recipe_metrics = _mean_metrics(
+        [row["recipe"] for row in successes],
+        "Recipe grade",
+    )
     members = {
         member_id: {
             "model": model,
             "score": fmean(
                 _score(_member(row, member_id), f"member {member_id!r}") for row in successes
             ),
-            "metrics": {},
+            "metrics": _mean_metrics(
+                [_member(row, member_id) for row in successes],
+                f"member {member_id!r}",
+            ),
         }
         for member_id, model in member_models.items()
     }
@@ -77,7 +84,7 @@ def mean(request: Request) -> str:
         "baseline": baseline,
         "gain": recipe_score - baseline,
         "members": members,
-        "metrics": {},
+        "metrics": recipe_metrics,
         "failures": failures,
         "complete": not failures,
     }
@@ -134,12 +141,38 @@ def _score(value: object, label: str) -> float:
     if not isinstance(value, Mapping):
         _invalid(f"{label} must be an object")
     score = value.get("score")
-    if isinstance(score, bool) or not isinstance(score, (int, float)):
+    if isinstance(score, bool) or not isinstance(score, int | float):
         _invalid(f"{label} score must be numeric")
     normalized = float(score)
     if not math.isfinite(normalized) or not 0.0 <= normalized <= 1.0:
         _invalid(f"{label} score must be finite and between 0 and 1")
     return normalized
+
+
+def _mean_metrics(values: list[object], label: str) -> dict[str, float]:
+    decoded = [_grade_metrics(value, label) for value in values]
+    names = tuple(decoded[0])
+    if any(tuple(metrics) != names for metrics in decoded[1:]):
+        _invalid(f"{label} metrics disagree across cases")
+    return {name: fmean(metrics[name] for metrics in decoded) for name in names}
+
+
+def _grade_metrics(value: object, label: str) -> dict[str, float]:
+    if not isinstance(value, Mapping):
+        _invalid(f"{label} must be an object")
+    raw = value.get("metrics")
+    if not isinstance(raw, Mapping):
+        _invalid(f"{label} metrics must be an object")
+    metrics: dict[str, float] = {}
+    for name, metric in raw.items():
+        key = _nonblank(name, f"{label} metric name")
+        if isinstance(metric, bool) or not isinstance(metric, int | float):
+            _invalid(f"{label} metric {key!r} must be numeric")
+        normalized = float(metric)
+        if not math.isfinite(normalized):
+            _invalid(f"{label} metric {key!r} must be finite")
+        metrics[key] = normalized
+    return metrics
 
 
 def _failure(value: object, position: int) -> dict[str, object]:

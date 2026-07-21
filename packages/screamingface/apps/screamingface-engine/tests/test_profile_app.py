@@ -10,6 +10,7 @@ import pytest
 from model_fixtures import MODEL_ROUTES
 
 from screamingface_engine.app import create_app
+from screamingface_engine.catalog import ModelRoute
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.settings import Settings
 
@@ -78,6 +79,29 @@ async def test_profile_serves_only_executable_capability_discovery() -> None:
             ],
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_profile_registers_draco_routes_with_the_pinned_judge() -> None:
+    judge = ModelRoute(
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter",
+        ("web_search", "web_fetch"),
+        "openrouter",
+    )
+    app = create_app(model_routes=(*MODEL_ROUTES, judge))
+    transport = httpx.ASGITransport(app=app)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
+        registry = (await client.get("/.well-known/screamingface")).json()
+
+    assert [benchmark["id"] for benchmark in registry["benchmarks"]] == [
+        "gpqa@1",
+        "draco-preview@1",
+        "draco-lite@1",
+        "draco@1",
+    ]
 
 
 @pytest.mark.asyncio

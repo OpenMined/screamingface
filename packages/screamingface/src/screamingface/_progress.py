@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import sys
+from base64 import b64encode
 from dataclasses import dataclass
+from functools import cache
 from html import escape
+from importlib.resources import files
 from threading import RLock
 from typing import Literal, Protocol
 
@@ -20,6 +23,8 @@ type ProgressStage = Literal[
     "stopped",
     "failed",
 ]
+
+_ACTIVE_STAGES = {"checking", "running", "grading", "aggregating"}
 
 _PROGRESS_STYLE = (
     STYLE
@@ -39,6 +44,11 @@ _PROGRESS_STYLE = (
 .sf-progress__status.failed{color:var(--sf-blind)}
 .sf-progress__body{padding:12px}
 .sf-progress__line{display:flex;justify-content:space-between;gap:12px;color:var(--sf-ink-2)}
+.sf-progress__activity{display:flex;align-items:center;gap:8px;min-width:0}
+.sf-progress__loader{width:20px;height:20px;display:inline-grid;place-items:center;flex:0 0 20px}
+.sf-progress__loader.complete,.sf-progress__loader.stopped,.sf-progress__loader.failed{display:none}
+.sf-progress__loader-image{grid-area:1/1;width:20px;height:20px;display:block;object-fit:contain}
+.sf-progress__loader-fallback{grid-area:1/1;display:none;font-size:16px;line-height:1}
 .sf-progress__count{color:var(--sf-ink-3);font:12px/1.4 "IBM Plex Mono",ui-monospace,
   monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
 .sf-progress__track{height:4px;margin-top:10px;background:var(--sf-surface-2);overflow:hidden}
@@ -46,6 +56,10 @@ _PROGRESS_STYLE = (
 .sf-progress__fill.complete{background:var(--sf-gain)}
 .sf-progress__fill.stopped{background:var(--sf-blind)}
 .sf-progress__fill.failed{background:var(--sf-blind)}
+@media (prefers-reduced-motion:reduce){
+  .sf-progress__loader-image{display:none}
+  .sf-progress__loader-fallback{display:inline}
+}
 </style>"""
 )
 
@@ -86,7 +100,8 @@ class _TextBackend:
 
     def update(self, state: _State) -> None:
         count = "" if state.total is None else f" {state.completed}/{state.total}"
-        line = f"{state.recipe_name} · {state.benchmark_id} · {state.label}{count}"
+        loader = "😱 " if state.stage in _ACTIVE_STAGES else ""
+        line = f"{loader}{state.recipe_name} · {state.benchmark_id} · {state.label}{count}"
         padding = " " * max(0, self._last_length - len(line))
         ending = "\n" if state.stage in {"complete", "stopped", "failed"} else ""
         print(f"\r{line}{padding}", end=ending, file=sys.stderr, flush=True)
@@ -221,12 +236,23 @@ def progress_html(state: _State) -> str:
         f"<div class='sf-progress__benchmark'>{escape(state.benchmark_id)}</div></div>"
         f"<div class='sf-progress__status {state.stage}'>{escape(state.stage)}</div></div>"
         "<div class='sf-progress__body'><div class='sf-progress__line'>"
-        f"<span>{escape(state.label)}</span><span class='sf-progress__count'>{count}</span></div>"
+        "<span class='sf-progress__activity'>"
+        f"<span class='sf-progress__loader {state.stage}' aria-hidden='true'>"
+        f"<img class='sf-progress__loader-image' src='{_loader_data_uri()}' alt=''>"
+        "<span class='sf-progress__loader-fallback'>😱</span></span>"
+        f"<span>{escape(state.label)}</span></span>"
+        f"<span class='sf-progress__count'>{count}</span></div>"
         "<div class='sf-progress__track' role='progressbar' "
         f"aria-valuemin='0' aria-valuemax='{total or 0}' aria-valuenow='{completed}'>"
         f"<div class='sf-progress__fill {state.stage}' style='width:{percent:.2f}%'></div>"
         "</div></div></div>"
     )
+
+
+@cache
+def _loader_data_uri() -> str:
+    payload = files("screamingface").joinpath("assets/scream-shaking.gif").read_bytes()
+    return f"data:image/gif;base64,{b64encode(payload).decode('ascii')}"
 
 
 def _validate_setting(setting: ProgressSetting) -> None:

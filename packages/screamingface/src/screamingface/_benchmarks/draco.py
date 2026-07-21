@@ -74,7 +74,7 @@ def benchmark() -> Benchmark:
         grader=Rubric(
             model="openrouter/google/gemini-3.1-pro-preview",
             prompt=DRACO_JUDGE_PROMPT,
-            passes=3,
+            passes=5,
             params={
                 "temperature": 0.2,
                 "reasoning": "low",

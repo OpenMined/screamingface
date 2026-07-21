@@ -200,14 +200,22 @@ draco = sf.benchmarks.load("draco@1")'''
 `sf.Report`, and `report.url4` is the complete benchmark URL4 for that candidate—not merely its
 model prompt.
 
-The loop below would make **16 top-level HTTP requests**, one per candidate. Each request evaluates
-the same stable 100-case slice inside the engine. It is shown for contract clarity and is not run
-by this notebook."""
+The first mapping below compiles all sixteen complete URL4s without executing them. The commented
+loop would make **16 paid top-level HTTP requests**, one per candidate, each evaluating the same
+stable 100-case slice inside the engine.
+
+Do not casually uncomment the full loop: with a typical forty-criterion DRACO case and five judge
+passes, even `first=1` across all sixteen candidates can require thousands of judge calls."""
         ),
         nbformat.v4.new_code_cell(
-            "reports = {candidate.name: draco.evaluate(candidate, first=100) "
+            "candidate_url4s = {candidate.name: draco.url4(candidate, first=100) "
             "for candidate in candidates}\n\n"
-            "candidate_url4s = {name: report.url4 for name, report in reports.items()}"
+            "# Paid execution is deliberately explicit:\n"
+            "# reports = {\n"
+            "#     candidate.name: draco.evaluate(candidate, first=100)\n"
+            "#     for candidate in candidates\n"
+            "# }\n\n"
+            "candidate_url4s"
         ),
         nbformat.v4.new_markdown_cell(
             """## Transport and query count
@@ -259,13 +267,14 @@ data, not a Tavily/OpenRouter choice or credential.
     grade_input={
       benchmark_id:'draco@1',
       case_id:'$item.id',
+      question:'$question',
       reference:'$item.reference'
     },
     case_result=/graders/draco-rubric/1($recipe_result)!'$grade_input'
   )!'$case_result';
   iteration.slice=0:100;
   iteration.on_error=collect
-)!/aggregators/draco/1()!'Aggregate benchmark results'
+)!/aggregators/mean/1()!'Aggregate benchmark results'
 ```
 
 There is no bare `()!intent` standing in for a model. The answer route is explicit."""
@@ -313,13 +322,14 @@ context.
     grade_input={
       benchmark_id:'draco@1',
       case_id:'$item.id',
+      question:'$question',
       reference:'$item.reference'
     },
     case_result=/graders/draco-rubric/1($recipe_result)!'$grade_input'
   )!'$case_result';
   iteration.slice=0:100;
   iteration.on_error=collect
-)!/aggregators/draco/1()!'Aggregate benchmark results'
+)!/aggregators/mean/1()!'Aggregate benchmark results'
 ```
 
 The other 14 candidates use the same envelope with their own flat Recipe bindings."""
@@ -372,15 +382,14 @@ after their independent URL4 transactions return."""
         nbformat.v4.new_markdown_cell(
             """## What remains outside this URL4 contract
 
-No generic URL4 grammar extension blocks this design. The remaining production work is on the
-ScreamingFace engine profile and benchmark implementation:
+No generic URL4 grammar extension blocks this design. The ScreamingFace engine now registers the
+pinned cases, tool policy, five-pass rubric grader, mean aggregator, and substituted OpenRouter
+model routes. Remaining work before claiming paper-result parity is operational rather than a
+missing URL4 graph:
 
-- register the pinned DRACO cases route;
-- implement and verify the exact rubric-judge protocol and five passes;
-- register the final model/provider routes;
-- advertise the already registered versioned tool-policy route in the completed DRACO manifest;
-- return usage, failure, and coverage telemetry; and
-- run the production candidate set to validate result parity.
+- pin the exact original provider/model behavior where it differs from the substituted lineup;
+- complete usage and cost telemetry; and
+- run and audit the paid production candidate set.
 
 Cross-candidate caching and a single transport request containing several candidates are optional
 future optimizations, not MVP correctness requirements."""

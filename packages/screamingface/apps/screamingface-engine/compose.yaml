@@ -19,6 +19,18 @@ services:
       # OpenRouter is opt-in at AI Gateway. Local ScreamingFace development enables its
       # API-key-only plugin so /v1/models and the engine registry reflect it automatically.
       AIGW_OPENROUTER_ENABLED: "true"
+      # Keep the DRACO walkthrough lineup in the Gateway-owned model catalog. These are normal
+      # OpenRouter chat model IDs; the engine still discovers them from /v1/models rather than
+      # maintaining a second executable model list.
+      AIGW_OPENROUTER_DEFAULT_MODELS: >-
+        ["openrouter/anthropic/claude-fable-5",
+        "openrouter/anthropic/claude-opus-4.8",
+        "openrouter/openai/gpt-5.5",
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter/google/gemini-3-flash-preview",
+        "openrouter/moonshotai/kimi-k2.6",
+        "openrouter/deepseek/deepseek-v4-pro",
+        "openrouter/qwen/qwen3.6-plus"]
       # INVARIANT: This plugin setting replaces its complete default list; retain the existing
       # routes while adding only the two HF/provider pins verified for the Tavily agent loop.
       AIGW_HUGGINGFACE_DEFAULT_MODELS: >-
@@ -57,7 +69,9 @@ services:
       context: ../../../..
       dockerfile: packages/screamingface/apps/screamingface-engine/Dockerfile
     environment:
-      AIGATEWAY_TIMEOUT: "120"
+      # Managed research/search calls can legitimately outlive a normal chat request.
+      # This is the per-model-call limit; the complete URL4 evaluation still has its own cap.
+      AIGATEWAY_TIMEOUT: "300"
       AIGATEWAY_URL: http://127.0.0.1:9105
       # GPQA is gated and is loaded by this engine process. This credential is
       # distinct from the Hugging Face inference connection stored by AI Gateway.
