@@ -14,11 +14,7 @@ pub fn run() {
   let builder = builder.plugin(tauri_plugin_decorum::init());
 
   builder
-    .plugin(
-      tauri_plugin_updater::Builder::new()
-        .pubkey(option_env!("SCREAMINGFACE_UPDATER_PUBKEY").unwrap_or_default())
-        .build(),
-    )
+    .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
     .invoke_handler(tauri::generate_handler![
       commands::update_theme,
