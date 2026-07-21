@@ -15,5 +15,7 @@ class Settings(BaseSettings):
     iat_window_s: int = 60
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).
     sync_max_wait_s: float = 30.0
+    # WHY: idle interval between WS HeartbeatEvents for liveness (spec §6).
+    ws_heartbeat_s: float = 15.0
     # INVARIANT: k8s Job activeDeadlineSeconds ceiling = 16h (spec §3).
     job_deadline_s: int = 57600
