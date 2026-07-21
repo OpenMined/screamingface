@@ -32,6 +32,15 @@ updates:
       screamingface-python:
         patterns: ["*"]
 
+  - package-ecosystem: "uv"
+    directory: "/packages/url4"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      url4-python:
+        patterns: ["*"]
+
   # Keep GitHub Actions pinned-version bumps current too (low volume).
   - package-ecosystem: "github-actions"
     directory: "/"

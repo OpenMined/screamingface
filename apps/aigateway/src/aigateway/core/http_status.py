@@ -1,0 +1,25 @@
+"""Strict HTTP-status validation shared across core and provider plugins.
+
+Provider-neutral: the one place that decides whether an upstream-supplied value
+is a usable HTTP error status. Consolidates three previously-divergent copies
+(OME-428 third-review blocker E).
+"""
+
+from __future__ import annotations
+
+
+def valid_http_error_status(value: object) -> int | None:
+    """Return ``value`` when it is a real HTTP error status (400-599), else None.
+
+    # INVARIANT: exactly ``type(value) is int and 400 <= value <= 599``.
+    # WHY: ``type(... ) is int`` (not ``isinstance``) rejects ``bool`` — a
+    # ``True``/``False`` is an ``int`` subclass and ``int(True) == 1`` is not a
+    # status. Strings, floats (incl. ``nan``/``inf``), and ``Decimal`` are all
+    # rejected: the OpenRouter ``error.code`` schema is integer-only, and
+    # ``"²".isdigit()`` is True while ``int("²")`` raises ValueError (the exact
+    # crash-to-500 this validator exists to prevent), while a fullwidth
+    # ``"４２９"`` would otherwise be silently coerced to 429.
+    """
+    if type(value) is int and 400 <= value <= 599:
+        return value
+    return None

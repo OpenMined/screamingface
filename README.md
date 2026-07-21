@@ -1,11 +1,7 @@
 # ScreamingFace
 
-An AI ensemble system that routes coding CLI prompts through multiple models (Claude, Gemini, Codex, Ollama) to beat SOTA benchmarks. Built by OpenMined.
-
-> **Repo re-foundation (July 2026).** The legacy desktop app and plugin server
-> were deprecated and removed; the full pre-teardown tree is preserved at the
-> git tag **`legacy-monorepo-2026-07-08`**. Active services and Python packages
-> now have separate toolchains and CI lanes.
+An AI ensemble system that routes coding CLI prompts through multiple models (Claude, Gemini,
+Codex, Ollama) to beat SOTA benchmarks. Built by OpenMined — [screamingface.ai](https://screamingface.ai).
 
 ## Monorepo Layout
 
@@ -16,8 +12,14 @@ apps/
 packages/
   url4/        URL4 grammar, DAG, node, client, and server library
   screamingface/ URL4-native fusion and benchmark SDK
-docs/          AI-agentic decision records (plans, specs)
+docs/          SDLC artifacts — spec/ plan/ tasks/ work/ diagrams/ (see docs/README.md)
 ```
+
+> **Repo re-foundation (July 2026).** The legacy desktop app and plugin server were deprecated
+> and removed; the full pre-teardown tree is preserved at the git tag
+> **`legacy-monorepo-2026-07-08`**. New, separately-lifecycled packages (pure-Electron desktop
+> app, Python CLI on PyPI) are being built — names are being finalized. The public website
+> lives in the separate `screamingface-web` repo; this monorepo does not publish GitHub Pages.
 
 ## Prerequisites
 
@@ -64,11 +66,10 @@ cd apps/aigateway && uv sync && uv run uvicorn aigateway.main:app --port 9105 --
 cd apps/scoreboard && uv sync && uv run scoreboard
 ```
 
-Test a Python component:
+Check a stack — lint, format, typecheck, tests, and coverage in one command:
 
 ```bash
-cd apps/<app>                    # or packages/<package>
-uv run ruff check && uv run pyright && uv run pytest
+uv run .claude/scripts/run_gates.py <stack>   # aigateway | scoreboard | url4 | screamingface
 ```
 
 ## More
@@ -78,4 +79,6 @@ uv run ruff check && uv run pyright && uv run pytest
 - **Scoreboard internals** → [`apps/scoreboard/README.md`](apps/scoreboard/README.md)
 - **ScreamingFace SDK** → [`packages/screamingface/README.md`](packages/screamingface/README.md)
 - **URL4 SDK examples** → [`packages/url4/examples/url4_examples.ipynb`](packages/url4/examples/url4_examples.ipynb)
-- **Legacy code** (desktop app, plugin server, marketing site, infra) → `git checkout legacy-monorepo-2026-07-08`
+- **url4 SDK** → [`packages/url4/README.md`](packages/url4/README.md)
+- **Repo guide** (skills, agents, cards, process) → [`.claude/README.md`](.claude/README.md)
+- **Legacy code** (desktop app, plugin server, url4 engine, marketing site, infra) → `git checkout legacy-monorepo-2026-07-08`

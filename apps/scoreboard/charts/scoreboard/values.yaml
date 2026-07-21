@@ -43,6 +43,12 @@ database:
   existingSecret: scoreboard-db
   existingSecretKey: database-url
 
+# Optional — unset means SCOREBOARD_SUBMISSION_API_KEY is never set on the pod, so the
+# app-level write gate (OME-391 / C2) stays a no-op, matching today's default behavior.
+submissionApiKey:
+  existingSecret: ""
+  existingSecretKey: ""
+
 service:
   type: ClusterIP
   port: 9106

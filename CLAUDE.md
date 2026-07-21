@@ -13,6 +13,8 @@ single-model SOTA, runs locally, publishes to a public leaderboard. By OpenMined
 - `packages/url4` — URL4 grammar, builders, DAG executor, node, and server SDK (Python, uv)
 - `packages/screamingface` — URL4-native Fusion/benchmark SDK; its temporary local-development
   deployment profile lives at `packages/screamingface/apps/screamingface-engine`
+- Public website lives in the separate `screamingface-web` repo; this monorepo does not
+  publish GitHub Pages.
 - `docs/` — SDLC artifacts: `spec/ plan/ tasks/ work/ diagrams/` (see `docs/README.md`)
 - Legacy (desktop and plugin server): tag `legacy-monorepo-2026-07-08` — read-only,
   never resurrect from it.
