@@ -4,7 +4,7 @@ from datetime import datetime
 import pytest
 
 from url4_cloud_nats import Bus, InMemoryBus, NatsBus
-from url4_cloud_protocol import LogData, LogEvent, OutboundFrame, SpanData, SpanEvent
+from url4_streaming_protocol import LogData, LogEvent, OutboundFrame, SpanData, SpanEvent
 
 TOPIC = "cap-topic"
 

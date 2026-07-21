@@ -27,7 +27,7 @@ packages = [
     "src/url4_cloud",
     "src/url4_cloud_runner",
     "src/url4_cloud_nats",
-    "src/url4_cloud_protocol",
+    "src/url4_streaming_protocol",
 ]
 
 [tool.ruff]

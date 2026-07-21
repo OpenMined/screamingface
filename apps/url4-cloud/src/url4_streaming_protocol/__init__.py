@@ -1,7 +1,7 @@
-"""url4_cloud_protocol — CloudEvents 1.0 + OTel frame contract (docs/protocol.md)."""
+"""url4_streaming_protocol — CloudEvents 1.0 + OTel frame contract (docs/protocol.md)."""
 
-from url4_cloud_protocol.envelope import CloudEvent
-from url4_cloud_protocol.signals import (
+from url4_streaming_protocol.envelope import CloudEvent
+from url4_streaming_protocol.signals import (
     AttachData,
     CostUsageData,
     ExecuteData,
@@ -13,8 +13,8 @@ from url4_cloud_protocol.signals import (
     StopData,
     TerminatedData,
 )
-from url4_cloud_protocol.taxonomy import CostBreakdown, ErrorInfo, TokenUsage
-from url4_cloud_protocol.unions import (
+from url4_streaming_protocol.taxonomy import CostBreakdown, ErrorInfo, TokenUsage
+from url4_streaming_protocol.unions import (
     AttachEvent,
     CostUsageEvent,
     ExecuteEvent,

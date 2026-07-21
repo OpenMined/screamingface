@@ -26,7 +26,7 @@ from pydantic import ValidationError
 
 from url4_cloud.jobs.port import JobRunner
 from url4_cloud_nats import Bus
-from url4_cloud_protocol import (
+from url4_streaming_protocol import (
     AttachEvent,
     ExecuteEvent,
     HeartbeatEvent,

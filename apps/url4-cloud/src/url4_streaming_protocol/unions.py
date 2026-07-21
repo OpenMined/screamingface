@@ -4,8 +4,8 @@ from typing import Annotated, Literal
 
 from pydantic import Field, TypeAdapter
 
-from url4_cloud_protocol.envelope import CloudEvent
-from url4_cloud_protocol.signals import (
+from url4_streaming_protocol.envelope import CloudEvent
+from url4_streaming_protocol.signals import (
     AttachData,
     CostUsageData,
     ExecuteData,

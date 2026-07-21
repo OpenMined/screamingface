@@ -20,7 +20,7 @@ from url4_cloud.jobs.port import JobStatus, job_name
 from url4_cloud.rest import DenyAllGate
 from url4_cloud.ws import ConnectionRegistry
 from url4_cloud_nats import InMemoryBus
-from url4_cloud_protocol import (
+from url4_streaming_protocol import (
     AttachData,
     AttachEvent,
     CostBreakdown,

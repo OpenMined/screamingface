@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from url4_cloud_protocol import (
+from url4_streaming_protocol import (
     CostBreakdown,
     CostUsageData,
     CostUsageEvent,

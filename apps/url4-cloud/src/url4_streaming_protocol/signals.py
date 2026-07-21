@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from url4_cloud_protocol.taxonomy import CostBreakdown, ErrorInfo, TokenUsage
+from url4_streaming_protocol.taxonomy import CostBreakdown, ErrorInfo, TokenUsage
 
 
 class StartedData(BaseModel):

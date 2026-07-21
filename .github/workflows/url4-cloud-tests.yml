@@ -26,4 +26,4 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run pyright
-      - run: uv run pytest --cov=url4_cloud --cov=url4_cloud_nats --cov=url4_cloud_protocol --cov=url4_cloud_runner --cov-fail-under=80 -q
+      - run: uv run pytest --cov=url4_cloud --cov=url4_cloud_nats --cov=url4_streaming_protocol --cov=url4_cloud_runner --cov-fail-under=80 -q

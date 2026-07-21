@@ -17,7 +17,7 @@ from url4_cloud.auth import JwtCodec
 from url4_cloud.config import Settings
 from url4_cloud.jobs.port import JobAlreadyExists, JobStatus, job_name
 from url4_cloud_nats import InMemoryBus
-from url4_cloud_protocol import (
+from url4_streaming_protocol import (
     ResultData,
     ResultEvent,
     StartedData,

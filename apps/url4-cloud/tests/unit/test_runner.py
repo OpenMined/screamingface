@@ -8,7 +8,9 @@ from decimal import Decimal
 import pytest
 
 from url4_cloud_nats import InMemoryBus
-from url4_cloud_protocol import (
+from url4_cloud_runner import Completed, ExecStep, MockExecutor, run
+from url4_cloud_runner.__main__ import RunnerConfigError, params_from_env
+from url4_streaming_protocol import (
     CostUsageData,
     CostUsageEvent,
     LogData,
@@ -18,9 +20,7 @@ from url4_cloud_protocol import (
     TerminatedEvent,
     TokenUsage,
 )
-from url4_cloud_protocol.taxonomy import CostBreakdown
-from url4_cloud_runner import Completed, ExecStep, MockExecutor, run
-from url4_cloud_runner.__main__ import RunnerConfigError, params_from_env
+from url4_streaming_protocol.taxonomy import CostBreakdown
 
 TOPIC = "cap-topic"
 EXPR = "(@)!'hi'"

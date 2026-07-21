@@ -3,8 +3,8 @@
 Publishes the CloudEvents lifecycle to the injected :class:`~url4_cloud_nats.Bus`:
 ``Started`` → (``Log``/``Span``/``CostUsage{self}`` as available) → ``CostUsage{subtree}`` →
 ``Result`` → ``Terminated{succeeded}``; any exception funnels to ``Terminated{failed}`` with an
-:class:`~url4_cloud_protocol.ErrorInfo`. Both the :class:`~url4_cloud_runner.executor.Executor` and
-the ``Bus`` are injected so tests drive a stub executor + in-memory bus (no url4/network — INFRA).
+:class:`~url4_streaming_protocol.ErrorInfo`. The :class:`~url4_cloud_runner.executor.Executor`
+and the ``Bus`` are injected so tests drive a stub executor + in-memory bus (no url4/network).
 """
 
 from datetime import UTC, datetime
@@ -12,7 +12,8 @@ from typing import Literal, TypedDict
 from uuid import uuid4
 
 from url4_cloud_nats import Bus
-from url4_cloud_protocol import (
+from url4_cloud_runner.executor import Completed, Executor, Telemetry
+from url4_streaming_protocol import (
     CostUsageEvent,
     ErrorInfo,
     LogData,
@@ -26,7 +27,6 @@ from url4_cloud_protocol import (
     TerminatedData,
     TerminatedEvent,
 )
-from url4_cloud_runner.executor import Completed, Executor, Telemetry
 
 
 class _Envelope(TypedDict):

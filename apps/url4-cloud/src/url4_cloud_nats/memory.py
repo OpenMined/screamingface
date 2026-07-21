@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import AsyncIterator
 
 from url4_cloud_nats.codec import decode, encode
-from url4_cloud_protocol import OutboundFrame
+from url4_streaming_protocol import OutboundFrame
 
 
 class InMemoryBus:

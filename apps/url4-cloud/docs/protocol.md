@@ -200,6 +200,6 @@ our stateless `iat`-window check becomes belt-and-suspenders, not the sole guard
 
 ---
 
-*The `url4_cloud_protocol` Pydantic models (OME-526 follow-on) implement exactly this; spec §7 is
+*The `url4_streaming_protocol` Pydantic models (OME-526 follow-on) implement exactly this; spec §7 is
 updated to match. Where a standard is experimental (D4) or absent (D6), that is stated above, not
 hidden.*

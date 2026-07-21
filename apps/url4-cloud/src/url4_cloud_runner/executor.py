@@ -16,14 +16,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
 
-from url4_cloud_protocol import (
+from url4_streaming_protocol import (
     CostUsageData,
     LogData,
     ResultData,
     SpanData,
     TokenUsage,
 )
-from url4_cloud_protocol.taxonomy import CostBreakdown
+from url4_streaming_protocol.taxonomy import CostBreakdown
 
 # Telemetry the executor streams "as available" — each wrapped into its CloudEvent by the Runner.
 Telemetry = LogData | SpanData | CostUsageData

@@ -3,7 +3,7 @@
 import json
 from typing import Any
 
-from url4_cloud_protocol import OutboundFrame, OutboundFrameAdapter
+from url4_streaming_protocol import OutboundFrame, OutboundFrameAdapter
 
 # WHY: one JetStream stream + one subject per capability topic (docs/protocol.md §2.1, §8). The
 # stream name and subject derive deterministically from the topic so App and Runner agree.

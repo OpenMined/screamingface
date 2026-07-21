@@ -3,7 +3,7 @@
 from collections.abc import AsyncIterator
 from typing import Protocol
 
-from url4_cloud_protocol import OutboundFrame
+from url4_streaming_protocol import OutboundFrame
 
 
 class Bus(Protocol):

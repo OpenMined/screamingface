@@ -15,7 +15,7 @@ from nats.js.api import ConsumerConfig, DeliverPolicy
 from nats.js.errors import BadRequestError
 
 from url4_cloud_nats.codec import decode, encode, stream_for, subject_for
-from url4_cloud_protocol import OutboundFrame
+from url4_streaming_protocol import OutboundFrame
 
 
 def _consumer_config(from_sequence: int | None) -> ConsumerConfig:
