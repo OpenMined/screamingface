@@ -86,8 +86,8 @@ async def test_name_only_call_joins_the_fanout_labeled() -> None:
     result = await run("(named:/ep('a')!'x', /ep('b')!'y')!'merge'", io, processor="/reduce")
     # the reducer route received labeled sections for both responses
     assert "named:" in result
-    assert "EP['a'|x]" in result
-    assert "EP['b'|y]" in result
+    assert "EP[a|x]" in result
+    assert "EP[b|y]" in result
     assert "merge" in result
 
 
@@ -95,10 +95,10 @@ async def test_weight_zero_call_excluded_from_reducer_input() -> None:
     io = _judge_io()
     result = await run("(h:0.0:/ep('a')!'x', /ep('b')!'y')!'use $h'", io, processor="/reduce")
     # $h substituted into the instruction …
-    assert "EP['a'|x]" in result
+    assert "EP[a|x]" in result
     # … but h's response is not a labeled section of the reducer input
     assert "h (weight=0):" not in result
-    assert "h:" not in result.partition("[Instruction]")[0].replace("EP['a'|x]", "")
+    assert "h:" not in result.partition("[Instruction]")[0].replace("EP[a|x]", "")
 
 
 async def test_weighted_fanout_labels_unchanged() -> None:

@@ -257,7 +257,8 @@ class RelUrlNode:
     weight: float | None = None
     params: Params = ()
     accept: str | None = None
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …} + $refs
+    ctx_slots: tuple[SlotSpec, ...] | None = None
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …, "ctx:i": …} + $refs
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         scope = _frame(inputs, ctx)
@@ -267,9 +268,7 @@ class RelUrlNode:
         if not self.is_expr:
             request = FetchRequest(path, relative=True, kind="relative", accept=self.accept)
             return await _fetch(ctx, request)
-        # context is raw text on this node, so $item/$name are resolved here; the
-        # intent flows in from its own (already-substituted) leaf node.
-        context = _substitute(self.context or "", scope, ctx)
+        context = _resolved_context(self.context, self.ctx_slots, inputs, scope, ctx)
         intent = (
             substitute_env_vars(_as_text(inputs["intent"]), scope, strict=ctx.strict_fields)
             if "intent" in inputs
@@ -278,6 +277,27 @@ class RelUrlNode:
         target = encode_subrequest(path, context, intent, params=_wire_params(self.params))
         request = FetchRequest(target, relative=True, kind="relative", accept=self.accept)
         return await _fetch(ctx, request)
+
+
+def _resolved_context(
+    context: str | None,
+    ctx_slots: tuple[SlotSpec, ...] | None,
+    inputs: Mapping[str, Payload],
+    scope: Context,
+    ctx: ExecutionContext,
+) -> str:
+    """A call's dispatched context: packed source-list, or the raw-text fallback.
+
+    ABNF conformance (`OME-535`): with ``ctx_slots`` the caller RESOLVED the
+    paren source-list — pack it per the `OME-534` rules (named →
+    ``name: value``, instrumental excluded). The packed text is opaque
+    resolved data: it is NOT re-substituted (a ``$`` inside fetched content
+    must stay literal). Without slots (prose, an unparseable list) the legacy
+    raw-text path substitutes ``$item``/``$name`` templates as before.
+    """
+    if ctx_slots is None:
+        return _substitute(context or "", scope, ctx)
+    return "\n".join(_gather(inputs, ctx_slots, prefix="ctx").sources)
 
 
 @dataclass(eq=False)
@@ -298,6 +318,10 @@ class RemoteFetchNode:
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         scope = _frame(inputs, ctx)
+        # INVARIANT (`OME-535`): a remote call's q= carries an EXPRESSION the
+        # REMOTE node evaluates (canonical form `?q=expression`) — the caller
+        # never resolves it. Caller-side source-list resolution applies only
+        # to RELATIVE calls, where the caller IS the evaluating node.
         context = _substitute(self.context or "", scope, ctx)
         intent = (
             substitute_env_vars(_as_text(inputs["intent"]), scope, strict=ctx.strict_fields)
@@ -555,16 +579,20 @@ class _Gathered:
     resolved: int  # successfully-resolved contributing source count
 
 
-def _gather(inputs: Mapping[str, Payload], slots: tuple[SlotSpec, ...]) -> _Gathered:
+def _gather(
+    inputs: Mapping[str, Payload], slots: tuple[SlotSpec, ...], prefix: str = "src"
+) -> _Gathered:
     """Flatten group slots: skip failures, splice expansions, renumber positions.
 
     WHY the ``name:`` label rides only ``sources``: the packed context a
     processor sees keeps the author's key labels (`OME-534` owner decision),
     while ``named`` feeds ``$name`` substitution and must stay the raw value.
+    ``prefix`` selects the dep-key family — ``src:i`` for group slots,
+    ``ctx:i`` for a call's context source-list (`OME-535`).
     """
     g = _Gathered([], {}, [], 0)
     for i, (name, instrumental) in enumerate(slots):
-        value = inputs[f"src:{i}"]
+        value = inputs[f"{prefix}:{i}"]
         if isinstance(value, SourceFailure):
             continue
         if isinstance(value, list):

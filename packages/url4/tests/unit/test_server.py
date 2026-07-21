@@ -145,10 +145,12 @@ async def test_identity_handler_can_deny_access(node):
 async def test_endpoint_dispatch_from_engine_internals(node, wire):
     # A relative expression source dispatches to the registered endpoint with
     # the wire-decoded (context, intent) pair — context is opaque data.
-    res = await node.evaluate("(r=/claude(https://x)!'Go')!'$r'")
+    res = await node.evaluate("(r:0:/claude(https://x)!'Go')!'$r'")
     assert res.text.startswith("CLAUDE(")
     assert wire[0].path == "/claude"
-    assert wire[0].context == "https://x"
+    # `OME-535`: the caller resolves the context source-list — the endpoint
+    # receives the FETCHED content as opaque data, never the URL text.
+    assert wire[0].context == "ARTICLE"
     assert wire[0].intent == "Go"
 
 
@@ -188,7 +190,7 @@ async def test_eval_path_accepts_standard_encoded_call_expression(node, wire):
     q = quote("/claude(https://x)!'Go'", safe="")
     body = await node.fetch(f"/v1?q={q}", relative=True)
     assert body.startswith("CLAUDE(")
-    assert wire[0].context == "https://x"
+    assert wire[0].context == "ARTICLE"  # `OME-535`: resolved caller-side
     assert wire[0].intent == "Go"
 
 

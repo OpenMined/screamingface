@@ -50,4 +50,6 @@ def test_dollar_escape_collapses_in_every_text_source_position(
 def test_dollar_escape_collapses_inside_a_relative_expression_context() -> None:
     # The sub-case the audit could not confirm: a Text landing in a rel-expr
     # context rather than an intent/path template.
-    assert asyncio.run(run("(r:0:/echo('$$x')!go)!'$r'", _ECHO_IO)) == "'$x'"
+    # `OME-535`: the context is a resolved source-list — quotes are
+    # delimiters, so the echoed value is the unquoted, $$-collapsed text.
+    assert asyncio.run(run("(r:0:/echo('$$x')!go)!'$r'", _ECHO_IO)) == "$x"

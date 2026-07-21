@@ -160,11 +160,13 @@ def _lower_rel_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> Dag
         # stripped by the grammar (quotes are delimiters, spec §5.1).
         deps["intent"] = registry.lower(node.intent, edges)
     deps.update(edges)
+    ctx_slots = _wire_context_slots(node.context, deps, edges, registry)
     return RelUrlNode(
         node.path,
         context=node.context,
         is_expr=True,
         params=node.params,
+        ctx_slots=ctx_slots,
         deps=deps,
     )
 
@@ -175,6 +177,8 @@ def _lower_remote_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> 
     if node.intent is not None:
         deps["intent"] = registry.lower(node.intent, edges)
     deps.update(edges)
+    # No context slots here (`OME-535`): the remote q= is an EXPRESSION the
+    # remote node evaluates; only RELATIVE calls resolve context caller-side.
     return RemoteFetchNode(
         node.authority,
         node.path,
@@ -182,6 +186,68 @@ def _lower_remote_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> 
         params=node.params,
         deps=deps,
     )
+
+
+def _wire_context_slots(
+    context: str | None,
+    deps: dict[str, DagNode],
+    edges: Edges,
+    registry: LoweringRegistry,
+) -> tuple[SlotSpec, ...] | None:
+    """Lower a call's context source-list into ``ctx:i`` deps (`OME-535`).
+
+    ABNF: the call parens carry a ``source-list`` the CALLER resolves before
+    dispatch. A context that fails to parse as one (prose like ``run: 1``,
+    unbalanced quotes) returns ``None`` — the raw-text fallback keeps prompt
+    text working verbatim. Resolution is strictly caller-side: the packed
+    result ships as opaque data, never re-resolved by the receiving node.
+    """
+    slots = _context_slots(context, registry)
+    if slots is None:
+        return None
+    for i, built in enumerate(_build_ctx_nodes(slots, edges)):
+        deps[f"ctx:{i}"] = built
+    return _slot_specs(slots)
+
+
+def _context_slots(context: str | None, registry: LoweringRegistry) -> list[_Slot] | None:
+    # INVARIANT (spec §5.6.3.1/.2): a holdings ref ("@") in a call's context is
+    # scoped to the RECEIVING route and travels in the q= payload verbatim —
+    # never resolved caller-side. The "@" check is deliberately conservative:
+    # an email-ish literal merely falls back to the raw-text path, which is
+    # the pre-`OME-535` behavior — safe, just unresolved.
+    if context is None or not context.strip() or "@" in context:
+        return None
+    try:
+        segments = [seg.strip() for seg in split_top_level_commas(context)]
+        return [_slot_from_text(seg, registry) for seg in segments if seg] or None
+    except ParseError:
+        # WHY fallback, not error: the ABNF's source-list is the canonical
+        # reading, but a call's parens have carried free prose since v1 —
+        # an unparseable context is prose by construction and ships verbatim.
+        return None
+
+
+def _build_ctx_nodes(slots: list[_Slot], outer: Edges) -> list[DagNode]:
+    """Build context-slot nodes with OUTER bindings visible (`OME-535`).
+
+    Mirrors :func:`_build_slots`' two-phase visibility, seeded with the
+    enclosing group's edges so ``/ep(data: $a)`` sees a sibling ``a=…``
+    binding. Context slots register no positional entries — ``$N`` inside a
+    call context keeps referring to the OUTER group's positions.
+    """
+    by_name = {k.partition(":")[2]: n for k, n in outer.items() if k.startswith("bind:")}
+    by_pos = {int(k.partition(":")[2]): n for k, n in outer.items() if k.startswith("pos:")}
+    built: list[DagNode | None] = [None] * len(slots)
+    for i, slot in enumerate(slots):
+        if slot.name is None:
+            continue
+        node = slot.make(_ref_edges(slot.refs, by_name, by_pos))
+        built[i], by_name[slot.name] = node, node
+    for i, slot in enumerate(slots):
+        if slot.name is None:
+            built[i] = slot.make(_ref_edges(slot.refs, by_name, by_pos))
+    return [node for node in built if node is not None]
 
 
 def _lower_self_ref(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
@@ -498,7 +564,7 @@ def _fold_intent_into_call(node: RelUrlNode, intent: _Intent) -> DagNode:
     lazy text path and the AST path stay in lock-step for this shape.
     """
     deps: dict[str, DagNode] = {"intent": intent.make({})}
-    deps.update(node.deps)
+    deps.update(node.deps)  # carries the ctx:i context-slot deps too (`OME-535`)
     return RelUrlNode(
         node.path,
         context=node.context,
@@ -507,6 +573,7 @@ def _fold_intent_into_call(node: RelUrlNode, intent: _Intent) -> DagNode:
         weight=node.weight,
         params=node.params,
         accept=node.accept,
+        ctx_slots=node.ctx_slots,
         deps=deps,
     )
 

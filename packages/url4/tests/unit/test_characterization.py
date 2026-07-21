@@ -80,7 +80,9 @@ async def test_bare_relative_expression_is_a_single_call_intent_folded() -> None
     # and the eager AST path, which parses the whole thing as one RelExpr.
     resolver = RecordingIOLayer()
     await run("/claude(https://n)!'sum'", resolver)
-    assert resolver.fetches == ["/claude?q=(https://n)!sum"]
+    # `OME-535`: the context URL is a SOURCE — fetched first, its content
+    # dispatched — still one folded call, never a fan-out reducer.
+    assert resolver.fetches == ["https://n", "/claude?q=(<https://n>)!sum"]
 
 
 @pytest.mark.asyncio
@@ -91,7 +93,8 @@ async def test_bare_relexpr_text_path_matches_ast_path() -> None:
     text_io, ast_io = RecordingIOLayer(), RecordingIOLayer()
     await run(expr, text_io)  # text path (string target)
     await run(grammar_parse(expr), ast_io)  # AST path (parsed node)
-    assert text_io.fetches == ast_io.fetches == ["/claude?q=(https://n)!sum"]
+    # `OME-535`: both paths fetch the context source, then dispatch its content
+    assert text_io.fetches == ast_io.fetches == ["https://n", "/claude?q=(<https://n>)!sum"]
 
 
 @pytest.mark.asyncio
@@ -120,4 +123,5 @@ async def test_parenthesized_single_relexpr_still_reduces() -> None:
     resolver = RecordingIOLayer()
     await run("(/claude(https://n)!'go')!'sum'", resolver, processor="/claude")
     paths = [target.split("?q=")[0] for target in resolver.fetches]
-    assert paths == ["/claude", "/claude"]
+    # `OME-535`: the context fetch precedes the call and the reducer dispatch
+    assert paths == ["https://n", "/claude", "/claude"]
