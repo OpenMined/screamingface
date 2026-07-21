@@ -1,12 +1,12 @@
 ---
 id: OME-525
 linear_url: https://linear.app/openmined/issue/OME-525/repo-introduce-pre-commit-framework-fix-stale-corehookspath-chain
-status: in_progress
+status: done
 type: task
 priority: P1
 labels: [repo, autonomous, agentic]
 created: 2026-07-21
-closed:
+closed: 2026-07-21
 ---
 
 # OME-525 — pre-commit framework + fix stale core.hooksPath

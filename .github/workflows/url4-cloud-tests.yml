@@ -1,0 +1,29 @@
+name: url4-cloud-tests
+on:
+  push:
+    paths:
+      - "apps/url4-cloud/**"
+      - ".github/workflows/url4-cloud-tests.yml"
+  pull_request:
+    paths:
+      - "apps/url4-cloud/**"
+      - ".github/workflows/url4-cloud-tests.yml"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: apps/url4-cloud
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --dev
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run pyright
+      - run: uv run pytest --cov=url4_cloud --cov=url4_cloud_nats --cov=url4_cloud_protocol --cov=url4_cloud_runner --cov-fail-under=80 -q
