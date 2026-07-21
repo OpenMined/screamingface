@@ -1,12 +1,34 @@
 "use client";
 
-import { Boxes, FileCode, Flame, Hash, Key, Layers, Plug, Sparkles, Trophy, User } from "lucide-react";
+import {
+  ArrowRight,
+  Boxes,
+  Cpu,
+  FileCode,
+  Flame,
+  Hash,
+  Key,
+  Layers,
+  LoaderCircle,
+  Plug,
+  Sparkles,
+  Trophy,
+  User,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { SidebarThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarRail } from "@/components/ui/sidebar";
@@ -14,6 +36,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useIsTauri } from "@/hooks/use-is-tauri";
 import { useEnsembleStore } from "@/lib/ensemble-store";
 import { useModelStore } from "@/lib/model-store";
+import {
+  OPENMINED_BUDGET_TOTAL,
+  useOpenMinedStore,
+} from "@/lib/openmined-store";
 
 const navigation = [
   { label: "Ensembles", href: "/ensembles/", Icon: Boxes },
@@ -23,15 +49,43 @@ const navigation = [
 ];
 
 function MonsterFusionCard() {
+  const connected = useOpenMinedStore((state) => state.connected);
+  const key = useOpenMinedStore((state) => state.key);
+  const budget = useOpenMinedStore((state) => state.budget);
+  const setKey = useOpenMinedStore((state) => state.setKey);
+  const setAuthOpen = useOpenMinedStore((state) => state.setAuthOpen);
+
+  if (connected) {
+    return (
+      <section className="flex flex-col gap-2 rounded-2xl border border-primary/20 bg-primary/10 p-3.5 shadow-sm">
+        <div className="flex items-center gap-2 text-xs font-medium text-primary">
+          <Cpu className="size-3.5" />
+          <span>OpenMined Compute</span>
+        </div>
+        <p className="font-mono text-xs text-muted-foreground">
+          <span className="text-foreground">${budget.toFixed(2)}</span> left
+        </p>
+        <div className="h-1 overflow-hidden rounded-full bg-primary/10">
+          <div
+            className="h-full rounded-full bg-primary transition-[width]"
+            style={{
+              width: `${Math.min(100, Math.max(0, (budget / OPENMINED_BUDGET_TOTAL) * 100))}%`,
+            }}
+          />
+        </div>
+      </section>
+    );
+  }
+
   return (
-    <section className="flex flex-col gap-2.5 rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/12 to-primary/[0.04] p-3.5 shadow-sm">
+    <section className="flex flex-col gap-2.5 rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 to-primary/5 p-3.5 shadow-sm">
       <div className="flex items-center gap-2 text-xs font-medium text-primary"><Flame className="size-3.5" /><span>Monster Fusion Program</span></div>
-      <p className="text-[11px] leading-relaxed text-muted-foreground">Connect your key to use subsidized OpenMined compute.</p>
+      <p className="text-xs leading-relaxed text-muted-foreground">Connect your key to use subsidized OpenMined compute.</p>
       <div className="relative">
         <Key className="absolute left-2.5 top-1/2 z-10 size-3 -translate-y-1/2 text-muted-foreground" />
-        <Input type="password" placeholder="om-…" aria-label="OpenMined key" className="h-8 pl-8 font-mono text-xs" />
+        <Input type="password" placeholder="om-…" aria-label="OpenMined key" value={key} onChange={(event) => setKey(event.target.value)} className="h-8 pl-8 font-mono text-xs" />
       </div>
-      <Button size="sm" type="button"><Plug className="size-3.5" />Connect OpenMined</Button>
+      <Button size="sm" type="button" onClick={() => setAuthOpen(true)}><Plug className="size-3.5" />Connect OpenMined</Button>
       <Button size="sm" variant="outline" asChild><a href="https://openmined.org" target="_blank" rel="noreferrer"><Sparkles className="size-3.5" />Apply</a></Button>
     </section>
   );
@@ -48,6 +102,11 @@ export function AppSidebar() {
     (state) =>
       state.providers.filter((provider) => provider.connected).length,
   );
+  const omConnected = useOpenMinedStore((state) => state.connected);
+  const authOpen = useOpenMinedStore((state) => state.authOpen);
+  const authorizing = useOpenMinedStore((state) => state.authorizing);
+  const setAuthOpen = useOpenMinedStore((state) => state.setAuthOpen);
+  const authorize = useOpenMinedStore((state) => state.authorize);
 
   return (
     <Sidebar aria-label="Primary navigation">
@@ -151,12 +210,12 @@ export function AppSidebar() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" size="icon" className="size-10 text-primary hover:bg-primary/10 hover:text-primary" aria-label="Monster Fusion Program">
-                    <Flame className="size-5" />
+                  <Button variant="ghost" size="icon" className="size-10 text-primary hover:bg-primary/10 hover:text-primary" aria-label={omConnected ? "OpenMined Compute" : "Monster Fusion Program"}>
+                    {omConnected ? <Cpu className="size-5" /> : <Flame className="size-5" />}
                   </Button>
                 </PopoverTrigger>
               </TooltipTrigger>
-              <TooltipContent side="right">Monster Fusion Program</TooltipContent>
+              <TooltipContent side="right">{omConnected ? "OpenMined Compute" : "Monster Fusion Program"}</TooltipContent>
             </Tooltip>
             <PopoverContent side="right" align="end" className="border-0 bg-transparent p-0 shadow-none">
               <MonsterFusionCard />
@@ -172,6 +231,70 @@ export function AppSidebar() {
         </div>
       </SidebarFooter>
       <SidebarRail />
+      <Dialog
+        open={authOpen}
+        onOpenChange={(open) => {
+          if (!authorizing) setAuthOpen(open);
+        }}
+      >
+        <DialogContent>
+          <div className="flex items-center justify-between border-b px-6 py-4">
+            <div className="flex items-center gap-2">
+              <span className="grid size-7 place-items-center rounded-lg bg-primary/15">
+                <Key className="size-3.5 text-primary" />
+              </span>
+              <DialogTitle className="text-sm font-semibold">
+                OpenMined OAuth
+              </DialogTitle>
+            </div>
+            <DialogClose asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground"
+                disabled={authorizing}
+                aria-label="Close OpenMined authorization"
+              >
+                <X className="size-4" />
+              </Button>
+            </DialogClose>
+          </div>
+          <div className="flex flex-col gap-4 px-6 py-5">
+            <div className="flex items-center justify-center gap-3 py-2 font-mono text-xs text-muted-foreground">
+              <span>ScreamingFace</span>
+              <ArrowRight className="size-3.5" />
+              <span className="text-primary">openmined.org</span>
+            </div>
+            <p className="text-center text-sm leading-relaxed">
+              Authorize <span className="font-medium">ScreamingFace</span> to
+              use your OpenMined compute budget?
+            </p>
+            <DialogDescription className="rounded-xl border bg-muted/30 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+              Grants access to run evaluations against your subsidized budget.
+              You can revoke this at any time from your OpenMined account.
+            </DialogDescription>
+            <Button
+              className="h-10 rounded-xl"
+              disabled={authorizing}
+              onClick={() => void authorize()}
+            >
+              {authorizing ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  Authorizing…
+                </>
+              ) : (
+                "Authorize"
+              )}
+            </Button>
+            <DialogClose asChild>
+              <Button variant="ghost" size="sm" disabled={authorizing}>
+                Cancel
+              </Button>
+            </DialogClose>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Sidebar>
   );
 }

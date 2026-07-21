@@ -16,6 +16,27 @@ export type SavedSlot = {
   weight: number;
 };
 
+export type SavedRunModelResult = {
+  modelId: string;
+  modelName: string;
+  score: number;
+  latencyMs: number;
+};
+
+export type SavedRun = {
+  id: string;
+  benchmarkId: string;
+  benchmarkName: string;
+  sampleSize: number;
+  full: boolean;
+  compute: "own" | "om";
+  score: number;
+  baseline: number;
+  modelResults: SavedRunModelResult[];
+  createdAt: string;
+  published: boolean;
+};
+
 export type SavedEnsemble = {
   id: string;
   name: string;
@@ -25,6 +46,7 @@ export type SavedEnsemble = {
   loopMode: "parallel" | "custom";
   judgeId: string | null;
   runs: number;
+  runHistory?: SavedRun[];
   updatedAt: number;
 };
 

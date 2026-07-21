@@ -8,7 +8,14 @@ import {
   ChevronDown,
   ChevronLeft,
   Copy,
+  Cpu,
+  Database,
+  BarChart3,
+  Globe,
+  History,
+  LoaderCircle,
   Pencil,
+  Play,
   Plug,
   Plus,
   Repeat,
@@ -20,6 +27,7 @@ import {
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +46,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   type SavedEnsemble,
   type SavedModel,
+  type SavedRun,
+  type SavedRunModelResult,
   useEnsembleStore,
 } from "@/lib/ensemble-store";
 import {
@@ -45,6 +55,7 @@ import {
   PROVIDER_COLORS,
   useModelStore,
 } from "@/lib/model-store";
+import { useOpenMinedStore } from "@/lib/openmined-store";
 import { cn } from "@/lib/utils";
 
 type ReduceStrategy =
@@ -85,6 +96,39 @@ const strategies: {
     value: "merge",
     label: "Merge",
     description: "Judge merges every answer into one",
+  },
+];
+
+const benchmarks = [
+  {
+    id: "gpqa",
+    name: "GPQA Diamond",
+    domain: "Science",
+    questions: 448,
+  },
+  {
+    id: "mmlu",
+    name: "MMLU Pro",
+    domain: "Multi-domain",
+    questions: 12000,
+  },
+  {
+    id: "heval",
+    name: "HumanEval+",
+    domain: "Coding",
+    questions: 164,
+  },
+  {
+    id: "arc",
+    name: "ARC-Challenge",
+    domain: "Reasoning",
+    questions: 1172,
+  },
+  {
+    id: "math",
+    name: "MATH-500",
+    domain: "Math",
+    questions: 500,
   },
 ];
 
@@ -158,6 +202,1092 @@ function parseRecipe(raw: string) {
   };
 }
 
+function scoreForModel(modelId: string) {
+  const seed = [...modelId].reduce(
+    (total, character) => total + character.charCodeAt(0),
+    0,
+  );
+  return 45 + (seed % 24);
+}
+
+type QuestionItem =
+  | { kind: "mcq"; question: string; options: string[]; answer: number }
+  | {
+      kind: "free";
+      question: string;
+      answer: string;
+      distractors: string[];
+    };
+
+const questionBank: QuestionItem[] = [
+  {
+    kind: "mcq",
+    question:
+      "A gas occupies 2.0 L at 300 K. At constant pressure, what is its volume at 450 K?",
+    options: ["1.3 L", "3.0 L", "4.5 L", "2.0 L"],
+    answer: 1,
+  },
+  {
+    kind: "free",
+    question:
+      "Name the enzyme that unwinds the DNA double helix during replication.",
+    answer: "Helicase",
+    distractors: ["Ligase", "Primase", "Topoisomerase"],
+  },
+  {
+    kind: "mcq",
+    question: "What is the time complexity of binary search on a sorted array?",
+    options: ["O(n)", "O(log n)", "O(n log n)", "O(1)"],
+    answer: 1,
+  },
+  {
+    kind: "free",
+    question: "What is the capital of Australia?",
+    answer: "Canberra",
+    distractors: ["Sydney", "Melbourne", "Perth"],
+  },
+  {
+    kind: "mcq",
+    question: "Which particle mediates the electromagnetic force?",
+    options: ["Gluon", "Photon", "W boson", "Graviton"],
+    answer: 1,
+  },
+  {
+    kind: "free",
+    question:
+      "In one word, name the process by which plants convert light to chemical energy.",
+    answer: "Photosynthesis",
+    distractors: ["Respiration", "Transpiration", "Fermentation"],
+  },
+  {
+    kind: "mcq",
+    question: "Evaluate ∫ 2x dx.",
+    options: ["x² + C", "2 + C", "x + C", "2x² + C"],
+    answer: 0,
+  },
+  {
+    kind: "free",
+    question: "What does len('hello') return in Python?",
+    answer: "5",
+    distractors: ["4", "6", "'hello'"],
+  },
+];
+
+const answerLetters = ["A", "B", "C", "D"];
+const reasoningTraces = [
+  "I started from the governing principle, applied it to the values given, and checked the result against the boundary conditions.",
+  "I eliminated the choices that violate the underlying constraint, then verified the remaining candidate directly.",
+  "The standard result applies here. I used it and checked the units and limiting case before selecting an answer.",
+  "I compared the mechanism behind each option instead of matching surface wording, which rules out the distractors.",
+];
+const synthesisTraces = [
+  "The candidate answers mostly converge, and the judge selected the response with the strongest supporting argument.",
+  "The judge compared each model's reasoning, discounted unsupported claims, and selected the best-supported result.",
+  "After reconciling the disagreement between candidates, one answer remains consistent with the shared evidence.",
+];
+
+function stableFraction(value: string) {
+  let hash = 2166136261;
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) % 100000) / 100000;
+}
+
+type InspectedAnswer = {
+  short: string;
+  reasoning: string;
+};
+
+type InspectedQuestion = {
+  index: number;
+  question: string;
+  options?: string[];
+  correctIndex?: number;
+  correctText: string;
+  correct: boolean;
+  reduced: InspectedAnswer;
+  models: {
+    name: string;
+    correct: boolean;
+    answer: InspectedAnswer;
+  }[];
+};
+
+function inspectedQuestions(run: SavedRun, count: number) {
+  const visibleCount = Math.min(Math.max(1, count), run.sampleSize);
+  return Array.from({ length: visibleCount }, (_, index) => {
+    const item = questionBank[index % questionBank.length];
+    const isMultipleChoice = item.kind === "mcq";
+    const correctIndex = isMultipleChoice ? item.answer : -1;
+    const label = (optionIndex: number) =>
+      isMultipleChoice
+        ? `${answerLetters[optionIndex]}. ${item.options[optionIndex]}`
+        : "";
+    const correctText = isMultipleChoice ? label(correctIndex) : item.answer;
+    const wrongIndexes = [0, 1, 2, 3].filter(
+      (optionIndex) => optionIndex !== correctIndex,
+    );
+    const reducedHit =
+      stableFraction(`${run.id}:q${index}:reduce`) < run.score / 100;
+    const chooseAnswer = (seed: string, hit: boolean) => {
+      if (hit) return correctText;
+      if (isMultipleChoice) {
+        const wrongIndex =
+          wrongIndexes[
+            Math.floor(stableFraction(seed) * wrongIndexes.length)
+          ];
+        return label(wrongIndex);
+      }
+      return item.distractors[
+        Math.floor(stableFraction(seed) * item.distractors.length)
+      ];
+    };
+    const models = run.modelResults.map((result) => {
+      const hit =
+        stableFraction(`${run.id}:q${index}:m${result.modelId}`) <
+        result.score / 100;
+      return {
+        name: result.modelName,
+        correct: hit,
+        answer: {
+          short: chooseAnswer(
+            `${run.id}:q${index}:w${result.modelId}`,
+            hit,
+          ),
+          reasoning:
+            reasoningTraces[
+              Math.floor(
+                stableFraction(`${run.id}:q${index}:t${result.modelId}`) *
+                  reasoningTraces.length,
+              )
+            ],
+        },
+      };
+    });
+    return {
+      index,
+      question: item.question,
+      options: isMultipleChoice ? item.options : undefined,
+      correctIndex: isMultipleChoice ? correctIndex : undefined,
+      correctText,
+      correct: reducedHit,
+      models,
+      reduced: {
+        short: chooseAnswer(`${run.id}:q${index}:reduce-wrong`, reducedHit),
+        reasoning:
+          synthesisTraces[
+            Math.floor(
+              stableFraction(`${run.id}:q${index}:reduce-trace`) *
+                synthesisTraces.length,
+            )
+          ],
+      },
+    } satisfies InspectedQuestion;
+  });
+}
+
+function AnswerTrace({
+  answer,
+  accent,
+}: {
+  answer: InspectedAnswer;
+  accent: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground/60">
+          Reasoning trace
+        </p>
+        <p className="border-l-2 border-border/60 pl-3 text-xs italic leading-relaxed text-muted-foreground">
+          {answer.reasoning}
+        </p>
+      </div>
+      <div
+        className={cn(
+          "rounded-lg border px-3 py-2",
+          accent ? "border-accent/25 bg-accent/10" : "bg-muted/40",
+        )}
+      >
+        <p
+          className={cn(
+            "mb-0.5 text-xs uppercase tracking-wide",
+            accent ? "text-accent" : "text-muted-foreground",
+          )}
+        >
+          Answer
+        </p>
+        <p className="text-sm font-medium">{answer.short}</p>
+      </div>
+    </div>
+  );
+}
+
+const publicRankingSeeds = [
+  { recipe: "private-data-bridge-v1", author: "siddhant_r", score: 72.6 },
+  { recipe: "5-model-heavy", author: "fusion_hunter", score: 69.1 },
+  { recipe: "llama-boost-v2", author: "tauquir_m", score: 65.4 },
+  { recipe: "claude-gemini-fusion", author: "mwatson", score: 62.8 },
+];
+
+function RunDetail({
+  run,
+  ensembleName,
+  onBack,
+  onNewRun,
+  onPublish,
+}: {
+  run: SavedRun;
+  ensembleName: string;
+  onBack: () => void;
+  onNewRun: () => void;
+  onPublish: (run: SavedRun) => void;
+}) {
+  const ensembles = useEnsembleStore((state) => state.ensembles);
+  const [ranking, setRanking] = useState<"local" | "public">("local");
+  const [visibleQuestions, setVisibleQuestions] = useState(5);
+  const [selectedQuestion, setSelectedQuestion] = useState(0);
+  const [participant, setParticipant] = useState<"reduce" | number>("reduce");
+  const questions = inspectedQuestions(run, visibleQuestions);
+  const question =
+    questions.find((item) => item.index === selectedQuestion) ?? questions[0];
+  const localEntries = ensembles
+    .flatMap((ensemble) =>
+      (ensemble.runHistory ?? [])
+        .filter((item) => item.benchmarkId === run.benchmarkId)
+        .map((item) => ({
+          id: item.id,
+          recipe: ensemble.name,
+          score: item.score,
+          baseline: item.baseline,
+          createdAt: item.createdAt,
+          sample: item.full ? "Full" : `${item.sampleSize}q`,
+          current: item.id === run.id,
+        })),
+    )
+    .sort((a, b) => b.score - a.score);
+  const publicEntries = [
+    {
+      id: run.id,
+      recipe: ensembleName,
+      author: "You",
+      score: run.score,
+      current: true,
+      sample: run.full ? "Full" : `${run.sampleSize}q`,
+    },
+    ...publicRankingSeeds.map((entry) => ({
+      id: `${entry.recipe}-${run.benchmarkId}`,
+      ...entry,
+      current: false,
+      sample: "Full",
+    })),
+  ].sort((a, b) => b.score - a.score);
+  const publicRank =
+    publicEntries.findIndex((entry) => entry.current) + 1;
+  const activeAnswer =
+    participant === "reduce"
+      ? question.reduced
+      : question.models[participant]?.answer ?? question.reduced;
+
+  return (
+    <div className="h-full overflow-y-auto px-5 py-6 sm:px-8">
+      <div className="mx-auto max-w-4xl">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mb-6 -ml-3 text-muted-foreground"
+          onClick={onBack}
+        >
+          <ChevronLeft className="size-3.5" />
+          Run history
+        </Button>
+
+        <section className="mb-8 max-w-3xl">
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="text-xs text-muted-foreground">
+                Ranking on {run.benchmarkName}
+              </p>
+              {ranking === "public" && (
+                <Badge className="bg-primary/10 font-mono text-primary">
+                  you rank #{publicRank} of {publicEntries.length}
+                </Badge>
+              )}
+            </div>
+            <div className="flex rounded-lg bg-muted/60 p-0.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-7 rounded-md px-3 text-xs",
+                  ranking === "local" && "bg-card text-foreground shadow-sm",
+                )}
+                onClick={() => setRanking("local")}
+              >
+                My Runs
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  "h-7 rounded-md px-3 text-xs",
+                  ranking === "public" && "bg-card text-foreground shadow-sm",
+                )}
+                onClick={() => setRanking("public")}
+              >
+                <Globe className="size-3" />
+                Public
+              </Button>
+            </div>
+          </div>
+          {ranking === "public" && (
+            <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Globe className="size-3" />
+              Pulled live from
+              <span className="font-mono">screamingface.ai/leaderboard</span>
+            </p>
+          )}
+          <div className="overflow-hidden rounded-xl border">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b text-xs text-muted-foreground">
+                  <th className="w-12 px-5 py-3 text-left font-normal">#</th>
+                  <th className="px-5 py-3 text-left font-normal">Recipe</th>
+                  <th className="px-5 py-3 text-right font-normal">Score</th>
+                  <th className="px-5 py-3 text-right font-normal">Gain</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ranking === "local"
+                  ? localEntries.map((entry, index) => (
+                      <tr
+                        key={entry.id}
+                        className={cn(
+                          "border-b last:border-0",
+                          entry.current && "bg-primary/5",
+                        )}
+                      >
+                        <td className="px-5 py-3.5 font-mono text-sm text-muted-foreground">
+                          {index + 1}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-sm">
+                              {entry.recipe}
+                            </span>
+                            {entry.current && (
+                              <Badge className="bg-primary/20 text-primary">
+                                this run
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {new Date(entry.createdAt).toLocaleString()} · {entry.sample}
+                          </p>
+                        </td>
+                        <td className="px-5 py-3.5 text-right font-mono text-sm font-semibold">
+                          {entry.score.toFixed(1)}%
+                        </td>
+                        <td className="px-5 py-3.5 text-right font-mono text-xs text-accent">
+                          +{(entry.score - entry.baseline).toFixed(1)}
+                        </td>
+                      </tr>
+                    ))
+                  : publicEntries.map((entry, index) => (
+                      <tr
+                        key={entry.id}
+                        className={cn(
+                          "border-b last:border-0",
+                          entry.current &&
+                            "bg-primary/10 outline outline-1 -outline-offset-1 outline-primary/30",
+                        )}
+                      >
+                        <td className="px-5 py-3.5 font-mono text-sm text-muted-foreground">
+                          {index + 1}
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={cn(
+                                "font-mono text-sm",
+                                entry.current && "font-semibold text-primary",
+                              )}
+                            >
+                              {entry.recipe}
+                            </span>
+                            {entry.current && (
+                              <Badge className="bg-primary/20 text-primary">
+                                your run
+                              </Badge>
+                            )}
+                            <Badge variant="secondary" className="font-mono">
+                              {entry.sample}
+                            </Badge>
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {entry.author} · {entry.current ? (run.published ? "published" : "not published") : "recently"}
+                          </p>
+                        </td>
+                        <td className="px-5 py-3.5 text-right font-mono text-sm font-semibold">
+                          {entry.score.toFixed(1)}%
+                        </td>
+                        <td className="px-5 py-3.5 text-right font-mono text-xs text-muted-foreground">
+                          {entry.current
+                            ? "—"
+                            : run.score > entry.score
+                              ? `you +${(run.score - entry.score).toFixed(1)}`
+                              : `−${(entry.score - run.score).toFixed(1)}`}
+                        </td>
+                      </tr>
+                    ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="mb-8 max-w-3xl">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">Questions</p>
+            <p className="text-xs text-muted-foreground">
+              {questions.length} of {run.sampleSize.toLocaleString()} loaded
+            </p>
+          </div>
+          <div className="flex h-96 overflow-hidden rounded-xl border">
+            <div className="flex w-60 shrink-0 flex-col overflow-y-auto border-r">
+              {questions.map((item) => (
+                <button
+                  type="button"
+                  key={item.index}
+                  className={cn(
+                    "flex items-center gap-2 border-b px-3 py-2.5 text-left transition-colors",
+                    item.index === question.index
+                      ? "bg-primary/5"
+                      : "hover:bg-muted/20",
+                  )}
+                  onClick={() => {
+                    setSelectedQuestion(item.index);
+                    setParticipant("reduce");
+                  }}
+                >
+                  <span className="w-4 shrink-0 font-mono text-xs text-muted-foreground">
+                    {item.index + 1}
+                  </span>
+                  {item.correct ? (
+                    <Check className="size-3.5 shrink-0 text-accent" />
+                  ) : (
+                    <X className="size-3.5 shrink-0 text-destructive" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                    {item.question}
+                  </span>
+                </button>
+              ))}
+              {questions.length < run.sampleSize && (
+                <button
+                  type="button"
+                  className="px-3 py-2.5 text-center text-xs text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground"
+                  onClick={() => setVisibleQuestions((current) => current + 5)}
+                >
+                  Load 5 more →
+                </button>
+              )}
+            </div>
+            <div className="min-w-0 flex-1 overflow-y-auto p-5">
+              <p className="mb-2 text-sm leading-relaxed">
+                {question.question}
+              </p>
+              {question.options ? (
+                <div className="mb-4 flex flex-wrap gap-1.5">
+                  {question.options.map((option, index) => (
+                    <span
+                      key={option}
+                      className={cn(
+                        "rounded border px-2 py-0.5 text-xs",
+                        index === question.correctIndex
+                          ? "border-accent/40 bg-accent/5"
+                          : "border-border/50 text-muted-foreground",
+                      )}
+                    >
+                      {answerLetters[index]}. {option}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mb-4 text-xs text-muted-foreground">
+                  Expected:{" "}
+                  <span className="font-medium text-accent">
+                    {question.correctText}
+                  </span>
+                </p>
+              )}
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "h-7 rounded-lg text-xs",
+                    participant === "reduce" &&
+                      "border-accent/50 bg-accent/10 text-accent",
+                  )}
+                  onClick={() => setParticipant("reduce")}
+                >
+                  <Scale className="size-3" />
+                  Ensemble
+                  {question.correct ? (
+                    <Check className="size-3" />
+                  ) : (
+                    <X className="size-3" />
+                  )}
+                </Button>
+                {question.models.map((model, index) => (
+                  <Button
+                    key={`${model.name}-${index}`}
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                      "h-7 rounded-lg text-xs",
+                      participant === index &&
+                        "border-primary/50 bg-primary/5",
+                    )}
+                    onClick={() => setParticipant(index)}
+                  >
+                    {model.name}
+                  </Button>
+                ))}
+              </div>
+              <AnswerTrace
+                answer={activeAnswer}
+                accent={participant === "reduce"}
+              />
+              {participant === "reduce" && !question.correct && (
+                <p className="mt-2 text-xs text-destructive">
+                  Correct answer: {question.correctText}
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="flex max-w-3xl items-center justify-between gap-4 rounded-2xl border bg-card p-6">
+          <div>
+            <h2 className="mb-1 text-sm font-medium">
+              Publish to Leaderboard
+            </h2>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {run.full
+                ? "Post this run publicly. Anyone can re-run your url4 to verify it on their own machine."
+                : "Only full-benchmark runs can be published. This was a sample run — run the full benchmark to publish a verifiable score."}
+            </p>
+          </div>
+          {run.published ? (
+            <Badge className="shrink-0 border border-accent/20 bg-accent/10 px-4 py-2 text-accent">
+              <Check className="size-3.5" />
+              Published
+            </Badge>
+          ) : run.full ? (
+            <Button className="shrink-0" onClick={() => onPublish(run)}>
+              <BarChart3 className="size-3.5" />
+              Publish Score
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              className="shrink-0 border-primary/40 text-primary"
+              onClick={onNewRun}
+            >
+              <Play className="size-3.5" />
+              Run full benchmark
+            </Button>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function RunsPanel({
+  slots,
+  runs,
+  onComplete,
+  onPublish,
+  ensembleName,
+  onBackToCompose,
+}: {
+  slots: Slot[];
+  runs: SavedRun[];
+  onComplete: (run: SavedRun) => void;
+  onPublish: (run: SavedRun) => void;
+  ensembleName: string;
+  onBackToCompose: () => void;
+}) {
+  const [mode, setMode] = useState<"history" | "new" | "detail">(
+    runs.length > 0 ? "history" : "new",
+  );
+  const [benchmarkId, setBenchmarkId] = useState("gpqa");
+  const [sampleSize, setSampleSize] = useState(100);
+  const [full, setFull] = useState(false);
+  const [compute, setCompute] = useState<"om" | "own">("om");
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [modelResults, setModelResults] = useState<
+    (SavedRunModelResult & { status: "pending" | "running" | "done" })[]
+  >([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const intervalRef = useRef<number | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [customBenchmarks, setCustomBenchmarks] = useState<
+    typeof benchmarks
+  >([]);
+  const omConnected = useOpenMinedStore((state) => state.connected);
+  const effectiveCompute = omConnected ? compute : "own";
+  const allBenchmarks = [...benchmarks, ...customBenchmarks];
+  const benchmark =
+    allBenchmarks.find((item) => item.id === benchmarkId) ?? benchmarks[0];
+  const selectedRun =
+    runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+
+  useEffect(
+    () => () => {
+      if (intervalRef.current) window.clearInterval(intervalRef.current);
+    },
+    [],
+  );
+
+  function cancelRun() {
+    if (intervalRef.current) window.clearInterval(intervalRef.current);
+    intervalRef.current = null;
+    setRunning(false);
+    setProgress(0);
+    setModelResults([]);
+  }
+
+  function startRun() {
+    if (slots.length === 0) return;
+    setRunning(true);
+    setProgress(0);
+    setModelResults(
+      slots.map((slot) => ({
+        modelId: slot.model.id,
+        modelName: slot.model.name,
+        score: 0,
+        latencyMs: 0,
+        status: "pending",
+      })),
+    );
+
+    let tick = 0;
+    intervalRef.current = window.setInterval(() => {
+      tick += 1;
+      const nextProgress = Math.min(100, tick * 5);
+      setProgress(nextProgress);
+      setModelResults((current) =>
+        current.map((result, index) => {
+          const startAt = index * 2;
+          if (tick < startAt) return result;
+          if (tick < startAt + 10) return { ...result, status: "running" };
+          return {
+            ...result,
+            status: "done",
+            score: scoreForModel(result.modelId),
+            latencyMs: 1100 + index * 187,
+          };
+        }),
+      );
+
+      if (nextProgress === 100) {
+        if (intervalRef.current) window.clearInterval(intervalRef.current);
+        intervalRef.current = null;
+        const finalResults = slots.map((slot, index) => ({
+          modelId: slot.model.id,
+          modelName: slot.model.name,
+          score: scoreForModel(slot.model.id),
+          latencyMs: 1100 + index * 187,
+        }));
+        const baseline = Math.max(
+          ...finalResults.map((result) => result.score),
+        );
+        const score = Math.min(95, baseline + 8 + slots.length * 3);
+        const run: SavedRun = {
+          id: window.crypto.randomUUID(),
+          benchmarkId: benchmark.id,
+          benchmarkName: benchmark.name,
+          sampleSize: full ? benchmark.questions : sampleSize,
+          full,
+          compute: effectiveCompute,
+          score,
+          baseline,
+          modelResults: finalResults,
+          createdAt: new Date().toISOString(),
+          published: false,
+        };
+        setRunning(false);
+        setSelectedRunId(run.id);
+        onComplete(run);
+        setMode("detail");
+      }
+    }, 110);
+  }
+
+  function uploadDataset(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rows = String(reader.result ?? "")
+        .split(/\r?\n/)
+        .filter((row) => row.trim().length > 0);
+      const custom = {
+        id: `custom-${window.crypto.randomUUID()}`,
+        name: file.name,
+        domain: "Custom",
+        questions: Math.max(1, rows.length),
+      };
+      setCustomBenchmarks((current) => [...current, custom]);
+      setBenchmarkId(custom.id);
+    };
+    reader.readAsText(file);
+    event.target.value = "";
+  }
+
+  if (mode === "history") {
+    return (
+      <div className="h-full overflow-y-auto px-5 py-6 sm:px-8">
+        <div className="mx-auto max-w-4xl">
+          <div className="mb-6 flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-medium">Run history</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Compare this ensemble across benchmarks.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              disabled={slots.length === 0}
+              onClick={() => setMode("new")}
+            >
+              <Play className="size-3.5" />
+              New Run
+            </Button>
+          </div>
+          {runs.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed py-20 text-muted-foreground">
+              <History className="size-6 opacity-20" />
+              <p className="text-sm opacity-50">
+                No runs yet — evaluate this ensemble against a benchmark.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border">
+              <table className="w-full text-left">
+                <thead className="border-b bg-muted/30 font-mono text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-5 py-3 font-medium">Benchmark</th>
+                    <th className="px-5 py-3 font-medium">Sample</th>
+                    <th className="px-5 py-3 text-right font-medium">Score</th>
+                    <th className="px-5 py-3 text-right font-medium">Gain</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...runs].reverse().map((run) => (
+                    <tr
+                      key={run.id}
+                      className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/20"
+                      onClick={() => {
+                        setSelectedRunId(run.id);
+                        setMode("detail");
+                      }}
+                    >
+                      <td className="px-5 py-3.5">
+                        <p className="text-sm">{run.benchmarkName}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {new Date(run.createdAt).toLocaleString()}
+                        </p>
+                      </td>
+                      <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">
+                        {run.full ? "Full" : `${run.sampleSize}q`}
+                      </td>
+                      <td className="px-5 py-3.5 text-right font-mono text-sm font-semibold">
+                        {run.score.toFixed(1)}%
+                      </td>
+                      <td className="px-5 py-3.5 text-right font-mono text-xs text-accent">
+                        +{(run.score - run.baseline).toFixed(1)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === "detail" && selectedRun) {
+    return (
+      <RunDetail
+        run={selectedRun}
+        ensembleName={ensembleName}
+        onBack={() => setMode("history")}
+        onNewRun={() => {
+          setFull(true);
+          setMode("new");
+        }}
+        onPublish={onPublish}
+      />
+    );
+  }
+
+  return (
+    <div className="h-full overflow-y-auto px-5 py-6 sm:px-8">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-ml-3 text-muted-foreground"
+              onClick={onBackToCompose}
+            >
+              <ChevronLeft className="size-3.5" />
+              Compose
+            </Button>
+            <h2 className="text-sm font-medium">New Run</h2>
+          </div>
+          {runs.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => setMode("history")}
+            >
+              <History className="size-3.5" />
+              History
+            </Button>
+          )}
+        </div>
+
+        <div className="grid gap-8 md:grid-cols-2">
+          <section>
+            <p className="mb-3 text-xs text-muted-foreground">Benchmark</p>
+            <div className="flex flex-col gap-1.5">
+              {allBenchmarks.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  disabled={running}
+                  className={cn(
+                    "flex items-center justify-between rounded-lg border px-3 py-2.5 text-left transition-colors disabled:opacity-50",
+                    benchmarkId === item.id
+                      ? "border-primary/50 bg-primary/5"
+                      : "hover:bg-muted/20",
+                  )}
+                  onClick={() => setBenchmarkId(item.id)}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-xs">{item.name}</span>
+                    <Badge variant="secondary" className="font-mono text-xs">
+                      {item.domain}
+                    </Badge>
+                  </span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {item.questions.toLocaleString()}q
+                  </span>
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={running}
+                className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                onClick={() => fileRef.current?.click()}
+              >
+                <Upload className="size-3.5" />
+                Upload custom dataset
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,.jsonl,.json,.txt,text/plain"
+                className="hidden"
+                onChange={uploadDataset}
+              />
+            </div>
+          </section>
+
+          <div className="flex flex-col gap-6">
+            <section>
+              <p className="mb-3 text-xs text-muted-foreground">Sample Size</p>
+              <div className="flex flex-wrap gap-2">
+                {[25, 50, 100, 200].map((size) => (
+                  <Button
+                    key={size}
+                    type="button"
+                    size="sm"
+                    variant={!full && sampleSize === size ? "default" : "outline"}
+                    disabled={running}
+                    className="font-mono"
+                    onClick={() => {
+                      setSampleSize(size);
+                      setFull(false);
+                    }}
+                  >
+                    {size}q
+                  </Button>
+                ))}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={full ? "default" : "outline"}
+                  disabled={running}
+                  className="font-mono"
+                  onClick={() => setFull(true)}
+                >
+                  Full
+                </Button>
+              </div>
+              {full && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Full benchmark — {benchmark.questions.toLocaleString()} questions.
+                </p>
+              )}
+            </section>
+            <section>
+              <p className="mb-3 text-xs text-muted-foreground">Compute</p>
+              {omConnected ? (
+                <div className="flex flex-col gap-2">
+                  {[
+                    {
+                      id: "om" as const,
+                      label: "OpenMined Compute",
+                      description: "Subsidized — drawn from your OpenMined budget",
+                    },
+                    {
+                      id: "own" as const,
+                      label: "My Own Compute",
+                      description: "Uses your connected provider credentials",
+                    },
+                  ].map((option) => (
+                    <button
+                      type="button"
+                      key={option.id}
+                      disabled={running}
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors disabled:opacity-50",
+                        compute === option.id
+                          ? "border-primary/50 bg-primary/5"
+                          : "hover:bg-muted/20",
+                      )}
+                      onClick={() => setCompute(option.id)}
+                    >
+                      <span
+                        className={cn(
+                          "grid size-4 shrink-0 place-items-center rounded-full border-2",
+                          compute === option.id
+                            ? "border-primary"
+                            : "border-border",
+                        )}
+                      >
+                        {compute === option.id && (
+                          <span className="size-2 rounded-full bg-primary" />
+                        )}
+                      </span>
+                      <span>
+                        <span className="block text-xs font-medium">
+                          {option.label}
+                        </span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {option.description}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-start gap-2.5 rounded-xl border bg-muted/20 px-4 py-3">
+                  <Cpu className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Using your own compute and connected provider credentials.
+                    Connect an OpenMined key in the sidebar for subsidized compute.
+                  </p>
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+
+        <div className="mt-8">
+          {slots.length === 1 && !running && (
+            <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+              <Database className="mt-0.5 size-3.5 shrink-0 text-primary" />
+              <p className="text-xs leading-relaxed text-primary">
+                This ensemble has one model, so loop and reduce strategies will
+                not affect the result.
+              </p>
+            </div>
+          )}
+          {!running ? (
+            <Button
+              disabled={slots.length === 0}
+              className="rounded-xl"
+              onClick={startRun}
+            >
+              <Play className="size-4" />
+              Run Evaluation
+            </Button>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <LoaderCircle className="size-4 animate-spin text-primary" />
+                <p className="min-w-0 flex-1 truncate text-sm">
+                  Running {benchmark.name} · {full ? "Full" : `${sampleSize}q`} · {effectiveCompute === "om" ? "OM compute" : "own compute"}
+                </p>
+                <span className="font-mono text-xs text-muted-foreground">
+                  {progress}%
+                </span>
+                <Button variant="outline" size="sm" onClick={cancelRun}>
+                  <X className="size-3.5" />
+                  Cancel
+                </Button>
+              </div>
+              <div className="h-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="overflow-hidden rounded-xl border">
+                {modelResults.map((result) => (
+                  <div
+                    key={result.modelId}
+                    className="flex items-center justify-between border-b px-5 py-3 last:border-0"
+                  >
+                    <span className="text-sm">{result.modelName}</span>
+                    {result.status === "pending" ? (
+                      <span className="text-xs text-muted-foreground">queued</span>
+                    ) : result.status === "running" ? (
+                      <span className="flex items-center gap-2 text-xs text-primary">
+                        <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                        answering…
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-xs text-accent">
+                        <Check className="size-3.5" />
+                        answered
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EnsembleComposer() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -184,6 +1314,7 @@ function EnsembleComposer() {
   const [customReduce, setCustomReduce] = useState(false);
   const [loopMode, setLoopMode] = useState<"parallel" | "custom">("parallel");
   const [judgeId, setJudgeId] = useState<string | null>(null);
+  const [runHistory, setRunHistory] = useState<SavedRun[]>([]);
   const [tab, setTab] = useState<"compose" | "runs">("compose");
   const [copied, setCopied] = useState(false);
   const [autoSave, setAutoSave] = useState(true);
@@ -200,6 +1331,7 @@ function EnsembleComposer() {
     const parsed = importedRecipe ? parseRecipe(importedRecipe) : null;
     const frame = window.requestAnimationFrame(() => {
       if (saved) {
+        const savedRunHistory = saved.runHistory ?? [];
         setName(saved.name);
         setSlots(saved.slots);
         addLibraryModels(saved.slots.map((slot) => slot.model));
@@ -207,7 +1339,15 @@ function EnsembleComposer() {
         setCustomReduce(saved.customReduce);
         setLoopMode(saved.loopMode);
         setJudgeId(saved.judgeId);
-        setSavedSnapshot(JSON.stringify({ ...saved, updatedAt: 0 }));
+        setRunHistory(savedRunHistory);
+        setSavedSnapshot(
+          JSON.stringify({
+            ...saved,
+            runs: savedRunHistory.length,
+            runHistory: savedRunHistory,
+            updatedAt: 0,
+          }),
+        );
       } else if (parsed) {
         setName(parsed.name);
         setSlots(parsed.slots);
@@ -216,6 +1356,7 @@ function EnsembleComposer() {
         setCustomReduce(false);
         setLoopMode("parallel");
         setJudgeId(null);
+        setRunHistory([]);
         setSavedSnapshot("");
         if (
           parsed.judgeId &&
@@ -230,6 +1371,7 @@ function EnsembleComposer() {
         setCustomReduce(false);
         setLoopMode("parallel");
         setJudgeId(null);
+        setRunHistory([]);
         setSavedSnapshot(
           JSON.stringify({
             id: ensembleId,
@@ -240,6 +1382,7 @@ function EnsembleComposer() {
             loopMode: "parallel",
             judgeId: null,
             runs: 0,
+            runHistory: [],
             updatedAt: 0,
           }),
         );
@@ -272,7 +1415,8 @@ function EnsembleComposer() {
       customReduce,
       loopMode,
       judgeId,
-      runs: 0,
+      runs: runHistory.length,
+      runHistory,
       updatedAt: 0,
     }),
     [
@@ -281,6 +1425,7 @@ function EnsembleComposer() {
       judgeId,
       loopMode,
       name,
+      runHistory,
       slots,
       strategy,
     ],
@@ -325,6 +1470,38 @@ function EnsembleComposer() {
     }
     setSavedFlash(true);
     window.setTimeout(() => setSavedFlash(false), 1500);
+  }
+
+  function completeRun(run: SavedRun) {
+    const nextRunHistory = [...runHistory, run];
+    const savedDraft: SavedEnsemble = {
+      ...draft,
+      runs: nextRunHistory.length,
+      runHistory: nextRunHistory,
+    };
+    setRunHistory(nextRunHistory);
+    upsertEnsemble({ ...savedDraft, updatedAt: Date.now() });
+    setSavedSnapshot(JSON.stringify(savedDraft));
+    if (!requestedId) {
+      router.replace(
+        `/ensembles/new/?id=${encodeURIComponent(ensembleId)}`,
+        { scroll: false },
+      );
+    }
+  }
+
+  function publishRun(run: SavedRun) {
+    const nextRunHistory = runHistory.map((item) =>
+      item.id === run.id ? { ...item, published: true } : item,
+    );
+    const savedDraft: SavedEnsemble = {
+      ...draft,
+      runs: nextRunHistory.length,
+      runHistory: nextRunHistory,
+    };
+    setRunHistory(nextRunHistory);
+    upsertEnsemble({ ...savedDraft, updatedAt: Date.now() });
+    setSavedSnapshot(JSON.stringify(savedDraft));
   }
 
   function addModel(model: Model) {
@@ -395,7 +1572,7 @@ function EnsembleComposer() {
               </button>
             )}
             <span className="text-xs text-muted-foreground">
-              {slots.length} models · 0 runs
+              {slots.length} models · {runHistory.length} runs
             </span>
             {!autoSave && dirty && (
               <Badge variant="secondary" className="bg-primary/15 text-primary">
@@ -438,7 +1615,14 @@ function EnsembleComposer() {
 
         <TabsList className="-mb-4 mt-4">
           <TabsTrigger value="compose">Compose</TabsTrigger>
-          <TabsTrigger value="runs">Runs</TabsTrigger>
+          <TabsTrigger value="runs">
+            Runs
+            {runHistory.length > 0 && (
+              <span className="ml-1.5 rounded-md bg-primary/15 px-1.5 py-0.5 font-mono text-xs font-semibold text-primary ring-1 ring-primary/20">
+                {runHistory.length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
       </header>
 
@@ -790,28 +1974,16 @@ function EnsembleComposer() {
       </TabsContent>
       <TabsContent
         value="runs"
-        className="m-0 min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8"
+        className="m-0 min-h-0 flex-1 overflow-hidden"
       >
-          <div className="mx-auto max-w-2xl">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setTab("compose")}
-              className="mb-6 -ml-3 text-muted-foreground"
-            >
-              <ChevronLeft className="size-3.5" />
-              Compose
-            </Button>
-            <div className="rounded-xl border border-dashed px-6 py-20 text-center">
-              <h2 className="text-sm font-medium">No runs yet.</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Configure at least one model, then start a new evaluation.
-              </p>
-              <Button className="mt-5" disabled={slots.length === 0}>
-                New Run
-              </Button>
-            </div>
-          </div>
+        <RunsPanel
+          slots={slots}
+          runs={runHistory}
+          ensembleName={name}
+          onComplete={completeRun}
+          onPublish={publishRun}
+          onBackToCompose={() => setTab("compose")}
+        />
       </TabsContent>
     </Tabs>
   );
