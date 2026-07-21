@@ -1,4 +1,5 @@
-use tauri::{webview::WebviewWindowBuilder, AppHandle, WebviewUrl};
+use crate::state::{PendingUpdate, UpdateWindowState, UpdateWindowType};
+use tauri::{webview::WebviewWindowBuilder, AppHandle, Emitter, Manager, WebviewUrl};
 use tauri_plugin_decorum::WebviewWindowExt;
 
 #[cfg(target_os = "macos")]
@@ -56,4 +57,47 @@ pub fn setup_main_window(app: &AppHandle) -> tauri::Result<()> {
   }
 
   Ok(())
+}
+
+pub fn show_update_window(
+  app: &AppHandle,
+  update_window_type: UpdateWindowType,
+  version: String,
+  current_version: String,
+  release_notes: String,
+  error: String,
+  progress: usize,
+) {
+  let state = UpdateWindowState {
+    update_window_type,
+    version,
+    current_version,
+    release_notes,
+    error,
+    progress,
+  };
+
+  *app.state::<PendingUpdate>().window_state.lock().unwrap() = Some(state.clone());
+
+  if let Some(window) = app.get_webview_window("updates") {
+    let _ = window.show();
+    let _ = window.set_focus();
+    let _ = app.emit_to("updates", "update-window-state", state);
+    return;
+  }
+
+  match WebviewWindowBuilder::new(app, "updates", WebviewUrl::App("updates/".into()))
+    .title("ScreamingFace Updates")
+    .inner_size(760.0, 520.0)
+    .min_inner_size(640.0, 440.0)
+    .focused(true)
+    .resizable(false)
+    .decorations(false)
+    .build()
+  {
+    Ok(_) => {
+      let _ = app.emit_to("updates", "update-window-state", state);
+    }
+    Err(error) => log::error!("Failed to create update window: {error}"),
+  }
 }

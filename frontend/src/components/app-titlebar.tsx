@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Download } from "lucide-react";
 
 import { TitlebarThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/ui/button";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsTauri } from "@/hooks/use-is-tauri";
 
 type TauriGlobal = {
+  core?: { invoke?: (command: string) => Promise<unknown> };
   event?: { listen?: (event: string, handler: () => void) => Promise<() => void> };
   window?: { getCurrentWindow?: () => { isFullscreen?: () => Promise<boolean> } };
 };
@@ -19,6 +22,10 @@ export function AppTitlebar() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isMac = typeof navigator !== "undefined" && navigator.platform.toLowerCase().includes("mac");
   const sidebarAction = state === "collapsed" ? "Expand sidebar" : "Collapse sidebar";
+  const checkForUpdates = () => {
+    const tauri = (window as Window & { __TAURI__?: TauriGlobal }).__TAURI__;
+    void tauri?.core?.invoke?.("check_for_updates");
+  };
 
   useEffect(() => {
     if (!isTauri) return;
@@ -61,7 +68,26 @@ export function AppTitlebar() {
             <TooltipContent side="bottom">{sidebarAction}</TooltipContent>
           </Tooltip>
         </div>
-        <div className="pointer-events-auto"><TitlebarThemeToggle /></div>
+        <div className="pointer-events-auto flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="group h-8 gap-1.5 px-2 text-muted-foreground hover:bg-sidebar-accent hover:px-2.5 hover:text-foreground focus-visible:px-2.5"
+                aria-label="Check for updates"
+                onClick={checkForUpdates}
+              >
+                <Download className="size-4" />
+                <span className="hidden group-hover:inline group-focus-visible:inline">
+                  Check for update
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Check for updates</TooltipContent>
+          </Tooltip>
+          <TitlebarThemeToggle />
+        </div>
       </div>
     </header>
   );
