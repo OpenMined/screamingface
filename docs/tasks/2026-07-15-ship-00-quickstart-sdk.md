@@ -947,3 +947,20 @@ portable custom-benchmark form:
 The current engine registers `/benchmarks/draco/1/tool-policy` as an immutable data route for the
 DRACO handoff, but continues to hide `draco@1` from discovery until its cases, grader, model routes,
 and candidate configuration are production-complete.
+
+## Streamed evaluation lifecycle — 2026-07-21
+
+Added an additive ScreamingFace-engine transport without changing URL4 or AI Gateway:
+
+- direct `GET /v1?q=...` requests still return the unchanged `text/plain` resolved value;
+- `Accept: text/event-stream` returns strict `screamingface.evaluation-event.v1` events;
+- the stream begins with `accepted`, emits elapsed-time `running` events while Url4Node resolves,
+  and ends with either `complete` carrying the original plaintext or a typed `error`;
+- pre-admission errors such as request-target limits and overload remain ordinary HTTP errors;
+- the Python SDK now uses this stream for benchmark evaluation and updates its existing notebook
+  progress receipt from server activity; and
+- an evaluation-scoped engine event channel now forwards dataset loading, model activity,
+  completed case grading, and aggregation from ScreamingFace-owned URL4 routes;
+- completed grader events advance the real case counter while idle heartbeats stay invisible once
+  meaningful work begins; and
+- the stream deliberately does not claim token-level or hidden Url4Node progress.

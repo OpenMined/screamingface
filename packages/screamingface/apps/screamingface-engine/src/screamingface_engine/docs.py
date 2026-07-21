@@ -177,8 +177,9 @@ def openapi_document(
                 "use the same validated snapshot."
             ),
             "response_boundary": (
-                "URL4 execution returns text/plain. JSON-shaped URL4 results are serialized JSON "
-                "inside that plaintext body and parsed by the SDK."
+                "URL4 execution returns text/plain by default. The SDK requests "
+                "text/event-stream for lifecycle visibility; its terminal complete event "
+                "contains that same plaintext value. JSON-shaped values are parsed by the SDK."
             ),
         },
         "x-screamingface-status": {
@@ -207,7 +208,7 @@ def openapi_document(
                 "method": "GET",
                 "path": "/v1",
                 "query_parameter": "q",
-                "content_type": "text/plain",
+                "response_content_types": ["text/plain", "text/event-stream"],
             },
             "route_semantics": (
                 "Model, data, reducer, grader, and aggregator paths are URL4 node routes. "
@@ -304,13 +305,33 @@ def _evaluation_path(max_request_target_bytes: int) -> dict[str, Any]:
             (
                 "Primary SDK transport. The expression can resolve model calls, data collections, "
                 "reduction, grading, iteration, slicing, error collection, and aggregation. The "
-                f"encoded request target is limited to {max_request_target_bytes} bytes."
+                f"encoded request target is limited to {max_request_target_bytes} bytes. Send "
+                "`Accept: text/event-stream` for typed accepted/running/terminal events; omit it "
+                "for the unchanged final plaintext value."
             ),
             {
-                "200": _text_response(
-                    "Resolved URL4 value",
-                    '{"schema":"screamingface.report.v1","benchmark_id":"gpqa@1"}',
-                ),
+                "200": {
+                    "description": "Resolved URL4 value or evaluation event stream",
+                    "content": {
+                        "text/plain": {
+                            "schema": {"type": "string"},
+                            "example": (
+                                '{"schema":"screamingface.report.v1","benchmark_id":"gpqa@1"}'
+                            ),
+                        },
+                        "text/event-stream": {
+                            "schema": {"type": "string"},
+                            "x-screamingface-event-schema": {
+                                "$ref": "#/components/schemas/EvaluationEvent"
+                            },
+                            "example": (
+                                "event: accepted\n"
+                                'data: {"schema":"screamingface.evaluation-event.v1",'
+                                '"type":"accepted"}\n\n'
+                            ),
+                        },
+                    },
+                },
                 "400": _engine_error_response("Malformed or invalid URL4 expression"),
                 "401": _engine_error_response("Required provider or tool connection is absent"),
                 "402": _engine_error_response("Provider payment is required"),
@@ -322,12 +343,25 @@ def _evaluation_path(max_request_target_bytes: int) -> dict[str, Any]:
                 "504": _engine_error_response("Evaluation timeout"),
             },
             parameters=[
+                {
+                    "name": "Accept",
+                    "in": "header",
+                    "required": False,
+                    "description": (
+                        "Use `text/event-stream` to receive lifecycle events and the final "
+                        "plaintext value in the terminal `complete` event."
+                    ),
+                    "schema": {
+                        "type": "string",
+                        "enum": ["text/plain", "text/event-stream"],
+                    },
+                },
                 _query_parameter(
                     "q",
                     "Complete, percent-encoded URL4 expression.",
                     required=True,
                     example="('cats','dogs')!'Compare'",
-                )
+                ),
             ],
         )
     }
@@ -809,6 +843,77 @@ def _schemas() -> dict[str, Any]:
         "additionalProperties": False,
     }
     return {
+        "EvaluationEvent": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "required": ["schema", "type"],
+                    "properties": {
+                        "schema": {"const": "screamingface.evaluation-event.v1"},
+                        "type": {"const": "accepted"},
+                    },
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "required": ["schema", "type", "elapsed_seconds"],
+                    "properties": {
+                        "schema": {"const": "screamingface.evaluation-event.v1"},
+                        "type": {"const": "running"},
+                        "elapsed_seconds": {"type": "number", "minimum": 0},
+                    },
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "required": ["schema", "type", "stage", "status", "label"],
+                    "properties": {
+                        "schema": {"const": "screamingface.evaluation-event.v1"},
+                        "type": {"const": "progress"},
+                        "stage": {
+                            "type": "string",
+                            "enum": ["dataset", "model", "grading", "aggregating"],
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["started", "completed"],
+                        },
+                        "label": {"type": "string", "minLength": 1},
+                    },
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "required": ["schema", "type", "content_type", "value"],
+                    "properties": {
+                        "schema": {"const": "screamingface.evaluation-event.v1"},
+                        "type": {"const": "complete"},
+                        "content_type": {"const": "text/plain"},
+                        "value": {"type": "string"},
+                    },
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "required": ["schema", "type", "status", "error"],
+                    "properties": {
+                        "schema": {"const": "screamingface.evaluation-event.v1"},
+                        "type": {"const": "error"},
+                        "status": {"type": "integer", "minimum": 400, "maximum": 599},
+                        "error": {
+                            "type": "object",
+                            "required": ["code", "message"],
+                            "properties": {
+                                "code": {"type": "string"},
+                                "message": {"type": "string"},
+                            },
+                            "additionalProperties": False,
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+            ]
+        },
         "Provider": {
             "type": "object",
             "required": ["id", "display_name", "auth_methods"],
@@ -1499,7 +1604,7 @@ _DOCS_HTML = r"""<!doctype html>
             <div class="flow">
               ${spec["x-screamingface-architecture"].request_flow.map((step, index) => `<div><small>0${index + 1}</small>${escapeHtml(step)}</div>`).join("")}
             </div>
-            <pre style="margin-top:20px">GET /v1?q=&lt;percent-encoded URL4 expression&gt;\nContent-Type: text/plain</pre>
+            <pre style="margin-top:20px">GET /v1?q=&lt;percent-encoded URL4 expression&gt;\nAccept: text/event-stream\n\naccepted → dataset/model/grading/aggregation progress → complete</pre>
           </section>
           <section id="status">
             <h2>Contract status</h2>
@@ -1526,7 +1631,7 @@ _DOCS_HTML = r"""<!doctype html>
           </section>
           <section id="schemas">
             <h2>Wire schemas</h2>
-            <p class="section-intro">URL4 success bodies remain <code>text/plain</code>. When a resolved value is JSON-shaped, the SDK parses that plaintext into the strict schemas below.</p>
+            <p class="section-intro">Direct URL4 success bodies remain <code>text/plain</code>. The SDK receives that same value in the terminal <code>complete</code> SSE event, then parses JSON-shaped values into the strict schemas below.</p>
             <div class="schema-list">
               ${Object.entries(schemas).map(([name, schema]) => `<details><summary>${escapeHtml(name)}</summary><pre>${escapeHtml(schemaText(schema))}</pre></details>`).join("")}
             </div>

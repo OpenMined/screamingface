@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable, Mapping, MutableMapping
+from contextlib import suppress
 from typing import Any
 
 from url4 import Url4Node
 
 from screamingface_engine.connection_asgi import ConnectionASGI
 from screamingface_engine.docs import DocumentationASGI
+from screamingface_engine.evaluation_events import evaluation_event_sink
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES
 
@@ -25,12 +27,15 @@ _APPLICATION_ERROR_STATUSES = {
     "unsupported_tool": 400,
     "invalid_tool_request": 400,
     "authentication_required": 401,
+    "dataset_authentication_required": 401,
     "payment_required": 402,
     "rate_limited": 429,
     "tool_budget_exhausted": 422,
     "provider_unavailable": 502,
     "invalid_provider_response": 502,
 }
+_EVALUATION_STREAM_SCHEMA = "screamingface.evaluation-event.v1"
+_EVAL_PATH = "/v1"
 
 
 class EngineASGI:
@@ -47,6 +52,7 @@ class EngineASGI:
         max_inflight: int,
         timeout: float,
         max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES,
+        stream_interval: float = 5.0,
     ) -> None:
         if node is None and initialize is None:
             raise ValueError("engine requires a node or startup initializer")
@@ -59,6 +65,9 @@ class EngineASGI:
         self._max_inflight = max_inflight
         self._timeout = timeout
         self._max_request_target_bytes = max_request_target_bytes
+        if stream_interval <= 0:
+            raise ValueError("stream interval must be positive")
+        self._stream_interval = stream_interval
         self._inflight = 0
 
     async def __call__(self, scope: Mapping[str, Any], receive: Receive, send: Send) -> None:
@@ -100,21 +109,120 @@ class EngineASGI:
             )
             return
         self._inflight += 1
-        guard = _StartGuard(send)
-        application_errors = _ApplicationErrorGuard(guard.send)
         try:
-            async with asyncio.timeout(self._timeout):
-                await self._base(scope, receive, application_errors.send)
-        except TimeoutError:
-            if not guard.started:
-                await _send_error(
-                    send,
-                    504,
-                    "timeout",
-                    f"evaluation exceeded {self._timeout}s",
-                )
+            if _requests_evaluation_stream(scope):
+                await self._serve_evaluation_stream(scope, receive, send)
+            else:
+                guard = _StartGuard(send)
+                application_errors = _ApplicationErrorGuard(guard.send)
+                try:
+                    async with asyncio.timeout(self._timeout):
+                        await self._base(scope, receive, application_errors.send)
+                except TimeoutError:
+                    if not guard.started:
+                        await _send_error(
+                            send,
+                            504,
+                            "timeout",
+                            f"evaluation exceeded {self._timeout}s",
+                        )
         finally:
             self._inflight -= 1
+
+    async def _serve_evaluation_stream(
+        self, scope: Mapping[str, Any], receive: Receive, send: Send
+    ) -> None:
+        """Stream honest lifecycle events around one unchanged URL4 evaluation."""
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/event-stream; charset=utf-8"),
+                    (b"cache-control", b"no-cache"),
+                    (b"x-accel-buffering", b"no"),
+                ],
+            }
+        )
+        await _send_stream_event(send, "accepted")
+        try:
+            collector = await self._collect_evaluation(scope, receive, send)
+            value = _stream_value(collector)
+        except TimeoutError:
+            await _send_stream_error(
+                send,
+                504,
+                "timeout",
+                f"evaluation exceeded {self._timeout}s",
+            )
+        except _StreamFailure as exc:
+            await _send_stream_error(send, exc.status, exc.code, exc.message)
+        except Exception:
+            await _send_stream_error(
+                send,
+                500,
+                "internal_error",
+                "evaluation failed unexpectedly",
+            )
+        else:
+            await _send_stream_event(
+                send,
+                "complete",
+                content_type="text/plain",
+                value=value,
+            )
+        await _end_stream(send)
+
+    async def _collect_evaluation(
+        self, scope: Mapping[str, Any], receive: Receive, send: Send
+    ) -> _BufferedResponse:
+        started = asyncio.get_running_loop().time()
+        collector = _BufferedResponse()
+        application_errors = _ApplicationErrorGuard(collector.send)
+        events: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        base = self._base
+        if base is None:  # pragma: no cover - checked by _serve_http
+            raise RuntimeError("engine startup is incomplete")
+        with evaluation_event_sink(events.put_nowait):
+            evaluation = asyncio.ensure_future(base(scope, receive, application_errors.send))
+        event_waiter = asyncio.create_task(events.get())
+        try:
+            async with asyncio.timeout(self._timeout):
+                while True:
+                    done, _ = await asyncio.wait(
+                        {evaluation, event_waiter},
+                        timeout=self._stream_interval,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if event_waiter in done:
+                        await _send_stream_event(send, "progress", **event_waiter.result())
+                        event_waiter = asyncio.create_task(events.get())
+                    if evaluation in done:
+                        break
+                    if not done:
+                        elapsed = round(asyncio.get_running_loop().time() - started, 1)
+                        await _send_stream_event(send, "running", elapsed_seconds=elapsed)
+                await evaluation
+                await asyncio.sleep(0)
+                if event_waiter.done():
+                    await _send_stream_event(send, "progress", **event_waiter.result())
+                else:
+                    event_waiter.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await event_waiter
+                while not events.empty():
+                    await _send_stream_event(send, "progress", **events.get_nowait())
+        finally:
+            if not evaluation.done():
+                evaluation.cancel()
+                with suppress(asyncio.CancelledError):
+                    await evaluation
+            if not event_waiter.done():
+                event_waiter.cancel()
+                with suppress(asyncio.CancelledError):
+                    await event_waiter
+        return collector
 
     async def _lifespan(self, receive: Receive, send: Send) -> None:
         while True:
@@ -191,6 +299,42 @@ class _ApplicationErrorGuard:
         await self._send({"type": "http.response.body", "body": bytes(self._body)})
 
 
+class _BufferedResponse:
+    """Collect the unchanged Url4Node response behind an SSE envelope."""
+
+    def __init__(self) -> None:
+        self.status: int | None = None
+        self.headers: list[tuple[bytes, bytes]] = []
+        self.body = bytearray()
+
+    @property
+    def content_type(self) -> str:
+        for name, value in self.headers:
+            if name.lower() == b"content-type":
+                return value.decode("latin-1").split(";", 1)[0].strip().lower()
+        return ""
+
+    async def send(self, message: Message) -> None:
+        if message["type"] == "http.response.start":
+            status = message.get("status")
+            if not isinstance(status, int):
+                raise RuntimeError("URL4 response has no status")
+            self.status = status
+            self.headers = list(message.get("headers", []))
+            return
+        body = message.get("body", b"")
+        if isinstance(body, bytes):
+            self.body.extend(body)
+
+
+class _StreamFailure(Exception):
+    def __init__(self, status: int, code: str, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.message = message
+
+
 def _application_error_status(body: bytes, fallback: object) -> int:
     status = fallback if isinstance(fallback, int) else 500
     try:
@@ -214,6 +358,81 @@ def _request_target_bytes(scope: Mapping[str, Any]) -> int:
     if not isinstance(query, bytes):
         query = bytes(query)
     return len(raw_path) + (1 + len(query) if query else 0)
+
+
+def _requests_evaluation_stream(scope: Mapping[str, Any]) -> bool:
+    if scope.get("path") != _EVAL_PATH or scope.get("method") != "GET":
+        return False
+    for name, value in scope.get("headers", []):
+        if name.lower() != b"accept":
+            continue
+        media_types = value.decode("latin-1").lower().split(",")
+        if any(item.split(";", 1)[0].strip() == "text/event-stream" for item in media_types):
+            return True
+    return False
+
+
+def _stream_error_details(body: bytes, status: int) -> tuple[str, str]:
+    try:
+        payload = json.loads(body)
+        error = payload["error"]
+        code = error["code"]
+        message = error["message"]
+        if isinstance(code, str) and code and isinstance(message, str) and message:
+            return code, message
+    except (KeyError, TypeError, UnicodeDecodeError, ValueError):
+        pass
+    return "evaluation_failed", f"URL4 evaluation returned HTTP {status}"
+
+
+def _stream_value(response: _BufferedResponse) -> str:
+    status = response.status
+    if status is None:
+        raise _StreamFailure(
+            500,
+            "invalid_engine_response",
+            "URL4 evaluation produced no HTTP response",
+        )
+    if status >= 400:
+        code, message = _stream_error_details(bytes(response.body), status)
+        raise _StreamFailure(status, code, message)
+    if response.content_type != "text/plain":
+        raise _StreamFailure(
+            500,
+            "invalid_engine_response",
+            "URL4 evaluation success was not plaintext",
+        )
+    try:
+        return bytes(response.body).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise _StreamFailure(
+            500,
+            "invalid_engine_response",
+            "URL4 evaluation success was not UTF-8",
+        ) from exc
+
+
+async def _send_stream_event(send: Send, event: str, **fields: object) -> None:
+    payload = json.dumps(
+        {"schema": _EVALUATION_STREAM_SCHEMA, "type": event, **fields},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    body = f"event: {event}\ndata: {payload}\n\n".encode()
+    await send({"type": "http.response.body", "body": body, "more_body": True})
+
+
+async def _send_stream_error(send: Send, status: int, code: str, message: str) -> None:
+    await _send_stream_event(
+        send,
+        "error",
+        status=status,
+        error={"code": code, "message": message},
+    )
+
+
+async def _end_stream(send: Send) -> None:
+    await send({"type": "http.response.body", "body": b"", "more_body": False})
 
 
 async def _send_error(

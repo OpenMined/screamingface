@@ -61,9 +61,10 @@ def test_loaded_benchmark_evaluates_one_complete_url4_request(monkeypatch) -> No
     monkeypatch.setattr(execution, "require_connections", lambda *_args, **_kwargs: None)
     expressions: list[str] = []
 
-    def evaluate(_url: str, *, params: dict[str, str], timeout: float) -> httpx.Response:
+    def evaluate(expression: str, *, timeout: float, on_event: object) -> str:
         assert timeout > 0
-        expressions.append(params["q"])
+        assert on_event is not None
+        expressions.append(expression)
         payload = {
             "schema": "screamingface.report.v1",
             "benchmark_id": "gpqa@1",
@@ -82,13 +83,9 @@ def test_loaded_benchmark_evaluates_one_complete_url4_request(monkeypatch) -> No
             "failures": [],
             "complete": True,
         }
-        return httpx.Response(
-            200,
-            text=json.dumps(payload),
-            headers={"content-type": "text/plain"},
-        )
+        return json.dumps(payload)
 
-    monkeypatch.setattr(execution.httpx, "get", evaluate)
+    monkeypatch.setattr(execution, "evaluate_stream", evaluate)
     benchmark = sf.benchmarks.load("gpqa@1")
     fusion = sf.Fusion(
         "duo",

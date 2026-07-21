@@ -111,12 +111,8 @@ def _payload() -> dict[str, object]:
     }
 
 
-def _response(payload: object, *, content_type: str = "text/plain") -> httpx.Response:
-    return httpx.Response(
-        200,
-        text=json.dumps(payload),
-        headers={"content-type": content_type},
-    )
+def _response(payload: object) -> str:
+    return json.dumps(payload)
 
 
 def test_evaluate_rejects_wrong_public_value_types() -> None:
@@ -154,7 +150,11 @@ def test_evaluate_returns_a_partial_engine_report(monkeypatch: pytest.MonkeyPatc
     )
     monkeypatch.setattr(execution, "load_registry", _registry)
     monkeypatch.setattr(execution, "require_connections", lambda *_args: None)
-    monkeypatch.setattr(execution, "_request", lambda _expression: _response(payload))
+    monkeypatch.setattr(
+        execution,
+        "_request",
+        lambda _expression, **_kwargs: _response(payload),
+    )
 
     report = execution.evaluate_benchmark(_benchmark(), _recipe(), first=2, progress=False)
 
@@ -168,41 +168,18 @@ def test_evaluate_rejects_invalid_slices(first: object) -> None:
         execution.evaluate_benchmark(_benchmark(), _recipe(), first=cast(Any, first))
 
 
-def test_request_maps_transport_and_engine_failures(monkeypatch: pytest.MonkeyPatch) -> None:
-    def timeout(*_args: object, **_kwargs: object) -> httpx.Response:
-        raise httpx.ReadTimeout("late")
+def test_request_uses_the_stream_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: list[tuple[str, float]] = []
 
-    monkeypatch.setattr(execution.httpx, "get", timeout)
-    with pytest.raises(sf.EngineConnectionError, match="timed out"):
-        execution._request("expression")
+    def streamed(expression: str, *, timeout: float, on_event: object) -> str:
+        observed.append((expression, timeout))
+        assert callable(on_event)
+        return "resolved"
 
-    def unavailable(*_args: object, **_kwargs: object) -> httpx.Response:
-        raise httpx.ConnectError("down")
+    monkeypatch.setattr(execution, "evaluate_stream", streamed)
 
-    monkeypatch.setattr(execution.httpx, "get", unavailable)
-    with pytest.raises(sf.EngineConnectionError, match="could not reach"):
-        execution._request("expression")
-
-    monkeypatch.setattr(execution.httpx, "get", lambda *_args, **_kwargs: httpx.Response(502))
-    with pytest.raises(sf.EngineProtocolError, match="HTTP 502 for benchmark"):
-        execution._request("expression")
-
-    error = {"error": {"code": "provider_unavailable", "message": "provider is unavailable"}}
-    monkeypatch.setattr(
-        execution.httpx,
-        "get",
-        lambda *_args, **_kwargs: httpx.Response(502, text=json.dumps(error)),
-    )
-    with pytest.raises(sf.EngineProtocolError, match="provider_unavailable"):
-        execution._request("expression")
-
-    monkeypatch.setattr(
-        execution.httpx,
-        "get",
-        lambda *_args, **_kwargs: _response(_payload(), content_type="application/json"),
-    )
-    with pytest.raises(sf.EngineProtocolError, match="must be plaintext"):
-        execution._request("expression")
+    assert execution._request("expression") == "resolved"
+    assert observed == [("expression", execution._EVALUATION_TIMEOUT)]
 
 
 @pytest.mark.parametrize(

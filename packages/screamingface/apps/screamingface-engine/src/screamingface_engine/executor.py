@@ -9,6 +9,7 @@ from typing import Any, NoReturn, Protocol
 from url4 import Request, ResolutionError
 
 from screamingface_engine.catalog import ModelRoute
+from screamingface_engine.evaluation_events import emit_progress
 from screamingface_engine.gateway import AssistantTurn, ToolCall
 from screamingface_engine.tool_policy import (
     WEB_FETCH,
@@ -101,7 +102,10 @@ class ModelExecutor:
 
     def handler(self, model: ModelRoute):
         async def execute(request: Request) -> str:
-            return await self.complete(model, request)
+            emit_progress("model", "started", f"Running {model.id}")
+            answer = await self.complete(model, request)
+            emit_progress("model", "completed", f"Completed {model.id}")
+            return answer
 
         return execute
 

@@ -138,6 +138,20 @@ class Progress:
             )
             self._render()
 
+    def observe(self, stage: ProgressStage, label: str) -> None:
+        """Update a live stage label without losing completed case progress."""
+
+        with self._lock:
+            self._state = _State(
+                self._state.recipe_name,
+                self._state.benchmark_id,
+                stage,
+                label,
+                self._state.completed,
+                self._state.total,
+            )
+            self._render()
+
     def finish(self, label: str = "Complete") -> None:
         total = self._state.total
         with self._lock:

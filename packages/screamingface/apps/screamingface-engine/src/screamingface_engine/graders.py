@@ -9,6 +9,8 @@ from typing import NoReturn
 from screamingface._exact_choice import exact_choice_score, validate_exact_reference
 from url4 import Request, ResolutionError
 
+from screamingface_engine.evaluation_events import emit_progress
+
 EXACT_CHOICE_ROUTE = "/graders/exact-choice/1"
 CASE_GRADE_SCHEMA = "screamingface.case-grade.v1"
 RECIPE_RESULT_SCHEMA = "screamingface.recipe-result.v1"
@@ -41,6 +43,7 @@ def exact_choice(request: Request) -> str:
         "recipe": _grade(reference, answer),
         "members": members,
     }
+    emit_progress("grading", "completed", f"Graded case {case_id}")
     return json.dumps(payload, allow_nan=False, separators=(",", ":"))
 
 

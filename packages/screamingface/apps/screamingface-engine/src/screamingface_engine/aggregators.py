@@ -10,6 +10,7 @@ from typing import NoReturn
 
 from url4 import Request, ResolutionError
 
+from screamingface_engine.evaluation_events import emit_progress
 from screamingface_engine.graders import CASE_GRADE_SCHEMA
 
 MEAN_ROUTE = "/aggregators/mean/1"
@@ -24,6 +25,7 @@ def mean(request: Request) -> str:
     if request.params:
         _invalid(f"mean does not accept parameters: {sorted(request.params)}")
     rows = _rows(request.intent)
+    emit_progress("aggregating", "started", f"Aggregating {len(rows)} benchmark cases")
     successes: list[dict[str, object]] = []
     failures: list[dict[str, object]] = []
     for position, row in enumerate(rows, 1):

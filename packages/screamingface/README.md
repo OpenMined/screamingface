@@ -10,6 +10,7 @@ Gateway, model providers, or Tavily directly.
 ```text
 ScreamingFace SDK
   └─ GET /v1?q=<complete benchmark-run URL4>
+       Accept: text/event-stream
        └─ screamingface-engine / Url4Node
             ├─ benchmark case data route
             ├─ model routes → AI Gateway → providers
@@ -23,9 +24,12 @@ ScreamingFace SDK
 recipe with the benchmark case route, stable slice, grader, and aggregator. The resulting
 `report.url4` expresses the complete reproducible run.
 
-The SDK sends exactly one `GET /v1?q=...` request per evaluation. The engine executes all cases,
-model calls, grading, and aggregation represented by that URL4, then returns plaintext JSON using
-`screamingface.report.v1`. The SDK strictly validates it into an immutable `sf.Report`.
+The SDK sends exactly one `GET /v1?q=...` request per evaluation. It requests a strict SSE stream
+so notebooks show engine-owned dataset loading, model activity, completed case grading, and
+aggregation. The terminal `complete` event contains the same plaintext URL4 value returned by a
+normal request. The SDK validates that JSON as `screamingface.report.v1` and builds an immutable
+`sf.Report`. Idle keep-alives preserve the connection without replacing meaningful progress.
+These events report ScreamingFace route milestones, not model tokens or hidden URL4 internals.
 
 There is no mock, in-process execution fallback, client-side case loop, or public
 `Run → Grades → aggregate` compatibility path.

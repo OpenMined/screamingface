@@ -8,6 +8,8 @@ from dataclasses import dataclass
 
 from url4 import ResolutionError
 
+from screamingface_engine.evaluation_events import emit_progress
+
 GPQA_ID = "gpqa@1"
 GPQA_TITLE = "GPQA Diamond"
 GPQA_CASES_ROUTE = "/benchmarks/gpqa/1/cases"
@@ -86,6 +88,7 @@ class BenchmarkRoute:
 def gpqa_cases() -> str:
     """Return the pinned GPQA Diamond rows as an NDJSON URL4 collection."""
 
+    emit_progress("dataset", "started", "Loading GPQA Diamond cases")
     if not os.environ.get("HF_TOKEN", "").strip():
         raise ResolutionError(
             "gpqa@1 requires HF_TOKEN in the ScreamingFace engine environment",
@@ -103,6 +106,7 @@ def gpqa_cases() -> str:
             "the ScreamingFace engine could not load gpqa@1 from Hugging Face",
             code="dataset_unavailable",
         ) from exc
+    emit_progress("dataset", "completed", f"Loaded {len(cases)} GPQA Diamond cases")
     return "\n".join(
         json.dumps(case._to_wire(), allow_nan=False, separators=(",", ":")) for case in cases
     )

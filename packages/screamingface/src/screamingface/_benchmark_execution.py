@@ -2,26 +2,21 @@
 
 from __future__ import annotations
 
-import httpx
-
 from screamingface._compiler import MAJORITY_VOTE_ROUTE, compile_benchmark_expression
-from screamingface._config import current_engine_url
 from screamingface._connection_preflight import require_connections
 from screamingface._engine_http import (
-    EVAL_PATH,
-    engine_error,
     exact_fields,
     nonblank,
     object_value,
     require_eval_request_target,
     unique_json_object,
 )
+from screamingface._engine_stream import EvaluationEvent, evaluate_stream
 from screamingface._profile import REPORT_SCHEMA, ModelRecord, Registry, load_registry
 from screamingface._progress import Progress, ProgressSetting
 from screamingface._requirements import evaluate_requirements
 from screamingface.benchmark import Benchmark
 from screamingface.errors import (
-    EngineConnectionError,
     EngineProtocolError,
     UnknownBenchmarkError,
     UnknownModelError,
@@ -77,8 +72,8 @@ def evaluate_benchmark(
             "Executing the complete URL4 benchmark graph",
             total=limit,
         )
-        response = _request(expression)
-        report = _report(response, benchmark, recipe, expression)
+        response_text = _request(expression, tracker=tracker, total=limit)
+        report = _report(response_text, benchmark, recipe, expression)
     except Exception as exc:
         tracker.fail(str(exc))
         raise
@@ -93,44 +88,45 @@ def evaluate_benchmark(
     return report
 
 
-def _request(expression: str) -> httpx.Response:
-    base_url = current_engine_url()
-    try:
-        response = httpx.get(
-            f"{base_url}{EVAL_PATH}",
-            params={"q": expression},
-            timeout=_EVALUATION_TIMEOUT,
-        )
-    except httpx.TimeoutException as exc:
-        raise EngineConnectionError("URL4 benchmark evaluation timed out") from exc
-    except (httpx.RequestError, httpx.InvalidURL) as exc:
-        raise EngineConnectionError(
-            f"could not reach the configured URL4 engine at {base_url}"
-        ) from exc
-    if not response.is_success:
-        error = engine_error(response)
-        if error is None:
-            raise EngineProtocolError(
-                f"URL4 engine returned HTTP {response.status_code} for benchmark evaluation"
-            )
-        code, message = error
-        raise EngineProtocolError(
-            f"URL4 engine returned HTTP {response.status_code} ({code}): {message}"
-        )
-    content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
-    if content_type != "text/plain":
-        raise EngineProtocolError("URL4 benchmark success must be plaintext")
-    return response
+def _request(
+    expression: str,
+    *,
+    tracker: Progress | None = None,
+    total: int | None = None,
+) -> str:
+    saw_progress = False
+
+    def update(event: EvaluationEvent) -> None:
+        nonlocal saw_progress
+        if tracker is None:
+            return
+        if event.type == "accepted":
+            tracker.stage("running", "Engine accepted the URL4 evaluation", total=total)
+        elif event.type == "running" and not saw_progress:
+            elapsed = 0.0 if event.elapsed_seconds is None else event.elapsed_seconds
+            tracker.stage("running", f"Engine evaluating URL4 · {elapsed:.1f}s", total=total)
+        elif event.type == "progress":
+            saw_progress = True
+            label = event.label or "Evaluation in progress"
+            if event.stage == "grading" and event.status == "completed":
+                tracker.observe("grading", label)
+                tracker.advance()
+            elif event.stage == "aggregating":
+                tracker.observe("aggregating", label)
+            else:
+                tracker.observe("running", label)
+
+    return evaluate_stream(expression, timeout=_EVALUATION_TIMEOUT, on_event=update)
 
 
 def _report(
-    response: httpx.Response,
+    response_text: str,
     benchmark: Benchmark,
     recipe: Recipe,
     expression: str,
 ) -> Report:
     try:
-        payload = unique_json_object(response.text)
+        payload = unique_json_object(response_text)
         exact_fields(
             payload,
             {

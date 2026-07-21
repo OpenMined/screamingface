@@ -29,8 +29,19 @@ PUT    /v1/connections/{provider}/api-key
 DELETE /v1/connections/{provider}
 ```
 
-URL4 success bodies are plaintext. The public registry is JSON serialized as plaintext. The
-private connection control plane returns sanitized JSON.
+URL4 success bodies are plaintext by default. `GET /v1` also supports
+`Accept: text/event-stream`: it immediately emits `accepted`, forwards engine-owned progress from
+the benchmark-data, model, grader, and aggregator routes, and terminates with either `complete`
+carrying the unchanged plaintext URL4 value or a typed `error`. Idle `running` events are
+keep-alives; once meaningful progress begins, the SDK leaves the latest route milestone visible.
+This is route-level progress, not model-token or hidden URL4-node tracing. The public registry is
+JSON serialized as plaintext. The private connection control plane returns sanitized JSON.
+
+```bash
+curl -N -H 'Accept: text/event-stream' \
+  --get --data-urlencode "q=/healthz" \
+  http://127.0.0.1:4404/v1
+```
 
 `/docs` is the human-readable API reference and `/openapi.json` is its OpenAPI 3.1 source. Both
 are generated from the same startup model-route snapshot as the URL4 node, so the documented

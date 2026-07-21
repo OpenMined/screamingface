@@ -56,6 +56,19 @@ def test_openapi_document_covers_http_and_url4_contracts() -> None:
     assert document["components"]["schemas"]["ModelInput"]["properties"]["schema"] == {
         "const": "screamingface.model-input.v1"
     }
+    evaluation = document["paths"]["/v1"]["get"]
+    assert set(evaluation["responses"]["200"]["content"]) == {
+        "text/plain",
+        "text/event-stream",
+    }
+    assert any(parameter["name"] == "Accept" for parameter in evaluation["parameters"])
+    assert document["components"]["schemas"]["EvaluationEvent"]["oneOf"][0]["properties"][
+        "schema"
+    ] == {"const": "screamingface.evaluation-event.v1"}
+    assert document["x-screamingface-url4"]["expression_transport"]["response_content_types"] == [
+        "text/plain",
+        "text/event-stream",
+    ]
 
     model_operation = document["paths"]["/codex/gpt-5.5"]["get"]
     assert model_operation["x-screamingface-url4-route"] == "model"

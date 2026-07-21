@@ -94,9 +94,11 @@ does not call a model.
             """`load(...)` reads the benchmark manifest advertised by the configured engine; it
 does not download questions. `benchmark.evaluate(...)` then compiles the benchmark, stable
 `first=5` slice, Fusion, grader, and aggregator into one reproducible URL4 expression. The engine
-executes that graph and returns one validated report. Missing work remains
-an explicit failure; it is never silently scored as zero. Pass `progress=False` to hide the compact
-live status, or `progress=True` to force it outside notebooks.
+executes that graph and streams dataset loading, model activity, completed case grading, and
+aggregation before returning one validated report. The case counter advances only after a real
+grader result; it is not a time estimate. Missing work remains an explicit failure and is never
+silently scored as zero. Pass `progress=False` to hide the compact live status, or `progress=True`
+to force it outside notebooks.
 
 ## 4 · Compare"""
         ),
