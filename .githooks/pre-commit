@@ -1,6 +1,17 @@
 #!/bin/sh
+# Guard: no direct commits to main.
 branch=$(git symbolic-ref --short HEAD 2>/dev/null)
 if [ "$branch" = "main" ]; then
   echo "ERROR: Direct commits to 'main' are not allowed. Use a feature branch."
   exit 1
+fi
+
+# Fast quality hooks (ruff-check, ruff-format, std) on staged files.
+# Heavy per-stack gates (pytest, pyright, coverage) run on pre-push — see .githooks/pre-push.
+if command -v pre-commit >/dev/null 2>&1; then
+  pre-commit run || exit 1
+elif command -v uvx >/dev/null 2>&1; then
+  uvx --quiet pre-commit run || exit 1
+else
+  echo "WARN: pre-commit not installed (try 'uvx pre-commit' or 'pipx install pre-commit'); skipping fast hooks."
 fi

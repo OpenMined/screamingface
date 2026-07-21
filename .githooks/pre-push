@@ -1,0 +1,21 @@
+#!/bin/sh
+# Heavy per-stack quality gates before pushing: run_gates.py for each stack whose root
+# changed on this branch vs the merge base with origin/main. Keeps pytest/pyright/coverage
+# off the per-commit path while still gating what leaves the machine.
+base="origin/main"
+git rev-parse --verify --quiet "$base" >/dev/null 2>&1 || base="main"
+changed=$(git diff --name-only "$base"...HEAD 2>/dev/null)
+
+fail=0
+run_stack() {
+  root="$1"; stack="$2"
+  if printf '%s\n' "$changed" | grep -q "^$root/"; then
+    echo ">> gates: $stack"
+    uv run .claude/scripts/run_gates.py "$stack" --base "$base" || fail=1
+  fi
+}
+run_stack apps/aigateway aigateway
+run_stack apps/scoreboard scoreboard
+run_stack packages/url4 url4
+run_stack apps/url4-cloud url4-cloud
+exit $fail
