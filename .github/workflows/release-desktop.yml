@@ -26,10 +26,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: apps/screamingface-studio/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: frontend
+        working-directory: apps/screamingface-studio/frontend
         run: npm ci
 
       - name: Setup Rust
@@ -40,7 +40,7 @@ jobs:
       - name: Cache Rust dependencies
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
+          workspaces: apps/screamingface-studio/src-tauri -> target
 
       - name: Import Apple signing certificate
         uses: apple-actions/import-codesign-certs@v3
@@ -59,6 +59,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_BUNDLER_DMG_IGNORE_CI: "true"
         with:
+          projectPath: apps/screamingface-studio
           tagName: desktop-v__VERSION__
           releaseName: ScreamingFace Desktop v__VERSION__
           releaseBody: See the assets below to download and install this version.
