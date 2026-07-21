@@ -155,15 +155,15 @@ research_benchmark = sf.Benchmark(
     cases=cases,
     grader=sf.graders.ExactChoice(),
     tools=(
-        sf.tools.TavilySearch(max_results=5),
-        sf.tools.TavilyExtract(),
+        sf.tools.WebSearch(max_results=5),
+        sf.tools.WebFetch(),
     ),
-    max_tool_rounds=8,
+    max_tool_calls=8,
 )
 ```
 
 The engine then requires every answer-producing member to support the capability and adds it to
-their model calls. The explicit round budget prevents an unbounded agent loop. Tools
+their model calls. The explicit tool-call budget prevents an unbounded agent loop. Tools
 do not belong in individual model parameters, and credentials never belong in this definition."""
         ),
         nbformat.v4.new_markdown_cell(

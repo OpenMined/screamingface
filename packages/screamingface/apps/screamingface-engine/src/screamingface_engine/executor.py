@@ -1,9 +1,8 @@
-"""Bounded engine-owned model and Tavily agent execution."""
+"""Bounded engine-owned model execution with route-selected web-tool backends."""
 
 from __future__ import annotations
 
 import json
-from collections import Counter
 from collections.abc import Mapping
 from typing import Any, NoReturn, Protocol
 
@@ -14,7 +13,7 @@ from screamingface_engine.gateway import AssistantTurn, ToolCall
 from screamingface_engine.tool_policy import (
     WEB_FETCH,
     WEB_SEARCH,
-    ExtractPolicy,
+    FetchPolicy,
     SearchPolicy,
     ToolPolicy,
     parse_tool_policy,
@@ -85,7 +84,7 @@ class TavilyPort(Protocol):
     async def extract(
         self,
         url: str,
-        policy: ExtractPolicy,
+        policy: FetchPolicy,
         *,
         query: str | None,
     ) -> dict[str, object]: ...
@@ -123,6 +122,14 @@ class ModelExecutor:
                 "unsupported_tool",
                 permanent=True,
             )
+        if model.tool_backend == "openrouter":
+            return await self._run_openrouter(model, request, parsed.model_params, policy)
+        if model.tool_backend != "tavily":
+            _resolution(
+                f"model route {model.id!r} has no tool backend",
+                "unsupported_tool",
+                permanent=True,
+            )
         if not await self._tavily.is_connected():
             _resolution(
                 "Connect Tavily before using benchmark tools.",
@@ -130,6 +137,29 @@ class ModelExecutor:
                 permanent=True,
             )
         return await self._run_agent(model, request, parsed.model_params, policy)
+
+    async def _run_openrouter(
+        self,
+        model: ModelRoute,
+        request: Request,
+        params: Mapping[str, str],
+        policy: ToolPolicy,
+    ) -> str:
+        turn = await self._gateway.turn(
+            model,
+            messages=_initial_messages(request),
+            params=params,
+            tools=_openrouter_tool_specs(policy),
+        )
+        # OpenRouter executes these tools inside its own managed agent loop. It
+        # may preserve server-tool records beside the final answer; those are
+        # evidence metadata, not unresolved client-side calls.
+        if turn.content is None or not turn.content.strip():
+            _resolution(
+                f"model route {model.id!r} returned no final text after managed tool use",
+                "invalid_provider_response",
+            )
+        return turn.content
 
     async def _run_agent(
         self,
@@ -143,8 +173,7 @@ class ModelExecutor:
             _TOOL_SPECS[name] for name in (WEB_SEARCH, WEB_FETCH) if name in policy.tools
         )
         total_calls = 0
-        tool_counts: Counter[str] = Counter()
-        for round_index in range(policy.max_rounds):
+        while True:
             turn = await self._gateway.turn(
                 model,
                 messages=messages,
@@ -153,20 +182,15 @@ class ModelExecutor:
             )
             if not turn.tool_calls:
                 return _final_text(turn, model)
-            if round_index + 1 == policy.max_rounds:
-                _round_budget(model, policy.max_rounds, tool_counts)
             if len(turn.tool_calls) > MAX_TOOL_CALLS_PER_TURN:
                 _budget(model, "per-turn tool-call")
-            if total_calls + len(turn.tool_calls) > MAX_TOTAL_TOOL_CALLS:
+            if total_calls + len(turn.tool_calls) > min(policy.max_calls, MAX_TOTAL_TOOL_CALLS):
                 _budget(model, "total tool-call")
             messages.append(turn.to_message())
             for tool_call in turn.tool_calls:
                 # INVARIANT: One model turn's calls execute in emitted order for reference parity.
                 messages.append(await self._tool_message(tool_call, policy))
                 total_calls += 1
-                if tool_call.name in {WEB_SEARCH, WEB_FETCH}:
-                    tool_counts[tool_call.name] += 1
-        raise AssertionError("bounded agent loop exhausted without returning or raising")
 
     async def _tool_message(self, tool_call: ToolCall, policy: ToolPolicy) -> dict[str, object]:
         try:
@@ -191,15 +215,11 @@ class ModelExecutor:
             _exact_keys(arguments, {"query"}, WEB_SEARCH)
             query = _nonblank(arguments.get("query"), "web_search requires a non-empty query")
             return await self._tavily.search(query, policy.search)
-        if tool_call.name == WEB_FETCH and policy.extract is not None:
+        if tool_call.name == WEB_FETCH and policy.fetch is not None:
             _allowed_keys(arguments, {"url", "query"}, WEB_FETCH)
             url = _nonblank(arguments.get("url"), "web_fetch requires a non-empty URL")
             query = _optional_nonblank(arguments.get("query"), "web_fetch query")
-            if policy.extract.chunks_per_source is not None and query is None:
-                raise _ToolArgumentsError(
-                    "web_fetch requires query when chunks_per_source is configured."
-                )
-            return await self._tavily.extract(url, policy.extract, query=query)
+            return await self._tavily.extract(url, policy.fetch, query=query)
         raise _ToolArgumentsError(f"Tool {tool_call.name!r} was not declared.")
 
 
@@ -276,16 +296,27 @@ def _budget(model: ModelRoute, limit: str) -> NoReturn:
     )
 
 
-def _round_budget(model: ModelRoute, max_rounds: int, counts: Counter[str]) -> NoReturn:
-    count_text = ", ".join(
-        f"{name}={counts[name]}" for name in (WEB_SEARCH, WEB_FETCH) if counts[name]
-    )
-    _resolution(
-        f"model route {model.id!r} exhausted max_tool_rounds={max_rounds} after "
-        f"{max_rounds} model turns (executed tool calls: {count_text or 'none'})",
-        "tool_budget_exhausted",
-        permanent=True,
-    )
+def _openrouter_tool_specs(policy: ToolPolicy) -> tuple[dict[str, object], ...]:
+    tools: list[dict[str, object]] = []
+    if policy.search is not None:
+        tools.append(
+            {
+                "type": "openrouter:web_search",
+                "parameters": policy.search.openrouter_parameters(max_calls=policy.max_calls),
+            }
+        )
+    if policy.fetch is not None:
+        parameters: dict[str, object] = {
+            "engine": "native",
+            "max_uses": policy.max_calls,
+        }
+        if policy.search is not None:
+            if policy.search.include_domains:
+                parameters["allowed_domains"] = list(policy.search.include_domains)
+            if policy.search.exclude_domains:
+                parameters["blocked_domains"] = list(policy.search.exclude_domains)
+        tools.append({"type": "openrouter:web_fetch", "parameters": parameters})
+    return tuple(tools)
 
 
 def _resolution(message: str, code: str, *, permanent: bool = False) -> NoReturn:

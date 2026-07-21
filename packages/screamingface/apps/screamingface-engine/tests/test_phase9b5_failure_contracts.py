@@ -10,13 +10,14 @@ from screamingface_engine.catalog import ModelRoute
 from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import AssistantTurn, GatewayClient, ToolCall
 from screamingface_engine.settings import Settings
-from screamingface_engine.tool_policy import ExtractPolicy, SearchPolicy
+from screamingface_engine.tool_policy import FetchPolicy, SearchPolicy
 
 HF_MODEL = ModelRoute(
     "huggingface/zai-org/GLM-5.2~deepinfra",
     "huggingface/zai-org/GLM-5.2:deepinfra",
     "huggingface",
     ("web_search", "web_fetch"),
+    "tavily",
 )
 
 
@@ -44,7 +45,7 @@ class _Tavily:
     async def extract(
         self,
         url: str,
-        policy: ExtractPolicy,
+        policy: FetchPolicy,
         *,
         query: str | None,
     ) -> dict[str, object]:
@@ -83,24 +84,8 @@ async def test_payment_required_survives_the_public_engine_boundary() -> None:
 async def test_round_budget_failure_reports_limit_and_safe_tool_counts() -> None:
     params = {
         "tools": "web_search:web_fetch",
-        "max_tool_rounds": "2",
-        "tavily.search.search_depth": "basic",
-        "tavily.search.max_results": "5",
-        "tavily.search.topic": "general",
-        "tavily.search.include_answer": "false",
-        "tavily.search.include_raw_content": "false",
-        "tavily.search.include_images": "false",
-        "tavily.search.include_image_descriptions": "false",
-        "tavily.search.include_favicon": "false",
-        "tavily.search.auto_parameters": "false",
-        "tavily.search.exact_match": "false",
-        "tavily.search.include_usage": "false",
-        "tavily.search.safe_search": "false",
-        "tavily.extract.extract_depth": "basic",
-        "tavily.extract.include_images": "false",
-        "tavily.extract.include_favicon": "false",
-        "tavily.extract.format": "markdown",
-        "tavily.extract.include_usage": "false",
+        "tools.max_calls": "2",
+        "web_search.max_results": "5",
     }
     executor = ModelExecutor(_Gateway(), _Tavily())
 
@@ -109,6 +94,5 @@ async def test_round_budget_failure_reports_limit_and_safe_tool_counts() -> None
 
     assert captured.value.code == "tool_budget_exhausted"
     assert str(captured.value) == (
-        "model route 'huggingface/zai-org/GLM-5.2~deepinfra' exhausted "
-        "max_tool_rounds=2 after 2 model turns (executed tool calls: web_search=1)"
+        "model route 'huggingface/zai-org/GLM-5.2~deepinfra' exceeded the total tool-call limit"
     )

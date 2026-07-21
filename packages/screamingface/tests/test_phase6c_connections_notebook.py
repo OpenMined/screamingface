@@ -58,7 +58,7 @@ def test_connection_guide_teaches_the_exact_public_boundary_without_secrets() ->
     assert "does not open a browser automatically" in markdown
     assert "Hugging Face" in markdown
     assert "separate" in markdown
-    assert "no paid\nmodel call" in markdown
+    assert "no paid model call" in " ".join(markdown.split()).lower()
 
 
 def test_quickstart_connects_before_compose_without_losing_its_short_path() -> None:

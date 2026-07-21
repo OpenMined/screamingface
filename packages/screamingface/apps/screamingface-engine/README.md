@@ -81,12 +81,17 @@ The majority-vote handler accepts a resolved JSON object with contiguous `member
 `member_n` string values in the URL4 intent, applies exact-string voting, and breaks ties by member
 position. It never contacts AI Gateway.
 
-The engine advertises `web_search` and `web_fetch` only on the verified pinned Hugging Face
-DeepSeek V4 Pro/DeepInfra and GLM 5.2/DeepInfra routes. Tool-enabled requests carry a colon-separated
-URL4 scalar (`tools=web_search:web_fetch`), a positive `max_tool_rounds`, and explicit Tavily policy.
-Every model turn goes through AI Gateway; Tavily calls go directly from the engine.
+The engine advertises `web_search` and `web_fetch` on OpenRouter routes and on the verified pinned
+Hugging Face DeepSeek V4 Pro/DeepInfra and GLM 5.2/DeepInfra routes. Tool-enabled requests carry a
+provider-neutral policy: `tools=web_search:web_fetch`, `tools.max_calls=<n>`, and optional
+`web_search.*` controls. The engine selects the implementation per route: OpenRouter-managed
+server tools for OpenRouter models, or its bounded Tavily agent loop for the pinned Hugging Face
+models. Every model request still goes through AI Gateway; only Tavily calls go directly from the
+engine.
 
-Tavily API keys are validated directly and retained only in process memory. They never enter AI
+Tavily is therefore an additional connection only for routes whose registry record declares
+`required_connections=["tavily"]`; OpenRouter tool use needs no Tavily key. Tavily API keys are
+validated directly and retained only in process memory. They never enter AI
 Gateway, URL4, model messages, responses, or logs. This is appropriate only for a researcher-owned
 local engine. A shared deployment needs HTTPS, identity, authorization, and encrypted per-user
 storage.

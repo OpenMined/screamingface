@@ -13,7 +13,8 @@ ScreamingFace SDK
        └─ screamingface-engine / Url4Node
             ├─ benchmark case data route
             ├─ model routes → AI Gateway → providers
-            ├─ Tavily tools for verified Hugging Face routes
+            ├─ OpenRouter-managed tools for OpenRouter routes
+            ├─ Tavily loop for verified Hugging Face routes
             ├─ reducer and grader routes
             └─ aggregator route → plaintext report
 ```
@@ -96,7 +97,8 @@ sf.disconnect("gemini")
 ```
 
 Model-provider credentials are managed through the engine's AI Gateway integration. Tavily is an
-engine-owned service connection and does not pass through AI Gateway.
+additional engine-owned service connection only for models whose registry record requires it;
+OpenRouter-managed web tools use the OpenRouter connection. Tavily never passes through AI Gateway.
 
 Dataset access is separate. In the local MVP, the engine reads `HF_TOKEN` from its environment
 when a benchmark data route loads a gated Hugging Face source. `sf.connect("huggingface")` is an

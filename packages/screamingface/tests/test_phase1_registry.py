@@ -40,8 +40,14 @@ def _registry() -> dict[str, object]:
                 "id": "codex/gpt-5.5",
                 "provider": "codex",
                 "supported_tools": ["web_search"],
+                "required_connections": [],
             },
-            {"id": "gemini/2.5-flash", "provider": "gemini", "supported_tools": []},
+            {
+                "id": "gemini/2.5-flash",
+                "provider": "gemini",
+                "supported_tools": [],
+                "required_connections": [],
+            },
         ],
         "benchmarks": [
             {
@@ -51,7 +57,7 @@ def _registry() -> dict[str, object]:
                 "grader": {"kind": "exact_choice", "route": "/graders/exact-choice/1"},
                 "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
                 "tools": [],
-                "max_tool_rounds": None,
+                "max_tool_calls": None,
             }
         ],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote/1"}],
@@ -123,6 +129,7 @@ def test_sdk_discovers_url4_safe_huggingface_aliases_from_engine_registry() -> N
             "id": "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",
             "provider": "huggingface",
             "supported_tools": [],
+            "required_connections": [],
         }
     )
 
@@ -209,14 +216,32 @@ def test_registry_document_is_strict(monkeypatch, mutate, message: str) -> None:
     [
         ({"id": "model"}, "missing field"),
         (
-            {"id": "model", "provider": "provider", "supported_tools": ["x", "x"]},
+            {
+                "id": "model",
+                "provider": "provider",
+                "supported_tools": ["x", "x"],
+                "required_connections": [],
+            },
             "must not contain duplicates",
         ),
         (
-            {"id": "model", "provider": "provider", "supported_tools": ["Web-Search"]},
+            {
+                "id": "model",
+                "provider": "provider",
+                "supported_tools": ["Web-Search"],
+                "required_connections": [],
+            },
             "lowercase",
         ),
-        ({"id": "", "provider": "provider", "supported_tools": []}, "model ID"),
+        (
+            {
+                "id": "",
+                "provider": "provider",
+                "supported_tools": [],
+                "required_connections": [],
+            },
+            "model ID",
+        ),
     ],
 )
 def test_model_records_are_strict(payload: dict[str, object], message: str) -> None:
@@ -287,9 +312,9 @@ def test_provider_records_are_strict(payload: dict[str, object], message: str) -
                 "grader": {"kind": "rubric", "route": "/graders/rubric/1"},
                 "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
                 "tools": ["web_search"],
-                "max_tool_rounds": None,
+                "max_tool_calls": None,
             },
-            "tool-enabled benchmark max_tool_rounds",
+            "tool-enabled benchmark max_tool_calls",
         ),
         (
             {
@@ -299,9 +324,9 @@ def test_provider_records_are_strict(payload: dict[str, object], message: str) -
                 "grader": {"kind": "exact_choice", "route": "/graders/exact-choice/1"},
                 "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
                 "tools": [],
-                "max_tool_rounds": 1,
+                "max_tool_calls": 1,
             },
-            "tool-free benchmark max_tool_rounds",
+            "tool-free benchmark max_tool_calls",
         ),
         (
             {
@@ -311,7 +336,7 @@ def test_provider_records_are_strict(payload: dict[str, object], message: str) -
                 "grader": "exact_choice",
                 "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
                 "tools": [],
-                "max_tool_rounds": None,
+                "max_tool_calls": None,
             },
             "benchmark grader must be an object",
         ),
@@ -373,7 +398,7 @@ def test_benchmark_manifest_support_is_explicit(field: str, value: object, messa
         "grader": record.grader,
         "aggregator": record.aggregator,
         "tools": record.tools,
-        "max_tool_rounds": record.max_tool_rounds,
+        "max_tool_calls": record.max_tool_calls,
     }
     values[field] = value
     changed = _profile.BenchmarkRecord(**values)

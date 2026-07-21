@@ -25,7 +25,7 @@ class BenchmarkRoute:
     aggregator_kind: str
     aggregator_route: str
     tools: tuple[str, ...] = ()
-    max_tool_rounds: int | None = None
+    max_tool_calls: int | None = None
 
     @property
     def public(self) -> dict[str, object]:
@@ -39,7 +39,7 @@ class BenchmarkRoute:
                 "route": self.aggregator_route,
             },
             "tools": list(self.tools),
-            "max_tool_rounds": self.max_tool_rounds,
+            "max_tool_calls": self.max_tool_calls,
         }
 
 

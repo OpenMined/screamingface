@@ -73,7 +73,7 @@ class Benchmark:
     grader: Grader
     aggregator: Aggregator
     tools: tuple[Tool, ...]
-    max_tool_rounds: int | None
+    max_tool_calls: int | None
     _case_source: tuple[Case, ...] | CaseProducer | None = field(repr=False)
     _cases_route: str | None = field(repr=False)
     _grader_route: str | None = field(repr=False)
@@ -88,7 +88,7 @@ class Benchmark:
         title: str | None = None,
         aggregator: Aggregator | None = None,
         tools: Sequence[Tool] = (),
-        max_tool_rounds: int | None = None,
+        max_tool_calls: int | None = None,
     ) -> None:
         benchmark_id = _nonempty(id, "benchmark id")
         if not isinstance(grader, Grader):
@@ -111,8 +111,8 @@ class Benchmark:
         object.__setattr__(self, "tools", selected_tools)
         object.__setattr__(
             self,
-            "max_tool_rounds",
-            _tool_rounds(max_tool_rounds, has_tools=bool(selected_tools)),
+            "max_tool_calls",
+            _tool_calls(max_tool_calls, has_tools=bool(selected_tools)),
         )
         object.__setattr__(self, "_case_source", source)
         object.__setattr__(self, "_cases_route", None)
@@ -131,7 +131,7 @@ class Benchmark:
         aggregator: Aggregator,
         aggregator_route: str,
         tools: Sequence[Tool] = (),
-        max_tool_rounds: int | None = None,
+        max_tool_calls: int | None = None,
     ) -> Benchmark:
         """Construct one immutable engine-advertised benchmark manifest."""
 
@@ -149,8 +149,8 @@ class Benchmark:
         object.__setattr__(value, "tools", selected_tools)
         object.__setattr__(
             value,
-            "max_tool_rounds",
-            _tool_rounds(max_tool_rounds, has_tools=bool(selected_tools)),
+            "max_tool_calls",
+            _tool_calls(max_tool_calls, has_tools=bool(selected_tools)),
         )
         object.__setattr__(value, "_case_source", None)
         object.__setattr__(value, "_cases_route", _route(cases_route, "benchmark cases route"))
@@ -195,13 +195,13 @@ def _validate_cases(values: Sequence[Case]) -> tuple[Case, ...]:
     return cases
 
 
-def _tool_rounds(value: int | None, *, has_tools: bool) -> int | None:
+def _tool_calls(value: int | None, *, has_tools: bool) -> int | None:
     if not has_tools:
         if value is not None:
-            raise ValueError("max_tool_rounds must be None for a tool-free benchmark")
+            raise ValueError("max_tool_calls must be None for a tool-free benchmark")
         return None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise ValueError("max_tool_rounds is required and must be a positive integer")
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 32:
+        raise ValueError("max_tool_calls is required and must be a positive integer from 1 to 32")
     return value
 
 

@@ -38,7 +38,8 @@ The current reproduction configuration contains **16 candidates over the same 10
 
 - 7 solo Models;
 - 9 model-reduced Fusions;
-- Tavily `web_search` and `web_fetch`, with at most 12 model/tool rounds, on answer-producing calls;
+- provider-neutral `web_search` and `web_fetch`, with at most 12 tool calls, on answer-producing
+  calls;
 - tool-free synthesis calls;
 - the official DRACO rubric grader, including 5 independent judge passes per criterion; and
 - one DRACO aggregation per candidate.
@@ -101,74 +102,74 @@ def synth(model: str) -> sf.Reducer:
 
 
 # Seven solo candidates. Reusing an object inside a Fusion shares it within that candidate graph.
-fable = solo("anthropic/claude-fable-5", "claude-fable-5")
-opus = solo("anthropic/claude-opus-4.8", "claude-opus-4.8")
-gpt = solo("openai/gpt-5.5", "gpt-5.5")
-gemini_pro = solo("google/gemini-3.1-pro-preview", "gemini-3.1-pro")
-gemini_flash = solo("google/gemini-3-flash-preview", "gemini-3-flash")
-kimi = solo("moonshotai/kimi-k2.6", "kimi-k2.6")
-deepseek = solo("deepseek/deepseek-v4-pro", "deepseek-v4-pro")
+fable = solo("openrouter/anthropic/claude-fable-5", "claude-fable-5")
+opus = solo("openrouter/anthropic/claude-opus-4.8", "claude-opus-4.8")
+gpt = solo("openrouter/openai/gpt-5.5", "gpt-5.5")
+gemini_pro = solo("openrouter/google/gemini-3.1-pro-preview", "gemini-3.1-pro")
+gemini_flash = solo("openrouter/google/gemini-3-flash-preview", "gemini-3-flash")
+kimi = solo("openrouter/moonshotai/kimi-k2.6", "kimi-k2.6")
+deepseek = solo("openrouter/deepseek/deepseek-v4-pro", "deepseek-v4-pro")
 
 # Fusion-only leaf.
-qwen = solo("qwen/qwen3.6-plus", "qwen-3.6-plus")
+qwen = solo("openrouter/qwen/qwen3.6-plus", "qwen-3.6-plus")
 
 fable_plus_gpt = sf.Fusion(
     "fable-plus-gpt",
     members=[fable, gpt],
-    reducer=synth("anthropic/claude-opus-4.8"),
+    reducer=synth("openrouter/anthropic/claude-opus-4.8"),
 )
 frontier_trio = sf.Fusion(
     "frontier-trio",
     members=[opus, gpt, gemini_pro],
-    reducer=synth("anthropic/claude-opus-4.8"),
+    reducer=synth("openrouter/anthropic/claude-opus-4.8"),
 )
 opus_plus_gpt = sf.Fusion(
     "opus-plus-gpt",
     members=[opus, gpt],
-    reducer=synth("anthropic/claude-opus-4.8"),
+    reducer=synth("openrouter/anthropic/claude-opus-4.8"),
 )
 opus_self_fusion = sf.Fusion(
     "opus-self-fusion",
     members=[
         sf.Model(
-            "anthropic/claude-opus-4.8",
+            "openrouter/anthropic/claude-opus-4.8",
             name="opus-sample-1",
             prompt=DRACO_ANSWER_PROMPT,
             params={"temperature": 0.7, "max_tokens": 8192},
         ),
         sf.Model(
-            "anthropic/claude-opus-4.8",
+            "openrouter/anthropic/claude-opus-4.8",
             name="opus-sample-2",
             prompt=DRACO_ANSWER_PROMPT,
             params={"temperature": 0.7, "max_tokens": 8192},
         ),
     ],
-    reducer=synth("anthropic/claude-opus-4.8"),
+    reducer=synth("openrouter/anthropic/claude-opus-4.8"),
 )
 budget_trio = sf.Fusion(
     "budget-trio",
     members=[gemini_flash, kimi, deepseek],
-    reducer=synth("anthropic/claude-opus-4.8"),
+    reducer=synth("openrouter/anthropic/claude-opus-4.8"),
 )
 beat_runner_up = sf.Fusion(
     "beat-runner-up",
     members=[opus, gpt, deepseek],
-    reducer=synth("anthropic/claude-opus-4.8"),
+    reducer=synth("openrouter/anthropic/claude-opus-4.8"),
 )
 pareto_cross = sf.Fusion(
     "pareto-cross",
     members=[deepseek, kimi, gpt],
-    reducer=synth("deepseek/deepseek-v4-pro"),
+    reducer=synth("openrouter/deepseek/deepseek-v4-pro"),
 )
 pareto_lean = sf.Fusion(
     "pareto-lean",
     members=[deepseek, kimi],
-    reducer=synth("deepseek/deepseek-v4-pro"),
+    reducer=synth("openrouter/deepseek/deepseek-v4-pro"),
 )
 best_open_source = sf.Fusion(
     "best-open-source",
     members=[deepseek, kimi, qwen],
-    reducer=synth("deepseek/deepseek-v4-pro"),
+    reducer=synth("openrouter/deepseek/deepseek-v4-pro"),
 )
 
 candidates = (
@@ -236,14 +237,15 @@ structural URL4 composition; the per-case candidate graph itself is a flat order
 (
   /benchmarks/draco/1/cases*(
     question=$item.input,
-    member_1=/anthropic/claude-opus-4.8
+    member_1=/openrouter/anthropic/claude-opus-4.8
       ?temperature=0&max_tokens=8192
-      &tools=web_search:web_fetch&max_tool_rounds=12
+      &tools=web_search:web_fetch&tools.max_calls=12
+      &web_search.max_results=5
       ($question)!'Answer the research question completely.',
     recipe_result={
       schema:'screamingface.recipe-result.v1',
       members:{
-        member_1:{model:'anthropic/claude-opus-4.8',answer:'$member_1'}
+        member_1:{model:'openrouter/anthropic/claude-opus-4.8',answer:'$member_1'}
       },
       answer:'$member_1'
     },
@@ -272,19 +274,19 @@ context.
 (
   /benchmarks/draco/1/cases*(
     question=$item.input,
-    member_1=/anthropic/claude-opus-4.8
+    member_1=/openrouter/anthropic/claude-opus-4.8
       ?temperature=0&max_tokens=8192
-      &tools=web_search:web_fetch&max_tool_rounds=12
+      &tools=web_search:web_fetch&tools.max_calls=12&web_search.max_results=5
       ($question)!'Answer the research question completely.',
-    member_2=/openai/gpt-5.5
+    member_2=/openrouter/openai/gpt-5.5
       ?temperature=0&max_tokens=8192
-      &tools=web_search:web_fetch&max_tool_rounds=12
+      &tools=web_search:web_fetch&tools.max_calls=12&web_search.max_results=5
       ($question)!'Answer the research question completely.',
-    member_3=/google/gemini-3.1-pro-preview
+    member_3=/openrouter/google/gemini-3.1-pro-preview
       ?temperature=0&max_tokens=8192
-      &tools=web_search:web_fetch&max_tool_rounds=12
+      &tools=web_search:web_fetch&tools.max_calls=12&web_search.max_results=5
       ($question)!'Answer the research question completely.',
-    recipe_answer=/anthropic/claude-opus-4.8
+    recipe_answer=/openrouter/anthropic/claude-opus-4.8
       ?temperature=0&max_tokens=8192
       (
         Question: $question
@@ -296,9 +298,9 @@ context.
     recipe_result={
       schema:'screamingface.recipe-result.v1',
       members:{
-        member_1:{model:'anthropic/claude-opus-4.8',answer:'$member_1'},
-        member_2:{model:'openai/gpt-5.5',answer:'$member_2'},
-        member_3:{model:'google/gemini-3.1-pro-preview',answer:'$member_3'}
+        member_1:{model:'openrouter/anthropic/claude-opus-4.8',answer:'$member_1'},
+        member_2:{model:'openrouter/openai/gpt-5.5',answer:'$member_2'},
+        member_3:{model:'openrouter/google/gemini-3.1-pro-preview',answer:'$member_3'}
       },
       answer:'$recipe_answer'
     },
@@ -344,10 +346,10 @@ Each candidate request returns `text/plain` containing one strictly validated re
   "baseline": 0.61,
   "gain": 0.05,
   "members": {
-    "member_1": {"model": "anthropic/claude-opus-4.8", "score": 0.61, "metrics": {}},
-    "member_2": {"model": "openai/gpt-5.5", "score": 0.58, "metrics": {}},
+    "member_1": {"model": "openrouter/anthropic/claude-opus-4.8", "score": 0.61, "metrics": {}},
+    "member_2": {"model": "openrouter/openai/gpt-5.5", "score": 0.58, "metrics": {}},
     "member_3": {
-      "model": "google/gemini-3.1-pro-preview",
+      "model": "openrouter/google/gemini-3.1-pro-preview",
       "score": 0.57,
       "metrics": {}
     }
@@ -370,7 +372,7 @@ ScreamingFace engine profile and benchmark implementation:
 - register the pinned DRACO cases route;
 - implement and verify the exact rubric-judge protocol and five passes;
 - register the final model/provider routes;
-- apply the Tavily search/fetch policy used by the reproduction;
+- apply the versioned provider-neutral search/fetch policy used by the reproduction;
 - return usage, failure, and coverage telemetry; and
 - run the production candidate set to validate result parity.
 

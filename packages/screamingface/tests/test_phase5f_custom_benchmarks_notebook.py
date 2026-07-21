@@ -99,9 +99,9 @@ def test_custom_benchmarks_notebook_keeps_loading_and_tools_at_the_right_boundar
     assert "def load_cases():" in markdown
     assert "read_my_source()" in markdown
     assert "Researcher-owned loading and cleaning" in markdown
-    assert "sf.tools.TavilySearch(max_results=5)" in markdown
-    assert "sf.tools.TavilyExtract()" in markdown
-    assert "max_tool_rounds=8" in markdown
+    assert "sf.tools.WebSearch(max_results=5)" in markdown
+    assert "sf.tools.WebFetch()" in markdown
+    assert "max_tool_calls=8" in markdown
     assert "every answer-producing member" in markdown
     assert "ScreamingFace starts at validated `sf.Case` values" in markdown
     assert "reference never enters a model request" in markdown

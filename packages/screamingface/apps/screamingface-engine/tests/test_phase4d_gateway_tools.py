@@ -7,6 +7,7 @@ import pytest
 from model_fixtures import MODEL_ROUTES
 from url4 import ResolutionError
 
+from screamingface_engine.catalog import ModelRoute
 from screamingface_engine.gateway import GatewayClient, ToolCall
 
 
@@ -75,6 +76,45 @@ async def test_gateway_turn_preserves_standard_tool_calls_and_messages() -> None
             "tools": list(tools),
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_gateway_accepts_completed_openrouter_managed_tool_records() -> None:
+    model = ModelRoute(
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter",
+        ("web_search", "web_fetch"),
+        "openrouter",
+    )
+    gateway = GatewayClient(
+        "http://gateway.test",
+        timeout=5,
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "Final answer with sources.",
+                                "tool_calls": [
+                                    {
+                                        "id": "search-1",
+                                        "type": "openrouter:web_search",
+                                    }
+                                ],
+                            }
+                        }
+                    ]
+                },
+            )
+        ),
+    )
+    turn = await gateway.turn(model, messages=[], params={}, tools=())
+    await gateway.aclose()
+    assert turn.content == "Final answer with sources."
+    assert turn.tool_calls == ()
 
 
 @pytest.mark.asyncio

@@ -59,7 +59,12 @@ async def test_gemini_route_maps_exact_request_and_keeps_calls_independent() -> 
     await gateway.aclose()
 
     model_record = next(model for model in registry["models"] if model["id"] == PUBLIC_MODEL)
-    assert model_record == {"id": PUBLIC_MODEL, "provider": "gemini", "supported_tools": []}
+    assert model_record == {
+        "id": PUBLIC_MODEL,
+        "provider": "gemini",
+        "supported_tools": [],
+        "required_connections": [],
+    }
     assert [response.status_code for response in responses] == [200, 200, 200]
     assert [response.headers["content-type"] for response in responses] == [
         "text/plain; charset=utf-8"

@@ -11,7 +11,7 @@ from screamingface.benchmark import Benchmark
 from screamingface.errors import UnknownBenchmarkError
 from screamingface.graders import ExactChoice
 from screamingface.models import _filters, _limit, _query
-from screamingface.tools import TavilyExtract, TavilySearch, Tool
+from screamingface.tools import Tool, WebFetch, WebSearch
 
 
 def list(
@@ -58,7 +58,7 @@ def _benchmark(record: BenchmarkRecord) -> Benchmark:
         aggregator=Mean(),
         aggregator_route=record.aggregator.route,
         tools=_tools(record.tools),
-        max_tool_rounds=record.max_tool_rounds,
+        max_tool_calls=record.max_tool_calls,
     )
 
 
@@ -66,9 +66,9 @@ def _tools(ids: tuple[str, ...]) -> tuple[Tool, ...]:
     values: builtins.list[Tool] = []
     for tool_id in ids:
         if tool_id == "web_search":
-            values.append(TavilySearch())
+            values.append(WebSearch())
         elif tool_id == "web_fetch":
-            values.append(TavilyExtract())
+            values.append(WebFetch())
         else:
             raise ValueError(f"unsupported benchmark tool {tool_id!r}")
     return tuple(values)

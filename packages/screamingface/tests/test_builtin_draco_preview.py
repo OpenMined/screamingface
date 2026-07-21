@@ -54,8 +54,8 @@ def test_preview_uses_real_cases_with_one_real_positive_criterion(
 
     assert benchmark.id == "draco-preview@1"
     assert benchmark.title == "DRACO Preview"
-    assert benchmark.tools == (sf.tools.TavilySearch(), sf.tools.TavilyExtract())
-    assert benchmark.max_tool_rounds == 12
+    assert benchmark.tools == (sf.tools.WebSearch(), sf.tools.WebFetch())
+    assert benchmark.max_tool_calls == 12
     assert isinstance(benchmark.grader, sf.graders.Rubric)
     assert benchmark.grader.model == "gemini/2.5-flash"
     assert benchmark.grader.passes == 1

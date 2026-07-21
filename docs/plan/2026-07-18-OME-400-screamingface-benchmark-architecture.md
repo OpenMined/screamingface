@@ -24,8 +24,8 @@ Researcher Python
     benchmark cases, slice, Recipe execution, grading, aggregation
       |                    |                         |
       v                    v                         v
-  AI Gateway           Tavily API          canonical dataset source
-  model calls          named tools         (GPQA: Hugging Face)
+  AI Gateway       route-selected tools    canonical dataset source
+  model calls      OpenRouter or Tavily     (GPQA: Hugging Face)
 ```
 
 Load-bearing rules:
@@ -34,7 +34,8 @@ Load-bearing rules:
 - A complete benchmark run is one URL4 expression and one engine request.
 - The engine owns benchmark case loading, slicing, model/reducer execution, grading, and
   aggregation.
-- Only engine model routes contact AI Gateway; only engine tool adapters contact Tavily.
+- Only engine model routes contact AI Gateway. Tool policy is provider-neutral; the engine maps
+  OpenRouter routes to managed server tools and verified Hugging Face routes to Tavily.
 - GPQA rows and answer keys are not bundled in the SDK or engine image.
 - `HF_TOKEN` is an engine dataset credential and never appears in URL4 or AI Gateway traffic.
 - The SDK has no mock engine, in-process runtime, direct Gateway client, or legacy case loop.
@@ -89,7 +90,8 @@ schemas, and the request-target limit. The GPQA v1 execution graph uses:
 
 The persistent `Url4Node` registers these routes in-process. Model routes map URL4 context to the
 user message, intent to the system message, and validated params to AI Gateway. Tool-enabled model
-requests use engine-owned Tavily adapters and an explicit round bound.
+requests use `tools.max_calls` plus portable `web_search.*` policy. The route selects
+OpenRouter-managed tools or the engine-owned Tavily adapter.
 
 GPQA's cases route returns NDJSON so URL4 iteration exposes structured `$item` fields. The grader
 receives the resolved Recipe result as context and sealed case metadata as intent. The aggregator
@@ -113,8 +115,8 @@ use stable positional IDs such as `row_2`. This is explicit rather than guessing
 
 ## Credentials
 
-- Provider and Tavily connections travel SDK → ScreamingFace engine → owning service. The SDK
-  never talks directly to AI Gateway or Tavily.
+- Provider and route-required tool connections travel SDK → ScreamingFace engine → owning service.
+  The SDK never talks directly to AI Gateway, OpenRouter, or Tavily.
 - The local connection control plane is loopback-only. A future hosted control plane requires
   authenticated user scoping before exposure.
 - `HF_TOKEN` is passed to the local engine process for gated benchmark data. The Hugging Face
@@ -143,7 +145,7 @@ use stable positional IDs such as `row_2`. This is explicit rather than guessing
 - uploads or remote registration for researcher-authored benchmarks; and
 - retries, persistence, resume, billing, or leaderboard publication.
 
-DRACO should not be advertised until its cases, exact grader protocol, model routes, Tavily policy,
+DRACO should not be advertised until its cases, exact grader protocol, model routes, web-tool policy,
 and production configuration are registered and verified end to end. URL4 settlement is not an MVP
 blocker: each DRACO candidate is already representable as one independently reproducible benchmark
 URL4.

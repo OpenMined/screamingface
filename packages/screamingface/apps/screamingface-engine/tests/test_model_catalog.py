@@ -40,6 +40,9 @@ def test_gateway_catalog_forwards_every_supported_provider_model_in_order() -> N
     ]
     assert routes[0].tool_capabilities == ()
     assert routes[1].tool_capabilities == ()
+    assert routes[-1].tool_capabilities == ("web_search", "web_fetch")
+    assert routes[-1].tool_backend == "openrouter"
+    assert routes[-1].required_connections == ()
 
 
 @pytest.mark.parametrize(

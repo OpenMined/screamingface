@@ -37,7 +37,7 @@ def _benchmark(*, tools: tuple[sf.tools.Tool, ...] = ()) -> sf.Benchmark:
         aggregator=sf.aggregators.Mean(),
         aggregator_route="/aggregators/mean/1",
         tools=tools,
-        max_tool_rounds=8 if tools else None,
+        max_tool_calls=8 if tools else None,
     )
 
 
@@ -305,7 +305,7 @@ def test_manifest_and_capability_preflight_are_strict() -> None:
     with pytest.raises(sf.UnknownModelError):
         execution._preflight(recipe, benchmark, _registry(models=(ModelRecord("x", (), "codex"),)))
 
-    tool_benchmark = _benchmark(tools=(sf.tools.TavilySearch(),))
+    tool_benchmark = _benchmark(tools=(sf.tools.WebSearch(),))
     with pytest.raises(sf.UnsupportedToolError, match="web_search"):
         execution._preflight(recipe, tool_benchmark, _registry())
 

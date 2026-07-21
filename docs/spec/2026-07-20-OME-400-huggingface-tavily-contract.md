@@ -7,6 +7,10 @@ date: 2026-07-20
 
 # ScreamingFace Hugging Face and Tavily contract
 
+> Historical phase contract. Its public Tavily-specific SDK and URL4 policy were superseded by
+> `2026-07-21-OME-400-provider-neutral-web-tools.md`. The engine-owned Tavily credential and
+> Hugging Face agent-loop internals remain applicable.
+
 ## 1. Decision and ownership
 
 ScreamingFace supports research-capable Hugging Face Inference models by composing two independent

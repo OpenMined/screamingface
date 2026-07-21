@@ -16,6 +16,7 @@ def _registry() -> Registry:
                 "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",
                 ("web_search", "web_fetch"),
                 "huggingface",
+                ("tavily",),
             ),
         ),
         reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote/1"),),
@@ -37,8 +38,8 @@ def _benchmark() -> sf.Benchmark:
         "research@1",
         cases=[sf.Case("one", "Question", reference="A")],
         grader=sf.graders.ExactChoice(),
-        tools=(sf.tools.TavilySearch(), sf.tools.TavilyExtract()),
-        max_tool_rounds=12,
+        tools=(sf.tools.WebSearch(), sf.tools.WebFetch()),
+        max_tool_calls=12,
     )
 
 
@@ -95,3 +96,26 @@ def test_connection_error_lists_tavily_without_calling_it_a_model(
     assert captured.value.roles == ("tool",)
     assert "required connection" in str(captured.value)
     assert "sf.connect('tavily', api_key=...)" in str(captured.value)
+
+
+def test_openrouter_managed_tools_do_not_require_tavily() -> None:
+    registry = Registry(
+        models=(
+            ModelRecord(
+                "openrouter/google/gemini-3.1-pro-preview",
+                ("web_search", "web_fetch"),
+                "openrouter",
+                (),
+            ),
+        ),
+        reducers=(ReducerRecord("majority_vote", "/reducers/majority-vote/1"),),
+        response_schemas=("screamingface.recipe-result.v1", "screamingface.report.v1"),
+        max_request_target_bytes=61_440,
+        providers=(
+            ProviderRecord("openrouter", "OpenRouter", ("api_key",)),
+            ProviderRecord("tavily", "Tavily", ("api_key",)),
+        ),
+    )
+    recipe = sf.Model("openrouter/google/gemini-3.1-pro-preview")
+    requirements = run_requirements(recipe, _benchmark(), registry)
+    assert [(item.provider, item.role) for item in requirements] == [("openrouter", "member")]

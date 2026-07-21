@@ -901,7 +901,7 @@ Separated atomic and composite authoring while retaining one shared execution in
 - `sf.Model(model, name=None, prompt=None, params=None)` is an atomic Recipe;
 - `sf.Fusion(name, members=[...], reducer=...)` is a composite Recipe;
 - member strings are concise default-Model shorthand and normalize to `sf.Model` values;
-- Models and Fusions both expose `.url4`, `.run(...)`, and `.evaluate(...)`;
+- Models and Fusions expose `.url4`; loaded Benchmarks own `.evaluate(candidate, ...)`;
 - execution records use neutral `recipe_name`, `recipe_url4`, and `CaseGrades.recipe` fields;
 - plaintext engine results use `screamingface.recipe-result.v1`; and
 - there are no atomic-Fusion, `inputs=`, `FusionMonster`, or top-level execution fallbacks.
@@ -909,3 +909,22 @@ Separated atomic and composite authoring while retaining one shared execution in
 “Fusion monster” remains optional product language for a substantial nested Fusion; it is not an
 SDK type. Importing a ScreamingFace-generated URL4 back into an editable Recipe remains the
 explicit OME-408 round-trip phase rather than an incomplete compatibility path in this change.
+
+## Provider-neutral web tools — 2026-07-21
+
+Superseded the unreleased Tavily-specific authoring and wire contract:
+
+- researchers now use `sf.tools.WebSearch(...)`, `sf.tools.WebFetch()`, and
+  `max_tool_calls=<n>`;
+- URL4 carries `tools=web_search:web_fetch`, `tools.max_calls`, and portable
+  `web_search.*` parameters, never a backend or credential;
+- OpenRouter model routes translate those capabilities to OpenRouter-managed server tools;
+- the two verified Hugging Face/DeepInfra routes translate the same request into the existing
+  engine-owned Tavily agent loop;
+- model registry records advertise `required_connections`, allowing the SDK to require Tavily
+  only for routes that actually use it; and
+- AI Gateway remains unchanged and the SDK still never contacts it directly.
+
+The current contract is recorded in
+`docs/spec/2026-07-21-OME-400-provider-neutral-web-tools.md`. Earlier Phase 9B sections remain
+historical implementation notes, not current public API.

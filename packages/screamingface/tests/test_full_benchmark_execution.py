@@ -23,8 +23,18 @@ def _registry_response() -> httpx.Response:
             {"id": "gemini", "display_name": "Gemini", "auth_methods": ["api_key"]},
         ],
         "models": [
-            {"id": "codex/gpt-5.5", "provider": "codex", "supported_tools": []},
-            {"id": "gemini/2.5", "provider": "gemini", "supported_tools": []},
+            {
+                "id": "codex/gpt-5.5",
+                "provider": "codex",
+                "supported_tools": [],
+                "required_connections": [],
+            },
+            {
+                "id": "gemini/2.5",
+                "provider": "gemini",
+                "supported_tools": [],
+                "required_connections": [],
+            },
         ],
         "benchmarks": [
             {
@@ -34,7 +44,7 @@ def _registry_response() -> httpx.Response:
                 "grader": {"kind": "exact_choice", "route": "/graders/exact-choice/1"},
                 "aggregator": {"kind": "mean", "route": "/aggregators/mean/1"},
                 "tools": [],
-                "max_tool_rounds": None,
+                "max_tool_calls": None,
             }
         ],
         "reducers": [

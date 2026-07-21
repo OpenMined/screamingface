@@ -38,7 +38,7 @@ def tool_ids(values: Sequence[str], *, label: str = "tools") -> tuple[str, ...]:
 def encoded_tools(values: Sequence[str]) -> str:
     """Encode ordered capabilities for URL4's scalar query-parameter surface."""
 
-    return "+".join(tool_ids(values))
+    return ":".join(tool_ids(values))
 
 
 __all__ = ["TOOL_PARAMETER", "encoded_tools", "tool_id", "tool_ids"]

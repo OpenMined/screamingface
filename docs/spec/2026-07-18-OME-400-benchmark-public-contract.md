@@ -3,10 +3,15 @@ title: ScreamingFace benchmark public contract
 ticket: OME-400
 status: approved
 date: 2026-07-18
-last_updated: 2026-07-20
+last_updated: 2026-07-21
 ---
 
 # ScreamingFace benchmark public contract
+
+> Historical design ledger. The current runtime contract is
+> `2026-07-21-OME-400-full-run-url4-contract.md`; the current tool contract is
+> `2026-07-21-OME-400-provider-neutral-web-tools.md`. Later sections in this file preserve design
+> decisions and superseded phases and are not compatibility requirements.
 
 ## 1. Decision
 
@@ -375,18 +380,16 @@ The mapping is deliberately typed and allowlisted:
 - `temperature` parses as a finite float;
 - `max_tokens` parses as a positive integer;
 - `reasoning` maps to AI Gateway's `reasoning_effort` field;
-- `tools=web_search+web_fetch` names engine-owned capabilities rather than being forwarded as an
-  arbitrary provider payload; and
+- `tools=web_search:web_fetch` names engine-owned capabilities rather than exposing a backend;
 - unknown parameters, malformed values, and unsupported tools fail before Gateway traffic.
 
 The registry may advertise `web_search` for a model only when that route has a working named-tool
 adapter. Otherwise SDK preflight must reject a benchmark that requires it.
 
-The development Compose profile advertises both tools only on the two verified DeepInfra-pinned HF
-worker routes. Gemini 3 remains tool-free until AI Gateway preserves its mandatory
-`thoughtSignature` across function-calling turns. The profile publishes only AI Gateway-registered
-Gemini model routes; canonical `draco@1` therefore fails model preflight until its pinned
-`gemini/3.1-pro-preview` judge is officially available.
+The development profile advertises both tools on OpenRouter models and on the two verified
+DeepInfra-pinned Hugging Face worker routes. Each model registry record also advertises any
+additional connection needed by its backend. OpenRouter-managed tools require no extra
+connection; the Hugging Face agent loop requires Tavily.
 
 For a successful non-streaming response, the handler validates
 `choices[0].message.content`, requires string content, and returns that string only. URL4 therefore
@@ -398,13 +401,14 @@ The process owns one reusable asynchronous AI Gateway client. Route handlers do 
 new client, launch a subprocess, or start another server. The application closes the Gateway
 client and node resources during ASGI shutdown.
 
-For `tools=web_search+web_fetch`, the engine sends standard function schemas to AI Gateway and
-preserves assistant tool calls and tool-result messages between turns. It independently validates
-the complete scalar Tavily policy before spend, executes emitted calls directly through Tavily in
-order, and bounds calls, rounds, raw bodies, and normalized results. Invalid model-emitted
-arguments become safe tool output so the model can correct them; malformed request policy and
-missing Tavily fail before Gateway traffic. The SDK never contacts Tavily and credentials never
-enter URL4 or model messages.
+For `tools=web_search:web_fetch`, the engine validates one provider-neutral scalar policy and then
+uses the route's backend. OpenRouter routes receive `openrouter:web_search` and
+`openrouter:web_fetch` server-tool declarations in their AI Gateway request. Supported Hugging
+Face routes receive standard function schemas; the engine preserves assistant tool calls and
+tool-result messages between turns and executes them through Tavily. Invalid model-emitted
+arguments become safe tool output so the model can correct them. Malformed policy, unsupported
+routes, and missing route-specific connections fail before model spend. The SDK never contacts
+AI Gateway, OpenRouter, or Tavily directly, and credentials never enter URL4 or model messages.
 
 ### 5.2 Application-owned ASGI lifecycle
 
@@ -488,10 +492,10 @@ sf.Benchmark(
     grader=sf.graders.Rubric(...),
     aggregator=sf.aggregators.Mean(),
     tools=(
-        sf.tools.TavilySearch(max_results=5),
-        sf.tools.TavilyExtract(),
+        sf.tools.WebSearch(max_results=5),
+        sf.tools.WebFetch(),
     ),
-    max_tool_rounds=12,
+    max_tool_calls=12,
 )
 ```
 
@@ -506,7 +510,7 @@ Benchmark(
     title: str | None = None,
     aggregator: Aggregator = aggregators.Mean(),
     tools: Sequence[sf.tools.Tool] = (),
-    max_tool_rounds: int | None = None,
+    max_tool_calls: int | None = None,
 )
 ```
 
@@ -515,10 +519,10 @@ Benchmark(
 Benchmark is network-free to construct, but running it still requires the configured engine for
 model work.
 
-Benchmark `tools` are immutable typed request policies. Phase 9B.3 supports
-`sf.tools.TavilySearch` and `sf.tools.TavilyExtract`; untyped strings and arbitrary parameter
-dictionaries are rejected. Tool-enabled benchmarks require an explicit positive
-`max_tool_rounds`, while a tool-free benchmark must leave it `None`.
+Benchmark `tools` are immutable, provider-neutral request policies. The public values are
+`sf.tools.WebSearch` and `sf.tools.WebFetch`; untyped strings, backend names, credentials, and
+arbitrary parameter dictionaries are rejected. Tool-enabled benchmarks require an explicit
+positive `max_tool_calls`, while a tool-free benchmark must leave it `None`.
 
 The compiler adds the policy only to answer-producing Model member routes. Reducers, model
 synthesizers, and graders do not inherit it. Registry and discovery boundaries continue to use
@@ -639,11 +643,12 @@ same template.
 For execution, the SDK adds one literal `question` binding to the template. Dollar signs in case
 input are escaped as URL4 literal data; dollar references in researcher-authored prompt templates
 remain active. It also adds the selected Benchmark's complete typed tool policy only to each
-answer-producing member. Tool IDs render as `tools=web_search+web_fetch`; the explicit loop bound
-renders as `max_tool_rounds=12`; Tavily request fields render as stable scalar
-`tavily.search.*`/`tavily.extract.*` parameters. Repeated domains use numbered keys such as
-`tavily.search.exclude_domain.1`. Defaults are serialized explicitly and `None` fields are omitted,
-so the concrete expression records behavior without carrying credentials. Neither the
+answer-producing member. Tool IDs render as `tools=web_search:web_fetch`; the explicit call budget
+renders as `tools.max_calls=12`; portable search fields render as stable scalar
+`web_search.*` parameters. Repeated domains use numbered keys such as
+`web_search.exclude_domain.1`. The engine resolves this policy through the route's declared
+backend: OpenRouter-managed tools for OpenRouter models or the engine's Tavily loop for supported
+Hugging Face models. The expression records behavior without carrying credentials. Neither the
 benchmark-independent stored recipe nor any reducer or judge call inherits this overlay.
 
 One selected case produces one complete URL4 expression containing the question binding, panel
@@ -653,13 +658,11 @@ fan-out, reducer, and final result structure. Conceptually:
 (
   question='<resolved case input>',
 
-  member_1=/hf/deepseek-v3?tools=web_search+web_fetch&max_tool_rounds=12
-    &tavily.search.search_depth=basic&tavily.search.max_results=5
-    &tavily.extract.extract_depth=basic&tavily.extract.format=markdown
+  member_1=/hf/deepseek-v3?tools=web_search:web_fetch&tools.max_calls=12
+    &web_search.max_results=5
     &q=($question)!'Build the evidence case',
-  member_2=/hf/glm-4?tools=web_search+web_fetch&max_tool_rounds=12
-    &tavily.search.search_depth=basic&tavily.search.max_results=5
-    &tavily.extract.extract_depth=basic&tavily.extract.format=markdown
+  member_2=/hf/glm-4?tools=web_search:web_fetch&tools.max_calls=12
+    &web_search.max_results=5
     &q=($question)!'Challenge the evidence case',
 
   member_answers={

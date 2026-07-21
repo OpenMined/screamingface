@@ -33,6 +33,7 @@ class ModelRecord:
     id: str
     supported_tools: tuple[str, ...]
     provider: str
+    required_connections: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +56,7 @@ class BenchmarkRecord:
     grader: StrategyRecord
     aggregator: StrategyRecord
     tools: tuple[str, ...]
-    max_tool_rounds: int | None
+    max_tool_calls: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,10 +105,7 @@ def load_registry() -> Registry:
         _unique((record.id for record in reducers), "reducer")
         provider_ids = {record.id for record in providers}
         for model in models:
-            if model.provider not in provider_ids:
-                raise ValueError(
-                    f"model {model.id!r} references unknown provider {model.provider!r}"
-                )
+            _validate_model_connections(model, provider_ids)
         if RECIPE_RESULT_SCHEMA not in response_schemas:
             raise ValueError(f"missing response schema {RECIPE_RESULT_SCHEMA!r}")
         if REPORT_SCHEMA not in response_schemas:
@@ -115,6 +113,16 @@ def load_registry() -> Registry:
     except (KeyError, TypeError, ValueError) as exc:
         raise EngineProfileError(f"invalid engine registry: {exc}") from exc
     return Registry(models, reducers, response_schemas, limits, providers, benchmarks)
+
+
+def _validate_model_connections(model: ModelRecord, provider_ids: set[str]) -> None:
+    if model.provider not in provider_ids:
+        raise ValueError(f"model {model.id!r} references unknown provider {model.provider!r}")
+    unknown = set(model.required_connections) - provider_ids
+    if unknown:
+        raise ValueError(
+            f"model {model.id!r} references unknown required connection {sorted(unknown)[0]!r}"
+        )
 
 
 def _get_text(path: str) -> str:
@@ -137,7 +145,11 @@ def _json_object(body: str, label: str) -> dict[str, object]:
 
 
 def _model_record(payload: dict[str, object]) -> ModelRecord:
-    _exact_fields(payload, {"id", "provider", "supported_tools"}, "model record")
+    _exact_fields(
+        payload,
+        {"id", "provider", "supported_tools", "required_connections"},
+        "model record",
+    )
     return ModelRecord(
         _nonempty(payload["id"], "model ID"),
         tool_ids(
@@ -145,6 +157,10 @@ def _model_record(payload: dict[str, object]) -> ModelRecord:
             label="model supported_tools",
         ),
         _public_id(payload["provider"], "model provider"),
+        tuple(
+            _public_id(value, "model required connection")
+            for value in _string_list(payload["required_connections"], "model required_connections")
+        ),
     )
 
 
@@ -181,7 +197,7 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
             "grader",
             "aggregator",
             "tools",
-            "max_tool_rounds",
+            "max_tool_calls",
         },
         "benchmark record",
     )
@@ -189,16 +205,18 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
         _string_list(payload["tools"], "benchmark tools"),
         label="benchmark tools",
     )
-    max_tool_rounds = payload["max_tool_rounds"]
+    max_tool_calls = payload["max_tool_calls"]
     if tools:
         if (
-            isinstance(max_tool_rounds, bool)
-            or not isinstance(max_tool_rounds, int)
-            or max_tool_rounds < 1
+            isinstance(max_tool_calls, bool)
+            or not isinstance(max_tool_calls, int)
+            or not 1 <= max_tool_calls <= 32
         ):
-            raise ValueError("tool-enabled benchmark max_tool_rounds must be a positive integer")
-    elif max_tool_rounds is not None:
-        raise ValueError("tool-free benchmark max_tool_rounds must be null")
+            raise ValueError(
+                "tool-enabled benchmark max_tool_calls must be a positive integer from 1 to 32"
+            )
+    elif max_tool_calls is not None:
+        raise ValueError("tool-free benchmark max_tool_calls must be null")
     return BenchmarkRecord(
         _nonempty(payload["id"], "benchmark ID"),
         _nonempty(payload["title"], "benchmark title"),
@@ -206,7 +224,7 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
         _strategy_record(payload["grader"], "benchmark grader"),
         _strategy_record(payload["aggregator"], "benchmark aggregator"),
         tools,
-        max_tool_rounds,
+        max_tool_calls,
     )
 
 

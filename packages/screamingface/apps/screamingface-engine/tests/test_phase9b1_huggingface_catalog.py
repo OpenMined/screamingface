@@ -42,6 +42,7 @@ def test_pinned_huggingface_model_gets_a_url4_safe_public_alias() -> None:
         gateway_model=GATEWAY_MODEL,
         provider="huggingface",
         tool_capabilities=("web_search", "web_fetch"),
+        tool_backend="tavily",
     )
     assert route.route == f"/{PUBLIC_MODEL}"
 
@@ -82,6 +83,7 @@ def test_verified_huggingface_registry_record_claims_tavily_tools() -> None:
             "id": PUBLIC_MODEL,
             "provider": "huggingface",
             "supported_tools": ["web_search", "web_fetch"],
+            "required_connections": ["tavily"],
         }
     ]
     providers = cast(list[object], registry["providers"])

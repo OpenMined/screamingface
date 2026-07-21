@@ -205,7 +205,8 @@ plaintext when it runs a Fusion; this cell performs those two steps visibly for 
 | URL4 graph execution | `screamingface-engine` / URL4 |
 | Provider calls | Engine through AI Gateway |
 | Provider credential control | SDK through engine to AI Gateway |
-| Web research | Engine directly through Tavily on verified HF routes |
+| Web research | Route-selected by the engine: OpenRouter managed tools or Tavily on verified HF
+routes |
 | Grading and aggregation | ScreamingFace engine routes inside URL4 |
 
 Model-backed graders call their judge route inside the same URL4 graph. The SDK never opens a

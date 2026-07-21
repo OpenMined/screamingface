@@ -9,9 +9,9 @@ date: 2026-07-20
 
 ## 1. Decision
 
-ScreamingFace owns a small model-provider connection UX over the configured
-`screamingface-engine`. The SDK never contacts AI Gateway or a model provider directly, and the
-engine never becomes another credential store:
+ScreamingFace owns a small connection UX over the configured `screamingface-engine`. The SDK never
+contacts AI Gateway or a model provider directly, and the engine does not duplicate
+model-provider credential storage:
 
 ```text
 ScreamingFace SDK
@@ -24,6 +24,10 @@ AI Gateway remains responsible for provider profiles, OAuth state, encrypted cre
 persistence, and provider dispatch. ScreamingFace presents stable public provider identities and
 sanitized connection state without exposing Gateway profile IDs, internal provider aliases, or
 credentials.
+
+The later provider-neutral web-tool contract adds one explicit local-engine exception: Tavily is
+an engine-owned tool-service credential, not a model-provider credential. See
+`2026-07-21-OME-400-provider-neutral-web-tools.md`.
 
 Connections are needed only by model-backed stages. Loading, inspecting, or modifying benchmark
 cases is independent of model-provider authentication.
@@ -278,15 +282,13 @@ contract need not change when hosted identity is added.
 Benchmark access is independent of model-provider connections:
 
 ```python
-benchmark = sf.benchmarks.load("gpqa@1")  # dataset access only
-run = fusion.run(benchmark)                # members + model reducer
-grades = run.grade()                       # model judge, if configured
-report = grades.aggregate()                # deterministic; no connection
+benchmark = sf.benchmarks.load("gpqa@1")  # manifest access only
+report = benchmark.evaluate(fusion, first=5)
 ```
 
-`Fusion.evaluate(...)` performs all stages, so it checks the union of member, model-reducer, and
-model-judge connections before model spend. This does not prevent a researcher from loading,
-inspecting, or reusing benchmark cases.
+`Benchmark.evaluate(...)` checks the union of member, model-reducer, model-judge, and
+route-required tool-service connections before model spend. This does not prevent a researcher
+from loading or reusing a benchmark manifest.
 
 Missing connections raise one `ConnectionRequiredError` before model requests. The error exposes
 structured provider, model, and role information and tells the user which `sf.connect(...)` call

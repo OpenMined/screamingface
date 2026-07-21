@@ -21,24 +21,8 @@ HF_GATEWAY_MODELS = (
 def _params() -> dict[str, str]:
     return {
         "tools": "web_search:web_fetch",
-        "max_tool_rounds": "3",
-        "tavily.search.search_depth": "basic",
-        "tavily.search.max_results": "5",
-        "tavily.search.topic": "general",
-        "tavily.search.include_answer": "false",
-        "tavily.search.include_raw_content": "false",
-        "tavily.search.include_images": "false",
-        "tavily.search.include_image_descriptions": "false",
-        "tavily.search.include_favicon": "false",
-        "tavily.search.auto_parameters": "false",
-        "tavily.search.exact_match": "false",
-        "tavily.search.include_usage": "false",
-        "tavily.search.safe_search": "false",
-        "tavily.extract.extract_depth": "basic",
-        "tavily.extract.include_images": "false",
-        "tavily.extract.include_favicon": "false",
-        "tavily.extract.format": "markdown",
-        "tavily.extract.include_usage": "false",
+        "tools.max_calls": "3",
+        "web_search.max_results": "5",
     }
 
 
@@ -50,6 +34,7 @@ def test_exact_verified_hf_pins_alone_advertise_tavily_tools() -> None:
         ("web_search", "web_fetch"),
         (),
     ]
+    assert [route.tool_backend for route in routes] == ["tavily", "tavily", None]
 
 
 def test_phase9b4_settings_use_long_evaluation_and_bounded_tavily_timeouts() -> None:
@@ -138,7 +123,7 @@ async def test_verified_hf_route_executes_gateway_tavily_gateway_as_plaintext() 
     assert response.headers["content-type"].startswith("text/plain")
     assert response.text == "Final"
     assert tavily_paths == ["/usage", "/search"]
-    assert "tavily.search.max_results" not in gateway_bodies[0]
+    assert "web_search.max_results" not in gateway_bodies[0]
     messages = gateway_bodies[1]["messages"]
     assert isinstance(messages, list)
     last_message = messages[-1]

@@ -14,7 +14,7 @@ from screamingface_engine.connection_contract import (
     ConnectionControlError,
     parse_unique_json_object,
 )
-from screamingface_engine.tool_policy import ExtractPolicy, SearchPolicy
+from screamingface_engine.tool_policy import FetchPolicy, SearchPolicy
 
 TAVILY_BASE_URL = "https://api.tavily.com"
 TAVILY_PROVIDER_ID = "tavily"
@@ -70,17 +70,17 @@ class TavilyService:
             self._api_key = None
 
     async def search(self, query: str, policy: SearchPolicy) -> dict[str, object]:
-        payload = await self._execute("/search", policy.request_body(query))
+        payload = await self._execute("/search", policy.tavily_request_body(query))
         return _search_result(payload, policy)
 
     async def extract(
         self,
         url: str,
-        policy: ExtractPolicy,
+        policy: FetchPolicy,
         *,
         query: str | None,
     ) -> dict[str, object]:
-        payload = await self._execute("/extract", policy.request_body(url, query=query))
+        payload = await self._execute("/extract", policy.tavily_request_body(url, query=query))
         return _extract_result(payload, policy, url)
 
     async def aclose(self) -> None:
@@ -269,26 +269,18 @@ def _search_result(payload: Mapping[str, object], policy: SearchPolicy) -> dict[
     for raw in raw_results[: policy.max_results]:
         if not isinstance(raw, Mapping):
             _invalid_response("Tavily search result is not an object")
-        result, clipped = _search_item(raw, policy)
+        result, clipped = _search_item(raw)
         truncated = truncated or clipped
         results.append(result)
-    answer, clipped = _optional_text(payload.get("answer"), 50_000, "answer")
-    truncated = truncated or clipped
     result_payload: dict[str, object] = {
-        "answer": answer if policy.include_answer else None,
+        "answer": None,
         "results": results,
     }
-    if policy.include_images:
-        images, clipped = _images(payload.get("images"), policy.include_image_descriptions)
-        result_payload["images"] = images
-        truncated = truncated or clipped
-    if policy.include_usage:
-        result_payload["usage"] = _usage(payload.get("usage"))
     result_payload["truncated"] = truncated
     return _fit(result_payload)
 
 
-def _search_item(raw: Mapping[str, object], policy: SearchPolicy) -> tuple[dict[str, object], bool]:
+def _search_item(raw: Mapping[str, object]) -> tuple[dict[str, object], bool]:
     title, title_cut = _required_text(raw.get("title"), 2_000, "search title")
     url, url_cut = _required_text(raw.get("url"), 8_000, "search URL")
     content, content_cut = _required_text(raw.get("content"), 20_000, "search content")
@@ -297,19 +289,11 @@ def _search_item(raw: Mapping[str, object], policy: SearchPolicy) -> tuple[dict[
         _invalid_response("Tavily search score is invalid")
     result: dict[str, object] = {"title": title, "url": url, "content": content, "score": score}
     clipped = title_cut or url_cut or content_cut
-    if policy.include_raw_content:
-        raw_content, cut = _optional_text(raw.get("raw_content"), 20_000, "raw_content")
-        result["raw_content"] = raw_content
-        clipped = clipped or cut
-    if policy.include_favicon:
-        favicon, cut = _optional_text(raw.get("favicon"), 8_000, "favicon")
-        result["favicon"] = favicon
-        clipped = clipped or cut
     return result, clipped
 
 
 def _extract_result(
-    payload: Mapping[str, object], policy: ExtractPolicy, requested_url: str
+    payload: Mapping[str, object], policy: FetchPolicy, requested_url: str
 ) -> dict[str, object]:
     raw_results = payload.get("results")
     if not isinstance(raw_results, list):
@@ -323,65 +307,14 @@ def _extract_result(
     )
     result: dict[str, object] = {"url": url, "content": content}
     clipped = url_cut or content_cut
-    if policy.include_images:
-        images, cut = _images(raw.get("images"), descriptions=False)
-        result["images"] = images
-        clipped = clipped or cut
-    if policy.include_favicon:
-        favicon, cut = _optional_text(raw.get("favicon"), 8_000, "favicon")
-        result["favicon"] = favicon
-        clipped = clipped or cut
-    if policy.include_usage:
-        result["usage"] = _usage(payload.get("usage"))
     result["truncated"] = clipped
     return _fit(result)
-
-
-def _images(value: object, descriptions: bool) -> tuple[list[dict[str, str]], bool]:
-    if value is None:
-        return [], False
-    if not isinstance(value, list):
-        _invalid_response("Tavily images value is invalid")
-    result: list[dict[str, str]] = []
-    clipped = len(value) > 20
-    for raw in value[:20]:
-        if not isinstance(raw, Mapping):
-            _invalid_response("Tavily image is not an object")
-        url, cut = _required_text(raw.get("url"), 8_000, "image URL")
-        item = {"url": url}
-        clipped = clipped or cut
-        if descriptions:
-            description, cut = _required_text(raw.get("description"), 2_000, "image description")
-            item["description"] = description
-            clipped = clipped or cut
-        result.append(item)
-    return result, clipped
-
-
-def _usage(value: object) -> dict[str, int | float]:
-    if not isinstance(value, Mapping):
-        _invalid_response("Tavily usage value is invalid")
-    credits = value.get("credits")
-    if isinstance(credits, bool) or not isinstance(credits, (int, float)):
-        _invalid_response("Tavily usage credits are invalid")
-    return {"credits": credits}
 
 
 def _fit(payload: dict[str, object]) -> dict[str, object]:
     if len(_encoded(payload)) <= MAX_NORMALIZED_TOOL_BYTES:
         return payload
-    # WHY: Drop optional high-volume enrichment before shrinking core evidence.
-    payload.pop("images", None)
-    results = payload.get("results")
-    if isinstance(results, list):
-        for value in results:
-            if isinstance(value, dict):
-                value.pop("raw_content", None)
-                value.pop("favicon", None)
-    payload["truncated"] = True
-    if len(_encoded(payload)) > MAX_NORMALIZED_TOOL_BYTES:
-        _invalid_response("normalized Tavily result exceeds the engine limit")
-    return payload
+    _invalid_response("normalized Tavily result exceeds the engine limit")
 
 
 def _encoded(value: object) -> bytes:
@@ -389,14 +322,6 @@ def _encoded(value: object) -> bytes:
 
 
 def _required_text(value: object, maximum: int, label: str) -> tuple[str, bool]:
-    if not isinstance(value, str):
-        _invalid_response(f"Tavily {label} is invalid")
-    return _bounded_text(value, maximum)
-
-
-def _optional_text(value: object, maximum: int, label: str) -> tuple[str | None, bool]:
-    if value is None:
-        return None, False
     if not isinstance(value, str):
         _invalid_response(f"Tavily {label} is invalid")
     return _bounded_text(value, maximum)

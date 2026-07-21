@@ -327,18 +327,34 @@ def _response_turn(response: httpx.Response, model: ModelRoute) -> AssistantTurn
     content = message.get("content")
     if content is not None and not isinstance(content, str):
         raise ResolutionError(f"AI Gateway response has invalid text content for {model.id!r}")
-    raw_calls = message.get("tool_calls", [])
-    if raw_calls is None:
-        raw_calls = []
-    if not isinstance(raw_calls, list):
-        raise ResolutionError(f"AI Gateway response has invalid tool calls for {model.id!r}")
-    tool_calls = tuple(_tool_call(value, model) for value in raw_calls)
+    tool_calls = _response_tool_calls(message.get("tool_calls", []), model)
     if content is None and not tool_calls:
         raise ResolutionError(
             f"AI Gateway response has no text content; assistant has neither text nor tool calls "
             f"for {model.id!r}"
         )
     return AssistantTurn(content, tool_calls)
+
+
+def _response_tool_calls(value: object, model: ModelRoute) -> tuple[ToolCall, ...]:
+    raw_calls = [] if value is None else value
+    if not isinstance(raw_calls, list):
+        raise ResolutionError(f"AI Gateway response has invalid tool calls for {model.id!r}")
+    calls: list[ToolCall] = []
+    for raw in raw_calls:
+        if _is_managed_tool_record(raw, model):
+            # Managed OpenRouter tools have already executed server-side. Their
+            # records are telemetry, not function calls for this engine to run.
+            continue
+        calls.append(_tool_call(raw, model))
+    return tuple(calls)
+
+
+def _is_managed_tool_record(value: object, model: ModelRoute) -> bool:
+    if model.tool_backend != "openrouter" or not isinstance(value, Mapping):
+        return False
+    tool_type = value.get("type")
+    return isinstance(tool_type, str) and tool_type.startswith("openrouter:")
 
 
 def _gateway_status_error(response: httpx.Response, model: ModelRoute) -> ResolutionError:

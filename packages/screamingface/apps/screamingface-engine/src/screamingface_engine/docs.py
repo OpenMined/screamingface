@@ -168,8 +168,8 @@ def openapi_document(
                 "model provider",
             ],
             "tool_flow": [
-                "ScreamingFace engine / bounded agent loop",
-                "Tavily for web_search and web_fetch",
+                "ScreamingFace engine selects the route's tool backend",
+                "OpenRouter server tools or a bounded Tavily agent loop",
             ],
             "model_catalog": (
                 "Fetched once from AI Gateway during engine startup; the node and this document "
@@ -188,7 +188,7 @@ def openapi_document(
                 "benchmark_id": "draco@1",
                 "blocking_capability": (
                     "Register and verify the production DRACO cases, grader protocol, model "
-                    "routes, Tavily policy, and candidate configuration. Each candidate already "
+                    "routes, web-tool policy, and candidate configuration. Each candidate already "
                     "fits one complete URL4 benchmark transaction."
                 ),
             },
@@ -214,7 +214,10 @@ def openapi_document(
             "tools": {
                 "ids": ["web_search", "web_fetch"],
                 "owner": "ScreamingFace engine",
-                "backend": "Tavily",
+                "backend_selection": {
+                    "openrouter": "OpenRouter-managed server tools",
+                    "huggingface": "engine-managed Tavily agent loop",
+                },
                 "limits": {"max_tool_calls_per_turn": 8, "max_total_tool_calls": 32},
                 "policy": _tool_policy_reference(),
             },
@@ -529,14 +532,14 @@ def _model_parameters(route: ModelRoute) -> list[dict[str, Any]]:
                     "Colon-separated capability IDs: `web_search:web_fetch`.",
                 ),
                 _query_parameter(
-                    "max_tool_rounds",
-                    "Positive number of bounded model/tool rounds.",
+                    "tools.max_calls",
+                    "Positive tool-call budget for this model answer.",
                     schema={"type": "integer", "minimum": 1},
                 ),
                 _query_parameter(
-                    "tavily.*",
+                    "web_search.*",
                     (
-                        "Strict Tavily search/extract policy parameters. See "
+                        "Provider-neutral web-search policy parameters. See "
                         "`x-screamingface-url4.tools.policy` in `/openapi.json`."
                     ),
                     schema={"type": "string"},
@@ -785,11 +788,15 @@ def _schemas() -> dict[str, Any]:
         },
         "Model": {
             "type": "object",
-            "required": ["id", "provider", "supported_tools"],
+            "required": ["id", "provider", "supported_tools", "required_connections"],
             "properties": {
                 "id": {"type": "string"},
                 "provider": {"type": "string"},
                 "supported_tools": {"type": "array", "items": {"type": "string"}},
+                "required_connections": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
             },
             "additionalProperties": False,
         },
@@ -802,7 +809,7 @@ def _schemas() -> dict[str, Any]:
                 "grader",
                 "aggregator",
                 "tools",
-                "max_tool_rounds",
+                "max_tool_calls",
             ],
             "properties": {
                 "id": {"type": "string"},
@@ -811,7 +818,7 @@ def _schemas() -> dict[str, Any]:
                 "grader": {"$ref": "#/components/schemas/BenchmarkStage"},
                 "aggregator": {"$ref": "#/components/schemas/BenchmarkStage"},
                 "tools": {"type": "array", "items": {"type": "string"}},
-                "max_tool_rounds": {"type": ["integer", "null"], "minimum": 1},
+                "max_tool_calls": {"type": ["integer", "null"], "minimum": 1, "maximum": 32},
             },
             "additionalProperties": False,
         },
@@ -1039,40 +1046,11 @@ def _schemas() -> dict[str, Any]:
 def _tool_policy_reference() -> dict[str, object]:
     return {
         "tools": "colon-separated unique IDs; web_search and/or web_fetch",
-        "max_tool_rounds": "required positive integer when tools is present",
-        "search_prefix": "tavily.search.",
-        "search_required": [
-            "search_depth",
-            "max_results",
-            "topic",
-            "include_answer",
-            "include_raw_content",
-            "include_images",
-            "include_image_descriptions",
-            "include_favicon",
-            "auto_parameters",
-            "exact_match",
-            "include_usage",
-            "safe_search",
-        ],
-        "search_optional": [
-            "chunks_per_source",
-            "time_range",
-            "start_date",
-            "end_date",
-            "country",
-            "include_domain.1..n",
-            "exclude_domain.1..n",
-        ],
-        "extract_prefix": "tavily.extract.",
-        "extract_required": [
-            "extract_depth",
-            "include_images",
-            "include_favicon",
-            "format",
-            "include_usage",
-        ],
-        "extract_optional": ["chunks_per_source", "timeout"],
+        "tools.max_calls": "required positive integer from 1 to 32 when tools is present",
+        "search_prefix": "web_search.",
+        "search_required": ["max_results"],
+        "search_optional": ["include_domain.1..n", "exclude_domain.1..n"],
+        "fetch_parameters": [],
     }
 
 
@@ -1433,7 +1411,7 @@ _DOCS_HTML = r"""<!doctype html>
           </section>
           <section id="status">
             <h2>Contract status</h2>
-            <p><span class="state current">Executable now</span> · GPQA, dynamic model calls, majority vote, exact-choice grading, mean aggregation, connection control, and bounded Tavily tooling on advertised model routes.</p>
+            <p><span class="state current">Executable now</span> · GPQA, dynamic model calls, majority vote, exact-choice grading, mean aggregation, connection control, and provider-neutral web tooling on advertised model routes.</p>
             <p><span class="state planned">Planned</span> · DRACO is not advertised or executable yet. ${escapeHtml(draco.blocking_capability)}</p>
           </section>
           <section id="capabilities">
@@ -1451,7 +1429,7 @@ _DOCS_HTML = r"""<!doctype html>
             <table><thead><tr><th>ID</th><th>Cases</th><th>Grader</th><th>Aggregator</th></tr></thead>
               <tbody>${benchmarks.map((benchmark) => `<tr><td><code>${escapeHtml(benchmark.id)}</code></td><td><code>${escapeHtml(benchmark.cases_route)}</code></td><td><code>${escapeHtml(benchmark.grader.route)}</code></td><td><code>${escapeHtml(benchmark.aggregator.route)}</code></td></tr>`).join("")}</tbody>
             </table>
-            <h3 style="margin-top:34px">Tavily tool policy</h3>
+            <h3 style="margin-top:34px">Web tool policy</h3>
             <pre>${escapeHtml(schemaText(spec["x-screamingface-url4"].tools))}</pre>
           </section>
           <section id="schemas">

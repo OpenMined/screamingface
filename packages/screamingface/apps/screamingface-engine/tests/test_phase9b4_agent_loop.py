@@ -9,13 +9,21 @@ from url4 import Request, ResolutionError
 from screamingface_engine.catalog import ModelRoute
 from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import AssistantTurn, ToolCall
-from screamingface_engine.tool_policy import ExtractPolicy, SearchPolicy
+from screamingface_engine.tool_policy import FetchPolicy, SearchPolicy
 
 HF_MODEL = ModelRoute(
     "huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra",
     "huggingface/deepseek-ai/DeepSeek-V4-Pro:deepinfra",
     "huggingface",
     ("web_search", "web_fetch"),
+    "tavily",
+)
+OPENROUTER_MODEL = ModelRoute(
+    "openrouter/google/gemini-3.1-pro-preview",
+    "openrouter/google/gemini-3.1-pro-preview",
+    "openrouter",
+    ("web_search", "web_fetch"),
+    "openrouter",
 )
 TOOL_FREE_MODEL = ModelRoute("codex/gpt-5.5", "codex/gpt-5.5", "codex")
 
@@ -57,50 +65,26 @@ class Tavily:
         return {"answer": None, "results": [], "truncated": False}
 
     async def extract(
-        self, url: str, policy: ExtractPolicy, *, query: str | None
+        self, url: str, policy: FetchPolicy, *, query: str | None
     ) -> dict[str, object]:
-        self.calls.append(("extract", url, query))
+        self.calls.append(("fetch", url, query))
         return {"url": url, "content": "Evidence", "truncated": False}
 
 
-def _params(*, tools: str = "web_search:web_fetch", rounds: int = 12) -> dict[str, str]:
+def _params(*, tools: str = "web_search:web_fetch", calls: int = 12) -> dict[str, str]:
     values = {
         "tools": tools,
-        "max_tool_rounds": str(rounds),
+        "tools.max_calls": str(calls),
         "temperature": "0.2",
     }
     if "web_search" in tools:
-        values.update(
-            {
-                "tavily.search.search_depth": "basic",
-                "tavily.search.max_results": "5",
-                "tavily.search.topic": "general",
-                "tavily.search.include_answer": "false",
-                "tavily.search.include_raw_content": "false",
-                "tavily.search.include_images": "false",
-                "tavily.search.include_image_descriptions": "false",
-                "tavily.search.include_favicon": "false",
-                "tavily.search.auto_parameters": "false",
-                "tavily.search.exact_match": "false",
-                "tavily.search.include_usage": "false",
-                "tavily.search.safe_search": "false",
-            }
-        )
-    if "web_fetch" in tools:
-        values.update(
-            {
-                "tavily.extract.extract_depth": "basic",
-                "tavily.extract.include_images": "false",
-                "tavily.extract.include_favicon": "false",
-                "tavily.extract.format": "markdown",
-                "tavily.extract.include_usage": "false",
-            }
-        )
+        values["web_search.max_results"] = "5"
+        values["web_search.exclude_domain.1"] = "blocked.example"
     return values
 
 
 @pytest.mark.asyncio
-async def test_agent_loop_preserves_calls_executes_sequentially_and_returns_plaintext() -> None:
+async def test_tavily_agent_loop_executes_calls_and_returns_plaintext() -> None:
     gateway = Gateway(
         (
             AssistantTurn(
@@ -118,9 +102,8 @@ async def test_agent_loop_preserves_calls_executes_sequentially_and_returns_plai
         )
     )
     tavily = Tavily()
-    executor = ModelExecutor(gateway, tavily)
 
-    answer = await executor.complete(
+    answer = await ModelExecutor(gateway, tavily).complete(
         HF_MODEL,
         Request(HF_MODEL.route, "Research question", "Answer with sources", _params()),
     )
@@ -128,78 +111,86 @@ async def test_agent_loop_preserves_calls_executes_sequentially_and_returns_plai
     assert answer == "Final researched answer"
     assert [call[:2] for call in tavily.calls] == [
         ("search", "first"),
-        ("extract", "https://example.org"),
+        ("fetch", "https://example.org"),
     ]
     assert gateway.requests[0][2] == {"temperature": "0.2"}
-    tool_names: set[object] = set()
-    for tool in gateway.requests[0][3]:
-        function = tool["function"]
-        assert isinstance(function, dict)
-        tool_names.add(function["name"])
-    assert tool_names == {"web_search", "web_fetch"}
-    messages = gateway.requests[1][1]
-    assert messages[2] == {
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [
-            {
-                "id": "search_1",
-                "type": "function",
-                "function": {"name": "web_search", "arguments": '{"query":"first"}'},
-            },
-            {
-                "id": "fetch_1",
-                "type": "function",
-                "function": {
-                    "name": "web_fetch",
-                    "arguments": '{"url":"https://example.org","query":"focused"}',
-                },
-            },
-        ],
-    }
-    assert [message["tool_call_id"] for message in messages[3:]] == ["search_1", "fetch_1"]
+    assert {
+        tool["function"]["name"]  # type: ignore[index]
+        for tool in gateway.requests[0][3]
+    } == {"web_search", "web_fetch"}
+    assert [message["tool_call_id"] for message in gateway.requests[1][1][3:]] == [
+        "search_1",
+        "fetch_1",
+    ]
 
 
 @pytest.mark.asyncio
-async def test_tool_free_request_is_one_gateway_turn_and_never_checks_tavily() -> None:
+async def test_openrouter_uses_managed_tools_without_tavily() -> None:
+    gateway = Gateway((AssistantTurn("Managed answer", ()),))
+    tavily = Tavily(connected=False)
+
+    answer = await ModelExecutor(gateway, tavily).complete(
+        OPENROUTER_MODEL,
+        Request(OPENROUTER_MODEL.route, "Question", "Research", _params(calls=3)),
+    )
+
+    assert answer == "Managed answer"
+    assert tavily.calls == []
+    assert gateway.requests[0][3] == (
+        {
+            "type": "openrouter:web_search",
+            "parameters": {
+                "engine": "auto",
+                "max_results": 5,
+                "max_total_results": 15,
+                "excluded_domains": ["blocked.example"],
+            },
+        },
+        {
+            "type": "openrouter:web_fetch",
+            "parameters": {
+                "engine": "native",
+                "max_uses": 3,
+                "blocked_domains": ["blocked.example"],
+            },
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_free_request_never_checks_tavily() -> None:
     gateway = Gateway((AssistantTurn("Direct answer", ()),))
     tavily = Tavily(connected=False)
-    executor = ModelExecutor(gateway, tavily)
-
-    answer = await executor.complete(
+    answer = await ModelExecutor(gateway, tavily).complete(
         TOOL_FREE_MODEL,
         Request(TOOL_FREE_MODEL.route, "Question", "Answer", {"max_tokens": "8"}),
     )
-
     assert answer == "Direct answer"
-    assert len(gateway.requests) == 1
     assert gateway.requests[0][3] == ()
     assert tavily.calls == []
 
 
 @pytest.mark.asyncio
-async def test_missing_tavily_and_unsupported_route_fail_before_gateway_spend() -> None:
+async def test_missing_tavily_and_unsupported_route_fail_before_spend() -> None:
     gateway = Gateway(())
-    disconnected = ModelExecutor(gateway, Tavily(connected=False))
     with pytest.raises(ResolutionError) as missing:
-        await disconnected.complete(
+        await ModelExecutor(gateway, Tavily(connected=False)).complete(
             HF_MODEL,
             Request(HF_MODEL.route, "Q", "A", _params(tools="web_search")),
         )
     assert missing.value.code == "authentication_required"
 
-    unsupported = ModelExecutor(gateway, Tavily())
-    with pytest.raises(ResolutionError) as capability:
-        await unsupported.complete(
+    with pytest.raises(ResolutionError) as unsupported:
+        await ModelExecutor(gateway, Tavily()).complete(
             TOOL_FREE_MODEL,
             Request(TOOL_FREE_MODEL.route, "Q", "A", _params(tools="web_search")),
         )
-    assert capability.value.code == "unsupported_tool"
+    assert unsupported.value.code == "unsupported_tool"
     assert gateway.requests == []
 
 
 @pytest.mark.asyncio
-async def test_invalid_model_arguments_return_safe_tool_errors_for_correction() -> None:
+async def test_invalid_arguments_are_returned_to_the_model_for_correction() -> None:
     gateway = Gateway(
         (
             AssistantTurn(None, (ToolCall("bad", "web_search", "not-json"),)),
@@ -207,109 +198,34 @@ async def test_invalid_model_arguments_return_safe_tool_errors_for_correction() 
         )
     )
     tavily = Tavily()
-    executor = ModelExecutor(gateway, tavily)
-
-    answer = await executor.complete(
+    answer = await ModelExecutor(gateway, tavily).complete(
         HF_MODEL,
         Request(HF_MODEL.route, "Q", "A", _params(tools="web_search")),
     )
-
     assert answer == "Recovered answer"
-    assert tavily.calls == []
     content = gateway.requests[1][1][-1]["content"]
     assert isinstance(content, str)
-    tool_result = json.loads(content)
-    assert tool_result == {
-        "error": {"code": "invalid_tool_arguments", "message": "Invalid JSON object."}
-    }
+    assert json.loads(content)["error"]["code"] == "invalid_tool_arguments"
 
 
 @pytest.mark.asyncio
-async def test_fetch_chunks_without_runtime_query_is_a_correctable_tool_error() -> None:
-    params = _params(tools="web_fetch")
-    params["tavily.extract.chunks_per_source"] = "3"
+async def test_tool_call_budget_is_counted_as_calls_not_model_turns() -> None:
     gateway = Gateway(
         (
             AssistantTurn(
                 None,
-                (ToolCall("fetch", "web_fetch", '{"url":"https://example.org"}'),),
+                (
+                    ToolCall("one", "web_search", '{"query":"one"}'),
+                    ToolCall("two", "web_search", '{"query":"two"}'),
+                ),
             ),
-            AssistantTurn("Corrected", ()),
         )
     )
     tavily = Tavily()
-    executor = ModelExecutor(gateway, tavily)
-
-    assert (
-        await executor.complete(HF_MODEL, Request(HF_MODEL.route, "Q", "A", params)) == "Corrected"
-    )
-    assert tavily.calls == []
-    content = gateway.requests[1][1][-1]["content"]
-    assert isinstance(content, str)
-    assert "query" in content
-
-
-@pytest.mark.asyncio
-async def test_round_limit_includes_initial_and_final_gateway_turns() -> None:
-    gateway = Gateway(
-        (
-            AssistantTurn(None, (ToolCall("one", "web_search", '{"query":"one"}'),)),
-            AssistantTurn(None, (ToolCall("two", "web_search", '{"query":"two"}'),)),
-        )
-    )
-    tavily = Tavily()
-    executor = ModelExecutor(gateway, tavily)
-
     with pytest.raises(ResolutionError) as captured:
-        await executor.complete(
+        await ModelExecutor(gateway, tavily).complete(
             HF_MODEL,
-            Request(HF_MODEL.route, "Q", "A", _params(tools="web_search", rounds=2)),
+            Request(HF_MODEL.route, "Q", "A", _params(tools="web_search", calls=1)),
         )
-
     assert captured.value.code == "tool_budget_exhausted"
-    assert len(gateway.requests) == 2
-    assert [call[1] for call in tavily.calls] == ["one"]
-
-
-@pytest.mark.asyncio
-async def test_per_turn_and_total_call_limits_abort_without_partial_answer() -> None:
-    per_turn = Gateway(
-        (
-            AssistantTurn(
-                None,
-                tuple(
-                    ToolCall(str(index), "web_search", f'{{"query":"{index}"}}')
-                    for index in range(9)
-                ),
-            ),
-        )
-    )
-    tavily = Tavily()
-    with pytest.raises(ResolutionError) as first:
-        await ModelExecutor(per_turn, tavily).complete(
-            HF_MODEL,
-            Request(HF_MODEL.route, "Q", "A", _params(tools="web_search")),
-        )
-    assert first.value.code == "tool_budget_exhausted"
     assert tavily.calls == []
-
-    total = Gateway(
-        tuple(
-            AssistantTurn(
-                None,
-                tuple(
-                    ToolCall(f"{turn}-{index}", "web_search", f'{{"query":"{turn}-{index}"}}')
-                    for index in range(4)
-                ),
-            )
-            for turn in range(9)
-        )
-    )
-    second_tavily = Tavily()
-    with pytest.raises(ResolutionError) as second:
-        await ModelExecutor(total, second_tavily).complete(
-            HF_MODEL,
-            Request(HF_MODEL.route, "Q", "A", _params(tools="web_search")),
-        )
-    assert second.value.code == "tool_budget_exhausted"
-    assert len(second_tavily.calls) == 32

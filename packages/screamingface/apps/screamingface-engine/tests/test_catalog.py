@@ -32,7 +32,12 @@ def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> Non
             for provider in catalog.PUBLIC_PROVIDERS
         ],
         "models": [
-            {"id": model.id, "provider": model.provider, "supported_tools": []}
+            {
+                "id": model.id,
+                "provider": model.provider,
+                "supported_tools": [],
+                "required_connections": [],
+            }
             for model in MODEL_ROUTES
         ],
         "benchmarks": [benchmark.public for benchmark in catalog.BENCHMARK_ROUTES],

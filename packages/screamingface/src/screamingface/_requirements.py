@@ -31,7 +31,7 @@ def run_requirements(
         if isinstance(reducer, Model)
     )
     if benchmark.tools:
-        requirements.append(_tool_requirement(registry))
+        requirements.extend(_tool_requirements(recipe, registry))
     return _unique(requirements)
 
 
@@ -68,7 +68,18 @@ def _requirement(model: str, role: RequirementRole, registry: Registry) -> Conne
     return ConnectionRequirement(provider=record.provider, model=model, role=role)
 
 
-def _tool_requirement(registry: Registry) -> ConnectionRequirement:
-    if not any(provider.id == "tavily" for provider in registry.providers):
-        raise ValueError("engine registry does not advertise the required Tavily connection")
-    return ConnectionRequirement(provider="tavily", role="tool")
+def _tool_requirements(recipe: Recipe, registry: Registry) -> tuple[ConnectionRequirement, ...]:
+    models = {record.id: record for record in registry.models}
+    providers = {provider.id for provider in registry.providers}
+    required: list[ConnectionRequirement] = []
+    for model_id in recipe.model_ids:
+        record = models.get(model_id)
+        if record is None:
+            raise ValueError(f"model {model_id!r} is absent from the engine registry")
+        for connection in record.required_connections:
+            if connection not in providers:
+                raise ValueError(
+                    f"engine registry does not advertise required connection {connection!r}"
+                )
+            required.append(ConnectionRequirement(provider=connection, role="tool"))
+    return _unique(required)

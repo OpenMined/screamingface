@@ -28,12 +28,12 @@ def compile_recipe(
     *,
     question: str | None = None,
     tools: Sequence[Tool] = (),
-    max_tool_rounds: int | None = None,
+    max_tool_calls: int | None = None,
 ) -> str:
     """Render one parameterized Recipe or one concrete case expression."""
 
     compiler = _RecipeCompiler(
-        tool_params=_tool_params(tools, max_tool_rounds),
+        tool_params=_tool_params(tools, max_tool_calls),
         question=question,
     )
     return compiler.compile(recipe)
@@ -200,13 +200,13 @@ def compile_benchmark_expression(
     aggregator_route: str,
     recipe: Recipe,
     tools: Sequence[Tool] = (),
-    max_tool_rounds: int | None = None,
+    max_tool_calls: int | None = None,
     first: int | None = None,
 ) -> str:
     """Render one complete benchmark slice, Recipe, grading, and aggregation graph."""
 
     compiler = _RecipeCompiler(
-        tool_params=_tool_params(tools, max_tool_rounds),
+        tool_params=_tool_params(tools, max_tool_calls),
         question=None,
     )
     sources: list[Node] = [src("$item.input", name="question")]
@@ -281,19 +281,19 @@ def _params(
     return tuple((key, _param(value)) for key, value in items)
 
 
-def _tool_params(tools: Sequence[Tool], max_tool_rounds: int | None) -> tuple[tuple[str, str], ...]:
+def _tool_params(tools: Sequence[Tool], max_tool_calls: int | None) -> tuple[tuple[str, str], ...]:
     if not tools:
-        if max_tool_rounds is not None:
-            raise ValueError("max_tool_rounds must be None when tools are empty")
+        if max_tool_calls is not None:
+            raise ValueError("max_tool_calls must be None when tools are empty")
         return ()
-    if isinstance(max_tool_rounds, bool) or not isinstance(max_tool_rounds, int):
-        raise ValueError("max_tool_rounds is required when tools are configured")
-    if max_tool_rounds < 1:
-        raise ValueError("max_tool_rounds must be a positive integer")
+    if isinstance(max_tool_calls, bool) or not isinstance(max_tool_calls, int):
+        raise ValueError("max_tool_calls is required when tools are configured")
+    if not 1 <= max_tool_calls <= 32:
+        raise ValueError("max_tool_calls must be a positive integer from 1 to 32")
     typed_tools = tuple(tools)
     values: list[tuple[str, str]] = [
         (TOOL_PARAMETER, ":".join(_tool_ids(typed_tools))),
-        ("max_tool_rounds", str(max_tool_rounds)),
+        ("tools.max_calls", str(max_tool_calls)),
     ]
     for tool in typed_tools:
         values.extend((key, _param(value)) for key, value in tool._parameter_items())

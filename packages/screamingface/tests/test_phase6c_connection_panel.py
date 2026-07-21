@@ -30,8 +30,18 @@ def _registry() -> dict[str, object]:
             },
         ],
         "models": [
-            {"id": "codex/gpt-5.5", "provider": "codex", "supported_tools": []},
-            {"id": "gemini/2.5-flash", "provider": "gemini", "supported_tools": []},
+            {
+                "id": "codex/gpt-5.5",
+                "provider": "codex",
+                "supported_tools": [],
+                "required_connections": [],
+            },
+            {
+                "id": "gemini/2.5-flash",
+                "provider": "gemini",
+                "supported_tools": [],
+                "required_connections": [],
+            },
         ],
         "benchmarks": [],
         "reducers": [{"id": "majority_vote", "route": "/reducers/majority-vote/1"}],

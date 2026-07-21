@@ -26,7 +26,7 @@ iteration slice, so the shareable run expression identifies the exact canonical 
 ## Engine manifest
 
 `GET /.well-known/screamingface` advertises each benchmark's stable ID, title, case collection
-route, grader route, aggregator route, tool requirements, and tool-round policy. For GPQA v1 the
+route, grader route, aggregator route, tool requirements, and tool-call policy. For GPQA v1 the
 executable routes are:
 
 - `/benchmarks/gpqa/1/cases`
@@ -80,6 +80,10 @@ majority reduction, exact-choice grading, and mean aggregation.
 Named tool lists use a colon-delimited scalar parameter (for example,
 `tools=web_search:web_fetch`), because the current URL4 parameter grammar permits `:` but not the
 earlier `+` separator.
+
+Tool-enabled member calls also carry `tools.max_calls` and portable `web_search.*` policy. The
+engine chooses OpenRouter-managed tools or its Tavily adapter per registered model route; see
+`2026-07-21-OME-400-provider-neutral-web-tools.md`.
 
 ## Response
 

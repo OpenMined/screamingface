@@ -16,7 +16,7 @@ from screamingface.aggregators import Mean
 from screamingface.benchmark import Benchmark, Case
 from screamingface.errors import InvalidBenchmarkError
 from screamingface.graders import Rubric
-from screamingface.tools import TavilyExtract, TavilySearch
+from screamingface.tools import WebFetch, WebSearch
 
 DATASET = "perplexity-ai/draco"
 SPLIT = "test"
@@ -72,7 +72,7 @@ def benchmark() -> Benchmark:
         title="DRACO",
         cases=draco_cases(),
         grader=Rubric(
-            model="gemini/3.1-pro-preview",
+            model="openrouter/google/gemini-3.1-pro-preview",
             prompt=DRACO_JUDGE_PROMPT,
             passes=3,
             params={
@@ -83,10 +83,10 @@ def benchmark() -> Benchmark:
         ),
         aggregator=Mean(),
         tools=(
-            TavilySearch(max_results=5, exclude_domains=EXCLUDED_RESEARCH_DOMAINS),
-            TavilyExtract(),
+            WebSearch(max_results=5, exclude_domains=EXCLUDED_RESEARCH_DOMAINS),
+            WebFetch(),
         ),
-        max_tool_rounds=12,
+        max_tool_calls=12,
     )
 
 

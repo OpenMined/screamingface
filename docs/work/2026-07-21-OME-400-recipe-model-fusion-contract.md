@@ -37,8 +37,9 @@ frontier = sf.Fusion(
     reducer=sf.reducers.Model(...),
 )
 
-report = frontier.evaluate("draco@1", first=1)
-solo_report = opus.evaluate("draco@1", first=1)
+draco = sf.benchmarks.load("draco@1")
+report = draco.evaluate(frontier, first=1)
+solo_report = draco.evaluate(opus, first=1)
 ```
 
 Rules:
@@ -51,8 +52,8 @@ Rules:
 - Reusing one object shares execution identity. Repeated strings or separately constructed
   Models remain independent calls.
 - A Model name defaults to its model ID. Explicit names disambiguate independent samples.
-- Both Model and Fusion expose the same network-free `.url4` and URL4-only `.run()`/`.evaluate()`
-  workflow through the Recipe interface.
+- Both Model and Fusion expose the same network-free `.url4`; the loaded Benchmark owns
+  `.evaluate(candidate, ...)` and sends the complete run as one URL4 request.
 - Runtime metadata and the plaintext engine envelope use “recipe”, not “fusion”, where the value
   can represent either public type.
 - No top-level `sf.run`, `sf.evaluate`, or `sf.compare` is added in this MVP.
@@ -72,8 +73,8 @@ Rules:
 ## Acceptance
 
 - Quickstart strings remain concise while inspection returns real Model/Fusion member values.
-- A standalone Model can compile, run, grade, aggregate, and display without being called a
-  Fusion anywhere in its public record.
+- A standalone Model can compile and be evaluated by a Benchmark without being called a Fusion
+  anywhere in its public record.
 - Nested Fusions and shared Model/Fusion objects still compile into one URL4 DAG per case.
 - Current documentation contains one vocabulary: Recipe is the umbrella; Model is atomic; Fusion
   is composite.

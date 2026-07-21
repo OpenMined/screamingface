@@ -63,7 +63,7 @@ def evaluate_benchmark(
             aggregator_route=_required_route(benchmark._aggregator_route, "aggregator"),
             recipe=recipe,
             tools=benchmark.tools,
-            max_tool_rounds=benchmark.max_tool_rounds,
+            max_tool_calls=benchmark.max_tool_calls,
             first=limit,
         )
         require_eval_request_target(
@@ -194,7 +194,7 @@ def _manifest(benchmark: Benchmark, registry: Registry) -> None:
         benchmark.aggregator.kind,
         benchmark._aggregator_route,
         tuple(tool.id for tool in benchmark.tools),
-        benchmark.max_tool_rounds,
+        benchmark.max_tool_calls,
     )
     observed = (
         current.title,
@@ -204,7 +204,7 @@ def _manifest(benchmark: Benchmark, registry: Registry) -> None:
         current.aggregator.kind,
         current.aggregator.route,
         current.tools,
-        current.max_tool_rounds,
+        current.max_tool_calls,
     )
     if expected != observed:
         raise EngineProtocolError(

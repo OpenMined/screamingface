@@ -19,6 +19,7 @@ from screamingface_engine.reducers import MAJORITY_VOTE_ROUTE
 from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES
 
 type AuthMethod = Literal["oauth", "api_key"]
+type ToolBackend = Literal["openrouter", "tavily"]
 
 _CLAUDE_MODEL = re.compile(r"^claude-([a-z0-9-]+)-(\d+)-(\d+)$")
 _HUGGINGFACE_MODEL = re.compile(
@@ -91,6 +92,11 @@ class ModelRoute:
     gateway_model: str
     provider: str
     tool_capabilities: tuple[str, ...] = ()
+    tool_backend: ToolBackend | None = None
+
+    @property
+    def required_connections(self) -> tuple[str, ...]:
+        return ("tavily",) if self.tool_backend == "tavily" else ()
 
     @property
     def route(self) -> str:
@@ -217,11 +223,18 @@ def _openrouter_route(model: GatewayModel) -> ModelRoute:
 
 
 def _route(public_id: str, gateway_model: str, provider: str) -> ModelRoute:
+    if provider == "openrouter":
+        capabilities = ("web_search", "web_fetch")
+        backend: ToolBackend | None = "openrouter"
+    else:
+        capabilities = _CAPABILITY_POLICY.get(public_id, ())
+        backend = "tavily" if capabilities else None
     return ModelRoute(
         public_id,
         gateway_model,
         provider,
-        _CAPABILITY_POLICY.get(public_id, ()),
+        capabilities,
+        backend,
     )
 
 
@@ -257,6 +270,7 @@ def registry_document(
                 "id": model.id,
                 "provider": model.provider,
                 "supported_tools": list(model.tool_capabilities),
+                "required_connections": list(model.required_connections),
             }
             for model in model_routes
         ],

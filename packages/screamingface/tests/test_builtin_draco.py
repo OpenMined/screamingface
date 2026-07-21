@@ -92,15 +92,15 @@ def test_engine_draco_definition_is_pinned_cached_and_canonical(
     assert first.id == "draco@1"
     assert first.title == "DRACO"
     assert first.tools == (
-        sf.tools.TavilySearch(
+        sf.tools.WebSearch(
             max_results=5,
             exclude_domains=draco.EXCLUDED_RESEARCH_DOMAINS,
         ),
-        sf.tools.TavilyExtract(),
+        sf.tools.WebFetch(),
     )
-    assert first.max_tool_rounds == 12
+    assert first.max_tool_calls == 12
     assert isinstance(first.grader, sf.graders.Rubric)
-    assert first.grader.model == "gemini/3.1-pro-preview"
+    assert first.grader.model == "openrouter/google/gemini-3.1-pro-preview"
     assert first.grader.prompt == DRACO_JUDGE_PROMPT
     assert first.grader.passes == 3
     assert first.grader.params == {
