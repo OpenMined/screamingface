@@ -13,6 +13,7 @@ from screamingface_engine.catalog import ModelRoute, registry_document, resolve_
 from screamingface_engine.connection_asgi import ConnectionASGI
 from screamingface_engine.connection_gateway import ConnectionGateway
 from screamingface_engine.connection_manager import ConnectionManager
+from screamingface_engine.docs import DocumentationASGI
 from screamingface_engine.executor import ModelExecutor
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.graders import EXACT_CHOICE_ROUTE, exact_choice
@@ -66,13 +67,16 @@ def create_app(
     )
     tavily_adapter = tavily or TavilyService(timeout=resolved.tavily_timeout)
     executor = ModelExecutor(adapter, tavily_adapter)
+    documentation = DocumentationASGI(max_request_target_bytes=resolved.max_request_target_bytes)
 
     async def initialize_node() -> Url4Node:
         # INVARIANT: Executable endpoints and advertised models come from one Gateway snapshot.
         discovered = await adapter.list_models()
+        routes = resolve_model_routes(discovered)
+        documentation.configure(routes)
         return create_node(
             executor,
-            resolve_model_routes(discovered),
+            routes,
             max_request_target_bytes=resolved.max_request_target_bytes,
         )
 
@@ -85,6 +89,8 @@ def create_app(
             max_request_target_bytes=resolved.max_request_target_bytes,
         )
     )
+    if model_routes is not None:
+        documentation.configure(model_routes)
     return EngineASGI(
         node,
         adapter,
@@ -98,6 +104,7 @@ def create_app(
                 tavily_adapter,
             )
         ),
+        documentation=documentation,
         max_inflight=resolved.max_inflight,
         timeout=resolved.evaluation_timeout,
         max_request_target_bytes=resolved.max_request_target_bytes,

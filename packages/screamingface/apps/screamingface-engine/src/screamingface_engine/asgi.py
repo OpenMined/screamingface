@@ -10,6 +10,7 @@ from typing import Any
 from url4 import Url4Node
 
 from screamingface_engine.connection_asgi import ConnectionASGI
+from screamingface_engine.docs import DocumentationASGI
 from screamingface_engine.gateway import GatewayClient
 from screamingface_engine.settings import MAX_REQUEST_TARGET_BYTES
 
@@ -42,6 +43,7 @@ class EngineASGI:
         *,
         initialize: NodeInitializer | None = None,
         connections: ConnectionASGI | None = None,
+        documentation: DocumentationASGI | None = None,
         max_inflight: int,
         timeout: float,
         max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES,
@@ -51,6 +53,7 @@ class EngineASGI:
         self.node = node
         self.gateway = gateway
         self.connections = connections
+        self.documentation = documentation
         self._base: AsgiApp | None = None if node is None else node.asgi()
         self._initialize = initialize
         self._max_inflight = max_inflight
@@ -77,6 +80,9 @@ class EngineASGI:
                 "request_target_too_large",
                 f"request target exceeds {self._max_request_target_bytes} bytes",
             )
+            return
+        if self.documentation is not None and self.documentation.handles(scope):
+            await self.documentation(scope, receive, send)
             return
         if self._base is None:
             await _send_error(send, 503, "not_ready", "engine startup is incomplete")

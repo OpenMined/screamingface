@@ -12,6 +12,8 @@ One persistent `Url4Node` hosts the ScreamingFace execution profile:
 ```text
 GET /healthz
 GET /.well-known/screamingface
+GET /docs
+GET /openapi.json
 GET /v1?q=<complete URL4 expression>
 GET /{provider}/{model}?q=(context)!intent
 GET /benchmarks/gpqa/1/cases
@@ -28,6 +30,11 @@ DELETE /v1/connections/{provider}
 
 URL4 success bodies are plaintext. The public registry is JSON serialized as plaintext. The
 private connection control plane returns sanitized JSON.
+
+`/docs` is the human-readable API reference and `/openapi.json` is its OpenAPI 3.1 source. Both
+are generated from the same startup model-route snapshot as the URL4 node, so the documented
+model paths match the routes this engine can execute. The reference distinguishes current HTTP
+and URL4 capabilities from planned work; in particular, it does not advertise DRACO as runnable.
 
 The engine snapshots AI Gateway's protected model catalog once at startup and builds its model
 routes and registry from the same immutable data. Model handlers use one shared HTTP client to
@@ -133,6 +140,7 @@ Default host endpoints:
 
 ```text
 ScreamingFace engine  http://127.0.0.1:4404
+API reference         http://127.0.0.1:4404/docs
 AI Gateway            http://127.0.0.1:9105
 ```
 
@@ -141,6 +149,7 @@ Verify:
 ```bash
 curl -s http://127.0.0.1:4404/healthz
 curl -s http://127.0.0.1:4404/.well-known/screamingface | python -m json.tool
+curl -s http://127.0.0.1:4404/openapi.json | python -m json.tool
 ```
 
 ## Native development and validation
