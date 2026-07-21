@@ -1,0 +1,126 @@
+"""DOC-GATE + ops-endpoint behaviour (OME-523; spec §12, docs/protocol.md §9).
+
+Headless: the app is built via ``create_app`` with no injected deps — the docs/ops surface
+(OpenAPI enrichment, Scalar, AsyncAPI, k8s probes, OpenMetrics) is pure and needs no bus/k8s.
+The DOC-GATE asserts the generated OpenAPI is authored to Scalar grade: every exposed component
+schema is titled/described and ``CostUsageData`` carries an example.
+"""
+
+from fastapi.testclient import TestClient
+
+from url4_cloud.app import create_app
+
+# The CloudEvents events that MUST surface as OpenAPI/AsyncAPI component schemas (protocol.md §4).
+EXPECTED_EVENT_SCHEMAS = {
+    "StartedEvent",
+    "LogEvent",
+    "SpanEvent",
+    "CostUsageEvent",
+    "HeartbeatEvent",
+    "ResultEvent",
+    "TerminatedEvent",
+    "ExecuteEvent",
+    "StopEvent",
+    "AttachEvent",
+}
+
+
+def _client() -> TestClient:
+    return TestClient(create_app())
+
+
+# --- DOC-GATE: OpenAPI is Scalar-grade by construction --------------------
+
+
+def test_openapi_is_3_1_with_rich_info() -> None:
+    schema = create_app().openapi()
+    assert schema["openapi"].startswith("3.1")
+    info = schema["info"]
+    assert info["title"]
+    assert info["description"]
+    assert info["version"]
+    assert info["contact"]
+    assert info["license"]
+
+
+def test_every_component_schema_is_titled_or_described() -> None:
+    schema = create_app().openapi()
+    schemas = schema["components"]["schemas"]
+    assert schemas, "expected component schemas to be present"
+    offenders = [
+        name for name, body in schemas.items() if not (body.get("title") or body.get("description"))
+    ]
+    assert offenders == [], f"component schemas lacking title/description: {offenders}"
+
+
+def test_cloudevents_events_are_exposed_as_component_schemas() -> None:
+    schema = create_app().openapi()
+    schemas = schema["components"]["schemas"]
+    missing = EXPECTED_EVENT_SCHEMAS - set(schemas)
+    assert missing == set(), f"missing CloudEvents component schemas: {missing}"
+
+
+def test_cost_usage_data_carries_an_example() -> None:
+    schema = create_app().openapi()
+    cost = schema["components"]["schemas"]["CostUsageData"]
+    example = cost.get("example") or (cost.get("examples") or [None])[0]
+    assert example, "CostUsageData must carry an example for Scalar's sample pane"
+    assert example["scope"] == "self"
+    assert example["cost"]["total_usd"] == "0.0435"
+
+
+# --- Scalar reference -----------------------------------------------------
+
+
+def test_scalar_returns_html_referencing_openapi() -> None:
+    resp = _client().get("/scalar")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    body = resp.text
+    assert "/openapi.json" in body
+    assert "api-reference" in body
+
+
+# --- AsyncAPI 3.0 for the /ws channel -------------------------------------
+
+
+def test_asyncapi_document_describes_the_ws_channel() -> None:
+    resp = _client().get("/asyncapi.json")
+    assert resp.status_code == 200
+    doc = resp.json()
+    assert doc["asyncapi"].startswith("3.0")
+    channels = doc["channels"]
+    # exactly one channel, addressed at /ws, referencing the CloudEvents messages
+    (channel,) = channels.values()
+    assert channel["address"] == "/ws"
+    assert channel["messages"], "the /ws channel must list its messages"
+    # both directions have an operation (send = client->app, receive = app->client)
+    actions = {op["action"] for op in doc["operations"].values()}
+    assert actions == {"send", "receive"}
+    # the CloudEvents events are the message payloads
+    msg_schemas = set(doc["components"]["schemas"])
+    assert EXPECTED_EVENT_SCHEMAS <= msg_schemas
+
+
+# --- k8s probes -----------------------------------------------------------
+
+
+def test_livez_and_readyz_return_200() -> None:
+    client = _client()
+    assert client.get("/livez").status_code == 200
+    assert client.get("/readyz").status_code == 200
+
+
+# --- OpenMetrics ----------------------------------------------------------
+
+
+def test_metrics_is_openmetrics_text_with_counters() -> None:
+    client = _client()
+    # drive one request so the request counter has a sample
+    client.get("/livez")
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/plain")
+    body = resp.text
+    assert "url4_cloud_requests_total" in body
+    assert "gen_ai_client_token_usage_total" in body
