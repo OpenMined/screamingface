@@ -68,7 +68,7 @@ its response is dropped from the reducer input). Owner-decided semantics:
   the fan-out gate additionally requires ≥1 CONTRIBUTING call (an
   all-instrumental call group has an empty panel — its intent, with `$name`
   resolved, IS the result: the extraction idiom `(r:0:/call(…)!x)!'$r'`).
-- **Commits:** (sha recorded post-commit)
+- **Commits:** `91a64a8` — feat(url4)!: ABNF contribution semantics.
 - **Gates:** ALL GREEN — ruff check, format, pyright,
   pytest --cov=url4 --cov-fail-under=95 (1064 passed).
 - **Prior-test rewrites (itemized; owner sign-off given this session):**

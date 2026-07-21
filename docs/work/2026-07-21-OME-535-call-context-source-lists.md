@@ -69,7 +69,7 @@ engine-internal dispatches — the server AIDEV-NOTE's warning).
   `dag/nodes.py` (`RelUrlNode.ctx_slots`, shared `_resolved_context`,
   `_gather` prefix param), `tests/spec/test_abnf_call_context.py` NEW
   (+9 tests).
-- **Commits:** (sha recorded post-commit)
+- **Commits:** `76bd3c7` — feat(url4)!: caller-resolved call-context source-lists.
 - **Gates:** ALL GREEN — ruff, format, pyright, pytest cov ≥95 (1073 passed).
 - **Prior-test rewrites (itemized; owner sign-off this session):**
   - `unit/test_server.py` — `test_endpoint_dispatch_from_engine_internals` +
