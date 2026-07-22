@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from url4.core.grammar import parse
+from url4 import build
 
 import screamingface as sf
 import screamingface._benchmark_execution as execution
@@ -198,7 +198,7 @@ def test_candidate_names_are_values_not_url4_struct_keys(
 
     assert "candidate_1: {name: 'claude-fable-5', root: 'node_1'}" in expression
     assert "claude-fable-5:" not in expression
-    assert parse(expression) is not None
+    assert build(expression) is not None
 
 
 def test_candidate_record_rejects_inconsistent_counts(monkeypatch: pytest.MonkeyPatch) -> None:
