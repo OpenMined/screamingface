@@ -3,7 +3,7 @@
 Headless: the app is built via ``create_app`` with no injected deps — the docs/ops surface
 (OpenAPI enrichment, Scalar, AsyncAPI, k8s probes, OpenMetrics) is pure and needs no bus/k8s.
 The DOC-GATE asserts the generated OpenAPI is authored to Scalar grade: every exposed component
-schema is titled/described and ``CostUsageData`` carries an example.
+schema is titled/described and ``CostUsageData`` carries a JSON-Schema ``examples`` array.
 """
 
 from fastapi.testclient import TestClient
@@ -62,13 +62,18 @@ def test_cloudevents_events_are_exposed_as_component_schemas() -> None:
     assert missing == set(), f"missing CloudEvents component schemas: {missing}"
 
 
-def test_cost_usage_data_carries_an_example() -> None:
+def test_cost_usage_data_carries_examples() -> None:
+    # JSON-Schema 2020-12 / OpenAPI 3.1 use the `examples` ARRAY; singular `example` is not a
+    # 2020-12 keyword (validators ignore it), so the component must carry the conformant form
+    # for Scalar's sample pane (OME-550).
     schema = create_app().openapi()
     cost = schema["components"]["schemas"]["CostUsageData"]
-    example = cost.get("example") or (cost.get("examples") or [None])[0]
-    assert example, "CostUsageData must carry an example for Scalar's sample pane"
-    assert example["scope"] == "self"
-    assert example["cost"]["total_usd"] == "0.0435"
+    assert "example" not in cost
+    examples = cost.get("examples")
+    assert isinstance(examples, list) and examples, "CostUsageData must carry an `examples` array"
+    sample = examples[0]
+    assert sample["scope"] == "self"
+    assert sample["cost"]["total_usd"] == "0.0435"
 
 
 # --- Scalar reference -----------------------------------------------------

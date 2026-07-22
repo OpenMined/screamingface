@@ -73,7 +73,9 @@ def protocol_component_schemas() -> dict[str, Any]:
         ref_template=REF_TEMPLATE,
     )
     schemas: dict[str, Any] = dict(top.get("$defs", {}))
-    # Author the CostUsageData example onto its component (never mutating the protocol model).
+    # Author the CostUsageData examples onto its component (never mutating the protocol model).
+    # WHY: `examples` (array) is the JSON-Schema-2020-12 / OpenAPI-3.1 keyword; singular `example`
+    # is not one (validators ignore it) — OME-550.
     if "CostUsageData" in schemas:
-        schemas["CostUsageData"] = {**schemas["CostUsageData"], "example": COST_USAGE_EXAMPLE}
+        schemas["CostUsageData"] = {**schemas["CostUsageData"], "examples": [COST_USAGE_EXAMPLE]}
     return schemas
