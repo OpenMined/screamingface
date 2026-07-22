@@ -1,8 +1,9 @@
 """Ops + docs surface (spec §12, docs/protocol.md §9).
 
 k8s liveness/readiness probes (`/livez`, `/readyz`), an OpenMetrics scrape (`/metrics`), the
-Scalar API reference (`/scalar` → `/openapi.json`), and the AsyncAPI 3.0 doc (`/asyncapi.json`).
-All are dependency-light and read only ``request.app.state`` so they run headless.
+Scalar OpenAPI reference (`/scalar` → `/openapi.json`), the AsyncAPI 3.0 doc (`/asyncapi.json`)
+and its rendered reference (`/asyncapi`). Both reference pages are app-served and same-origin, so
+`docker compose` serves the viewers with no extra container. All read only ``request.app.state``.
 """
 
 from typing import Any
@@ -28,8 +29,11 @@ _SCALAR_HTML = """\
     <title>url4-cloud API reference</title>
   </head>
   <body>
-    <script id="api-reference" data-url="/openapi.json"></script>
+    <div id="app"></div>
     <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+    <script>
+      Scalar.createApiReference('#app', { url: '/openapi.json' })
+    </script>
   </body>
 </html>
 """
@@ -60,6 +64,36 @@ def metrics(request: Request) -> Response:
 def scalar() -> HTMLResponse:
     """Serve the Scalar reference rendering ``/openapi.json`` (spec §12)."""
     return HTMLResponse(_SCALAR_HTML)
+
+
+# WHY: the AsyncAPI web-component (a custom element) fetches and renders the raw /asyncapi.json
+# same-origin, so the app itself is the WS-schema viewer — no external Studio, no CORS (OME-553).
+_ASYNCAPI_HTML = """\
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>url4-cloud AsyncAPI reference</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/@asyncapi/react-component@2/styles/default.min.css"
+    />
+  </head>
+  <body>
+    <asyncapi-component schemaUrl="/asyncapi.json"></asyncapi-component>
+    <script
+      src="https://unpkg.com/@asyncapi/web-component@2/lib/asyncapi-web-component.js"
+    ></script>
+  </body>
+</html>
+"""
+
+
+@router.get("/asyncapi", tags=["Ops"], summary="AsyncAPI reference", include_in_schema=False)
+def asyncapi_reference() -> HTMLResponse:
+    """Serve the AsyncAPI web-component rendering ``/asyncapi.json`` (spec §12, OME-553)."""
+    return HTMLResponse(_ASYNCAPI_HTML)
 
 
 @router.get("/asyncapi.json", tags=["Ops"], summary="AsyncAPI 3.0 doc", include_in_schema=False)

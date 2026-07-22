@@ -85,7 +85,20 @@ def test_scalar_returns_html_referencing_openapi() -> None:
     assert resp.headers["content-type"].startswith("text/html")
     body = resp.text
     assert "/openapi.json" in body
-    assert "api-reference" in body
+    # OME-553: the current Scalar standalone init (the old `id="api-reference" data-url` embed
+    # no longer auto-mounts → the page rendered "Not Found").
+    assert "createApiReference" in body
+
+
+def test_asyncapi_reference_page_renders_the_ws_schema() -> None:
+    # OME-553: an app-served AsyncAPI reference (same-origin) — the web-component fetches the
+    # raw /asyncapi.json, so `docker compose` serves the WS schema viewer with no extra container.
+    resp = _client().get("/asyncapi")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    body = resp.text
+    assert "asyncapi-component" in body
+    assert "/asyncapi.json" in body
 
 
 # --- AsyncAPI 3.0 for the /ws channel -------------------------------------
