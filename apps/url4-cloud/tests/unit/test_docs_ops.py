@@ -91,23 +91,14 @@ def test_scalar_returns_html_referencing_openapi() -> None:
 
 
 def test_asyncapi_reference_page_renders_the_ws_schema() -> None:
-    # OME-553: an app-served AsyncAPI reference (same-origin) — the web-component fetches the
-    # raw /asyncapi.json, so `docker compose` serves the WS schema viewer with no extra container.
+    # OME-564: /asyncapi is served by Scalar (which renders AsyncAPI 3.x since v1.61) pointed at the
+    # raw /asyncapi.json — the same polished, same-origin viewer as /scalar, no web-component.
     resp = _client().get("/asyncapi")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
     body = resp.text
-    assert "asyncapi-component" in body
+    assert "createApiReference" in body
     assert "/asyncapi.json" in body
-
-
-def test_asyncapi_page_imports_component_css_into_shadow_root() -> None:
-    # OME-553 follow-up: the web-component renders into a shadow DOM, so a <link> in <head> can't
-    # style it — the stylesheet must be handed to the component via `cssImportPath` (loaded into
-    # the shadow root), else the viewer renders as unstyled plain HTML.
-    body = _client().get("/asyncapi").text
-    assert "cssImportPath" in body
-    assert "styles/default.min.css" in body
 
 
 # --- AsyncAPI 3.0 for the /ws channel -------------------------------------

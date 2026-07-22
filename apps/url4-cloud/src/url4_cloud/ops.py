@@ -1,8 +1,8 @@
 """Ops + docs surface (spec §12, docs/protocol.md §9).
 
-k8s liveness/readiness probes (`/livez`, `/readyz`), an OpenMetrics scrape (`/metrics`), the
-Scalar OpenAPI reference (`/scalar` → `/openapi.json`), the AsyncAPI 3.0 doc (`/asyncapi.json`)
-and its rendered reference (`/asyncapi`). Both reference pages are app-served and same-origin, so
+k8s liveness/readiness probes (`/livez`, `/readyz`), an OpenMetrics scrape (`/metrics`), and two
+**Scalar** reference pages — `/scalar` (OpenAPI → `/openapi.json`) and `/asyncapi` (AsyncAPI 3.0 →
+`/asyncapi.json`; Scalar renders AsyncAPI 3.x since v1.61). Both are app-served and same-origin, so
 `docker compose` serves the viewers with no extra container. All read only ``request.app.state``.
 """
 
@@ -17,22 +17,25 @@ from url4_cloud.schemas import build_asyncapi
 
 router = APIRouter()
 
-# WHY: Scalar is a static single-page reference that fetches the OpenAPI at runtime; we ship the
-# minimal documented embed (script tag + data-url) rather than a build dependency. It renders the
-# `/openapi.json` this app already serves.
-_SCALAR_HTML = """\
+
+# WHY: Scalar is a static single-page reference that fetches the spec at runtime; we ship the
+# minimal documented embed (one script tag) rather than a build dependency. Since Scalar v1.61 the
+# SAME embed renders BOTH OpenAPI and AsyncAPI 3.x, so /scalar and /asyncapi share one viewer — no
+# @asyncapi web-component, no shadow-DOM styling (OME-564). Only the title + spec URL differ.
+def _scalar_page(title: str, spec_url: str) -> str:
+    return f"""\
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>url4-cloud API reference</title>
+    <title>{title}</title>
   </head>
   <body>
     <div id="app"></div>
     <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
     <script>
-      Scalar.createApiReference('#app', { url: '/openapi.json' })
+      Scalar.createApiReference('#app', {{ url: '{spec_url}' }})
     </script>
   </body>
 </html>
@@ -63,38 +66,13 @@ def metrics(request: Request) -> Response:
 @router.get("/scalar", tags=["Ops"], summary="Scalar API reference", include_in_schema=False)
 def scalar() -> HTMLResponse:
     """Serve the Scalar reference rendering ``/openapi.json`` (spec §12)."""
-    return HTMLResponse(_SCALAR_HTML)
-
-
-# WHY: the AsyncAPI web-component (a custom element) fetches and renders the raw /asyncapi.json
-# same-origin, so the app itself is the WS-schema viewer — no external Studio, no CORS (OME-553).
-# The component renders into a SHADOW DOM, so its stylesheet is passed via `cssImportPath` (loaded
-# into the shadow root) — a <link> in <head> can't reach the component's shadow DOM.
-_ASYNCAPI_HTML = """\
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>url4-cloud AsyncAPI reference</title>
-  </head>
-  <body>
-    <asyncapi-component
-      schemaUrl="/asyncapi.json"
-      cssImportPath="https://unpkg.com/@asyncapi/react-component@2/styles/default.min.css"
-    ></asyncapi-component>
-    <script
-      src="https://unpkg.com/@asyncapi/web-component@2/lib/asyncapi-web-component.js"
-    ></script>
-  </body>
-</html>
-"""
+    return HTMLResponse(_scalar_page("url4-cloud API reference", "/openapi.json"))
 
 
 @router.get("/asyncapi", tags=["Ops"], summary="AsyncAPI reference", include_in_schema=False)
 def asyncapi_reference() -> HTMLResponse:
-    """Serve the AsyncAPI web-component rendering ``/asyncapi.json`` (spec §12, OME-553)."""
-    return HTMLResponse(_ASYNCAPI_HTML)
+    """Serve the Scalar reference rendering ``/asyncapi.json`` (spec §12, OME-564)."""
+    return HTMLResponse(_scalar_page("url4-cloud AsyncAPI reference", "/asyncapi.json"))
 
 
 @router.get("/asyncapi.json", tags=["Ops"], summary="AsyncAPI 3.0 doc", include_in_schema=False)
