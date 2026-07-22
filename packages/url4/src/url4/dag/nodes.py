@@ -10,9 +10,9 @@ collection row, and :class:`ReduceNode` parses its reducer only when the rows
 exist.
 
 All I/O flows through ``ctx.io`` (the port); every ``$`` substitution
-reuses the pure helpers in :mod:`url4.ensemble`. Reference-edge inputs use the
+reuses the pure helpers in :mod:`url4.core.ensemble`. Reference-edge inputs use the
 ``bind:<name>`` / ``pos:<N>`` role convention — :func:`_frame` turns them into
-a :class:`~url4.context.Context` frame chained onto ``ctx.scope``.
+a :class:`~url4.core.context.Context` frame chained onto ``ctx.scope``.
 
 Terminal-state additions (spec Part A / §10): :class:`GuardNode` wraps a
 source's subtree with the per-source execution disposition (``;optional``,
@@ -36,22 +36,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-from url4._scan import skip_quoted, split_top_level
-from url4.context import Context
-from url4.ensemble import (
+from url4.core._scan import skip_quoted, split_top_level
+from url4.core.context import Context
+from url4.core.ensemble import (
     FanoutResponse,
     build_reducer_input,
     substitute_env_vars,
     substitute_item,
     substitute_response_vars,
 )
-from url4.errors import CollectionError, ResolutionError, ScopeError, Url4Error
-from url4.grammar import parse as grammar_parse
-from url4.io_layer import FetchRequest, SupportsHoldings, fetch_result, parse_collection
-from url4.nodes import IterationDirectives, Params
-from url4.nodes import RelExpr as AstRelExpr
-from url4.parser import split_intent
-from url4.subrequest import encode_subrequest
+from url4.core.errors import CollectionError, ResolutionError, ScopeError, Url4Error
+from url4.core.grammar import parse as grammar_parse
+from url4.core.nodes import IterationDirectives, Params
+from url4.core.nodes import RelExpr as AstRelExpr
+from url4.core.parser import split_intent
+from url4.core.subrequest import encode_subrequest, strip_transport_params
+from url4.dag.processor import resolve_processor_target
+from url4.io.layer import FetchRequest, SupportsHoldings, fetch_result, parse_collection
 
 from url4.dag.node import (  # isort: skip
     DagNode,
@@ -85,13 +86,13 @@ def _frame(inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Context:
     return Context(bindings=bindings, parent=ctx.scope) if bindings else ctx.scope
 
 
-# The current collection row is bound into the spawned scope under this reserved
-# key rather than substituted into the expression text: a row value carrying a
+# WHY: the current collection row is bound into the spawned scope under this
+# reserved key rather than substituted into the expression text — a row value carrying a
 # stray "(" or "!" would otherwise desync the paren/intent scanners when the row
 # expression is re-compiled. The NUL prefix keeps it out of the $name namespace.
 _ITEM_KEY = "\x00item"
 
-# The default per-MapNode fan-out cap when ``;iteration.concurrency`` is not
+# WHY: the default per-MapNode fan-out cap when ``;iteration.concurrency`` is not
 # given. Without a default bound, a collection with no directive spawns one
 # concurrent sub-executor PER ROW (thousands, for a large collection) before any
 # backpressure exists — an accidental-explosion hazard against whatever backend
@@ -180,8 +181,14 @@ def _error_payload(exc: BaseException) -> dict:
 
 
 def _wire_params(params: Params) -> list[tuple[str, str]]:
-    """Protocol params for the sub-request codec; a valueless flag emits ``k=``."""
-    return [(key, value if value is not None else "") for key, value in params]
+    """Protocol params for the sub-request codec; a valueless flag emits ``k=``.
+
+    # INVARIANT: transport-only params (spec §11.6.3) are stripped here, using
+    # the codec's single definition — an expression authored with ``resume=``/
+    # ``rid=`` must not smuggle them onto the next hop (`OME-501`).
+    """
+    pairs = [(key, value if value is not None else "") for key, value in params]
+    return strip_transport_params(pairs)
 
 
 @dataclass(eq=False)
@@ -239,7 +246,7 @@ class RelUrlNode:
     - a relative *expression* ``/claude(context)!intent`` (``is_expr=True``) →
       a fetch of the encoded sub-request ``/claude?[params&]q=(context)!intent``,
       which the local node evaluates. ``name`` / ``weight`` come from the
-      enclosing :class:`~url4.nodes.Source` descriptor and let the ensemble
+      enclosing :class:`~url4.core.nodes.Source` descriptor and let the ensemble
       reducer format and weight this source.
     """
 
@@ -250,7 +257,8 @@ class RelUrlNode:
     weight: float | None = None
     params: Params = ()
     accept: str | None = None
-    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …} + $refs
+    ctx_slots: tuple[SlotSpec, ...] | None = None
+    deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"intent": …, "ctx:i": …} + $refs
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         scope = _frame(inputs, ctx)
@@ -260,9 +268,7 @@ class RelUrlNode:
         if not self.is_expr:
             request = FetchRequest(path, relative=True, kind="relative", accept=self.accept)
             return await _fetch(ctx, request)
-        # context is raw text on this node, so $item/$name are resolved here; the
-        # intent flows in from its own (already-substituted) leaf node.
-        context = _substitute(self.context or "", scope, ctx)
+        context = _resolved_context(self.context, self.ctx_slots, inputs, scope, ctx)
         intent = (
             substitute_env_vars(_as_text(inputs["intent"]), scope, strict=ctx.strict_fields)
             if "intent" in inputs
@@ -271,6 +277,27 @@ class RelUrlNode:
         target = encode_subrequest(path, context, intent, params=_wire_params(self.params))
         request = FetchRequest(target, relative=True, kind="relative", accept=self.accept)
         return await _fetch(ctx, request)
+
+
+def _resolved_context(
+    context: str | None,
+    ctx_slots: tuple[SlotSpec, ...] | None,
+    inputs: Mapping[str, Payload],
+    scope: Context,
+    ctx: ExecutionContext,
+) -> str:
+    """A call's dispatched context: packed source-list, or the raw-text fallback.
+
+    ABNF conformance (`OME-535`): with ``ctx_slots`` the caller RESOLVED the
+    paren source-list — pack it per the `OME-534` rules (named →
+    ``name: value``, instrumental excluded). The packed text is opaque
+    resolved data: it is NOT re-substituted (a ``$`` inside fetched content
+    must stay literal). Without slots (prose, an unparseable list) the legacy
+    raw-text path substitutes ``$item``/``$name`` templates as before.
+    """
+    if ctx_slots is None:
+        return _substitute(context or "", scope, ctx)
+    return "\n".join(_gather(inputs, ctx_slots, prefix="ctx").sources)
 
 
 @dataclass(eq=False)
@@ -291,6 +318,10 @@ class RemoteFetchNode:
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         scope = _frame(inputs, ctx)
+        # INVARIANT (`OME-535`): a remote call's q= carries an EXPRESSION the
+        # REMOTE node evaluates (canonical form `?q=expression`) — the caller
+        # never resolves it. Caller-side source-list resolution applies only
+        # to RELATIVE calls, where the caller IS the evaluating node.
         context = _substitute(self.context or "", scope, ctx)
         intent = (
             substitute_env_vars(_as_text(inputs["intent"]), scope, strict=ctx.strict_fields)
@@ -324,7 +355,14 @@ class HoldingsNode:
                 code=code,
                 permanent=True,
             )
-        return await ctx.io.fetch_holdings(self.identity, self.collection)
+        # A bare `@` carries no collection (spec §5.6.2: `self-ref = "@"`); the
+        # run's path qualifier supplies it (§5.6.3.1). An identity-ref keeps its
+        # own `@name/collection` — the qualifier scopes the NODE context, the
+        # identity-collection scopes within the principal's holdings (§5.6.2).
+        collection = self.collection
+        if self.identity is None and collection is None:
+            collection = ctx.self_collection
+        return await ctx.io.fetch_holdings(self.identity, collection)
 
 
 @dataclass(eq=False)
@@ -388,7 +426,7 @@ def _decode_struct_value(value: str, scope: Context, ctx: ExecutionContext) -> o
         if end >= 2 and end == len(value):
             value = value[1:-1].replace("\\'", "'").replace("\\\\", "\\")
             quoted = True
-    # A bare literal keeps its JSON scalar type (canonical JSON); a quoted value
+    # WHY: a bare literal keeps its JSON scalar type (canonical JSON); a quoted value
     # is always a string, and a value carrying a $reference stays the substituted
     # string so a resolved id like "007" is never silently renumbered to 7.
     if not quoted and "$" not in value:
@@ -451,6 +489,12 @@ class GuardNode:
     timeout: float | None = None
     retries: int = 0
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # $ref edges only
+
+    def children(self) -> list[DagNode]:
+        """``inner`` is an attribute, not an edge — declare it so the structural
+        traversals (cycle detection, :meth:`Graph.walk`) still see through the
+        isolation boundary. See :func:`~url4.dag.node.node_children`."""
+        return [*self.deps.values(), self.inner]
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         scope = _frame(inputs, ctx)
@@ -524,8 +568,11 @@ class BarrierNode:
 
 
 SlotSpec = tuple[str | None, bool]
-"""One group slot: ``(name, is_binding)``. A named Source has a name but is
-NOT a binding — it stays in the packed sources (contract: Binding vs Source)."""
+"""One group slot: ``(name, instrumental)``. ABNF conformance (`OME-534`):
+EVERY listed source contributes to the packed context — name-only descriptors
+(``a: v`` / ``a=v``) included. The bool marks a scalar-``weight 0.0``
+INSTRUMENTAL source: resolved and ``$name``-referenceable, excluded from the
+packed sources (the replacement for the old reference-only-Binding concept)."""
 
 
 @dataclass
@@ -533,55 +580,69 @@ class _Gathered:
     """The flattened view of a group's slots after failures and expansion."""
 
     positional: list[str]  # $N values, renumbered post-expansion
-    named: dict[str, str]  # $name values (bindings AND named sources)
-    sources: list[str]  # the packed non-binding source values, in order
-    resolved: int  # successfully-resolved non-binding source count
+    named: dict[str, str]  # $name values (RAW — scope substitution needs them unlabeled)
+    sources: list[str]  # the packed source values, in order (named → "name: value")
 
 
-def _gather(inputs: Mapping[str, Payload], slots: tuple[SlotSpec, ...]) -> _Gathered:
-    """Flatten group slots: skip failures, splice expansions, renumber positions."""
-    g = _Gathered([], {}, [], 0)
-    for i, (name, is_binding) in enumerate(slots):
-        value = inputs[f"src:{i}"]
+def _gather(
+    inputs: Mapping[str, Payload], slots: tuple[SlotSpec, ...], prefix: str = "src"
+) -> _Gathered:
+    """Flatten group slots: skip failures, splice expansions, renumber positions.
+
+    WHY the ``name:`` label rides only ``sources``: the packed context a
+    processor sees keeps the author's key labels (`OME-534` owner decision),
+    while ``named`` feeds ``$name`` substitution and must stay the raw value.
+    ``prefix`` selects the dep-key family — ``src:i`` for group slots,
+    ``ctx:i`` for a call's context source-list (`OME-535`).
+    """
+    g = _Gathered([], {}, [])
+    for i, (name, instrumental) in enumerate(slots):
+        value = inputs[f"{prefix}:{i}"]
         if isinstance(value, SourceFailure):
             continue
         if isinstance(value, list):
-            _gather_expanded(g, value, name, is_binding)
+            _gather_expanded(g, value, name, instrumental)
             continue
         g.positional.append(value)
         if name is not None:
             g.named[name] = value
-        if not is_binding:
-            g.sources.append(value)
-            g.resolved += 1
+        if not instrumental:
+            g.sources.append(f"{name}: {value}" if name is not None else value)
     return g
 
 
-def _gather_expanded(g: _Gathered, elements: list[str], name: str | None, is_binding: bool) -> None:
+def _gather_expanded(
+    g: _Gathered, elements: list[str], name: str | None, instrumental: bool
+) -> None:
     """Expanded elements each take a position; the name binds the JSON array,
-    so a ``$name[i]`` field path selects one element (spec §5.3.12.5)."""
+    so a ``$name[i]`` field path selects one element (spec §5.3.12.5). The
+    elements pack BARE — the name labels the array binding, not each element."""
     g.positional.extend(elements)
     if name is not None:
         g.named[name] = json.dumps([_maybe_json(e) for e in elements])
-    if not is_binding:
+    if not instrumental:
         g.sources.extend(elements)
-        g.resolved += len(elements)
 
 
 def _check_quorum(g: _Gathered, quorum: int | None) -> None:
-    if quorum is not None and g.resolved < quorum:
+    # The contributing count IS len(sources) — every append above is a contribution.
+    resolved = len(g.sources)
+    if quorum is not None and resolved < quorum:
         raise ResolutionError(
-            f"quorum not met: {g.resolved} of {quorum} required sources resolved",
+            f"quorum not met: {resolved} of {quorum} required sources resolved",
             code="quorum_not_met",
         )
 
 
 @dataclass(eq=False)
 class GatherNode:
-    """A bare group ``(a, b, c)`` — join the non-binding sources.
+    """An intent-less group — join the contributing sources (`OME-534`).
 
-    A pure-binding group falls back to joining every slot value. ``quorum``
-    (spec §9.1) gates on the post-expansion resolved-source count.
+    AST-only (`OME-508`): the surface grammar's expression always carries an
+    intent, so this node is reached via hand-built ``Expression(intent=None)``
+    trees and the engine's own internal wrappers, never from user text.
+    A pure-instrumental group falls back to joining every slot value.
+    ``quorum`` (spec §9.1) gates on the post-expansion resolved-source count.
     """
 
     slots: tuple[SlotSpec, ...] = ()
@@ -675,7 +736,7 @@ class MergeNode:
         source = _as_text(inputs["source"])
         scope = Context(bindings={"current": source}, parent=ctx.scope)
         if self.intent_template is not None:
-            # _substitute (not bare substitute_env_vars) so a broadcast intent
+            # WHY: _substitute (not bare substitute_env_vars) so a broadcast intent
             # nested inside an iteration resolves $item too, exactly as the
             # non-broadcast ProcessNode path does — $current still resolves via
             # the substitute_env_vars pass _substitute ends with.
@@ -753,7 +814,7 @@ class FanoutReduceNode:
 
     The N sources (each a relative expression, ``call:i``) resolve in parallel;
     ``meta[i]`` carries the i-th one's ``(name, weight)`` label. The formatted
-    reducer input (:func:`~url4.ensemble.build_reducer_input`) is then fetched
+    reducer input (:func:`~url4.core.ensemble.build_reducer_input`) is then fetched
     from the configured ``ctx.processor`` route as ``processor?q=()!<input>`` —
     the reduce step is itself a localhost fetch. A failed optional call is
     excluded from the reducer input (it is not a resolved response).
@@ -769,9 +830,28 @@ class FanoutReduceNode:
             if not isinstance(inputs[f"call:{i}"], SourceFailure)
         ]
         instruction = substitute_response_vars(_as_text(inputs.get("intent", "")), entries)
-        reducer_input = build_reducer_input(entries, instruction)
-        target = encode_subrequest(ctx.processor, "", reducer_input)
-        return await ctx.io.fetch(target, relative=True)
+        # ABNF conformance (`OME-534`): a scalar weight 0.0 marks the call
+        # INSTRUMENTAL — its response is $name-substitutable above but forms no
+        # labeled section of the reducer input.
+        contributing = [e for e in entries if e.weight != 0.0]
+        reducer_input = build_reducer_input(contributing, instruction)
+        if ctx.processor is None:
+            # INVARIANT: the core hardcodes no processor route — with nothing
+            # declared (SupportsDefaultRoute) and nothing passed, the reduce
+            # cannot dispatch; fail with the fix in the message.
+            raise ResolutionError(
+                "fan-out reduce has no processor route — the io layer declares no "
+                "routes and none was set; pass processor= (run/Client) or register "
+                "a route/endpoint on the node"
+            )
+        # §27.3: the processor may be an id, a URI, a route path, or an
+        # expression that computes one — url4.dag.processor owns that classification.
+        scope = _frame(inputs, ctx)
+        base, relative = await resolve_processor_target(
+            ctx.processor, io=ctx.io, spawn=lambda text: ctx.spawn(text, scope)
+        )
+        target = encode_subrequest(base, "", reducer_input)
+        return await ctx.io.fetch(target, relative=relative)
 
 
 @dataclass(eq=False)
@@ -795,7 +875,6 @@ class MapNode:
     body: str
     intent: str | None = None
     directives: IterationDirectives = field(default_factory=IterationDirectives)
-    label: str = ""
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"collection": node}
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
@@ -810,9 +889,13 @@ class MapNode:
         if concurrency is None or concurrency <= 0:
             concurrency = DEFAULT_MAP_CONCURRENCY
         sem = asyncio.Semaphore(concurrency)
+        # Row-invariant: built once here rather than per row, since it is also
+        # the spawn cache key and would otherwise be re-concatenated and
+        # re-hashed len(items) times.
+        expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
         if self.directives.on_error == "fail":
-            return await self._run_all(items, sem, ctx)
-        rows = [self._row(item, sem, ctx) for item in items]
+            return await self._run_all(items, expr, sem, ctx)
+        rows = [self._row(item, expr, sem, ctx) for item in items]
         raw = await asyncio.gather(*rows, return_exceptions=True)
         return self._skip(raw) if self.directives.on_error == "skip" else self._collect(raw, ctx)
 
@@ -831,23 +914,22 @@ class MapNode:
         return items
 
     async def _run_all(
-        self, items: list[str], sem: asyncio.Semaphore | None, ctx: ExecutionContext
+        self, items: list[str], expr: str, sem: asyncio.Semaphore, ctx: ExecutionContext
     ) -> list[str]:
         # TaskGroup so the first failing row cancels its in-flight siblings.
         try:
             async with asyncio.TaskGroup() as tg:
-                tasks = [tg.create_task(self._row(item, sem, ctx)) for item in items]
+                tasks = [tg.create_task(self._row(item, expr, sem, ctx)) for item in items]
         except BaseExceptionGroup as group:
             reraise_first(group)
         return [task.result() for task in tasks]
 
-    async def _row(self, item: str, sem: asyncio.Semaphore | None, ctx: ExecutionContext) -> str:
-        # The body is spawned verbatim (with $item still in it) and the row is
+    async def _row(
+        self, item: str, expr: str, sem: asyncio.Semaphore, ctx: ExecutionContext
+    ) -> str:
+        # WHY: the body is spawned verbatim (with $item still in it) and the row is
         # bound into scope, so arbitrary row data never enters the re-parse.
         scope = Context(bindings={_ITEM_KEY: item}, parent=ctx.scope)
-        expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
-        if sem is None:
-            return await ctx.spawn(expr, scope)
         async with sem:
             return await ctx.spawn(expr, scope)
 
@@ -903,7 +985,7 @@ class ReduceNode:
 
     async def _dispatch(self, expr: AstRelExpr, array_json: str, ctx: ExecutionContext) -> str:
         context = substitute_env_vars(expr.context or "", ctx.scope, strict=ctx.strict_fields)
-        # array_json is the row data, not a template: pass it through verbatim.
+        # WHY: array_json is the row data, not a template: pass it through verbatim.
         # Running $-substitution over it would collapse a row's literal "$$" or
         # replace a "$1" that happens to match an in-scope binding — corrupting
         # the very data the reducer is meant to see. encode_subrequest wire-escapes

@@ -2,7 +2,7 @@
 
 Hybrid laziness: only the *top-level* structure is decoded eagerly — the
 intent/params/iteration envelope (reusing the depth/quote-aware scanners from
-:mod:`url4.parser`, in :func:`~url4.parser.build`'s exact order, which is what
+:mod:`url4.core.parser`, in :func:`~url4.core.parser.build`'s exact order, which is what
 preserves its pinned quirks) plus a per-segment classification. Non-group
 segments are parsed with the recursive-descent grammar and lowered to typed
 nodes; a group-shaped segment defers its inner text into a
@@ -22,7 +22,7 @@ reference engine's two-phase list resolution:
 Named slots therefore never depend on unnamed sources and named→named edges
 are strictly left-to-right, so compiled graphs are cycle-free by construction.
 
-Descriptor lowering (spec §4.3): a :class:`~url4.nodes.Source` wrapper lowers
+Descriptor lowering (spec §4.3): a :class:`~url4.core.nodes.Source` wrapper lowers
 its value, pushes the attribution label into the fan-out metadata, then wraps
 outward — :class:`~url4.dag.nodes.ExpandNode` for ``;expand``/``*source``,
 :class:`~url4.dag.nodes.GuardNode` for ``;optional``/``;t=``/``;retry=``. A
@@ -42,10 +42,10 @@ import re
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 
-from url4.ensemble import find_references
-from url4.errors import ParseError
-from url4.grammar import parse as grammar_parse
-from url4.nodes import (
+from url4.core.ensemble import find_references
+from url4.core.errors import ParseError
+from url4.core.grammar import parse as grammar_parse
+from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,
@@ -62,8 +62,8 @@ from url4.nodes import (
     Url,
     VarRef,
 )
-from url4.nodes import walk as ast_walk
-from url4.parser import (
+from url4.core.nodes import walk as ast_walk
+from url4.core.parser import (
     IterationEnvelope,
     balanced_body,
     decode_envelope,
@@ -73,7 +73,7 @@ from url4.parser import (
     strip_one_paren_layer,
 )
 
-from url4.dag.node import DagNode  # isort: skip
+from url4.dag.node import DagNode, node_children  # isort: skip
 from url4.dag.nodes import (  # isort: skip
     BarrierNode,
     BindingNode,
@@ -141,7 +141,7 @@ def _lower_url(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
 
 def _lower_relurl(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     assert isinstance(node, RelUrl)
-    # A bare relative URI may embed dot-path refs (/data/$topic, spec §8.2.3),
+    # WHY: a bare relative URI may embed dot-path refs (/data/$topic, spec §8.2.3),
     # so its sibling-binding edges must reach the node's scope frame — the same
     # deps every other substituting leaf (_lower_text/_lower_struct) carries.
     return RelUrlNode(node.value, deps=dict(edges))
@@ -160,11 +160,13 @@ def _lower_rel_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> Dag
         # stripped by the grammar (quotes are delimiters, spec §5.1).
         deps["intent"] = registry.lower(node.intent, edges)
     deps.update(edges)
+    ctx_slots = _wire_context_slots(node.context, deps, edges, registry)
     return RelUrlNode(
         node.path,
         context=node.context,
         is_expr=True,
         params=node.params,
+        ctx_slots=ctx_slots,
         deps=deps,
     )
 
@@ -175,6 +177,8 @@ def _lower_remote_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> 
     if node.intent is not None:
         deps["intent"] = registry.lower(node.intent, edges)
     deps.update(edges)
+    # No context slots here (`OME-535`): the remote q= is an EXPRESSION the
+    # remote node evaluates; only RELATIVE calls resolve context caller-side.
     return RemoteFetchNode(
         node.authority,
         node.path,
@@ -182,6 +186,68 @@ def _lower_remote_expr(node: Node, edges: Edges, registry: LoweringRegistry) -> 
         params=node.params,
         deps=deps,
     )
+
+
+def _wire_context_slots(
+    context: str | None,
+    deps: dict[str, DagNode],
+    edges: Edges,
+    registry: LoweringRegistry,
+) -> tuple[SlotSpec, ...] | None:
+    """Lower a call's context source-list into ``ctx:i`` deps (`OME-535`).
+
+    ABNF: the call parens carry a ``source-list`` the CALLER resolves before
+    dispatch. A context that fails to parse as one (prose like ``run: 1``,
+    unbalanced quotes) returns ``None`` — the raw-text fallback keeps prompt
+    text working verbatim. Resolution is strictly caller-side: the packed
+    result ships as opaque data, never re-resolved by the receiving node.
+    """
+    slots = _context_slots(context, registry)
+    if slots is None:
+        return None
+    for i, built in enumerate(_build_ctx_nodes(slots, edges)):
+        deps[f"ctx:{i}"] = built
+    return _slot_specs(slots)
+
+
+def _context_slots(context: str | None, registry: LoweringRegistry) -> list[_Slot] | None:
+    # INVARIANT (spec §5.6.3.1/.2): a holdings ref ("@") in a call's context is
+    # scoped to the RECEIVING route and travels in the q= payload verbatim —
+    # never resolved caller-side. The "@" check is deliberately conservative:
+    # an email-ish literal merely falls back to the raw-text path, which is
+    # the pre-`OME-535` behavior — safe, just unresolved.
+    if context is None or not context.strip() or "@" in context:
+        return None
+    try:
+        segments = [seg.strip() for seg in split_top_level_commas(context)]
+        return [_slot_from_text(seg, registry) for seg in segments if seg] or None
+    except ParseError:
+        # WHY fallback, not error: the ABNF's source-list is the canonical
+        # reading, but a call's parens have carried free prose since v1 —
+        # an unparseable context is prose by construction and ships verbatim.
+        return None
+
+
+def _build_ctx_nodes(slots: list[_Slot], outer: Edges) -> list[DagNode]:
+    """Build context-slot nodes with OUTER bindings visible (`OME-535`).
+
+    Mirrors :func:`_build_slots`' two-phase visibility, seeded with the
+    enclosing group's edges so ``/ep(data: $a)`` sees a sibling ``a=…``
+    binding. Context slots register no positional entries — ``$N`` inside a
+    call context keeps referring to the OUTER group's positions.
+    """
+    by_name = {k.partition(":")[2]: n for k, n in outer.items() if k.startswith("bind:")}
+    by_pos = {int(k.partition(":")[2]): n for k, n in outer.items() if k.startswith("pos:")}
+    built: list[DagNode | None] = [None] * len(slots)
+    for i, slot in enumerate(slots):
+        if slot.name is None:
+            continue
+        node = slot.make(_ref_edges(slot.refs, by_name, by_pos))
+        built[i], by_name[slot.name] = node, node
+    for i, slot in enumerate(slots):
+        if slot.name is None:
+            built[i] = slot.make(_ref_edges(slot.refs, by_name, by_pos))
+    return [node for node in built if node is not None]
 
 
 def _lower_self_ref(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
@@ -229,7 +295,6 @@ def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> Da
         body=node.body,
         intent=node.intent,
         directives=node.directives,
-        label=_ast_label(node.collection),
         deps={"collection": collection},
     )
     if node.reducer is not None:
@@ -240,7 +305,7 @@ def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> Da
 def _lower_collection(node: Node, registry: LoweringRegistry) -> DagNode:
     """Lower an iteration's collection source (spec §5.3.7 / §5.3.11).
 
-    A bare parenthesized group ``(e1, …)`` — an :class:`~url4.nodes.Expression`
+    A bare parenthesized group ``(e1, …)`` — an :class:`~url4.core.nodes.Expression`
     with no top-level intent — is an *inline* collection: its authored elements
     are lowered as a real ordered list (:class:`~url4.dag.nodes.InlineCollectionNode`),
     not gathered-to-text and re-sniffed, so one-element inline collections
@@ -349,15 +414,16 @@ def default_registry() -> LoweringRegistry:
 class _Slot:
     """One source segment awaiting edge wiring: ``make(edges)`` builds its node.
 
-    ``name`` is set for bindings AND named sources; ``is_binding`` separates
-    the two (a binding is excluded from the packed sources, a named source is
-    not — contract §4.3).
+    ``name`` is set for name-only descriptors AND annotated named sources —
+    under the ABNF contribution semantics (`OME-534`) BOTH contribute to the
+    packed context. ``instrumental`` marks a scalar-``weight 0.0`` source:
+    resolved and referenceable, excluded from the packed sources.
     """
 
     name: str | None
     refs: frozenset[str]
     make: Callable[[Edges], DagNode]
-    is_binding: bool = False
+    instrumental: bool = False
 
 
 @dataclass
@@ -365,11 +431,11 @@ class _Intent:
     """The classified intent: ``make(edges)`` builds it; only text substitutes.
 
     ``text`` carries the raw template for the broadcast path, which substitutes
-    per source (with ``$current`` bound) instead of once, shared.
+    per source (with ``$current`` bound) instead of once, shared. It is set iff
+    the intent is text — ``text is not None`` *is* the "is this text?" test.
     """
 
     make: Callable[[Edges], DagNode]
-    is_text: bool
     text: str | None = None
 
 
@@ -404,19 +470,19 @@ def _build_slots(slots: list[_Slot]) -> list[DagNode]:
     built: list[DagNode | None] = [None] * len(slots)
     by_name: dict[str, DagNode] = {}
     by_pos: dict[int, DagNode] = {}
-    for i, slot in enumerate(slots):  # named slots see only EARLIER named slots
+    for i, slot in enumerate(slots):  # INVARIANT: named slots see only EARLIER named slots
         if slot.name is None:
             continue
         node = slot.make(_ref_edges(slot.refs, by_name, by_pos))
         built[i], by_name[slot.name], by_pos[i + 1] = node, node, node
-    for i, slot in enumerate(slots):  # unnamed sources see ALL named slots
+    for i, slot in enumerate(slots):  # INVARIANT: unnamed sources see ALL named slots
         if slot.name is None:
             built[i] = slot.make(_ref_edges(slot.refs, by_name, by_pos))
     return [node for node in built if node is not None]
 
 
 def _slot_specs(slots: list[_Slot]) -> tuple[SlotSpec, ...]:
-    return tuple((slot.name, slot.is_binding) for slot in slots)
+    return tuple((slot.name, slot.instrumental) for slot in slots)
 
 
 def _compile_group(
@@ -437,17 +503,23 @@ def _compile_group(
     return _reduce_graph(built, slots, intent, from_list=from_list, quorum=quorum)
 
 
-def _fanout_call(node: DagNode) -> RelUrlNode | None:
-    """The relative-*expression* fetch behind ``node`` — through a guard — or None.
+def _fanout_call(node: DagNode) -> tuple[RelUrlNode, str | None] | None:
+    """The relative-*expression* fetch behind ``node`` (+ its label), or None.
 
     The fan-out unit (``/path(...)!...``) may be wrapped by a GuardNode
-    (``;optional``/``;t=``/``;retry=``); expansion changes the source count, so
-    an ExpandNode never fans out.
+    (``;optional``/``;t=``/``;retry=``) or — ABNF contribution semantics
+    (`OME-534`) — a name-only BindingNode (``named:/p(...)!x``), whose name
+    becomes the call's fan-out label instead of demoting the group to a local
+    merge. Expansion changes the source count, so an ExpandNode never fans out.
     """
+    label: str | None = None
+    if isinstance(node, BindingNode):
+        label = node.name
+        node = node.deps["value"]
     if isinstance(node, GuardNode):
         node = node.inner
     if isinstance(node, RelUrlNode) and node.is_expr:
-        return node
+        return node, label
     return None
 
 
@@ -459,14 +531,24 @@ def _reduce_graph(
     from_list: bool,
     quorum: int | None,
 ) -> DagNode:
-    # Fan-out + reduce is a LIST operation — it needs a parenthesised group of
+    # WHY: fan-out + reduce is a LIST operation — it needs a parenthesised group of
     # relative-expression sources, mirroring the reference engine's fan-out gate
     # (``_is_fanout and raw_intent``: the source must be a list AND carry a
     # top-level intent). A *bare* single relative expression with a top-level
     # intent is not a list: its intent folds into that one call — matching the
     # eager AST path's :func:`_lower_rel_expr` — instead of spawning a spurious
     # reducer call to "combine" a single response.
-    if from_list and built and all(_fanout_call(node) is not None for node in built):
+    # INVARIANT (`OME-534`): fan-out additionally needs at least one
+    # CONTRIBUTING call — instrumental (weight 0.0) members are not panel
+    # members, so an all-instrumental call group has nothing to reduce and
+    # takes the base path (its intent, with `$name` refs resolved, IS the
+    # result — the `(r:0:/call(…)!x)!'$r'` extraction idiom).
+    if (
+        from_list
+        and built
+        and all(_fanout_call(node) is not None for node in built)
+        and any(not slot.instrumental for slot in slots)
+    ):
         return _fanout_graph(built, intent)
     if not from_list and len(built) == 1 and isinstance(built[0], RelUrlNode) and built[0].is_expr:
         return _fold_intent_into_call(built[0], intent)
@@ -481,7 +563,7 @@ def _fold_intent_into_call(node: RelUrlNode, intent: _Intent) -> DagNode:
     lazy text path and the AST path stay in lock-step for this shape.
     """
     deps: dict[str, DagNode] = {"intent": intent.make({})}
-    deps.update(node.deps)
+    deps.update(node.deps)  # carries the ctx:i context-slot deps too (`OME-535`)
     return RelUrlNode(
         node.path,
         context=node.context,
@@ -490,6 +572,7 @@ def _fold_intent_into_call(node: RelUrlNode, intent: _Intent) -> DagNode:
         weight=node.weight,
         params=node.params,
         accept=node.accept,
+        ctx_slots=node.ctx_slots,
         deps=deps,
     )
 
@@ -507,8 +590,8 @@ def _broadcast_graph(slots: list[_Slot], intent: _Intent | None) -> DagNode:
     intent_node: DagNode | None = None
     if intent is None:
         template = ""
-    elif intent.is_text:
-        template = intent.text if intent.text is not None else ""
+    elif intent.text is not None:
+        template = intent.text
     else:
         intent_node = intent.make({})
     parts: dict[str, DagNode] = {}
@@ -531,9 +614,10 @@ def _fanout_graph(built: list[DagNode], intent: _Intent) -> DagNode:
     deps.update({f"call:{i}": node for i, node in enumerate(built)})
     meta = []
     for node in built:
-        call = _fanout_call(node)
-        assert call is not None  # gated by _reduce_graph
-        meta.append((call.name, call.weight))
+        unwrapped = _fanout_call(node)
+        assert unwrapped is not None  # gated by _reduce_graph
+        call, label = unwrapped
+        meta.append((label or call.name, call.weight))
     return FanoutReduceNode(tuple(meta), deps=deps)
 
 
@@ -549,15 +633,31 @@ def _base_graph(
     source, preserving the reference engine's sources-then-intent ordering.
     """
     deps: dict[str, DagNode] = {f"src:{i}": node for i, node in enumerate(built)}
-    if intent.is_text:
-        template = intent.text if intent.text is not None else ""
-        return ProcessNode(_slot_specs(slots), quorum, intent_template=template, deps=deps)
+    if intent.text is not None:
+        return ProcessNode(_slot_specs(slots), quorum, intent_template=intent.text, deps=deps)
     waits = {f"wait:{i}": node for i, node in enumerate(built)}
     deps["intent"] = BarrierNode(deps={"inner": intent.make({}), **waits})
     return ProcessNode(_slot_specs(slots), quorum, deps=deps)
 
 
 # --- the text (string) path ---------------------------------------------------
+
+
+def _reject_bare_group(segment: str) -> None:
+    """WHY: reject an intent-less ``(…)`` in source position EAGERLY (`OME-508`).
+
+    Lazy deferral would postpone the error to spawn time — and the spawn
+    boundary compiles permissively (the engine's own wrappers legally arrive
+    intent-less), so a user's bare group would silently execute instead of
+    failing as the grammar demands. Iteration collections never pass through
+    here (``_collection_dag`` owns that legal position).
+    """
+    if strip_one_paren_layer(segment) is not None:
+        raise ParseError(
+            f"expression group {segment!r} has no intent — a parenthesized "
+            "source group must be followed by !intent (or !*intent)",
+            code="missing_intent",
+        )
 
 
 def _is_lazy_group(segment: str) -> bool:
@@ -578,21 +678,39 @@ def _slot_from_text(segment: str, registry: LoweringRegistry) -> _Slot:
         # Only a group-shaped RHS defers; ``name:(k:v):data`` is a structured
         # weight (§4.1.1.4) and must reach the grammar's classifier instead.
         if _is_lazy_group(rhs):
+            _reject_bare_group(rhs)
             name, kind = group_binding.group(1), group_binding.group(2)
-            return _Slot(name, refs, _make_binding_thunk(name, kind, rhs), is_binding=True)
+            # ABNF (`OME-534`): a deferred name=(group) binding CONTRIBUTES like
+            # any named source — only weight 0.0 marks a source instrumental,
+            # and the binding forms carry no weight.
+            return _Slot(name, refs, _make_binding_thunk(name, kind, rhs))
     if _is_lazy_group(segment):
+        _reject_bare_group(segment)
         return _Slot(None, refs, lambda edges: LazyExprNode(segment, deps=dict(edges)))
     ast = grammar_parse(segment)
-    name, is_binding = _slot_identity(ast)
-    return _Slot(name, refs, lambda edges: registry.lower(ast, edges), is_binding=is_binding)
+    name, instrumental = _slot_identity(ast)
+    return _Slot(name, refs, lambda edges: registry.lower(ast, edges), instrumental=instrumental)
 
 
 def _slot_identity(ast: Node) -> tuple[str | None, bool]:
+    """The slot's ``(name, instrumental)`` — ABNF contribution semantics.
+
+    WHY Binding is never instrumental (`OME-534`): the name-only forms
+    (``a: v`` / ``a=v``) are contributing sources under the ABNF; the ONLY
+    instrumental marker is an explicit scalar ``weight 0.0`` on a Source.
+    """
     if isinstance(ast, Binding):
-        return ast.name, True
-    if isinstance(ast, Source):
         return ast.name, False
+    if isinstance(ast, Source):
+        return ast.name, _is_instrumental_weight(ast.weight)
     return None, False
+
+
+def _is_instrumental_weight(weight: object) -> bool:
+    """True for the explicit scalar ``0.0`` (structured weights never qualify)."""
+    return (
+        isinstance(weight, (int, float)) and not isinstance(weight, bool) and float(weight) == 0.0
+    )
 
 
 def _make_binding_thunk(name: str, kind: str, rhs: str) -> Callable[[Edges], DagNode]:
@@ -613,8 +731,8 @@ def _intent_from_ast(atom: Node | None, registry: LoweringRegistry) -> _Intent |
         return None
     if isinstance(atom, Text):
         value = atom.value
-        return _Intent(lambda edges: TextNode(value, deps=dict(edges)), is_text=True, text=value)
-    return _Intent(lambda edges: registry.lower(atom, edges), is_text=False)
+        return _Intent(lambda edges: TextNode(value, deps=dict(edges)), text=value)
+    return _Intent(lambda edges: registry.lower(atom, edges))
 
 
 def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
@@ -622,7 +740,7 @@ def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
         return TextNode("")
     inner = strip_one_paren_layer(collection)
     if inner is not None:
-        # A bare parenthesized group ``(e1, …)`` is an inline collection (§5.3.11):
+        # WHY: a bare parenthesized group ``(e1, …)`` is an inline collection (§5.3.11):
         # its authored elements form a real ordered list rather than a joined
         # blob re-sniffed as a §5.3.7 body. This is the twin of _lower_collection
         # on the AST path (a bare group parses to an intent-less Expression).
@@ -647,7 +765,6 @@ def _map_from_text(
         body=body,
         intent=intent,
         directives=directives,
-        label=collection,
         deps={"collection": _collection_dag(collection, registry)},
     )
 
@@ -675,14 +792,14 @@ def _compile_group_text(
     )
 
 
-def _compile_text(text: str, registry: LoweringRegistry) -> DagNode:
-    """Lower the decoded surface envelope — the lazy twin of :func:`url4.parser.build`.
+def _compile_text(text: str, registry: LoweringRegistry, *, bare_root_ok: bool = False) -> DagNode:
+    """Lower the decoded surface envelope — the lazy twin of :func:`url4.core.parser.build`.
 
-    Both consume the same :func:`~url4.parser.decode_envelope`, so the two paths
+    Both consume the same :func:`~url4.core.parser.decode_envelope`, so the two paths
     cannot diverge; they differ only in what each terminal produces (a lazy DAG
     here, an eager AST in ``build``).
 
-    F2 / complexity-audit note: "cannot diverge" is a claim about *results*
+    AIDEV-NOTE: F2 / complexity-audit — "cannot diverge" is a claim about *results*
     (what a run resolves to), not about *graph shape*. A nested group such as
     ``(a, (b, c)!x)!go`` becomes a :class:`~url4.dag.nodes.LazyExprNode` thunk
     here (compiled only when the executor reaches it) but is fully expanded
@@ -693,7 +810,7 @@ def _compile_text(text: str, registry: LoweringRegistry) -> DagNode:
     same graph. Extending that test to a nested-group shape should assert on
     the resolved string, not on ``compile_expression(...).sink`` structure.
     """
-    env = decode_envelope(text)
+    env = decode_envelope(text, require_intent=not bare_root_ok)
     if isinstance(env, IterationEnvelope):
         map_node = _map_from_text(env.collection, env.body, env.intent, env.directives, registry)
         if env.reducer is not None:
@@ -706,12 +823,12 @@ def _compile_text(text: str, registry: LoweringRegistry) -> DagNode:
 
 
 def _slot_from_ast(source: Node, registry: LoweringRegistry) -> _Slot:
-    name, is_binding = _slot_identity(source)
+    name, instrumental = _slot_identity(source)
     return _Slot(
         name,
         frozenset(_refs_of_ast(source)),
         lambda edges: registry.lower(source, edges),
-        is_binding=is_binding,
+        instrumental=instrumental,
     )
 
 
@@ -733,11 +850,6 @@ def _refs_of_ast(node: Node) -> set[str]:
     return refs
 
 
-def _ast_label(node: Node) -> str:
-    value = getattr(node, "value", None)
-    return value if isinstance(value, str) else repr(node)
-
-
 @dataclass(eq=False)
 class Graph:
     """A compiled expression: the sink node plus traversal/validation helpers."""
@@ -755,14 +867,15 @@ class Graph:
                 continue
             seen.add(id(node))
             yield node
-            if isinstance(node, GuardNode):  # inner is an attribute, not an edge
-                stack.append(node.inner)
-            stack.extend(reversed(list(node.deps.values())))
+            # node_children, not deps: a node may hold an executable subtree
+            # off-edge (GuardNode's isolation boundary) and validate() must
+            # reach into it.
+            stack.extend(reversed(node_children(node)))
 
     def validate(self) -> None:
         """Force full expansion of every lazy fragment, for fail-fast linting.
 
-        Raises :class:`~url4.errors.ParseError` on the first malformed deferred
+        Raises :class:`~url4.core.errors.ParseError` on the first malformed deferred
         fragment (lazy sub-expressions and reducers; MapNode row bodies cannot
         be validated without ``$item`` data).
         """
@@ -776,11 +889,22 @@ class Graph:
                 grammar_parse(split_intent(node.reducer)[0])
 
 
-def compile_expression(target: str | Node, *, registry: LoweringRegistry | None = None) -> Graph:
-    """Compile url4 surface text or a parse-tree node into an executable graph."""
+def compile_expression(
+    target: str | Node,
+    *,
+    registry: LoweringRegistry | None = None,
+    bare_root_ok: bool = False,
+) -> Graph:
+    """Compile url4 surface text or a parse-tree node into an executable graph.
+
+    ``bare_root_ok`` is the ENGINE-INTERNAL escape from the grammar's mandatory
+    intent (`OME-508`): the executor's spawn boundary compiles its own wrappers
+    (a map row's ``(body)``, a lazily-deferred collection) whose intent, if
+    any, is held outside the text. User-facing entries leave it False.
+    """
     registry = registry if registry is not None else default_registry()
     if isinstance(target, str):
-        return Graph(_compile_text(target, registry), registry=registry)
+        return Graph(_compile_text(target, registry, bare_root_ok=bare_root_ok), registry=registry)
     return Graph(_lower_top_level(target, registry), registry=registry)
 
 

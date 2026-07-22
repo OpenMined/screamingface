@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from url4.context import Context
-from url4.errors import ScopeError
+from url4.core.context import Context
+from url4.core.errors import ScopeError
 
 
 def test_lookup_in_own_frame() -> None:

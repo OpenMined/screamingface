@@ -8,16 +8,16 @@ import json
 import pytest
 
 from url4 import StaticIOLayer
+from url4.core.errors import CollectionError, ResolutionError
+from url4.core.parser import build
 from url4.dag import run
-from url4.errors import CollectionError, ResolutionError
-from url4.parser import build
 
 # --- parse level ----------------------------------------------------------------
 
 
 def _iteration(node: object):
     """Narrow a parse result to Iteration for typed attribute access."""
-    from url4.nodes import Iteration
+    from url4.core.nodes import Iteration
 
     assert isinstance(node, Iteration)
     return node
@@ -128,7 +128,7 @@ async def test_json_object_collection_fails_malformed_source() -> None:
 async def test_item_in_source_values() -> None:
     # §5.3.4 — source-side fan-out
     io = StaticIOLayer({"https://rows": '["1", "2"]', "/api/1": "A", "/api/2": "B"})
-    result = await run("https://rows*(/api/$item)", io)
+    result = await run("https://rows*(r:0:/api/$item)!'$r'", io)
     assert json.loads(result) == ["A", "B"]
 
 
@@ -144,7 +144,7 @@ async def test_item_in_intent_only() -> None:
 async def test_item_in_both_sources_and_intent() -> None:
     # §5.3.4 — $item in both
     io = StaticIOLayer({"https://rows": '["1"]', "/api/1": "A"})
-    result = await run("https://rows*(x=/api/$item)!'[$item] $x'", io)
+    result = await run("https://rows*(x:0:/api/$item)!'[$item] $x'", io)
     assert json.loads(result) == ["[1] A"]
 
 
@@ -171,7 +171,7 @@ async def test_item_array_index_access() -> None:
 async def test_on_error_collect_default_includes_error_objects() -> None:
     # §5.3.6 — collect (the default): failed elements become error objects
     io = StaticIOLayer({"https://rows": '["ok", "bad"]', "/api/ok": "OK"})
-    result = await run("https://rows*(/api/$item)", io)
+    result = await run("https://rows*(r:0:/api/$item)!'$r'", io)
     rows = json.loads(result)
     assert rows[0] == "OK"
     assert isinstance(rows[1], dict) and "error" in rows[1]
@@ -181,7 +181,7 @@ async def test_on_error_collect_default_includes_error_objects() -> None:
 async def test_on_error_skip_omits_failed_elements() -> None:
     # §5.3.6 — skip: omit failed elements from the result
     io = StaticIOLayer({"https://rows": '["ok", "bad"]', "/api/ok": "OK"})
-    result = await run("https://rows*(/api/$item);iteration.on_error=skip", io)
+    result = await run("https://rows*(r:0:/api/$item)!'$r';iteration.on_error=skip", io)
     assert json.loads(result) == ["OK"]
 
 
@@ -190,7 +190,7 @@ async def test_on_error_fail_aborts_on_first_error() -> None:
     # §5.3.6 — fail: abort on first error
     io = StaticIOLayer({"https://rows": '["ok", "bad"]', "/api/ok": "OK"})
     with pytest.raises(ResolutionError):
-        await run("https://rows*(/api/$item);iteration.on_error=fail", io)
+        await run("https://rows*(r=/api/$item)!'$r';iteration.on_error=fail", io)
 
 
 @pytest.mark.asyncio
@@ -233,7 +233,7 @@ async def test_reducer_receives_json_array_of_rows() -> None:
         return "REDUCED"
 
     io = StaticIOLayer({"https://rows": '["a", "b"]'}, routes={"/reduce": reducer})
-    result = await run("(https://rows*()!'R $item')!/reduce()", io)
+    result = await run("(https://rows*()!'R $item')!/reduce()!'agg'", io)
     assert result == "REDUCED"
     assert json.loads(seen["intent"]) == ["R a", "R b"]
 
@@ -243,7 +243,7 @@ async def test_reducer_receives_json_array_of_rows() -> None:
 
 def test_iteration_as_source_in_outer_expression_parses() -> None:
     # §5.3.1 — "The iteration expression as a source in an outer expression"
-    from url4.nodes import Expression, Iteration, Source
+    from url4.core.nodes import Expression, Iteration, Source
 
     node = build("(scores:0.0:https://data.com/records*(t=$item.answer)!/score())!'Agg $scores'")
     assert isinstance(node, Expression)

@@ -12,18 +12,19 @@ import pytest
 from conftest import RecordingIOLayer
 
 from url4 import StaticIOLayer
+from url4.core.grammar import parse as grammar_parse
+from url4.core.subrequest import decode_subrequest
 from url4.dag import run
-from url4.grammar import parse as grammar_parse
-from url4.subrequest import decode_subrequest
 
 
 @pytest.mark.asyncio
 async def test_pure_binding_group_falls_back_to_binding_values() -> None:
-    # A bare group of only bindings has an empty sources_text; the binding
-    # values themselves are returned instead.
+    # `OME-534`: a name-only source contributes to the packed context as a
+    # labeled line AND interpolates into the intent — the intent resolves
+    # without a processor, over the interpolated binding values.
     resolver = StaticIOLayer(fetch_map={"https://x": "VALUE"})
-    result = await run("(a=https://x)", resolver)
-    assert result == "VALUE"
+    result = await run("(a=https://x)!'$a'", resolver)
+    assert result == "VALUE\n\na: VALUE"
 
 
 @pytest.mark.asyncio
@@ -32,7 +33,7 @@ async def test_non_binding_source_sees_later_binding() -> None:
     # non-binding source may reference a binding declared AFTER it.
     resolver = StaticIOLayer(fetch_map={"https://x": "X"})
     result = await run("(use $a, a=https://x)!go", resolver)
-    assert result == "go\n\nuse X"
+    assert result == "go\n\nuse X\na: X"  # `OME-534`: the named source packs too
 
 
 @pytest.mark.asyncio
@@ -62,7 +63,7 @@ async def test_single_relative_expression_group_takes_fanout_path() -> None:
     # A group whose only source is a relative expression still goes through the
     # fan-out reducer (the reducer fetch runs even for one response).
     resolver = RecordingIOLayer()
-    await run("(/solve(x)!go)!merge", resolver)
+    await run("(/solve(x)!go)!merge", resolver, processor="/claude")
     paths = [target.split("?q=")[0] for target in resolver.fetches]
     assert paths == ["/solve", "/claude"]
     # Decode the wire-escaped reducer sub-request back to its readable input.
@@ -79,7 +80,9 @@ async def test_bare_relative_expression_is_a_single_call_intent_folded() -> None
     # and the eager AST path, which parses the whole thing as one RelExpr.
     resolver = RecordingIOLayer()
     await run("/claude(https://n)!'sum'", resolver)
-    assert resolver.fetches == ["/claude?q=(https://n)!sum"]
+    # `OME-535`: the context URL is a SOURCE — fetched first, its content
+    # dispatched — still one folded call, never a fan-out reducer.
+    assert resolver.fetches == ["https://n", "/claude?q=(<https://n>)!sum"]
 
 
 @pytest.mark.asyncio
@@ -90,7 +93,8 @@ async def test_bare_relexpr_text_path_matches_ast_path() -> None:
     text_io, ast_io = RecordingIOLayer(), RecordingIOLayer()
     await run(expr, text_io)  # text path (string target)
     await run(grammar_parse(expr), ast_io)  # AST path (parsed node)
-    assert text_io.fetches == ast_io.fetches == ["/claude?q=(https://n)!sum"]
+    # `OME-535`: both paths fetch the context source, then dispatch its content
+    assert text_io.fetches == ast_io.fetches == ["https://n", "/claude?q=(<https://n>)!sum"]
 
 
 @pytest.mark.asyncio
@@ -106,7 +110,7 @@ async def test_intent_quotes_are_delimiters_everywhere() -> None:
 
     io = StaticIOLayer(routes={"/claude": route})
     await run("/claude(top)!'sum'", io)  # top-level intent
-    await run("(/claude(nested)!'sum')", io)  # the call's own intent
+    await run("(/claude(nested)!'sum')!'outer'", io)  # the call's own intent
     assert seen["top"] == "sum"
     assert seen["nested"] == "sum"
 
@@ -117,6 +121,7 @@ async def test_parenthesized_single_relexpr_still_reduces() -> None:
     # list is a genuine fan-out + reduce (two calls), even for one member —
     # matching the reference engine's ``_is_fanout and raw_intent`` gate.
     resolver = RecordingIOLayer()
-    await run("(/claude(https://n))!'sum'", resolver)
+    await run("(/claude(https://n)!'go')!'sum'", resolver, processor="/claude")
     paths = [target.split("?q=")[0] for target in resolver.fetches]
-    assert paths == ["/claude", "/claude"]
+    # `OME-535`: the context fetch precedes the call and the reducer dispatch
+    assert paths == ["https://n", "/claude", "/claude"]

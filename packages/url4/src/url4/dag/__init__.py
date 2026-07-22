@@ -17,7 +17,6 @@ from __future__ import annotations
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression, default_registry
 from url4.dag.executor import Executor, check_acyclic, run
 from url4.dag.node import (
-    DEFAULT_PROCESSOR,
     DEFAULT_RUN_CONCURRENCY,
     BoundedIOLayer,
     DagNode,
@@ -51,7 +50,6 @@ from url4.dag.nodes import (
 
 __all__ = [
     "DEFAULT_MAP_CONCURRENCY",
-    "DEFAULT_PROCESSOR",
     "DEFAULT_RUN_CONCURRENCY",
     "BarrierNode",
     "BindingNode",

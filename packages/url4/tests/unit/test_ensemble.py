@@ -7,28 +7,30 @@ import json
 import pytest
 from conftest import RecordingIOLayer
 
-from url4.context import Context
-from url4.dag import ExecutionContext, run
-from url4.ensemble import (
+from url4.core.context import Context
+from url4.core.ensemble import (
     FanoutResponse,
     substitute_env_vars,
     substitute_item,
     substitute_response_vars,
 )
-from url4.errors import CollectionError, ScopeError
-from url4.io_layer import parse_collection
-from url4.io_static import StaticIOLayer
-from url4.subrequest import decode_subrequest
+from url4.core.errors import CollectionError, ResolutionError, ScopeError
+from url4.core.subrequest import decode_subrequest
+from url4.dag import ExecutionContext, run
+from url4.io.layer import parse_collection
+from url4.io.static import StaticIOLayer
 
 
 @pytest.mark.asyncio
 async def test_fanout_reduce_builds_weighted_reducer_input() -> None:
     io = RecordingIOLayer()
     expr = "(claude:0.6:/claude(x)!answer, llama:0.4:/llama(x)!answer)!merge $claude and $llama"
-    await run(expr, io)
+    # The recorder declares no routes, so the processor is explicit (the core no
+    # longer hardcodes /claude).
+    await run(expr, io, processor="/claude")
 
     # Two relative-expression fetches in parallel, then the reducer fetch via the
-    # default processor (/claude) — all encoded as /path?q=… localhost fetches.
+    # explicit processor (/claude) — all encoded as /path?q=… localhost fetches.
     paths = [target.split("?q=")[0] for target in io.fetches]
     assert paths == ["/claude", "/llama", "/claude"]
     # The reducer input is wire-escaped into the URL; decode it back to assert on
@@ -57,7 +59,7 @@ async def test_collection_iteration_with_item_field() -> None:
         fetch_map={"https://data": rows},
         routes={"/solve": lambda context, intent: f"Q={context}"},
     )
-    result = await run("https://data*(/solve($item.q)!go)", io)
+    result = await run("https://data*(r:0:/solve($item.q)!go)!'$r'", io)
     assert json.loads(result) == ["Q=2+2", "Q=3+3"]
 
 
@@ -68,7 +70,9 @@ async def test_collection_iteration_missing_field_raises_in_strict_mode() -> Non
     io = StaticIOLayer(fetch_map={"https://data": rows}, routes={"/solve": lambda c, i: c})
     with pytest.raises(ScopeError):
         await run(
-            "https://data*(/solve($item.q)!go);iteration.on_error=fail", io, strict_fields=True
+            "https://data*(r=/solve($item.q)!go)!'$r';iteration.on_error=fail",
+            io,
+            strict_fields=True,
         )
 
 
@@ -82,7 +86,7 @@ async def test_collection_on_error_collect() -> None:
         routes={"/solve": lambda context, intent: f"OK:{context}"},
     )
     ctx = ExecutionContext(io, strict_fields=True)
-    result = await run("https://data*(/solve($item.q)!go)", ctx=ctx)
+    result = await run("https://data*(r:0:/solve($item.q)!go)!'$r'", ctx=ctx)
     assert "OK:ok" in result
     assert ctx.collected_errors == 1
     assert '"error"' in result
@@ -92,7 +96,7 @@ async def test_collection_on_error_collect() -> None:
 async def test_empty_collection_resolves_to_empty_array() -> None:
     # Spec §5.3.9 — an empty collection is a success with zero evaluations.
     io = StaticIOLayer(fetch_map={"https://data": "[]"})
-    assert await run("https://data*(/solve($item.q)!go)", io) == "[]"
+    assert await run("https://data*(r:0:/solve($item.q)!go)!'$r'", io) == "[]"
 
 
 @pytest.mark.asyncio
@@ -239,3 +243,49 @@ def test_substitute_item_field_inside_json_string_with_brace() -> None:
     import json as _json
 
     assert _json.loads(out) == {"k": 'a{b q"r'}
+
+
+@pytest.mark.asyncio
+async def test_fanout_reduce_uses_first_declared_route_when_processor_unset() -> None:
+    # WHY: no hardcoded default processor — an unset processor resolves to the
+    # io world's FIRST declared route, mirroring `url4 serve`'s default_route.
+    seen: list[str] = []
+
+    def route(tag: str):
+        def handler(context: str, intent: str) -> str:
+            seen.append(tag)
+            return f"{tag}:{intent}"
+
+        return handler
+
+    io = StaticIOLayer(routes={"/reducer": route("reducer"), "/leaf": route("leaf")})
+    result = await run("(/leaf(a)!go)!'pick best'", io)
+    assert seen == ["leaf", "reducer"]
+    assert result.startswith("reducer:")
+
+
+@pytest.mark.asyncio
+async def test_fanout_reduce_explicit_processor_wins_over_declared_routes() -> None:
+    seen: list[str] = []
+
+    def route(tag: str):
+        def handler(context: str, intent: str) -> str:
+            seen.append(tag)
+            return f"{tag}:{intent}"
+
+        return handler
+
+    io = StaticIOLayer(routes={"/first": route("first"), "/pick": route("pick")})
+    result = await run("(/first(a)!go)!'choose'", io, processor="/pick")
+    assert seen == ["first", "pick"]
+    assert result.startswith("pick:")
+
+
+@pytest.mark.asyncio
+async def test_fanout_reduce_without_processor_or_routes_is_a_clear_error() -> None:
+    # Leaves resolve via exact fetch_map entries; the io declares NO routes and
+    # no processor was set — the reduce fails with an error naming the fix, not
+    # a dispatch to a phantom hardcoded path.
+    io = StaticIOLayer(fetch_map={"/x?q=(a)!go": "X", "/y?q=(b)!go": "Y"})
+    with pytest.raises(ResolutionError, match="processor"):
+        await run("(/x(a)!go, /y(b)!go)!'merge'", io)
