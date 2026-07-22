@@ -22,11 +22,11 @@ RFC 9457 problems); the live stream is described by the companion **AsyncAPI** d
 `/asyncapi.json`. See `docs/protocol.md` for the standards decision record.
 """
 
+# WHY: only tags with in-schema REST operations — "Stream" (WS, AsyncAPI-only) and "Ops" (hidden
+# routes) would render as empty sidebar sections in /scalar, so they are omitted (OME-566).
 TAGS: list[dict[str, str]] = [
     {"name": "Token", "description": "Mint a topic-capability JWT (spec §4)."},
     {"name": "Execution", "description": "Start (sync/async) and stop a url4 run (spec §5)."},
-    {"name": "Stream", "description": "The CloudEvents WebSocket bridge (spec §6)."},
-    {"name": "Ops", "description": "k8s probes, OpenMetrics, and the API reference (spec §12)."},
 ]
 
 

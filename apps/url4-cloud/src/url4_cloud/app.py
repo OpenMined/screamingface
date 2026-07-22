@@ -17,7 +17,9 @@ from url4_cloud_nats import Bus, NatsBus
 router = APIRouter()
 
 
-@router.get("/healthz")
+# WHY: a bare liveness ping for infra health checks — hidden from the OpenAPI (like the other
+# probes in ops.py) so it doesn't clutter the user-facing API reference (OME-566).
+@router.get("/healthz", include_in_schema=False)
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
 

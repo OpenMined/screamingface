@@ -9,9 +9,9 @@ terminal frame's status maps to the §5 outcome table. Every error is an RFC 945
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Header, Request, Response
 
 from url4_cloud.auth import (
     PROBLEM_MEDIA_TYPE,
@@ -224,18 +224,39 @@ _STOP_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
+# WHY: the sync/async selector rides RFC 7240 `Prefer`; declaring it as a Header parameter (not a
+# raw `request.headers` read) puts it in the OpenAPI so Scalar renders an input + explains the two
+# modes (OME-555). `wait=<s>` caps the sync hold before it degrades to 202.
+_PREFER_DESC = (
+    "RFC 7240 preference. Omit → synchronous: hold until the terminal frame (bounded by "
+    "SYNC_MAX_WAIT), return the Result body. `respond-async` → asynchronous: 202 + Location/Link "
+    "now, Result on the WebSocket stream. `wait=<seconds>` caps the synchronous hold."
+)
+
+
 @router.get("/", tags=["Execution"], summary="Start a url4 run", responses=_START_RESPONSES)
-async def start_run(request: Request, claims: VerifiedClaims, q: str | None = None) -> Response:
-    """Schedule the run for the token's topic; hold for the terminal unless ``respond-async``."""
+async def start_run(
+    request: Request,
+    claims: VerifiedClaims,
+    q: str | None = None,
+    prefer: Annotated[str | None, Header(alias="Prefer", description=_PREFER_DESC)] = None,
+) -> Response:
+    """Start the run for the token's topic (spec §5).
+
+    Synchronous (default): hold until the terminal frame (bounded by ``SYNC_MAX_WAIT``) and return
+    the Result body, or an RFC 9457 problem. Asynchronous (``Prefer: respond-async``, or once the
+    sync bound elapses): return ``202`` + ``Location``/``Link``; the Result arrives on the WebSocket
+    stream. ``Prefer: wait=<seconds>`` caps the synchronous hold.
+    """
     deps = _deps(request)
     topic = str(claims["sub"])
     url4 = _require_q(q)
     await _require_subscriber(deps.interest, topic)
     _schedule(deps, topic, url4)
-    prefer = _parse_prefer(request.headers.get("Prefer", ""))
-    if prefer.respond_async:
+    pref = _parse_prefer(prefer or "")
+    if pref.respond_async:
         return _accepted(topic)
-    return await _run_sync(deps, topic, prefer.wait_s)
+    return await _run_sync(deps, topic, pref.wait_s)
 
 
 @router.delete(

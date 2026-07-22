@@ -91,17 +91,36 @@ def test_docs_page_serves_scalar_with_both_specs() -> None:
     assert "/asyncapi.json" in body
 
 
-def test_scalar_redirects_to_docs() -> None:
-    # OME-565: /scalar and /asyncapi collapse to one entry point at /docs.
-    resp = _client().get("/scalar", follow_redirects=False)
-    assert resp.status_code == 307
-    assert resp.headers["location"] == "/docs"
+def test_scalar_page_serves_openapi_reference() -> None:
+    # OME-566: /scalar + /asyncapi serve their own direct Scalar pages (no redirect).
+    resp = _client().get("/scalar")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    body = resp.text
+    assert "createApiReference" in body
+    assert "/openapi.json" in body
 
 
-def test_asyncapi_redirects_to_docs() -> None:
-    resp = _client().get("/asyncapi", follow_redirects=False)
-    assert resp.status_code == 307
-    assert resp.headers["location"] == "/docs"
+def test_asyncapi_page_serves_asyncapi_reference() -> None:
+    # OME-566: /asyncapi renders the AsyncAPI doc directly — the WS channel + message list.
+    resp = _client().get("/asyncapi")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    body = resp.text
+    assert "createApiReference" in body
+    assert "/asyncapi.json" in body
+
+
+def test_openapi_tags_omit_empty_stream_and_ops() -> None:
+    # OME-566: "Stream" (WS — AsyncAPI-only) and "Ops" (hidden routes) have no REST operations, so
+    # they'd render as empty /scalar sidebar sections. The REST doc keeps only populated tags, and
+    # operational probes (incl. /healthz) stay out of the user-facing reference.
+    schema = create_app().openapi()
+    tag_names = {t["name"] for t in schema.get("tags", [])}
+    assert "Stream" not in tag_names
+    assert "Ops" not in tag_names
+    assert {"Token", "Execution"} <= tag_names
+    assert "/healthz" not in schema["paths"]
 
 
 # --- AsyncAPI 3.0 for the /ws channel -------------------------------------
@@ -191,6 +210,16 @@ def test_execution_routes_document_responses() -> None:
     assert "204" in del_resp
     ref = del_resp["403"]["content"]["application/problem+json"]["schema"]["$ref"]
     assert ref == "#/components/schemas/Problem"
+
+
+def test_get_documents_prefer_header_for_sync_async() -> None:
+    # OME-555: the sync/async selector (RFC 7240 Prefer) is a documented header parameter, so Scalar
+    # renders an input + explains the modes (it was read from raw headers, invisible in OpenAPI).
+    op = create_app().openapi()["paths"]["/"]["get"]
+    prefer = [p for p in op.get("parameters", []) if p["name"] == "Prefer" and p["in"] == "header"]
+    assert prefer, "GET / must document the Prefer header parameter"
+    assert "respond-async" in prefer[0].get("description", "")
+    assert "async" in op.get("description", "").lower()
 
 
 # --- capability security scheme (OME-556) ---------------------------------
