@@ -68,6 +68,8 @@ def scalar() -> HTMLResponse:
 
 # WHY: the AsyncAPI web-component (a custom element) fetches and renders the raw /asyncapi.json
 # same-origin, so the app itself is the WS-schema viewer — no external Studio, no CORS (OME-553).
+# The component renders into a SHADOW DOM, so its stylesheet is passed via `cssImportPath` (loaded
+# into the shadow root) — a <link> in <head> can't reach the component's shadow DOM.
 _ASYNCAPI_HTML = """\
 <!doctype html>
 <html lang="en">
@@ -75,13 +77,12 @@ _ASYNCAPI_HTML = """\
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>url4-cloud AsyncAPI reference</title>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/@asyncapi/react-component@2/styles/default.min.css"
-    />
   </head>
   <body>
-    <asyncapi-component schemaUrl="/asyncapi.json"></asyncapi-component>
+    <asyncapi-component
+      schemaUrl="/asyncapi.json"
+      cssImportPath="https://unpkg.com/@asyncapi/react-component@2/styles/default.min.css"
+    ></asyncapi-component>
     <script
       src="https://unpkg.com/@asyncapi/web-component@2/lib/asyncapi-web-component.js"
     ></script>

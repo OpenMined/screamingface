@@ -55,3 +55,13 @@ standalone build no longer auto-mounts), and AsyncAPI has no rendered page (only
   is folded into the owner's test pass — the unit tests lock the endpoint contract, but the CDN
   components mounting is confirmed by eye, not by CI. **Owner-verify:** open `/scalar` and
   `/asyncapi` on the running app and confirm both render.
+
+## Follow-up (2026-07-22) — AsyncAPI viewer rendered unstyled
+
+Owner-verify (compose `:9108`, real browser) found `/scalar` fully styled but **`/asyncapi`
+rendered UNSTYLED**: `@asyncapi/web-component` renders into a **shadow DOM**, so the
+`<link rel="stylesheet">` in `<head>` never crosses the shadow boundary (no console/network error —
+the CSS loads, it just can't reach the component). **Fix:** drop the head `<link>` and hand the
+stylesheet to the component via its **`cssImportPath`** attribute (loaded into the shadow root).
+New test `test_asyncapi_page_imports_component_css_into_shadow_root`; re-verified styled in-browser
+after `docker compose up --build`. Gates GREEN; commit `Refs: OME-553`.
