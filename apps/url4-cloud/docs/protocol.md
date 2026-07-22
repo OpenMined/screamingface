@@ -153,6 +153,15 @@ our stateless `iat`-window check becomes belt-and-suspenders, not the sole guard
 - **NATS:** the CloudEvents NATS binding (subject routing + structured JSON).
   **Ref:** <https://github.com/cloudevents/spec/blob/main/cloudevents/bindings/nats-protocol-binding.md>.
 
+**Payload schema dialect (no `schemaFormat`).** Message payloads are authored as JSON Schema by
+Pydantic v2 and served in the AsyncAPI doc under AsyncAPI's **default** Schema dialect — deliberately
+with **no** `schemaFormat`. Pydantic emits JSON Schema 2020-12, but the payloads use only a
+draft-07-compatible keyword subset (`const`, `anyOf` + `type:null`, `enum`, `$ref`, `format`), which
+the default dialect interprets correctly. A `schemaFormat` of
+`application/schema+json;version=draft-2020-12` is **not** viable: AsyncAPI 3.0 removed message-level
+`schemaFormat`, and the parser registers no draft-2020-12 schema parser, so declaring it makes
+`@asyncapi/cli` fail with `Unknown schema format`. See D13 (OME-551).
+
 ---
 
 ## 9. Observability & operations
@@ -183,6 +192,7 @@ our stateless `iat`-window check becomes belt-and-suspenders, not the sole guard
 | D10 | Token | RFC 7519 JWT registered claims (+ `exp`) | adopt |
 | D11 | Transport bindings | CloudEvents WebSocket + NATS bindings | adopt |
 | D12 | Metrics / health / labels | OpenMetrics · k8s probes · k8s+OCI labels | adopt |
+| D13 | AsyncAPI payload dialect | default AsyncAPI Schema, **no `schemaFormat`** — draft-2020-12 is unregistered in the parser; payloads are a draft-07-compatible subset (§8, OME-551) | **default (documented)** |
 
 ---
 
