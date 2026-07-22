@@ -12,13 +12,17 @@ historical spike. No compatibility layer is required because the SDK is unreleas
 
 ```text
 main
-  └─ OME-400-screamingface-sdk
-       └─ OME-400-screamingface-engine-reference
+  └─ OME-466-url4-serve
+       └─ OME-400-screamingface-sdk
+            └─ OME-400-screamingface-engine-reference
 ```
 
-The engine-reference branch is stacked on the SDK branch initially so its integration tests can
-exercise the exact public SDK contract. After the SDK lands, the engine branch can be rebased or
-retargeted to `main`. The existing checkpoint branch is not renamed or rewritten.
+Until OME-466 lands, both ScreamingFace branches explicitly include the URL4 owner's published
+branch as ancestry because SDK contract tests and engine execution semantics depend on it.
+ScreamingFace does not author or modify those URL4 files. The engine-reference branch is then
+stacked on the SDK branch so its integration tests exercise the exact public SDK contract. After
+URL4 and the SDK land, the engine branch can be rebased or retargeted to `main`. The checkpoint
+commit remains in history and is not rewritten.
 
 ## SDK branch
 
@@ -115,7 +119,9 @@ Acceptance:
 - no engine app or `screamingface_engine` import is present;
 - no canonical dataset loader or `datasets` dependency is present;
 - SDK lint, format, Pyright, tests, coverage, fixtures, notebooks, and build pass; and
-- no URL4 SDK or AI Gateway file changes are included.
+- the published OME-466 URL4 branch is present as an explicit dependency ancestor, with no
+  ScreamingFace-authored URL4 modifications; and
+- no AI Gateway file changes are included.
 
 ### 2. Create the stacked engine-reference branch
 
@@ -143,7 +149,8 @@ reference. Sergey does not need an SDK-side change request before that boundary 
   approves execution after reviewing this plan.
 - Do not silently duplicate benchmark implementations across the SDK and engine.
 - Do not weaken tests to make either half pass independently.
-- Do not edit `packages/url4`, AI Gateway, or `apps/url4-cloud` as part of the split.
+- Do not author edits to `packages/url4`, AI Gateway, or `apps/url4-cloud` as part of the split.
+  Integrating the URL4 owner's published branch as dependency ancestry is allowed.
 
 ## Phase 1 outcome
 
@@ -153,8 +160,11 @@ The SDK has no `datasets` dependency, private engine imports, or engine paths in
 Pyright, CI, or SDLC configuration. Notebook setup now requires a separately available compatible
 engine instead of referring to a bundled development app.
 
-The SDK-only gate passes: Ruff lint and format, Pyright, 287 tests at 95.15% coverage, executable
-contract fixtures, deterministic generated notebooks, package build, and diff hygiene.
+The SDK-only gate passes against the current OME-466 URL4 contract: Ruff lint and format, Pyright,
+287 tests at 95.15% coverage, executable contract fixtures, deterministic generated notebooks,
+package build, and diff hygiene. CI against `main`'s older URL4 correctly exposed incompatible
+evaluation semantics, so the dependency is explicit in branch ancestry rather than hidden in a
+local checkout.
 
 ## Phase 2 outcome
 
@@ -172,6 +182,7 @@ the complete candidate-route → iteration → candidate-mean ASGI integration t
 stack is healthy and advertises the expected DRACO Lite candidate route. A rebuilt container must
 receive `HF_TOKEN` through a local `.env` before live canonical dataset evaluation.
 
-The independent engine gate passes: Ruff lint and format, Pyright, 432 tests at 95.09% coverage,
-and reference-app package build. The stacked SDK gate remains green with the Phase 1 results. No
-`packages/url4`, AI Gateway, or `apps/url4-cloud` file is changed by this branch.
+The independent engine gate passes: Ruff lint and format, scoped Pyright, 432 tests at 95.09%
+coverage, and reference-app package build. The stacked SDK gate remains green with the Phase 1
+results. The branch includes the unchanged URL4 owner's commits as dependency ancestry; it authors
+no `packages/url4`, AI Gateway, or `apps/url4-cloud` file change.
