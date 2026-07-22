@@ -114,7 +114,7 @@ def test_compiler_serializes_portable_tool_policy_on_answer_calls_only() -> None
     assert expression.count("web_search.max_results=5") == 2
     assert expression.count("web_search.include_domain.1=one.example") == 2
     assert expression.count("web_search.exclude_domain.1=blocked.example") == 2
-    assert "recipe_answer=/codex/gpt-5.5?tools=" not in expression
+    assert "recipe_answer:0.0:/codex/gpt-5.5?tools=" not in expression
     assert "tavily." not in expression
 
 

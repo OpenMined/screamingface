@@ -63,7 +63,13 @@ class _RecipeCompiler:
         self._tool_policy_reference = tool_policy_reference
         self._sources: list[Node] = []
         if question is not None:
-            self._sources.append(src(text(_literal(_url4_text(question))), name="question"))
+            self._sources.append(
+                src(
+                    text(_literal(_url4_text(question))),
+                    name="question",
+                    weight=0.0,
+                )
+            )
         self._members: list[_RecipeMember] = []
         self._resolved: dict[int, _ResolvedInput] = {}
         self._active: set[int] = set()
@@ -72,7 +78,7 @@ class _RecipeCompiler:
 
     def compile(self, recipe: Recipe, *, tool_policy_route: str | None = None) -> str:
         if tool_policy_route is not None:
-            self._sources.append(src(tool_policy_route, name="tool_policy"))
+            self._sources.append(src(tool_policy_route, name="tool_policy", weight=0.0))
         return render(
             Expression(
                 sources=self.sources(recipe),
@@ -100,6 +106,7 @@ class _RecipeCompiler:
                     }
                 ),
                 name="recipe_result",
+                weight=0.0,
             )
         )
         return tuple(self._sources)
@@ -141,12 +148,17 @@ class _RecipeCompiler:
                             }
                         ),
                         name="model_input",
+                        weight=0.0,
                     )
                 )
                 self._model_input_added = True
             context = "$model_input"
         self._sources.append(
-            src(_model_call(call, self._tool_params, context=context), name=member.id)
+            src(
+                _model_call(call, self._tool_params, context=context),
+                name=member.id,
+                weight=0.0,
+            )
         )
         return _ResolvedInput(f"${member.id}", label)
 
@@ -174,6 +186,7 @@ class _RecipeCompiler:
                         }
                     ),
                     name=answers_name,
+                    weight=0.0,
                 )
             )
             call = RelExpr(
@@ -189,7 +202,7 @@ class _RecipeCompiler:
             )
         else:
             raise UnsupportedReducerError(f"unsupported reducer {type(reducer).__name__!r}")
-        self._sources.append(src(call, name=answer_name))
+        self._sources.append(src(call, name=answer_name, weight=0.0))
         return _ResolvedInput(f"${answer_name}", fusion.name)
 
 
@@ -206,7 +219,7 @@ def compile_model_expression(
     return render(
         Expression(
             sources=(
-                src(text(_literal(context)), name="model_context"),
+                src(text(_literal(context)), name="model_context", weight=0.0),
                 src(
                     RelExpr(
                         path=_model_route(model),
@@ -215,6 +228,7 @@ def compile_model_expression(
                         params=_params(items),
                     ),
                     name="model_result",
+                    weight=0.0,
                 ),
             ),
             intent=Text("$model_result"),
@@ -247,8 +261,8 @@ def compile_benchmark_expression(
     )
     sources: list[Node] = []
     if tool_policy_route is not None:
-        sources.append(src(tool_policy_route, name="tool_policy"))
-    sources.append(src("$item.input", name="question"))
+        sources.append(src(tool_policy_route, name="tool_policy", weight=0.0))
+    sources.append(src("$item.input", name="question", weight=0.0))
     sources.extend(compiler.sources(recipe))
     grade_fields: dict[str, str] = {
         "benchmark_id": _literal(benchmark_id),
@@ -261,7 +275,7 @@ def compile_benchmark_expression(
         raise ValueError(f"unsupported benchmark grader {grader_kind!r}")
     sources.extend(
         (
-            src(struct(grade_fields), name="grade_input"),
+            src(struct(grade_fields), name="grade_input", weight=0.0),
             src(
                 RelExpr(
                     path=grader_route,
@@ -269,6 +283,7 @@ def compile_benchmark_expression(
                     intent=Text("$grade_input"),
                 ),
                 name="case_result",
+                weight=0.0,
             ),
         )
     )
@@ -299,8 +314,8 @@ def compile_candidates_benchmark_expression(
 
     specification = _CandidateSpecCompiler().compile(candidates)
     sources: tuple[Node, ...] = (
-        src(tool_policy_route, name="tool_policy"),
-        src(struct(specification), name="candidate_spec"),
+        src(tool_policy_route, name="tool_policy", weight=0.0),
+        src(struct(specification), name="candidate_spec", weight=0.0),
         src(
             struct(
                 {
@@ -312,6 +327,7 @@ def compile_candidates_benchmark_expression(
                 }
             ),
             name="candidate_input",
+            weight=0.0,
         ),
         src(
             RelExpr(
@@ -320,6 +336,7 @@ def compile_candidates_benchmark_expression(
                 intent=Text("$candidate_input"),
             ),
             name="case_result",
+            weight=0.0,
         ),
     )
     reducer = render(
@@ -460,11 +477,20 @@ def _model_call(
 
 
 def _model_reducer_context(inputs: tuple[_ResolvedInput, ...]) -> str:
-    sections = [
-        f"Panel {position} [{_literal(value.label)}]:\n{value.reference}"
+    sources: list[Node] = [src("$question", name="question")]
+    sources.extend(
+        src(
+            struct(
+                {
+                    "model": _literal(value.label),
+                    "answer": value.reference,
+                }
+            ),
+            name=f"panel_{position}",
+        )
         for position, value in enumerate(inputs, 1)
-    ]
-    return "Question:\n$question\n\nPanel answers:\n" + "\n\n".join(sections)
+    )
+    return ",".join(render(source) for source in sources)
 
 
 def _model_route(model: str) -> str:

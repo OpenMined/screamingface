@@ -92,10 +92,10 @@ async def test_reducer_route_and_complete_literal_expression_return_plaintext() 
         evaluated = await client.get(
             "/v1",
             params={
-                "q": (
-                    "(member_answers={member_1:'A',member_2:'B',member_3:'A'},"
-                    "recipe_answer=/reducers/majority-vote/1()!$member_answers,"
-                    "result={schema:'screamingface.recipe-result.v1',answer:'$recipe_answer'})"
+                    "q": (
+                        "(member_answers:0.0:{member_1:'A',member_2:'B',member_3:'A'},"
+                        "recipe_answer:0.0:/reducers/majority-vote/1()!$member_answers,"
+                        "result:0.0:{schema:'screamingface.recipe-result.v1',answer:'$recipe_answer'})"
                     "!'$result'"
                 )
             },
@@ -133,13 +133,13 @@ async def test_complete_model_and_reducer_expression_makes_only_panel_gateway_ca
     )
     transport = httpx.ASGITransport(app=_app(gateway))
     expression = (
-        "(question='Choose',"
-        "member_1=/codex/gpt-5.5($question)!'Answer',"
-        "member_2=/gemini/2.5-flash($question)!'Answer',"
-        "member_3=/claude/sonnet-4.6($question)!'Answer',"
-        "member_answers={member_1:'$member_1',member_2:'$member_2',member_3:'$member_3'},"
-        "recipe_answer=/reducers/majority-vote/1()!$member_answers,"
-        "result={schema:'screamingface.recipe-result.v1',"
+        "(question:0.0:'Choose',"
+        "member_1:0.0:/codex/gpt-5.5($question)!'Answer',"
+        "member_2:0.0:/gemini/2.5-flash($question)!'Answer',"
+        "member_3:0.0:/claude/sonnet-4.6($question)!'Answer',"
+        "member_answers:0.0:{member_1:'$member_1',member_2:'$member_2',member_3:'$member_3'},"
+        "recipe_answer:0.0:/reducers/majority-vote/1()!$member_answers,"
+        "result:0.0:{schema:'screamingface.recipe-result.v1',"
         "members:{member_1:{model:'codex/gpt-5.5',answer:'$member_1'},"
         "member_2:{model:'gemini/2.5-flash',answer:'$member_2'},"
         "member_3:{model:'claude/sonnet-4.6',answer:'$member_3'}},"
@@ -242,9 +242,9 @@ async def test_sdk_model_reducer_receives_resolved_question_and_labeled_answers(
         if request["messages"][0]["content"] == "Synthesize the panel answers."
     )
     assert reducer_request["messages"][1]["content"] == (
-        "Question:\nResearch question\n\nPanel answers:\n"
-        "Panel 1 [codex/gpt-5.5]:\nalpha\n\n"
-        "Panel 2 [gemini/2.5-flash]:\nbeta"
+        'question: Research question\n'
+        'panel_1: {"model": "codex/gpt-5.5", "answer": "alpha"}\n'
+        'panel_2: {"model": "gemini/2.5-flash", "answer": "beta"}'
     )
     assert response.status_code == 200
     assert response.json()["answer"] == "combined"
@@ -263,9 +263,9 @@ async def test_reducer_errors_surface_as_atomic_url4_failures() -> None:
             "/v1",
             params={
                 "q": (
-                    "(answers={member_1:'A',member_3:'B'},"
-                    "winner=/reducers/majority-vote/1()!$answers,"
-                    "result={answer:'$winner'})!'$result'"
+                    "(answers:0.0:{member_1:'A',member_3:'B'},"
+                    "winner:0.0:/reducers/majority-vote/1()!$answers,"
+                    "result:0.0:{answer:'$winner'})!'$result'"
                 )
             },
         )

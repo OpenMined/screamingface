@@ -46,24 +46,26 @@ envelope, and passes that same resolved value to every answer-producing member:
 
 ```url4
 (
-  tool_policy=/benchmarks/draco/1/tool-policy,
-  question=$item.input,
-  model_input={
+  tool_policy:0.0:/benchmarks/draco/1/tool-policy,
+  question:0.0:$item.input,
+  model_input:0.0:{
     schema:'screamingface.model-input.v1',
     question:'$question',
     tool_policy:'$tool_policy'
   },
-  member_1=/openrouter/google/gemini-3.1-pro-preview($model_input)!'Answer with evidence.',
-  member_2=/huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra($model_input)
-    !'Answer with evidence.'
-)
+  member_1:0.0:/openrouter/google/gemini-3.1-pro-preview($model_input)!'Answer with evidence.',
+  member_2:0.0:/huggingface/deepseek-ai/DeepSeek-V4-Pro~deepinfra($model_input)
+    !'Answer with evidence.',
+  result:0.0:{member_1:'$member_1',member_2:'$member_2'}
+)!'$result'
 ```
 
 The route returns `screamingface.tool-policy.v1` JSON as URL4 data. The policy is backend-neutral
 and contains no credentials. Reducers, synthesis calls, and graders do not inherit benchmark
 research tools. Reusing the named `tool_policy` and `model_input` sources prevents both the policy
 document and its envelope from being copied onto every member route and makes the benchmark
-version the authority.
+version the authority. Scalar weight `0.0` marks these as instrumental URL4 bindings; it does not
+weight the models or their answers.
 
 A researcher-authored local `sf.Benchmark` has no engine-owned policy route. Its complete run URL4
 therefore carries the same portable policy inline as `tools`, `tools.max_calls`, and

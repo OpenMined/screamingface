@@ -663,21 +663,21 @@ fan-out, reducer, and final result structure. Conceptually:
 
 ```url4
 (
-  tool_policy=/benchmarks/research/1/tool-policy,
-  question='<resolved case input>',
+  tool_policy:0.0:/benchmarks/research/1/tool-policy,
+  question:0.0:'<resolved case input>',
 
-  model_input={schema:'screamingface.model-input.v1',question:'$question',tool_policy:'$tool_policy'},
-  member_1=/hf/deepseek-v3($model_input)!'Build the evidence case',
-  member_2=/hf/glm-4($model_input)!'Challenge the evidence case',
+  model_input:0.0:{schema:'screamingface.model-input.v1',question:'$question',tool_policy:'$tool_policy'},
+  member_1:0.0:/hf/deepseek-v3($model_input)!'Build the evidence case',
+  member_2:0.0:/hf/glm-4($model_input)!'Challenge the evidence case',
 
-  member_answers={
+  member_answers:0.0:{
     member_1: '$member_1',
     member_2: '$member_2'
   },
 
-  recipe_answer=/reducers/majority-vote($member_answers),
+  recipe_answer:0.0:/reducers/majority-vote/1()!'$member_answers',
 
-  {
+  recipe_result:0.0:{
     schema: 'screamingface.recipe-result.v1',
     members: {
       member_1: {
@@ -691,8 +691,12 @@ fan-out, reducer, and final result structure. Conceptually:
     },
     answer: '$recipe_answer'
   }
-)
+)!'$recipe_result'
 ```
+
+Scalar weight `0.0` makes these SDK-owned intermediate bindings instrumental: `$name` references
+still resolve, but URL4 does not append the intermediates to the returned Recipe result. It is not
+a model or score weight.
 
 The SDK sends:
 

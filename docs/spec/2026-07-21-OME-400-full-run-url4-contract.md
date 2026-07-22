@@ -57,12 +57,12 @@ this shape:
 ```url4
 (
   /benchmarks/gpqa/1/cases*(
-    question=$item.input,
-    member_1=/codex/gpt-5.5($question)!'Answer the question.',
-    member_2=/gemini/2.5($question)!'Answer the question.',
-    member_answers={member_1:'$member_1',member_2:'$member_2'},
-    recipe_answer=/reducers/majority-vote/1()!$member_answers,
-    recipe_result={
+    question:0.0:$item.input,
+    member_1:0.0:/codex/gpt-5.5($question)!'Answer the question.',
+    member_2:0.0:/gemini/2.5($question)!'Answer the question.',
+    member_answers:0.0:{member_1:'$member_1',member_2:'$member_2'},
+    recipe_answer:0.0:/reducers/majority-vote/1()!$member_answers,
+    recipe_result:0.0:{
       schema:'screamingface.recipe-result.v1',
       members:{
         member_1:{model:'codex/gpt-5.5',answer:'$member_1'},
@@ -70,8 +70,8 @@ this shape:
       },
       answer:'$recipe_answer'
     },
-    grade_input={case_id:'$item.id',reference:'$item.reference'},
-    case_result=/graders/exact-choice/1($recipe_result)!$grade_input
+    grade_input:0.0:{case_id:'$item.id',reference:'$item.reference'},
+    case_result:0.0:/graders/exact-choice/1($recipe_result)!$grade_input
   )!'$case_result';
   iteration.slice=0:5;
   iteration.on_error=collect
@@ -80,6 +80,8 @@ this shape:
 
 Mandatory-intent rules from the current URL4 SDK are load-bearing:
 
+- scalar weight `0.0` makes SDK-owned intermediate bindings instrumental, so they remain
+  `$name`-referenceable without being appended to the row result;
 - the per-row expression returns the named `case_result` binding with `!'$case_result'`;
 - reducer payloads are sent as endpoint intent, not context;
 - a grader receives the serialized Recipe result as context and case metadata as intent; and

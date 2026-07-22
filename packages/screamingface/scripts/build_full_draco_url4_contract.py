@@ -247,36 +247,38 @@ data, not a Tavily/OpenRouter choice or credential.
 ```url4
 (
   /benchmarks/draco/1/cases*(
-    tool_policy=/benchmarks/draco/1/tool-policy,
-    question=$item.input,
-    model_input={
+    tool_policy:0.0:/benchmarks/draco/1/tool-policy,
+    question:0.0:$item.input,
+    model_input:0.0:{
       schema:'screamingface.model-input.v1',
       question:'$question',
       tool_policy:'$tool_policy'
     },
-    member_1=/openrouter/anthropic/claude-opus-4.8
+    member_1:0.0:/openrouter/anthropic/claude-opus-4.8
       ?temperature=0&max_tokens=8192
       ($model_input)!'Answer the research question completely.',
-    recipe_result={
+    recipe_result:0.0:{
       schema:'screamingface.recipe-result.v1',
       members:{
         member_1:{model:'openrouter/anthropic/claude-opus-4.8',answer:'$member_1'}
       },
       answer:'$member_1'
     },
-    grade_input={
+    grade_input:0.0:{
       benchmark_id:'draco@1',
       case_id:'$item.id',
       question:'$question',
       reference:'$item.reference'
     },
-    case_result=/graders/draco-rubric/1($recipe_result)!'$grade_input'
+    case_result:0.0:/graders/draco-rubric/1($recipe_result)!'$grade_input'
   )!'$case_result';
   iteration.slice=0:100;
   iteration.on_error=collect
 )!/aggregators/mean/1()!'Aggregate benchmark results'
 ```
 
+The scalar `0.0` marks these named bindings as instrumental: they remain referenceable through
+`$name` without being appended to the iteration result. It is not a model or scoring weight.
 There is no bare `()!intent` standing in for a model. The answer route is explicit."""
         ),
         nbformat.v4.new_markdown_cell(
@@ -289,28 +291,27 @@ context.
 ```url4
 (
   /benchmarks/draco/1/cases*(
-    tool_policy=/benchmarks/draco/1/tool-policy,
-    question=$item.input,
-    model_input={schema:'screamingface.model-input.v1',question:'$question',tool_policy:'$tool_policy'},
-    member_1=/openrouter/anthropic/claude-opus-4.8
+    tool_policy:0.0:/benchmarks/draco/1/tool-policy,
+    question:0.0:$item.input,
+    model_input:0.0:{schema:'screamingface.model-input.v1',question:'$question',tool_policy:'$tool_policy'},
+    member_1:0.0:/openrouter/anthropic/claude-opus-4.8
       ?temperature=0&max_tokens=8192
       ($model_input)!'Answer the research question completely.',
-    member_2=/openrouter/openai/gpt-5.5
+    member_2:0.0:/openrouter/openai/gpt-5.5
       ?temperature=0&max_tokens=8192
       ($model_input)!'Answer the research question completely.',
-    member_3=/openrouter/google/gemini-3.1-pro-preview
+    member_3:0.0:/openrouter/google/gemini-3.1-pro-preview
       ?temperature=0&max_tokens=8192
       ($model_input)!'Answer the research question completely.',
-    recipe_answer=/openrouter/anthropic/claude-opus-4.8
+    recipe_answer:0.0:/openrouter/anthropic/claude-opus-4.8
       ?temperature=0&max_tokens=8192
       (
-        Question: $question
-
-        Panel 1: $member_1
-        Panel 2: $member_2
-        Panel 3: $member_3
+        question=$question,
+        panel_1={model:'openrouter/anthropic/claude-opus-4.8',answer:'$member_1'},
+        panel_2={model:'openrouter/openai/gpt-5.5',answer:'$member_2'},
+        panel_3={model:'openrouter/google/gemini-3.1-pro-preview',answer:'$member_3'}
       )!'Synthesize the single strongest answer.',
-    recipe_result={
+    recipe_result:0.0:{
       schema:'screamingface.recipe-result.v1',
       members:{
         member_1:{model:'openrouter/anthropic/claude-opus-4.8',answer:'$member_1'},
@@ -319,13 +320,13 @@ context.
       },
       answer:'$recipe_answer'
     },
-    grade_input={
+    grade_input:0.0:{
       benchmark_id:'draco@1',
       case_id:'$item.id',
       question:'$question',
       reference:'$item.reference'
     },
-    case_result=/graders/draco-rubric/1($recipe_result)!'$grade_input'
+    case_result:0.0:/graders/draco-rubric/1($recipe_result)!'$grade_input'
   )!'$case_result';
   iteration.slice=0:100;
   iteration.on_error=collect

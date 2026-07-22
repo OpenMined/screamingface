@@ -40,7 +40,7 @@ async def test_dataset_authentication_failure_is_401_for_plain_and_streamed_eval
     gateway = _gateway()
     app = EngineASGI(node, gateway, max_inflight=1, timeout=1)
     transport = httpx.ASGITransport(app=app)
-    expression = "/dataset?q=()!'load'"
+    expression = "/dataset()!'load'"
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         plain = await client.get("/v1", params={"q": expression})
         streamed = await client.get(

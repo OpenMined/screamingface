@@ -128,7 +128,7 @@ async def test_engine_asgi_streams_running_and_typed_error_events() -> None:
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         running = await client.get(
             "/v1",
-            params={"q": "/slow?q=()!'wait'"},
+            params={"q": "/slow()!'wait'"},
             headers={"accept": "text/event-stream"},
         )
         failed = await client.get(
@@ -169,7 +169,7 @@ async def test_engine_asgi_stream_timeout_is_a_terminal_event() -> None:
     async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
         response = await client.get(
             "/v1",
-            params={"q": "/slow?q=()!'wait'"},
+            params={"q": "/slow()!'wait'"},
             headers={"accept": "text/event-stream"},
         )
     await gateway.aclose()

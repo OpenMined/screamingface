@@ -48,8 +48,8 @@ async def test_gemini_route_maps_exact_request_and_keeps_calls_independent() -> 
     app = create_app(model_routes=MODEL_ROUTES, settings=settings, gateway=gateway)
     transport = httpx.ASGITransport(app=app)
     expression = (
-        "(model_context='<criterion>Be correct.</criterion>',"
-        "model_result=/gemini/2.5-flash?temperature=0.2&reasoning=low&max_tokens=4096"
+        "(model_context:0.0:'<criterion>Be correct.</criterion>',"
+        "model_result:0.0:/gemini/2.5-flash?temperature=0.2&reasoning=low&max_tokens=4096"
         "&q=($model_context)!'Apply the pinned judge prompt.')!'$model_result'"
     )
 
