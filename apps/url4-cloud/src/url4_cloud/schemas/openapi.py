@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
+from url4_cloud.auth import Problem
 from url4_cloud.schemas.protocol_schemas import protocol_component_schemas
 
 API_DESCRIPTION = """\
@@ -52,6 +53,10 @@ def customize_openapi(app: FastAPI) -> None:
         components = schema.setdefault("components", {})
         merged = protocol_component_schemas()
         merged.update(components.get("schemas", {}))  # keep FastAPI's own error schemas
+        # WHY: the REST error responses reference RFC 9457 Problem by $ref under problem+json (no
+        # FastAPI `model=`, which would force an application/json variant), so register the schema
+        # here for the ref to resolve (OME-552).
+        merged.setdefault("Problem", Problem.model_json_schema())
         components["schemas"] = merged
         app.openapi_schema = schema
         return schema

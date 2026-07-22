@@ -9,10 +9,17 @@ terminal frame's status maps to the §5 outcome table. Every error is an RFC 945
 import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Request, Response
 
-from url4_cloud.auth import JwtCodec, ProblemException, VerifiedClaims, new_topic
+from url4_cloud.auth import (
+    PROBLEM_MEDIA_TYPE,
+    JwtCodec,
+    ProblemException,
+    VerifiedClaims,
+    new_topic,
+)
 from url4_cloud.config import Settings
 from url4_cloud.jobs.port import JobAlreadyExists, JobRunner
 from url4_cloud.rest.interest import SubscriberGate
@@ -180,7 +187,44 @@ async def mint_token(request: Request) -> dict[str, str]:
     return {"token": codec.sign(new_topic(), clock())}
 
 
-@router.get("/", tags=["Execution"], summary="Start a url4 run")
+def _problem(description: str) -> dict[str, Any]:
+    # WHY: a raw problem+json content with the RFC 9457 Problem $ref — NOT FastAPI ``model=`` (which
+    # forces an application/json variant); Problem is registered in components by the OpenAPI
+    # customizer so the ref resolves (OME-552, spec §7).
+    return {
+        "description": description,
+        "content": {PROBLEM_MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}}},
+    }
+
+
+# INVARIANT: these OpenAPI responses mirror the runtime §5 outcomes — 200 Result / 202 async handle
+# / RFC 9457 problems. The handlers still return a bare Response; this is documentation only.
+_START_RESPONSES: dict[int | str, dict[str, Any]] = {
+    200: {"description": "The run succeeded — the Result body."},
+    202: {
+        "description": "Accepted — async (Prefer: respond-async, or the sync bound elapsed).",
+        "headers": {
+            "Location": {"schema": {"type": "string"}, "description": "The run handle."},
+            "Link": {"schema": {"type": "string"}, "description": "RFC 8288 self link to the run."},
+            "Preference-Applied": {
+                "schema": {"type": "string"},
+                "description": "RFC 7240 applied preference.",
+            },
+        },
+    },
+    400: _problem("The url4 expression query parameter `q` is required."),
+    409: _problem("A run already exists for this topic (single-shot)."),
+    428: _problem("Attach a WebSocket to the topic before starting the run."),
+    502: _problem("The run failed."),
+    504: _problem("The run exceeded its 16 h deadline."),
+}
+_STOP_RESPONSES: dict[int | str, dict[str, Any]] = {
+    204: {"description": "Stopped and the stream purged (idempotent)."},
+    403: _problem("The capability token is not authorized for that topic."),
+}
+
+
+@router.get("/", tags=["Execution"], summary="Start a url4 run", responses=_START_RESPONSES)
 async def start_run(request: Request, claims: VerifiedClaims, q: str | None = None) -> Response:
     """Schedule the run for the token's topic; hold for the terminal unless ``respond-async``."""
     deps = _deps(request)
@@ -194,7 +238,9 @@ async def start_run(request: Request, claims: VerifiedClaims, q: str | None = No
     return await _run_sync(deps, topic, prefer.wait_s)
 
 
-@router.delete("/", tags=["Execution"], summary="Stop a run and purge its stream")
+@router.delete(
+    "/", tags=["Execution"], summary="Stop a run and purge its stream", responses=_STOP_RESPONSES
+)
 async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None = None) -> Response:
     """Stop the Job for the token's topic and purge its stream (idempotent) → ``204`` (spec §5)."""
     deps = _deps(request)

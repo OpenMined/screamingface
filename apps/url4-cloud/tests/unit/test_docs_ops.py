@@ -153,3 +153,25 @@ def test_metrics_is_openmetrics_text_with_counters() -> None:
     body = resp.text
     assert "url4_cloud_requests_total" in body
     assert "gen_ai_client_token_usage_total" in body
+
+
+# --- REST response documentation (OME-552) --------------------------------
+
+
+def test_execution_routes_document_responses() -> None:
+    # GET / and DELETE / must document their real contract — status codes, the RFC 9457 Problem
+    # schema (application/problem+json), and the 202 async-handle headers — so Scalar renders it
+    # instead of the bare 200 FastAPI infers from a Response return (OME-552).
+    schema = create_app().openapi()
+    get_resp = schema["paths"]["/"]["get"]["responses"]
+    for code in ("200", "202", "400", "409", "428", "502", "504"):
+        assert code in get_resp, f"GET / is missing documented response {code}"
+    assert "Problem" in schema["components"]["schemas"], "RFC 9457 Problem must be a component"
+    problem = get_resp["409"]["content"]["application/problem+json"]["schema"]
+    assert problem["$ref"] == "#/components/schemas/Problem"
+    headers = get_resp["202"]["headers"]
+    assert {"Location", "Link", "Preference-Applied"} <= set(headers)
+    del_resp = schema["paths"]["/"]["delete"]["responses"]
+    assert "204" in del_resp
+    ref = del_resp["403"]["content"]["application/problem+json"]["schema"]["$ref"]
+    assert ref == "#/components/schemas/Problem"
