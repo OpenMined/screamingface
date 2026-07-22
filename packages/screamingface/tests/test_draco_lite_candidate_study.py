@@ -94,7 +94,7 @@ def test_candidate_spec_shares_reused_leaves_but_not_sampled_opus_calls() -> Non
     assert nodes[self_members[0]]["model"] == nodes[self_members[1]]["model"]
 
 
-def test_documented_nominal_call_count_is_99() -> None:
+def test_documented_nominal_call_count_is_179() -> None:
     markdown = "\n".join(
         "".join(cast(list[str], cell["source"]))
         for cell in cast(list[dict[str, object]], _document()["cells"])
@@ -103,9 +103,9 @@ def test_documented_nominal_call_count_is_99() -> None:
 
     research_calls = 10
     synthesis_calls = 9
-    judge_calls = 16 * 5 * 1
-    assert research_calls + synthesis_calls + judge_calls == 99
-    assert "99 model calls" in markdown
+    judge_calls = 16 * 10 * 1
+    assert research_calls + synthesis_calls + judge_calls == 179
+    assert "179 model calls" in markdown
     assert "draco.evaluate(candidates)" in "\n".join(
         "".join(cast(list[str], cell["source"]))
         for cell in cast(list[dict[str, object]], _document()["cells"])

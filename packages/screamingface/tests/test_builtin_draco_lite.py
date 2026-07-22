@@ -36,19 +36,29 @@ def _case(index: int) -> Case:
                     "id": "reasoning",
                     "title": "Reasoning",
                     "criteria": [
-                        {"id": "method", "requirement": "Explain the method", "weight": 2}
+                        {"id": "method", "requirement": "Explain the method", "weight": 2},
+                        {"id": "assumption", "requirement": "State assumptions", "weight": 1},
+                        {"id": "limitation", "requirement": "Discuss limitations", "weight": 1},
                     ],
                 },
                 {
                     "id": "evidence",
                     "title": "Evidence",
-                    "criteria": [{"id": "source", "requirement": "Cite a source", "weight": 1}],
+                    "criteria": [
+                        {"id": "source", "requirement": "Cite a source", "weight": 1},
+                        {
+                            "id": "citation-quality",
+                            "requirement": "Use a strong source",
+                            "weight": 1,
+                        },
+                    ],
                 },
                 {
                     "id": "clarity",
                     "title": "Clarity",
                     "criteria": [
-                        {"id": "structure", "requirement": "Structure the answer", "weight": 1}
+                        {"id": "structure", "requirement": "Structure the answer", "weight": 1},
+                        {"id": "precision", "requirement": "Use precise language", "weight": 1},
                     ],
                 },
             ],
@@ -57,7 +67,7 @@ def _case(index: int) -> Case:
     )
 
 
-def test_lite_keeps_one_real_case_and_five_diverse_criteria(
+def test_lite_keeps_one_real_case_and_ten_diverse_criteria(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = (_case(1), _case(2), _case(3))
@@ -83,9 +93,14 @@ def test_lite_keeps_one_real_case_and_five_diverse_criteria(
     assert [criterion["id"] for criterion in criteria] == [
         "fact",
         "error",
+        "detail",
         "method",
+        "assumption",
+        "limitation",
         "source",
+        "citation-quality",
         "structure",
+        "precision",
     ]
     assert benchmark.tools == (
         sf.tools.WebSearch(
@@ -120,14 +135,15 @@ def test_lite_requires_one_positive_and_negative_criterion(
         draco_lite.draco_lite_cases()
 
 
-def test_lite_requires_five_weighted_criteria(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lite_requires_ten_weighted_criteria(monkeypatch: pytest.MonkeyPatch) -> None:
     case = _case(1)
     reference = cast(dict[str, Any], case.reference)
     sections = cast(list[dict[str, object]], reference["sections"])
-    sections.pop()
-    sections.pop()
+    clarity = cast(dict[str, object], sections[-1])
+    clarity_criteria = cast(list[dict[str, object]], clarity["criteria"])
+    clarity_criteria.pop()
     invalid = Case(case.id, case.input, reference=reference, metadata=case.metadata)
     monkeypatch.setattr(draco_lite, "draco_cases", lambda: (invalid,))
 
-    with pytest.raises(sf.InvalidBenchmarkError, match="at least 5"):
+    with pytest.raises(sf.InvalidBenchmarkError, match="at least 10"):
         draco_lite.draco_lite_cases()

@@ -16,7 +16,7 @@ def notebook() -> nbformat.NotebookNode:
             """# ScreamingFace · DRACO Lite
 
 Run the complete DRACO comparison shape—**7 solo models and 9 Fusions**—over one real research
-question. DRACO Lite changes only the scale: it keeps five deterministic criteria spanning the
+question. DRACO Lite changes only the scale: it keeps ten deterministic criteria spanning the
 rubric's sections and runs one judge pass per criterion.
 
 This is a real paid run, but it is **not a production DRACO score**. Production `draco@1` uses all
@@ -213,7 +213,7 @@ One call compiles and sends **one shareable URL4** for the complete candidate st
 single case, the engine executes 10 distinct researched model samples, reuses them wherever the
 same object appears, performs 9 synthesis calls, then grades the 16 final candidates.
 
-Nominal total: **10 research + 9 synthesis + (16 × 5 criteria × 1 pass) = 99 model calls**.
+Nominal total: **10 research + 9 synthesis + (16 × 10 criteria × 1 pass) = 179 model calls**.
 Tool operations and any explicit validation retry are additional. OpenRouter spend and provider
 availability still apply."""
         ),

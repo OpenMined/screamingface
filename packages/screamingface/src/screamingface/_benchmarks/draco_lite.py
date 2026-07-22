@@ -1,4 +1,4 @@
-"""One-case DRACO miniature with five diverse criteria and one judge pass."""
+"""One-case DRACO miniature with ten diverse criteria and one judge pass."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from screamingface.graders import Rubric
 from screamingface.tools import WebFetch, WebSearch
 
 type _WeightedCriterion = tuple[Mapping[object, object], Mapping[object, object], float]
+
+_CRITERIA_LIMIT = 10
 
 
 def benchmark() -> Benchmark:
@@ -40,7 +42,7 @@ def benchmark() -> Benchmark:
 
 @cache
 def draco_lite_cases() -> tuple[Case, ...]:
-    """Return one pinned case with five deterministic, section-diverse criteria."""
+    """Return one pinned case with ten deterministic, section-diverse criteria."""
 
     cases = draco_cases()
     if not cases:
@@ -62,7 +64,7 @@ def _lite_reference(value: object) -> dict[str, object]:
     sections = value.get("sections")
     if not isinstance(sections, list):
         raise InvalidBenchmarkError("DRACO Lite requires rubric sections")
-    criteria = _diverse_criteria(sections, limit=5)
+    criteria = _diverse_criteria(sections, limit=_CRITERIA_LIMIT)
     selected: list[dict[str, object]] = []
     for section, criterion, _weight in criteria:
         _append_criterion(selected, section, criterion)

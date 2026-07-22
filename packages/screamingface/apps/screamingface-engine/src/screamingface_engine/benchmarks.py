@@ -138,7 +138,7 @@ def draco_cases() -> str:
 
 
 def draco_lite_cases() -> str:
-    """Return one real DRACO case with five section-diverse criteria."""
+    """Return one real DRACO case with ten section-diverse criteria."""
 
     return _draco_rows(lite=True)
 

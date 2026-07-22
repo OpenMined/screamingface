@@ -160,7 +160,7 @@ the same `sf.benchmarks.load(...)` API without changing evaluation syntax.
 The development engine advertises `gpqa@1` plus DRACO when its pinned OpenRouter judge appears in
 the AI Gateway startup catalog. `draco-preview@1` uses real pinned DRACO cases, one positive
 criterion, and one judge pass for inexpensive integration checks. `draco-lite@1` fixes execution
-to the first pinned case, keeps five deterministic criteria spanning all four rubric sections, and
+to the first pinned case, keeps ten deterministic criteria spanning all four rubric sections, and
 makes one judge pass per criterion. `draco@1` keeps all 100 complete rubrics and five independent per-criterion
 judge passes. All three use the immutable provider-neutral research-tool policy route.
 
@@ -178,7 +178,7 @@ study before executing it. The single-candidate form remains available for every
 - [`examples/03_fusions.ipynb`](examples/03_fusions.ipynb): network-free Recipe authoring.
 - [`examples/04_custom_benchmarks.ipynb`](examples/04_custom_benchmarks.ipynb): authoring boundary.
 - [`examples/05_draco_quickstart.ipynb`](examples/05_draco_quickstart.ipynb): complete 7-solo and
-  9-Fusion DRACO topology over one case, five section-diverse criteria, and one judge pass.
+  9-Fusion DRACO topology over one case, ten section-diverse criteria, and one judge pass.
 - [`examples/06_connections.ipynb`](examples/06_connections.ipynb): provider/tool connections.
 - [`examples/07_full_draco_url4.ipynb`](examples/07_full_draco_url4.ipynb): non-runnable production
   DRACO handoff showing one flat, complete benchmark URL4 per candidate.

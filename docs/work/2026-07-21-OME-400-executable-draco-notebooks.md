@@ -10,7 +10,7 @@ local AI Gateway/OpenRouter profile.
 
 - `draco-preview@1` is explicitly non-comparable: real cases, one positive criterion, one judge
   pass, full research-tool flow.
-- `draco-lite@1` is a bounded protocol-faithful study: the first pinned case, five deterministic
+- `draco-lite@1` is a bounded protocol-faithful study: the first pinned case, ten deterministic
   criteria spanning all four rubric sections, and one judge pass per criterion.
 - `draco@1` uses the complete pinned rubric and five independent per-criterion passes.
 - The engine advertises all three only when the pinned OpenRouter Gemini judge route exists.

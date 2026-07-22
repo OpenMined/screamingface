@@ -142,7 +142,7 @@ def openapi_document(
             benchmark_id="draco-lite@1",
             label="DRACO Lite",
             rubric_description=(
-                "the first real case with five deterministic, section-diverse criteria"
+                "the first real case with ten deterministic, section-diverse criteria"
             ),
         )
         paths[DRACO_LITE_RUBRIC_ROUTE] = _draco_rubric_path(

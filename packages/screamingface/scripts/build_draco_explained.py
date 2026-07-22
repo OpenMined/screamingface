@@ -23,7 +23,7 @@ This is the architecture companion to `05_draco_quickstart.ipynb`. It constructs
 + 9 Fusion** comparison and explains what is local, what becomes URL4, what the ScreamingFace
 engine executes, and what returns to the SDK.
 
-DRACO Lite is the production topology at miniature scale: one pinned real case, five deterministic
+DRACO Lite is the production topology at miniature scale: one pinned real case, ten deterministic
 criteria spanning all four rubric sections, and one judge pass. The available OpenRouter lineup
 substitutes for the historical provider mix, so it demonstrates the protocol rather than
 reproducing published scores.
@@ -107,7 +107,8 @@ benchmark result recipe. The complete reproducible study is compiled by the load
             """`load` validates the engine manifest; it does not download cases. During execution,
 the versioned case route loads the pinned `perplexity-ai/draco` revision with the engine's
 `HF_TOKEN`. DRACO Lite selects the first case, seals the first positive and negative criteria, then
-adds the first criterion from each remaining rubric section for five total. Its grader uses one
+adds the first criterion from each remaining rubric section, then fills in dataset order, for ten
+total. Its grader uses one
 pass; production `draco@1` uses complete rubrics and five.
 
 The deployment itself is authored from the same compact SDK values available to researchers:
@@ -174,9 +175,9 @@ The nominal model-call count is therefore:
 ```text
 10 researched samples
  9 synthesis calls
-80 judge calls = 16 candidates × 5 criteria × 1 pass
+160 judge calls = 16 candidates × 10 criteria × 1 pass
 ──
-99 model calls
+179 model calls
 ```
 
 Provider-managed search operations and explicit judge-output validation retries are additional.
