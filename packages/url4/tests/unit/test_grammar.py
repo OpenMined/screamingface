@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from url4.errors import ParseError
-from url4.grammar import parse, parse_value
-from url4.nodes import (
+from url4.core.errors import ParseError
+from url4.core.grammar import parse, parse_value
+from url4.core.nodes import (
     Binding,
     Expression,
     RelExpr,
@@ -35,8 +35,11 @@ def test_quoted_text_strips_quotes() -> None:
 
 
 def test_group_of_sources() -> None:
-    node = parse("(a, https://x)")
-    assert node == Expression(sources=(Text("a"), Url("https://x")), intent=None)
+    # `OME-508`: local-expr's intent is mandatory — the bare form raises.
+    node = parse("(a, https://x)!go")
+    assert node == Expression(sources=(Text("a"), Url("https://x")), intent=Text("go"))
+    with pytest.raises(ParseError, match="intent"):
+        parse("(a, https://x)")
 
 
 def test_named_binding() -> None:
@@ -144,10 +147,13 @@ def test_non_struct_pair_entry_falls_back_to_expression_list() -> None:
     # §4.1.1.4 — a later entry using '=' instead of ':' fails the struct-pair
     # test, so the whole '(' group is reclassified as an expression source
     # list rather than a structured weight.
-    node = parse("name:(a:'x',b=2)")
+    node = parse("name:(a:'x',b=2)!go")
     assert node == Binding(
         "name",
-        Expression(sources=(Binding("a", Text("x"), ":"), Binding("b", Text("2"), "="))),
+        Expression(
+            sources=(Binding("a", Text("x"), ":"), Binding("b", Text("2"), "=")),
+            intent=Text("go"),
+        ),
         ":",
     )
 

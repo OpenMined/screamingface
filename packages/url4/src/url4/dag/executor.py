@@ -9,7 +9,7 @@ Tasks live in one :class:`asyncio.TaskGroup`: the first failure cancels every
 in-flight sibling (a deliberate improvement over the reference engine's bare
 ``gather``, which left siblings running). The group's ``ExceptionGroup`` is
 unwrapped back to the first real error so callers keep catching plain
-:class:`~url4.errors.Url4Error` subclasses.
+:class:`~url4.core.errors.Url4Error` subclasses.
 
 Dependency tasks are created (scheduled) in ``deps`` insertion order, which
 keeps *dispatch* deterministic — the sequence of ``create_task`` calls. That is
@@ -24,14 +24,13 @@ from __future__ import annotations
 import asyncio
 from typing import cast
 
-from url4.context import Context
-from url4.errors import CycleError
-from url4.io_layer import IOLayer
-from url4.nodes import Node as AstNode
+from url4.core.context import Context
+from url4.core.errors import CycleError
+from url4.core.nodes import Node as AstNode
+from url4.io.layer import IOLayer
 
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.node import (  # isort: skip
-    DEFAULT_PROCESSOR,
     DEFAULT_RUN_CONCURRENCY,
     BoundedIOLayer,
     DagNode,
@@ -40,22 +39,9 @@ from url4.dag.node import (  # isort: skip
     ProcessFn,
     SourceFailure,
     default_process,
+    node_children,
     reraise_first,
 )
-from url4.dag.nodes import GuardNode  # isort: skip
-
-
-def _dag_children(node: DagNode) -> list[DagNode]:
-    """Every node ``node`` executes: its edges, plus a guard's held subtree.
-
-    :class:`GuardNode` holds its inner as an attribute (isolation boundary, not
-    an edge), but a cycle through it would still hang the run — the traversals
-    here must see it.
-    """
-    children = list(node.deps.values())
-    if isinstance(node, GuardNode):
-        children.append(node.inner)
-    return children
 
 
 def check_acyclic(root: DagNode) -> None:
@@ -78,7 +64,7 @@ def check_acyclic(root: DagNode) -> None:
             raise CycleError(f"dependency cycle through {type(node).__name__} node")
         state[id(node)] = GRAY
         stack.append((node, True))
-        for dep in _dag_children(node):
+        for dep in node_children(node):
             if state.get(id(dep)) != BLACK:
                 stack.append((dep, False))
 
@@ -156,8 +142,8 @@ class Executor:
 
     async def _run(self, node: DagNode) -> Payload:
         assert self._tg is not None
-        # Check-then-act on ``_memo`` is safe ONLY because there is no ``await``
-        # between the ``.get()`` and the store below: ``create_task`` schedules
+        # INVARIANT: check-then-act on ``_memo`` is safe ONLY because there is no
+        # ``await`` between the ``.get()`` and the store below: ``create_task`` schedules
         # without yielding, so on this single-threaded loop the whole block is an
         # atomic critical section. Two parents of a diamond dependency can both
         # call ``_run(shared_child)`` "concurrently", but never interleave here.
@@ -203,13 +189,19 @@ def _wire_spawn(ctx: ExecutionContext, registry: LoweringRegistry | None) -> Non
     async def spawn(text: str, scope: Context) -> str:
         graph = compiled.get(text)
         if graph is None:
-            # Safe under concurrent rows: ``compile_expression`` is synchronous
-            # (no ``await``), so the get → compile → store is an atomic critical
-            # section on this single-threaded loop — the second row to reach the
-            # same text always hits the cache (mirrors the ``_memo`` invariant
+            # INVARIANT: safe under concurrent rows — ``compile_expression`` is
+            # synchronous (no ``await``), so the get → compile → store is an atomic
+            # critical section on this single-threaded loop — the second row to reach
+            # the same text always hits the cache (mirrors the ``_memo`` invariant
             # in ``_run``). A duplicate compile would only be wasted work anyway
             # (same text → an equivalent graph), never a correctness bug.
-            graph = compile_expression(text, registry=registry)
+            # AIDEV-NOTE: bare_root_ok — spawn is the ENGINE's boundary; its texts are
+            # engine-authored wrappers (a map row's "(body)", a deferred
+            # collection) whose intent is held outside the text (`OME-508`).
+            # User bare groups never reach here: every user entry
+            # (build/run/serve, and _slot_from_text for nested sources)
+            # rejects them eagerly.
+            graph = compile_expression(text, registry=registry, bare_root_ok=True)
             # Acyclicity is a graph property, so validate once per unique
             # fragment, not once per row that re-executes it. Compiler-emitted
             # graphs are acyclic by construction; this single check guards a
@@ -245,7 +237,7 @@ async def run(
     target: str | AstNode | Graph | DagNode,
     io: IOLayer | None = None,
     *,
-    processor: str = DEFAULT_PROCESSOR,
+    processor: str | None = None,
     process: ProcessFn = default_process,
     registry: LoweringRegistry | None = None,
     ctx: ExecutionContext | None = None,
@@ -254,11 +246,17 @@ async def run(
 ) -> str:
     """Evaluate a url4 expression (text, parse tree, graph, or node) to a string.
 
-    ``io`` is the :class:`~url4.io_layer.IOLayer` performing fetches and backend
-    calls; it defaults to a batteries-included :class:`~url4.io_http.HttpIOLayer`
-    (httpx GET). Pass a :class:`~url4.io_static.StaticIOLayer` for deterministic,
+    ``io`` is the :class:`~url4.io.layer.IOLayer` performing fetches and backend
+    calls; it defaults to a batteries-included :class:`~url4.io.http.HttpIOLayer`
+    (httpx GET). Pass a :class:`~url4.io.static.StaticIOLayer` for deterministic,
     network-free runs. Pass an explicit ``ctx`` instead to inspect per-run state
     afterwards (e.g. ``ctx.collected_errors``).
+
+    ``processor`` is the route a fan-out reduce dispatches to. Unset, it
+    resolves to the io world's first declared route
+    (:class:`~url4.io.layer.SupportsDefaultRoute`) — the core hardcodes no
+    route names; with neither, a reduce raises a clear
+    :class:`~url4.core.errors.ResolutionError`.
 
     When ``ctx`` is supplied, ``io``/``processor``/``process`` must be left at
     their defaults — the ctx already carries them, and combining both is
@@ -282,12 +280,12 @@ async def run(
     ``strict_fields`` selects the spec §5.3.4.1 field-path error mode: the
     default (False) is the lenient LLM mode — a missing field / bad index
     substitutes ``""``; True is the strict RDS mode — it raises
-    :class:`~url4.errors.ScopeError` with code ``malformed_source``. With a
+    :class:`~url4.core.errors.ScopeError` with code ``malformed_source``. With a
     supplied ``ctx``, ``strict_fields=True`` tightens the run; the ctx's own
     mode otherwise applies.
     """
     if ctx is not None and (
-        io is not None or processor != DEFAULT_PROCESSOR or process is not default_process
+        io is not None or processor is not None or process is not default_process
     ):
         raise ValueError(
             "run(): pass either `ctx` or `io`/`processor`/`process`, not both — "
@@ -314,7 +312,7 @@ async def run(
 def _run_context(
     io: IOLayer | None,
     ctx: ExecutionContext | None,
-    processor: str,
+    processor: str | None,
     process: ProcessFn,
     strict_fields: bool,
 ):
@@ -338,7 +336,7 @@ def _run_context(
     if io is None:
         # Composition-root default: imported lazily so the execution core's
         # static import graph never references a concrete transport (httpx).
-        from url4.io_http import HttpIOLayer
+        from url4.io.http import HttpIOLayer
 
         io = owned_io = HttpIOLayer()
     run_ctx = ExecutionContext(

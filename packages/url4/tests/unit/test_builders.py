@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from url4 import build
-from url4.builders import (
+from url4.core.builders import (
     broadcast,
     expand,
     expr,
@@ -26,8 +26,8 @@ from url4.builders import (
     struct,
     text,
 )
-from url4.errors import RenderError
-from url4.nodes import (
+from url4.core.errors import RenderError
+from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,
@@ -42,7 +42,7 @@ from url4.nodes import (
     Url,
     VarRef,
 )
-from url4.render import render
+from url4.core.render import render
 
 # --- leaf constructors --------------------------------------------------------------
 
@@ -299,12 +299,15 @@ def test_iterate_validation():
 # --- iteration sources inside expressions (hazard shielding) ------------------------------
 
 
-def test_expr_shields_bare_iteration_sources():
+def test_expr_keeps_bare_iteration_sources():
+    # `OME-508`: the old shield wrapped the iteration in an intent-less group,
+    # which has no surface form — the source stays as authored, and the
+    # renderer's decode-hazard guard reports the unrepresentable placement.
     it = iterate("https://d/rows", "x=$item", intent="p")
     e = expr(it, "https://y", intent="r")
-    # the bare iteration is wrapped in its own (attribution-neutral) group
-    assert e.sources[0] == Expression(sources=(it,))
-    assert build(render(e)) == e
+    assert e.sources[0] is it
+    with pytest.raises(RenderError, match="reduce-over-iteration"):
+        render(e)
 
 
 def test_expr_rewrites_reducer_iteration_sources():

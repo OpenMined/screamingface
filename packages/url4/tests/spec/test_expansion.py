@@ -5,18 +5,18 @@ from __future__ import annotations
 import pytest
 
 from url4 import StaticIOLayer
-from url4.context import Context
+from url4.core.context import Context
+from url4.core.errors import Url4Error
+from url4.core.grammar import parse
+from url4.core.nodes import Url
 from url4.dag import run
-from url4.errors import Url4Error
-from url4.grammar import parse
-from url4.nodes import Url
 
 # --- parse level -----------------------------------------------------------------
 
 
 def test_prefix_form_marks_expansion() -> None:
     # §5.3.12.2 prefix form
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("*https://thepost.com/feed")
     assert isinstance(node, Source)
@@ -26,7 +26,7 @@ def test_prefix_form_marks_expansion() -> None:
 
 def test_annotation_form_marks_expansion() -> None:
     # §5.3.12.2 annotation form
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("https://thepost.com/feed;expand")
     assert isinstance(node, Source)
@@ -36,7 +36,7 @@ def test_annotation_form_marks_expansion() -> None:
 
 def test_prefix_and_annotation_forms_equivalent_expansion() -> None:
     # §5.3.12.2 — "Both are semantically identical"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     prefix = parse("*https://thepost.com/feed")
     annotated = parse("https://thepost.com/feed;expand")
@@ -47,7 +47,7 @@ def test_prefix_and_annotation_forms_equivalent_expansion() -> None:
 
 def test_prefix_form_with_name_and_weight() -> None:
     # §5.3.12.2 — "*articles:0.5:https://thepost.com/feed"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("*articles:0.5:https://thepost.com/feed")
     assert isinstance(node, Source)
@@ -58,7 +58,7 @@ def test_prefix_form_with_name_and_weight() -> None:
 
 def test_prefix_position_distinct_from_iteration() -> None:
     # §5.3.12.3 — source-initial '*' is expansion; mid-value '*(' is iteration
-    from url4.nodes import Iteration, Source
+    from url4.core.nodes import Iteration, Source
 
     expansion = parse("*https://thepost.com/feed")
     iteration = parse("https://data.com/records*(x)!'go'")
