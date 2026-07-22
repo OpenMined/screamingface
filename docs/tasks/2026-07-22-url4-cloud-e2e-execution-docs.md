@@ -1,12 +1,12 @@
 ---
 id: OME-555
 linear_url: https://linear.app/openmined/issue/OME-555/url4-cloud-e2e-developer-docs-sync-async-streaming-execution-sequence
-status: in_progress
+status: done
 type: task
 priority: P2
 labels: [url4-cloud, autonomous, agentic]
 created: 2026-07-22
-closed:
+closed: 2026-07-22
 ---
 
 # OME-555 — url4-cloud e2e developer docs: sync / async / streaming execution + sequence diagrams

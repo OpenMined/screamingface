@@ -222,6 +222,28 @@ def test_get_documents_prefer_header_for_sync_async() -> None:
     assert "async" in op.get("description", "").lower()
 
 
+# --- execution-flow diagrams embedded in /scalar (OME-555) ----------------
+
+
+def test_execution_flow_diagrams_are_served() -> None:
+    # OME-555: the sync/async/streaming sequence diagrams ship in the image and are served
+    # same-origin so Scalar renders them inside the OpenAPI description.
+    client = _client()
+    for name in ("sync", "async", "stream"):
+        resp = client.get(f"/diagrams/url4-cloud-execution-{name}.svg")
+        assert resp.status_code == 200, name
+        assert resp.headers["content-type"].startswith("image/svg+xml")
+        assert "<svg" in resp.text
+
+
+def test_openapi_description_embeds_the_execution_diagrams() -> None:
+    # OME-555: the three flows are embedded in the description as images, so /scalar renders them.
+    desc = create_app().openapi()["info"]["description"]
+    assert "## Execution flows" in desc
+    for name in ("sync", "async", "stream"):
+        assert f"/diagrams/url4-cloud-execution-{name}.svg" in desc
+
+
 # --- capability security scheme (OME-556) ---------------------------------
 
 

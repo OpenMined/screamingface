@@ -56,9 +56,30 @@ exist (diagramming skill, SVG+PNG) and are reachable from the docs; `run_gates.p
 - Initially drafted Mermaid-in-OpenAPI-description; **reverted** — owner asked for the
   `/diagramming:architecture-diagram` skill. Header name stays `URL4-Capability` (owner-confirmed).
 
-## Outcome (fill at the end — required before COMMIT)
+## Outcome
 
-- **Actual files:** <vs planned>
-- **Commits:** see the OME-555 commit on `OME-513-url4-cloud`.
-- **Gates:** <run_gates result>
-- **Deviations:** <none | list>
+**Part 1 — Prefer sync/async doc (committed `d61bf49`, combined with OME-566):** `rest/routes.py`
+declares `Prefer` as a documented `Header` parameter on `GET /` + a sync/async operation
+description; `test_docs_ops.py` asserts it. Browser-verified: Scalar renders the `Prefer` input +
+explanation on `GET /`.
+
+**Part 2 — execution-flow diagrams (this commit):**
+
+- Authored with the **`/diagramming:architecture-diagram`** skill's design system (dark slate,
+  semantic colours, text halos, label chips) via a Python emitter → **SVG**, rendered to **PNG**
+  with `rsvg-convert` (repo diagram rule). Three flows: sync / async / streaming.
+- `docs/diagrams/url4-cloud-execution-{sync,async,stream}.{svg,png}` (canonical) +
+  `…-flows.gen.py` (regenerable source) · `src/url4_cloud/assets/diagrams/*.svg` (served copy, ships
+  in the image via `COPY src ./src`) · `app.py` (`StaticFiles` mount at `/diagrams`) ·
+  `schemas/openapi.py` (`## Execution flows` section embedding the three SVGs) · `test_docs_ops.py`
+  (served + embedded tests).
+- **Owner chose option B** — embed in the served docs. Browser-verified on `:9108`: `/scalar`
+  renders all three diagrams **inline** in the Introduction (Scalar renders markdown `![]()`
+  images — the open question, now confirmed).
+
+- **Commits:** `d61bf49` (Prefer) + the diagrams commit on `OME-513-url4-cloud`.
+- **Gates:** `run_gates.py url4-cloud --skip-append-only` GREEN — ruff · format · pyright · pytest
+  cov ≥ 80.
+- **Deviations:** first drafted Mermaid in the OpenAPI description; reverted per owner to the
+  diagramming skill (SVG). Served SVGs duplicate `docs/diagrams/` (image build context can't reach
+  repo-root `docs/`) — acceptable, `docs/diagrams` is the source of truth.

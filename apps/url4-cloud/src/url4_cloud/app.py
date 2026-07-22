@@ -1,6 +1,9 @@
 """FastAPI application factory for the url4-cloud control plane."""
 
+from pathlib import Path
+
 from fastapi import APIRouter, FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from url4_cloud.auth import Clock, install_problem_handlers
 from url4_cloud.config import Settings
@@ -15,6 +18,10 @@ from url4_cloud.ws import router as ws_router
 from url4_cloud_nats import Bus, NatsBus
 
 router = APIRouter()
+
+# Execution-flow diagrams (assets/diagrams/*.svg) served at /diagrams and embedded in the
+# OpenAPI description so Scalar renders them inline (OME-555). Shipped via `COPY src ./src`.
+_DIAGRAMS_DIR = Path(__file__).parent / "assets" / "diagrams"
 
 
 # WHY: a bare liveness ping for infra health checks — hidden from the OpenAPI (like the other
@@ -57,6 +64,9 @@ def create_app(
     app.include_router(rest_router)
     app.include_router(ws_router)
     app.include_router(ops_router)
+    # WHY: serve the execution-flow diagrams same-origin so Scalar renders them inline in the
+    # OpenAPI description (OME-555).
+    app.mount("/diagrams", StaticFiles(directory=_DIAGRAMS_DIR), name="diagrams")
     # Enrich the generated OpenAPI 3.1 with the CloudEvents component schemas + rich info (§12).
     customize_openapi(app)
     return app

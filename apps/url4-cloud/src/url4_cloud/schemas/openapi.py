@@ -20,6 +20,23 @@ url4 run whose telemetry streams back as **CloudEvents 1.0** frames (OTel `gen_a
 and a separate `ai.url4.cost.usage` taxonomy event). REST is transactional (RFC 7240 sync/async,
 RFC 9457 problems); the live stream is described by the companion **AsyncAPI** doc at
 `/asyncapi.json`. See `docs/protocol.md` for the standards decision record.
+
+## Execution flows
+
+**Synchronous** — `GET /` holds until the terminal frame (bounded by `SYNC_MAX_WAIT`) and returns
+the Result body:
+
+![Synchronous execution](/diagrams/url4-cloud-execution-sync.svg)
+
+**Asynchronous** — `Prefer: respond-async` returns `202` + `Location`/`Link` immediately; the
+Result arrives on the WebSocket stream:
+
+![Asynchronous execution](/diagrams/url4-cloud-execution-async.svg)
+
+**Streaming · resume · cancel** — frames carry a monotonic `sequence`; a client can re-attach and
+replay via `ai.url4.attach`, or cancel via `ai.url4.stop`:
+
+![Streaming, resume and cancel](/diagrams/url4-cloud-execution-stream.svg)
 """
 
 # WHY: only tags with in-schema REST operations — "Stream" (WS, AsyncAPI-only) and "Ops" (hidden
