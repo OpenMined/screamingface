@@ -32,7 +32,9 @@ def create_app(
 ) -> FastAPI:
     """Build the stateless url4-cloud app; deps (bus/job_runner/clock/interest) are injected."""
     settings = settings or Settings()
-    app = FastAPI(title="url4-cloud", version="0.1.0")
+    # WHY: disable FastAPI's built-in Swagger (/docs) + ReDoc (/redoc) — the Scalar reference at
+    # /docs replaces them (OME-565). openapi_url stays /openapi.json (FastAPI serves app.openapi()).
+    app = FastAPI(title="url4-cloud", version="0.1.0", docs_url=None, redoc_url=None)
     app.state.settings = settings
     app.state.bus = bus
     app.state.job_runner = job_runner

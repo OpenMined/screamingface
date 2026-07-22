@@ -79,26 +79,29 @@ def test_cost_usage_data_carries_examples() -> None:
 # --- Scalar reference -----------------------------------------------------
 
 
-def test_scalar_returns_html_referencing_openapi() -> None:
-    resp = _client().get("/scalar")
+def test_docs_page_serves_scalar_with_both_specs() -> None:
+    # OME-565: one canonical /docs Scalar reference with a document switcher over both specs — the
+    # REST OpenAPI (default) and the AsyncAPI 3.0 stream, same-origin.
+    resp = _client().get("/docs")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
     body = resp.text
+    assert "createApiReference" in body
     assert "/openapi.json" in body
-    # OME-553: the current Scalar standalone init (the old `id="api-reference" data-url` embed
-    # no longer auto-mounts → the page rendered "Not Found").
-    assert "createApiReference" in body
-
-
-def test_asyncapi_reference_page_renders_the_ws_schema() -> None:
-    # OME-564: /asyncapi is served by Scalar (which renders AsyncAPI 3.x since v1.61) pointed at the
-    # raw /asyncapi.json — the same polished, same-origin viewer as /scalar, no web-component.
-    resp = _client().get("/asyncapi")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/html")
-    body = resp.text
-    assert "createApiReference" in body
     assert "/asyncapi.json" in body
+
+
+def test_scalar_redirects_to_docs() -> None:
+    # OME-565: /scalar and /asyncapi collapse to one entry point at /docs.
+    resp = _client().get("/scalar", follow_redirects=False)
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/docs"
+
+
+def test_asyncapi_redirects_to_docs() -> None:
+    resp = _client().get("/asyncapi", follow_redirects=False)
+    assert resp.status_code == 307
+    assert resp.headers["location"] == "/docs"
 
 
 # --- AsyncAPI 3.0 for the /ws channel -------------------------------------
