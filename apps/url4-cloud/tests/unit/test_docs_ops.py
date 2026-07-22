@@ -188,3 +188,18 @@ def test_execution_routes_document_responses() -> None:
     assert "204" in del_resp
     ref = del_resp["403"]["content"]["application/problem+json"]["schema"]["$ref"]
     assert ref == "#/components/schemas/Problem"
+
+
+# --- capability security scheme (OME-556) ---------------------------------
+
+
+def test_openapi_declares_url4_capability_security_scheme() -> None:
+    # The per-run capability rides a dedicated URL4-Capability header (apiKey), decoupled from
+    # Authorization — so Scalar renders the header input and the execution ops require it (OME-556).
+    schema = create_app().openapi()
+    scheme = schema["components"]["securitySchemes"]["URL4Capability"]
+    assert scheme["type"] == "apiKey"
+    assert scheme["in"] == "header"
+    assert scheme["name"] == "URL4-Capability"
+    for method in ("get", "delete"):
+        assert schema["paths"]["/"][method]["security"] == [{"URL4Capability": []}]

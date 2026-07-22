@@ -58,6 +58,19 @@ def customize_openapi(app: FastAPI) -> None:
         # here for the ref to resolve (OME-552).
         merged.setdefault("Problem", Problem.model_json_schema())
         components["schemas"] = merged
+        # WHY: the per-run capability rides a dedicated URL4-Capability header (apiKey), decoupled
+        # from `Authorization`; declare it so Scalar renders the header input and the execution ops
+        # advertise the requirement (OME-556). WS auth is the `?ticket=` query param (§6).
+        components.setdefault("securitySchemes", {})["URL4Capability"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "URL4-Capability",
+            "description": "Per-run capability JWT (spec §4); bare token, not on Authorization.",
+        }
+        for method in ("get", "delete"):
+            operation = schema.get("paths", {}).get("/", {}).get(method)
+            if operation is not None:
+                operation["security"] = [{"URL4Capability": []}]
         app.openapi_schema = schema
         return schema
 

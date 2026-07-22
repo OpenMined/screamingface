@@ -139,9 +139,15 @@ semantics of SSE `Last-Event-ID` / a JetStream stream sequence.
 | Sync vs async | **RFC 7240** `Prefer: respond-async` / `wait` + `Preference-Applied` | rfc-editor.org/rfc/rfc7240 |
 | Async handle | **RFC 8288** `Link` + `Location` on the `202` | rfc-editor.org/rfc/rfc8288 |
 | Token | **RFC 7519 (JWT)** registered claims — `sub` (topic), `iat`, **`exp`** (= iat+window), `iss`, `aud`, `jti` (replay id), HS256 | rfc-editor.org/rfc/rfc7519 |
+| Capability carrier | **`URL4-Capability: <JWT>`** — a dedicated request header (bare token, no scheme), decoupled from `Authorization`; RFC 6648 (no `X-`), RFC 9449 (DPoP) precedent. WS uses the `?ticket=` query param. | rfc-editor.org/rfc/rfc6648 |
 
 **Note on JWT:** setting `exp` means *any* standard JWT library rejects an expired token for free;
 our stateless `iat`-window check becomes belt-and-suspenders, not the sole guard.
+
+**Note on the capability header (OME-556):** the per-run capability is *not* on `Authorization` —
+that slot is the caller's primary identity, often owned by a gateway/mesh that could strip or
+overwrite it. A `401` therefore carries **no** `WWW-Authenticate` challenge (that header is bound
+to `Authorization`).
 
 ---
 

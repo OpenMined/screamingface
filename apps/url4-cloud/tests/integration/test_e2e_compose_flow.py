@@ -106,12 +106,12 @@ def test_full_flow_streams_valid_section8_events_then_purges() -> None:
     with TestClient(app) as client:
         token = client.post("/token").json()["token"]
         topic = _topic_of(token)
-        bearer = {"Authorization": f"Bearer {token}"}
+        cap = {"URL4-Capability": token}
 
         with client.websocket_connect(f"/ws?ticket={token}", subprotocols=[SUBPROTOCOL]) as ws:
             ws.send_json(_attach())
             started = client.get(
-                "/", params={"q": EXPR}, headers={**bearer, "Prefer": "respond-async"}
+                "/", params={"q": EXPR}, headers={**cap, "Prefer": "respond-async"}
             )
             assert started.status_code == 202
             assert runner.scheduled and runner.scheduled[0][0] == topic
@@ -129,7 +129,7 @@ def test_full_flow_streams_valid_section8_events_then_purges() -> None:
             _assert_cost_rolls_up(frames)
             _assert_span_tree(frames)
 
-            purged = client.delete("/", params={"topic": topic}, headers=bearer)
+            purged = client.delete("/", params={"topic": topic}, headers=cap)
         assert purged.status_code == 204
     assert runner.stopped == [topic]
     assert bus._log[topic] == []  # noqa: SLF001 — asserting the DELETE purge side effect

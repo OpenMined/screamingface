@@ -76,8 +76,8 @@ def _token(topic: str) -> str:
     return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).sign(topic, T0)
 
 
-def _bearer(topic: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {_token(topic)}"}
+def _cap(topic: str) -> dict[str, str]:
+    return {"URL4-Capability": _token(topic)}
 
 
 def _make_app(
@@ -160,7 +160,7 @@ async def test_post_token_uses_default_clock_when_none_injected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_without_bearer_is_401_problem_json() -> None:
+async def test_get_without_capability_is_401_problem_json() -> None:
     app = _make_app(gate_present=True)
     async with _client(app) as client:
         resp = await client.get("/", params={"q": "gpt()"})
@@ -174,7 +174,7 @@ async def test_get_without_subscriber_is_428() -> None:
     runner = FakeJobRunner()
     app = _make_app(job_runner=runner)
     async with _client(app) as client:
-        resp = await client.get("/", params={"q": "gpt()"}, headers=_bearer("topic-428"))
+        resp = await client.get("/", params={"q": "gpt()"}, headers=_cap("topic-428"))
     assert resp.status_code == 428
     assert resp.headers["content-type"].startswith("application/problem+json")
     assert runner.scheduled == []  # the run is never scheduled with nobody listening
@@ -184,7 +184,7 @@ async def test_get_without_subscriber_is_428() -> None:
 async def test_get_missing_q_is_400() -> None:
     app = _make_app(gate_present=True)
     async with _client(app) as client:
-        resp = await client.get("/", headers=_bearer("topic-noq"))
+        resp = await client.get("/", headers=_cap("topic-noq"))
     assert resp.status_code == 400
     assert resp.headers["content-type"].startswith("application/problem+json")
 
@@ -194,7 +194,7 @@ async def test_get_conflict_when_job_exists_is_409() -> None:
     runner = FakeJobRunner(exists=True)
     app = _make_app(job_runner=runner, gate_present=True)
     async with _client(app) as client:
-        resp = await client.get("/", params={"q": "gpt()"}, headers=_bearer("topic-409a"))
+        resp = await client.get("/", params={"q": "gpt()"}, headers=_cap("topic-409a"))
     assert resp.status_code == 409
     assert resp.headers["content-type"].startswith("application/problem+json")
     assert runner.scheduled == []
@@ -205,7 +205,7 @@ async def test_get_conflict_when_schedule_raises_is_409() -> None:
     runner = FakeJobRunner(conflict_on_schedule=True)
     app = _make_app(job_runner=runner, gate_present=True)
     async with _client(app) as client:
-        resp = await client.get("/", params={"q": "gpt()"}, headers=_bearer("topic-409b"))
+        resp = await client.get("/", params={"q": "gpt()"}, headers=_cap("topic-409b"))
     assert resp.status_code == 409
     assert resp.headers["content-type"].startswith("application/problem+json")
 
@@ -222,7 +222,7 @@ async def test_get_respond_async_is_202_with_headers() -> None:
         resp = await client.get(
             "/",
             params={"q": "gpt(hi)"},
-            headers={**_bearer(topic), "Prefer": "respond-async"},
+            headers={**_cap(topic), "Prefer": "respond-async"},
         )
     assert resp.status_code == 202
     assert resp.headers["location"] == f"/?topic={topic}"
@@ -243,7 +243,7 @@ async def test_get_sync_succeeded_is_200_with_result_body() -> None:
     await bus.publish(topic, _terminated(topic, "succeeded"))
     app = _make_app(bus=bus, gate_present=True)
     async with _client(app) as client:
-        resp = await client.get("/", params={"q": "gpt()"}, headers=_bearer(topic))
+        resp = await client.get("/", params={"q": "gpt()"}, headers=_cap(topic))
     assert resp.status_code == 200
     assert resp.json() == {"answer": 42}
 
@@ -255,7 +255,7 @@ async def test_get_sync_failed_is_502_problem_json() -> None:
     await bus.publish(topic, _terminated(topic, "failed"))
     app = _make_app(bus=bus, gate_present=True)
     async with _client(app) as client:
-        resp = await client.get("/", params={"q": "gpt()"}, headers=_bearer(topic))
+        resp = await client.get("/", params={"q": "gpt()"}, headers=_cap(topic))
     assert resp.status_code == 502
     assert resp.headers["content-type"].startswith("application/problem+json")
     assert resp.json()["status"] == 502
@@ -268,7 +268,7 @@ async def test_get_sync_stopped_is_409_problem_json() -> None:
     await bus.publish(topic, _terminated(topic, "stopped"))
     app = _make_app(bus=bus, gate_present=True)
     async with _client(app) as client:
-        resp = await client.get("/", params={"q": "gpt()"}, headers=_bearer(topic))
+        resp = await client.get("/", params={"q": "gpt()"}, headers=_cap(topic))
     assert resp.status_code == 409
     assert resp.headers["content-type"].startswith("application/problem+json")
 
@@ -280,7 +280,7 @@ async def test_get_sync_timed_out_is_504_problem_json() -> None:
     await bus.publish(topic, _terminated(topic, "timed_out"))
     app = _make_app(bus=bus, gate_present=True)
     async with _client(app) as client:
-        resp = await client.get("/", params={"q": "gpt()"}, headers=_bearer(topic))
+        resp = await client.get("/", params={"q": "gpt()"}, headers=_cap(topic))
     assert resp.status_code == 504
     assert resp.headers["content-type"].startswith("application/problem+json")
 
@@ -293,7 +293,7 @@ async def test_get_sync_degrades_to_202_past_bound() -> None:
     await bus.publish(topic, _started(topic, "slow()"))
     app = _make_app(bus=bus, gate_present=True, sync_max_wait_s=0.1)
     async with _client(app) as client:
-        resp = await client.get("/", params={"q": "slow()"}, headers=_bearer(topic))
+        resp = await client.get("/", params={"q": "slow()"}, headers=_cap(topic))
     assert resp.status_code == 202
     assert resp.headers["location"] == f"/?topic={topic}"
 
@@ -307,7 +307,7 @@ async def test_get_prefer_wait_zero_degrades_to_202() -> None:
         resp = await client.get(
             "/",
             params={"q": "slow()"},
-            headers={**_bearer(topic), "Prefer": "wait=0"},
+            headers={**_cap(topic), "Prefer": "wait=0"},
         )
     assert resp.status_code == 202
 
@@ -319,7 +319,7 @@ async def test_get_sync_succeeded_without_result_is_empty_200() -> None:
     await bus.publish(topic, _terminated(topic, "succeeded"))
     app = _make_app(bus=bus, gate_present=True)
     async with _client(app) as client:
-        resp = await client.get("/", params={"q": "gpt()"}, headers=_bearer(topic))
+        resp = await client.get("/", params={"q": "gpt()"}, headers=_cap(topic))
     assert resp.status_code == 200
     assert resp.content == b""
 
@@ -336,7 +336,7 @@ async def test_get_malformed_prefer_wait_falls_back_to_cap() -> None:
         resp = await client.get(
             "/",
             params={"q": "gpt()"},
-            headers={**_bearer(topic), "Prefer": "wait=abc"},
+            headers={**_cap(topic), "Prefer": "wait=abc"},
         )
     assert resp.status_code == 200
     assert resp.json() == {"answer": 1}
@@ -353,7 +353,7 @@ async def test_delete_stops_and_purges_is_204() -> None:
     runner = FakeJobRunner()
     app = _make_app(bus=bus, job_runner=runner, gate_present=True)
     async with _client(app) as client:
-        resp = await client.delete("/", params={"topic": topic}, headers=_bearer(topic))
+        resp = await client.delete("/", params={"topic": topic}, headers=_cap(topic))
     assert resp.status_code == 204
     assert runner.stopped == [topic]
     # purge dropped the buffered frame: a replay from seq 1 now yields nothing new to consume.
@@ -365,7 +365,7 @@ async def test_delete_topic_mismatch_is_403() -> None:
     runner = FakeJobRunner()
     app = _make_app(job_runner=runner, gate_present=True)
     async with _client(app) as client:
-        resp = await client.delete("/", params={"topic": "someone-else"}, headers=_bearer("mine"))
+        resp = await client.delete("/", params={"topic": "someone-else"}, headers=_cap("mine"))
     assert resp.status_code == 403
     assert resp.headers["content-type"].startswith("application/problem+json")
     assert runner.stopped == []

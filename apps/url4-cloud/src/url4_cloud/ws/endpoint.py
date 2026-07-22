@@ -1,6 +1,6 @@
 """``GET /ws`` — the CloudEvents WebSocket binding (subprotocol ``cloudevents.json``; §6, §8).
 
-A JWT capability *ticket* (query param — browsers cannot set WS ``Authorization`` headers) selects
+A JWT capability *ticket* (query param — browsers cannot set WS request headers) selects
 the topic; the connection is registered as live interest (so the REST ``428`` guard opens, spec §4)
 and the :func:`run_bridge` engine streams the topic's ``Bus`` frames until the client disconnects.
 Deps come off ``websocket.app.state`` (bus / registry / job_runner / settings / clock) so the

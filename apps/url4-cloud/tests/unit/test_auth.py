@@ -122,10 +122,10 @@ def _protected_app(now: datetime) -> FastAPI:
     return app
 
 
-def test_dependency_accepts_valid_bearer() -> None:
+def test_dependency_accepts_valid_capability() -> None:
     token = _codec().sign("topic-abc", T0)
     client = TestClient(_protected_app(T0))
-    resp = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    resp = client.get("/protected", headers={"URL4-Capability": token})
     assert resp.status_code == 200
     assert resp.json() == {"sub": "topic-abc"}
 
@@ -133,26 +133,25 @@ def test_dependency_accepts_valid_bearer() -> None:
 def test_dependency_rejects_expired_as_problem_json() -> None:
     token = _codec().sign("topic", T0)
     client = TestClient(_protected_app(T0 + timedelta(seconds=WINDOW_S + 5)))
-    resp = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    resp = client.get("/protected", headers={"URL4-Capability": token})
     assert resp.status_code == 401
     assert resp.headers["content-type"].startswith("application/problem+json")
-    assert resp.headers.get("www-authenticate") == "Bearer"
     body = resp.json()
     assert body["status"] == 401
     assert body["title"]
     assert "type" in body
 
 
-def test_dependency_rejects_missing_bearer() -> None:
+def test_dependency_rejects_missing_capability() -> None:
     client = TestClient(_protected_app(T0))
     resp = client.get("/protected")
     assert resp.status_code == 401
     assert resp.headers["content-type"].startswith("application/problem+json")
 
 
-def test_dependency_rejects_tampered_bearer() -> None:
+def test_dependency_rejects_tampered_capability() -> None:
     client = TestClient(_protected_app(T0))
-    resp = client.get("/protected", headers={"Authorization": "Bearer garbage.token.value"})
+    resp = client.get("/protected", headers={"URL4-Capability": "garbage.token.value"})
     assert resp.status_code == 401
     assert resp.headers["content-type"].startswith("application/problem+json")
 
@@ -160,5 +159,15 @@ def test_dependency_rejects_tampered_bearer() -> None:
 def test_dependency_error_body_omits_token() -> None:
     token = _codec().sign("secret-topic", T0)
     client = TestClient(_protected_app(T0 + timedelta(seconds=WINDOW_S + 5)))
-    resp = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    resp = client.get("/protected", headers={"URL4-Capability": token})
     assert token not in resp.text
+
+
+def test_dependency_ignores_authorization_bearer_header() -> None:
+    # INVARIANT: the capability rides URL4-Capability ONLY — a valid token on the primary
+    # Authorization slot is NOT accepted, so the two credentials never conflate (OME-556).
+    token = _codec().sign("topic-abc", T0)
+    client = TestClient(_protected_app(T0))
+    resp = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+    assert resp.headers["content-type"].startswith("application/problem+json")

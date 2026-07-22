@@ -1,4 +1,5 @@
-"""url4_cloud.auth — capability topic + JWT + RFC 9457 Bearer guard (docs/protocol.md §7)."""
+"""url4_cloud.auth — capability topic + JWT + RFC 9457 capability-header guard
+(docs/protocol.md §7)."""
 
 from url4_cloud.auth.dependencies import Clock, VerifiedClaims, verified_claims
 from url4_cloud.auth.errors import (

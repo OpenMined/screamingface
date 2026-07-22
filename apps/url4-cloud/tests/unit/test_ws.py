@@ -316,7 +316,7 @@ def test_live_ws_enables_start_and_closing_it_restores_428() -> None:
     bus = InMemoryBus()
     runner = FakeJobRunner()
     app = _make_app(bus=bus, job_runner=runner)
-    headers = {"Authorization": f"Bearer {_token(topic)}"}
+    headers = {"URL4-Capability": _token(topic)}
     with TestClient(app) as client:
         before = client.get("/", params={"q": "gpt()"}, headers=headers)
         assert before.status_code == 428

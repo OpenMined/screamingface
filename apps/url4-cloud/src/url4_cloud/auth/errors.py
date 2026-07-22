@@ -10,7 +10,7 @@ class AuthError(Exception):
 
 
 class MissingCredentials(AuthError):
-    """No Bearer token was presented."""
+    """No capability token was presented."""
 
 
 class InvalidToken(AuthError):
