@@ -1,0 +1,133 @@
+"""Build the Phase 5B bare-bones ScreamingFace quickstart notebook."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+import nbformat
+
+
+def notebook() -> nbformat.NotebookNode:
+    """Return the deterministic, output-free quickstart."""
+
+    cells = [
+        nbformat.v4.new_markdown_cell(
+            """# ScreamingFace · quickstart
+
+Connect three model providers, combine their models into one Fusion, evaluate it on five real GPQA
+Diamond questions, and compare the Fusion with its strongest member.
+
+This is the shortest supported path: **connect → compose → evaluate → compare**. Its core
+evaluation path remains **compose → evaluate → compare**. Evaluation uses real model responses
+through the configured ScreamingFace engine; it never substitutes an offline result.
+
+## Before you run it
+
+Have a compatible ScreamingFace engine available. The SDK currently defaults to
+`http://127.0.0.1:4404`; use `sf.config(engine="https://...")` before this flow when your engine is
+hosted elsewhere. The SDK package does not bundle or start the engine.
+
+The first cell opens the ScreamingFace provider panel, which stores provider credentials through
+that engine. If a selected provider is disconnected, evaluation raises one actionable
+`ConnectionRequiredError` before model calls; provider authentication never becomes repeated
+per-case failures.
+
+### Gemini compatibility · July 2026
+
+Some newly created Google API projects may receive `model no longer available` for Gemini 2.5
+even when their quota dashboard displays Gemini 2.5 limits. An engine whose AI Gateway does not
+yet register Google's recommended `gemini-3.5-flash` or
+`gemini-3.1-pro-preview` replacements. If that happens, replace the Gemini member below with
+another connected model advertised by `sf.models.list()`.
+
+Hugging Face does not provide Gemini through this integration. The forthcoming Hugging Face route
+is for open models such as DeepSeek and GLM through pinned inference providers; Gemini 3 still
+requires explicit AI Gateway support.
+
+GPQA is fetched by the ScreamingFace engine, not this SDK. Its operator must accept the dataset
+terms and configure an accepted Hugging Face dataset token in the engine environment.
+
+The SDK sends one URL4 HTTP request. Inside that graph, the engine loads the first five cases and
+makes 15 model calls: three Fusion members per question. Majority vote, exact-choice grading, and
+mean aggregation are engine routes and make no additional provider calls."""
+        ),
+        nbformat.v4.new_markdown_cell("## 1 · Connect"),
+        nbformat.v4.new_code_cell("import screamingface as sf\n\nsf.connect()"),
+        nbformat.v4.new_markdown_cell(
+            """Connect each provider used below. The panel sends credentials only to the configured
+ScreamingFace engine and shows the engine origin before you act.
+
+## 2 · Compose"""
+        ),
+        nbformat.v4.new_code_cell(
+            "fusion = sf.Fusion(\n"
+            '    "frontier-trio",\n'
+            "    members=[\n"
+            '        "codex/gpt-5.5",\n'
+            '        "gemini/2.5-flash",\n'
+            '        "claude/sonnet-4.6",\n'
+            "    ],\n"
+            "    reducer=sf.reducers.MajorityVote(),\n"
+            ")\n\n"
+            "fusion"
+        ),
+        nbformat.v4.new_markdown_cell(
+            """Each member answers the same multiple-choice question. `MajorityVote` selects the
+most common exact answer and breaks a tie by stable member order. Fusion construction is local and
+does not call a model.
+
+## 3 · Evaluate"""
+        ),
+        nbformat.v4.new_code_cell(
+            'benchmark = sf.benchmarks.load("gpqa@1")\nreport = benchmark.evaluate(fusion, first=5)'
+        ),
+        nbformat.v4.new_markdown_cell(
+            """`load(...)` reads the benchmark manifest advertised by the configured engine; it
+does not download questions. `benchmark.evaluate(...)` then compiles the benchmark, stable
+`first=5` slice, Fusion, grader, and aggregator into one reproducible URL4 expression. The engine
+executes that graph and streams dataset loading, model activity, completed case grading, and
+aggregation before returning one validated report. The case counter advances only after a real
+grader result; it is not a time estimate. Missing work remains an explicit failure and is never
+silently scored as zero. Pass `progress=False` to hide the compact live status, or `progress=True`
+to force it outside notebooks.
+
+## 4 · Compare"""
+        ),
+        nbformat.v4.new_code_cell("report"),
+        nbformat.v4.new_markdown_cell(
+            """Read `gain` first:
+
+- `score` is the Fusion's accuracy across the successfully paired cases;
+- `baseline` is the best individual member's accuracy on those same cases; and
+- `gain` is `score - baseline`.
+
+A positive gain means the combination outperformed every member on the evaluated cases. A strong
+score with zero gain means the Fusion matched, but did not improve on, its strongest member."""
+        ),
+    ]
+    for index, cell in enumerate(cells, start=1):
+        cell["id"] = f"quickstart-{index:02d}"
+    return nbformat.v4.new_notebook(
+        cells=cells,
+        metadata={
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3",
+            },
+            "language_info": {"name": "python", "version": "3.12"},
+        },
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+    target = args.output or Path(__file__).parents[1] / "examples" / "00_quickstart.ipynb"
+    nbformat.write(notebook(), target)
+
+
+if __name__ == "__main__":
+    main()

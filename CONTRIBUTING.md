@@ -32,6 +32,7 @@ The repo is organised as **stacks**, not just apps — each is self-contained wi
 | `aigateway` | `apps/aigateway` | LiteLLM-based AI Gateway — provider OAuth, encrypted credential store (service, port 9105) |
 | `scoreboard` | `apps/scoreboard` | Public benchmark scoreboard + demo portal (service, port 9106) |
 | `url4` | `packages/url4` | url4 expression protocol — grammar, parser, AST, interpreter (library) |
+| `screamingface` | `packages/screamingface` | URL4-native Fusion/benchmark SDK (library) |
 
 The canonical list lives in [`.claude/sdlc.local.md`](.claude/sdlc.local.md).
 
@@ -49,17 +50,25 @@ cd apps/scoreboard
 uv sync
 uv run scoreboard
 
+# ScreamingFace SDK — requires a separately running compatible engine
+cd ../../packages/screamingface
+uv sync --extra notebook
+uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
+
 # url4 — a library, not a service
 cd packages/url4
 uv sync
 ```
+
+The ScreamingFace SDK always uses its configured HTTP URL4 engine. It does not contain an engine,
+AI Gateway adapter, canonical benchmark dataset loader, or local execution fallback.
 
 ## Tests, lint, typecheck
 
 **One command per stack — the gates CI runs, in CI's order, plus one CI doesn't:**
 
 ```bash
-uv run .claude/scripts/run_gates.py <stack>   # aigateway | scoreboard | url4
+uv run .claude/scripts/run_gates.py <stack>   # aigateway | scoreboard | url4 | screamingface
 ```
 
 It resolves the stack from [`.claude/sdlc.local.md`](.claude/sdlc.local.md), runs its gates
@@ -87,7 +96,7 @@ your PR description. Everything else matches CI step for step
 An unknown stack fails fast and tells you the real ones:
 
 ```
-CONFIG ERROR: stack 'docs' not in .claude/sdlc.local.md (has: aigateway, scoreboard, url4)
+CONFIG ERROR: stack 'docs' not in .claude/sdlc.local.md (has: aigateway, scoreboard, url4, screamingface)
 ```
 
 Docs-only changes (`README`, `CONTRIBUTING`, `docs/`) have no stack and no CI — there is
@@ -161,4 +170,6 @@ conventional commits → PR. The agent contract is documented in
 - **Scoreboard internals:** [`apps/scoreboard/README.md`](apps/scoreboard/README.md) (portal,
   public artifacts)
 - **url4 SDK:** [`packages/url4/README.md`](packages/url4/README.md)
+- **ScreamingFace SDK:** [`packages/screamingface/README.md`](packages/screamingface/README.md)
+- **URL4 SDK examples:** [`packages/url4/examples/url4_examples.ipynb`](packages/url4/examples/url4_examples.ipynb)
 - **Legacy reference:** `git checkout legacy-monorepo-2026-07-08`

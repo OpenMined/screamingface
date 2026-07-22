@@ -1,75 +1,70 @@
 ---
-description: How to work in the ScreamingFace monorepo — which app/component a change belongs to, the per-stack toolchain, how to add a new app or shared package, which CI runs, who reviews, and the branch/commit/PR/merge/release rules. Use when starting any change here, when unsure where code goes, which tests or CI apply, who reviews, or how to open and merge a PR.
-user_invocable: true
+name: working-in-this-repo
+description: Route changes in the ScreamingFace monorepo to the correct app or package, toolchain, CI lane, owner, and release path. Use when starting work, deciding where code belongs, choosing gates, or preparing a branch, commit, or PR.
 ---
 
 # Working in this repo
 
-ScreamingFace is a **polyglot monorepo** worked on by multiple developers concurrently. This skill is the **routing map**: given a change, it tells you which component you're in, the toolchain, the CI that will gate it, who reviews, and the branch/PR/release lane.
+Use this as the routing map. Read `CONTRIBUTING.md` for setup, `.claude/sdlc.local.md` for exact
+gates, `.github/CODEOWNERS` for reviewers, and the component README for local contracts.
 
-> **Re-foundation (July 2026).** The legacy `apps/desktop` and `apps/server` (plus `web/`, `infra/`, root `Makefile`, and the old `docs/` tree) were removed; the full pre-teardown state is preserved at tag **`legacy-monorepo-2026-07-08`**. New desktop/CLI packages and the `url4-python-sdk` arrive as separate components with their own CI/release lanes once package names are locked. Setup lives in **`CONTRIBUTING.md`**; per-app guardrails in each app's `CLAUDE.md`.
+## Current components
 
-## 1. Component taxonomy
+| Component | Kind | Purpose | CI |
+|---|---|---|---|
+| `apps/aigateway` | deployable app | provider auth, encrypted credentials, chat-completion normalization | `aigateway-tests.yml` |
+| `apps/scoreboard` | deployable app | public benchmark scoreboard and portal | `scoreboard-tests.yml` |
+| `packages/url4` | Python package | URL4 grammar, builders, DAG execution, I/O layers, `Url4Node`, server CLI | `url4-tests.yml` |
+| `packages/screamingface` | Python package | Recipe/benchmark authoring, URL4 compilation, engine manifests, report decoding | `screamingface-tests.yml` |
 
-- **`apps/<name>`** — an independently deployable service or app. Has its own toolchain, lockfile, CI workflow, and release lane.
-- **`packages/<name>`** — a shared library consumed by **≥2** components; **not** independently deployed. (None exist yet — `url4-python-sdk` lands here first. Put shared code here instead of importing one app's internals from another.)
-- **`docs/`** — AI-agentic decision records (plans, specs). Not a deployable component.
+The ScreamingFace engine is a separate deployable boundary. `packages/screamingface` contains only
+the researcher SDK and communicates with that engine through its public HTTP/SSE contract.
 
-**Rule:** apps never import another app's internals. Cross-app sharing goes through `packages/` (or a stable HTTP contract). This keeps each app independently testable and releasable.
+## Placement rules
 
-## 2. Current apps — the routing table
+- Independently deployed process: root `apps/<name>`.
+- Reusable library: `packages/<name>`.
+- Never import another app's internals. Share through a package or stable HTTP contract.
+- Generic URL4 behavior belongs in `packages/url4`; ScreamingFace model routes, registry metadata,
+  connection control plane, and benchmark-facing integration belong to the ScreamingFace engine.
+- Official named benchmark cases, graders, and aggregators execute in the ScreamingFace engine;
+  the SDK owns their public value contracts and supports client-side custom benchmark authoring,
+  but publishing/registering those definitions with an engine is not implemented. There is no
+  local execution fallback.
+- Decision records belong under `docs/spec`, `docs/plan`, `docs/tasks`, and `docs/work`; local scratch
+  belongs in gitignored `.docs/`.
 
-| Component | Landing label | Stack | Run / test / lint / typecheck | Gating CI | Release lane | Key guardrails |
-|---|---|---|---|---|---|---|
-| `apps/aigateway` | `app/aigateway` | Python · uv · FastAPI (LiteLLM) | `uv run uvicorn aigateway.main:app --port 9105` · `uv run pytest` (live tests opt-in) · `uv run ruff check` · `uv run pyright` | `aigateway-tests.yml` (matrix 3.12/3.13) | release-please → `aigateway-v*` → `release-aigateway.yml` (GHCR image + Helm chart) | **Never import `litellm-enterprise`** (guarded by `scripts/check_no_enterprise.py`). Credentials via ORMStore/Tortoise `credential_blobs`, **no OS keychain**; secrets AES-256-GCM; master key `AIGATEWAY_SECRET_KEY` never stored/logged. See `apps/aigateway/CLAUDE.md`. |
-| `apps/scoreboard` | `app/scoreboard` | Python · uv · FastAPI | `uv run scoreboard` · `uv run pytest` · `uv run ruff check` · `uv run pyright` | `scoreboard-tests.yml` | **Manual** tag `scoreboard-v*` → `release-scoreboard.yml` (GHCR image + Helm; **not** in release-please) | Portal assets and public eval artifacts are app-local (`portal/`, `artifacts/`) — they ship inside the image. |
+## Toolchains and gates
 
-**Owner / reviewer per path:** see `.github/CODEOWNERS`. This skill deliberately does not hardcode owners — read them from one place.
+All current components are Python 3.12+ projects using `uv`, ruff, pyright, and pytest. Run commands
+from the component root. The authoritative commands are the matching stack in
+`.claude/sdlc.local.md` and the path-filtered workflow in `.github/workflows/`.
 
-## 3. Which CI runs on my PR?
+ScreamingFace SDK changes cover its unit/contract tests and deterministic notebook/fixture
+regeneration. Engine changes use the engine owner's independent lane and must verify both sides of
+the public contract when that boundary changes.
 
-CI is **path-filtered**: a PR only triggers the workflow(s) for the paths it touches. A PR touching two apps runs both lanes. Each `<component>-tests.yml` also self-triggers when its own YAML changes.
+AI Gateway live provider tests are opt-in diagnostics. Never import `litellm-enterprise`; provider
+credentials remain in its encrypted ORM store. URL4 must keep its core import graph framework-free;
+server dependencies are optional.
 
-## 4. Adding a new component (any stack: Python / Go / JS / TS)
+## Adding a component
 
-Bring whatever stack fits; satisfy this **invariant contract** so the coordination machinery sees it:
+1. Choose `apps/` or `packages/` from the deployment boundary.
+2. Give it an isolated toolchain and lockfile.
+3. Add a path-filtered CI workflow covering lint, format, types, tests, and required build checks.
+4. Register its stack in `.claude/sdlc.local.md`.
+5. Add CODEOWNERS, dependency updates, documentation, and an explicit release lane or "not released"
+   statement.
 
-| Stack | Pkg manager | Layout | Lint | Typecheck | Test | CI: copy from | Release |
-|---|---|---|---|---|---|---|---|
-| Python | uv + hatchling | `src/<pkg>/` | ruff | pyright | pytest (+ markers) | `aigateway-tests.yml` | release-please `python`, or manual tag |
-| JS / TS | npm | `src/` | eslint | `tsc --noEmit` | vitest | new `<comp>-tests.yml` (mirror the aigateway structure) | release-please `node`, or manual tag |
-| Go | go modules | `cmd/` + `internal/` / `pkg/` | golangci-lint | `go vet` / build | `go test ./...` | new `go-<comp>-tests.yml` | release-please `go`, or manual tag |
+## Git and review
 
-**6-step checklist for a new component:**
-1. Pick `apps/` (deployable) or `packages/` (shared lib).
-2. Self-contained toolchain + lockfile; no dependency on another app's internals.
-3. Add a path-filtered `.github/workflows/<component>-tests.yml` running that stack's lint + typecheck + test.
-4. Register a release lane — add to `release-please-config.json` **or** document a manual tag (or mark "not released").
-5. Add a `.github/CODEOWNERS` entry.
-6. Add the matching `dependabot.yml` ecosystem (`uv` / `npm` / `gomod`).
+- Work item and approved design/plan first, per `task-management` and the relevant SDLC skill.
+- Branch `OME-N-<description>`; never commit directly to `main`.
+- Conventional commit with `Refs: OME-N` in the body; no `Co-Authored-By` lines.
+- Rebase on `origin/main`; do not merge main into the branch.
+- Squash-merge after approval and green path-dependent checks.
+- PRs spanning components must state the cross-component contract and involve each path owner.
 
-## 5. Where does my change belong?
-
-- **`apps/aigateway`:** new providers/secrets backends implement the port and register in the factory — never edit ORMStore. See `apps/aigateway/CLAUDE.md`.
-- **`apps/scoreboard`:** portal/static changes live in `apps/scoreboard/portal/`; public artifact allowlists in `src/scoreboard/portal.py`.
-- **Shared logic used by ≥2 apps:** it belongs in `packages/`, not copied.
-
-## 6. Branch / commit / PR / merge
-
-- **Branch:** `OME-N-<description>`, `N` = the Linear work-item number (file the item per the `task-management` skill; registry `.claude/task-board.local.md`). Never commit to `main`.
-- **Commit:** conventional (`feat: …`, `fix: …`); body carries `Refs: OME-N`; **no `Co-Authored-By`** lines.
-- **Keep current:** rebase on `origin/main` (don't merge `main` into your branch); force-push only your own branch.
-- **Merge:** squash-merge; the author merges after review approval + green required checks.
-- **Checks are path-dependent.** Live tests (`AIGW_LIVE=1`) are opt-in diagnostics, **not** merge gates.
-- **WIP limit:** 2 tickets per dev (one coding, one in review).
-- **PR body:** Asana link · summary · test plan · screenshots for UI. If a PR spans two owners' areas, state the cross-service contract in the body.
-
-## 7. Pointers (single source of truth)
-
-- **Setup / run-from-source:** `CONTRIBUTING.md`
-- **Per-app guardrails:** `apps/*/CLAUDE.md`
-- **Work items / ticket lifecycle:** the `task-management` skill + `.claude/task-board.local.md`
-- **Per-stack dev loop:** the `sdlc-python` / `sdlc-electron` skills + `.claude/sdlc.local.md`
-- **Decision records & SDLC artifacts:** `docs/` (see `docs/README.md`)
-- **Brand / UI law:** the `screamingface-design` skill
-- **Legacy reference (desktop, server, url4 engine, web, infra):** tag `legacy-monorepo-2026-07-08`
+The removed desktop/plugin-server tree remains reference-only at
+`legacy-monorepo-2026-07-08`; do not copy it back into the live architecture.

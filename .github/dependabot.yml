@@ -24,6 +24,15 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: "uv"
+    directory: "/packages/screamingface"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      screamingface-python:
+        patterns: ["*"]
+
+  - package-ecosystem: "uv"
     directory: "/packages/url4"
     schedule:
       interval: "weekly"

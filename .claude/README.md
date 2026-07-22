@@ -22,11 +22,11 @@ close: Linear comment (close template) + state Done + mirror closed
 | Skill | Invoke when | What it does |
 |---|---|---|
 | `task-management` | ANY ticket work — session start, before starting/filing/closing a work item | The Linear lifecycle: card resolution, label taxonomy, D9 cross-cutting rule, STOP labels, close discipline, MCP command crib, the Linear rich-text dialect |
-| `sdlc-python` | EVERY Python change (apps/aigateway, apps/scoreboard, future pkg) | Rigid TDD loop: ledger-first → RED → GREEN → gates → wisdom → commit. Tortoise ORM work → `tortoise-dev` companion (mandatory) |
+| `sdlc-python` | EVERY Python change (`apps/aigateway`, `apps/scoreboard`, `packages/url4`, `packages/screamingface`) | Rigid TDD loop: ledger-first → RED → GREEN → gates → wisdom → commit. Tortoise ORM work → `tortoise-dev` companion (mandatory) |
 | `sdlc-electron` | EVERY Electron change (upcoming desktop app) | Same loop; Electron idiom: main/preload/renderer, both-side IPC contracts (S2), official security checklist encoded, a11y gate (S1) |
 | `arch-electron` | DESIGNING/reviewing Electron architecture — app scaffold, extension platform, external-process integration, extension API changes | Binding invariants (VS Code model): manifest-first contributions, lazy activation, utilityProcess extension host, versioned injected API, disposables, core ProcessSupervisor, DEBUG-gated log view. Diagrams: `docs/diagrams/electron-*` |
 | `arch-electron-layout` | DESIGNING/reviewing the desktop app's workbench layout — shell regions, view containers/slots, layout persistence, focus behavior | Binding L-rules: core-owned shell, views-in-containers, manifest placement = hint, user override wins & persists, no focus stealing, document-centric main area, per-window layout trees |
-| `url4-engine` | DESIGNING/reviewing the url4 engine / AI-ensemble execution protocol — node resolution, WS(stream) vs HTTP-GET(transactional) transport, recursive fan-out/reduce DAG, telemetry forwarding | PROPOSED design-stage invariants: url4-expression-as-address, node-selects-transport, one trace_id/tree, cost.usage as a separate event, hybrid relay ↑ + Enclave store, RFC 8288 Link header. Diagrams: `docs/diagrams/ensemble-node-*` |
+| `url4-engine` | Implementing or reviewing URL4 execution, `Url4Node`, `url4 serve`, or an application-owned node profile | Separates the implemented GET-only node/CLI/registry contracts from proposed streaming and telemetry architecture, including the boundary between the ScreamingFace SDK and its separately owned engine. |
 | `asana-product` | Reading product/marketing context from Asana | READ-ONLY. Never creates/updates in Asana; dev items link back via `asana_url` |
 | `working-in-this-repo` | Starting any change; unsure where code goes / which CI / how to PR | The routing map: components, toolchains, CI lanes, release lanes, branch/PR rules |
 | `screamingface-design` | Any UI/UX/visual/copy decision | The brand law (overrides shadcn/Tailwind defaults) |
@@ -46,7 +46,7 @@ byte-identical — edit them TOGETHER, `repo-checks.yml` CI enforces it.
 - **`.claude/task-board.local.md`** — Linear registry: team (Engineering/OME), project
   (😱 ScreamingFace V1), state IDs, every label ID, priority map, close template, ticket
   rules. **Card missing → HARD STOP** (restore from git).
-- **`.claude/sdlc.local.md`** — stacks (aigateway, scoreboard → `sdlc-python`), their
+- **`.claude/sdlc.local.md`** — stacks (aigateway, scoreboard, url4, screamingface → `sdlc-python`), their
   gates, `test_globs`, invariants, companion skills, `commit_refs`, `ledger_dir`.
 
 ## Scripts & CI (`.claude/scripts/`, `.github/workflows/repo-checks.yml`)
@@ -63,7 +63,7 @@ byte-identical — edit them TOGETHER, `repo-checks.yml` CI enforces it.
 - IDs: `OME-N` (Engineering team, one sequence). Every item attaches to
   **😱 ScreamingFace V1** and carries: workstream (`Epic` group: url4 Engine, AI Gateway,
   Desktop App, Python SDK, Leaderboard, …) when applicable · landing (`app/aigateway`,
-  `app/scoreboard`, `pkg/url4-python-sdk`, or `repo`) · one `who-acts`
+  `app/scoreboard`, `pkg/url4-python-sdk`, `pkg/screamingface`, or `repo`) · one `who-acts`
   (design-session/autonomous/deferred) · **one `actor` (agentic|human — mandatory)**.
 - Cross-cutting (≥2 app/pkg labels) → epic + one sub-issue per affected app/package.
 - STOPs are labels (`blocked ⛔`, `needs-owner`) + a comment — never new states.
@@ -93,6 +93,7 @@ byte-identical — edit them TOGETHER, `repo-checks.yml` CI enforces it.
 - **Re-foundation (July 2026, SF-348/PR #371):** legacy `apps/desktop` + `apps/server`
   (and old docs/web/infra/personas) removed; full tree preserved read-only at tag
   **`legacy-monorepo-2026-07-08`** — never resurrect from it into the live tree. New
-  desktop + CLI packages arrive as separate components once naming locks.
+  desktop + CLI packages arrive as separate components once naming locks. The current Python
+  `url4` and `screamingface` packages were subsequently added under `packages/`.
 - **AI SDLC adoption (OME-358/PR #376):** everything this guide describes; decisions
   D1–D13 in `docs/spec/2026-07-08-ai-sdlc-adoption-spec.md`.

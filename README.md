@@ -10,7 +10,8 @@ apps/
   aigateway/   LiteLLM-based AI Gateway — provider OAuth + encrypted credentials (Python, uv)
   scoreboard/  Public benchmark scoreboard service + demo portal (Python, uv)
 packages/
-  url4/        url4 expression protocol — grammar, parser, AST, interpreter (Python, uv)
+  url4/        URL4 grammar, DAG, node, client, and server library
+  screamingface/ URL4-native fusion and benchmark SDK
 docs/          SDLC artifacts — spec/ plan/ tasks/ work/ diagrams/ (see docs/README.md)
 ```
 
@@ -35,7 +36,19 @@ cd screamingface
 git config core.hooksPath .githooks     # pre-commit guard (blocks commits to main)
 ```
 
-Run an app:
+With a compatible ScreamingFace engine available, open the bare-bones SDK quickstart:
+
+```bash
+cd packages/screamingface
+uv sync --extra notebook
+uv run --extra notebook jupyter lab examples/00_quickstart.ipynb
+```
+
+The SDK communicates only with its configured HTTP URL4 engine; it does not bundle or start that
+service. See the [`ScreamingFace SDK guide`](packages/screamingface/README.md) for the implemented
+API and engine contract.
+
+Run a service:
 
 ```bash
 # AI Gateway (port 9105)
@@ -48,7 +61,7 @@ cd apps/scoreboard && uv sync && uv run scoreboard
 Check a stack — lint, format, typecheck, tests, and coverage in one command:
 
 ```bash
-uv run .claude/scripts/run_gates.py <stack>   # aigateway | scoreboard | url4
+uv run .claude/scripts/run_gates.py <stack>   # aigateway | scoreboard | url4 | screamingface
 ```
 
 ## More
@@ -56,6 +69,8 @@ uv run .claude/scripts/run_gates.py <stack>   # aigateway | scoreboard | url4
 - **Developing / git workflow** → [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - **Gateway internals** → [`apps/aigateway/README.md`](apps/aigateway/README.md)
 - **Scoreboard internals** → [`apps/scoreboard/README.md`](apps/scoreboard/README.md)
+- **ScreamingFace SDK** → [`packages/screamingface/README.md`](packages/screamingface/README.md)
+- **URL4 SDK examples** → [`packages/url4/examples/url4_examples.ipynb`](packages/url4/examples/url4_examples.ipynb)
 - **url4 SDK** → [`packages/url4/README.md`](packages/url4/README.md)
 - **Repo guide** (skills, agents, cards, process) → [`.claude/README.md`](.claude/README.md)
 - **Legacy code** (desktop app, plugin server, url4 engine, marketing site, infra) → `git checkout legacy-monorepo-2026-07-08`

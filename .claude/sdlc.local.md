@@ -28,6 +28,22 @@ stacks:
       - uv run ruff format --check
       - uv run pyright
       - uv run pytest --cov=url4 --cov-fail-under=95 -q
+  - name: screamingface
+    root: packages/screamingface
+    skill: sdlc-python
+    test_globs:
+      - "tests/**"
+      - "scripts/**"
+      - "examples/**"
+      - "../../docs/spec/fixtures/ome_400/**"
+    gates:
+      - uv run ruff check
+      - uv run ruff format --check
+      - uv run pyright
+      - uv run pytest --cov=screamingface --cov-fail-under=95 -q
+      - uv run python scripts/check_contract_fixtures.py
+      - uv run --extra notebook python scripts/check_notebooks.py
+      - uv build
 commit_refs: "Refs: OME-N"
 extra_anchors: []
 companion_skills:
@@ -52,6 +68,20 @@ ledger_dir: docs/work/
 - INVARIANTS: public artifact allowlist in `src/scoreboard/portal.py` (PUBLIC_ARTIFACTS /
   FORBIDDEN_ARTIFACTS — forbidden routes must stay 404); portal + artifacts stay app-local
   (`portal/`, `artifacts/`).
+
+## url4 (python)
+
+- INVARIANTS: importing `url4` stays framework-free; server dependencies remain optional and
+  lazily imported. `Url4Node` owns one registry-backed dispatch path for in-process, nested, and
+  HTTP evaluation. See the `url4-engine` skill for implemented versus proposed contracts.
+
+## screamingface (python)
+
+- INVARIANTS: the SDK calls only its configured ScreamingFace URL4 engine, never AI Gateway.
+  The SDK owns authoring values, URL4 compilation, strict manifest/report decoding, and no local
+  execution fallback. A separately deployed engine owns executable benchmark routes, grading,
+  aggregation, model dispatch, and tool integrations; its registry must advertise only executable
+  capabilities. The SDK package does not contain an engine implementation.
 
 ## ledger naming (D8)
 
