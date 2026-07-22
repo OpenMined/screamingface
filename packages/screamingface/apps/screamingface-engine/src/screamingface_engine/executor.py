@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Mapping
 from typing import Any, NoReturn, Protocol
+from uuid import uuid4
 
 from url4 import Request, ResolutionError
 
@@ -96,20 +98,38 @@ class TavilyPort(Protocol):
 class ModelExecutor:
     """Interpret benchmark tool policy while keeping Gateway transport generic."""
 
-    def __init__(self, gateway: GatewayPort, tavily: TavilyPort) -> None:
+    def __init__(
+        self,
+        gateway: GatewayPort,
+        tavily: TavilyPort,
+        *,
+        concurrency: int = 32,
+    ) -> None:
         self._gateway = gateway
         self._tavily = tavily
+        self._semaphore = asyncio.Semaphore(concurrency)
 
     def handler(self, model: ModelRoute):
         async def execute(request: Request) -> str:
-            emit_progress("model", "started", f"Running {model.id}")
-            answer = await self.complete(model, request)
-            emit_progress("model", "completed", f"Completed {model.id}")
+            operation_id = f"model:{uuid4().hex}"
+            emit_progress("model", "started", f"Running {model.id}", operation_id=operation_id)
+            try:
+                answer = await self.complete(model, request)
+            except BaseException:
+                emit_progress("model", "failed", f"Failed {model.id}", operation_id=operation_id)
+                raise
+            emit_progress("model", "completed", f"Completed {model.id}", operation_id=operation_id)
             return answer
 
         return execute
 
     async def complete(self, model: ModelRoute, request: Request) -> str:
+        """Execute one complete model/tool loop under the engine-wide model limit."""
+
+        async with self._semaphore:
+            return await self._complete(model, request)
+
+    async def _complete(self, model: ModelRoute, request: Request) -> str:
         parsed = parse_tool_policy(request.params)
         context, referenced_policy = _model_input(request.context)
         if referenced_policy is not None and parsed.policy is not None:

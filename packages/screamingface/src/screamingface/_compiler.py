@@ -261,10 +261,7 @@ def compile_benchmark_expression(
         raise ValueError(f"unsupported benchmark grader {grader_kind!r}")
     sources.extend(
         (
-            src(
-                struct(grade_fields),
-                name="grade_input",
-            ),
+            src(struct(grade_fields), name="grade_input"),
             src(
                 RelExpr(
                     path=grader_route,
@@ -275,12 +272,7 @@ def compile_benchmark_expression(
             ),
         )
     )
-    reducer = render(
-        RelExpr(
-            path=aggregator_route,
-            intent=Text("Aggregate benchmark results"),
-        )
-    )
+    reducer = render(RelExpr(path=aggregator_route, intent=Text("Aggregate benchmark results")))
     return render(
         iterate(
             cases_route,
@@ -291,6 +283,166 @@ def compile_benchmark_expression(
             on_error="collect",
         )
     )
+
+
+def compile_candidates_benchmark_expression(
+    *,
+    benchmark_id: str,
+    cases_route: str,
+    candidate_route: str,
+    aggregator_route: str,
+    candidates: Sequence[Recipe],
+    tool_policy_route: str,
+    first: int | None,
+) -> str:
+    """Render one candidate-set benchmark transaction with an explicit shared DAG spec."""
+
+    specification = _CandidateSpecCompiler().compile(candidates)
+    sources: tuple[Node, ...] = (
+        src(tool_policy_route, name="tool_policy"),
+        src(struct(specification), name="candidate_spec"),
+        src(
+            struct(
+                {
+                    "benchmark_id": _literal(benchmark_id),
+                    "case_id": "$item.id",
+                    "question": "$item.input",
+                    "reference": "$item.reference",
+                    "tool_policy": "$tool_policy",
+                }
+            ),
+            name="candidate_input",
+        ),
+        src(
+            RelExpr(
+                path=candidate_route,
+                context="$candidate_spec",
+                intent=Text("$candidate_input"),
+            ),
+            name="case_result",
+        ),
+    )
+    reducer = render(
+        RelExpr(
+            path=aggregator_route,
+            intent=Text("Aggregate candidate benchmark results"),
+        )
+    )
+    return render(
+        iterate(
+            cases_route,
+            body=sources,
+            intent=Text("$case_result"),
+            reduce=reducer,
+            slice=None if first is None else (0, first),
+            on_error="collect",
+        )
+    )
+
+
+class _CandidateSpecCompiler:
+    """Serialize Recipe object identity into an ordered, engine-neutral DAG description."""
+
+    def __init__(self) -> None:
+        self._nodes: dict[str, object] = {}
+        self._resolved: dict[int, str] = {}
+        self._active: set[int] = set()
+
+    def compile(self, candidates: Sequence[Recipe]) -> dict[str, object]:
+        values = tuple(candidates)
+        if not values:
+            raise ValueError("candidate evaluation requires at least one Recipe")
+        roots: dict[str, dict[str, str]] = {}
+        names: set[str] = set()
+        for position, candidate in enumerate(values, 1):
+            if not isinstance(candidate, RecipeModel | _fusion_type()):
+                raise TypeError("candidates must contain only sf.Model or sf.Fusion values")
+            if candidate.name in names:
+                raise ValueError(f"duplicate candidate name {candidate.name!r}")
+            names.add(candidate.name)
+            roots[f"candidate_{position}"] = {
+                "name": _safe_struct_text(candidate.name),
+                "root": self._recipe(candidate),
+            }
+        return {
+            "schema": "screamingface.candidate-spec.v1",
+            "nodes": self._nodes,
+            "candidates": roots,
+        }
+
+    def _recipe(self, recipe: Recipe) -> str:
+        from screamingface.fusion import Fusion
+
+        identity = id(recipe)
+        existing = self._resolved.get(identity)
+        if existing is not None:
+            return existing
+        if identity in self._active:
+            raise ValueError(f"Recipe graph contains a cycle at {recipe.name!r}")
+        self._active.add(identity)
+        node_id = f"node_{len(self._nodes) + 1}"
+        # Reserve the stable ID before descending so shared descendants cannot steal it.
+        self._nodes[node_id] = {}
+        if isinstance(recipe, RecipeModel):
+            value = _candidate_model(recipe)
+        elif isinstance(recipe, Fusion):
+            members = {
+                f"member_{position}": self._recipe(member)
+                for position, member in enumerate(recipe.members, 1)
+            }
+            value = {
+                "kind": "fusion",
+                "name": _safe_struct_text(recipe.name),
+                "members": members,
+                "reducer": _candidate_reducer(recipe.reducer),
+            }
+        else:  # pragma: no cover - guarded by compile and recursion types
+            raise TypeError("candidate must be an sf.Model or sf.Fusion")
+        self._nodes[node_id] = value
+        self._resolved[identity] = node_id
+        self._active.remove(identity)
+        return node_id
+
+
+def _candidate_model(recipe: RecipeModel) -> dict[str, object]:
+    return {
+        "kind": "model",
+        "name": _safe_struct_text(recipe.name),
+        "model": _safe_struct_text(recipe.model),
+        "prompt": _safe_struct_text(recipe.prompt),
+        "params": {
+            _safe_struct_text(key): _safe_struct_text(_param(item))
+            for key, item in recipe._parameter_items
+        },
+    }
+
+
+def _candidate_reducer(reducer: object) -> dict[str, object]:
+    if isinstance(reducer, Model):
+        return {
+            "kind": "model",
+            "model": _safe_struct_text(reducer.model),
+            "prompt": _safe_struct_text(reducer.prompt),
+            "params": {
+                _safe_struct_text(key): _safe_struct_text(_param(item))
+                for key, item in reducer._parameter_items
+            },
+        }
+    if isinstance(reducer, MajorityVote):
+        return {"kind": "majority_vote"}
+    raise UnsupportedReducerError(
+        f"unsupported reducer {type(reducer).__name__!r} in candidate graph"
+    )
+
+
+def _fusion_type() -> type[object]:
+    from screamingface.fusion import Fusion
+
+    return Fusion
+
+
+def _safe_struct_text(value: str) -> str:
+    return _literal(_url4_text(value))
 
 
 def _model_call(
@@ -382,6 +534,7 @@ __all__ = [
     "MAJORITY_VOTE_ROUTE",
     "MODEL_INPUT_SCHEMA",
     "compile_benchmark_expression",
+    "compile_candidates_benchmark_expression",
     "compile_model_expression",
     "compile_recipe",
 ]

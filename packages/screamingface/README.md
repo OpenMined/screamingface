@@ -76,13 +76,16 @@ sf.config(engine="https://screamingface.example")
 
 ## Public concepts
 
-- `sf.Model` is one configured model-backed answer Recipe.
+- `sf.Model` is one configured model-backed answer Recipe; its name defaults to the final segment
+  of its model route.
 - `sf.Fusion` combines Models or nested Fusions through an explicit reducer.
 - `sf.Recipe` is their non-constructible umbrella type.
 - `sf.benchmarks.list(...)` returns benchmark IDs advertised by the configured engine.
 - `sf.benchmarks.load(id)` loads and validates an engine manifest, not dataset cases.
-- `benchmark.evaluate(candidate, first=...)` executes one complete URL4 run.
+- `benchmark.evaluate(candidate, first=...)` executes one complete single-candidate URL4 run.
+- Candidate-enabled benchmarks also accept an ordered sequence and return `sf.StudyReport`.
 - `sf.Report` contains paired Recipe/member metrics, typed failures, and the complete run URL4.
+- `sf.StudyReport` compares independently scored candidate roots over one shared case set.
 
 Models and Fusions are network-free to construct. `sf.models.list(...)`, benchmark discovery,
 connections, and evaluation contact only the configured engine.
@@ -157,14 +160,15 @@ the same `sf.benchmarks.load(...)` API without changing evaluation syntax.
 The development engine advertises `gpqa@1` plus DRACO when its pinned OpenRouter judge appears in
 the AI Gateway startup catalog. `draco-preview@1` uses real pinned DRACO cases, one positive
 criterion, and one judge pass for inexpensive integration checks. `draco-lite@1` fixes execution
-to the first two pinned cases, retains their complete rubrics, and makes two independent judge
-passes per criterion. `draco@1` keeps all 100 complete rubrics and five independent per-criterion
+to the first pinned case, keeps five deterministic criteria spanning all four rubric sections, and
+makes one judge pass per criterion. `draco@1` keeps all 100 complete rubrics and five independent per-criterion
 judge passes. All three use the immutable provider-neutral research-tool policy route.
 
-The production comparison is one complete URL4 transaction per candidate. A multi-candidate study
-therefore produces an ordered mapping of candidate names to URL4-backed reports; candidates are not
-nested into one larger expression. Use `benchmark.url4(candidate, first=...)` to inspect or share a
-complete transaction before executing it.
+DRACO Lite accepts all sixteen candidates as one complete URL4 transaction. The URL4 contains an
+ordered flat candidate DAG: reused Recipe objects execute once, independent sampled objects remain
+independent, and a failed dependency affects only candidate roots that need it. Only final
+candidate answers are graded. Use `benchmark.url4(candidates)` to inspect or share the complete
+study before executing it. The single-candidate form remains available for every benchmark.
 
 ## Walkthrough notebooks
 
@@ -173,13 +177,13 @@ complete transaction before executing it.
 - [`examples/02_discovery.ipynb`](examples/02_discovery.ipynb): engine model/benchmark discovery.
 - [`examples/03_fusions.ipynb`](examples/03_fusions.ipynb): network-free Recipe authoring.
 - [`examples/04_custom_benchmarks.ipynb`](examples/04_custom_benchmarks.ipynb): authoring boundary.
-- [`examples/05_draco_quickstart.ipynb`](examples/05_draco_quickstart.ipynb): two-case DRACO Lite
-  run using complete rubrics, two judge passes, and available OpenRouter routes.
+- [`examples/05_draco_quickstart.ipynb`](examples/05_draco_quickstart.ipynb): complete 7-solo and
+  9-Fusion DRACO topology over one case, five section-diverse criteria, and one judge pass.
 - [`examples/06_connections.ipynb`](examples/06_connections.ipynb): provider/tool connections.
 - [`examples/07_full_draco_url4.ipynb`](examples/07_full_draco_url4.ipynb): non-runnable production
   DRACO handoff showing one flat, complete benchmark URL4 per candidate.
-- [`examples/08_draco_explained.ipynb`](examples/08_draco_explained.ipynb): full available-model
-  lineup, benchmark creation boundary, URL4, tools, grading, aggregation, and response deep dive.
+- [`examples/08_draco_explained.ipynb`](examples/08_draco_explained.ipynb): the same executable
+  DRACO Lite study with candidate DAG, benchmark creation, URL4, tools, grading, and response details.
 
 Notebooks are deterministic outputs of `scripts/build_quickstart.py`,
 `scripts/build_architecture.py`, `scripts/build_discovery.py`, `scripts/build_fusions.py`,

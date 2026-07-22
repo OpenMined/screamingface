@@ -52,15 +52,16 @@ def test_stream_returns_final_plaintext_and_reports_real_lifecycle(
         + _event("running", elapsed_seconds=5.0)
         + _event(
             "progress",
-            stage="model",
-            status="started",
-            label="Running gemini/2.5-flash",
+            stage="synthesis",
+            status="failed",
+            label="Failed frontier-trio synthesis",
+            operation_id="q1:synthesis:frontier-trio",
         )
         + _event(
             "progress",
             stage="grading",
-            status="completed",
-            label="Graded case q1",
+            status="skipped",
+            label="Scoring unavailable for q1",
         )
         + _event("complete", content_type="text/plain", value='{"answer":"A"}')
     )
@@ -88,15 +89,16 @@ def test_stream_returns_final_plaintext_and_reports_real_lifecycle(
         stream.EvaluationEvent("running", 5.0),
         stream.EvaluationEvent(
             "progress",
-            stage="model",
-            status="started",
-            label="Running gemini/2.5-flash",
+            stage="synthesis",
+            status="failed",
+            label="Failed frontier-trio synthesis",
+            operation_id="q1:synthesis:frontier-trio",
         ),
         stream.EvaluationEvent(
             "progress",
             stage="grading",
-            status="completed",
-            label="Graded case q1",
+            status="skipped",
+            label="Scoring unavailable for q1",
         ),
     ]
 

@@ -55,6 +55,8 @@ def _benchmark(record: BenchmarkRecord) -> Benchmark:
         grader_route=record.grader.route,
         aggregator=Mean(),
         aggregator_route=record.aggregator.route,
+        candidate_route=record.candidate_route,
+        candidate_aggregator_route=record.candidate_aggregator_route,
         tool_policy_route=record.tool_policy_route,
         tools=_tools(record.tools),
         max_tool_calls=record.max_tool_calls,

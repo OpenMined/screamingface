@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -30,6 +31,25 @@ class FakeExecutor:
 class RaisingExecutor:
     async def complete(self, _model: ModelRoute, _request: Request) -> str:
         raise ResolutionError("judge unavailable", code="provider_unavailable")
+
+
+class BlockingExecutor(FakeExecutor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.active = 0
+        self.peak = 0
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def complete(self, _model: ModelRoute, request: Request) -> str:
+        self.calls.append(request)
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        if self.active == 2:
+            self.started.set()
+        await self.release.wait()
+        self.active -= 1
+        return '{"explanation":"present","criterion_status":"MET"}'
 
 
 def _request(*, same_answer: bool = True) -> Request:
@@ -89,6 +109,25 @@ async def test_draco_grader_applies_weighted_formula_and_reuses_identical_answer
         "reasoning": "low",
         "max_tokens": "4096",
     }
+
+
+@pytest.mark.asyncio
+async def test_judge_concurrency_is_shared_across_answers() -> None:
+    executor = BlockingExecutor()
+    grader = DracoRubricGrader(executor, JUDGE, passes=1, concurrency=2)  # type: ignore[arg-type]
+    _recipe, case = _parts()
+    question = str(case["question"])
+    reference = case["reference"]
+    tasks = [
+        asyncio.create_task(grader.grade_answer(question, reference, f"answer-{index}"))
+        for index in range(2)
+    ]
+
+    await asyncio.wait_for(executor.started.wait(), timeout=1)
+    assert executor.active == 2
+    executor.release.set()
+    await asyncio.gather(*tasks)
+    assert executor.peak == 2
 
 
 @pytest.mark.asyncio

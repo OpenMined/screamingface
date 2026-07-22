@@ -147,7 +147,9 @@ fusion = sf.Fusion(
 A Model accepts its route plus optional name, prompt, and scalar parameters. A Fusion requires at
 least one member and one reducer. Reusing the same Model or nested Fusion value establishes shared
 execution identity; separately constructed Models on the same route are independent samples.
-Explicit Recipe names are unique within a graph. URL4 response member slots remain
+When omitted, a Model name is inferred from the route's final segment; explicit names remain useful
+for independent samples and researcher-facing labels. Explicit Recipe names are unique within a
+graph. URL4 response member slots remain
 `member_1..member_n` for the graph's Model leaves. `sf.FusionMonster`, `sf.Experiment`, `sf.Solo`,
 and `sf.Lineup` do not exist.
 
@@ -557,6 +559,7 @@ fusion = sf.Fusion(
 Rules:
 
 - a Model accepts its model route plus optional `name`, `prompt`, and scalar `params`;
+- an omitted Model name uses the final segment of its model route;
 - an omitted Model prompt uses the minimal SDK default `"Answer the question."`;
 - a Fusion accepts one or more `str | Model | Fusion` members and requires a reducer;
 - a string is shorthand for a new default Model using the default prompt;

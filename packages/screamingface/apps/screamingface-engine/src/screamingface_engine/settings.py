@@ -27,6 +27,11 @@ class Settings:
     evaluation_timeout: float = 900.0
     tavily_timeout: float = 75.0
     max_inflight: int = 16
+    url4_concurrency: int = 32
+    case_concurrency: int = 10
+    model_concurrency: int = 32
+    synthesis_concurrency: int = 16
+    judge_concurrency: int = 32
     max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES
 
     def __post_init__(self) -> None:
@@ -58,6 +63,14 @@ class Settings:
             raise SettingsError(
                 f"SCREAMINGFACE_ENGINE_MAX_INFLIGHT must be at least 1, got {self.max_inflight}"
             )
+        for value, name in (
+            (self.url4_concurrency, "SCREAMINGFACE_ENGINE_URL4_CONCURRENCY"),
+            (self.case_concurrency, "SCREAMINGFACE_ENGINE_CASE_CONCURRENCY"),
+            (self.model_concurrency, "SCREAMINGFACE_ENGINE_MODEL_CONCURRENCY"),
+            (self.synthesis_concurrency, "SCREAMINGFACE_ENGINE_SYNTHESIS_CONCURRENCY"),
+            (self.judge_concurrency, "SCREAMINGFACE_ENGINE_JUDGE_CONCURRENCY"),
+        ):
+            _at_least_one(value, name)
         _at_least_one(
             self.max_request_target_bytes,
             "SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES",
@@ -83,6 +96,13 @@ class Settings:
             evaluation_timeout=_number(values, "SCREAMINGFACE_ENGINE_TIMEOUT", 900.0),
             tavily_timeout=_number(values, "SCREAMINGFACE_TAVILY_TIMEOUT", 75.0),
             max_inflight=_integer(values, "SCREAMINGFACE_ENGINE_MAX_INFLIGHT", 16),
+            url4_concurrency=_integer(values, "SCREAMINGFACE_ENGINE_URL4_CONCURRENCY", 32),
+            case_concurrency=_integer(values, "SCREAMINGFACE_ENGINE_CASE_CONCURRENCY", 10),
+            model_concurrency=_integer(values, "SCREAMINGFACE_ENGINE_MODEL_CONCURRENCY", 32),
+            synthesis_concurrency=_integer(
+                values, "SCREAMINGFACE_ENGINE_SYNTHESIS_CONCURRENCY", 16
+            ),
+            judge_concurrency=_integer(values, "SCREAMINGFACE_ENGINE_JUDGE_CONCURRENCY", 32),
             max_request_target_bytes=_integer(
                 values,
                 "SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES",

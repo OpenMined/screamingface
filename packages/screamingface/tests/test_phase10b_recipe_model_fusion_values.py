@@ -36,11 +36,17 @@ def test_recipe_is_a_public_non_constructible_interface() -> None:
         cast(Any, sf.Recipe)()
 
 
-def test_minimal_model_defaults_to_its_route_and_default_prompt() -> None:
+def test_minimal_model_defaults_to_route_leaf_and_default_prompt() -> None:
     model = sf.Model("codex/gpt-5.5")
 
-    assert model.name == "codex/gpt-5.5"
+    assert model.name == "gpt-5.5"
     assert model.prompt == "Answer the question."
+
+
+def test_explicit_model_name_overrides_route_leaf() -> None:
+    model = sf.Model("openrouter/anthropic/claude-opus-4.8", name="Opus Sample 1")
+
+    assert model.name == "opus-sample-1"
 
 
 def test_fusion_is_composite_and_normalizes_string_shorthand() -> None:
@@ -56,7 +62,7 @@ def test_fusion_is_composite_and_normalizes_string_shorthand() -> None:
     assert fusion.members[0] is opus
     assert isinstance(fusion.members[1], sf.Model)
     assert fusion.members[1].model == "openai/gpt-5.5"
-    assert fusion.members[1].name == "openai/gpt-5.5"
+    assert fusion.members[1].name == "gpt-5.5"
     assert fusion.model_ids == ("anthropic/claude-opus-4.8", "openai/gpt-5.5")
 
 

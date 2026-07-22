@@ -30,6 +30,7 @@ class EvaluationEvent:
     stage: str | None = None
     status: str | None = None
     label: str | None = None
+    operation_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,17 +199,38 @@ def _progress(
     payload: dict[str, object],
     on_event: Callable[[EvaluationEvent], None] | None,
 ) -> None:
-    exact_fields(payload, {"schema", "type", "stage", "status", "label"}, "progress event")
+    expected = {"schema", "type", "stage", "status", "label"}
+    if "operation_id" in payload:
+        expected.add("operation_id")
+    exact_fields(payload, expected, "progress event")
     stage = nonblank(payload["stage"], "progress event stage")
-    if stage not in {"dataset", "model", "grading", "aggregating"}:
+    if stage not in {
+        "dataset",
+        "model",
+        "synthesis",
+        "grading",
+        "candidate",
+        "aggregating",
+    }:
         raise ValueError(f"unknown progress event stage {stage!r}")
     status = nonblank(payload["status"], "progress event status")
-    if status not in {"started", "completed"}:
+    if status not in {"started", "completed", "failed", "skipped"}:
         raise ValueError(f"unknown progress event status {status!r}")
     label = nonblank(payload["label"], "progress event label")
+    operation_id = (
+        nonblank(payload["operation_id"], "progress event operation ID")
+        if "operation_id" in payload
+        else None
+    )
     _notify(
         on_event,
-        EvaluationEvent("progress", stage=stage, status=status, label=label),
+        EvaluationEvent(
+            "progress",
+            stage=stage,
+            status=status,
+            label=label,
+            operation_id=operation_id,
+        ),
     )
 
 

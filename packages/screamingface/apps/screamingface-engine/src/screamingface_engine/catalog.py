@@ -7,10 +7,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from screamingface_engine.aggregators import MEAN_ROUTE, REPORT_SCHEMA
+from screamingface_engine.aggregators import (
+    CANDIDATE_CASE_SCHEMA,
+    CANDIDATE_MEAN_ROUTE,
+    MEAN_ROUTE,
+    REPORT_SCHEMA,
+    STUDY_REPORT_SCHEMA,
+)
 from screamingface_engine.benchmarks import (
     DRACO_CASES_ROUTE,
     DRACO_ID,
+    DRACO_LITE_CANDIDATE_ROUTE,
     DRACO_LITE_CASES_ROUTE,
     DRACO_LITE_ID,
     DRACO_LITE_TITLE,
@@ -228,6 +235,8 @@ def benchmark_routes(model_routes: Sequence[ModelRoute]) -> tuple[BenchmarkRoute
                 12,
                 DRACO_TOOL_POLICY_ROUTE,
                 common + (("passes", DRACO_LITE_JUDGE_PASSES),),
+                candidate_route=DRACO_LITE_CANDIDATE_ROUTE,
+                candidate_aggregator_route=CANDIDATE_MEAN_ROUTE,
             ),
             BenchmarkRoute(
                 DRACO_ID,
@@ -334,6 +343,8 @@ def registry_document(
             "screamingface.recipe-result.v1",
             CASE_GRADE_SCHEMA,
             REPORT_SCHEMA,
+            CANDIDATE_CASE_SCHEMA,
+            STUDY_REPORT_SCHEMA,
         ],
         "limits": {"max_request_target_bytes": max_request_target_bytes},
         "providers": [

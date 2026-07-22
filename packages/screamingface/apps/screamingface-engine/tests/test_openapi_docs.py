@@ -63,20 +63,33 @@ def test_openapi_includes_executable_draco_routes_with_the_pinned_judge() -> Non
     assert set(document["paths"]) >= {
         "/benchmarks/draco-preview/1/cases",
         "/benchmarks/draco-lite/1/cases",
+        "/benchmarks/draco-lite/1/evaluate-candidates",
         "/benchmarks/draco/1/cases",
         "/graders/draco-preview-rubric/1",
         "/graders/draco-lite-rubric/1",
         "/graders/draco-rubric/1",
+        "/aggregators/candidate-mean/1",
     }
     assert document["x-screamingface-url4"]["limits"]["max_request_target_bytes"] == 61_440
-    assert document["components"]["schemas"]["BenchmarkManifest"]["required"][-1] == (
-        "tool_policy_route"
-    )
+    assert document["components"]["schemas"]["BenchmarkManifest"]["required"][-2:] == [
+        "candidate_route",
+        "candidate_aggregator_route",
+    ]
     assert document["components"]["schemas"]["ToolPolicy"]["properties"]["schema"] == {
         "const": "screamingface.tool-policy.v1"
     }
     assert document["components"]["schemas"]["ModelInput"]["properties"]["schema"] == {
         "const": "screamingface.model-input.v1"
+    }
+    assert document["components"]["schemas"]["CandidateSpecification"]["properties"]["schema"] == {
+        "const": "screamingface.candidate-spec.v1"
+    }
+    candidate_entry = document["components"]["schemas"]["CandidateSpecification"]["properties"][
+        "candidates"
+    ]["additionalProperties"]
+    assert candidate_entry["required"] == ["name", "root"]
+    assert document["components"]["schemas"]["StudyReport"]["properties"]["schema"] == {
+        "const": "screamingface.study-report.v1"
     }
     evaluation = document["paths"]["/v1"]["get"]
     assert set(evaluation["responses"]["200"]["content"]) == {
@@ -87,6 +100,25 @@ def test_openapi_includes_executable_draco_routes_with_the_pinned_judge() -> Non
     assert document["components"]["schemas"]["EvaluationEvent"]["oneOf"][0]["properties"][
         "schema"
     ] == {"const": "screamingface.evaluation-event.v1"}
+    progress_event = document["components"]["schemas"]["EvaluationEvent"]["oneOf"][2]
+    assert progress_event["properties"]["stage"]["enum"] == [
+        "dataset",
+        "model",
+        "synthesis",
+        "grading",
+        "candidate",
+        "aggregating",
+    ]
+    assert progress_event["properties"]["status"]["enum"] == [
+        "started",
+        "completed",
+        "failed",
+        "skipped",
+    ]
+    assert progress_event["properties"]["operation_id"] == {
+        "type": "string",
+        "minLength": 1,
+    }
     assert document["x-screamingface-url4"]["expression_transport"]["response_content_types"] == [
         "text/plain",
         "text/event-stream",

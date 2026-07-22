@@ -46,6 +46,8 @@ def _registry_response() -> httpx.Response:
                 "tools": [],
                 "max_tool_calls": None,
                 "tool_policy_route": None,
+                "candidate_route": None,
+                "candidate_aggregator_route": None,
             }
         ],
         "reducers": [

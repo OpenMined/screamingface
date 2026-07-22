@@ -35,7 +35,12 @@ class Model(Recipe):
             prompt=_DEFAULT_PROMPT if prompt is None else prompt,
             params=params,
         )
-        object.__setattr__(self, "name", call.model if name is None else _name(name, "model name"))
+        inferred_name = call.model.rsplit("/", 1)[-1]
+        object.__setattr__(
+            self,
+            "name",
+            _name(inferred_name if name is None else name, "model name"),
+        )
         object.__setattr__(self, "model", call.model)
         object.__setattr__(self, "prompt", call.prompt)
         object.__setattr__(self, "_parameter_items", call.parameter_items)

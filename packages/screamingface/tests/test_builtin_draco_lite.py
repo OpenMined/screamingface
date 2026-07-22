@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 
 import screamingface as sf
@@ -24,15 +26,40 @@ def _case(index: int) -> Case:
                 {
                     "id": "accuracy",
                     "title": "Accuracy",
-                    "criteria": [{"id": "fact", "requirement": "State the fact", "weight": 4}],
-                }
+                    "criteria": [
+                        {"id": "fact", "requirement": "State the fact", "weight": 4},
+                        {"id": "error", "requirement": "Avoid the error", "weight": -2},
+                        {"id": "detail", "requirement": "Add detail", "weight": 1},
+                    ],
+                },
+                {
+                    "id": "reasoning",
+                    "title": "Reasoning",
+                    "criteria": [
+                        {"id": "method", "requirement": "Explain the method", "weight": 2}
+                    ],
+                },
+                {
+                    "id": "evidence",
+                    "title": "Evidence",
+                    "criteria": [{"id": "source", "requirement": "Cite a source", "weight": 1}],
+                },
+                {
+                    "id": "clarity",
+                    "title": "Clarity",
+                    "criteria": [
+                        {"id": "structure", "requirement": "Structure the answer", "weight": 1}
+                    ],
+                },
             ],
         },
         metadata={"domain": "Academic"},
     )
 
 
-def test_lite_keeps_two_complete_real_cases(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lite_keeps_one_real_case_and_five_diverse_criteria(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     source = (_case(1), _case(2), _case(3))
     monkeypatch.setattr(draco_lite, "draco_cases", lambda: source)
 
@@ -40,7 +67,26 @@ def test_lite_keeps_two_complete_real_cases(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert benchmark.id == "draco-lite@1"
     assert benchmark.title == "DRACO Lite"
-    assert benchmark._materialize_cases() == source[:2]
+    cases = benchmark._materialize_cases()
+    assert len(cases) == 1
+    assert cases[0].id == source[0].id
+    reference = cast(dict[str, Any], cases[0].reference)
+    sections = reference["sections"]
+    assert isinstance(sections, list)
+    assert [section["id"] for section in sections] == [
+        "accuracy",
+        "reasoning",
+        "evidence",
+        "clarity",
+    ]
+    criteria = [criterion for section in sections for criterion in section["criteria"]]
+    assert [criterion["id"] for criterion in criteria] == [
+        "fact",
+        "error",
+        "method",
+        "source",
+        "structure",
+    ]
     assert benchmark.tools == (
         sf.tools.WebSearch(
             max_results=5,
@@ -51,7 +97,7 @@ def test_lite_keeps_two_complete_real_cases(monkeypatch: pytest.MonkeyPatch) -> 
     assert benchmark.max_tool_calls == 12
     assert isinstance(benchmark.grader, sf.graders.Rubric)
     assert benchmark.grader.model == "openrouter/google/gemini-3.1-pro-preview"
-    assert benchmark.grader.passes == 2
+    assert benchmark.grader.passes == 1
     assert benchmark.grader.params == {
         "temperature": 0.2,
         "reasoning": "low",
@@ -59,8 +105,29 @@ def test_lite_keeps_two_complete_real_cases(monkeypatch: pytest.MonkeyPatch) -> 
     }
 
 
-def test_lite_requires_two_source_cases(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(draco_lite, "draco_cases", lambda: (_case(1),))
+def test_lite_requires_one_positive_and_negative_criterion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _case(1)
+    reference = cast(dict[str, Any], case.reference)
+    sections = reference["sections"]
+    assert isinstance(sections, list)
+    sections[0]["criteria"] = [{"id": "fact", "requirement": "State the fact", "weight": 4}]
+    invalid = Case(case.id, case.input, reference=reference, metadata=case.metadata)
+    monkeypatch.setattr(draco_lite, "draco_cases", lambda: (invalid,))
 
-    with pytest.raises(RuntimeError, match="fewer than two cases"):
+    with pytest.raises(sf.InvalidBenchmarkError, match="positive and negative"):
+        draco_lite.draco_lite_cases()
+
+
+def test_lite_requires_five_weighted_criteria(monkeypatch: pytest.MonkeyPatch) -> None:
+    case = _case(1)
+    reference = cast(dict[str, Any], case.reference)
+    sections = cast(list[dict[str, object]], reference["sections"])
+    sections.pop()
+    sections.pop()
+    invalid = Case(case.id, case.input, reference=reference, metadata=case.metadata)
+    monkeypatch.setattr(draco_lite, "draco_cases", lambda: (invalid,))
+
+    with pytest.raises(sf.InvalidBenchmarkError, match="at least 5"):
         draco_lite.draco_lite_cases()

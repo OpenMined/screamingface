@@ -23,7 +23,7 @@ DRACO_LITE_RUBRIC_ROUTE = "/graders/draco-lite-rubric/1"
 DRACO_PREVIEW_RUBRIC_ROUTE = "/graders/draco-preview-rubric/1"
 DRACO_JUDGE_MODEL = "openrouter/google/gemini-3.1-pro-preview"
 DRACO_JUDGE_PASSES = 5
-DRACO_LITE_JUDGE_PASSES = 2
+DRACO_LITE_JUDGE_PASSES = 1
 DRACO_PREVIEW_JUDGE_PASSES = 1
 DRACO_JUDGE_PARAMS = {
     "temperature": "0.2",
@@ -31,7 +31,7 @@ DRACO_JUDGE_PARAMS = {
     "max_tokens": "4096",
 }
 VALIDATION_RETRIES = 2
-JUDGE_CONCURRENCY = 16
+DEFAULT_JUDGE_CONCURRENCY = 32
 RECIPE_RESULT_SCHEMA = "screamingface.recipe-result.v1"
 CASE_GRADE_SCHEMA = "screamingface.case-grade.v1"
 
@@ -47,10 +47,15 @@ class DracoRubricGrader:
         judge: ModelRoute,
         *,
         passes: int,
+        concurrency: int = DEFAULT_JUDGE_CONCURRENCY,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> None:
         self._executor = executor
         self._judge = judge
         self._passes = passes
+        # The composition root supplies one shared gate to every registered DRACO grader.
+        # A directly constructed grader still owns a stable gate across all of its calls.
+        self._semaphore = semaphore or asyncio.Semaphore(concurrency)
 
     async def __call__(self, request: Request) -> str:
         if request.params:
@@ -68,6 +73,13 @@ class DracoRubricGrader:
 
         benchmark_id = _nonblank(case["benchmark_id"], "benchmark ID")
         case_id = _nonblank(case["case_id"], "case ID")
+        operation_id = f"grading:{benchmark_id}:{case_id}"
+        emit_progress(
+            "grading",
+            "started",
+            f"Grading DRACO case {case_id}",
+            operation_id=operation_id,
+        )
         question = _nonblank(case["question"], "case question", strip=False)
         rubric = _rubric(case["reference"])
         answer = _nonblank(recipe["answer"], "Recipe answer", strip=False)
@@ -111,8 +123,27 @@ class DracoRubricGrader:
             "recipe": recipe_grade,
             "members": member_grades,
         }
-        emit_progress("grading", "completed", f"Graded DRACO case {case_id}")
+        emit_progress(
+            "grading",
+            "completed",
+            f"Graded DRACO case {case_id}",
+            operation_id=operation_id,
+        )
         return json.dumps(payload, allow_nan=False, separators=(",", ":"))
+
+    async def grade_answer(
+        self,
+        question: str,
+        reference: object,
+        answer: str,
+    ) -> dict[str, object]:
+        """Grade one final candidate answer without recursively grading its members."""
+
+        return await self._grade_answer(
+            _nonblank(question, "case question", strip=False),
+            _rubric(reference),
+            _nonblank(answer, "candidate answer", strip=False),
+        )
 
     async def _grade_answer(  # noqa: C901
         self,
@@ -121,7 +152,6 @@ class DracoRubricGrader:
         answer: str,
     ) -> dict[str, object]:
         criteria = _criteria(rubric)
-        semaphore = asyncio.Semaphore(JUDGE_CONCURRENCY)
 
         async def judge(run: int, position: int) -> tuple[int, int, dict[str, str] | None]:
             criterion = criteria[position]
@@ -133,7 +163,7 @@ class DracoRubricGrader:
                 answer,
             )
             for _attempt in range(VALIDATION_RETRIES + 1):
-                async with semaphore:
+                async with self._semaphore:
                     raw = await self._executor.complete(
                         self._judge,
                         Request(

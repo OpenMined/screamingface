@@ -203,6 +203,144 @@ class Report:
         }
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class CandidateReport:
+    """One candidate's aggregate result over a shared benchmark case set."""
+
+    name: str
+    n_cases: int
+    n_scored: int
+    coverage: float
+    score: float | None
+    failures: tuple[EvaluationFailure, ...]
+    _metric_items: tuple[tuple[str, float], ...] = field(repr=False)
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        n_cases: int,
+        n_scored: int,
+        coverage: float,
+        score: float | None,
+        metrics: Mapping[str, float],
+        failures: Sequence[EvaluationFailure],
+    ) -> None:
+        total, scored, normalized_coverage = _counts(n_cases, n_scored, coverage)
+        normalized_score = None if score is None else _unit_float(score, "candidate score")
+        metric_items = _metrics(metrics, "candidate report")
+        normalized_failures = _failures(failures)
+        if scored == 0 and (normalized_score is not None or metric_items):
+            raise ValueError("an unscored candidate cannot contain a score or metrics")
+        if scored > 0 and normalized_score is None:
+            raise ValueError("a scored candidate requires a score")
+        object.__setattr__(self, "name", _nonblank(name, "candidate name"))
+        object.__setattr__(self, "n_cases", total)
+        object.__setattr__(self, "n_scored", scored)
+        object.__setattr__(self, "coverage", normalized_coverage)
+        object.__setattr__(self, "score", normalized_score)
+        object.__setattr__(self, "failures", normalized_failures)
+        object.__setattr__(self, "_metric_items", metric_items)
+
+    @property
+    def metrics(self) -> Mapping[str, float]:
+        return MappingProxyType(dict(self._metric_items))
+
+    @property
+    def complete(self) -> bool:
+        return not self.failures
+
+    def _to_wire(self) -> dict[str, object]:
+        return {
+            "n_cases": self.n_cases,
+            "n_scored": self.n_scored,
+            "coverage": self.coverage,
+            "score": self.score,
+            "metrics": dict(self._metric_items),
+            "failures": [failure._to_wire() for failure in self.failures],
+            "complete": self.complete,
+        }
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class StudyReport:
+    """An ordered comparison of independently named candidates over one benchmark slice."""
+
+    benchmark_id: str
+    url4: str
+    case_ids: tuple[str, ...]
+    _candidate_items: tuple[tuple[str, CandidateReport], ...] = field(repr=False)
+
+    def __init__(
+        self,
+        *,
+        benchmark_id: str,
+        url4: str,
+        case_ids: Sequence[str],
+        candidates: Mapping[str, CandidateReport] | Sequence[tuple[str, CandidateReport]],
+    ) -> None:
+        ids = tuple(_nonblank(value, "study case ID") for value in case_ids)
+        if not ids or len(ids) != len(set(ids)):
+            raise ValueError("study case IDs must be non-empty and unique")
+        items = tuple(candidates.items()) if isinstance(candidates, Mapping) else tuple(candidates)
+        if not items:
+            raise ValueError("a study report requires at least one candidate")
+        names: set[str] = set()
+        for name, candidate in items:
+            normalized = _nonblank(name, "study candidate name")
+            if normalized in names:
+                raise ValueError(f"duplicate study candidate {normalized!r}")
+            names.add(normalized)
+            if not isinstance(candidate, CandidateReport) or candidate.name != normalized:
+                raise TypeError("study candidates must match their sf.CandidateReport names")
+            if candidate.n_cases != len(ids):
+                raise ValueError("study candidates must share the report case set")
+        object.__setattr__(self, "benchmark_id", _nonblank(benchmark_id, "study benchmark ID"))
+        object.__setattr__(self, "url4", _nonblank(url4, "study URL4"))
+        object.__setattr__(self, "case_ids", ids)
+        object.__setattr__(self, "_candidate_items", items)
+
+    @property
+    def candidates(self) -> Mapping[str, CandidateReport]:
+        return MappingProxyType(dict(self._candidate_items))
+
+    @property
+    def complete(self) -> bool:
+        return all(candidate.complete for _, candidate in self._candidate_items)
+
+    @property
+    def best(self) -> CandidateReport | None:
+        scored = [
+            candidate for _, candidate in self._candidate_items if candidate.score is not None
+        ]
+        return (
+            max(scored, key=lambda value: value.score if value.score is not None else -1.0)
+            if scored
+            else None
+        )
+
+    def __repr__(self) -> str:
+        from screamingface._report_display import study_report_repr
+
+        return study_report_repr(self)
+
+    def _repr_html_(self) -> str:
+        """Return the rich notebook representation of this candidate study."""
+
+        from screamingface._report_display import study_report_html
+
+        return study_report_html(self)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "benchmark_id": self.benchmark_id,
+            "url4": self.url4,
+            "case_ids": list(self.case_ids),
+            "candidates": {name: candidate._to_wire() for name, candidate in self._candidate_items},
+            "complete": self.complete,
+        }
+
+
 def _report_state(
     n_scored: int,
     score: float | None,
@@ -338,4 +476,11 @@ def _nonblank(value: object, label: str) -> str:
     return value
 
 
-__all__ = ["EvaluationFailure", "FailureKind", "MemberReport", "Report"]
+__all__ = [
+    "CandidateReport",
+    "EvaluationFailure",
+    "FailureKind",
+    "MemberReport",
+    "Report",
+    "StudyReport",
+]

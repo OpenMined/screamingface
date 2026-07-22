@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Mapping, Sequence
 
@@ -102,6 +103,44 @@ def _referenced_context(question: str = "Research question") -> str:
             ),
         }
     )
+
+
+@pytest.mark.asyncio
+async def test_model_concurrency_is_shared_across_complete_calls() -> None:
+    class BlockingGateway:
+        def __init__(self) -> None:
+            self.active = 0
+            self.peak = 0
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def turn(
+            self,
+            model: ModelRoute,
+            *,
+            messages: list[dict[str, object]],
+            params: Mapping[str, str],
+            tools: tuple[dict[str, object], ...],
+        ) -> AssistantTurn:
+            del model, messages, params, tools
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            if self.active == 2:
+                self.started.set()
+            await self.release.wait()
+            self.active -= 1
+            return AssistantTurn("answer", ())
+
+    gateway = BlockingGateway()
+    executor = ModelExecutor(gateway, Tavily(), concurrency=2)
+    request = Request(TOOL_FREE_MODEL.route, "Question", "Answer", {})
+    tasks = [asyncio.create_task(executor.complete(TOOL_FREE_MODEL, request)) for _ in range(3)]
+
+    await asyncio.wait_for(gateway.started.wait(), timeout=1)
+    assert gateway.active == 2
+    gateway.release.set()
+    assert await asyncio.gather(*tasks) == ["answer", "answer", "answer"]
+    assert gateway.peak == 2
 
 
 @pytest.mark.asyncio

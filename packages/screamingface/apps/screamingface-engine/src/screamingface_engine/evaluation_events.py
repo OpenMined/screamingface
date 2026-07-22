@@ -7,8 +7,15 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Literal
 
-type EventStage = Literal["dataset", "model", "grading", "aggregating"]
-type EventStatus = Literal["started", "completed"]
+type EventStage = Literal[
+    "dataset",
+    "model",
+    "synthesis",
+    "grading",
+    "candidate",
+    "aggregating",
+]
+type EventStatus = Literal["started", "completed", "failed", "skipped"]
 type EventSink = Callable[[dict[str, object]], None]
 
 _SINK: ContextVar[EventSink | None] = ContextVar(
@@ -27,12 +34,21 @@ def evaluation_event_sink(sink: EventSink) -> Iterator[None]:
         _SINK.reset(token)
 
 
-def emit_progress(stage: EventStage, status: EventStatus, label: str) -> None:
+def emit_progress(
+    stage: EventStage,
+    status: EventStatus,
+    label: str,
+    *,
+    operation_id: str | None = None,
+) -> None:
     """Emit one safe presentation event when evaluation streaming is active."""
 
     sink = _SINK.get()
     if sink is not None:
-        sink({"stage": stage, "status": status, "label": label})
+        event: dict[str, object] = {"stage": stage, "status": status, "label": label}
+        if operation_id is not None:
+            event["operation_id"] = operation_id
+        sink(event)
 
 
 __all__ = ["emit_progress", "evaluation_event_sink"]

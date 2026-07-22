@@ -51,7 +51,8 @@ Rules:
 - Public `Fusion.members` is normalized to Model/Fusion values immediately.
 - Reusing one object shares execution identity. Repeated strings or separately constructed
   Models remain independent calls.
-- A Model name defaults to its model ID. Explicit names disambiguate independent samples.
+- A Model name defaults to the final segment of its model route. Explicit names disambiguate
+  independent samples or provide a researcher-facing label.
 - Both Model and Fusion expose the same network-free `.url4`; the loaded Benchmark owns
   `.evaluate(candidate, ...)` and sends the complete run as one URL4 request.
 - Runtime metadata and the plaintext engine envelope use “recipe”, not “fusion”, where the value

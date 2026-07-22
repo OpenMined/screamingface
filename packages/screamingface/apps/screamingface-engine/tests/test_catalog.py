@@ -22,6 +22,8 @@ def test_model_catalog_is_unique_and_does_not_claim_unimplemented_tools() -> Non
             "screamingface.recipe-result.v1",
             "screamingface.case-grade.v1",
             "screamingface.report.v1",
+            "screamingface.candidate-case-results.v1",
+            "screamingface.study-report.v1",
         ],
         "limits": {"max_request_target_bytes": 61440},
         "providers": [
@@ -82,7 +84,7 @@ def test_draco_benchmarks_are_advertised_only_with_the_pinned_judge() -> None:
     ]
     lite_grader = routes[-2].public["grader"]
     assert isinstance(lite_grader, dict)
-    assert lite_grader["passes"] == 2
+    assert lite_grader["passes"] == 1
     grader = routes[-1].public["grader"]
     assert isinstance(grader, dict)
     assert grader["passes"] == 5

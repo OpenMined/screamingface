@@ -144,19 +144,19 @@ use stable positional IDs such as `row_2`. This is explicit rather than guessing
 ## Deferred deliberately
 
 - claims that the substituted OpenRouter lineup reproduces the paper's published model ranking;
-- optional future cross-candidate caching or multi-root execution; the MVP deliberately uses one
-  independently reproducible URL4 benchmark transaction per candidate;
+- shared multi-candidate execution is implemented first for DRACO Lite through one versioned engine
+  route and one ordered candidate DAG inside the complete URL4;
 - hosted engine identity and dataset-secret policy;
 - uploads or remote registration for researcher-authored benchmarks; and
 - retries, persistence, resume, billing, or leaderboard publication.
 
 The local engine now advertises `draco-preview@1`, `draco-lite@1`, and `draco@1` only when the
 pinned OpenRouter judge is part of AI Gateway's startup model snapshot. Preview uses the real cases
-with one positive criterion and one pass. Lite fixes the workload to the first two pinned cases,
-retains their complete rubrics, and uses two passes. Production uses all 100 complete rubrics and
+with one positive criterion and one pass. Lite fixes the workload to the first pinned case,
+keeps five deterministic criteria spanning all four rubric sections, and uses one pass. Production uses all 100 complete rubrics and
 five passes. Exact published-result claims still require an audited full run with the original
-pinned model/provider configuration. URL4 settlement is not an MVP blocker: each candidate is one
-independently reproducible benchmark URL4.
+pinned model/provider configuration. The Lite profile's candidate-set route executes shared nodes
+once and preserves independent root outcomes; production adoption remains a deliberate later gate.
 
 ## Repository map
 

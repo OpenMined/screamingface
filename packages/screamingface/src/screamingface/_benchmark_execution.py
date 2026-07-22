@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from screamingface._compiler import MAJORITY_VOTE_ROUTE, compile_benchmark_expression
+from collections.abc import Sequence
+from typing import Literal, cast
+
+from screamingface._compiler import (
+    MAJORITY_VOTE_ROUTE,
+    compile_benchmark_expression,
+    compile_candidates_benchmark_expression,
+)
 from screamingface._connection_preflight import require_connections
 from screamingface._engine_http import (
     exact_fields,
@@ -12,8 +19,19 @@ from screamingface._engine_http import (
     unique_json_object,
 )
 from screamingface._engine_stream import EvaluationEvent, evaluate_stream
-from screamingface._profile import REPORT_SCHEMA, ModelRecord, Registry, load_registry
-from screamingface._progress import Progress, ProgressSetting
+from screamingface._profile import (
+    REPORT_SCHEMA,
+    STUDY_REPORT_SCHEMA,
+    ModelRecord,
+    Registry,
+    load_registry,
+)
+from screamingface._progress import (
+    OperationStage,
+    OperationStatus,
+    Progress,
+    ProgressSetting,
+)
 from screamingface._requirements import evaluate_requirements
 from screamingface.benchmark import Benchmark
 from screamingface.errors import (
@@ -26,9 +44,73 @@ from screamingface.errors import (
 from screamingface.graders import Rubric
 from screamingface.recipe import Recipe
 from screamingface.reducers import MajorityVote, Model
-from screamingface.report import EvaluationFailure, FailureKind, MemberReport, Report
+from screamingface.report import (
+    CandidateReport,
+    EvaluationFailure,
+    FailureKind,
+    MemberReport,
+    Report,
+    StudyReport,
+)
 
-_EVALUATION_TIMEOUT = 910.0
+# The local engine permits a complete research transaction to run for 30 minutes.
+# Give HTTP framing and terminal SSE delivery a small margin beyond that server deadline.
+_EVALUATION_TIMEOUT = 1810.0
+
+
+def evaluate_candidates(
+    benchmark: Benchmark,
+    candidates: Sequence[Recipe],
+    *,
+    first: int | None,
+    progress: ProgressSetting = None,
+) -> StudyReport:
+    """Execute one ordered candidate set as a shared engine-side benchmark graph."""
+
+    values = _candidates(candidates)
+    limit = _first(first)
+    tracker = Progress(f"{len(values)} candidates", benchmark.id, progress)
+    tracker.stage("checking", "Checking benchmark and candidate requirements")
+    try:
+        registry = load_registry()
+        _manifest(benchmark, registry)
+        for candidate in values:
+            _preflight(candidate, benchmark, registry)
+        requirements = tuple(
+            dict.fromkeys(
+                requirement
+                for candidate in values
+                for requirement in evaluate_requirements(candidate, benchmark, registry)
+            )
+        )
+        require_connections(requirements, registry)
+        expression = candidates_url4(benchmark, values, first=limit)
+        require_eval_request_target(
+            expression,
+            registry.max_request_target_bytes,
+            f"benchmark {benchmark.id!r} candidate set",
+        )
+        tracker.stage("running", "Executing the shared candidate URL4 graph", total=len(values))
+        response_text = _request(
+            expression,
+            tracker=tracker,
+            total=len(values),
+            completion_stage="candidate",
+        )
+        report = _study_report(response_text, benchmark, values, expression)
+    except Exception as exc:
+        tracker.fail(str(exc))
+        raise
+    completed = sum(candidate.n_scored > 0 for candidate in report.candidates.values())
+    if report.complete:
+        tracker.finish("Complete")
+    else:
+        tracker.partial(
+            f"{completed}/{len(values)} candidates scored",
+            completed=completed,
+            total=len(values),
+        )
+    return report
 
 
 def evaluate_benchmark(
@@ -101,11 +183,40 @@ def benchmark_url4(benchmark: Benchmark, recipe: Recipe, *, first: int | None = 
     )
 
 
+def candidates_url4(
+    benchmark: Benchmark,
+    candidates: Sequence[Recipe],
+    *,
+    first: int | None = None,
+) -> str:
+    """Compile one shareable candidate-set benchmark transaction without HTTP."""
+
+    if not isinstance(benchmark, Benchmark):
+        raise TypeError("URL4 compilation requires an sf.Benchmark")
+    values = _candidates(candidates)
+    limit = _first(first)
+    candidate_route = _required_route(benchmark._candidate_route, "candidate evaluation")
+    tool_policy_route = _required_route(benchmark._tool_policy_route, "tool policy")
+    return compile_candidates_benchmark_expression(
+        benchmark_id=benchmark.id,
+        cases_route=_required_route(benchmark._cases_route, "cases"),
+        candidate_route=candidate_route,
+        aggregator_route=_required_route(
+            benchmark._candidate_aggregator_route,
+            "candidate aggregator",
+        ),
+        candidates=values,
+        tool_policy_route=tool_policy_route,
+        first=limit,
+    )
+
+
 def _request(
     expression: str,
     *,
     tracker: Progress | None = None,
     total: int | None = None,
+    completion_stage: Literal["grading", "candidate"] = "grading",
 ) -> str:
     saw_progress = False
 
@@ -113,23 +224,56 @@ def _request(
         nonlocal saw_progress
         if tracker is None:
             return
-        if event.type == "accepted":
-            tracker.stage("running", "Engine accepted the URL4 evaluation", total=total)
-        elif event.type == "running" and not saw_progress:
-            elapsed = 0.0 if event.elapsed_seconds is None else event.elapsed_seconds
-            tracker.stage("running", f"Engine evaluating URL4 · {elapsed:.1f}s", total=total)
-        elif event.type == "progress":
-            saw_progress = True
-            label = event.label or "Evaluation in progress"
-            if event.stage == "grading" and event.status == "completed":
-                tracker.observe("grading", label)
-                tracker.advance()
-            elif event.stage == "aggregating":
-                tracker.observe("aggregating", label)
-            else:
-                tracker.observe("running", label)
+        saw_progress = _update_progress(
+            tracker,
+            event,
+            total=total,
+            completion_stage=completion_stage,
+            saw_progress=saw_progress,
+        )
 
     return evaluate_stream(expression, timeout=_EVALUATION_TIMEOUT, on_event=update)
+
+
+def _update_progress(
+    tracker: Progress,
+    event: EvaluationEvent,
+    *,
+    total: int | None,
+    completion_stage: Literal["grading", "candidate"],
+    saw_progress: bool,
+) -> bool:
+    if event.type == "accepted":
+        tracker.stage("running", "Engine accepted the URL4 evaluation", total=total)
+    elif event.type == "running":
+        tracker.elapsed(0.0 if event.elapsed_seconds is None else event.elapsed_seconds)
+        if not saw_progress:
+            tracker.observe("running", "Engine evaluating URL4")
+    elif event.type == "progress":
+        _update_operation(tracker, event)
+        if event.stage == completion_stage and event.status in {
+            "completed",
+            "failed",
+            "skipped",
+        }:
+            tracker.advance()
+        saw_progress = True
+    return saw_progress
+
+
+def _update_operation(tracker: Progress, event: EvaluationEvent) -> None:
+    label = event.label or "Evaluation in progress"
+    if event.stage in {"model", "synthesis", "grading", "candidate"}:
+        tracker.operation(
+            cast(OperationStage, event.stage),
+            cast(OperationStatus, event.status),
+            label,
+            operation_id=event.operation_id,
+        )
+    elif event.stage == "aggregating":
+        tracker.observe("aggregating", label)
+    else:
+        tracker.observe("running", label)
 
 
 def _report(
@@ -192,6 +336,74 @@ def _report(
         raise EngineProtocolError(f"invalid benchmark report: {exc}") from exc
 
 
+def _study_report(
+    response_text: str,
+    benchmark: Benchmark,
+    candidates: tuple[Recipe, ...],
+    expression: str,
+) -> StudyReport:
+    try:
+        payload = unique_json_object(response_text)
+        exact_fields(
+            payload,
+            {"schema", "benchmark_id", "case_ids", "candidates", "complete"},
+            "candidate study report",
+        )
+        if payload["schema"] != STUDY_REPORT_SCHEMA:
+            raise ValueError(f"expected schema {STUDY_REPORT_SCHEMA!r}")
+        if payload["benchmark_id"] != benchmark.id:
+            raise ValueError("study report benchmark ID does not match the loaded benchmark")
+        case_ids = _case_ids(payload["case_ids"])
+        raw_candidates = object_value(payload["candidates"], "study report candidates")
+        expected_names = tuple(candidate.name for candidate in candidates)
+        if tuple(raw_candidates) != expected_names:
+            raise ValueError("study report candidates do not match the requested candidate order")
+        values: list[tuple[str, CandidateReport]] = []
+        for name in expected_names:
+            record = object_value(raw_candidates[name], f"candidate {name!r}")
+            values.append((name, _candidate_report(name, record, len(case_ids))))
+        complete = payload["complete"]
+        if not isinstance(complete, bool) or complete != all(value.complete for _, value in values):
+            raise ValueError("study report complete flag is inconsistent")
+        return StudyReport(
+            benchmark_id=benchmark.id,
+            url4=expression,
+            case_ids=case_ids,
+            candidates=values,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise EngineProtocolError(f"invalid candidate study report: {exc}") from exc
+
+
+def _candidate_report(
+    name: str,
+    record: dict[str, object],
+    case_count: int,
+) -> CandidateReport:
+    label = f"candidate {name!r}"
+    exact_fields(
+        record,
+        {"n_cases", "n_scored", "coverage", "score", "metrics", "failures", "complete"},
+        label,
+    )
+    n_cases = _integer(record["n_cases"], f"{label} n_cases", minimum=1)
+    if n_cases != case_count:
+        raise ValueError(f"{label} case count does not match case_ids")
+    failures = _failures(record["failures"])
+    complete = record["complete"]
+    if not isinstance(complete, bool) or complete != (not failures):
+        raise ValueError(f"{label} complete flag is inconsistent")
+    return CandidateReport(
+        name=name,
+        n_cases=n_cases,
+        n_scored=_integer(record["n_scored"], f"{label} n_scored", minimum=0),
+        coverage=_number(record["coverage"], f"{label} coverage"),
+        score=_optional_number(record["score"], f"{label} score"),
+        metrics=_metrics(record["metrics"], f"{label} metrics"),
+        failures=failures,
+    )
+
+
 def _manifest(benchmark: Benchmark, registry: Registry) -> None:
     current = next((record for record in registry.benchmarks if record.id == benchmark.id), None)
     if current is None:
@@ -206,6 +418,8 @@ def _manifest(benchmark: Benchmark, registry: Registry) -> None:
         tuple(tool.id for tool in benchmark.tools),
         benchmark.max_tool_calls,
         benchmark._tool_policy_route,
+        benchmark._candidate_route,
+        benchmark._candidate_aggregator_route,
     )
     observed = (
         current.title,
@@ -223,6 +437,8 @@ def _manifest(benchmark: Benchmark, registry: Registry) -> None:
         current.tools,
         current.max_tool_calls,
         current.tool_policy_route,
+        current.candidate_route,
+        current.candidate_aggregator_route,
     )
     if expected != observed:
         raise EngineProtocolError(
@@ -363,6 +579,21 @@ def _first(value: int | None) -> int | None:
     return value
 
 
+def _candidates(values: Sequence[Recipe]) -> tuple[Recipe, ...]:
+    if isinstance(values, str | bytes) or not isinstance(values, Sequence):
+        raise TypeError("candidates must be a sequence of sf.Model or sf.Fusion values")
+    candidates = tuple(values)
+    if not candidates:
+        raise ValueError("candidate evaluation requires at least one Recipe")
+    if not all(isinstance(candidate, Recipe) for candidate in candidates):
+        raise TypeError("candidates must contain only sf.Model or sf.Fusion values")
+    names = tuple(candidate.name for candidate in candidates)
+    if len(names) != len(set(names)):
+        duplicate = next(name for name in names if names.count(name) > 1)
+        raise ValueError(f"duplicate candidate name {duplicate!r}")
+    return candidates
+
+
 def _required_route(value: str | None, label: str) -> str:
     if value is None:
         raise ValueError(f"benchmark has no engine {label} route")
@@ -395,4 +626,9 @@ def _optional_number(value: object, label: str, *, signed: bool = False) -> floa
     return None if value is None else _number(value, label, signed=signed)
 
 
-__all__ = ["benchmark_url4", "evaluate_benchmark"]
+__all__ = [
+    "benchmark_url4",
+    "candidates_url4",
+    "evaluate_benchmark",
+    "evaluate_candidates",
+]

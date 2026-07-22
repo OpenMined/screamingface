@@ -91,3 +91,75 @@ def test_notebook_progress_uses_live_widget_updates_and_keeps_completed_receipt(
 def test_progress_setting_is_strict() -> None:
     with pytest.raises(TypeError, match="True, False, or None"):
         _progress.Progress("frontier", "gpqa@1", "yes")  # type: ignore[arg-type]
+
+
+def test_operation_progress_tracks_concurrency_counts_failures_history_and_elapsed() -> None:
+    progress = _progress.Progress("16 candidates", "draco-lite@1", False)
+    progress.stage("running", "Executing shared graph", total=16)
+    progress.operation(
+        "model",
+        "started",
+        "Running opus",
+        operation_id="case-1:model:opus",
+    )
+    progress.operation(
+        "model",
+        "started",
+        "Running gpt",
+        operation_id="case-1:model:gpt",
+    )
+    progress.elapsed(42.0)
+    progress.operation(
+        "model",
+        "completed",
+        "Completed opus",
+        operation_id="case-1:model:opus",
+    )
+    progress.operation(
+        "model",
+        "failed",
+        "Failed gpt <upstream>",
+        operation_id="case-1:model:gpt",
+    )
+
+    model = next(value for value in progress._state.operations if value.stage == "model")
+    assert (model.started, model.completed, model.failed) == (2, 1, 1)
+    assert progress._state.active == ()
+    assert progress._state.elapsed_seconds == 42.0
+    assert [value.status for value in progress._state.recent] == ["failed", "completed"]
+
+    html = _progress.progress_html(progress._state)
+    assert "Models" in html
+    assert "1 ok" in html
+    assert "1 failed" in html
+    assert "42s" in html
+    assert "Failed gpt &lt;upstream&gt;" in html
+    assert "Operation-level progress" in html
+
+    progress.partial("5/16 candidates scored", completed=5, total=16)
+    assert progress._state.stage == "partial"
+    assert "sf-progress__status partial" in _progress.progress_html(progress._state)
+
+
+def test_operation_progress_distinguishes_unavailable_from_failed() -> None:
+    progress = _progress.Progress("16 candidates", "draco-lite@1", False)
+    progress.operation(
+        "grading",
+        "skipped",
+        "Scoring unavailable for gpt",
+        operation_id="case-1:grading:gpt",
+    )
+    progress.operation(
+        "candidate",
+        "skipped",
+        "Unavailable gpt (0/1 cases scored)",
+        operation_id="candidate:gpt",
+    )
+
+    html = _progress.progress_html(progress._state)
+    assert "Scoring" in html
+    assert "Results" in html
+    assert html.count("1 unavailable") == 2
+    assert "Scoring unavailable for gpt" in html
+    assert "–</span>" in html
+    assert "1 failed" not in html

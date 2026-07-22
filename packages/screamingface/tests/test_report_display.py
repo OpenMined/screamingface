@@ -188,8 +188,114 @@ def test_notebook_display_follows_screamingface_visual_rules_in_both_themes() ->
     assert ".jp-mod-theme-light .sf-ui" in html
     assert "class='sf-ui sf-report'" in html
     assert "border-radius" not in html
+
+
+def test_study_report_has_a_clean_ordered_notebook_comparison() -> None:
+    report = sf.StudyReport(
+        benchmark_id="draco-lite@1",
+        url4="(/cases)!/aggregate()!'Aggregate'",
+        case_ids=("q1",),
+        candidates={
+            "solo": sf.CandidateReport(
+                name="solo",
+                n_cases=1,
+                n_scored=1,
+                coverage=1.0,
+                score=0.5,
+                metrics={"normalized_score": 0.5},
+                failures=(),
+            ),
+            "fusion": sf.CandidateReport(
+                name="fusion",
+                n_cases=1,
+                n_scored=1,
+                coverage=1.0,
+                score=1.0,
+                metrics={"normalized_score": 1.0},
+                failures=(),
+            ),
+        },
+    )
+
+    html = report._repr_html_()
+    assert "Candidate study" in html
+    assert html.index("solo") < html.index("fusion")
+    assert "fusion" in html and "best" in html
+    assert "2/2 candidates scored" in html
+    assert "border-radius" not in html
+    assert "best='fusion' (1.000)" in repr(report)
     assert "box-shadow" not in html
     assert "gradient" not in html
+
+
+def test_candidate_and_study_reports_reject_inconsistent_states() -> None:
+    good = sf.CandidateReport(
+        name="good",
+        n_cases=1,
+        n_scored=1,
+        coverage=1.0,
+        score=0.5,
+        metrics={"normalized_score": 0.5},
+        failures=(),
+    )
+    assert good.metrics == {"normalized_score": 0.5}
+    assert good._to_wire()["complete"] is True
+
+    with pytest.raises(ValueError, match="unscored candidate"):
+        sf.CandidateReport(
+            name="bad",
+            n_cases=1,
+            n_scored=0,
+            coverage=0.0,
+            score=0.5,
+            metrics={},
+            failures=(),
+        )
+    with pytest.raises(ValueError, match="scored candidate"):
+        sf.CandidateReport(
+            name="bad",
+            n_cases=1,
+            n_scored=1,
+            coverage=1.0,
+            score=None,
+            metrics={},
+            failures=(),
+        )
+    with pytest.raises(ValueError, match="case IDs"):
+        sf.StudyReport(benchmark_id="b", url4="u", case_ids=(), candidates={"good": good})
+    with pytest.raises(ValueError, match="at least one candidate"):
+        sf.StudyReport(benchmark_id="b", url4="u", case_ids=("q",), candidates={})
+    with pytest.raises(ValueError, match="duplicate study candidate"):
+        sf.StudyReport(
+            benchmark_id="b",
+            url4="u",
+            case_ids=("q",),
+            candidates=(("good", good), ("good", good)),
+        )
+    with pytest.raises(TypeError, match="match their"):
+        sf.StudyReport(benchmark_id="b", url4="u", case_ids=("q",), candidates={"wrong": good})
+    with pytest.raises(ValueError, match="share the report case set"):
+        sf.StudyReport(benchmark_id="b", url4="u", case_ids=("q", "q2"), candidates={"good": good})
+
+    failed = sf.CandidateReport(
+        name="failed",
+        n_cases=1,
+        n_scored=0,
+        coverage=0.0,
+        score=None,
+        metrics={},
+        failures=(sf.EvaluationFailure("q", "url4", "failed"),),
+    )
+    study = sf.StudyReport(
+        benchmark_id="b", url4="u", case_ids=("q",), candidates={"failed": failed}
+    )
+    assert study.best is None
+    assert study.to_dict()["complete"] is False
+    failed_html = study._repr_html_()
+    assert "unavailable" in failed_html
+    assert "0/1 cases" in failed_html
+    assert "Unavailable candidate cases · 1" in failed_html
+    assert "failed <span class='sf-report-count'>×1</span>" in failed_html
 
 
 @pytest.mark.parametrize(
@@ -244,7 +350,9 @@ def _report_changes(**changes: object) -> dict[str, object]:
         ({"members": {"panel": sf.MemberReport(model="m", score=0.5, metrics={})}}, "contiguous"),
         ({"members": {"member_1": "wrong"}}, "sf.MemberReport"),
         ({"metrics": cast(Any, [])}, "mapping"),
+        ({"score": cast(Any, "bad")}, "must be numeric"),
         ({"score": 2.0}, "between 0 and 1"),
+        ({"gain": cast(Any, "bad")}, "must be numeric"),
         ({"gain": 2.0}, "between -1 and 1"),
         ({"failures": cast(Any, ["wrong"])}, "sf.EvaluationFailure"),
     ],

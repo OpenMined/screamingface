@@ -28,12 +28,19 @@ from screamingface.graders import Grader
 from screamingface.model import Model
 from screamingface.recipe import Recipe
 from screamingface.reducers import Reducer
-from screamingface.report import EvaluationFailure, MemberReport, Report
+from screamingface.report import (
+    CandidateReport,
+    EvaluationFailure,
+    MemberReport,
+    Report,
+    StudyReport,
+)
 
 __all__ = [
     "Aggregator",
     "Benchmark",
     "Case",
+    "CandidateReport",
     "Connection",
     "ConnectionRequiredError",
     "EngineConnectionError",
@@ -51,6 +58,7 @@ __all__ = [
     "Reducer",
     "Recipe",
     "Report",
+    "StudyReport",
     "ScreamingFaceError",
     "SecureTransportRequiredError",
     "UnknownBenchmarkError",

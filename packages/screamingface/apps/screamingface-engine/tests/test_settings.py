@@ -14,6 +14,11 @@ def test_settings_resolve_from_environment() -> None:
             "AIGATEWAY_TIMEOUT": "30.5",
             "SCREAMINGFACE_ENGINE_TIMEOUT": "90",
             "SCREAMINGFACE_ENGINE_MAX_INFLIGHT": "7",
+            "SCREAMINGFACE_ENGINE_URL4_CONCURRENCY": "31",
+            "SCREAMINGFACE_ENGINE_CASE_CONCURRENCY": "9",
+            "SCREAMINGFACE_ENGINE_MODEL_CONCURRENCY": "30",
+            "SCREAMINGFACE_ENGINE_SYNTHESIS_CONCURRENCY": "15",
+            "SCREAMINGFACE_ENGINE_JUDGE_CONCURRENCY": "29",
         }
     )
 
@@ -24,6 +29,11 @@ def test_settings_resolve_from_environment() -> None:
         gateway_timeout=30.5,
         evaluation_timeout=90,
         max_inflight=7,
+        url4_concurrency=31,
+        case_concurrency=9,
+        model_concurrency=30,
+        synthesis_concurrency=15,
+        judge_concurrency=29,
     )
 
 
@@ -36,6 +46,13 @@ def test_settings_resolve_from_environment() -> None:
         ({"AIGATEWAY_TIMEOUT": "nan"}, "positive finite"),
         ({"SCREAMINGFACE_ENGINE_TIMEOUT": "0"}, "positive finite"),
         ({"SCREAMINGFACE_ENGINE_MAX_INFLIGHT": "0"}, "at least 1"),
+        ({"SCREAMINGFACE_ENGINE_CASE_CONCURRENCY": "0"}, "CASE_CONCURRENCY.*at least 1"),
+        ({"SCREAMINGFACE_ENGINE_MODEL_CONCURRENCY": "0"}, "MODEL_CONCURRENCY.*at least 1"),
+        (
+            {"SCREAMINGFACE_ENGINE_SYNTHESIS_CONCURRENCY": "0"},
+            "SYNTHESIS_CONCURRENCY.*at least 1",
+        ),
+        ({"SCREAMINGFACE_ENGINE_JUDGE_CONCURRENCY": "0"}, "JUDGE_CONCURRENCY.*at least 1"),
     ],
 )
 def test_settings_reject_invalid_values(env: dict[str, str], message: str) -> None:

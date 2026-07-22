@@ -22,7 +22,14 @@ def test_auth_disabled_gateway_is_reached_over_shared_loopback() -> None:
 
     assert 'AIGATEWAY_AUTH_ENABLED: "0"' in source
     assert "AIGATEWAY_URL: http://127.0.0.1:9105" in source
-    assert 'AIGATEWAY_TIMEOUT: "300"' in source
+    assert 'AIGATEWAY_TIMEOUT: "600"' in source
+    assert 'SCREAMINGFACE_ENGINE_TIMEOUT: "1800"' in source
+    assert 'AIGW_PROVIDER_MAX_CONCURRENCY: "32"' in source
+    assert 'SCREAMINGFACE_ENGINE_URL4_CONCURRENCY: "32"' in source
+    assert 'SCREAMINGFACE_ENGINE_CASE_CONCURRENCY: "10"' in source
+    assert 'SCREAMINGFACE_ENGINE_MODEL_CONCURRENCY: "32"' in source
+    assert 'SCREAMINGFACE_ENGINE_SYNTHESIS_CONCURRENCY: "16"' in source
+    assert 'SCREAMINGFACE_ENGINE_JUDGE_CONCURRENCY: "32"' in source
     assert "network_mode: service:aigateway" in source
     assert "AIGATEWAY_URL: http://aigateway:9105" not in source
 

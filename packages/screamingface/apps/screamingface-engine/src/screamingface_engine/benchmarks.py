@@ -19,6 +19,7 @@ DRACO_CASES_ROUTE = "/benchmarks/draco/1/cases"
 DRACO_LITE_ID = "draco-lite@1"
 DRACO_LITE_TITLE = "DRACO Lite"
 DRACO_LITE_CASES_ROUTE = "/benchmarks/draco-lite/1/cases"
+DRACO_LITE_CANDIDATE_ROUTE = "/benchmarks/draco-lite/1/evaluate-candidates"
 DRACO_PREVIEW_ID = "draco-preview@1"
 DRACO_PREVIEW_TITLE = "DRACO Preview"
 DRACO_PREVIEW_CASES_ROUTE = "/benchmarks/draco-preview/1/cases"
@@ -56,6 +57,8 @@ class BenchmarkRoute:
     max_tool_calls: int | None = None
     tool_policy_route: str | None = None
     grader_config: tuple[tuple[str, object], ...] = ()
+    candidate_route: str | None = None
+    candidate_aggregator_route: str | None = None
 
     def __post_init__(self) -> None:
         if self.tools:
@@ -77,6 +80,8 @@ class BenchmarkRoute:
                 raise ValueError("tool-enabled benchmark requires a same-engine tool policy route")
         elif self.max_tool_calls is not None or self.tool_policy_route is not None:
             raise ValueError("tool-free benchmark cannot declare a tool policy")
+        if (self.candidate_route is None) != (self.candidate_aggregator_route is None):
+            raise ValueError("benchmark candidate routes must both be configured or both be null")
 
     @property
     def public(self) -> dict[str, object]:
@@ -94,6 +99,8 @@ class BenchmarkRoute:
             "tools": list(self.tools),
             "max_tool_calls": self.max_tool_calls,
             "tool_policy_route": self.tool_policy_route,
+            "candidate_route": self.candidate_route,
+            "candidate_aggregator_route": self.candidate_aggregator_route,
         }
 
 
@@ -131,7 +138,7 @@ def draco_cases() -> str:
 
 
 def draco_lite_cases() -> str:
-    """Return two real DRACO cases with their complete rubrics."""
+    """Return one real DRACO case with five section-diverse criteria."""
 
     return _draco_rows(lite=True)
 
@@ -193,6 +200,7 @@ __all__ = [
     "DRACO_CASES_ROUTE",
     "DRACO_ID",
     "DRACO_LITE_CASES_ROUTE",
+    "DRACO_LITE_CANDIDATE_ROUTE",
     "DRACO_LITE_ID",
     "DRACO_LITE_TITLE",
     "DRACO_PREVIEW_CASES_ROUTE",

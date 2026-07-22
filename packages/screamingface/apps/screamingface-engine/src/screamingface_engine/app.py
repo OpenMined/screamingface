@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from url4 import Url4Node
 
-from screamingface_engine.aggregators import MEAN_ROUTE, mean
+from screamingface_engine.aggregators import (
+    CANDIDATE_MEAN_ROUTE,
+    MEAN_ROUTE,
+    candidate_mean,
+    mean,
+)
 from screamingface_engine.asgi import EngineASGI
 from screamingface_engine.benchmarks import (
     DRACO_CASES_ROUTE,
+    DRACO_LITE_CANDIDATE_ROUTE,
     DRACO_LITE_CASES_ROUTE,
     DRACO_PREVIEW_CASES_ROUTE,
     DRACO_TOOL_POLICY_ROUTE,
@@ -20,6 +27,7 @@ from screamingface_engine.benchmarks import (
     draco_tool_policy,
     gpqa_cases,
 )
+from screamingface_engine.candidate_evaluator import CandidateEvaluator
 from screamingface_engine.catalog import (
     ModelRoute,
     benchmark_routes,
@@ -53,32 +61,65 @@ def create_node(
     model_routes: tuple[ModelRoute, ...],
     *,
     max_request_target_bytes: int = MAX_REQUEST_TARGET_BYTES,
+    url4_concurrency: int = 32,
+    case_concurrency: int = 10,
+    synthesis_concurrency: int = 16,
+    judge_concurrency: int = 32,
 ) -> Url4Node:
     """Register executable routes plus health and capability metadata."""
 
-    node = Url4Node("screamingface-engine", eval_path="/v1")
+    node = Url4Node(
+        "screamingface-engine",
+        eval_path="/v1",
+        concurrency=url4_concurrency,
+    )
     for model in model_routes:
         node.endpoint(model.route)(executor.handler(model))
     node.endpoint(MAJORITY_VOTE_ROUTE)(majority_vote)
     node.endpoint(EXACT_CHOICE_ROUTE)(exact_choice)
     node.endpoint(MEAN_ROUTE)(mean)
+    node.endpoint(CANDIDATE_MEAN_ROUTE)(candidate_mean)
     node.data(GPQA_CASES_ROUTE, media_type="application/x-ndjson")(gpqa_cases)
     node.data(DRACO_TOOL_POLICY_ROUTE, media_type="application/json")(draco_tool_policy)
     advertised = {benchmark.id for benchmark in benchmark_routes(model_routes)}
     judge = next((model for model in model_routes if model.id == DRACO_JUDGE_MODEL), None)
+    judge_semaphore = asyncio.Semaphore(judge_concurrency)
     if judge is not None and "draco-preview@1" in advertised:
         node.endpoint(DRACO_PREVIEW_RUBRIC_ROUTE)(
-            DracoRubricGrader(executor, judge, passes=DRACO_PREVIEW_JUDGE_PASSES)
+            DracoRubricGrader(
+                executor,
+                judge,
+                passes=DRACO_PREVIEW_JUDGE_PASSES,
+                semaphore=judge_semaphore,
+            )
         )
         node.data(DRACO_PREVIEW_CASES_ROUTE, media_type="application/x-ndjson")(draco_preview_cases)
     if judge is not None and "draco-lite@1" in advertised:
-        node.endpoint(DRACO_LITE_RUBRIC_ROUTE)(
-            DracoRubricGrader(executor, judge, passes=DRACO_LITE_JUDGE_PASSES)
+        lite_grader = DracoRubricGrader(
+            executor,
+            judge,
+            passes=DRACO_LITE_JUDGE_PASSES,
+            semaphore=judge_semaphore,
+        )
+        node.endpoint(DRACO_LITE_RUBRIC_ROUTE)(lite_grader)
+        node.endpoint(DRACO_LITE_CANDIDATE_ROUTE)(
+            CandidateEvaluator(
+                executor,
+                model_routes,
+                lite_grader,
+                case_concurrency=case_concurrency,
+                synthesis_concurrency=synthesis_concurrency,
+            )
         )
         node.data(DRACO_LITE_CASES_ROUTE, media_type="application/x-ndjson")(draco_lite_cases)
     if judge is not None and "draco@1" in advertised:
         node.endpoint(DRACO_RUBRIC_ROUTE)(
-            DracoRubricGrader(executor, judge, passes=DRACO_JUDGE_PASSES)
+            DracoRubricGrader(
+                executor,
+                judge,
+                passes=DRACO_JUDGE_PASSES,
+                semaphore=judge_semaphore,
+            )
         )
         node.data(DRACO_CASES_ROUTE, media_type="application/x-ndjson")(draco_cases)
     node.data("/healthz", "ok")
@@ -110,7 +151,11 @@ def create_app(
         timeout=resolved.gateway_timeout,
     )
     tavily_adapter = tavily or TavilyService(timeout=resolved.tavily_timeout)
-    executor = ModelExecutor(adapter, tavily_adapter)
+    executor = ModelExecutor(
+        adapter,
+        tavily_adapter,
+        concurrency=resolved.model_concurrency,
+    )
     documentation = DocumentationASGI(max_request_target_bytes=resolved.max_request_target_bytes)
 
     async def initialize_node() -> Url4Node:
@@ -122,6 +167,10 @@ def create_app(
             executor,
             routes,
             max_request_target_bytes=resolved.max_request_target_bytes,
+            url4_concurrency=resolved.url4_concurrency,
+            case_concurrency=resolved.case_concurrency,
+            synthesis_concurrency=resolved.synthesis_concurrency,
+            judge_concurrency=resolved.judge_concurrency,
         )
 
     node = (
@@ -131,6 +180,10 @@ def create_app(
             executor,
             model_routes,
             max_request_target_bytes=resolved.max_request_target_bytes,
+            url4_concurrency=resolved.url4_concurrency,
+            case_concurrency=resolved.case_concurrency,
+            synthesis_concurrency=resolved.synthesis_concurrency,
+            judge_concurrency=resolved.judge_concurrency,
         )
     )
     if model_routes is not None:

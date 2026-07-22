@@ -147,6 +147,24 @@ same limit before spend.
 AI Gateway and tool failures are mapped to stable, sanitized engine errors. Credentials, raw
 provider payloads, tool arguments, and tool result content are not included in diagnostics.
 
+Execution concurrency belongs to the engine deployment, not to a Fusion, Benchmark, SDK call, or
+shareable URL4. The engine applies shared process-level gates so overlapping cases cannot each
+create their own nominal limit. Local development currently uses the higher-throughput DRACO
+profile:
+
+```text
+SCREAMINGFACE_ENGINE_CASE_CONCURRENCY=10
+SCREAMINGFACE_ENGINE_MODEL_CONCURRENCY=32
+SCREAMINGFACE_ENGINE_SYNTHESIS_CONCURRENCY=16
+SCREAMINGFACE_ENGINE_JUDGE_CONCURRENCY=32
+AIGW_PROVIDER_MAX_CONCURRENCY=32
+```
+
+The case gate bounds candidate-case evaluation, the model gate bounds complete model/tool loops,
+the synthesis gate further bounds model reducers, and one judge gate is shared by every DRACO
+grader route. AI Gateway remains the final provider-level admission-control boundary. Operators
+may lower any limit without changing the scientific recipe or its URL4.
+
 ## Run the local stack
 
 ```bash

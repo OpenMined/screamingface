@@ -15,84 +15,219 @@ def notebook() -> nbformat.NotebookNode:
         nbformat.v4.new_markdown_cell(
             """# ScreamingFace · DRACO Lite
 
-Run two real DRACO research questions through one OpenRouter-backed Fusion, then grade the Fusion
-and both members with DRACO's official per-criterion judge prompt.
+Run the complete DRACO comparison shape—**7 solo models and 9 Fusions**—over one real research
+question. DRACO Lite changes only the scale: it keeps five deterministic criteria spanning the
+rubric's sections and runs one judge pass per criterion.
 
-This uses **`draco-lite@1`**: the first two cases from the pinned DRACO dataset, every rubric
-criterion for those cases, and two independent judge passes per criterion. It exercises the real
-research, synthesis, grading, and aggregation protocol, but its two-case result is **not comparable
-to a production DRACO score**. Production `draco@1` uses all 100 cases and five judge passes.
+This is a real paid run, but it is **not a production DRACO score**. Production `draco@1` uses all
+100 questions, complete rubrics, and five judge passes.
 
 ## Before you run it
 
 ```bash
 cd packages/screamingface/apps/screamingface-engine
-export HF_TOKEN=hf_...  # accepted DRACO dataset access
+cp .env.example .env  # once; add an accepted HF_TOKEN
 ./dev.sh restart
 ```
 
-Connect one OpenRouter API key below. The SDK speaks only to the ScreamingFace engine; the engine
-calls AI Gateway for inference and uses OpenRouter's managed search/fetch tools."""
+The SDK talks only to the ScreamingFace engine. The engine loads the pinned DRACO case, executes
+URL4, calls AI Gateway for OpenRouter inference, applies the benchmark's research-tool policy,
+grades every final candidate, and aggregates the comparison."""
         ),
         nbformat.v4.new_markdown_cell("## 1 · Connect"),
         nbformat.v4.new_code_cell("import screamingface as sf\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell(
-            """Connect **OpenRouter**. The same engine-scoped connection covers all three model
-routes below. Dataset access is separate: `HF_TOKEN` belongs in the engine environment.
+            """Connect **OpenRouter**. One engine-scoped API key covers every model route below.
+Dataset access is separate: `HF_TOKEN` belongs in the engine `.env` file.
 
-## 2 · Compose"""
+## 2 · Compose the candidates
+
+The model lineup uses currently available OpenRouter routes, but the candidate topology matches the
+full DRACO comparison. Reusing the same Python object shares that answer across dependent Fusions.
+The two self-fusion samples are separate objects, so both execute. Ordinary Model names are inferred
+from the last part of their routes; only the two samples need explicit names."""
         ),
         nbformat.v4.new_code_cell(
-            'ANSWER_PROMPT = "Answer thoroughly. Use web evidence and cite sources."\n'
-            'SYNTHESIS_PROMPT = "Combine the panel answers into one stronger answer."\n\n'
-            "gpt = sf.Model(\n"
-            '    "openrouter/openai/gpt-5.5",\n'
-            '    name="gpt",\n'
-            "    prompt=ANSWER_PROMPT,\n"
-            '    params={"temperature": 0, "max_tokens": 4096},\n'
-            ")\n"
-            "opus = sf.Model(\n"
-            '    "openrouter/anthropic/claude-opus-4.8",\n'
-            '    name="opus",\n'
-            "    prompt=ANSWER_PROMPT,\n"
-            '    params={"temperature": 0, "max_tokens": 4096},\n'
-            ")\n\n"
-            "fusion = sf.Fusion(\n"
-            '    "research-duo",\n'
-            "    members=[gpt, opus],\n"
-            "    reducer=sf.reducers.Model(\n"
-            '        model="openrouter/openai/gpt-5.5",\n'
-            "        prompt=SYNTHESIS_PROMPT,\n"
-            '        params={"temperature": 0, "max_tokens": 4096},\n'
-            "    ),\n"
-            ")\n\n"
-            "fusion"
+            '''DRACO_ANSWER_PROMPT = """You are answering a research-quality prompt.
+Provide a thorough, well-reasoned answer in prose. Address every aspect the prompt raises.
+Use clear structure
+(headings, bullet lists where appropriate) and cite specific facts, methodologies, or sources
+where relevant.
+
+Do not refuse, abstain, or claim uncertainty unless the question is genuinely ambiguous — the
+goal is to demonstrate depth of understanding. Length: aim for the level of detail the question
+warrants; brevity that skips key points will be penalised by the rubric."""
+
+DRACO_SYNTHESIS_PROMPT = """You are synthesising a single, comprehensive answer to a
+research-quality prompt by combining N independent answers from a panel of models. The downstream
+grader will score your output against a STRUCTURED RUBRIC of weighted criteria — your goal is to
+maximise rubric coverage.
+
+Procedure:
+1. Read every panel answer carefully.
+2. Identify which claims, facts, citations, or arguments each panel member contributes that the
+   others miss.
+3. Produce ONE unified prose response that combines the strongest reasoning, preserves specifics,
+   resolves disagreements in favour of the better-supported claim, and uses clear structure.
+4. Do not introduce new facts that no panel member provided.
+5. Do not hedge or refuse.
+
+Output: the unified prose answer, no preamble, no JSON wrapper."""
+
+fable = sf.Model(
+    "openrouter/anthropic/claude-fable-5",
+    prompt=DRACO_ANSWER_PROMPT,
+    params={"temperature": 0, "max_tokens": 8192},
+)
+opus = sf.Model(
+    "openrouter/anthropic/claude-opus-4.8",
+    prompt=DRACO_ANSWER_PROMPT,
+    params={"temperature": 0, "max_tokens": 8192},
+)
+gpt = sf.Model(
+    "openrouter/openai/gpt-5.5",
+    prompt=DRACO_ANSWER_PROMPT,
+    params={"temperature": 0, "max_tokens": 8192},
+)
+gemini_pro = sf.Model(
+    "openrouter/google/gemini-3.1-pro-preview",
+    prompt=DRACO_ANSWER_PROMPT,
+    params={"temperature": 0, "max_tokens": 8192},
+)
+gemini_flash = sf.Model(
+    "openrouter/google/gemini-3-flash-preview",
+    prompt=DRACO_ANSWER_PROMPT,
+    params={"temperature": 0, "max_tokens": 8192},
+)
+kimi = sf.Model(
+    "openrouter/moonshotai/kimi-k2.5",
+    prompt=DRACO_ANSWER_PROMPT,
+    params={"temperature": 0, "max_tokens": 8192},
+)
+deepseek = sf.Model(
+    "openrouter/deepseek/deepseek-v4-pro",
+    prompt=DRACO_ANSWER_PROMPT,
+    params={"temperature": 0, "max_tokens": 8192},
+)
+qwen = sf.Model(  # Fusion-only leaf
+    "openrouter/qwen/qwen3.6-plus",
+    prompt=DRACO_ANSWER_PROMPT,
+    params={"temperature": 0, "max_tokens": 8192},
+)
+
+fable_plus_gpt = sf.Fusion(
+    "fable-plus-gpt", members=[fable, gpt],
+    reducer=sf.reducers.Model(
+        model="openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params={"temperature": 0, "max_tokens": 8192},
+    ),
+)
+frontier_trio = sf.Fusion(
+    "frontier-trio", members=[opus, gpt, gemini_pro],
+    reducer=sf.reducers.Model(
+        model="openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params={"temperature": 0, "max_tokens": 8192},
+    ),
+)
+opus_plus_gpt = sf.Fusion(
+    "opus-plus-gpt", members=[opus, gpt],
+    reducer=sf.reducers.Model(
+        model="openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params={"temperature": 0, "max_tokens": 8192},
+    ),
+)
+opus_self_fusion = sf.Fusion(
+    "opus-self-fusion",
+    members=[
+        sf.Model(
+            "openrouter/anthropic/claude-opus-4.8", name="opus-sample-1",
+            prompt=DRACO_ANSWER_PROMPT, params={"temperature": 0.7, "max_tokens": 8192},
+        ),
+        sf.Model(
+            "openrouter/anthropic/claude-opus-4.8", name="opus-sample-2",
+            prompt=DRACO_ANSWER_PROMPT, params={"temperature": 0.7, "max_tokens": 8192},
+        ),
+    ],
+    reducer=sf.reducers.Model(
+        model="openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params={"temperature": 0, "max_tokens": 8192},
+    ),
+)
+budget_trio = sf.Fusion(
+    "budget-trio", members=[gemini_flash, kimi, deepseek],
+    reducer=sf.reducers.Model(
+        model="openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params={"temperature": 0, "max_tokens": 8192},
+    ),
+)
+beat_runner_up = sf.Fusion(
+    "beat-runner-up", members=[opus, gpt, deepseek],
+    reducer=sf.reducers.Model(
+        model="openrouter/anthropic/claude-opus-4.8",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params={"temperature": 0, "max_tokens": 8192},
+    ),
+)
+pareto_cross = sf.Fusion(
+    "pareto-cross", members=[deepseek, kimi, gpt],
+    reducer=sf.reducers.Model(
+        model="openrouter/deepseek/deepseek-v4-pro",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params={"temperature": 0, "max_tokens": 8192},
+    ),
+)
+pareto_lean = sf.Fusion(
+    "pareto-lean", members=[deepseek, kimi],
+    reducer=sf.reducers.Model(
+        model="openrouter/deepseek/deepseek-v4-pro",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params={"temperature": 0, "max_tokens": 8192},
+    ),
+)
+best_open_source = sf.Fusion(
+    "best-open-source", members=[deepseek, kimi, qwen],
+    reducer=sf.reducers.Model(
+        model="openrouter/deepseek/deepseek-v4-pro",
+        prompt=DRACO_SYNTHESIS_PROMPT,
+        params={"temperature": 0, "max_tokens": 8192},
+    ),
+)
+
+candidates = (
+    fable, opus, gpt, gemini_pro, gemini_flash, kimi, deepseek,
+    fable_plus_gpt, frontier_trio, opus_plus_gpt, opus_self_fusion,
+    budget_trio, beat_runner_up, pareto_cross, pareto_lean, best_open_source,
+)
+
+len(candidates)'''
         ),
         nbformat.v4.new_markdown_cell(
-            """Construction is local and makes no model calls. The benchmark—not the Fusion—adds
-`web_search`, `web_fetch`, the twelve-call budget, leak-domain exclusions, grader, and aggregator.
+            """## 3 · Evaluate the scaled-down study
 
-## 3 · Evaluate two real cases
+One call compiles and sends **one shareable URL4** for the complete candidate study. Within the
+single case, the engine executes 10 distinct researched model samples, reuses them wherever the
+same object appears, performs 9 synthesis calls, then grades the 16 final candidates.
 
-**Spend warning:** a typical DRACO case has roughly forty criteria. Two cases × two passes × the
-Fusion plus two distinct member answers is roughly **480 judge requests**, in addition to the
-researched answer and synthesis calls. This is intentionally smaller than production, not free."""
+Nominal total: **10 research + 9 synthesis + (16 × 5 criteria × 1 pass) = 99 model calls**.
+Tool operations and any explicit validation retry are additional. OpenRouter spend and provider
+availability still apply."""
         ),
         nbformat.v4.new_code_cell(
-            'draco = sf.benchmarks.load("draco-lite@1")\nreport = draco.evaluate(fusion)'
+            'draco = sf.benchmarks.load("draco-lite@1")\nreport = draco.evaluate(candidates)'
         ),
-        nbformat.v4.new_markdown_cell(
-            """One SDK call sends one complete URL4 expression to `GET /v1?q=...`. For this
-two-member Fusion, each case performs two researched member answers, one synthesis, then two
-independent judge passes for every rubric criterion across the Fusion and both member answers.
-
-## 4 · Compare"""
-        ),
+        nbformat.v4.new_markdown_cell("## 4 · Compare"),
         nbformat.v4.new_code_cell("report"),
         nbformat.v4.new_markdown_cell(
-            """`score`, `baseline`, and `gain` use the same paired case and rubric verdicts.
-Inspect the exact transaction with `report.url4`. Switching to `draco@1` changes the benchmark
-itself to all 100 cases and five judge passes; the Fusion construction does not change."""
+            """`report.candidates` preserves the declared order and contains each candidate's score,
+coverage, metrics, and typed failures. `report.best` returns the highest-scoring completed
+candidate.
+`report.url4` is the exact complete study transaction that can be shared and rerun against a
+compatible ScreamingFace engine."""
         ),
     ]
     for index, cell in enumerate(cells, 1):

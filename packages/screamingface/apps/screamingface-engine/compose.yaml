@@ -19,6 +19,9 @@ services:
       # OpenRouter is opt-in at AI Gateway. Local ScreamingFace development enables its
       # API-key-only plugin so /v1/models and the engine registry reflect it automatically.
       AIGW_OPENROUTER_ENABLED: "true"
+      # Local DRACO development intentionally matches the higher-throughput engine profile.
+      # AI Gateway remains the final provider-level admission-control boundary.
+      AIGW_PROVIDER_MAX_CONCURRENCY: "32"
       # Keep the DRACO walkthrough lineup in the Gateway-owned model catalog. These are normal
       # OpenRouter chat model IDs; the engine still discovers them from /v1/models rather than
       # maintaining a second executable model list.
@@ -28,7 +31,7 @@ services:
         "openrouter/openai/gpt-5.5",
         "openrouter/google/gemini-3.1-pro-preview",
         "openrouter/google/gemini-3-flash-preview",
-        "openrouter/moonshotai/kimi-k2.6",
+        "openrouter/moonshotai/kimi-k2.5",
         "openrouter/deepseek/deepseek-v4-pro",
         "openrouter/qwen/qwen3.6-plus"]
       # INVARIANT: This plugin setting replaces its complete default list; retain the existing
@@ -71,15 +74,22 @@ services:
     environment:
       # Managed research/search calls can legitimately outlive a normal chat request.
       # This is the per-model-call limit; the complete URL4 evaluation still has its own cap.
-      AIGATEWAY_TIMEOUT: "300"
+      AIGATEWAY_TIMEOUT: "600"
       AIGATEWAY_URL: http://127.0.0.1:9105
       # GPQA is gated and is loaded by this engine process. This credential is
       # distinct from the Hugging Face inference connection stored by AI Gateway.
       HF_TOKEN: ${HF_TOKEN:-}
       SCREAMINGFACE_ENGINE_MAX_INFLIGHT: "16"
+      SCREAMINGFACE_ENGINE_URL4_CONCURRENCY: "32"
+      SCREAMINGFACE_ENGINE_CASE_CONCURRENCY: "10"
+      SCREAMINGFACE_ENGINE_MODEL_CONCURRENCY: "32"
+      SCREAMINGFACE_ENGINE_SYNTHESIS_CONCURRENCY: "16"
+      SCREAMINGFACE_ENGINE_JUDGE_CONCURRENCY: "32"
       SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES: "61440"
       SCREAMINGFACE_CODEX_OAUTH_REDIRECT_URI: http://localhost:${CODEX_OAUTH_HOST_PORT:-1455}/auth/callback
-      SCREAMINGFACE_ENGINE_TIMEOUT: "900"
+      # One 10-minute research call can be followed by synthesis and rubric judging.
+      # Keep the complete transaction envelope larger than any individual leaf deadline.
+      SCREAMINGFACE_ENGINE_TIMEOUT: "1800"
       SCREAMINGFACE_TAVILY_TIMEOUT: "75"
       URL4_HOST: 0.0.0.0
       URL4_PORT: "4404"

@@ -5,18 +5,18 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, overload
 
 from screamingface.aggregators import Aggregator, Mean
 from screamingface.graders import Grader
+from screamingface.recipe import Recipe
 from screamingface.tools import Tool, _tool_values
 
 type CaseProducer = Callable[[], Iterable[Case]]
 
 if TYPE_CHECKING:
     from screamingface._progress import ProgressSetting
-    from screamingface.recipe import Recipe
-    from screamingface.report import Report
+    from screamingface.report import Report, StudyReport
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -79,6 +79,8 @@ class Benchmark:
     _grader_route: str | None = field(repr=False)
     _aggregator_route: str | None = field(repr=False)
     _tool_policy_route: str | None = field(repr=False)
+    _candidate_route: str | None = field(repr=False)
+    _candidate_aggregator_route: str | None = field(repr=False)
 
     def __init__(
         self,
@@ -115,11 +117,7 @@ class Benchmark:
             "max_tool_calls",
             _tool_calls(max_tool_calls, has_tools=bool(selected_tools)),
         )
-        object.__setattr__(self, "_case_source", source)
-        object.__setattr__(self, "_cases_route", None)
-        object.__setattr__(self, "_grader_route", None)
-        object.__setattr__(self, "_aggregator_route", None)
-        object.__setattr__(self, "_tool_policy_route", None)
+        _set_local_execution(self, source)
 
     @classmethod
     def _from_engine(
@@ -132,6 +130,8 @@ class Benchmark:
         grader_route: str,
         aggregator: Aggregator,
         aggregator_route: str,
+        candidate_route: str | None = None,
+        candidate_aggregator_route: str | None = None,
         tool_policy_route: str | None = None,
         tools: Sequence[Tool] = (),
         max_tool_calls: int | None = None,
@@ -176,33 +176,92 @@ class Benchmark:
                 else None
             ),
         )
+        if (candidate_route is None) != (candidate_aggregator_route is None):
+            raise ValueError(
+                "engine benchmark candidate route and candidate aggregator route must coexist"
+            )
+        _set_candidate_routes(value, candidate_route, candidate_aggregator_route)
         return value
 
+    @overload
     def evaluate(
         self,
         candidate: Recipe,
         *,
         first: int | None = None,
         progress: ProgressSetting = None,
-    ) -> Report:
-        """Evaluate one candidate Recipe through this benchmark's complete URL4 graph."""
+    ) -> Report: ...
 
-        from screamingface._benchmark_execution import evaluate_benchmark
+    @overload
+    def evaluate(
+        self,
+        candidate: Sequence[Recipe],
+        *,
+        first: int | None = None,
+        progress: ProgressSetting = None,
+    ) -> StudyReport: ...
 
-        return evaluate_benchmark(self, candidate, first=first, progress=progress)
+    def evaluate(
+        self,
+        candidate: Recipe | Sequence[Recipe],
+        *,
+        first: int | None = None,
+        progress: ProgressSetting = None,
+    ) -> Report | StudyReport:
+        """Evaluate one Recipe or one ordered candidate set through the URL4 engine."""
 
-    def url4(self, candidate: Recipe, *, first: int | None = None) -> str:
+        from screamingface._benchmark_execution import evaluate_benchmark, evaluate_candidates
+
+        if isinstance(candidate, Recipe):
+            return evaluate_benchmark(self, candidate, first=first, progress=progress)
+        return evaluate_candidates(self, candidate, first=first, progress=progress)
+
+    def url4(self, candidate: Recipe | Sequence[Recipe], *, first: int | None = None) -> str:
         """Compile the complete benchmark slice without executing it."""
 
-        from screamingface._benchmark_execution import benchmark_url4
+        from screamingface._benchmark_execution import benchmark_url4, candidates_url4
 
-        return benchmark_url4(self, candidate, first=first)
+        if isinstance(candidate, Recipe):
+            return benchmark_url4(self, candidate, first=first)
+        return candidates_url4(self, candidate, first=first)
 
     def _materialize_cases(self) -> tuple[Case, ...]:
         if self._case_source is None:
             raise RuntimeError("engine-advertised benchmark cases are evaluated by the engine")
         values = self._case_source() if callable(self._case_source) else self._case_source
         return _validate_cases(tuple(values))
+
+
+def _set_local_execution(benchmark: Benchmark, source: tuple[Case, ...] | CaseProducer) -> None:
+    object.__setattr__(benchmark, "_case_source", source)
+    for name in (
+        "_cases_route",
+        "_grader_route",
+        "_aggregator_route",
+        "_tool_policy_route",
+        "_candidate_route",
+        "_candidate_aggregator_route",
+    ):
+        object.__setattr__(benchmark, name, None)
+
+
+def _set_candidate_routes(
+    benchmark: Benchmark,
+    candidate_route: str | None,
+    aggregator_route: str | None,
+) -> None:
+    route = (
+        _route(candidate_route, "benchmark candidate route")
+        if candidate_route is not None
+        else None
+    )
+    aggregate = (
+        _route(aggregator_route, "benchmark candidate aggregator route")
+        if aggregator_route is not None
+        else None
+    )
+    object.__setattr__(benchmark, "_candidate_route", route)
+    object.__setattr__(benchmark, "_candidate_aggregator_route", aggregate)
 
 
 def _validate_cases(values: Sequence[Case]) -> tuple[Case, ...]:

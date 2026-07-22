@@ -8,9 +8,16 @@ import re
 from collections.abc import Awaitable, Callable, Mapping, MutableMapping, Sequence
 from typing import Any
 
-from screamingface_engine.aggregators import MEAN_ROUTE, REPORT_SCHEMA
+from screamingface_engine.aggregators import (
+    CANDIDATE_CASE_SCHEMA,
+    CANDIDATE_MEAN_ROUTE,
+    MEAN_ROUTE,
+    REPORT_SCHEMA,
+    STUDY_REPORT_SCHEMA,
+)
 from screamingface_engine.benchmarks import (
     DRACO_CASES_ROUTE,
+    DRACO_LITE_CANDIDATE_ROUTE,
     DRACO_LITE_CASES_ROUTE,
     DRACO_PREVIEW_CASES_ROUTE,
     DRACO_TOOL_POLICY_ROUTE,
@@ -134,13 +141,17 @@ def openapi_document(
         paths[DRACO_LITE_CASES_ROUTE] = _draco_cases_path(
             benchmark_id="draco-lite@1",
             label="DRACO Lite",
-            rubric_description="the first two real cases with their complete rubrics",
+            rubric_description=(
+                "the first real case with five deterministic, section-diverse criteria"
+            ),
         )
         paths[DRACO_LITE_RUBRIC_ROUTE] = _draco_rubric_path(
             benchmark_id="draco-lite@1",
             profile="lite",
-            passes=2,
+            passes=1,
         )
+        paths[DRACO_LITE_CANDIDATE_ROUTE] = _candidate_evaluator_path()
+        paths[CANDIDATE_MEAN_ROUTE] = _candidate_mean_path()
     if any(benchmark.id == "draco@1" for benchmark in benchmarks):
         paths[DRACO_CASES_ROUTE] = _draco_cases_path(
             benchmark_id="draco@1",
@@ -787,6 +798,58 @@ def _draco_rubric_path(*, benchmark_id: str, profile: str, passes: int) -> dict[
     }
 
 
+def _candidate_evaluator_path() -> dict[str, Any]:
+    return {
+        "get": _operation(
+            "evaluate_draco_lite_candidates_1",
+            "URL4 graders",
+            "Execute and grade an ordered DRACO Lite candidate graph",
+            (
+                "Expects screamingface.candidate-spec.v1 as resolved context and one DRACO Lite "
+                "case plus tool policy as resolved intent. Shared model nodes execute once, "
+                "independent equal-looking nodes remain independent, and each final candidate "
+                "keeps its own success or typed failure. Only final candidate answers are graded."
+            ),
+            {
+                "200": _text_response(
+                    "Serialized candidate case results",
+                    f'{{"schema":"{CANDIDATE_CASE_SCHEMA}","benchmark_id":"draco-lite@1"}}',
+                    schema={"$ref": "#/components/schemas/CandidateCaseResult"},
+                ),
+                "400": _engine_error_response("Malformed candidate graph or case input"),
+                "502": _engine_error_response("Candidate model or judge failure"),
+            },
+            parameters=[_url4_fragment_parameter()],
+            extensions={"x-screamingface-url4-route": "candidate-evaluator"},
+        )
+    }
+
+
+def _candidate_mean_path() -> dict[str, Any]:
+    return {
+        "get": _operation(
+            "aggregate_candidate_mean_1",
+            "URL4 aggregators",
+            "Aggregate a shared candidate study",
+            (
+                "Expects a non-empty JSON array of candidate case-result rows. Scores and "
+                "failures are aggregated independently for every declared candidate while "
+                "preserving candidate order and the common case set."
+            ),
+            {
+                "200": _text_response(
+                    "Serialized candidate study report",
+                    f'{{"schema":"{STUDY_REPORT_SCHEMA}","benchmark_id":"draco-lite@1"}}',
+                    schema={"$ref": "#/components/schemas/StudyReport"},
+                ),
+                "400": _engine_error_response("Malformed candidate case rows"),
+            },
+            parameters=[_url4_fragment_parameter()],
+            extensions={"x-screamingface-url4-route": "aggregator"},
+        )
+    }
+
+
 def _mean_path() -> dict[str, Any]:
     return {
         "get": _operation(
@@ -967,13 +1030,21 @@ def _schemas() -> dict[str, Any]:
                         "type": {"const": "progress"},
                         "stage": {
                             "type": "string",
-                            "enum": ["dataset", "model", "grading", "aggregating"],
+                            "enum": [
+                                "dataset",
+                                "model",
+                                "synthesis",
+                                "grading",
+                                "candidate",
+                                "aggregating",
+                            ],
                         },
                         "status": {
                             "type": "string",
-                            "enum": ["started", "completed"],
+                            "enum": ["started", "completed", "failed", "skipped"],
                         },
                         "label": {"type": "string", "minLength": 1},
+                        "operation_id": {"type": "string", "minLength": 1},
                     },
                     "additionalProperties": False,
                 },
@@ -1048,6 +1119,8 @@ def _schemas() -> dict[str, Any]:
                 "tools",
                 "max_tool_calls",
                 "tool_policy_route",
+                "candidate_route",
+                "candidate_aggregator_route",
             ],
             "properties": {
                 "id": {"type": "string"},
@@ -1058,6 +1131,8 @@ def _schemas() -> dict[str, Any]:
                 "tools": {"type": "array", "items": {"type": "string"}},
                 "max_tool_calls": {"type": ["integer", "null"], "minimum": 1, "maximum": 32},
                 "tool_policy_route": nullable_string,
+                "candidate_route": nullable_string,
+                "candidate_aggregator_route": nullable_string,
             },
             "additionalProperties": False,
         },
@@ -1231,6 +1306,34 @@ def _schemas() -> dict[str, Any]:
             },
             "additionalProperties": False,
         },
+        "CandidateSpecification": {
+            "type": "object",
+            "required": ["schema", "nodes", "candidates"],
+            "properties": {
+                "schema": {"const": "screamingface.candidate-spec.v1"},
+                "nodes": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "maxProperties": 64,
+                    "additionalProperties": {"type": "object"},
+                },
+                "candidates": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "maxProperties": 32,
+                    "additionalProperties": {
+                        "type": "object",
+                        "required": ["name", "root"],
+                        "properties": {
+                            "name": {"type": "string", "minLength": 1},
+                            "root": {"type": "string", "pattern": "^node_[1-9][0-9]*$"},
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "additionalProperties": False,
+        },
         "Grade": grade,
         "MemberGrade": {
             "allOf": [
@@ -1275,7 +1378,7 @@ def _schemas() -> dict[str, Any]:
                 "kind": {"type": "string"},
                 "message": {"type": "string"},
                 "status": {"type": ["integer", "null"]},
-                "code": {"type": "string"},
+                "code": nullable_string,
             },
             "additionalProperties": False,
         },
@@ -1315,6 +1418,35 @@ def _schemas() -> dict[str, Any]:
                     "type": "array",
                     "items": {"$ref": "#/components/schemas/EvaluationFailure"},
                 },
+                "complete": {"type": "boolean"},
+            },
+            "additionalProperties": False,
+        },
+        "CandidateCaseResult": {
+            "type": "object",
+            "required": ["schema", "benchmark_id", "case_id", "candidates"],
+            "properties": {
+                "schema": {"const": CANDIDATE_CASE_SCHEMA},
+                "benchmark_id": {"type": "string"},
+                "case_id": {"type": "string"},
+                "candidates": {"type": "object", "additionalProperties": {"type": "object"}},
+            },
+            "additionalProperties": False,
+        },
+        "StudyReport": {
+            "type": "object",
+            "required": [
+                "schema",
+                "benchmark_id",
+                "case_ids",
+                "candidates",
+                "complete",
+            ],
+            "properties": {
+                "schema": {"const": STUDY_REPORT_SCHEMA},
+                "benchmark_id": {"type": "string"},
+                "case_ids": {"type": "array", "items": {"type": "string"}},
+                "candidates": {"type": "object", "additionalProperties": {"type": "object"}},
                 "complete": {"type": "boolean"},
             },
             "additionalProperties": False,

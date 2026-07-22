@@ -19,6 +19,7 @@ REGISTRY_SCHEMA = "screamingface.registry.v1"
 RECIPE_RESULT_SCHEMA = "screamingface.recipe-result.v1"
 CASE_GRADE_SCHEMA = "screamingface.case-grade.v1"
 REPORT_SCHEMA = "screamingface.report.v1"
+STUDY_REPORT_SCHEMA = "screamingface.study-report.v1"
 type AuthMethod = Literal["oauth", "api_key"]
 
 
@@ -67,6 +68,8 @@ class BenchmarkRecord:
     tools: tuple[str, ...]
     max_tool_calls: int | None
     tool_policy_route: str | None
+    candidate_route: str | None = None
+    candidate_aggregator_route: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +123,9 @@ def load_registry() -> Registry:
             raise ValueError(f"missing response schema {RECIPE_RESULT_SCHEMA!r}")
         if REPORT_SCHEMA not in response_schemas:
             raise ValueError(f"missing response schema {REPORT_SCHEMA!r}")
+        if any(record.candidate_route is not None for record in benchmarks):
+            if STUDY_REPORT_SCHEMA not in response_schemas:
+                raise ValueError(f"missing response schema {STUDY_REPORT_SCHEMA!r}")
     except (KeyError, TypeError, ValueError) as exc:
         raise EngineProfileError(f"invalid engine registry: {exc}") from exc
     return Registry(models, reducers, response_schemas, limits, providers, benchmarks)
@@ -209,6 +215,8 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
             "tools",
             "max_tool_calls",
             "tool_policy_route",
+            "candidate_route",
+            "candidate_aggregator_route",
         },
         "benchmark record",
     )
@@ -218,6 +226,8 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
     )
     max_tool_calls = payload["max_tool_calls"]
     raw_tool_policy_route = payload["tool_policy_route"]
+    raw_candidate_route = payload["candidate_route"]
+    raw_candidate_aggregator_route = payload["candidate_aggregator_route"]
     if tools:
         if (
             isinstance(max_tool_calls, bool)
@@ -237,6 +247,21 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
         raise ValueError("tool-free benchmark tool_policy_route must be null")
     else:
         tool_policy_route = None
+    candidate_route = (
+        None
+        if raw_candidate_route is None
+        else _relative_path(raw_candidate_route, "benchmark candidate route")
+    )
+    candidate_aggregator_route = (
+        None
+        if raw_candidate_aggregator_route is None
+        else _relative_path(
+            raw_candidate_aggregator_route,
+            "benchmark candidate aggregator route",
+        )
+    )
+    if (candidate_route is None) != (candidate_aggregator_route is None):
+        raise ValueError("benchmark candidate routes must both be null or both be configured")
     return BenchmarkRecord(
         _nonempty(payload["id"], "benchmark ID"),
         _nonempty(payload["title"], "benchmark title"),
@@ -246,6 +271,8 @@ def _benchmark_record(payload: dict[str, object]) -> BenchmarkRecord:
         tools,
         max_tool_calls,
         tool_policy_route,
+        candidate_route,
+        candidate_aggregator_route,
     )
 
 

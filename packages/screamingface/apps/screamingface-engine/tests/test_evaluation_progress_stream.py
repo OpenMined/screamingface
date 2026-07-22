@@ -85,14 +85,23 @@ async def test_gpqa_stream_reports_dataset_models_cases_and_aggregation(
     assert (
         sum(event["stage"] == "model" and event["status"] == "completed" for event in progress) == 4
     )
-    graded: list[str] = []
+    graded: list[tuple[str, str, str]] = []
     for event in progress:
         if event["stage"] != "grading":
             continue
         label = event["label"]
+        status = event["status"]
+        operation_id = event["operation_id"]
         assert isinstance(label, str)
-        graded.append(label)
-    assert sorted(graded) == ["Graded case q1", "Graded case q2"]
+        assert isinstance(status, str)
+        assert isinstance(operation_id, str)
+        graded.append((status, label, operation_id))
+    assert sorted(graded) == [
+        ("completed", "Graded case q1", "grading:gpqa@1:q1"),
+        ("completed", "Graded case q2", "grading:gpqa@1:q2"),
+        ("started", "Grading case q1", "grading:gpqa@1:q1"),
+        ("started", "Grading case q2", "grading:gpqa@1:q2"),
+    ]
     assert progress[-1] == {
         "schema": "screamingface.evaluation-event.v1",
         "type": "progress",
