@@ -74,6 +74,7 @@ class HuggingFacePluginSettings(PluginSettings):
 
     default_models: list[str] = Field(default_factory=_default_model_slugs)
     router_api_base: str = _ROUTER_API_BASE
+    validation_model: str | None = None
 
     @field_validator("default_models")
     @classmethod

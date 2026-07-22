@@ -6,14 +6,17 @@ probe (which decrypts through the same master key as the app's ORMStore).
 
 from __future__ import annotations
 
+import asyncio
 import json
-import logging
+import threading
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
 import httpx
 import pytest
 
+import aigateway.routes.auth as auth_module
 from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import (
@@ -146,51 +149,6 @@ def test_set_api_key_profile_index_conflict_returns_retryable_503(
     assert credential_blobs.read(service, "default") is None
 
 
-def test_set_api_key_delete_compensation_failure_is_sanitized(
-    authenticated_client, monkeypatch, caplog
-) -> None:
-    leak_marker = "sk-ant-api03-compensation-secret-that-must-not-leak"
-
-    async def _boom(_profile) -> None:
-        raise RuntimeError("profile index unavailable")
-
-    async def _mutate_failure(_service: str, _account: str, _mutator) -> None:
-        raise RuntimeError(f"delete failed for {leak_marker}")
-
-    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", _boom)
-    monkeypatch.setattr(authenticated_client.app.state.credential_store, "mutate", _mutate_failure)
-    caplog.set_level(logging.ERROR, logger="aigateway.routes.auth")
-
-    with _server_errors_as_responses(authenticated_client):
-        resp = _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY)
-
-    assert resp.status_code == 500
-    assert "Failed to compensate API-key credential slot" in caplog.text
-    assert "RuntimeError" in caplog.text
-    assert ANTHROPIC_KEY not in caplog.text
-    assert leak_marker not in caplog.text
-
-
-def test_set_api_key_compensation_preserves_concurrent_slot_write(
-    authenticated_client, credential_blobs, monkeypatch
-) -> None:
-    account_id = _account_id(authenticated_client)
-    service = credential_service_for(credential_name_for(account_id, "keyed"))
-    concurrent = json.dumps({"auth_type": "api_key", "api_key": "sk-ant-api03-other-5678"})
-
-    async def _boom(_profile) -> None:
-        credential_blobs.write(service, "default", concurrent)
-        raise RuntimeError("profile index unavailable")
-
-    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", _boom)
-
-    with _server_errors_as_responses(authenticated_client):
-        resp = _put_api_key(authenticated_client, "anthropic", "keyed", ANTHROPIC_KEY)
-
-    assert resp.status_code == 500
-    assert credential_blobs.read(service, "default") == concurrent
-
-
 @pytest.mark.asyncio
 async def test_set_api_key_restores_oauth_blob_when_profile_index_update_fails(
     authenticated_client, credential_blobs, monkeypatch
@@ -220,7 +178,9 @@ async def test_set_api_key_restores_oauth_blob_when_profile_index_update_fails(
     )
     credential_blobs.write(service, "default", previous)
 
-    async def _boom(_profile) -> None:
+    # Faithful double of ProfileIndexStore.upsert: the observed-existing update path passes
+    # require_present=True (OME-307 Unit 3), so the stub tolerates that keyword.
+    async def _boom(_profile, **_kwargs) -> None:
         raise RuntimeError("profile index unavailable")
 
     monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", _boom)
@@ -236,9 +196,19 @@ async def test_set_api_key_restores_oauth_blob_when_profile_index_update_fails(
 
 
 @pytest.mark.asyncio
-async def test_set_api_key_restore_compensation_failure_is_sanitized(
-    authenticated_client, credential_blobs, monkeypatch, caplog
+async def test_set_api_key_failure_preserves_concurrent_slot_write_via_rollback(
+    authenticated_client, credential_blobs, monkeypatch
 ) -> None:
+    """OME-307 Blocker 4: transaction rollback is the SOLE atomicity mechanism for a failed
+    API-key publication. There is deliberately NO post-rollback credential compensation — a
+    second, out-of-transaction mutate would be redundant with rollback AND could clobber a
+    concurrent task that legitimately owns the same slot (an ABA defect). Replaces the retired
+    compensation-sanitization tests: a value a CONCURRENT owner committed to the shared slot
+    must survive the failed publication untouched, and no compensating mutate may run.
+
+    STORY: as an operator whose key rotation on a profile fails mid-publish, a teammate's
+    concurrent, successful write to the same slot is never silently reverted by my failure.
+    """
     account_id = _account_id(authenticated_client)
     idx = ProfileIndexStore(credential_store=credential_blobs.store)
     await idx.upsert(
@@ -248,39 +218,147 @@ async def test_set_api_key_restore_compensation_failure_is_sanitized(
             provider="anthropic",
             name="default",
             state=ProfileState.AUTHENTICATED,
-            auth_type="oauth",
+            auth_type="api_key",
         )
     )
     service = credential_service_for(credential_name_for(account_id, "default"))
-    previous = json.dumps(
-        {
-            "access_token": "oauth-tok",
-            "refresh_token": "oauth-rt",
-            "expires_at_ms": 1,
-            "token_type": "Bearer",
-        }
+    # The value a concurrent owner committed to the shared slot; it must NOT be clobbered.
+    concurrent_owned = json.dumps(
+        {"auth_type": "api_key", "api_key": "sk-ant-api03-concurrent-owner-9999"}
     )
-    credential_blobs.write(service, "default", previous)
-    leak_marker = "sk-ant-api03-restore-secret-that-must-not-leak"
+    credential_blobs.write(service, "default", concurrent_owned)
 
-    async def _boom(_profile) -> None:
+    # Faithful double of ProfileIndexStore.upsert: the observed-existing update path passes
+    # require_present=True (OME-307 Unit 3), so the stub tolerates that keyword.
+    async def _boom(_profile, **_kwargs) -> None:
         raise RuntimeError("profile index unavailable")
 
-    async def _mutate_failure(_service: str, _account: str, _mutator) -> None:
-        raise RuntimeError(f"restore failed for {leak_marker}")
+    # INVARIANT: a failed publication performs NO out-of-transaction credential mutate. The spy
+    # records every call, so a reintroduced post-rollback compensation would fail this test.
+    mutate_calls: list[tuple[str, str]] = []
+    real_mutate = authenticated_client.app.state.credential_store.mutate
+
+    async def _spy_mutate(svc: str, acct: str, mutator) -> None:
+        mutate_calls.append((svc, acct))
+        return await real_mutate(svc, acct, mutator)
 
     monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", _boom)
-    monkeypatch.setattr(authenticated_client.app.state.credential_store, "mutate", _mutate_failure)
-    caplog.set_level(logging.ERROR, logger="aigateway.routes.auth")
+    monkeypatch.setattr(authenticated_client.app.state.credential_store, "mutate", _spy_mutate)
 
     with _server_errors_as_responses(authenticated_client):
         resp = _put_api_key(authenticated_client, "anthropic", "default", ANTHROPIC_KEY)
 
     assert resp.status_code == 500
-    assert "Failed to compensate API-key credential slot" in caplog.text
-    assert "RuntimeError" in caplog.text
-    assert ANTHROPIC_KEY not in caplog.text
-    assert leak_marker not in caplog.text
+    # Rollback alone preserved the concurrent owner's value; no compensation ran to clobber it.
+    assert credential_blobs.read(service, "default") == concurrent_owned
+    assert mutate_calls == []
+    # Neither the caller's key nor the concurrent owner's key leaks into the response.
+    assert ANTHROPIC_KEY not in resp.text
+    assert "9999" not in resp.text
+
+
+def test_set_api_key_rollback_does_not_compensate_over_same_key_external_commit(
+    authenticated_client,
+    credential_blobs,
+    monkeypatch,
+) -> None:
+    """S2's identical key must survive after S1 rolls back and handles its failure.
+
+    INVARIANT: plaintext equality cannot prove write ownership. Any post-rollback compensation
+    from S1 is delayed until S2 commits the same key, making the ABA clobber deterministic if
+    compensation is ever reintroduced.
+    """
+    account_id = _account_id(authenticated_client)
+    previous_key = "sk-ant-api03-previous-key-0000"
+    assert (
+        _put_api_key(authenticated_client, "anthropic", "default", previous_key).status_code == 200
+    )
+    service = credential_service_for(credential_name_for(account_id, "default"))
+
+    s1_wrote = threading.Event()
+    release_s1_failure = threading.Event()
+    s2_completed = threading.Event()
+    persist_count = 0
+    persist_count_lock = threading.Lock()
+    compensation_calls: list[str] = []
+    s1_task = None
+    s1_initial_write = False
+    persist_credentials = auth_module.persist_credentials_or_503
+    credential_store = authenticated_client.app.state.credential_store
+    write = credential_store.write
+    delete = credential_store.delete
+    mutate = credential_store.mutate
+
+    async def _fail_first_after_write(*args, **kwargs) -> None:
+        nonlocal persist_count, s1_initial_write, s1_task
+        with persist_count_lock:
+            persist_count += 1
+            call_number = persist_count
+        if call_number == 1:
+            s1_task = asyncio.current_task()
+            s1_initial_write = True
+        await persist_credentials(*args, **kwargs)
+        if call_number == 1:
+            s1_initial_write = False
+            s1_wrote.set()
+            if not await asyncio.to_thread(release_s1_failure.wait, 5):
+                raise TimeoutError("S1 failure was not released")
+            raise RuntimeError("S1 publication failed after its transactional write")
+
+    async def _record_s1_compensation(operation: str, service_name: str) -> None:
+        if service_name == service and asyncio.current_task() is s1_task and not s1_initial_write:
+            compensation_calls.append(operation)
+            if not await asyncio.to_thread(s2_completed.wait, 5):
+                raise TimeoutError("S2 did not commit before compensation")
+
+    async def _delay_compensating_write(service_name, account, value) -> None:
+        await _record_s1_compensation("write", service_name)
+        await write(service_name, account, value)
+
+    async def _delay_compensating_delete(service_name, account) -> None:
+        await _record_s1_compensation("delete", service_name)
+        await delete(service_name, account)
+
+    async def _delay_compensating_mutate(service_name, account, mutator) -> None:
+        await _record_s1_compensation("mutate", service_name)
+        await mutate(service_name, account, mutator)
+
+    monkeypatch.setattr(auth_module, "persist_credentials_or_503", _fail_first_after_write)
+    monkeypatch.setattr(credential_store, "write", _delay_compensating_write)
+    monkeypatch.setattr(credential_store, "delete", _delay_compensating_delete)
+    monkeypatch.setattr(credential_store, "mutate", _delay_compensating_mutate)
+
+    with (
+        _server_errors_as_responses(authenticated_client),
+        ThreadPoolExecutor(max_workers=2) as executor,
+    ):
+        request_s1 = executor.submit(
+            _put_api_key,
+            authenticated_client,
+            "anthropic",
+            "default",
+            ANTHROPIC_KEY,
+        )
+        assert s1_wrote.wait(5), "S1 never wrote its transactional credential"
+        request_s2 = executor.submit(
+            _put_api_key,
+            authenticated_client,
+            "anthropic",
+            "default",
+            ANTHROPIC_KEY,
+        )
+        release_s1_failure.set()
+        response_s2 = request_s2.result(timeout=10)
+        s2_completed.set()
+        response_s1 = request_s1.result(timeout=10)
+
+    assert response_s1.status_code == 500
+    assert response_s2.status_code == 200
+    assert compensation_calls == []
+    assert json.loads(credential_blobs.read(service, "default")) == {
+        "auth_type": "api_key",
+        "api_key": ANTHROPIC_KEY,
+    }
 
 
 @pytest.mark.asyncio

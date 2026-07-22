@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, cast
 from fastapi import HTTPException
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
-from aigateway.core.http_status import valid_http_error_status
+from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelEntry,
@@ -35,7 +35,17 @@ from aigateway.core.plugin_base import (
 )
 from aigateway.core.provider_errors import NonRetryableProviderError
 
+from .api_key_validation import OpenRouterApiKeyValidator
 from .provenance import converter_error_status, is_http200_body_error
+from .response_errors import (
+    _embedded_error_status as _embedded_error_status,
+)
+from .response_errors import (
+    _find_embedded_error,
+)
+from .response_errors import (
+    _top_level_error_is_meaningful as _top_level_error_is_meaningful,
+)
 from .settings import (
     GATEWAY_MODEL_PREFIX,
     OpenRouterPluginSettings,
@@ -190,92 +200,6 @@ def _strip_openrouter_litellm_controls(body: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _embedded_error_status(error: Any) -> int | None:
-    """Extract a numeric HTTP status from an embedded error object, else None.
-
-    # WHY (blocker E): uses the shared strict validator so a string/Unicode/
-    # float/bool ``code`` on the returned-payload scanner path degrades to 502
-    # exactly like it does on the converter-raise and transport paths.
-    """
-    if not isinstance(error, dict):
-        return None
-    for key in ("status", "status_code", "code"):
-        status = valid_http_error_status(error.get(key))
-        if status is not None:
-            return status
-    return None
-
-
-def _top_level_error_is_meaningful(error: Any) -> bool:
-    """Gate for the top-level ``error`` scan (OME-428 CODE-1).
-
-    # WHY: litellm's converter deliberately passes benign top-level error
-    # shapes through as valid 200 responses ("some OpenAI-compatible providers
-    # return empty error objects even on success"); flagging those discards a
-    # paid completion as a 502.
-    # INVARIANT: supersets litellm convert_dict_to_response.py:496-509
-    # (1.87.0) — fires on every shape litellm raises on, PLUS status-keyed
-    # shapes litellm passes through, so an embedded status can never render
-    # as success. Pinned by test_litellm_top_level_error_contract.py.
-    """
-    if error is None:
-        return False
-    if isinstance(error, dict):
-        return (
-            bool(error.get("message", ""))
-            or error.get("code") is not None
-            or error.get("status") is not None
-            or error.get("status_code") is not None
-        )
-    if isinstance(error, str):
-        return bool(error)
-    # Non-dict/non-str non-None: litellm :507-509 treats it as unconditionally
-    # meaningful — bool(error) would diverge on 0/False/[].
-    return True
-
-
-def _find_embedded_error(payload: dict[str, Any]) -> tuple[bool, int | None]:
-    """Detect OpenRouter errors embedded in a nominal HTTP-200 body (D9).
-
-    Inspects the top-level ``error``, each choice's ``error``, and LiteLLM's
-    ``provider_specific_fields`` (``error`` / ``native_finish_reason`` — 1.87.0
-    maps the native reason "error" to "stop", which would otherwise render as
-    success). Returns (found, first numeric 4xx/5xx status or None).
-    """
-    found = False
-    status: int | None = None
-
-    def _inspect(error: Any) -> None:
-        nonlocal found, status
-        if error is None:
-            return
-        found = True
-        if status is None:
-            status = _embedded_error_status(error)
-
-    # CODE-1: only a meaningful top-level error counts; benign shapes on a
-    # billed 200 pass through. The choice/message-level branches below stay
-    # ungated — litellm relocates those without any benign-shape guard.
-    top_level_error = payload.get("error")
-    if _top_level_error_is_meaningful(top_level_error):
-        _inspect(top_level_error)
-    choices = payload.get("choices")
-    for choice in choices if isinstance(choices, list) else []:
-        if not isinstance(choice, dict):
-            continue
-        _inspect(choice.get("error"))
-        for holder in (choice, choice.get("message")):
-            if not isinstance(holder, dict):
-                continue
-            fields = holder.get("provider_specific_fields")
-            if not isinstance(fields, dict):
-                continue
-            _inspect(fields.get("error"))
-            if fields.get("native_finish_reason") == "error":
-                found = True
-    return found, status
-
-
 def _embedded_error_exception(status: int | None) -> HTTPException:
     """Sanitized gateway error for an embedded provider failure.
 
@@ -343,6 +267,11 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             header_builder=lambda api_key: {"Authorization": f"Bearer {api_key}"},
             credential_store=credential_store,
         )
+
+    def api_key_validator(self) -> ApiKeyValidator | None:
+        if not self.settings.enabled:
+            return None
+        return OpenRouterApiKeyValidator(settings=self.settings)
 
     def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
         # D9: only 401 proves the stored key is bad. 402 (credits), 403

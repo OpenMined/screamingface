@@ -14,8 +14,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, SecretStr
 from tortoise.exceptions import IntegrityError
+from tortoise.transactions import in_transaction
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.credential_blob.store import CredentialBlobMutationConflict
@@ -33,7 +34,7 @@ from ..core.plugin_base import (
     credential_service_provider_for,
     credential_strategy_from,
 )
-from ..core.profile_index import ProfileIndexStore
+from ..core.profile_index import ProfileIndexStore, ProfileTransitionConflict
 from ..core.profile_models import (
     AuthType,
     Profile,
@@ -42,6 +43,7 @@ from ..core.profile_models import (
     credential_name_for,
     profile_id_for,
 )
+from .api_key_validation import normalize_api_key, require_valid_api_key
 from .credential_persistence import (
     SupportsCredentialPersistence,
     SupportsCredentialSlot,
@@ -514,38 +516,15 @@ async def start_oauth(
     profile_id = profile_id_for(account_id, provider, body.name)
     code_verifier, code_challenge = generate_pkce()
     state = generate_state()
+
+    # Bind the redirect (for loopback, a listener keyed by ``state``) BEFORE superseding any
+    # older flow for this profile: a redirect-setup failure must leave the previous flow
+    # untouched rather than destroy it for a flow that never started (OME-307 Blocker 5).
     redirect_uri: str | None = None
     if body.redirect_uri is not None:
         redirect_uri = await _redirect_uri_for(request, provider, cfg, state, body.redirect_uri)
-    for stale_state in _pending(request).pop_for_profile(account_id, provider, body.name):
-        await _close_loopback_callback(request.app, stale_state)
     if redirect_uri is None:
         redirect_uri = await _redirect_uri_for(request, provider, cfg, state)
-
-    _pending(request).put(
-        state,
-        PendingAuthEntry(
-            account_id=account_id,
-            provider=provider,
-            profile_name=body.name,
-            profile_id=profile_id,
-            code_verifier=code_verifier,
-            redirect_uri=redirect_uri,
-        ),
-    )
-
-    params = {
-        "response_type": "code",
-        "client_id": cfg.client_id,
-        "redirect_uri": redirect_uri,
-        "scope": " ".join(cfg.scopes),
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
-        "state": state,
-    }
-    if cfg.extra_authorize_params:
-        params.update(cfg.extra_authorize_params)
-    authorize_url = f"{cfg.authorize_url}?{urlencode(params)}"
 
     # Update the existing profile in place instead of replacing it wholesale:
     # an api_key profile keeps its auth_type/account_label/defaults until the
@@ -564,7 +543,50 @@ async def start_oauth(
     profile.state = ProfileState.PENDING
     if body.defaults is not None:
         profile.defaults = body.defaults
-    await _index_store(request).upsert(profile)
+
+    # INVARIANT (OME-307 Blockers 1 & 5): durably publish THIS flow — its pending profile and a
+    # fresh ownership generation — in one atomic index CAS BEFORE irreversibly superseding any
+    # older flow. On failure, tear down only this flow's own loopback listener and re-raise; the
+    # older flow stays completable and no invisible pending flow is stranded. begin_pending is
+    # what assigns the ownership generation the callback later presents to authenticate_pending.
+    try:
+        generation = await _index_store(request).begin_pending(profile)
+    except Exception:
+        await _close_loopback_callback(request.app, state)
+        raise
+
+    _pending(request).put(
+        state,
+        PendingAuthEntry(
+            account_id=account_id,
+            provider=provider,
+            profile_name=body.name,
+            profile_id=profile_id,
+            code_verifier=code_verifier,
+            redirect_uri=redirect_uri,
+            oauth_generation=generation,
+        ),
+    )
+
+    # Only now that this flow is fully published: supersede older flows for the same profile,
+    # excluding this flow's own freshly-published state (Blocker 5).
+    for stale_state in _pending(request).pop_for_profile(
+        account_id, provider, body.name, exclude_state=state
+    ):
+        await _close_loopback_callback(request.app, stale_state)
+
+    params = {
+        "response_type": "code",
+        "client_id": cfg.client_id,
+        "redirect_uri": redirect_uri,
+        "scope": " ".join(cfg.scopes),
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "state": state,
+    }
+    if cfg.extra_authorize_params:
+        params.update(cfg.extra_authorize_params)
+    authorize_url = f"{cfg.authorize_url}?{urlencode(params)}"
 
     return {
         "profile_id": profile_id,
@@ -696,66 +718,69 @@ async def _complete_oauth_for_app(
     # first await that can race another callback using the same code.
     pending = _pending_or_unknown(pending_table.pop(state))
     try:
-        creds = await _exchange_oauth_code_for_pending(app, plugin, provider, code, state, pending)
-    except NotImplementedError as exc:
-        await _mark_oauth_completion_error(app, pending, "provider_does_not_use_oauth", state)
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "provider_does_not_use_oauth", "provider": provider},
-        ) from exc
-    except Exception:
-        await _mark_oauth_completion_error(app, pending, "OAuth code exchange failed", state)
-        raise
-    profile_credential_slot: tuple[object, str, str, str | None, str | None] | None = None
-    if pending.connection_id is None:
-        # WHY: the credential slot and profile index are separate stores, so OAuth
-        # profile completion must snapshot and compensate around the index write.
-        credential_store = _credential_store_for_app(app)
-        slot = cast(SupportsCredentialSlot, strategy)
-        credential_service = slot.credential_service()
-        credential_account = slot.credential_account()
-        previous_credential = await credential_store.read(credential_service, credential_account)
         try:
-            await persist_credentials_or_503(
-                slot,
-                creds,
-                description="OAuth profile credentials",
+            creds = await _exchange_oauth_code_for_pending(
+                app, plugin, provider, code, state, pending
             )
-        except HTTPException:
-            await _mark_oauth_completion_error(app, pending, "credential_store_unavailable", state)
+        except NotImplementedError as exc:
+            await _mark_oauth_completion_error(app, pending, "provider_does_not_use_oauth", state)
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "provider_does_not_use_oauth", "provider": provider},
+            ) from exc
+        except Exception:
+            await _mark_oauth_completion_error(app, pending, "OAuth code exchange failed", state)
             raise
-        written_credential = await credential_store.read(credential_service, credential_account)
-        profile_credential_slot = (
-            credential_store,
-            credential_service,
-            credential_account,
-            previous_credential,
-            written_credential,
-        )
-        _invalidate_profile_session(app, plugin, pending.account_id, pending.profile_name)
-
-    try:
-        await _mark_profile_authenticated(app, pending, plugin, creds)
-    except Exception:
-        if profile_credential_slot is not None:
-            (
-                credential_store,
-                credential_service,
-                credential_account,
-                previous_credential,
-                written_credential,
-            ) = profile_credential_slot
-            await _restore_credential_slot_after_failure(
-                credential_store,
-                credential_service,
-                credential_account,
-                expected_credential=written_credential,
-                previous_credential=previous_credential,
-                description="OAuth profile",
-            )
+        if pending.connection_id is None:
+            slot = cast(SupportsCredentialSlot, strategy)
+            try:
+                # WHY: token exchange stays outside the transaction; only profile + credential
+                # publication is atomic. The always-present account index row is mutated first,
+                # matching API-key set/delete's lock order; the optional credential row follows.
+                # The generation CAS rejects stale callbacks before they can write credentials.
+                async with in_transaction():
+                    await _mark_profile_authenticated(
+                        app,
+                        pending,
+                        plugin,
+                        creds,
+                        require_pending=True,
+                    )
+                    await persist_credentials_or_503(
+                        slot,
+                        creds,
+                        description="OAuth profile credentials",
+                    )
+            except ProfileTransitionConflict as exc:
+                await _close_loopback_callback(app, state)
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "profile_auth_conflict",
+                        "provider": pending.provider,
+                        "profile": pending.profile_name,
+                    },
+                ) from exc
+            except HTTPException:
+                await _mark_oauth_completion_error(
+                    app, pending, "credential_store_unavailable", state
+                )
+                raise
+            _invalidate_profile_session(app, plugin, pending.account_id, pending.profile_name)
+        else:
+            await _mark_profile_authenticated(app, pending, plugin, creds)
+        await _record_oauth_connection_completion(app, pending, plugin, creds)
+        await _close_loopback_callback(app, state)
+    except asyncio.CancelledError:
+        # INVARIANT (OME-307 Blocker 5): a callback cancellation must never strand the profile
+        # pending. We consumed the state before the first await above; on cancellation the
+        # enclosing transaction (if any) rolls back, and we re-publish the consumed state
+        # SYNCHRONOUSLY so the flow stays completable via retry. Python 3.12
+        # ``asyncio.CancelledError`` is a ``BaseException`` that escapes the ``except Exception``
+        # handlers above; ``put`` is synchronous so it finishes even while the task unwinds.
+        # AIDEV-NOTE: cleanup-then-re-raise — the cancellation is NEVER caught-and-suppressed.
+        pending_table.put(state, pending)
         raise
-    await _record_oauth_connection_completion(app, pending, plugin, creds)
-    await _close_loopback_callback(app, state)
 
 
 def _pending_or_unknown(pending: PendingAuthEntry | None) -> PendingAuthEntry:
@@ -803,27 +828,58 @@ async def _mark_oauth_completion_error(
     connection_message: str,
     state: str,
 ) -> None:
-    await _mark_profile_error(app, pending.account_id, pending.provider, pending.profile_name)
+    # INVARIANT (OME-307 Blocker 2): only a PROFILE flow that claimed an ownership generation
+    # can own a pending profile. Mark its error CONDITIONALLY on that generation so a stale
+    # failure cannot clobber a newer owner, overwrite a committed API-key profile, or resurrect
+    # a deleted profile. Connection flows are handled separately by _mark_connection_error.
+    if pending.connection_id is None and pending.oauth_generation is not None:
+        await _mark_profile_error(app, pending.profile_id, pending.oauth_generation)
     await _mark_connection_error(app, pending, connection_message)
     await _close_loopback_callback(app, state)
 
 
-async def _mark_profile_authenticated(app, pending: PendingAuthEntry, plugin, creds: dict) -> None:
-    profile = await _index_store_for_app(app).get(
+async def _mark_profile_authenticated(
+    app,
+    pending: PendingAuthEntry,
+    plugin,
+    creds: dict,
+    *,
+    require_pending: bool = False,
+) -> None:
+    index = _index_store_for_app(app)
+    profile = await index.get(
         pending.account_id,
         pending.provider,
         pending.profile_name,
     )
     if profile is None:
+        if require_pending:
+            raise ProfileTransitionConflict("profile no longer exists")
         return
+    if require_pending and profile.state is not ProfileState.PENDING:
+        raise ProfileTransitionConflict("profile is no longer pending")
     profile.state = ProfileState.AUTHENTICATED
     # A completed OAuth round-trip overwrites the credential slot, so the
     # discriminator must flip back even if the profile was api_key before.
     profile.auth_type = "oauth"
+    profile.last_refreshed_at = datetime.now(UTC)
     label = plugin.account_label_from_credentials(creds)
     if label is not None:
         profile.account_label = label
-    await _index_store_for_app(app).upsert(profile)
+    if require_pending:
+        # INVARIANT (OME-307 Blocker 1): bind publication to THIS OAuth operation by presenting
+        # the ownership generation this flow claimed at begin_pending. Ownership is decided
+        # INSIDE authenticate_pending's atomic durable CAS — a superseded flow loses even though
+        # the row is still PENDING — closing the check-then-act TOCTOU that a separate in-memory
+        # precheck left open. The state==PENDING guard inside the CAS remains defense in depth
+        # for a newer flow (or API-key write) that has already committed a non-pending state.
+        await index.authenticate_pending(
+            profile,
+            expected_generation=pending.oauth_generation,
+            account_label=label,
+        )
+    else:
+        await index.upsert(profile)
 
 
 def _credential_name_for_pending(pending: PendingAuthEntry) -> str:
@@ -838,7 +894,9 @@ async def _mark_connection_error(app, pending: PendingAuthEntry, message: str) -
     store = OAuthConnectionStore()
     connection = await store.get(pending.account_id, pending.connection_id)
     if connection is not None:
-        await store.mark_error(connection, message)
+        # INVARIANT: only this callback's still-pending connection may transition to ERROR.
+        # A concurrent DELETE or successful activation owns any non-pending row and wins.
+        await store.mark_pending_error(connection, message)
     credential_strategy_cache(app).evict(
         credential_key_for(pending.account_id, pending.connection_id)
     )
@@ -867,61 +925,6 @@ async def _persist_connection_credentials(
     credential_strategy_cache(app).evict(credential_key_for(account_id, connection_id))
 
 
-async def _delete_connection_strategy_credentials(
-    app,
-    plugin,
-    provider: str,
-    account_id: str,
-    connection_id: str,
-) -> None:
-    strategy = _credential_strategy_for_credential_name(
-        app,
-        plugin,
-        provider,
-        credential_key_for(account_id, connection_id),
-    )
-    if strategy is None:
-        return
-    strategy_for_log = cast(SupportsCredentialPersistence, strategy)
-    try:
-        await strategy.delete_credentials()
-    except Exception as exc:
-        # Best-effort compensation: never mask the activation-conflict response.
-        logger.error(
-            "Failed to delete OAuth connection credentials for service %s during compensation: %s",
-            strategy_for_log.credential_service(),
-            type(exc).__name__,
-        )
-
-
-async def _restore_credential_slot_after_failure(
-    credential_store,
-    credential_service: str,
-    credential_account: str,
-    *,
-    expected_credential: str | None,
-    previous_credential: str | None,
-    description: str,
-) -> None:
-    def restore_if_unchanged(current: str | None) -> str | None:
-        # INVARIANT: compensate only our own credential write; a concurrent writer wins.
-        if current != expected_credential:
-            return current
-        return previous_credential
-
-    try:
-        await credential_store.mutate(credential_service, credential_account, restore_if_unchanged)
-    except Exception as compensation_exc:
-        # Double-fault signal: the original error still propagates to the caller.
-        logger.error(
-            "Failed to compensate %s credential slot %s/%s after profile-index failure: %s",
-            description,
-            credential_service,
-            credential_account,
-            type(compensation_exc).__name__,
-        )
-
-
 async def _record_oauth_connection_completion(
     app,
     pending: PendingAuthEntry,
@@ -946,23 +949,28 @@ async def _record_oauth_connection_completion(
 
     connection = await _connection_for_pending(store, pending, plugin, label)
     try:
-        await _persist_connection_credentials(
-            app,
-            plugin,
-            pending.provider,
-            pending.account_id,
-            str(connection.id),
-            creds,
-        )
-        await store.complete(connection, label=label, identity=identity)
+        # INVARIANT: connection lifecycle operations lock the stable connection row before the
+        # optional credential row. The pending-only CAS and credential write commit together, so
+        # a concurrent DELETE wins without credential orphaning or stale-row resurrection.
+        async with in_transaction():
+            activated = await store.complete_pending(connection, label=label, identity=identity)
+            if activated is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "connection_conflict",
+                        "provider": pending.provider,
+                    },
+                )
+            await _persist_connection_credentials(
+                app,
+                plugin,
+                pending.provider,
+                pending.account_id,
+                str(activated.id),
+                creds,
+            )
     except IntegrityError as exc:
-        await _delete_connection_strategy_credentials(
-            app,
-            plugin,
-            pending.provider,
-            pending.account_id,
-            str(connection.id),
-        )
         await store.mark_revoked(connection, "connection_conflict")
         raise HTTPException(
             status_code=409,
@@ -970,17 +978,10 @@ async def _record_oauth_connection_completion(
         ) from exc
     except HTTPException as exc:
         if exc.status_code == 503:
-            await store.mark_error(connection, "credential_store_unavailable")
+            await store.mark_pending_error(connection, "credential_store_unavailable")
         raise
     except Exception as exc:
-        await _delete_connection_strategy_credentials(
-            app,
-            plugin,
-            pending.provider,
-            pending.account_id,
-            str(connection.id),
-        )
-        await store.mark_error(connection, "connection_activation_failed")
+        await store.mark_pending_error(connection, "connection_activation_failed")
         raise HTTPException(
             status_code=503,
             detail={
@@ -1102,11 +1103,17 @@ def _connection_label(pending: PendingAuthEntry, plugin, creds: dict, identity) 
     return pending.compatibility_profile_name or pending.profile_name
 
 
-async def _mark_profile_error(app, account_id: str, provider: str, name: str) -> None:
-    p = await _index_store_for_app(app).get(account_id, provider, name)
-    if p is not None:
-        p.state = ProfileState.ERROR
-        await _index_store_for_app(app).upsert(p)
+async def _mark_profile_error(app, profile_id: str, expected_generation: int) -> None:
+    # INVARIANT (OME-307 Blocker 2): a stale OAuth failure marks ERROR only while it still owns
+    # the pending profile (same generation, still present, still PENDING). If ownership moved
+    # on — newer flow, committed api_key, or delete — mark_pending_error raises and we do
+    # nothing rather than corrupt the newer state or recreate a deleted profile.
+    try:
+        await _index_store_for_app(app).mark_pending_error(
+            profile_id, expected_generation=expected_generation
+        )
+    except ProfileTransitionConflict:
+        pass
 
 
 async def _generic_callback(provider: str, code: str, state: str, request: Request):
@@ -1168,16 +1175,24 @@ async def patch_profile(
     p = await idx.get(str(current.id), provider, name)
     if p is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
-    if body.defaults is not None:
-        p.defaults = body.defaults
-    if body.account_label is not None:
-        p.account_label = body.account_label
-    await idx.upsert(p)
+    try:
+        p = await idx.update_metadata(
+            p.id,
+            defaults=body.defaults,
+            account_label=body.account_label,
+        )
+    except ProfileTransitionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "profile_conflict", "provider": provider, "profile": name},
+        ) from exc
     return p.model_dump(mode="json")
 
 
 class SetApiKeyRequest(BaseModel):
-    api_key: str
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    api_key: SecretStr
     defaults: ProfileDefaults | None = None
 
 
@@ -1203,12 +1218,7 @@ async def set_profile_api_key(
         raise HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": provider}
         )
-    api_key = body.api_key.strip()
-    if len(api_key) < 8:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "invalid_api_key", "message": "api_key is missing or too short"},
-        )
+    api_key = normalize_api_key(body.api_key)
     account_id = str(current.id)
     strategy = _credential_strategy_for_app(
         request.app, plugin, provider, account_id, name, auth_type="api_key"
@@ -1219,14 +1229,13 @@ async def set_profile_api_key(
             detail={"code": "api_key_not_supported", "provider": provider},
         )
 
-    # Cancel any in-flight OAuth flow for this profile: a late callback
-    # (pending TTL is 600s) would otherwise silently overwrite the key we are
-    # about to store (SF-244 audit F10). Mirrors start_oauth's stale cleanup.
-    for stale_state in _pending(request).pop_for_profile(account_id, provider, name):
-        await _close_loopback_callback(request.app, stale_state)
+    await require_valid_api_key(request, plugin, provider, api_key)
 
     idx = _index_store(request)
     profile = await idx.get(account_id, provider, name)
+    # INVARIANT (OME-307 Unit 3): if we observed an existing profile, publication must not
+    # resurrect it should a concurrent delete remove it before we commit (delete wins).
+    profile_observed = profile is not None
     if profile is None:
         profile = Profile(
             id=profile_id_for(account_id, provider, name),
@@ -1242,29 +1251,53 @@ async def set_profile_api_key(
     profile.account_label = f"API key ····{api_key[-4:]}"
     profile.scopes = []  # OAuth scopes are meaningless for API-key auth (F24)
 
-    credential_store = _credential_store_for_app(request.app)
     strategy_for_slot = cast(SupportsCredentialSlot, strategy)
-    credential_service = strategy_for_slot.credential_service()
-    credential_account = strategy_for_slot.credential_account()
-    previous_credential = await credential_store.read(credential_service, credential_account)
-    await persist_credentials_or_503(
-        strategy_for_slot,
-        {"auth_type": "api_key", "api_key": api_key},
-        description="API-key credentials",
-    )
-    written_credential = await credential_store.read(credential_service, credential_account)
+    # WHY: the credential blob and profile index share the Tortoise connection; publish both
+    # in one short transaction so readers never observe a committed mixed auth type.
+    # INVARIANT (OME-307 Blocker 3): the index-row CAS runs FIRST, the credential write SECOND —
+    # ONE consistent lock order shared with delete_profile. The account index row is the sole
+    # ALWAYS-PRESENT row, so it is the only row that serializes a concurrent delete; the
+    # credential row may be absent, and a missing-row operation takes no lock under READ
+    # COMMITTED. Publishing the index first means a racing delete that removed the profile makes
+    # require_present raise BEFORE any credential is written, so nothing is orphaned or resurrected.
+    # INVARIANT (OME-307 Blocker 4): transaction rollback is the SOLE atomicity mechanism here.
+    # ORMStore writes through the transaction's connection, so a failed OR cancelled publication
+    # (including a 3.12 CancelledError, a BaseException) rolls back BOTH the index upsert and the
+    # credential write. There is deliberately NO out-of-transaction compensation: a second,
+    # post-rollback credential mutate is redundant with rollback AND could race a concurrent
+    # writer that legitimately owns the slot (an ABA clobber). Any exception other than the
+    # delete-wins conflict propagates unchanged so the enclosing txn rolls back and re-raises.
     try:
-        await idx.upsert(profile)
-    except Exception:
-        await _restore_credential_slot_after_failure(
-            credential_store,
-            credential_service,
-            credential_account,
-            expected_credential=written_credential,
-            previous_credential=previous_credential,
-            description="API-key",
-        )
-        raise
+        async with in_transaction():
+            # INVARIANT (OME-307 Unit 3): an observed-existing profile publishes conditionally
+            # so a concurrent delete WINS (no resurrection); a first-time key stays an
+            # unconditional create. Splitting the call keeps `upsert(profile)` — the create
+            # contract — untouched for the common path.
+            if profile_observed:
+                await idx.upsert(profile, require_present=True)
+            else:
+                await idx.upsert(profile)
+            await persist_credentials_or_503(
+                strategy_for_slot,
+                {"auth_type": "api_key", "api_key": api_key},
+                description="API-key credentials",
+            )
+    except ProfileTransitionConflict as exc:
+        # A concurrent delete removed the profile we were updating: delete wins, so the
+        # rolled-back publication surfaces as a retryable conflict rather than a 500.
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "profile_conflict", "provider": provider, "profile": name},
+        ) from exc
+    # INVARIANT (OME-307 Unit 5): only after the API-key publication COMMITS do we
+    # irreversibly cancel any in-flight OAuth flow for this profile. A late OAuth callback is
+    # already rejected by authenticate_pending's pending-state CAS (it rolls back and returns
+    # 409), so this pop is cleanup, not correctness. Deferring it past the commit means a
+    # failed or cancelled publication above (including a 3.12 CancelledError, a BaseException)
+    # leaves the older OAuth flow usable and orphans no credential. Closing loopback listeners
+    # is network I/O and stays outside the transaction (SF-244 audit F10 stale cleanup).
+    for stale_state in _pending(request).pop_for_profile(account_id, provider, name):
+        await _close_loopback_callback(request.app, stale_state)
     _invalidate_profile_session(request.app, plugin, account_id, name)
     return profile.model_dump(mode="json")
 
@@ -1275,16 +1308,27 @@ async def delete_profile(provider: str, name: str, request: Request, current: Cu
     if plugin is None:
         raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
     account_id = str(current.id)
-    p = await _index_store(request).get(account_id, provider, name)
+    idx = _index_store(request)
+    p = await idx.get(account_id, provider, name)
     if p is None:
         raise HTTPException(status_code=404, detail={"code": "profile_not_found"})
     strategy = _credential_strategy_for_app(
         request.app, plugin, provider, account_id, name, auth_type=p.auth_type
     )
-    if strategy is not None:
-        await strategy.delete_credentials()
+    # INVARIANT (OME-307 Unit 3 + Blocker 3): publish the profile-index removal and the
+    # credential deletion in ONE transaction so a committed delete never leaves an orphan
+    # credential (a blob with no profile). The index-row CAS runs FIRST: it is the sole
+    # ALWAYS-PRESENT row, so it is the only row that serializes a concurrent api-key set. The
+    # credential row may be ABSENT (e.g. a pending/errored OAuth profile), and a missing-row
+    # DELETE takes NO lock under READ COMMITTED — so serializing on it would let a racing set
+    # slip an INSERT past this delete and orphan a credential. Rollback keeps blob + index
+    # coherent on any failure.
+    async with in_transaction():
+        await idx.remove(p.id)
+        if strategy is not None:
+            await strategy.delete_credentials()
+    # Cache invalidation follows the durable boundary so it reflects the committed delete.
     _invalidate_profile_session(request.app, plugin, account_id, name)
-    await _index_store(request).remove(p.id)
 
 
 @router.post("/v1/auth/{provider}/profiles/{name}/refresh")

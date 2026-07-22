@@ -4,8 +4,9 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from ..api_key_validation import ApiKeyValidationStage, ApiKeyValidationState
 from ..profile_models import AuthType
 from .identity import AccountIdentity
 
@@ -49,15 +50,36 @@ class PatchOAuthConnectionRequest(BaseModel):
 class CreateApiKeyConnectionRequest(BaseModel):
     """Create an api-key-authenticated connection (no OAuth round-trip)."""
 
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     provider: str
     label: OAuthConnectionLabel | None = None
-    api_key: str
+    api_key: SecretStr
 
 
 class SetConnectionApiKeyRequest(BaseModel):
     """Replace the stored API key on an existing api-key connection."""
 
-    api_key: str
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    api_key: SecretStr
+
+
+class ValidateApiKeyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+
+    provider: str
+    api_key: SecretStr
+
+
+class ApiKeyValidationResponse(BaseModel):
+    provider: str
+    state: ApiKeyValidationState
+    message: str
+    retryable: bool
+    stage: ApiKeyValidationStage | None = None
+    retry_after_seconds: int | None = None
+    probe_model: str | None = None
 
 
 class OAuthConnectionTokenResponse(BaseModel):

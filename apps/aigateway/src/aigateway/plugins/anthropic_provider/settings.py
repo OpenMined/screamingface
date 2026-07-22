@@ -71,6 +71,7 @@ class AnthropicPluginSettings(PluginSettings):
     )
 
     models: list[ModelEntry] = Field(default_factory=_default_models)
+    validation_model: str | None = None
 
     claude_code_keychain_service: str = "Claude Code-credentials"
     keychain_account: str = "default"

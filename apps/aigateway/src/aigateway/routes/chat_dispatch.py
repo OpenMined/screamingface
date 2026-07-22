@@ -83,9 +83,7 @@ async def _dispatch_failure_response(
         return exc
     if profile is None:
         return exc
-    await _mark_profile_error_fresh(
-        request, account_id=account_id, provider=provider, profile_name=profile_name
-    )
+    await _mark_profile_error_fresh(request, profile=profile)
     if credential_name is not None:
         _invalidate_profile_session(plugin, credential_name)
     return HTTPException(

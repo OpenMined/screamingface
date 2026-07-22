@@ -23,12 +23,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
+from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelEntry,
     ProviderPluginBase,
 )
 
+from .api_key_validation import HuggingFaceApiKeyValidator
 from .settings import HuggingFacePluginSettings
 
 if TYPE_CHECKING:
@@ -71,6 +73,9 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
             header_builder=lambda api_key: {"Authorization": f"Bearer {api_key}"},
             credential_store=credential_store,
         )
+
+    def api_key_validator(self) -> ApiKeyValidator:
+        return HuggingFaceApiKeyValidator(settings=self.settings)
 
     def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
         # 401 => bad/missing token (invalidate). 403 is ambiguous (model-access vs

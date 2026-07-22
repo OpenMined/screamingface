@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .api_key_validation import ApiKeyValidator
+
 if TYPE_CHECKING:
     from .credential_blob.store import CredentialBlobStore
     from .oauth.identity import AccountIdentity
@@ -134,6 +136,10 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
     ) -> CredentialStrategy | None:
         """Return a per-profile API-key strategy, or None when the provider
         does not support API-key auth (e.g. codex subscription endpoints)."""
+        return None
+
+    def api_key_validator(self) -> ApiKeyValidator | None:
+        """Return an operational API-key validator, or None when unavailable."""
         return None
 
     def credential_strategy_for(
