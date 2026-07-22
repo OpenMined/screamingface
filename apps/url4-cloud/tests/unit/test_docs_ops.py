@@ -19,10 +19,11 @@ EXPECTED_EVENT_SCHEMAS = {
     "HeartbeatEvent",
     "ResultEvent",
     "TerminatedEvent",
-    "ExecuteEvent",
     "StopEvent",
     "AttachEvent",
 }
+# INVARIANT: the WS inbound surface is Stop + Attach only — ai.url4.execute was dropped (OME-548).
+EXPECTED_SEND_COMMANDS = {"StopEvent", "AttachEvent"}
 
 
 def _client() -> TestClient:
@@ -100,6 +101,15 @@ def test_asyncapi_document_describes_the_ws_channel() -> None:
     # the CloudEvents events are the message payloads
     msg_schemas = set(doc["components"]["schemas"])
     assert EXPECTED_EVENT_SCHEMAS <= msg_schemas
+
+
+def test_asyncapi_send_operation_is_stop_and_attach_only() -> None:
+    # The client-sent command set is exactly Stop + Attach; Execute is gone (OME-548).
+    doc = _client().get("/asyncapi.json").json()
+    (send_op,) = [op for op in doc["operations"].values() if op["action"] == "send"]
+    sent = {ref["$ref"].rsplit("/", 1)[-1] for ref in send_op["messages"]}
+    assert sent == EXPECTED_SEND_COMMANDS
+    assert "ExecuteEvent" not in set(doc["components"]["schemas"])
 
 
 # --- k8s probes -----------------------------------------------------------

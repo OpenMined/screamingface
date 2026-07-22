@@ -8,7 +8,6 @@ from url4_streaming_protocol.envelope import CloudEvent
 from url4_streaming_protocol.signals import (
     AttachData,
     CostUsageData,
-    ExecuteData,
     HeartbeatData,
     LogData,
     ResultData,
@@ -56,11 +55,6 @@ class TerminatedEvent(CloudEvent):
 
 
 # ---- inbound commands (client -> app -> engine/tool) ----
-class ExecuteEvent(CloudEvent):
-    type: Literal["ai.url4.execute"] = "ai.url4.execute"
-    data: ExecuteData
-
-
 class StopEvent(CloudEvent):
     type: Literal["ai.url4.stop"] = "ai.url4.stop"
     data: StopData
@@ -81,7 +75,7 @@ OutboundFrame = Annotated[
     | TerminatedEvent,
     Field(discriminator="type"),
 ]
-InboundFrame = Annotated[ExecuteEvent | StopEvent | AttachEvent, Field(discriminator="type")]
+InboundFrame = Annotated[StopEvent | AttachEvent, Field(discriminator="type")]
 Frame = Annotated[
     StartedEvent
     | LogEvent
@@ -90,7 +84,6 @@ Frame = Annotated[
     | HeartbeatEvent
     | ResultEvent
     | TerminatedEvent
-    | ExecuteEvent
     | StopEvent
     | AttachEvent,
     Field(discriminator="type"),

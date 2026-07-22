@@ -28,7 +28,6 @@ from url4_cloud.jobs.port import JobRunner
 from url4_cloud_nats import Bus
 from url4_streaming_protocol import (
     AttachEvent,
-    ExecuteEvent,
     HeartbeatEvent,
     InboundFrameAdapter,
     OutboundFrame,
@@ -37,7 +36,7 @@ from url4_streaming_protocol import (
 
 Clock = Callable[[], datetime]
 
-_InboundEvent = AttachEvent | StopEvent | ExecuteEvent
+_InboundEvent = AttachEvent | StopEvent
 
 
 async def _send(ws: WebSocket, event: OutboundFrame) -> None:

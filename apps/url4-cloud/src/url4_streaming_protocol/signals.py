@@ -109,14 +109,6 @@ class TerminatedData(BaseModel):
     error: ErrorInfo | None = None
 
 
-class ExecuteData(BaseModel):
-    """Start the run for this node's url4 expression."""
-
-    url4: str
-    params: dict[str, str] = {}
-    timeout_s: float | None = None
-
-
 class StopData(BaseModel):
     """Request the run stop."""
 

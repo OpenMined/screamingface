@@ -12,7 +12,6 @@ from pydantic.json_schema import models_json_schema
 from url4_streaming_protocol import (
     AttachEvent,
     CostUsageEvent,
-    ExecuteEvent,
     HeartbeatEvent,
     LogEvent,
     ResultEvent,
@@ -32,7 +31,7 @@ OUTBOUND_EVENTS: tuple[type, ...] = (
     ResultEvent,
     TerminatedEvent,
 )
-INBOUND_EVENTS: tuple[type, ...] = (ExecuteEvent, StopEvent, AttachEvent)
+INBOUND_EVENTS: tuple[type, ...] = (StopEvent, AttachEvent)
 ALL_EVENTS: tuple[type, ...] = OUTBOUND_EVENTS + INBOUND_EVENTS
 
 REF_TEMPLATE = "#/components/schemas/{model}"
@@ -46,7 +45,6 @@ EVENT_TYPE: dict[str, str] = {
     "HeartbeatEvent": "ai.url4.heartbeat",
     "ResultEvent": "ai.url4.result",
     "TerminatedEvent": "ai.url4.terminated",
-    "ExecuteEvent": "ai.url4.execute",
     "StopEvent": "ai.url4.stop",
     "AttachEvent": "ai.url4.attach",
 }

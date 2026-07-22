@@ -62,9 +62,12 @@ already parses. **Ref:** <https://www.w3.org/TR/trace-context/>.
 
 Reverse-DNS per CloudEvents guidance. Outbound (engine/tool → app → client): `ai.url4.started`,
 `ai.url4.log`, `ai.url4.span`, `ai.url4.cost.usage`, `ai.url4.heartbeat`, `ai.url4.result`,
-`ai.url4.terminated`. Inbound (client → app → engine): `ai.url4.execute`, `ai.url4.stop`,
-`ai.url4.attach`. The set is a **JSON-Schema `oneOf` discriminated on `type`** (OpenAPI/AsyncAPI
-discriminator) — **Ref:** <https://spec.openapis.org/oas/v3.1.0#discriminator-object>.
+`ai.url4.terminated`. Inbound (client → app → engine): `ai.url4.stop`, `ai.url4.attach`. The set
+is a **JSON-Schema `oneOf` discriminated on `type`** (OpenAPI/AsyncAPI discriminator) — **Ref:**
+<https://spec.openapis.org/oas/v3.1.0#discriminator-object>.
+
+`ai.url4.execute` left the WS surface: runs start over REST (`GET /?q=…`), never over the socket,
+so the inbound command set is Stop + Attach only.
 
 ---
 

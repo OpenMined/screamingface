@@ -22,7 +22,7 @@ CHANNEL_ADDRESS = "/ws"
 INFO_DESCRIPTION = """\
 The url4-cloud telemetry stream. One **CloudEvents 1.0** event per WebSocket message
 (subprotocol `cloudevents.json`, docs/protocol.md §8). The client *receives* lifecycle/log/span/
-cost/heartbeat/result/terminated events and *sends* execute/stop/attach commands.
+cost/heartbeat/result/terminated events and *sends* stop/attach commands.
 """
 
 
