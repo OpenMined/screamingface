@@ -8,6 +8,10 @@ import json
 import pytest
 from conftest import RecordingIOLayer
 
+from url4.core.errors import CollectionError, CycleError, ParseError, ResolutionError
+from url4.core.grammar import parse as grammar_parse
+from url4.core.grammar import parse_group_root
+from url4.core.nodes import ForeachDirectives, Text, Url
 from url4.dag import (
     DEFAULT_MAP_CONCURRENCY,
     BarrierNode,
@@ -28,10 +32,7 @@ from url4.dag import (
     default_registry,
     run,
 )
-from url4.errors import CollectionError, CycleError, ParseError, ResolutionError
-from url4.grammar import parse as grammar_parse
-from url4.io_static import StaticIOLayer
-from url4.nodes import ForeachDirectives, Text, Url
+from url4.io.static import StaticIOLayer
 
 
 class BarrierIOLayer:
@@ -172,7 +173,7 @@ async def test_diamond_binding_resolved_once() -> None:
     # One binding read by two consumers and the intent → a single fetch.
     resolver = RecordingIOLayer(fetch_map={"https://x": "V"})
     result = await run("(a=https://x, use $a, also $a)!both: $a", resolver)
-    assert result == "both: V\n\nuse V\nalso V"
+    assert result == "both: V\n\na: V\nuse V\nalso V"  # `OME-534`: a packs too
     assert resolver.fetches.count("https://x") == 1
 
 
@@ -193,7 +194,7 @@ async def test_map_concurrency_bound_respected() -> None:
         fetch_map={"https://data": '[{"q": "1"}, {"q": "2"}, {"q": "3"}, {"q": "4"}]'},
         routes={"/solve": solve},
     )
-    await run("https://data*(/solve($item.q));iteration.concurrency=2", resolver)
+    await run("https://data*(r=/solve($item.q)!'go')!'$r';iteration.concurrency=2", resolver)
     assert seen_max <= 2
 
 
@@ -217,7 +218,7 @@ async def test_map_default_concurrency_is_bounded() -> None:
         fetch_map={"https://data": json.dumps(rows)},
         routes={"/solve": solve},
     )
-    await run("https://data*(/solve($item.q))", resolver)
+    await run("https://data*(r=/solve($item.q)!'go')!'$r'", resolver)
     assert seen_max <= DEFAULT_MAP_CONCURRENCY
     assert seen_max > 1  # still parallel, just bounded — not accidentally serial
 
@@ -228,7 +229,7 @@ async def test_map_non_positive_concurrency_falls_back_to_default() -> None:
     # IterationDirectives directly — the surface `;iteration.concurrency`
     # syntax rejects n < 1) must mean "use the default bound", never "unbounded".
     resolver = StaticIOLayer(fetch_map={"https://data": '["1", "2"]'})
-    graph = compile_expression("https://data*($item)")
+    graph = compile_expression("https://data*(r:0:$item)!'$r'")
     map_node = graph.sink.deps["rows"]
     assert isinstance(map_node, MapNode)
     map_node.directives = ForeachDirectives(concurrency=0)
@@ -258,7 +259,7 @@ async def test_abort_cancels_sibling_rows() -> None:
         routes={"/solve": solve},
     )
     with pytest.raises(RuntimeError, match="boom"):
-        await run("https://data*(/solve($item.q));iteration.on_error=fail", resolver)
+        await run("https://data*(r=/solve($item.q)!'go')!'$r';iteration.on_error=fail", resolver)
     assert slow_cancelled.is_set()
 
 
@@ -376,7 +377,9 @@ def test_graph_shape_for_mixed_group() -> None:
     # A text intent is ProcessNode's template, substituted against the
     # populated post-gather scope (expansion renumbers $N there — §5.3.12.4).
     assert sink.intent_template == "m"
-    assert sink.slots == (("a", True), (None, False))
+    # `OME-534`: the SlotSpec bool means INSTRUMENTAL (weight 0.0), and a
+    # name-only binding contributes — so it is False here.
+    assert sink.slots == (("a", False), (None, False))
 
 
 @pytest.mark.asyncio
@@ -386,7 +389,7 @@ async def test_explicit_context_reports_collected_errors() -> None:
         routes={"/solve": lambda context, intent: context},
     )
     ctx = ExecutionContext(resolver, strict_fields=True)
-    await run("https://data*(/solve($item.q))", ctx=ctx)
+    await run("https://data*(r=/solve($item.q)!'go')!'$r'", ctx=ctx)
     assert ctx.collected_errors == 1
 
 
@@ -412,8 +415,8 @@ async def test_shared_ctx_across_concurrent_runs_gets_independent_spawn_wiring()
     # "row $item" parses as a Text atom (a standalone "$item" is a VarRef and
     # would bypass the custom Text lowering this test observes).
     result_a, result_b = await asyncio.gather(
-        run("https://data*(row $item)", ctx=ctx, registry=_make_registry("A:")),
-        run("https://data*(row $item)", ctx=ctx, registry=_make_registry("B:")),
+        run("https://data*(r:0:'row $item')!'$r'", ctx=ctx, registry=_make_registry("A:")),
+        run("https://data*(r:0:'row $item')!'$r'", ctx=ctx, registry=_make_registry("B:")),
     )
     assert json.loads(result_a) == ["A:row 1"]
     assert json.loads(result_b) == ["B:row 1"]
@@ -437,7 +440,7 @@ async def test_run_rejects_ctx_combined_with_io_or_processor_or_process() -> Non
 async def test_fetch_intent_over_base_group_uses_barrier_and_merges() -> None:
     # F2: a non-text (fetch) top-level intent over a parenthesised group — an
     # absolute URL or a bare /path — lowers through compiler._base_graph's
-    # is_text=False branch (the BarrierNode path), which is otherwise uncovered.
+    # non-text-intent branch (the BarrierNode path), which is otherwise uncovered.
     # Pin the structural contract (a BarrierNode carrying `inner` + `wait:*` deps
     # that ARE the source nodes) and the observable result (the fetched intent
     # merges with the resolved sources via default_process). The barrier is
@@ -518,7 +521,7 @@ async def test_frame_binds_positional_pos_role() -> None:
     # slot positionally.
     io = StaticIOLayer(fetch_map={"https://x": "V"})
     result = await run("(a=https://x, use $1)!go", io)
-    assert result == "go\n\nuse V"
+    assert result == "go\n\na: V\nuse V"  # `OME-534`: a packs too
 
 
 @pytest.mark.asyncio
@@ -563,7 +566,11 @@ async def test_struct_reference_value_is_never_numerically_coerced() -> None:
     # nodes.py _decode_struct_value(): a $-referenced value is substituted as
     # text and never coerced — {id: $uid} with uid bound to "30" stays the
     # string "30", so a resolved id is not silently renumbered.
-    result = await run(compile_expression("(uid=30, {id: $uid})"), StaticIOLayer())
+    # `OME-508`: the intent-less group is an internal carrier — built via
+    # parse_group_root (the envelope entry that holds no intent) for this pin.
+    result = await run(
+        compile_expression(parse_group_root("(uid:0:'30', {id: $uid})")), StaticIOLayer()
+    )
     assert json.loads(result) == {"id": "30"}
 
 
@@ -571,7 +578,7 @@ def test_refs_of_ast_extracts_relurl_path_reference() -> None:
     # compiler.py _refs_of_ast(): on the AST compile path a bare relative URI
     # /data/$topic contributes its embedded $topic reference, so the edge
     # _lower_relurl attaches actually gets wired.
-    graph = compile_expression(grammar_parse("(topic=hello, /data/$topic)"))
+    graph = compile_expression(parse_group_root("(topic=hello, /data/$topic)"))
     relurl = graph.sink.deps["src:1"]
     assert isinstance(relurl, RelUrlNode)
     assert "bind:topic" in relurl.deps
@@ -583,7 +590,7 @@ async def test_relurl_bare_path_resolves_sibling_reference_text_path() -> None:
     # sibling-binding scope frame, so /data/$topic fetches /data/hello, not the
     # literal /data/$topic (which would raise "no fetch mapping").
     io = RecordingIOLayer(fetch_map={"/data/hello": "OK"})
-    assert await run("(topic=hello, /data/$topic)", io) == "OK"
+    assert await run("(topic:0:'hello', r:0:/data/$topic)!'$r'", io) == "OK"
     assert "/data/hello" in io.fetches
 
 
@@ -591,8 +598,9 @@ async def test_relurl_bare_path_resolves_sibling_reference_text_path() -> None:
 async def test_relurl_bare_path_resolves_sibling_reference_ast_path() -> None:
     # The AST twin of the text path — the same edge wired via _refs_of_ast.
     io = RecordingIOLayer(fetch_map={"/data/hello": "OK"})
-    ast = grammar_parse("(topic=hello, /data/$topic)")
-    assert await run(compile_expression(ast), io) == "OK"
+    ast = parse_group_root("(topic=hello, /data/$topic)")
+    # `OME-534`: the named source packs as a labeled line before the fetch value
+    assert await run(compile_expression(ast), io) == "topic: hello\nOK"
     assert "/data/hello" in io.fetches
 
 
@@ -691,7 +699,7 @@ async def test_run_all_success_path_returns_row_results() -> None:
     # nodes.py MapNode._run_all(): the success path (no row errors,
     # ;iteration.on_error=fail) returns every row's result, in order.
     io = StaticIOLayer(fetch_map={"https://data": '["1", "2", "3"]'})
-    result = await run("https://data*($item);iteration.on_error=fail", io)
+    result = await run("https://data*(r:0:$item)!'$r';iteration.on_error=fail", io)
     assert json.loads(result) == ["1", "2", "3"]
 
 
@@ -812,17 +820,20 @@ async def test_fanout_call_unwraps_guarded_relative_expression() -> None:
     )
     graph = compile_expression("(/a()!x;optional, /b()!y)!combine")
     assert isinstance(graph.sink, FanoutReduceNode)
-    result = await run(graph, io)
+    result = await run(graph, io, processor="/claude")
     assert "A" in result and "B" in result
 
 
 def test_is_lazy_group_detects_bare_paren_group_without_tail() -> None:
-    # compiler.py _is_lazy_group(): a bare "(...)" segment with no "!tail" is
-    # ALSO a lazy group (distinct from the "(...)!tail" shape) — it defers to
-    # a LazyExprNode thunk rather than being parsed inline.
-    graph = compile_expression("(a, (nested, stuff))!go")
+    # compiler.py _is_lazy_group() + _reject_bare_group(): a bare "(...)"
+    # segment with no "!tail" is rejected EAGERLY (`OME-508` — deferring it
+    # would let a user's bare group slip past the permissive spawn boundary),
+    # while the "(...)!tail" shape still defers to a LazyExprNode thunk.
+    with pytest.raises(ParseError, match="intent"):
+        compile_expression("(a, (nested, stuff))!go")
+    graph = compile_expression("(a, (nested, stuff)!x)!go")
     lazies = [node for node in graph.walk() if isinstance(node, LazyExprNode)]
-    assert [lazy.text for lazy in lazies] == ["(nested, stuff)"]
+    assert [lazy.text for lazy in lazies] == ["(nested, stuff)!x"]
 
 
 @pytest.mark.asyncio
@@ -836,7 +847,8 @@ async def test_group_binding_rhs_lowers_to_lazy_binding_thunk() -> None:
     assert isinstance(binding, BindingNode)
     assert isinstance(binding.deps["value"], LazyExprNode)
     result = await run(graph, io)
-    assert result == "combine\n\nuse label\n\nX"
+    # `OME-534`: the deferred g binding contributes a labeled line too
+    assert result == "combine\n\ng: label\n\nX\nuse label\n\nX"
 
 
 @pytest.mark.asyncio
@@ -844,7 +856,7 @@ async def test_empty_collection_text_lowers_to_empty_text_node() -> None:
     # compiler.py _collection_dag(): an empty-string collection (e.g. "*(x)"
     # with no source before the "*") lowers to TextNode(""), so iteration sees
     # zero rows (spec §5.3.9).
-    graph = compile_expression("*(x)")
+    graph = compile_expression("*(r=x)!'$r'")
     map_node = graph.sink.deps["rows"]
     collection = map_node.deps["collection"]
     assert isinstance(collection, TextNode)
@@ -900,8 +912,26 @@ def test_validate_parses_reducer_instruction() -> None:
     # compiler.py Graph.validate(): a ReduceNode's reducer template is parsed
     # by validate() too, not just LazyExprNode fragments — a malformed reducer
     # fails fast at validate() instead of only surfacing at execution.
-    good = compile_expression("(https://data*(x))!/reduce(all)")
+    good = compile_expression("(https://data*(x)!p)!/reduce(all)!'agg'")
     good.validate()  # does not raise
-    bad = compile_expression("(https://data*(x))!/reduce((bad")
+    bad = compile_expression("(https://data*(x)!p)!/reduce((bad")
     with pytest.raises(ParseError):
         bad.validate()
+
+
+# --- processor resolution: declared routes replace the hardcoded default --------
+
+
+def test_execution_context_resolves_processor_from_io_declared_routes() -> None:
+    # WHY: the processor default is the io world's first declared route
+    # (SupportsDefaultRoute) — never a hardcoded path name.
+    io = StaticIOLayer(routes={"/r": lambda c, i: i, "/other": lambda c, i: i})
+    assert ExecutionContext(io).processor == "/r"
+    assert ExecutionContext(io, processor="/explicit").processor == "/explicit"
+    assert ExecutionContext(StaticIOLayer()).processor is None
+
+
+def test_execution_context_child_inherits_resolved_processor() -> None:
+    io = StaticIOLayer(routes={"/r": lambda c, i: i})
+    ctx = ExecutionContext(io)
+    assert ctx.child(ctx.scope).processor == "/r"

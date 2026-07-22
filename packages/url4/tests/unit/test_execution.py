@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 from conftest import RecordingIOLayer
 
-from url4.context import Context
+from url4.core.context import Context
 from url4.dag import run
-from url4.io_static import StaticIOLayer
+from url4.io.static import StaticIOLayer
 
 
 @pytest.mark.asyncio
@@ -25,8 +25,8 @@ async def test_single_source_fetch_and_intent() -> None:
 async def test_named_binding_substitution_in_intent() -> None:
     resolver = StaticIOLayer(fetch_map={"https://x": "ARTICLE"})
     result = await run("(article=https://x)!use $article", resolver)
-    # Binding is a side-effect referenced via $article; not appended as a source.
-    assert result == "use ARTICLE"
+    # `OME-534`: the name-only source interpolates AND packs as a labeled line.
+    assert result == "use ARTICLE\n\narticle: ARTICLE"
 
 
 @pytest.mark.asyncio
@@ -61,7 +61,8 @@ async def test_later_source_sees_earlier_binding() -> None:
     resolver = StaticIOLayer(fetch_map={"https://x": "SHARED"})
     result = await run("(a=https://x, b='$a again')!$b", resolver)
     # Quotes are delimiters; $a substitutes inside the (unquoted) content.
-    assert result == "SHARED again"
+    # `OME-534`: both named sources pack as labeled lines after the intent.
+    assert result == "SHARED again\n\na: SHARED\nb: SHARED again"
 
 
 @pytest.mark.asyncio
@@ -75,7 +76,7 @@ async def test_overridable_process() -> None:
 
 @pytest.mark.asyncio
 async def test_run_accepts_prebuilt_parse_tree() -> None:
-    from url4.parser import Parser
+    from url4.core.parser import Parser
 
     tree = Parser().build("https://x!go")
     resolver = StaticIOLayer(fetch_map={"https://x": "DATA"})
@@ -90,7 +91,7 @@ async def test_run_default_io_creates_and_closes_owned_adapter(monkeypatch) -> N
     # finally) is uncovered. Patch the adapter the executor imports so we observe
     # the lifecycle without a real network round-trip: exactly one adapter is
     # created, its fetch is used to resolve the source, and it is closed.
-    import url4.io_http as io_http
+    import url4.io.http as io_http
 
     created: list = []
 
@@ -118,8 +119,8 @@ async def test_run_default_io_closes_even_when_execution_raises(monkeypatch) -> 
     # F4: the finally-close must run even when the run fails, so the owned
     # client never leaks on a failed expression. A fetch that raises resolves to
     # a Url4Error; the adapter must still be closed.
-    import url4.io_http as io_http
-    from url4.errors import ResolutionError
+    import url4.io.http as io_http
+    from url4.core.errors import ResolutionError
 
     closed = {"yes": False}
 
