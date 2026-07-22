@@ -28,6 +28,8 @@ from url4_cloud.jobs.port import JobRunner
 from url4_cloud_nats import Bus
 from url4_streaming_protocol import (
     AttachEvent,
+    ErrorData,
+    ErrorEvent,
     HeartbeatEvent,
     InboundFrameAdapter,
     OutboundFrame,
@@ -46,6 +48,18 @@ async def _send(ws: WebSocket, event: OutboundFrame) -> None:
 
 def _heartbeat(topic: str, clock: Clock) -> HeartbeatEvent:
     return HeartbeatEvent(id=uuid4().hex, source=f"/trace/{topic}", subject=topic, time=clock())
+
+
+def _error(topic: str, clock: Clock, code: str, message: str, ref_id: str | None) -> ErrorEvent:
+    # WHY: an advisory nack for a rejected inbound frame — an outbound OutboundFrame the inbound
+    # task *enqueues* (never sends), so the writer stays the sole ws.send caller (single-writer).
+    return ErrorEvent(
+        id=uuid4().hex,
+        source=f"/trace/{topic}",
+        subject=topic,
+        time=clock(),
+        data=ErrorData(code=code, message=message, ref_id=ref_id),
+    )
 
 
 def _parse_inbound(raw: str) -> _InboundEvent | None:
@@ -96,17 +110,42 @@ class Bridge:
     async def _inbound(self) -> None:
         try:
             while True:
-                self._handle(_parse_inbound(await self._ws.receive_text()))
+                event = _parse_inbound(await self._ws.receive_text())
+                if event is None:
+                    # INVARIANT: enqueue the nack — the inbound task never calls ws.send.
+                    self._out.put_nowait(
+                        _error(
+                            self._topic,
+                            self._clock,
+                            "invalid_frame",
+                            "unparseable or invalid inbound frame",
+                            None,
+                        )
+                    )
+                    continue
+                self._handle(event)
         except WebSocketDisconnect:
             pass
         finally:
             self._stop.set()
 
-    def _handle(self, event: _InboundEvent | None) -> None:
+    def _handle(self, event: _InboundEvent) -> None:
         if isinstance(event, AttachEvent):
             self._resubscribe(event.data.from_sequence)
-        elif isinstance(event, StopEvent) and self._job_runner is not None:
-            self._job_runner.stop(self._topic)
+        elif isinstance(event, StopEvent):
+            if self._job_runner is not None:
+                self._job_runner.stop(self._topic)
+            else:
+                # WHY: no runner ⇒ the Stop cannot act; nack it so the client isn't left guessing.
+                self._out.put_nowait(
+                    _error(
+                        self._topic,
+                        self._clock,
+                        "unsupported",
+                        "stop not supported: no job runner configured",
+                        event.id,
+                    )
+                )
 
     def _resubscribe(self, cursor: int | None) -> None:
         if self._sub is not None:

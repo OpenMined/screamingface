@@ -19,6 +19,7 @@ EXPECTED_EVENT_SCHEMAS = {
     "HeartbeatEvent",
     "ResultEvent",
     "TerminatedEvent",
+    "ErrorEvent",
     "StopEvent",
     "AttachEvent",
 }
@@ -101,6 +102,19 @@ def test_asyncapi_document_describes_the_ws_channel() -> None:
     # the CloudEvents events are the message payloads
     msg_schemas = set(doc["components"]["schemas"])
     assert EXPECTED_EVENT_SCHEMAS <= msg_schemas
+
+
+def test_asyncapi_receive_operation_includes_error() -> None:
+    # ai.url4.error is outbound telemetry — the client *receives* it, never sends it (OME-549).
+    doc = _client().get("/asyncapi.json").json()
+    ops = doc["operations"]
+    (recv_op,) = [op for op in ops.values() if op["action"] == "receive"]
+    (send_op,) = [op for op in ops.values() if op["action"] == "send"]
+    received = {ref["$ref"].rsplit("/", 1)[-1] for ref in recv_op["messages"]}
+    sent = {ref["$ref"].rsplit("/", 1)[-1] for ref in send_op["messages"]}
+    assert "ErrorEvent" in received
+    assert "ErrorEvent" not in sent
+    assert "ErrorEvent" in doc["components"]["schemas"]
 
 
 def test_asyncapi_send_operation_is_stop_and_attach_only() -> None:

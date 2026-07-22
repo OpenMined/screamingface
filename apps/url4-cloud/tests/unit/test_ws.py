@@ -224,8 +224,11 @@ def test_ws_reattach_cancels_prior_subscription_and_replays() -> None:
     assert second["type"] == "ai.url4.started"
 
 
-def test_ws_ignores_malformed_inbound_frames() -> None:
-    # Non-JSON text and a well-formed-but-unknown frame are dropped, not fatal: the socket lives.
+def test_ws_malformed_inbound_frames_nacked_stream_survives() -> None:
+    # Non-JSON text AND a well-formed-but-unknown frame are each nacked ai.url4.error(invalid_frame)
+    # — not fatal: the socket lives and idle heartbeats resume. OME-549 superseded the prior
+    # silent-drop contract; this covers the valid-JSON-but-unknown-`type` reject path (the non-JSON
+    # path is also asserted in test_ws_unparseable_frame_yields_invalid_frame_nack_and_survives).
     topic = "ws-malformed"
     bus = InMemoryBus()
     app = _make_app(bus=bus, ws_heartbeat_s=0.05)
@@ -233,7 +236,49 @@ def test_ws_ignores_malformed_inbound_frames() -> None:
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_text("this is not json {{{")
             ws.send_json({"type": "ai.url4.bogus", "id": "x", "source": "/c"})
-            assert ws.receive_json()["type"] == "ai.url4.heartbeat"
+            first = ws.receive_json()
+            second = ws.receive_json()
+            beat = ws.receive_json()
+    assert first["type"] == "ai.url4.error" and first["data"]["code"] == "invalid_frame"
+    assert second["type"] == "ai.url4.error" and second["data"]["code"] == "invalid_frame"
+    assert beat["type"] == "ai.url4.heartbeat"
+
+
+# --- error nacks ----------------------------------------------------------
+
+
+def test_ws_unparseable_frame_yields_invalid_frame_nack_and_survives() -> None:
+    # An unparseable inbound frame is nacked with ai.url4.error(invalid_frame) rather than dropped;
+    # the socket survives — the next idle beat still arrives. The nack is enqueued from the bad
+    # frame before the first heartbeat window elapses, so it is the first frame the client sees.
+    topic = "ws-nack-parse"
+    bus = InMemoryBus()
+    app = _make_app(bus=bus, ws_heartbeat_s=0.05)
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
+            ws.send_text("{not json")
+            nack = ws.receive_json()
+            beat = ws.receive_json()
+    assert nack["type"] == "ai.url4.error"
+    assert nack["data"]["code"] == "invalid_frame"
+    assert nack["data"]["ref_id"] is None
+    assert beat["type"] == "ai.url4.heartbeat"
+
+
+def test_ws_stop_without_runner_yields_unsupported_nack() -> None:
+    # No JobRunner configured ⇒ a valid Stop cannot act: the client is nacked ai.url4.error
+    # (unsupported) whose ref_id points back at the Stop's id (job_runner=None ⇒ create_app direct).
+    topic = "ws-nack-stop"
+    bus = InMemoryBus()
+    settings = Settings(jwt_secret=SECRET, iat_window_s=WINDOW_S, ws_heartbeat_s=0.05)
+    app = create_app(settings, bus=bus, job_runner=None, clock=lambda: T0)
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
+            ws.send_json(_stop())
+            nack = ws.receive_json()
+    assert nack["type"] == "ai.url4.error"
+    assert nack["data"]["code"] == "unsupported"
+    assert nack["data"]["ref_id"] == "stp"
 
 
 # --- rejection paths ------------------------------------------------------

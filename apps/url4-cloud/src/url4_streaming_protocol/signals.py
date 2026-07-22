@@ -119,3 +119,11 @@ class AttachData(BaseModel):
     """Subscribe / resume the stream from a CloudEvents ``sequence``."""
 
     from_sequence: int | None = None
+
+
+class ErrorData(BaseModel):
+    """A rejected/invalid inbound frame — an advisory nack (docs/protocol.md §5)."""
+
+    code: str
+    message: str
+    ref_id: str | None = None

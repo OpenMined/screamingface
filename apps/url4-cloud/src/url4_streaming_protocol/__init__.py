@@ -4,6 +4,7 @@ from url4_streaming_protocol.envelope import CloudEvent
 from url4_streaming_protocol.signals import (
     AttachData,
     CostUsageData,
+    ErrorData,
     HeartbeatData,
     LogData,
     ResultData,
@@ -16,6 +17,7 @@ from url4_streaming_protocol.taxonomy import CostBreakdown, ErrorInfo, TokenUsag
 from url4_streaming_protocol.unions import (
     AttachEvent,
     CostUsageEvent,
+    ErrorEvent,
     Frame,
     FrameAdapter,
     HeartbeatEvent,
@@ -38,6 +40,8 @@ __all__ = [
     "CostBreakdown",
     "CostUsageData",
     "CostUsageEvent",
+    "ErrorData",
+    "ErrorEvent",
     "ErrorInfo",
     "Frame",
     "FrameAdapter",

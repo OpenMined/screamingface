@@ -8,6 +8,7 @@ from url4_streaming_protocol.envelope import CloudEvent
 from url4_streaming_protocol.signals import (
     AttachData,
     CostUsageData,
+    ErrorData,
     HeartbeatData,
     LogData,
     ResultData,
@@ -54,6 +55,11 @@ class TerminatedEvent(CloudEvent):
     data: TerminatedData
 
 
+class ErrorEvent(CloudEvent):
+    type: Literal["ai.url4.error"] = "ai.url4.error"
+    data: ErrorData
+
+
 # ---- inbound commands (client -> app -> engine/tool) ----
 class StopEvent(CloudEvent):
     type: Literal["ai.url4.stop"] = "ai.url4.stop"
@@ -72,7 +78,8 @@ OutboundFrame = Annotated[
     | CostUsageEvent
     | HeartbeatEvent
     | ResultEvent
-    | TerminatedEvent,
+    | TerminatedEvent
+    | ErrorEvent,
     Field(discriminator="type"),
 ]
 InboundFrame = Annotated[StopEvent | AttachEvent, Field(discriminator="type")]
@@ -85,7 +92,8 @@ Frame = Annotated[
     | ResultEvent
     | TerminatedEvent
     | StopEvent
-    | AttachEvent,
+    | AttachEvent
+    | ErrorEvent,
     Field(discriminator="type"),
 ]
 

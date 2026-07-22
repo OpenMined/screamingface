@@ -62,7 +62,8 @@ already parses. **Ref:** <https://www.w3.org/TR/trace-context/>.
 
 Reverse-DNS per CloudEvents guidance. Outbound (engine/tool → app → client): `ai.url4.started`,
 `ai.url4.log`, `ai.url4.span`, `ai.url4.cost.usage`, `ai.url4.heartbeat`, `ai.url4.result`,
-`ai.url4.terminated`. Inbound (client → app → engine): `ai.url4.stop`, `ai.url4.attach`. The set
+`ai.url4.terminated`, plus the **app-emitted** `ai.url4.error` nack (§5.5). Inbound (client → app →
+engine): `ai.url4.stop`, `ai.url4.attach`. The set
 is a **JSON-Schema `oneOf` discriminated on `type`** (OpenAPI/AsyncAPI discriminator) — **Ref:**
 <https://spec.openapis.org/oas/v3.1.0#discriminator-object>.
 
@@ -110,6 +111,15 @@ and `scope ∈ {self, subtree}` with `subtree == self + Σ children.subtree`.
 Plain typed payloads. `terminated.error` mirrors url4 `Url4Error` (`code`, `message`,
 `permanent`) so Guard semantics survive across the wire. `terminated.status ∈ {succeeded,
 failed, stopped, timed_out}`.
+
+### 5.5 `ai.url4.error` — advisory nack (app-emitted)
+**Decision:** the **app** emits `ai.url4.error` when it rejects an inbound command, rather than
+dropping it silently. `data` is `{code, message, ref_id}`: `code ∈ {invalid_frame, unsupported}`
+(`invalid_frame` = an unparseable or unknown inbound frame; `unsupported` = a valid command the
+bridge cannot act on, e.g. `stop` with no job runner), and `ref_id` echoes the rejected event's
+`id` when known (`null` for an unparseable frame). It is **advisory** — the stream stays open.
+Distinct from `terminated.error` (a *run* failure): this is a *protocol* nack, so it carries no
+`permanent` flag.
 
 ---
 
