@@ -379,6 +379,56 @@ async def test_complete_url4_preserves_hyphenated_names_and_nested_case_objects(
 
 
 @pytest.mark.asyncio
+async def test_complete_url4_aggregates_candidate_specific_failures() -> None:
+    node = Url4Node("candidate-integration", eval_path="/v1")
+    node.endpoint(DRACO_LITE_CANDIDATE_ROUTE)(_evaluator(executor=Executor(fail_model=MODEL_B.id)))
+    node.endpoint(CANDIDATE_MEAN_ROUTE)(candidate_mean)
+    source_case = _case()
+    node.data(
+        "/cases",
+        json.dumps(
+            {
+                "id": source_case["case_id"],
+                "input": source_case["question"],
+                "reference": source_case["reference"],
+            }
+        ),
+        media_type="application/x-ndjson",
+    )
+    node.data(
+        "/tool-policy",
+        json.dumps(source_case["tool_policy"]),
+        media_type="application/json",
+    )
+    a = sf.Model(MODEL_A.id, name="a", prompt="Answer")
+    b = sf.Model(MODEL_B.id, name="b", prompt="Answer")
+    pair = sf.Fusion(
+        "a-plus-b",
+        members=(a, b),
+        reducer=sf.reducers.Model(model=MODEL_A.id, prompt="Synthesize"),
+    )
+    expression = compile_candidates_benchmark_expression(
+        benchmark_id="draco-lite@1",
+        cases_route="/cases",
+        candidate_route=DRACO_LITE_CANDIDATE_ROUTE,
+        aggregator_route=CANDIDATE_MEAN_ROUTE,
+        candidates=(a, b, pair),
+        tool_policy_route="/tool-policy",
+        first=1,
+    )
+
+    transport = httpx.ASGITransport(app=node.asgi())
+    async with httpx.AsyncClient(transport=transport, base_url="http://engine.test") as client:
+        response = await client.get("/v1", params={"q": expression})
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["candidates"]["a"]["score"] == 0.5
+    assert payload["candidates"]["b"]["score"] is None
+    assert payload["candidates"]["a-plus-b"]["score"] is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
