@@ -16,6 +16,8 @@ stacked owner handoff. The checkpoint branch remains the complete historical spi
 ## Phase 1 changes
 
 - Created `OME-400-screamingface-sdk` from current `origin/main`.
+- Integrated the published `OME-466-url4-serve` branch as explicit ancestry after clean CI proved
+  that current SDK execution contracts require its evaluation semantics.
 - Restored only current SDK implementation, examples, public contracts, fixtures, and package
   registration changes.
 - Removed the temporary engine app and all engine-owned canonical benchmark, grading, and reduction
@@ -33,19 +35,21 @@ stacked owner handoff. The checkpoint branch remains the complete historical spi
 - Executable contract fixtures: pass.
 - Deterministic notebooks: pass.
 - Wheel and source distribution: pass.
+- URL4 owner-branch gate: pass.
 - `git diff --check`: pass.
 - No `screamingface_engine`, `screamingface._benchmarks`, `screamingface._exact_choice`, or
   `screamingface._reduction` import remains in SDK production/tests.
 
 ## Remaining work
 
-Create the stacked `OME-400-screamingface-engine-reference` branch, relocate the engine-owned
-implementations into its namespace, remove every private SDK import from engine production code,
-and run its independent engine plus public-SDK integration gates before handoff.
+Share the stacked engine-reference branch, engine handoff specification, and passing gate evidence
+with Ionesio. Final app placement and URL4-cloud runner integration remain owner decisions.
 
 ## Outcome (fill at completion)
 
-- **Actual files:** Phase 1 SDK split implemented; Phase 2 pending.
-- **Commits:** pending.
-- **Gates:** SDK-only gate green as recorded above.
-- **Deviations:** none.
+- **Actual files:** Phase 1 standalone SDK plus Phase 2 stacked engine-reference handoff.
+- **Commits:** SDK branch head is this commit; engine-reference is stacked separately.
+- **Gates:** SDK 287 tests/95.15%; engine 432 tests/95.09%; both lint, format, typecheck, and build
+  gates green; SDK fixtures and generated notebooks deterministic; rebuilt Docker stack healthy.
+- **Deviations:** the original direct `main → SDK` topology became
+  `main → OME-466 → SDK` until OME-466 lands. ScreamingFace authors no URL4 file change.
