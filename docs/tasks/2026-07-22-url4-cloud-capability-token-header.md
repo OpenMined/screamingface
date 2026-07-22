@@ -1,12 +1,12 @@
 ---
 id: OME-556
 linear_url: https://linear.app/openmined/issue/OME-556/dedicated-capability-token-header-url4-capability-decouple-from
-status: in_progress
+status: done
 type: task
 priority: P2
 labels: [url4-cloud, autonomous, agentic]
 created: 2026-07-22
-closed:
+closed: 2026-07-22
 ---
 
 # OME-556 — Dedicated capability token header URL4-Capability (decouple from Authorization)
