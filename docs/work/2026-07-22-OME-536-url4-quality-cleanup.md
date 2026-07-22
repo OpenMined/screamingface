@@ -57,7 +57,7 @@ guards the lazy-transport property.
 
 - **Actual files:** 13 modules under `src/url4/` as planned, plus one stale comment in
   `tests/unit/test_dag.py` (it named the removed `is_text` flag). No test logic changed.
-- **Commits:** <sha — chore(url4): package-wide quality cleanup>
+- **Commits:** 8c17a7a — chore(url4): package-wide quality cleanup
 - **Gates:** ruff clean · ruff format clean · pyright 0 errors · pytest 1073 passed,
   coverage 97.45% (>= 95). Test count unchanged from the pre-change baseline.
 - **Measured effects:**
