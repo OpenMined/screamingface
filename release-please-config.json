@@ -31,6 +31,14 @@
       "tag-separator": "-",
       "include-component-in-tag": true,
       "version-file": "packages/url4/pyproject.toml"
+    },
+    "apps/url4-cloud": {
+      "release-type": "python",
+      "package-name": "url4-cloud",
+      "component": "url4-cloud",
+      "tag-separator": "-",
+      "include-component-in-tag": true,
+      "version-file": "apps/url4-cloud/pyproject.toml"
     }
   }
 }
