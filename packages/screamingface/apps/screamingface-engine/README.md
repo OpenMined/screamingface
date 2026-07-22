@@ -45,8 +45,8 @@ curl -N -H 'Accept: text/event-stream' \
 
 `/docs` is the human-readable API reference and `/openapi.json` is its OpenAPI 3.1 source. Both
 are generated from the same startup model-route snapshot as the URL4 node, so the documented
-model paths match the routes this engine can execute. The reference distinguishes current HTTP
-and URL4 capabilities from planned work; in particular, it does not advertise DRACO as runnable.
+model paths match the routes this engine can execute. The reference includes DRACO routes only
+when the pinned judge model is present in that startup snapshot.
 
 The engine snapshots AI Gateway's protected model catalog once at startup and builds its model
 routes and registry from the same immutable data. Model handlers use one shared HTTP client to
@@ -82,11 +82,13 @@ export HF_TOKEN=hf_...
 This token is separate from `sf.connect("huggingface")`, which configures Hugging Face as an AI
 Gateway inference provider. No synthetic or mock dataset fallback exists.
 
-DRACO is not advertised yet. Its versioned provider-neutral tool-policy data route is registered,
-but the remaining work includes its production cases, grader protocol, manifest, model routes, and
-candidate configuration. A complete study runs one URL4
-benchmark transaction per candidate and compares the resulting reports client-side; it does not
-depend on a generic all-settled multi-root primitive.
+When the pinned judge route is executable, the engine advertises `draco-preview@1`,
+`draco-lite@1`, and `draco@1`. Preview uses real pinned cases with one positive criterion and one
+judge pass. Lite uses the first pinned case, ten section-diverse criteria, one pass, and a
+candidate evaluator that runs the complete ordered candidate DAG in one URL4 transaction while
+preserving candidate-specific failures. Production DRACO uses all 100 complete rubrics and five
+passes in the single-candidate benchmark flow; extending the shared candidate-study route to that
+production profile remains a separate adoption decision.
 
 ## Models, reducers, and tools
 
@@ -208,4 +210,6 @@ uv run pyright
 uv run pytest --cov=screamingface --cov-fail-under=95 -q
 PYTHONPATH=apps/screamingface-engine/src uv run pytest apps/screamingface-engine/tests \
   --cov=screamingface_engine --cov-fail-under=95 -q
+uv run python scripts/check_contract_fixtures.py
+uv run --extra notebook python scripts/check_notebooks.py
 ```

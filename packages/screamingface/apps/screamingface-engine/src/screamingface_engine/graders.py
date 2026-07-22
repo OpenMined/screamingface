@@ -31,9 +31,7 @@ def exact_choice(request: Request) -> str:
     benchmark_id = _nonblank(case["benchmark_id"], "benchmark ID")
     case_id = _nonblank(case["case_id"], "case ID")
     operation_id = f"grading:{benchmark_id}:{case_id}"
-    emit_progress(
-        "grading", "started", f"Grading case {case_id}", operation_id=operation_id
-    )
+    emit_progress("grading", "started", f"Grading case {case_id}", operation_id=operation_id)
     try:
         reference = validate_exact_reference(case["reference"])
     except (TypeError, ValueError) as exc:
@@ -47,9 +45,7 @@ def exact_choice(request: Request) -> str:
         "recipe": _grade(reference, answer),
         "members": members,
     }
-    emit_progress(
-        "grading", "completed", f"Graded case {case_id}", operation_id=operation_id
-    )
+    emit_progress("grading", "completed", f"Graded case {case_id}", operation_id=operation_id)
     return json.dumps(payload, allow_nan=False, separators=(",", ":"))
 
 

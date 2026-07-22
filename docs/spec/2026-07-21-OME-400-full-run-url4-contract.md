@@ -40,10 +40,14 @@ the iteration body.
 For DRACO the corresponding versioned routes are:
 
 - `/benchmarks/draco/1/cases` (full rubric) and `/benchmarks/draco-preview/1/cases` (one positive
-  criterion over the same real cases);
+  criterion over the same real cases), plus `/benchmarks/draco-lite/1/cases` (one pinned case and
+  ten section-diverse criteria);
 - `/benchmarks/draco/1/tool-policy`;
-- `/graders/draco-rubric/1` (five passes) and `/graders/draco-preview-rubric/1` (one pass); and
-- `/aggregators/mean/1`.
+- `/graders/draco-rubric/1` (five passes), `/graders/draco-preview-rubric/1` (one pass), and
+  `/graders/draco-lite-rubric/1` (one pass);
+- `/aggregators/mean/1`; and
+- for DRACO Lite candidate studies only, `/benchmarks/draco-lite/1/evaluate-candidates` plus
+  `/aggregators/candidate-mean/1`.
 
 The rubric grader manifest includes its pinned model, byte-pinned system prompt, passes, and model
 params so SDK preflight and connection requirements reflect the engine route exactly. Rubric grade
@@ -98,9 +102,11 @@ version authoritative and avoids copying `tools.max_calls` and `web_search.*` pa
 each model route. The engine chooses OpenRouter-managed tools or its Tavily adapter per registered
 model route; see `2026-07-21-OME-400-provider-neutral-web-tools.md`.
 
-Researcher-authored custom benchmarks without an engine policy route use the portable inline form.
-There, named tool lists use a colon-delimited scalar such as `tools=web_search:web_fetch`, because
-the current URL4 parameter grammar permits `:` but not the earlier `+` separator.
+Client-side `sf.Benchmark(...)` values support authoring and validation, but the SDK does not yet
+publish or register them with an engine and does not execute them locally. A future engine
+registration adapter may use the compiler's portable inline tool-policy form; named tool lists in
+that representation use a colon-delimited scalar such as `tools=web_search:web_fetch`, because the
+current URL4 parameter grammar permits `:` but not the earlier `+` separator.
 
 ## Response
 
@@ -115,6 +121,13 @@ fails, the aggregator raises the typed `benchmark_evaluation_failed` URL4 error 
 inventing member identities or returning an all-null score report. Current URL4 collected errors
 do not retain the failed source case ID, so partial reports use stable positional failure IDs such
 as `row_2`.
+
+For an ordered DRACO Lite candidate set, the engine instead returns plaintext JSON with schema
+`screamingface.study-report.v1`. The one URL4 transaction executes a flat shared candidate DAG,
+memoizes reused Recipe nodes by graph identity, preserves deliberately independent samples, and
+isolates failures to the candidate roots that depend on them. The SDK decodes this as
+`sf.StudyReport`; `benchmark.url4(candidates)` compiles the same shareable transaction without
+executing it.
 
 ## Dataset credentials
 
@@ -138,5 +151,5 @@ is automatically available inside a remote deployment.
 - no direct SDK traffic to AI Gateway, Tavily, or Hugging Face datasets;
 - no bundled GPQA rows or answer keys;
 - no compatibility aliases for the old unversioned execution routes; and
-- no requirement that unrelated benchmark candidates execute as nested roots in one URL4. Each
-  candidate is a separate complete transaction with its own typed case failures and report.
+- no production-DRACO candidate-study promise. Shared multi-candidate execution is currently an
+  explicit versioned DRACO Lite capability, not a generic fallback applied to every benchmark.

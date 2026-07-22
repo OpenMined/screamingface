@@ -1,4 +1,4 @@
-"""Phase 0 contract example: canonical DRACO benchmark definition."""
+"""Current contract example: canonical DRACO benchmark definition."""
 
 from __future__ import annotations
 
@@ -50,9 +50,9 @@ benchmark = sf.Benchmark(
     title="DRACO",
     cases=load_cases,
     grader=sf.graders.Rubric(
-        model="gemini/3.1-pro-preview",
+        model="openrouter/google/gemini-3.1-pro-preview",
         prompt=DRACO_JUDGE_PROMPT,
-        passes=3,
+        passes=5,
         params={
             "temperature": 0.2,
             "reasoning": "low",
@@ -61,8 +61,8 @@ benchmark = sf.Benchmark(
     ),
     aggregator=sf.aggregators.Mean(),
     tools=(
-        sf.tools.TavilySearch(max_results=5),
-        sf.tools.TavilyExtract(),
+        sf.tools.WebSearch(max_results=5),
+        sf.tools.WebFetch(),
     ),
-    max_tool_rounds=12,
+    max_tool_calls=12,
 )

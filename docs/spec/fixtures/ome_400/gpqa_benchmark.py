@@ -1,4 +1,4 @@
-"""Phase 0 contract example: canonical GPQA Diamond benchmark definition."""
+"""Current contract example: canonical GPQA Diamond benchmark definition."""
 
 from __future__ import annotations
 

@@ -65,6 +65,9 @@ jobs:
             --cov-fail-under=95 \
             -q
 
+      - name: Verify executable contract fixtures
+        run: uv run python scripts/check_contract_fixtures.py
+
       - name: Verify deterministic notebooks
         run: uv run --extra notebook python scripts/check_notebooks.py
 

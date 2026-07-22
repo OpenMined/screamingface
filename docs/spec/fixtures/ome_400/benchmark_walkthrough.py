@@ -1,4 +1,4 @@
-"""Phase 0 contract example: quickstart and explicit-stage benchmark UX."""
+"""Current contract example: one benchmark run and one candidate study."""
 
 from __future__ import annotations
 
@@ -37,77 +37,24 @@ fusion = sf.Fusion(
 
 
 def quickstart():
-    """Identity loading and all four in-memory stages behind one call."""
-    return fusion.evaluate(
-        "draco@1",
-        first=5,
-    )
-
-
-def research_workflow():
-    """The equivalent explicit stages; use this instead when inspecting them."""
+    """Load an engine manifest, then execute one complete URL4 benchmark run."""
     benchmark = sf.benchmarks.load("draco@1")
-    run = fusion.run(
-        benchmark,
-        first=5,
-    )
-    grades = run.grade()
-    report = grades.aggregate()
-    return report
+    return benchmark.evaluate(fusion, first=5)
 
 
-def inspect_run(run: sf.Run):
-    """Phase 2C result inspection without re-running paid work."""
-    first_result = run.results[0]
-    first_member = first_result.members["member_1"]
-    return {
-        "recipe": run.recipe_name,
-        "url4": run.recipe_url4,
-        "members": run.members,
-        "case_ids": run.case_ids,
-        "first_member_model": first_member.model,
-        "first_member_answer": first_member.answer,
-        "recipe_answer": first_result.answer,
-        "failure": first_result.failure,
-        "complete": run.complete,
-        "json_compatible": run.to_dict(),
-    }
-
-
-def inspect_grades(grades: sf.Grades):
-    """Phase 3A nested grading evidence without rerunning captured answers."""
-    first_case = next(case for case in grades.results if case.recipe is not None)
-    recipe_grade = first_case.recipe
-    assert recipe_grade is not None
-    first_member_grade = first_case.members["member_1"]
-    first_verdict = recipe_grade.verdicts[0] if recipe_grade.verdicts else None
-    return {
-        "benchmark": grades.benchmark_id,
-        "recipe": grades.recipe_name,
-        "url4": grades.recipe_url4,
-        "members": grades.members,
-        "grader": grades.grader,
-        "case_ids": grades.case_ids,
-        "recipe_score": recipe_grade.score,
-        "recipe_metrics": recipe_grade.metrics,
-        "recipe_coverage": recipe_grade.coverage,
-        "recipe_valid": recipe_grade.valid,
-        "member_score": first_member_grade.score,
-        "first_verdict": first_verdict,
-        "run_failure": first_case.run_failure,
-        "failures": grades.failures,
-        "complete": grades.complete,
-        "json_compatible": grades.to_dict(),
-    }
+def candidate_study():
+    """Compare independently named Recipes over one shared engine-owned case slice."""
+    benchmark = sf.benchmarks.load("draco-lite@1")
+    return benchmark.evaluate([*researchers, fusion])
 
 
 def inspect_report(report: sf.Report):
-    """Phase 3A paired Fusion-versus-member comparison."""
+    """Inspect one paired Recipe-versus-member comparison."""
     first_member = report.members["member_1"]
     return {
         "benchmark": report.benchmark_id,
         "recipe": report.recipe_name,
-        "url4": report.recipe_url4,
+        "url4": report.url4,
         "n_cases": report.n_cases,
         "n_scored": report.n_scored,
         "coverage": report.coverage,
@@ -119,6 +66,20 @@ def inspect_report(report: sf.Report):
         "first_member_score": first_member.score,
         "first_member_metrics": first_member.metrics,
         "failures": report.failures,
+        "complete": report.complete,
+        "json_compatible": report.to_dict(),
+    }
+
+
+def inspect_study(report: sf.StudyReport):
+    """Inspect one ordered candidate comparison without re-running it."""
+    best = report.best
+    return {
+        "benchmark": report.benchmark_id,
+        "url4": report.url4,
+        "case_ids": report.case_ids,
+        "candidate_names": tuple(report.candidates),
+        "best": best.name if best is not None else None,
         "complete": report.complete,
         "json_compatible": report.to_dict(),
     }

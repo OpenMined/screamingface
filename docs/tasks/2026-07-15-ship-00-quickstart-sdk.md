@@ -12,6 +12,12 @@ closed:
 Ship the importable ScreamingFace Python SDK and its executable quickstart as a URL4-native
 compose → run → compare path.
 
+Current implementation contract (2026-07-22): researchers load an engine-advertised benchmark and
+call `benchmark.evaluate(candidate, first=...)`. The SDK compiles one complete URL4 transaction;
+the ScreamingFace engine owns named case routes, model execution, grading, and aggregation. For the
+current contract and ownership boundary, see the full-run URL4 spec and engine-owner handoff. The
+phase records below are retained as historical implementation evidence, not current API guidance.
+
 Superseded implementation state (not a compatibility target):
 
 - optional `sf.config(engine=..., mode=...)`, with independent engine/data selection;

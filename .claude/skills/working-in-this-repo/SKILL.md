@@ -15,7 +15,7 @@ gates, `.github/CODEOWNERS` for reviewers, and the component README for local co
 | `apps/aigateway` | deployable app | provider auth, encrypted credentials, chat-completion normalization | `aigateway-tests.yml` |
 | `apps/scoreboard` | deployable app | public benchmark scoreboard and portal | `scoreboard-tests.yml` |
 | `packages/url4` | Python package | URL4 grammar, builders, DAG execution, I/O layers, `Url4Node`, server CLI | `url4-tests.yml` |
-| `packages/screamingface` | Python package | Fusion authoring, benchmark loading, grading, aggregation, engine client | `screamingface-tests.yml` |
+| `packages/screamingface` | Python package | Recipe/benchmark authoring, URL4 compilation, engine manifests, report decoding | `screamingface-tests.yml` |
 
 `packages/screamingface/apps/screamingface-engine` is a temporary development location for the
 deployable ScreamingFace URL4 profile. Treat it as application code: it composes `Url4Node`, calls
@@ -29,7 +29,10 @@ responsibilities are approved.
 - Never import another app's internals. Share through a package or stable HTTP contract.
 - Generic URL4 behavior belongs in `packages/url4`; ScreamingFace model routes, registry metadata,
   connection control plane, and benchmark-facing integration belong to the ScreamingFace engine.
-- ScreamingFace benchmark datasets, deterministic graders, and aggregators stay in the SDK process.
+- Official named benchmark cases, graders, and aggregators execute in the ScreamingFace engine;
+  the SDK owns their public value contracts and supports client-side custom benchmark authoring,
+  but publishing/registering those definitions with an engine is not implemented. There is no
+  local execution fallback.
 - Decision records belong under `docs/spec`, `docs/plan`, `docs/tasks`, and `docs/work`; local scratch
   belongs in gitignored `.docs/`.
 

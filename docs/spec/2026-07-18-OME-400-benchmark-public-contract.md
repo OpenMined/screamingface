@@ -1,7 +1,7 @@
 ---
 title: ScreamingFace benchmark public contract
 ticket: OME-400
-status: approved
+status: superseded
 date: 2026-07-18
 last_updated: 2026-07-21
 ---
@@ -11,7 +11,9 @@ last_updated: 2026-07-21
 > Historical design ledger. The current runtime contract is
 > `2026-07-21-OME-400-full-run-url4-contract.md`; the current tool contract is
 > `2026-07-21-OME-400-provider-neutral-web-tools.md`. Later sections in this file preserve design
-> decisions and superseded phases and are not compatibility requirements.
+> decisions and superseded phases and are not compatibility requirements. Do not copy or execute
+> its API examples: `Fusion.evaluate`, `Fusion.run`, `Run`, and `Grades` were deliberately removed.
+> The supported entry point is `benchmark.evaluate(candidate, first=...)`.
 
 ## 1. Decision
 

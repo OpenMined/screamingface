@@ -137,9 +137,9 @@ async def test_model_route_and_eval_surface_share_gateway_dispatch() -> None:
             "/v1",
             params={
                 "q": (
-                        "(question:0.0:'What is 2 + 2?',"
-                        "answer:0.0:/codex/gpt-5.5($question)!'Answer briefly',"
-                        "result:0.0:{answer:'$answer'})!'$result'"
+                    "(question:0.0:'What is 2 + 2?',"
+                    "answer:0.0:/codex/gpt-5.5($question)!'Answer briefly',"
+                    "result:0.0:{answer:'$answer'})!'$result'"
                 )
             },
         )

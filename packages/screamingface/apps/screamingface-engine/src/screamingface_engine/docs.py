@@ -247,8 +247,8 @@ def openapi_document(
                 "note": (
                     "Advertised only when the pinned OpenRouter judge model is present in the "
                     "AI Gateway startup snapshot. DRACO Preview uses one criterion and one pass; "
-                    "DRACO Lite uses two full-rubric cases and two passes; production DRACO uses "
-                    "all 100 full-rubric cases and five passes."
+                    "DRACO Lite uses one pinned case, ten section-diverse criteria, and one pass; "
+                    "production DRACO uses all 100 full rubrics and five passes."
                 ),
             },
             "hosted_deployment": (

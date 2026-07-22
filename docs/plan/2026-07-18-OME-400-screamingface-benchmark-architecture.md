@@ -153,10 +153,11 @@ use stable positional IDs such as `row_2`. This is explicit rather than guessing
 The local engine now advertises `draco-preview@1`, `draco-lite@1`, and `draco@1` only when the
 pinned OpenRouter judge is part of AI Gateway's startup model snapshot. Preview uses the real cases
 with one positive criterion and one pass. Lite fixes the workload to the first pinned case,
-keeps five deterministic criteria spanning all four rubric sections, and uses one pass. Production uses all 100 complete rubrics and
-five passes. Exact published-result claims still require an audited full run with the original
-pinned model/provider configuration. The Lite profile's candidate-set route executes shared nodes
-once and preserves independent root outcomes; production adoption remains a deliberate later gate.
+keeps ten deterministic criteria spanning all four rubric sections, and uses one pass. Production
+uses all 100 complete rubrics and five passes. Exact published-result claims still require an
+audited full run with the original pinned model/provider configuration. The Lite profile's
+candidate-set route executes shared nodes once and preserves independent root outcomes; production
+adoption remains a deliberate later gate.
 
 ## Repository map
 

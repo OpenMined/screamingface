@@ -92,10 +92,10 @@ async def test_reducer_route_and_complete_literal_expression_return_plaintext() 
         evaluated = await client.get(
             "/v1",
             params={
-                    "q": (
-                        "(member_answers:0.0:{member_1:'A',member_2:'B',member_3:'A'},"
-                        "recipe_answer:0.0:/reducers/majority-vote/1()!$member_answers,"
-                        "result:0.0:{schema:'screamingface.recipe-result.v1',answer:'$recipe_answer'})"
+                "q": (
+                    "(member_answers:0.0:{member_1:'A',member_2:'B',member_3:'A'},"
+                    "recipe_answer:0.0:/reducers/majority-vote/1()!$member_answers,"
+                    "result:0.0:{schema:'screamingface.recipe-result.v1',answer:'$recipe_answer'})"
                     "!'$result'"
                 )
             },
@@ -242,7 +242,7 @@ async def test_sdk_model_reducer_receives_resolved_question_and_labeled_answers(
         if request["messages"][0]["content"] == "Synthesize the panel answers."
     )
     assert reducer_request["messages"][1]["content"] == (
-        'question: Research question\n'
+        "question: Research question\n"
         'panel_1: {"model": "codex/gpt-5.5", "answer": "alpha"}\n'
         'panel_2: {"model": "gemini/2.5-flash", "answer": "beta"}'
     )

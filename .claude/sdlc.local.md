@@ -43,7 +43,7 @@ stacks:
       - uv run pyright
       - uv run pytest --cov=screamingface --cov-fail-under=95 -q
       - PYTHONPATH=apps/screamingface-engine/src uv run pytest apps/screamingface-engine/tests --cov=screamingface_engine --cov-fail-under=95 -q
-      - uv run python scripts/check_phase1_fixtures.py
+      - uv run python scripts/check_contract_fixtures.py
       - uv run --extra notebook python scripts/check_notebooks.py
       - uv build
 commit_refs: "Refs: OME-N"
@@ -80,9 +80,10 @@ ledger_dir: docs/work/
 ## screamingface (python)
 
 - INVARIANTS: the SDK calls only its configured ScreamingFace URL4 engine, never AI Gateway.
-  Benchmark datasets, deterministic graders, and aggregators remain local SDK concerns. The
-  temporary `apps/screamingface-engine` profile composes `Url4Node`, AI Gateway, and optional
-  Tavily for verified Hugging Face tool routes; its registry must advertise only executable capabilities.
+  The SDK owns authoring values, URL4 compilation, strict manifest/report decoding, and no local
+  execution fallback. The temporary `apps/screamingface-engine` profile owns executable named
+  benchmark case routes, grading, aggregation, model dispatch, and optional Tavily for verified
+  Hugging Face tool routes; its registry must advertise only executable capabilities.
 
 ## ledger naming (D8)
 

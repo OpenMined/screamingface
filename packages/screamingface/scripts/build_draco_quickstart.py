@@ -116,7 +116,8 @@ qwen = sf.Model(  # Fusion-only leaf
 )
 
 fable_plus_gpt = sf.Fusion(
-    "fable-plus-gpt", members=[fable, gpt],
+    "fable-plus-gpt",
+    members=[fable, gpt],
     reducer=sf.reducers.Model(
         model="openrouter/anthropic/claude-opus-4.8",
         prompt=DRACO_SYNTHESIS_PROMPT,
@@ -124,7 +125,8 @@ fable_plus_gpt = sf.Fusion(
     ),
 )
 frontier_trio = sf.Fusion(
-    "frontier-trio", members=[opus, gpt, gemini_pro],
+    "frontier-trio",
+    members=[opus, gpt, gemini_pro],
     reducer=sf.reducers.Model(
         model="openrouter/anthropic/claude-opus-4.8",
         prompt=DRACO_SYNTHESIS_PROMPT,
@@ -132,7 +134,8 @@ frontier_trio = sf.Fusion(
     ),
 )
 opus_plus_gpt = sf.Fusion(
-    "opus-plus-gpt", members=[opus, gpt],
+    "opus-plus-gpt",
+    members=[opus, gpt],
     reducer=sf.reducers.Model(
         model="openrouter/anthropic/claude-opus-4.8",
         prompt=DRACO_SYNTHESIS_PROMPT,
@@ -143,12 +146,16 @@ opus_self_fusion = sf.Fusion(
     "opus-self-fusion",
     members=[
         sf.Model(
-            "openrouter/anthropic/claude-opus-4.8", name="opus-sample-1",
-            prompt=DRACO_ANSWER_PROMPT, params={"temperature": 0.7, "max_tokens": 8192},
+            "openrouter/anthropic/claude-opus-4.8",
+            name="opus-sample-1",
+            prompt=DRACO_ANSWER_PROMPT,
+            params={"temperature": 0.7, "max_tokens": 8192},
         ),
         sf.Model(
-            "openrouter/anthropic/claude-opus-4.8", name="opus-sample-2",
-            prompt=DRACO_ANSWER_PROMPT, params={"temperature": 0.7, "max_tokens": 8192},
+            "openrouter/anthropic/claude-opus-4.8",
+            name="opus-sample-2",
+            prompt=DRACO_ANSWER_PROMPT,
+            params={"temperature": 0.7, "max_tokens": 8192},
         ),
     ],
     reducer=sf.reducers.Model(
@@ -158,7 +165,8 @@ opus_self_fusion = sf.Fusion(
     ),
 )
 budget_trio = sf.Fusion(
-    "budget-trio", members=[gemini_flash, kimi, deepseek],
+    "budget-trio",
+    members=[gemini_flash, kimi, deepseek],
     reducer=sf.reducers.Model(
         model="openrouter/anthropic/claude-opus-4.8",
         prompt=DRACO_SYNTHESIS_PROMPT,
@@ -166,7 +174,8 @@ budget_trio = sf.Fusion(
     ),
 )
 beat_runner_up = sf.Fusion(
-    "beat-runner-up", members=[opus, gpt, deepseek],
+    "beat-runner-up",
+    members=[opus, gpt, deepseek],
     reducer=sf.reducers.Model(
         model="openrouter/anthropic/claude-opus-4.8",
         prompt=DRACO_SYNTHESIS_PROMPT,
@@ -174,7 +183,8 @@ beat_runner_up = sf.Fusion(
     ),
 )
 pareto_cross = sf.Fusion(
-    "pareto-cross", members=[deepseek, kimi, gpt],
+    "pareto-cross",
+    members=[deepseek, kimi, gpt],
     reducer=sf.reducers.Model(
         model="openrouter/deepseek/deepseek-v4-pro",
         prompt=DRACO_SYNTHESIS_PROMPT,
@@ -182,7 +192,8 @@ pareto_cross = sf.Fusion(
     ),
 )
 pareto_lean = sf.Fusion(
-    "pareto-lean", members=[deepseek, kimi],
+    "pareto-lean",
+    members=[deepseek, kimi],
     reducer=sf.reducers.Model(
         model="openrouter/deepseek/deepseek-v4-pro",
         prompt=DRACO_SYNTHESIS_PROMPT,
@@ -190,7 +201,8 @@ pareto_lean = sf.Fusion(
     ),
 )
 best_open_source = sf.Fusion(
-    "best-open-source", members=[deepseek, kimi, qwen],
+    "best-open-source",
+    members=[deepseek, kimi, qwen],
     reducer=sf.reducers.Model(
         model="openrouter/deepseek/deepseek-v4-pro",
         prompt=DRACO_SYNTHESIS_PROMPT,
@@ -199,9 +211,22 @@ best_open_source = sf.Fusion(
 )
 
 candidates = (
-    fable, opus, gpt, gemini_pro, gemini_flash, kimi, deepseek,
-    fable_plus_gpt, frontier_trio, opus_plus_gpt, opus_self_fusion,
-    budget_trio, beat_runner_up, pareto_cross, pareto_lean, best_open_source,
+    fable,
+    opus,
+    gpt,
+    gemini_pro,
+    gemini_flash,
+    kimi,
+    deepseek,
+    fable_plus_gpt,
+    frontier_trio,
+    opus_plus_gpt,
+    opus_self_fusion,
+    budget_trio,
+    beat_runner_up,
+    pareto_cross,
+    pareto_lean,
+    best_open_source,
 )
 
 len(candidates)'''

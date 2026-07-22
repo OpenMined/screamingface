@@ -1,4 +1,4 @@
-"""Phase 0 contract example: a tiny benchmark with no ingestion abstraction."""
+"""Current contract example: a tiny benchmark with no ingestion abstraction."""
 
 import screamingface as sf
 

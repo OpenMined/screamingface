@@ -34,6 +34,10 @@ These events report ScreamingFace route milestones, not model tokens or hidden U
 There is no mock, in-process execution fallback, client-side case loop, or public
 `Run → Grades → aggregate` compatibility path.
 
+The package-local engine is a tested reference profile, not an SDK ownership claim. Its production
+ownership and `url4-cloud` integration boundary are recorded in the
+[engine handoff](../../docs/spec/2026-07-22-OME-400-screamingface-engine-handoff.md).
+
 ## Quickstart
 
 Start the local development engine first:
@@ -200,6 +204,7 @@ uv run pyright
 uv run pytest --cov=screamingface --cov-fail-under=95 -q
 PYTHONPATH=apps/screamingface-engine/src uv run pytest apps/screamingface-engine/tests \
   --cov=screamingface_engine --cov-fail-under=95 -q
+uv run python scripts/check_contract_fixtures.py
 uv run --extra notebook python scripts/check_notebooks.py
 uv build
 ```
