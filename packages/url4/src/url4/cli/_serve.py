@@ -382,7 +382,7 @@ def make_command_handler(argv: Sequence[str], timeout: float) -> EndpointHandler
     template = tuple(argv)
 
     async def handler(request: Request) -> str:
-        command = [_subst(token, request) for token in template]
+        command = _subst_all(template, request)
         return await _run_command(command, request.context, timeout)
 
     return handler
@@ -391,16 +391,26 @@ def make_command_handler(argv: Sequence[str], timeout: float) -> EndpointHandler
 _SUBST_TOKEN_RE = re.compile(r"\{(intent|context|params|param:([A-Za-z0-9_.\-]+))\}")
 
 
-def _subst(token: str, request: Request) -> str:
+def _subst_all(template: Sequence[str], request: Request) -> list[str]:
+    """Substitute the ``{...}`` tokens across every argv token of ``template``.
+
+    The whole argv is done in one pass so ``{params}`` serializes at most once
+    per request, rather than once per occurrence inside the ``re.sub`` callback.
+    """
+    params_json: str | None = None
+
     def replacement(match: re.Match[str]) -> str:
+        nonlocal params_json
         kind = match.group(1)
         if kind == "params":
-            return json.dumps(dict(sorted(request.params.items())))
+            if params_json is None:
+                params_json = json.dumps(dict(sorted(request.params.items())))
+            return params_json
         if kind.startswith("param:"):
             return request.params.get(match.group(2), "")
         return request.intent if kind == "intent" else request.context
 
-    return _SUBST_TOKEN_RE.sub(replacement, token)
+    return [_SUBST_TOKEN_RE.sub(replacement, token) for token in template]
 
 
 async def _run_command(command: list[str], stdin_text: str, timeout: float) -> str:

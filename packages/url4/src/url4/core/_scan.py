@@ -94,6 +94,57 @@ def balanced_body(text: str, start: int) -> str | None:
     return text[start : j - 1] if depth == 0 else None
 
 
+def find_unquoted(text: str, chars: str, start: int = 0) -> int | None:
+    """The first occurrence of any of ``chars`` outside quote runs (parens seen).
+
+    Unlike :func:`find_top_level`, nesting is NOT tracked — an opener is an
+    ordinary candidate character, which is what callers looking for the *first*
+    ``(`` need (``find_top_level`` skips whole paren groups, so it never yields
+    the opener itself).
+    """
+    i = start
+    n = len(text)
+    while i < n:
+        if text[i] == "'":
+            i = skip_quoted(text, i)
+            continue
+        if text[i] in chars:
+            return i
+        i += 1
+    return None
+
+
+def iter_iteration_stars(text: str, *, skip_leading: bool = False) -> Iterator[int]:
+    """Yield the index of every depth-0 ``*`` immediately followed by ``(``.
+
+    THE single definition of how the §5.3.3 iteration operator is recognised.
+    Callers differ in what they do with a hit — take the first, slice the body,
+    split around it — but not in what counts as one.
+
+    ``skip_leading`` excludes position 0, where a ``*`` is the *expansion*
+    prefix rather than iteration (§5.2 rule 9). Value-position callers set it;
+    envelope-level callers, which have already consumed any expansion prefix,
+    do not.
+    """
+    for i, ch in iter_top_level(text):
+        if ch == "*" and text[i + 1 : i + 2] == "(" and not (skip_leading and i == 0):
+            yield i
+
+
+def one_paren_layer(text: str) -> str | None:
+    """The interior of ``text`` if it is exactly one balanced paren layer.
+
+    ``(a, b)`` → ``a, b``; ``(a)(b)`` or a non-parenthesized string → ``None``.
+    ``text`` is one layer iff the first ``(``'s matching ``)`` is its very last
+    character, i.e. the balanced body spans the whole interior. Leading and
+    trailing whitespace is significant — strip before calling if it isn't.
+    """
+    if not text.startswith("("):
+        return None
+    body = balanced_body(text, 1)
+    return body if body is not None and len(body) == len(text) - 2 else None
+
+
 def find_top_level(expr: str, chars: str) -> int | None:
     """Return the index of the first depth-0 occurrence of any of ``chars``."""
     for i, ch in iter_top_level(expr):
@@ -123,7 +174,10 @@ def split_top_level(expr: str, sep: str) -> list[str]:
 __all__ = [
     "balanced_body",
     "find_top_level",
+    "find_unquoted",
+    "iter_iteration_stars",
     "iter_top_level",
+    "one_paren_layer",
     "skip_quoted",
     "split_top_level",
 ]

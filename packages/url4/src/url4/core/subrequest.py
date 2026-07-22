@@ -18,7 +18,7 @@ import re
 from collections.abc import Sequence
 from urllib.parse import unquote, unquote_plus
 
-from url4.core._annotations import validate_param
+from url4.core._annotations import EXPRESSION_BEARING_KEYS, validate_param
 from url4.core._scan import balanced_body, split_top_level
 from url4.core.errors import ParseError
 
@@ -32,10 +32,6 @@ from url4.core.errors import ParseError
 # Everything else — ``$``, ordinary punctuation — is left verbatim so the wire
 # form stays human-readable, which is the whole point of url4 URLs.
 _WIRE_UNSAFE = re.compile(r"[()'%&# \x00-\x1f\x7f]")
-
-# Expression-bearing parameters (spec §3.3.1): their values are returned raw so
-# the expression decoder owns the percent-decoding, not the query splitter.
-_EXPRESSION_BEARING = frozenset({"q", "processor"})
 
 # INVARIANT (spec §11.6.3): transport-only parameters are scoped to the single
 # hop that received them and MUST NOT appear on an outbound sub-request. This
@@ -231,8 +227,8 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
         # Percent-encoding is transport beneath the grammar, so `tone=very%20
         # formal` is judged as the space-bearing value it decodes to — a node
         # refuses over HTTP exactly what it refuses in expression text.
-        decoded = value if key in _EXPRESSION_BEARING else unquote_plus(value)
-        if not decoded and key not in _EXPRESSION_BEARING:
+        decoded = value if key in EXPRESSION_BEARING_KEYS else unquote_plus(value)
+        if not decoded and key not in EXPRESSION_BEARING_KEYS:
             # `param-value = 1*( … )` — an empty value is not a flag (the flag
             # form has no "=" at all, handled above) and has no production.
             raise ParseError(

@@ -57,6 +57,8 @@ in :mod:`url4.core.subrequest`; scope internals in :mod:`url4.core.context`.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from url4.core.builders import (
     ParamsLike,
     SourceLike,
@@ -99,7 +101,6 @@ from url4.core.nodes import (
 )
 from url4.core.parser import build, walk
 from url4.core.render import render
-from url4.io.http import HttpIOLayer
 from url4.io.layer import (
     FetchRequest,
     FetchResult,
@@ -113,7 +114,25 @@ from url4.io.static import StaticIOLayer
 from url4.peer.client import Client, Url4Result, evaluate_sync
 from url4.peer.server import Request, Url4Node
 
+if TYPE_CHECKING:  # `url4.HttpIOLayer` still type-checks; see __getattr__ below.
+    from url4.io.http import HttpIOLayer
+
 __version__ = "0.1.0"
+
+
+# AIDEV-NOTE: HttpIOLayer is resolved lazily (PEP 562) so `import url4` never
+# pulls in httpx — ~44ms of a ~95ms import, paid by `url4 --version` and
+# `url4 eval`, neither of which speaks HTTP. This mirrors the discipline the
+# execution core already keeps: `executor._run_context`, `Client._effective_io`
+# and `Url4Node._outbound_io` all import the concrete transport inside the
+# function, so the static import graph names no transport.
+def __getattr__(name: str) -> object:
+    if name == "HttpIOLayer":
+        from url4.io.http import HttpIOLayer
+
+        return HttpIOLayer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "Binding",

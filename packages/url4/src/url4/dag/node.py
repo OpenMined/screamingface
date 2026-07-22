@@ -80,6 +80,31 @@ class DagNode(Protocol):
         ...
 
 
+@runtime_checkable
+class SupportsChildren(Protocol):
+    """A node holding an executable subtree that is NOT one of its ``deps``."""
+
+    def children(self) -> Sequence[DagNode]:
+        """Every node this one can execute, edges included."""
+        ...
+
+
+def node_children(node: DagNode) -> list[DagNode]:
+    """Every node ``node`` can execute — its edges, plus any held subtree.
+
+    Structural traversals (cycle detection, graph walks) must see subtrees a
+    node holds as an *attribute* rather than an edge: an isolation boundary is
+    still a path a cycle can run through, and a missed one fails as a hang
+    rather than an error. Opting in via :class:`SupportsChildren` keeps that
+    the node's own business — the traversals stay ignorant of node types, so a
+    future node with an isolated subtree (a retry group, a custom node) is
+    covered by implementing ``children()`` rather than by editing every walk.
+    """
+    if isinstance(node, SupportsChildren):
+        return list(node.children())
+    return list(node.deps.values())
+
+
 async def default_process(sources: str, intent: str | None, scope: Context) -> str:
     """The default merge of resolved sources and intent (Template Method hook)."""
     if intent and sources:

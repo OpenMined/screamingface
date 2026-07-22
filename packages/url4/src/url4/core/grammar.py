@@ -38,7 +38,15 @@ from url4.core._annotations import (
     validate_exec_annotations,
     validate_param,
 )
-from url4.core._scan import balanced_body, iter_top_level, skip_quoted, split_top_level
+from url4.core._scan import (
+    balanced_body,
+    find_unquoted,
+    iter_iteration_stars,
+    iter_top_level,
+    one_paren_layer,
+    skip_quoted,
+    split_top_level,
+)
 from url4.core.errors import ParseError
 from url4.core.nodes import (
     Binding,
@@ -196,18 +204,26 @@ def _parse_head(head: str) -> _Descriptor:
         result = _Descriptor(value=_parse_value(head[4:]))
     elif (sugar := _match_sugar(head)) is not None:
         result = _Descriptor(value=_parse_value(sugar[1]), name=sugar[0], kind="=")
-    elif _is_value_shaped(head) or _first_colon(head) is None:
+    # The top-level colon scan is shared: _is_value_shaped needs it, and its
+    # absence is itself the "no descriptor chain" test. Scanning once keeps
+    # _parse_head linear in the token rather than walking it twice.
+    elif (colon := _first_colon(head)) is None or _is_value_shaped(head, colon):
         result = _Descriptor(value=_parse_value(head))
     else:
         result = _parse_attrib_chain(head)
     return result
 
 
-def _is_value_shaped(text: str) -> bool:
-    """§4.3 disambiguation — a token that is a bare data value, no descriptor."""
+def _is_value_shaped(text: str, colon: int | None = None) -> bool:
+    """§4.3 disambiguation — a token that is a bare data value, no descriptor.
+
+    ``colon`` is the precomputed top-level colon index, for callers that already
+    scanned for it; omitted, it is computed here.
+    """
     if text[0] in "'(/@{$":
         return True
-    colon = _first_colon(text)
+    if colon is None:
+        colon = _first_colon(text)
     return colon is not None and text[colon : colon + 3] == "://"
 
 
@@ -489,10 +505,7 @@ def _find_iteration_star(token: str) -> int | None:
     Source-initial ``*`` (position 0) is the expansion prefix, not iteration —
     it is consumed in :func:`_parse_source` before value detection begins.
     """
-    for i, ch in iter_top_level(token):
-        if ch == "*" and i > 0 and token[i + 1 : i + 2] == "(":
-            return i
-    return None
+    return next(iter_iteration_stars(token, skip_leading=True), None)
 
 
 # --- iteration (§5.3) ---------------------------------------------------------------
@@ -529,7 +542,7 @@ def _parse_collection(token: str) -> Node:
     strict local-expr path.
     """
     stripped = token.strip()
-    if (body := _one_paren_layer(stripped)) is not None:
+    if (body := one_paren_layer(stripped)) is not None:
         return Expression(sources=_parse_group_sources(body))
     return _parse_value(token)
 
@@ -560,14 +573,6 @@ def _parse_local_expr(token: str) -> Expression:
     raise ParseError(f"unexpected text after group: {after!r}")
 
 
-def _one_paren_layer(token: str) -> str | None:
-    """The interior of ``token`` if it is exactly one balanced paren layer."""
-    if not token.startswith("("):
-        return None
-    body = balanced_body(token, 1)
-    return body if body is not None and len(body) == len(token) - 2 else None
-
-
 def parse_group_root(text: str) -> Node:
     """Parse text whose intent, if any, is held EXTERNALLY by the caller.
 
@@ -577,7 +582,7 @@ def parse_group_root(text: str) -> Node:
     Everything else routes through the strict :func:`parse`.
     """
     stripped = text.strip()
-    if (body := _one_paren_layer(stripped)) is not None:
+    if (body := one_paren_layer(stripped)) is not None:
         return Expression(sources=_parse_group_sources(body))
     return parse(stripped)
 
@@ -592,7 +597,7 @@ def _parse_group_sources(body: str) -> tuple[Node, ...]:
 
 
 def _parse_relative(token: str) -> RelUrl | RelExpr:
-    pos = _find_unquoted(token, "?(")
+    pos = find_unquoted(token, "?(")
     if pos is None:
         _check_data_path(token)
         return RelUrl(token)
@@ -717,7 +722,7 @@ def _check_authority(authority: str, token: str) -> None:
 def _parse_remote(token: str) -> Node:
     rest = token[len("url4://") :]
     slash = rest.find("/")
-    paren = _find_unquoted(rest, "(")
+    paren = find_unquoted(rest, "(")
     if paren is not None and (slash == -1 or paren < slash):
         raise ParseError(f"remote expression requires a path: {token!r}")
     if slash == -1:
@@ -880,19 +885,6 @@ def _parse_bare(token: str) -> Text | Url:
         else:
             i += 1
     return Url(token) if is_uri else Text(token)
-
-
-def _find_unquoted(text: str, chars: str, start: int = 0) -> int | None:
-    """The first occurrence of any of ``chars`` outside quote runs (parens seen)."""
-    i = start
-    while i < len(text):
-        if text[i] == "'":
-            i = skip_quoted(text, i)
-            continue
-        if text[i] in chars:
-            return i
-        i += 1
-    return None
 
 
 # Dispatch by value-initial character (§5.2); populated after the handlers so

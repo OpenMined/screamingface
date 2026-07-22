@@ -440,7 +440,7 @@ async def test_run_rejects_ctx_combined_with_io_or_processor_or_process() -> Non
 async def test_fetch_intent_over_base_group_uses_barrier_and_merges() -> None:
     # F2: a non-text (fetch) top-level intent over a parenthesised group — an
     # absolute URL or a bare /path — lowers through compiler._base_graph's
-    # is_text=False branch (the BarrierNode path), which is otherwise uncovered.
+    # non-text-intent branch (the BarrierNode path), which is otherwise uncovered.
     # Pin the structural contract (a BarrierNode carrying `inner` + `wait:*` deps
     # that ARE the source nodes) and the observable result (the fetched intent
     # merges with the resolved sources via default_process). The barrier is

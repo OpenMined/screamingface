@@ -39,22 +39,9 @@ from url4.dag.node import (  # isort: skip
     ProcessFn,
     SourceFailure,
     default_process,
+    node_children,
     reraise_first,
 )
-from url4.dag.nodes import GuardNode  # isort: skip
-
-
-def _dag_children(node: DagNode) -> list[DagNode]:
-    """Every node ``node`` executes: its edges, plus a guard's held subtree.
-
-    :class:`GuardNode` holds its inner as an attribute (isolation boundary, not
-    an edge), but a cycle through it would still hang the run — the traversals
-    here must see it.
-    """
-    children = list(node.deps.values())
-    if isinstance(node, GuardNode):
-        children.append(node.inner)
-    return children
 
 
 def check_acyclic(root: DagNode) -> None:
@@ -77,7 +64,7 @@ def check_acyclic(root: DagNode) -> None:
             raise CycleError(f"dependency cycle through {type(node).__name__} node")
         state[id(node)] = GRAY
         stack.append((node, True))
-        for dep in _dag_children(node):
+        for dep in node_children(node):
             if state.get(id(dep)) != BLACK:
                 stack.append((dep, False))
 

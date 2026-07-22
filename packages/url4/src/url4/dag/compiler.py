@@ -73,7 +73,7 @@ from url4.core.parser import (
     strip_one_paren_layer,
 )
 
-from url4.dag.node import DagNode  # isort: skip
+from url4.dag.node import DagNode, node_children  # isort: skip
 from url4.dag.nodes import (  # isort: skip
     BarrierNode,
     BindingNode,
@@ -295,7 +295,6 @@ def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> Da
         body=node.body,
         intent=node.intent,
         directives=node.directives,
-        label=_ast_label(node.collection),
         deps={"collection": collection},
     )
     if node.reducer is not None:
@@ -432,11 +431,11 @@ class _Intent:
     """The classified intent: ``make(edges)`` builds it; only text substitutes.
 
     ``text`` carries the raw template for the broadcast path, which substitutes
-    per source (with ``$current`` bound) instead of once, shared.
+    per source (with ``$current`` bound) instead of once, shared. It is set iff
+    the intent is text — ``text is not None`` *is* the "is this text?" test.
     """
 
     make: Callable[[Edges], DagNode]
-    is_text: bool
     text: str | None = None
 
 
@@ -591,8 +590,8 @@ def _broadcast_graph(slots: list[_Slot], intent: _Intent | None) -> DagNode:
     intent_node: DagNode | None = None
     if intent is None:
         template = ""
-    elif intent.is_text:
-        template = intent.text if intent.text is not None else ""
+    elif intent.text is not None:
+        template = intent.text
     else:
         intent_node = intent.make({})
     parts: dict[str, DagNode] = {}
@@ -634,9 +633,8 @@ def _base_graph(
     source, preserving the reference engine's sources-then-intent ordering.
     """
     deps: dict[str, DagNode] = {f"src:{i}": node for i, node in enumerate(built)}
-    if intent.is_text:
-        template = intent.text if intent.text is not None else ""
-        return ProcessNode(_slot_specs(slots), quorum, intent_template=template, deps=deps)
+    if intent.text is not None:
+        return ProcessNode(_slot_specs(slots), quorum, intent_template=intent.text, deps=deps)
     waits = {f"wait:{i}": node for i, node in enumerate(built)}
     deps["intent"] = BarrierNode(deps={"inner": intent.make({}), **waits})
     return ProcessNode(_slot_specs(slots), quorum, deps=deps)
@@ -733,8 +731,8 @@ def _intent_from_ast(atom: Node | None, registry: LoweringRegistry) -> _Intent |
         return None
     if isinstance(atom, Text):
         value = atom.value
-        return _Intent(lambda edges: TextNode(value, deps=dict(edges)), is_text=True, text=value)
-    return _Intent(lambda edges: registry.lower(atom, edges), is_text=False)
+        return _Intent(lambda edges: TextNode(value, deps=dict(edges)), text=value)
+    return _Intent(lambda edges: registry.lower(atom, edges))
 
 
 def _collection_dag(collection: str, registry: LoweringRegistry) -> DagNode:
@@ -767,7 +765,6 @@ def _map_from_text(
         body=body,
         intent=intent,
         directives=directives,
-        label=collection,
         deps={"collection": _collection_dag(collection, registry)},
     )
 
@@ -853,11 +850,6 @@ def _refs_of_ast(node: Node) -> set[str]:
     return refs
 
 
-def _ast_label(node: Node) -> str:
-    value = getattr(node, "value", None)
-    return value if isinstance(value, str) else repr(node)
-
-
 @dataclass(eq=False)
 class Graph:
     """A compiled expression: the sink node plus traversal/validation helpers."""
@@ -875,9 +867,10 @@ class Graph:
                 continue
             seen.add(id(node))
             yield node
-            if isinstance(node, GuardNode):  # inner is an attribute, not an edge
-                stack.append(node.inner)
-            stack.extend(reversed(list(node.deps.values())))
+            # node_children, not deps: a node may hold an executable subtree
+            # off-edge (GuardNode's isolation boundary) and validate() must
+            # reach into it.
+            stack.extend(reversed(node_children(node)))
 
     def validate(self) -> None:
         """Force full expansion of every lazy fragment, for fail-fast linting.

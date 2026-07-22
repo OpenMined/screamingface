@@ -132,7 +132,7 @@ def _render_expression(e: Expression, *, top: bool = False) -> str:
             "an Expression without an intent has no surface form — a "
             "parenthesized source group must carry !intent (or !*intent)"
         )
-    if top and e.intent is not None and _iteration_decode_hazard(e):
+    if top and _iteration_decode_hazard(e):
         # AIDEV-NOTE: the TOP-LEVEL envelope's reduce-over-iteration decode is
         # greedy — in "(…, A*(b)!'p')!'r'" it takes everything before the first
         # depth-0 '*(' as the collection (spanning commas!) and misdecodes
@@ -146,8 +146,7 @@ def _render_expression(e: Expression, *, top: bool = False) -> str:
             "(Expression(sources=(iteration,))) or reorder the sources"
         )
     out = "(" + ", ".join(_render_source(s) for s in e.sources) + ")"
-    if e.intent is not None:
-        out += ("!*" if e.broadcast else "!") + _render_intent(e.intent)
+    out += ("!*" if e.broadcast else "!") + _render_intent(e.intent)
     return out + _render_params(e.params, top=top)
 
 

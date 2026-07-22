@@ -490,6 +490,12 @@ class GuardNode:
     retries: int = 0
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # $ref edges only
 
+    def children(self) -> list[DagNode]:
+        """``inner`` is an attribute, not an edge — declare it so the structural
+        traversals (cycle detection, :meth:`Graph.walk`) still see through the
+        isolation boundary. See :func:`~url4.dag.node.node_children`."""
+        return [*self.deps.values(), self.inner]
+
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
         scope = _frame(inputs, ctx)
         try:
@@ -576,7 +582,6 @@ class _Gathered:
     positional: list[str]  # $N values, renumbered post-expansion
     named: dict[str, str]  # $name values (RAW — scope substitution needs them unlabeled)
     sources: list[str]  # the packed source values, in order (named → "name: value")
-    resolved: int  # successfully-resolved contributing source count
 
 
 def _gather(
@@ -590,7 +595,7 @@ def _gather(
     ``prefix`` selects the dep-key family — ``src:i`` for group slots,
     ``ctx:i`` for a call's context source-list (`OME-535`).
     """
-    g = _Gathered([], {}, [], 0)
+    g = _Gathered([], {}, [])
     for i, (name, instrumental) in enumerate(slots):
         value = inputs[f"{prefix}:{i}"]
         if isinstance(value, SourceFailure):
@@ -603,7 +608,6 @@ def _gather(
             g.named[name] = value
         if not instrumental:
             g.sources.append(f"{name}: {value}" if name is not None else value)
-            g.resolved += 1
     return g
 
 
@@ -618,13 +622,14 @@ def _gather_expanded(
         g.named[name] = json.dumps([_maybe_json(e) for e in elements])
     if not instrumental:
         g.sources.extend(elements)
-        g.resolved += len(elements)
 
 
 def _check_quorum(g: _Gathered, quorum: int | None) -> None:
-    if quorum is not None and g.resolved < quorum:
+    # The contributing count IS len(sources) — every append above is a contribution.
+    resolved = len(g.sources)
+    if quorum is not None and resolved < quorum:
         raise ResolutionError(
-            f"quorum not met: {g.resolved} of {quorum} required sources resolved",
+            f"quorum not met: {resolved} of {quorum} required sources resolved",
             code="quorum_not_met",
         )
 
@@ -870,7 +875,6 @@ class MapNode:
     body: str
     intent: str | None = None
     directives: IterationDirectives = field(default_factory=IterationDirectives)
-    label: str = ""
     deps: Mapping[str, DagNode] = field(default_factory=dict)  # {"collection": node}
 
     async def resolve(self, inputs: Mapping[str, Payload], ctx: ExecutionContext) -> Payload:
@@ -885,9 +889,13 @@ class MapNode:
         if concurrency is None or concurrency <= 0:
             concurrency = DEFAULT_MAP_CONCURRENCY
         sem = asyncio.Semaphore(concurrency)
+        # Row-invariant: built once here rather than per row, since it is also
+        # the spawn cache key and would otherwise be re-concatenated and
+        # re-hashed len(items) times.
+        expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
         if self.directives.on_error == "fail":
-            return await self._run_all(items, sem, ctx)
-        rows = [self._row(item, sem, ctx) for item in items]
+            return await self._run_all(items, expr, sem, ctx)
+        rows = [self._row(item, expr, sem, ctx) for item in items]
         raw = await asyncio.gather(*rows, return_exceptions=True)
         return self._skip(raw) if self.directives.on_error == "skip" else self._collect(raw, ctx)
 
@@ -906,23 +914,22 @@ class MapNode:
         return items
 
     async def _run_all(
-        self, items: list[str], sem: asyncio.Semaphore | None, ctx: ExecutionContext
+        self, items: list[str], expr: str, sem: asyncio.Semaphore, ctx: ExecutionContext
     ) -> list[str]:
         # TaskGroup so the first failing row cancels its in-flight siblings.
         try:
             async with asyncio.TaskGroup() as tg:
-                tasks = [tg.create_task(self._row(item, sem, ctx)) for item in items]
+                tasks = [tg.create_task(self._row(item, expr, sem, ctx)) for item in items]
         except BaseExceptionGroup as group:
             reraise_first(group)
         return [task.result() for task in tasks]
 
-    async def _row(self, item: str, sem: asyncio.Semaphore | None, ctx: ExecutionContext) -> str:
+    async def _row(
+        self, item: str, expr: str, sem: asyncio.Semaphore, ctx: ExecutionContext
+    ) -> str:
         # WHY: the body is spawned verbatim (with $item still in it) and the row is
         # bound into scope, so arbitrary row data never enters the re-parse.
         scope = Context(bindings={_ITEM_KEY: item}, parent=ctx.scope)
-        expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
-        if sem is None:
-            return await ctx.spawn(expr, scope)
         async with sem:
             return await ctx.spawn(expr, scope)
 

@@ -133,6 +133,11 @@ def _json_blob_spans(text: str) -> list[tuple[int, int]]:
     as an ordinary character so trailing braces still count, preserving the
     prior behavior for malformed input.
     """
+    # A template with no brace has no blob, and the scan below is O(len(text))
+    # Python-level work on every substitution — every node resolve, every map
+    # row. Brace-free prompts are the common case, so check before scanning.
+    if "{" not in text:
+        return []
     spans: list[tuple[int, int]] = []
     depth = 0
     start = -1

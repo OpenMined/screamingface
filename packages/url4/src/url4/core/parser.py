@@ -27,7 +27,12 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from url4.core._annotations import extract_directives, split_annotation_pairs, validate_params
-from url4.core._scan import balanced_body, skip_quoted
+from url4.core._scan import (
+    balanced_body,
+    find_unquoted,
+    iter_iteration_stars,
+    one_paren_layer,
+)
 from url4.core._scan import iter_top_level as _iter_top_level
 from url4.core._scan import split_top_level as _split_top_level
 from url4.core.errors import ParseError
@@ -85,28 +90,11 @@ def _is_backend_call_tail(expr: str, bang: int) -> bool:
     """
     if bang < 1 or expr[bang - 1] != ")":
         return False
-    opener = _first_unquoted_paren(expr)
+    opener = find_unquoted(expr, "(")
     body = None if opener is None else balanced_body(expr, opener + 1)
     if opener is None or body is None or opener + 1 + len(body) != bang - 1:
         return False
     return _is_call_target(expr[:opener])
-
-
-def _first_unquoted_paren(text: str) -> int | None:
-    """Index of the first ``(`` outside quotes.
-
-    ``iter_top_level`` cannot serve here: it skips whole paren groups, so it
-    never yields the opener itself.
-    """
-    i, n = 0, len(text)
-    while i < n:
-        if text[i] == "'":
-            i = skip_quoted(text, i)
-        elif text[i] == "(":
-            return i
-        else:
-            i += 1
-    return None
 
 
 def _is_call_target(head: str) -> bool:
@@ -150,11 +138,10 @@ def split_collection_iteration(source_expr: str) -> tuple[str | None, str | None
     Scans for ``*(`` at depth 0. On a match returns
     ``(collection_source, iteration_body)``; otherwise ``(None, None)``.
     """
-    for i, ch in _iter_top_level(source_expr):
-        if ch == "*" and i + 1 < len(source_expr) and source_expr[i + 1] == "(":
-            body = balanced_body(source_expr, i + 2)
-            if body is not None:
-                return source_expr[:i].strip(), body
+    for i in iter_iteration_stars(source_expr):
+        body = balanced_body(source_expr, i + 2)
+        if body is not None:
+            return source_expr[:i].strip(), body
     return None, None
 
 
@@ -169,12 +156,11 @@ def _split_at_iteration_body(text: str) -> tuple[str | None, str]:
     # descriptored collection (§5.3.10) both nest their ``*(`` inside parens,
     # so they are invisible here and keep their existing decode route.
     """
-    for i, ch in _iter_top_level(text):
-        if ch == "*" and text[i + 1 : i + 2] == "(":
-            body = balanced_body(text, i + 2)
-            if body is not None:
-                end = i + 2 + len(body) + 1
-                return text[:end], text[end:]
+    for i in iter_iteration_stars(text):
+        body = balanced_body(text, i + 2)
+        if body is not None:
+            end = i + 2 + len(body) + 1
+            return text[:end], text[end:]
     return None, ""
 
 
@@ -187,14 +173,10 @@ def strip_one_paren_layer(expr: str) -> str | None:
     """Return the contents of ``expr`` if it is exactly one balanced paren layer.
 
     ``(a, b)`` → ``a, b``; ``(a)(b)`` or a non-parenthesized string → ``None``.
-    ``expr`` is exactly one paren layer iff the first ``(``'s matching ``)`` is
-    the very last character, i.e. the balanced body spans the whole interior.
+    Surrounding whitespace is insignificant here (the envelope decoders hand
+    over unstripped segments); the shared primitive itself is strip-free.
     """
-    text = expr.strip()
-    if not text.startswith("("):
-        return None
-    body = balanced_body(text, 1)
-    return body if body is not None and len(body) == len(text) - 2 else None
+    return one_paren_layer(expr.strip())
 
 
 def assemble_expression(

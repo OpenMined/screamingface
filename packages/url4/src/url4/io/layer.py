@@ -70,15 +70,15 @@ class FetchRequest:
     ``url4`` targets expect URL4 protocol semantics from the adapter, ``http``
     is a raw HTTP data read, ``relative`` resolves against the current node,
     and ``other`` is any further scheme (``s3://``, …) the adapter may or may
-    not support. ``accept`` / ``timeout`` carry the per-source ``;accept=`` /
-    ``;t=`` execution annotations (spec §4.2) for adapters that honor them.
+    not support. ``accept`` carries the per-source ``;accept=`` execution
+    annotation (spec §4.2) for adapters that honor it. (``;t=`` is enforced
+    engine-side by GuardNode, so it never reaches the port.)
     """
 
     target: str
     relative: bool = False
     kind: Literal["http", "url4", "relative", "other"] = "http"
     accept: str | None = None
-    timeout: float | None = None
 
 
 @dataclass(frozen=True)
