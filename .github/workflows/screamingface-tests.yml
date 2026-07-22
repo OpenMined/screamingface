@@ -81,3 +81,60 @@ jobs:
           coverageFile: packages/screamingface/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           thresholdAll: 0.95
+
+  engine-reference:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/screamingface/apps/screamingface-engine
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Format
+        run: uv run ruff format --check .
+
+      - name: Typecheck
+        run: uv run pyright
+
+      - name: Test and coverage
+        env:
+          PYTHONPATH: ../../src:src
+        run: |
+          uv run pytest \
+            --tb=short \
+            --junitxml=results.xml \
+            --cov=screamingface_engine \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=95 \
+            -v
+
+      - name: Build reference app
+        run: uv build
+
+      - name: Test report
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: screamingface-engine Reference Test Results
+          path: packages/screamingface/apps/screamingface-engine/results.xml
+          reporter: java-junit
+
+      - name: Coverage report
+        uses: orgoro/coverage@v3.2
+        if: always() && github.event_name == 'pull_request'
+        with:
+          coverageFile: packages/screamingface/apps/screamingface-engine/coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.95

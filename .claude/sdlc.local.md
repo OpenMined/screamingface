@@ -44,6 +44,16 @@ stacks:
       - uv run python scripts/check_contract_fixtures.py
       - uv run --extra notebook python scripts/check_notebooks.py
       - uv build
+  - name: screamingface-engine-reference
+    root: packages/screamingface/apps/screamingface-engine
+    skill: sdlc-python
+    test_globs: ["src/**", "tests/**", "compose.yaml", "dev.sh", "Dockerfile"]
+    gates:
+      - uv run ruff check .
+      - uv run ruff format --check .
+      - uv run pyright
+      - PYTHONPATH=../../src:src uv run pytest --cov=screamingface_engine --cov-fail-under=95 -q
+      - uv build
 commit_refs: "Refs: OME-N"
 extra_anchors: []
 companion_skills:
@@ -82,6 +92,13 @@ ledger_dir: docs/work/
   execution fallback. A separately deployed engine owns executable benchmark routes, grading,
   aggregation, model dispatch, and tool integrations; its registry must advertise only executable
   capabilities. The SDK package does not contain an engine implementation.
+
+## screamingface-engine-reference (python)
+
+- INVARIANTS: this is an implementation handoff, not SDK-owned production infrastructure.
+  Production source imports no `screamingface._...` modules. `create_node(...)` remains reusable
+  independently of the local ASGI/Compose wrapper. Its executable routes must implement the SDK's
+  public wire contracts without changes to URL4, AI Gateway, or `apps/url4-cloud`.
 
 ## ledger naming (D8)
 

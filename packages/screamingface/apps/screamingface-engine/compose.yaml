@@ -1,0 +1,115 @@
+name: screamingface-engine-dev
+
+services:
+  aigateway:
+    build:
+      context: ../../../..
+      dockerfile: apps/aigateway/Dockerfile
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        python -m tortoise -c aigateway.db.TORTOISE_CONFIG migrate
+        exec aigateway
+    environment:
+      AIGW_HOST: 0.0.0.0
+      AIGW_PORT: "9105"
+      AIGATEWAY_AUTH_ENABLED: "0"
+      AIGATEWAY_DATABASE_URL: sqlite:///home/app/aigateway.sqlite3
+      AIGATEWAY_PUBLIC_URL: http://localhost:${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}
+      # OpenRouter is opt-in at AI Gateway. Local ScreamingFace development enables its
+      # API-key-only plugin so /v1/models and the engine registry reflect it automatically.
+      AIGW_OPENROUTER_ENABLED: "true"
+      # Local DRACO development intentionally matches the higher-throughput engine profile.
+      # AI Gateway remains the final provider-level admission-control boundary.
+      AIGW_PROVIDER_MAX_CONCURRENCY: "32"
+      # Keep the DRACO walkthrough lineup in the Gateway-owned model catalog. These are normal
+      # OpenRouter chat model IDs; the engine still discovers them from /v1/models rather than
+      # maintaining a second executable model list.
+      AIGW_OPENROUTER_DEFAULT_MODELS: >-
+        ["openrouter/anthropic/claude-fable-5",
+        "openrouter/anthropic/claude-opus-4.8",
+        "openrouter/openai/gpt-5.5",
+        "openrouter/google/gemini-3.1-pro-preview",
+        "openrouter/google/gemini-3-flash-preview",
+        "openrouter/moonshotai/kimi-k2.5",
+        "openrouter/deepseek/deepseek-v4-pro",
+        "openrouter/qwen/qwen3.6-plus"]
+      # INVARIANT: This plugin setting replaces its complete default list; retain the existing
+      # routes while adding only the two HF/provider pins verified for the Tavily agent loop.
+      AIGW_HUGGINGFACE_DEFAULT_MODELS: >-
+        ["huggingface/openai/gpt-oss-120b:cerebras",
+        "huggingface/Qwen/Qwen3-Coder-480B-A35B-Instruct:novita",
+        "huggingface/deepseek-ai/DeepSeek-R1:novita",
+        "huggingface/google/gemma-2-2b-it:featherless-ai",
+        "huggingface/meta-llama/Llama-3.1-8B-Instruct:nscale",
+        "huggingface/deepseek-ai/DeepSeek-V4-Pro:deepinfra",
+        "huggingface/zai-org/GLM-5.2:deepinfra"]
+    init: true
+    volumes:
+      # The image creates /home/app with uid 1000; mounting at that existing
+      # directory preserves a writable volume without changing AI Gateway.
+      - aigateway-data:/home/app
+    ports:
+      - "127.0.0.1:${AIGATEWAY_HOST_PORT:-9105}:9105"
+      # The engine shares this network namespace so auth-disabled Gateway calls
+      # are genuinely loopback. Published ports therefore belong here too.
+      - "127.0.0.1:${SCREAMINGFACE_ENGINE_HOST_PORT:-4404}:4404"
+      # Codex's registered OAuth client accepts only loopback ports 1455/1457.
+      # This second host port reaches the same engine listener in the shared namespace.
+      - "127.0.0.1:${CODEX_OAUTH_HOST_PORT:-1455}:4404"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:9105/healthz', timeout=3).read()
+      interval: 30s
+      timeout: 5s
+      retries: 12
+
+  screamingface-engine:
+    build:
+      context: ../../../..
+      dockerfile: packages/screamingface/apps/screamingface-engine/Dockerfile
+    environment:
+      # Managed research/search calls can legitimately outlive a normal chat request.
+      # This is the per-model-call limit; the complete URL4 evaluation still has its own cap.
+      AIGATEWAY_TIMEOUT: "600"
+      AIGATEWAY_URL: http://127.0.0.1:9105
+      # GPQA is gated and is loaded by this engine process. This credential is
+      # distinct from the Hugging Face inference connection stored by AI Gateway.
+      HF_TOKEN: ${HF_TOKEN:-}
+      SCREAMINGFACE_ENGINE_MAX_INFLIGHT: "16"
+      SCREAMINGFACE_ENGINE_URL4_CONCURRENCY: "32"
+      SCREAMINGFACE_ENGINE_CASE_CONCURRENCY: "10"
+      SCREAMINGFACE_ENGINE_MODEL_CONCURRENCY: "32"
+      SCREAMINGFACE_ENGINE_SYNTHESIS_CONCURRENCY: "16"
+      SCREAMINGFACE_ENGINE_JUDGE_CONCURRENCY: "32"
+      SCREAMINGFACE_ENGINE_MAX_REQUEST_TARGET_BYTES: "61440"
+      SCREAMINGFACE_CODEX_OAUTH_REDIRECT_URI: http://localhost:${CODEX_OAUTH_HOST_PORT:-1455}/auth/callback
+      # One 10-minute research call can be followed by synthesis and rubric judging.
+      # Keep the complete transaction envelope larger than any individual leaf deadline.
+      SCREAMINGFACE_ENGINE_TIMEOUT: "1800"
+      SCREAMINGFACE_TAVILY_TIMEOUT: "75"
+      URL4_HOST: 0.0.0.0
+      URL4_PORT: "4404"
+    init: true
+    depends_on:
+      aigateway:
+        condition: service_healthy
+    # AI Gateway's auth-disabled mode deliberately accepts loopback only. Keep
+    # the processes isolated in separate containers while sharing networking so
+    # the engine cannot accidentally weaken that boundary for local development.
+    network_mode: service:aigateway
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:4404/healthz', timeout=3).read()
+      interval: 30s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  aigateway-data:

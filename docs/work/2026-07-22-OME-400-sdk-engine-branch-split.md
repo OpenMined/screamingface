@@ -39,13 +39,13 @@ stacked owner handoff. The checkpoint branch remains the complete historical spi
 
 ## Remaining work
 
-Create the stacked `OME-400-screamingface-engine-reference` branch, relocate the engine-owned
-implementations into its namespace, remove every private SDK import from engine production code,
-and run its independent engine plus public-SDK integration gates before handoff.
+Share the stacked engine-reference branch, engine handoff specification, and passing gate evidence
+with Ionesio. Final app placement and URL4-cloud runner integration remain owner decisions.
 
 ## Outcome (fill at completion)
 
-- **Actual files:** Phase 1 SDK split implemented; Phase 2 pending.
-- **Commits:** pending.
-- **Gates:** SDK-only gate green as recorded above.
+- **Actual files:** Phase 1 standalone SDK plus Phase 2 stacked engine-reference handoff.
+- **Commits:** SDK `6700267`; engine-reference is this commit.
+- **Gates:** SDK 287 tests/95.15%; engine 432 tests/95.09%; both lint, format, typecheck, and build
+  gates green; SDK fixtures and generated notebooks deterministic; rebuilt Docker stack healthy.
 - **Deviations:** none.

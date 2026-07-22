@@ -1,0 +1,62 @@
+"""URL4 adapters for deterministic ScreamingFace reducers."""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import NoReturn
+
+from url4 import Request, ResolutionError
+
+from screamingface_engine.reduction import select_majority
+
+MAJORITY_VOTE_ROUTE = "/reducers/majority-vote/1"
+_MEMBER_KEY = re.compile(r"member_([1-9][0-9]*)\Z")
+
+
+def majority_vote(request: Request) -> str:
+    """Select a member answer from URL4's resolved structured intent."""
+
+    if request.context:
+        _invalid("majority vote does not accept context")
+    if not request.intent:
+        _invalid("majority vote requires an intent payload")
+    if request.params:
+        _invalid(f"majority vote does not accept parameters: {sorted(request.params)}")
+
+    payload = _payload(request.intent)
+
+    indexed: dict[int, str] = {}
+    for key, answer in payload.items():
+        match = _MEMBER_KEY.fullmatch(key)
+        if match is None:
+            _invalid("majority-vote keys must be contiguous member_1 through member_n")
+        if not isinstance(answer, str):
+            _invalid("majority-vote answers must be strings")
+        indexed[int(match.group(1))] = answer
+
+    expected = list(range(1, len(indexed) + 1))
+    if len(indexed) < 2 or sorted(indexed) != expected:
+        _invalid("majority vote requires contiguous member_1 through member_n with n >= 2")
+
+    try:
+        return select_majority([indexed[position] for position in expected])
+    except (TypeError, ValueError) as exc:
+        _invalid(str(exc))
+
+
+def _payload(intent: str) -> dict[str, object]:
+    try:
+        value = json.loads(intent)
+    except json.JSONDecodeError:
+        _invalid("majority-vote intent must be a JSON object")
+    if not isinstance(value, dict):
+        _invalid("majority-vote intent must be a JSON object")
+    return value
+
+
+def _invalid(message: str) -> NoReturn:
+    raise ResolutionError(message, code="malformed_source", permanent=True)
+
+
+__all__ = ["MAJORITY_VOTE_ROUTE", "majority_vote"]

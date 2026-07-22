@@ -1,6 +1,6 @@
 # OME-400 — Split the ScreamingFace SDK from the engine reference
 
-**Status:** Phase 1 implemented; Phase 2 pending
+**Status:** Phases 1–2 implemented; handoff pending
 **Created:** 2026-07-22
 **Checkpoint:** `OME-400-ship-quickstart-sdk` at `71e2404`
 
@@ -154,5 +154,24 @@ Pyright, CI, or SDLC configuration. Notebook setup now requires a separately ava
 engine instead of referring to a bundled development app.
 
 The SDK-only gate passes: Ruff lint and format, Pyright, 287 tests at 95.15% coverage, executable
-contract fixtures, deterministic generated notebooks, package build, and diff hygiene. The stacked
-engine-reference branch has not yet been created.
+contract fixtures, deterministic generated notebooks, package build, and diff hygiene.
+
+## Phase 2 outcome
+
+The stacked `OME-400-screamingface-engine-reference` branch restores the temporary app as an
+explicit implementation handoff. Canonical GPQA/DRACO adapters, the pinned judge prompt,
+exact-choice scoring, and deterministic majority selection now live under the engine namespace.
+Engine production source imports no `screamingface._...` module. The app has its own runtime
+dependency lock, Ruff/Pyright/Pytest/coverage/build lane, and CI job; `create_node(...)` remains
+separate from the ASGI/Compose lifecycle wrapper.
+
+The reported DRACO Lite `mean rows must be JSON objects` failure was caused by a stale Docker image
+whose URL4 sources differed from the checked-out sources. The current URL4 implementation passes
+the complete candidate-route → iteration → candidate-mean ASGI integration test. Rebuilding with
+`./dev.sh restart` produced an image whose relevant URL4 source hashes match the checkout; the
+stack is healthy and advertises the expected DRACO Lite candidate route. A rebuilt container must
+receive `HF_TOKEN` through a local `.env` before live canonical dataset evaluation.
+
+The independent engine gate passes: Ruff lint and format, Pyright, 432 tests at 95.09% coverage,
+and reference-app package build. The stacked SDK gate remains green with the Phase 1 results. No
+`packages/url4`, AI Gateway, or `apps/url4-cloud` file is changed by this branch.

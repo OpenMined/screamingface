@@ -22,7 +22,7 @@ close: Linear comment (close template) + state Done + mirror closed
 | Skill | Invoke when | What it does |
 |---|---|---|
 | `task-management` | ANY ticket work — session start, before starting/filing/closing a work item | The Linear lifecycle: card resolution, label taxonomy, D9 cross-cutting rule, STOP labels, close discipline, MCP command crib, the Linear rich-text dialect |
-| `sdlc-python` | EVERY Python change (`apps/aigateway`, `apps/scoreboard`, `packages/url4`, `packages/screamingface`) | Rigid TDD loop: ledger-first → RED → GREEN → gates → wisdom → commit. Tortoise ORM work → `tortoise-dev` companion (mandatory) |
+| `sdlc-python` | EVERY Python change (`apps/aigateway`, `apps/scoreboard`, `packages/url4`, `packages/screamingface`, and the stacked ScreamingFace engine-reference app) | Rigid TDD loop: ledger-first → RED → GREEN → gates → wisdom → commit. Tortoise ORM work → `tortoise-dev` companion (mandatory) |
 | `sdlc-electron` | EVERY Electron change (upcoming desktop app) | Same loop; Electron idiom: main/preload/renderer, both-side IPC contracts (S2), official security checklist encoded, a11y gate (S1) |
 | `arch-electron` | DESIGNING/reviewing Electron architecture — app scaffold, extension platform, external-process integration, extension API changes | Binding invariants (VS Code model): manifest-first contributions, lazy activation, utilityProcess extension host, versioned injected API, disposables, core ProcessSupervisor, DEBUG-gated log view. Diagrams: `docs/diagrams/electron-*` |
 | `arch-electron-layout` | DESIGNING/reviewing the desktop app's workbench layout — shell regions, view containers/slots, layout persistence, focus behavior | Binding L-rules: core-owned shell, views-in-containers, manifest placement = hint, user override wins & persists, no focus stealing, document-centric main area, per-window layout trees |
@@ -46,7 +46,8 @@ byte-identical — edit them TOGETHER, `repo-checks.yml` CI enforces it.
 - **`.claude/task-board.local.md`** — Linear registry: team (Engineering/OME), project
   (😱 ScreamingFace V1), state IDs, every label ID, priority map, close template, ticket
   rules. **Card missing → HARD STOP** (restore from git).
-- **`.claude/sdlc.local.md`** — stacks (aigateway, scoreboard, url4, screamingface → `sdlc-python`), their
+- **`.claude/sdlc.local.md`** — Python stacks (including the standalone ScreamingFace SDK and its
+  separately gated engine-reference app → `sdlc-python`), their
   gates, `test_globs`, invariants, companion skills, `commit_refs`, `ledger_dir`.
 
 ## Scripts & CI (`.claude/scripts/`, `.github/workflows/repo-checks.yml`)
