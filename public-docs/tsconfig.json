@@ -1,14 +1,18 @@
 {
-  "files": [],
-  "references": [
-    {
-      "path": "./tsconfig.node.json"
-    },
-    {
-      "path": "./tsconfig.app.json"
-    },
-    {
-      "path": "./tsconfig.vitest.json"
+  "extends": "@vue/tsconfig/tsconfig.dom.json",
+  "include": ["env.d.ts", "src/**/*", "src/**/*.vue", "vite.config.ts", "eslint.config.ts"],
+  "compilerOptions": {
+    // Extra safety for array and object lookups, but may have false positives.
+    "noUncheckedIndexedAccess": true,
+
+    // Node globals for the config files (vite.config.ts, eslint.config.ts). Note:
+    // this also makes Node globals visible to browser src/** — accepted tradeoff
+    // of a single unified config with no per-folder type environments.
+    "types": ["node"],
+
+    // Path mapping for cleaner imports.
+    "paths": {
+      "@/*": ["./src/*"]
     }
-  ]
+  }
 }

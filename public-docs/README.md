@@ -1,71 +1,52 @@
 # screamingface-docs
 
-## Quick start (Makefile)
+Documentation site for ScreamingFace — a Vue 3 + TypeScript + Vite single-page app.
 
-Common tasks are wrapped in the [Makefile](Makefile). Run `make` (or `make help`)
-to list every target.
+## Stack
 
-```sh
-make install     # install dependencies (npm ci)
-make dev         # start the Vite dev server
-make build       # type-check and build for production
-make preview     # preview the production build
-make type-check  # run vue-tsc type checking
-make test        # run unit tests (Vitest)
-make test-e2e    # run end-to-end tests (Playwright)
-make lint        # lint and auto-fix (oxlint + eslint)
-make format      # format with Prettier
-make clean       # remove build output (dist)
-make distclean   # remove build output and node_modules
-```
+- Vue 3 + Vue Router + Pinia
+- Vite (dev/build) with `@tailwindcss/vite` (Tailwind CSS v4); theme tokens in `src/style.css`
+- `prismjs` for code highlighting, `lucide-vue-next` for icons
+- ESLint (with oxlint) + Prettier
+- Path alias `@/` → `src/`
 
-The underlying npm scripts are documented below.
-
-## Project Setup
+## Setup
 
 ```sh
 npm install
 ```
 
-### Compile and Hot-Reload for Development
+## Development
 
 ```sh
-npm run dev
+npm run dev          # start the Vite dev server (hot reload)
 ```
 
-### Type-Check, Compile and Minify for Production
+## Build
 
 ```sh
-npm run build
+npm run build        # type-check (vue-tsc) + production build
+npm run preview      # preview the production build locally
 ```
 
-### Run Unit Tests with [Vitest](https://vitest.dev/)
+## Quality
 
 ```sh
-npm run test:unit
+npm run type-check   # vue-tsc --noEmit
+npm run lint         # oxlint + eslint (auto-fix)
+npm run format       # prettier --write src/
 ```
 
-### Run End-to-End Tests with [Playwright](https://playwright.dev)
+## Project layout
 
-```sh
-# Install browsers for the first run
-npx playwright install
+- `src/App.vue` — shell (`<TheNavbar />` + `<RouterView />`)
+- `src/pages/` — route components; `src/router/index.ts` — routes
+- `src/components/layout/` — navbar + doc layout; `src/components/ui/` — reusable content components
+- `src/composables/` — reusable logic (copy, highlight, doc navigation, carousel)
+- `src/stores/` — Pinia stores (theme, code-tab language)
+- `src/navigation/` — data files that drive the sidebar + prev/next per section
+- `src/lib/` — framework-agnostic helpers
+- `src/style.css` — Tailwind import + light/dark theme tokens + prose styling
 
-# When testing on CI, must build the project first
-npm run build
-
-# Runs the end-to-end tests
-npm run test:e2e
-# Runs the tests only on Chromium
-npm run test:e2e -- --project=chromium
-# Runs the tests of a specific file
-npm run test:e2e -- tests/example.spec.ts
-# Runs the tests in debug mode
-npm run test:e2e -- --debug
-```
-
-### Lint with [ESLint](https://eslint.org/)
-
-```sh
-npm run lint
-```
+Type checking uses a single `tsconfig.json` (extends `@vue/tsconfig`), covering `src/**`
+and the config files.

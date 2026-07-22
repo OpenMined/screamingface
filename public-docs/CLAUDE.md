@@ -6,49 +6,70 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Screamingface documentation site — a Vue 3 + TypeScript + Vite application. The
 baseline chrome (navbar, themeable sidebar/doc layout, and a data-driven
-navigation system) was ported from `syft-space-hub-docs`; only the page content
-differs.
+navigation system) was ported from `syft-space-hub-docs`; the page content is
+being built out per section.
 
 ## Development Commands
 
 - **Dev server**: `npm run dev`
 - **Build**: `npm run build` (type-check + Vite build)
 - **Preview**: `npm run preview`
-- **Unit tests**: `npm run test:unit` (Vitest — specs in `tests/`)
-- **E2E tests**: `npm run test:e2e` (Playwright — specs in `tests/e2e/`)
-- **Lint**: `npm run lint`
+- **Type-check**: `npm run type-check` (`vue-tsc --noEmit`)
+- **Lint**: `npm run lint` (oxlint + eslint, auto-fix)
+- **Format**: `npm run format` (Prettier, `src/`)
+
+There is no automated test setup in this project.
 
 ## Stack
 
 - Vue 3 + Vue Router + Pinia
 - Tailwind CSS v4 (via `@tailwindcss/vite`) with the theme tokens in `src/style.css`
-- `lucide-vue-next` for icons, `prismjs` for code highlighting
+- `lucide-vue-next` for icons, `prismjs` for code highlighting, `markdown-it` for
+  notebook markdown
 - Path alias `@/` → `src/`
+- Type-checking uses a single `tsconfig.json` (extends `@vue/tsconfig`) covering
+  `src/**` plus the config files (`vite.config.ts`, `eslint.config.ts`)
 
 ## Architecture
 
 - `src/App.vue` — shell: `<TheNavbar />` + `<RouterView />`
-- `src/components/layout/TheNavbar.vue` — sticky top nav (brand, product links, theme toggle, Roadmap/GitHub)
-- `src/components/layout/DocLayout.vue` — sidebar + page header + content slot + prev/next buttons
-- `src/components/ui/` — reusable content components: `CodeBlock`, `TabbedCodeBlock`, `ApiBlock`, `Collapsible`, `ImageCarousel`
+- `src/components/layout/TheNavbar.vue` — sticky top nav (brand, product links [Home / SF Client / SDK], theme toggle, GitHub)
+- `src/components/layout/DocLayout.vue` — sidebar + optional page header + content slot + prev/next buttons (`title` is optional; the header is skipped when omitted)
+- `src/components/ui/` — reusable content components: `CodeBlock`, `TabbedCodeBlock`, `ApiBlock`, `Collapsible`, `ImageCarousel`, `NotebookViewer`
 - `src/composables/` — reusable logic: `useCopy` (clipboard + "Copied!" feedback), `useHighlight` (central Prism setup + `highlight()`), `useDocNavigation` (sidebar active-state + prev/next from a nav tree), `useCarousel` (index + auto-advance)
 - `src/stores/` — Pinia stores for shared reactive state: `theme` (`isDark` state, `theme` getter, dark/light + localStorage persistence) and `codeLang` (shared code-tab language across `TabbedCodeBlock`s)
-- `src/pages/` — route components (stubs, generated from the nav data); `src/router/index.ts` — routes
+- `src/lib/` — framework-agnostic helpers: `utils.ts` (`cn` class merge) and `notebook.ts` (nbformat types + pure helpers for `NotebookViewer`)
+- `src/pages/` — route components; `src/router/index.ts` — routes
 - `src/navigation/` — one data file per documentation section (drives the sidebar + prev/next)
-- `src/style.css` — Tailwind import + light/dark theme tokens + prose styling
+- `src/style.css` — Tailwind import + light/dark theme tokens + prose styling (includes `@tailwindcss/typography` with prose variables mapped to the theme tokens)
+
+### Pages & routes
+
+| Route | Component |
+|---|---|
+| `/` | `src/pages/HomePage.vue` |
+| `/sf-client` | `src/pages/sf-client/Index.vue` |
+| `/sf-client/installation` | `src/pages/sf-client/InstallationPage.vue` |
+| `/sf-client/quickstartPage` | `src/pages/sf-client/QuickstartPage.vue` |
+| `/sdk` | `src/pages/sdk/Index.vue` |
+
+### NotebookViewer
+
+`src/components/ui/NotebookViewer.vue` renders a Jupyter `.ipynb` (parsed via
+`src/lib/notebook.ts`): markdown cells → prose (`markdown-it`), code cells →
+`In [n]` + copy + collapse (Prism), outputs handle html/text/image/error/stream.
+It supports a `showTitle` toggle and rewrites inter-notebook links via
+`NOTEBOOK_ROUTES`. It is kept for reuse but is **not currently wired to a page**.
 
 ## Navigation System
 
 The sidebar and prev/next buttons are driven by shared data files in
 `src/navigation/`, one file per documentation section.
 
-| File | Export | Used by |
-|---|---|---|
-| `src/navigation/sf-client.ts` | `sfClientNavigation` | All `/sf-client/*` pages |
-| `src/navigation/sdk.ts` | `sdkNavigation` | All `/sdk/*` pages |
-
-The `/sf-client` and `/sdk` sections were imported from `syft-space-hub-docs` as
-**stub pages** — real navigation structure, placeholder content to be filled in.
+| File | Export | Used by | Entries |
+|---|---|---|---|
+| `src/navigation/sf-client.ts` | `sfClientNavigation` | All `/sf-client/*` pages | Overview, Installation, Quickstart |
+| `src/navigation/sdk.ts` | `sdkNavigation` | All `/sdk/*` pages | Overview |
 
 **How pages consume it:**
 
