@@ -25,8 +25,10 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationStage,
     ApiKeyValidationState,
 )
+from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
+    credential_key_for,
     credential_locator_for,
 )
 from aigateway.core.profile_models import credential_name_for
@@ -429,3 +431,161 @@ def test_connection_absent_credential_delete_set_commit_orders_on_postgres(
     assert deleted.status_code == 204
     assert pg_client.get(f"/v1/oauth/connections/{set_first}").json()["status"] == "revoked"
     assert _connection_credential(pg_client, account_id, set_first) is None
+
+
+def test_connection_refresh_republish_loses_to_committed_revoke_on_postgres(
+    pg_client: TestClient,
+    monkeypatch,
+) -> None:
+    """OME-307 H-1 — a manual connection refresh republish loses to a concurrent committed revoke.
+
+    FEATURE: manual OAuth connection refresh with delete/revoke-race safety.
+    STORY: as an operator, when I refresh a connection that another request revokes mid-flight, the
+    refresh must fail rather than silently resurrect the revoked connection.
+    INVARIANT (OME-307 H-1): complete_active() is a status-fenced conditional UPDATE. When a revoke
+    commits on an independent transaction during the refresh's provider-network window, the
+    republish UPDATE (WHERE status='active') WAITS on the revoked row's lock, RE-EVALUATES after
+    the revoke commits, matches ZERO rows, and returns None -> the route 409s instead of activating.
+    """
+    account_id = pg_client.get("/v1/auth/me").json()["id"]
+
+    async def _seed_active_oauth_connection(label: str) -> UUID:
+        store = OAuthConnectionStore()
+        connection_id = uuid4()
+        connection = await store.create_pending(
+            account_id=account_id,
+            provider="anthropic",
+            label=label,
+            connection_id=connection_id,
+        )
+        await store.complete(connection, label=label, identity=None)
+        return connection_id
+
+    portal = pg_client.portal
+    if portal is None:
+        raise AssertionError("TestClient portal is not active")
+    connection_id: UUID = portal.call(_seed_active_oauth_connection, f"refresh-revoke-{uuid4()}")
+
+    # refresh_connection resolves its strategy from the shared cache; pre-seed a no-op strategy so
+    # the provider-network step is a nop and the test isolates the complete_active CAS race. This is
+    # the same cache-seeding idiom the single-loop unit test uses.
+    class _NoopRefreshStrategy:
+        async def refresh_credentials(self) -> None:
+            return None
+
+    credential_strategy_cache(_app(pg_client)).get_or_create(
+        provider="anthropic",
+        auth_type="oauth",
+        credential_name=credential_key_for(account_id, connection_id),
+        build=lambda: _NoopRefreshStrategy(),
+    )
+
+    mark_revoked = OAuthConnectionStore.mark_revoked
+    complete_active = OAuthConnectionStore.complete_active
+    revoke_holds_row = threading.Event()
+    refresh_reached_cas = threading.Event()
+    release_revoke = threading.Event()
+
+    async def _holding_revoke(self, connection, *args, **kwargs):
+        # Runs inside delete_connection's in_transaction(): mark_revoked UPDATEs the row by PK and
+        # holds its row lock until we release and the transaction commits.
+        revoked = await mark_revoked(self, connection, *args, **kwargs)
+        revoke_holds_row.set()
+        if not await asyncio.to_thread(release_revoke.wait, 10):
+            raise TimeoutError("connection revoke was not released")
+        return revoked
+
+    async def _attempting_complete_active(self, connection, **kwargs):
+        # Signal just before the status-fenced UPDATE, which then blocks on the revoke's row lock.
+        refresh_reached_cas.set()
+        return await complete_active(self, connection, **kwargs)
+
+    monkeypatch.setattr(OAuthConnectionStore, "mark_revoked", _holding_revoke)
+    monkeypatch.setattr(OAuthConnectionStore, "complete_active", _attempting_complete_active)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        revoking = executor.submit(pg_client.delete, f"/v1/oauth/connections/{connection_id}")
+        assert revoke_holds_row.wait(10), "revoke never took the connection-row lock"
+        refreshing = executor.submit(
+            pg_client.post, f"/v1/oauth/connections/{connection_id}/refresh"
+        )
+        assert refresh_reached_cas.wait(10), "refresh never reached the complete_active CAS"
+        release_revoke.set()
+        revoked = revoking.result(timeout=10)
+        refreshed = refreshing.result(timeout=10)
+
+    assert revoked.status_code == 204
+    assert refreshed.status_code == 409
+    assert refreshed.json()["detail"]["code"] == "connection_conflict"
+    # Not resurrected: the conditional update matched zero rows, so the row stays revoked.
+    assert pg_client.get(f"/v1/oauth/connections/{connection_id}").json()["status"] == "revoked"
+    assert _connection_credential(pg_client, account_id, connection_id) is None
+
+
+def test_profile_refresh_publication_loses_to_committed_delete_on_postgres(
+    pg_client: TestClient,
+    monkeypatch,
+) -> None:
+    """OME-307 H-1 — profile refresh success-publish loses to a concurrent committed delete.
+
+    FEATURE: manual profile refresh with delete-race safety.
+    INVARIANT (OME-307 H-1): the success branch publishes with upsert(require_present=True). When a
+    DELETE commits on an independent transaction during the refresh's provider-network window, the
+    publication's require_present CAS WAITS on the profile-index row lock, RE-EVALUATES after the
+    delete commits, finds the row ABSENT, and raises ProfileTransitionConflict -> the route 409s
+    instead of resurrecting the profile as AUTHENTICATED.
+    """
+    account_id = pg_client.get("/v1/auth/me").json()["id"]
+    name = f"refresh-delete-{uuid4()}"
+    assert pg_client.post("/v1/auth/anthropic/profiles", json={"name": name}).status_code == 201
+
+    # refresh_profile builds its strategy via credential_strategy_from (not the shared cache), so
+    # substitute a no-op strategy to isolate the require_present publication CAS from the network.
+    class _NoopProfileStrategy:
+        async def refresh_credentials(self) -> None:
+            return None
+
+        async def delete_credentials(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "aigateway.routes.auth.credential_strategy_from",
+        lambda *args, **kwargs: _NoopProfileStrategy(),
+    )
+
+    index = _app(pg_client).state.profile_index
+    remove = index.remove
+    upsert = index.upsert
+    delete_holds_index = threading.Event()
+    refresh_reached_publish = threading.Event()
+    release_delete = threading.Event()
+
+    async def _holding_remove(profile_id: str) -> None:
+        # Runs inside delete_profile's in_transaction(): remove DELETEs the index row by PK,
+        # holding its row lock until we release and the transaction commits.
+        await remove(profile_id)
+        delete_holds_index.set()
+        if not await asyncio.to_thread(release_delete.wait, 10):
+            raise TimeoutError("profile delete was not released")
+
+    async def _attempting_upsert(*args, **kwargs):
+        # Signal just before require_present publishes, which then blocks on the delete's row lock.
+        refresh_reached_publish.set()
+        return await upsert(*args, **kwargs)
+
+    monkeypatch.setattr(index, "remove", _holding_remove)
+    monkeypatch.setattr(index, "upsert", _attempting_upsert)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        deleting = executor.submit(pg_client.delete, f"/v1/auth/anthropic/profiles/{name}")
+        assert delete_holds_index.wait(10), "delete never took the profile-index row lock"
+        refreshing = executor.submit(pg_client.post, f"/v1/auth/anthropic/profiles/{name}/refresh")
+        assert refresh_reached_publish.wait(10), "refresh never reached the require_present publish"
+        release_delete.set()
+        deleted = deleting.result(timeout=10)
+        refreshed = refreshing.result(timeout=10)
+
+    assert deleted.status_code == 204
+    assert refreshed.status_code == 409
+    assert refreshed.json()["detail"]["code"] == "profile_conflict"
+    # Not resurrected: the row stays deleted, so the require_present publication found no row.
+    assert pg_client.get(f"/v1/auth/anthropic/profiles/{name}").status_code == 404
+    assert _profile_credential(pg_client, account_id, name) is None

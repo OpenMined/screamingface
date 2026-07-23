@@ -18,6 +18,38 @@ from .settings import GATEWAY_MODEL_PREFIX, OpenRouterPluginSettings, is_valid_u
 
 _API_BASE = "https://openrouter.ai/api/v1"
 _INTERNAL_DEFAULT_MODEL = "openrouter/openrouter/free"
+# WHY (OME-307 M-2): every OpenRouter typed error is only trustworthy when it rides on the HTTP
+# status it implies, so each maps to (expected_status, actionable_state) and is honoured ONLY when
+# the status evidence agrees (see _typed_error_evidence + _state_from_error). authentication /
+# payment_required / permission_denied / rate_limit_exceeded are valid at any stage; not_found /
+# invalid_request indict the readiness PROBE MODEL (gateway-controlled, not the key) and so map to
+# MISCONFIGURED, but ONLY on the readiness stage.
+_TYPED_ERROR_EVIDENCE: dict[str, tuple[int, ApiKeyValidationState]] = {
+    "authentication": (401, ApiKeyValidationState.INVALID),
+    "payment_required": (402, ApiKeyValidationState.NO_QUOTA),
+    "permission_denied": (403, ApiKeyValidationState.PERMISSION_DENIED),
+    "rate_limit_exceeded": (429, ApiKeyValidationState.RATE_LIMITED),
+}
+_READINESS_TYPED_ERROR_EVIDENCE: dict[str, tuple[int, ApiKeyValidationState]] = {
+    "not_found": (404, ApiKeyValidationState.MISCONFIGURED),
+    "invalid_request": (400, ApiKeyValidationState.MISCONFIGURED),
+}
+
+
+def _typed_error_evidence(
+    error_type: str | None,
+    stage: ApiKeyValidationStage,
+) -> tuple[int, ApiKeyValidationState] | None:
+    if error_type is None:
+        return None
+    evidence = _TYPED_ERROR_EVIDENCE.get(error_type)
+    if evidence is not None:
+        return evidence
+    # INVARIANT (OME-307 M-2): not_found/invalid_request are actionable ONLY on the readiness probe;
+    # at the authentication stage they stay non-actionable and fall through to UNAVAILABLE.
+    if stage is ApiKeyValidationStage.READINESS:
+        return _READINESS_TYPED_ERROR_EVIDENCE.get(error_type)
+    return None
 
 
 def _result(
@@ -43,17 +75,13 @@ def _state_from_error(
     embedded: EmbeddedOpenRouterError,
     stage: ApiKeyValidationStage,
 ) -> ApiKeyValidationState:
-    error_type_mapping = {
-        "authentication": (401, ApiKeyValidationState.INVALID),
-        "payment_required": (402, ApiKeyValidationState.NO_QUOTA),
-        "permission_denied": (403, ApiKeyValidationState.PERMISSION_DENIED),
-        "rate_limit_exceeded": (429, ApiKeyValidationState.RATE_LIMITED),
-    }
-    typed_evidence = (
-        error_type_mapping.get(embedded.error_type) if embedded.error_type is not None else None
-    )
+    typed_evidence = _typed_error_evidence(embedded.error_type, stage)
     if typed_evidence is not None:
         expected_status, typed_state = typed_evidence
+        # INVARIANT (OME-307 M-2): honour the typed state ONLY when the HTTP evidence agrees. The
+        # outer status must be 200 (embedded-only error) or the expected status; the embedded
+        # status, when present, must equal the expected status. Any contradiction is treated as an
+        # upstream fault -> UNAVAILABLE (conservative), never an actionable state on bad evidence.
         contradictory = (
             (embedded.status is not None and embedded.status != expected_status)
             or (status != 200 and status != expected_status)

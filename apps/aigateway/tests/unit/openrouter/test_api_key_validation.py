@@ -346,3 +346,129 @@ def test_disabled_openrouter_has_no_operational_validator() -> None:
         OpenRouterProviderPlugin(OpenRouterPluginSettings(enabled=True)).api_key_validator()
         is not None
     )
+
+
+@pytest.mark.parametrize(
+    ("status", "error_type"),
+    [(404, "not_found"), (400, "invalid_request")],
+)
+@pytest.mark.asyncio
+async def test_openrouter_readiness_probe_error_type_is_misconfigured(
+    status: int, error_type: str
+) -> None:
+    # WHY (OME-307 M-2): on the readiness probe a typed not_found/invalid_request indicts the
+    # PROBE MODEL, not the key, so it must classify MISCONFIGURED. Before the fix the generic
+    # "typed error_type -> UNAVAILABLE" fallback fired first and hid the actionable state.
+    validator, requests = _validator(
+        [
+            httpx.Response(200, json={"data": {}}),
+            httpx.Response(
+                status,
+                json={
+                    "error": {
+                        "code": status,
+                        "message": _KEY,
+                        "metadata": {"error_type": error_type},
+                    }
+                },
+            ),
+        ]
+    )
+
+    result = await validator.validate(_KEY)
+
+    assert result.state is ApiKeyValidationState.MISCONFIGURED
+    assert result.stage is ApiKeyValidationStage.READINESS
+    assert len(requests) == 2
+    assert _KEY not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_openrouter_authentication_not_found_type_stays_unavailable() -> None:
+    # The readiness-only misconfiguration rule must NOT leak into the authentication stage,
+    # where a not_found type is unexpected and non-actionable.
+    validator, requests = _validator(
+        [
+            httpx.Response(
+                404, json={"error": {"code": 404, "metadata": {"error_type": "not_found"}}}
+            )
+        ]
+    )
+
+    result = await validator.validate(_KEY)
+
+    assert result.state is ApiKeyValidationState.UNAVAILABLE
+    assert result.stage is ApiKeyValidationStage.AUTHENTICATION
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("outer_status", "error"),
+    [
+        # 5xx outer status: a not_found/invalid_request hint on a server error is untrustworthy.
+        (500, {"code": 500, "metadata": {"error_type": "not_found"}}),
+        (503, {"metadata": {"error_type": "not_found"}}),  # embedded status absent, outer 5xx
+        (500, {"code": 500, "metadata": {"error_type": "invalid_request"}}),
+        # outer/embedded statuses disagree (the reviewer's outer-500 / embedded-404 case).
+        (500, {"code": 404, "metadata": {"error_type": "not_found"}}),
+        # outer looks fine (200) but the embedded status contradicts the typed hint.
+        (200, {"code": 500, "metadata": {"error_type": "invalid_request"}}),
+        (200, {"code": 404, "metadata": {"error_type": "invalid_request"}}),  # 404 != expected 400
+    ],
+)
+@pytest.mark.asyncio
+async def test_openrouter_readiness_typed_error_contradictory_status_is_unavailable(
+    outer_status: int, error: dict
+) -> None:
+    # WHY (OME-307 M-2 follow-up): not_found/invalid_request only indict the probe MODEL when the
+    # HTTP evidence AGREES (not_found<->404, invalid_request<->400, outer status 200-or-expected,
+    # embedded status absent-or-expected). A 5xx outer status, or an embedded status that disagrees,
+    # signals an upstream fault rather than a gateway misconfiguration, so it must classify
+    # UNAVAILABLE instead of the actionable MISCONFIGURED.
+    error = {**error, "message": _KEY}
+    validator, requests = _validator(
+        [
+            httpx.Response(200, json={"data": {}}),
+            httpx.Response(outer_status, json={"error": error}),
+        ]
+    )
+
+    result = await validator.validate(_KEY)
+
+    assert result.state is ApiKeyValidationState.UNAVAILABLE
+    assert result.stage is ApiKeyValidationStage.READINESS
+    assert len(requests) == 2
+    assert _KEY not in repr(result)
+
+
+@pytest.mark.parametrize(
+    ("outer_status", "embedded_code", "error_type"),
+    [
+        (200, 404, "not_found"),  # outer 200, embedded status carries the 404
+        (404, None, "not_found"),  # outer matches expected, embedded status absent
+        (200, 400, "invalid_request"),
+        (400, None, "invalid_request"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_openrouter_readiness_typed_error_consistent_status_is_misconfigured(
+    outer_status: int, embedded_code: int | None, error_type: str
+) -> None:
+    # WHY (OME-307 M-2 follow-up): the readiness MISCONFIGURED classification must SURVIVE when the
+    # evidence is consistent -- an outer status of 200-or-expected and an embedded status that is
+    # absent or matches the type -- so the tightened contradiction check does not over-restrict.
+    error: dict = {"message": _KEY, "metadata": {"error_type": error_type}}
+    if embedded_code is not None:
+        error["code"] = embedded_code
+    validator, requests = _validator(
+        [
+            httpx.Response(200, json={"data": {}}),
+            httpx.Response(outer_status, json={"error": error}),
+        ]
+    )
+
+    result = await validator.validate(_KEY)
+
+    assert result.state is ApiKeyValidationState.MISCONFIGURED
+    assert result.stage is ApiKeyValidationStage.READINESS
+    assert len(requests) == 2

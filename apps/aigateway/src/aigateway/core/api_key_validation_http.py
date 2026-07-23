@@ -11,6 +11,9 @@ _MAX_RESPONSE_BYTES = 64 * 1024
 _REQUEST_TIMEOUT_SECONDS = 5.0
 _TOTAL_TIMEOUT_SECONDS = 10.0
 _MAX_RETRY_AFTER_SECONDS = 2_147_483_647
+# WHY: an ASCII-decimal Retry-After within range is at most this many digits; a longer string
+# cannot satisfy the range check, so it is rejected before int() (see _retry_after_seconds).
+_MAX_RETRY_AFTER_DIGITS = len(str(_MAX_RETRY_AFTER_SECONDS))
 
 
 class ApiKeyValidationTransportError(Exception):
@@ -24,13 +27,27 @@ class BoundedJsonResponse:
     retry_after_seconds: int | None
 
 
+def bounded_retry_after_seconds(value: int) -> int | None:
+    """Return a positive delta-seconds hint within the supported range, else None.
+
+    INVARIANT: ONE upper bound governs every Retry-After source — the numeric HTTP header
+    parsed here and provider-structured hints (e.g. Gemini RetryInfo.retryDelay) — so no
+    parser can emit an out-of-range or overflowing retry hint.
+    """
+    if not 0 < value <= _MAX_RETRY_AFTER_SECONDS:
+        return None
+    return value
+
+
 def _retry_after_seconds(value: str | None) -> int | None:
     if value is None or not value.isascii() or not value.isdecimal():
         return None
-    parsed = int(value)
-    if not 0 < parsed <= _MAX_RETRY_AFTER_SECONDS:
+    # WHY: bound the digit count before int(). CPython raises ValueError converting a string
+    # longer than sys.int_info.default_max_str_digits (4300 default); caught by the sanitizing
+    # except in request_json, that would downgrade a valid 429 to a transport error.
+    if len(value) > _MAX_RETRY_AFTER_DIGITS:
         return None
-    return parsed
+    return bounded_retry_after_seconds(int(value))
 
 
 class ValidationHttpSession:
@@ -134,8 +151,19 @@ class ValidationHttpSession:
                     )
         except ApiKeyValidationTransportError:
             raise
-        except (RecursionError, TimeoutError, httpx.HTTPError, ValueError):
+        except (
+            RecursionError,
+            TimeoutError,
+            ValueError,
+            httpx.HTTPError,
+            httpx.InvalidURL,
+            httpx.CookieConflict,
+            httpx.StreamError,
+        ):
             # INVARIANT: provider exception text can contain credentials or raw response data.
             # RecursionError guards json.loads on a deeply nested (but small) body; it must be
             # sanitized like any other parse/transport failure, never escape raw to the caller.
+            # WHY: httpx.InvalidURL/CookieConflict (Exception) and StreamError (RuntimeError)
+            # are NOT httpx.HTTPError subclasses, so they need explicit entries here; a blanket
+            # ``except Exception`` is deliberately avoided so it cannot conceal a programming bug.
             raise ApiKeyValidationTransportError from None

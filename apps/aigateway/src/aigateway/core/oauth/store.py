@@ -203,6 +203,46 @@ class OAuthConnectionStore:
             setattr(connection, field, value)
         return connection
 
+    async def complete_active(
+        self,
+        connection: OAuthConnection,
+        *,
+        label: str,
+        identity: AccountIdentity | None,
+    ) -> OAuthConnection | None:
+        """Republish a refreshed connection only while it is still active.
+
+        INVARIANT (OME-307 H-1): a manual refresh reads the row, runs the provider network call,
+        then republishes. A delete/revoke that commits during that window must WIN. Fencing the
+        write on ``status="active"`` (same idiom as ``complete_pending``) makes the republish
+        update zero rows once the row leaves ``active``; the caller surfaces a conflict instead of
+        resurrecting a revoked/deleted connection back to ``active``.
+        """
+        refreshed_at = datetime.now(UTC)
+        updates: dict = {
+            "label": label,
+            "status": "active",
+            "error_message": None,
+            "last_refreshed_at": refreshed_at,
+        }
+        if identity is not None:
+            updates.update(
+                identity_sub=identity.sub,
+                identity_email=identity.email,
+                identity_name=identity.name,
+                identity_raw=identity.raw,
+            )
+        updated = await OAuthConnection.filter(
+            id=connection.id,
+            account_id=connection.account_id,
+            status="active",
+        ).update(**updates)
+        if updated != 1:
+            return None
+        for field, value in updates.items():
+            setattr(connection, field, value)
+        return connection
+
     async def mark_error(self, connection: OAuthConnection, message: str) -> OAuthConnection | None:
         updates: dict[str, object] = {"status": "error", "error_message": message}
         # OAuth connections are superseded by a fresh re-auth, so the old row's

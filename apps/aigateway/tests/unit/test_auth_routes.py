@@ -19,6 +19,7 @@ from tortoise import Tortoise
 from tortoise.exceptions import IntegrityError, OperationalError
 
 from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
+from aigateway.core.errors import AuthError
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
 from aigateway.core.profile_index import ProfileIndexStore
@@ -1951,3 +1952,98 @@ def test_delete_profile_invalidates_provider_profile_session(client_with_index) 
     assert resp.status_code == 204
     credential_name = credential_name_for(account_id, "delete-session")
     assert plugin.invalidated_profiles == [credential_name, credential_name]
+
+
+@pytest.mark.asyncio
+async def test_refresh_success_does_not_resurrect_a_concurrently_deleted_profile(
+    client_with_index,
+) -> None:
+    """OME-307 H-1 — a successful refresh after a concurrent delete must NOT resurrect it.
+
+    FEATURE: manual OAuth profile refresh with delete-race safety.
+    STORY: as a user who deletes a profile while its refresh is mid-flight, the delete wins —
+    the refresh's successful token write must not recreate the profile I removed.
+
+    INVARIANT (OME-307 H-1): the success branch publishes conditionally (require_present=True),
+    so a profile deleted during the provider network window makes the publication raise
+    ProfileTransitionConflict -> 409 instead of resurrecting an AUTHENTICATED row.
+    """
+    client, credential_blobs = client_with_index
+    account_id = _account_id(client)
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+
+    # WHY: seed through a FRESH probe-backed store bound to THIS (test) event loop. Awaiting the
+    # app's profile_index here would bind its asyncio.Lock to the test loop; the route then
+    # deadlocks re-entering that lock from the TestClient portal loop while this coroutine is
+    # parked inside the synchronous client.post below.
+    seed_idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    profile_id = profile_id_for(account_id, "generic", "race-refresh")
+    await seed_idx.upsert(
+        Profile(
+            id=profile_id,
+            account_id=account_id,
+            provider="generic",
+            name="race-refresh",
+            state=ProfileState.AUTHENTICATED,
+        )
+    )
+
+    async def _delete_then_succeed() -> None:
+        # A concurrent DELETE commits during the provider network window. Remove through the APP
+        # store, which the route also uses on the portal loop, so the require_present publish
+        # observes the row gone.
+        await client.app.state.profile_index.remove(profile_id)
+
+    plugin.strategy.refresh_credentials = _delete_then_succeed
+
+    resp = client.post("/v1/auth/generic/profiles/race-refresh/refresh")
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "profile_conflict"
+    # Not resurrected: the deleted profile is still gone from the user's view.
+    assert client.get("/v1/auth/generic/profiles/race-refresh").status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_refresh_failure_does_not_resurrect_a_concurrently_deleted_profile(
+    client_with_index,
+) -> None:
+    """OME-307 H-1 — a FAILED refresh after a concurrent delete must NOT leave a ghost row.
+
+    INVARIANT (OME-307 H-1): the error branch marks the profile through the CAS-gated
+    mark_authenticated_error and swallows ProfileTransitionConflict, so a profile deleted during
+    the network window is never recreated as a ghost ERROR row (mirrors
+    chat_credentials._mark_profile_error_fresh).
+    """
+    client, credential_blobs = client_with_index
+    account_id = _account_id(client)
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+
+    # WHY: seed via a fresh probe-backed store (test loop); never await the app's profile_index
+    # here — its lock would bind to the test loop and deadlock the portal-loop route.
+    seed_idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    profile_id = profile_id_for(account_id, "generic", "race-refresh-fail")
+    await seed_idx.upsert(
+        Profile(
+            id=profile_id,
+            account_id=account_id,
+            provider="generic",
+            name="race-refresh-fail",
+            state=ProfileState.AUTHENTICATED,
+        )
+    )
+
+    async def _delete_then_fail() -> None:
+        await client.app.state.profile_index.remove(profile_id)
+        raise AuthError("refresh token rejected")
+
+    plugin.strategy.refresh_credentials = _delete_then_fail
+
+    resp = client.post("/v1/auth/generic/profiles/race-refresh-fail/refresh")
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["code"] == "auth_required"
+    # No ghost row: the deleted profile was not recreated in ERROR state.
+    assert client.get("/v1/auth/generic/profiles/race-refresh-fail").status_code == 404

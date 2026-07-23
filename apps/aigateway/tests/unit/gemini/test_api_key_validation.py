@@ -267,3 +267,48 @@ async def test_gemini_unregistered_override_is_misconfiguration_without_io() -> 
     assert result.state is ApiKeyValidationState.MISCONFIGURED
     assert result.stage is None
     assert requests == []
+
+
+@pytest.mark.parametrize(
+    ("retry_delay", "expected"),
+    [
+        ("3.2s", 4),
+        ("2147483647s", 2147483647),
+        ("2147483648s", None),
+        ("99999999999999999999s", None),
+    ],
+)
+@pytest.mark.asyncio
+async def test_gemini_structured_retry_after_is_bounded(
+    retry_delay: str, expected: int | None
+) -> None:
+    # WHY (OME-307 N-2): the structured RetryInfo.retryDelay shares the numeric Retry-After
+    # ceiling. An out-of-range value degrades to "no hint" instead of emitting an absurd
+    # (and, before this bound, effectively unbounded) retry hint.
+    validator, _requests = _validator(
+        [httpx.Response(429, json=_error("RESOURCE_EXHAUSTED", retry_delay=retry_delay))]
+    )
+
+    result = await validator.validate(_KEY)
+
+    assert result.state is ApiKeyValidationState.RATE_LIMITED
+    assert result.retry_after_seconds == expected
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    ["gemini-cli/bad\x00model", "gemini-cli/bad model", "gemini-cli/bad:model"],
+)
+@pytest.mark.asyncio
+async def test_gemini_unsafe_model_id_is_misconfiguration_without_io(unsafe: str) -> None:
+    # WHY (OME-307 L-1): the readiness probe interpolates the model id into the request URL
+    # path; a URL-unsafe id would raise httpx.InvalidURL mid-probe. Reject it as a local
+    # misconfiguration before any network call rather than emit a malformed request.
+    entry = ModelEntry(model_name=unsafe, litellm_params={"model": unsafe})
+    validator, requests = _validator([], models=[entry])
+
+    result = await validator.validate(_KEY)
+
+    assert result.state is ApiKeyValidationState.MISCONFIGURED
+    assert result.stage is None
+    assert requests == []

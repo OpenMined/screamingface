@@ -323,3 +323,66 @@ async def test_validation_session_caps_genuinely_streamed_body_incrementally() -
 
     # Stops once the 64 KiB bound is crossed instead of buffering the whole stream.
     assert 0 < stream.yielded < 16
+
+
+@pytest.mark.asyncio
+async def test_validation_session_degrades_overlong_retry_after_without_transport_error() -> None:
+    # WHY (OME-307 N-1): a Retry-After longer than CPython's int-string conversion limit
+    # (sys.int_info.default_max_str_digits, 4300 by default) must not raise inside int() and
+    # get swallowed by the sanitizing except, which would downgrade a real 429 to a transport
+    # error (UNAVAILABLE). It degrades to "no hint" and preserves the rate-limit status.
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(
+            429, headers={"retry-after": "9" * 5000}, json={"error": {}}
+        )
+    )
+
+    async with ValidationHttpSession(transport=transport) as session:
+        response = await session.request_json("GET", "https://provider.example/key")
+
+    assert response.status_code == 429
+    assert response.retry_after_seconds is None
+
+
+@pytest.mark.asyncio
+async def test_validation_session_preserves_retry_after_at_upper_bound() -> None:
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(
+            429, headers={"retry-after": "2147483647"}, json={"error": {}}
+        )
+    )
+
+    async with ValidationHttpSession(transport=transport) as session:
+        response = await session.request_json("GET", "https://provider.example/key")
+
+    assert response.retry_after_seconds == 2147483647
+
+
+@pytest.mark.asyncio
+async def test_validation_session_sanitizes_invalid_url() -> None:
+    # WHY (OME-307 L-1): httpx.InvalidURL derives from Exception, NOT httpx.HTTPError, so it
+    # escaped the sanitizing except and could surface a raw URL to the caller. A control
+    # character in an interpolated model URL reaches this path (verified on httpx 0.28.1).
+    transport = httpx.MockTransport(lambda _request: httpx.Response(200, json={}))
+
+    async with ValidationHttpSession(transport=transport) as session:
+        with pytest.raises(ApiKeyValidationTransportError):
+            await session.request_json("GET", "http://\x00host/models/x:generateContent")
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [httpx.CookieConflict("ambiguous cookie"), httpx.StreamError("stream misuse")],
+)
+@pytest.mark.asyncio
+async def test_validation_session_sanitizes_non_httperror_httpx_exceptions(
+    exc: Exception,
+) -> None:
+    # httpx.CookieConflict derives from Exception and httpx.StreamError from RuntimeError;
+    # neither is an httpx.HTTPError, so both must be caught explicitly, never escape raw.
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise exc
+
+    async with ValidationHttpSession(transport=httpx.MockTransport(handler)) as session:
+        with pytest.raises(ApiKeyValidationTransportError):
+            await session.request_json("GET", "https://provider.example/key")

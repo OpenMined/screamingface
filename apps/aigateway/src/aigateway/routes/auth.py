@@ -134,11 +134,30 @@ async def _profile_refresh_lifecycle(
     name: str,
 ) -> AsyncIterator[None]:
     """Shared profile state updates around provider-owned credential refresh."""
+    # INVARIANT (OME-307 H-1): a manual refresh reads the profile, runs the provider network call,
+    # then publishes the result. A delete that commits during that network window must WIN — a
+    # deleted profile is never resurrected. The success branch publishes only while the profile
+    # remains PRESENT (require_present); the error branch additionally fences on the snapshot below
+    # (auth_type + last_refreshed_at) so a deleted/superseded profile is not recreated as a ghost
+    # ERROR row. SCOPE (guard-now): require_present is presence-only, so a concurrent
+    # re-authentication that keeps the profile present is NOT fenced out on the success path — the
+    # stronger prepare-then-publish ownership split is deferred, outside this DELETE scope.
+    expected_auth_type = profile.auth_type
+    expected_last_refreshed_at = profile.last_refreshed_at
     try:
         yield
     except (CredentialNotFoundError, AuthError) as exc:
-        profile.state = ProfileState.ERROR
-        await _index_store(request).upsert(profile)
+        # Error branch: fence on ownership and swallow a lost race (mirrors
+        # chat_credentials._mark_profile_error_fresh) so a profile deleted or superseded during the
+        # network window is never recreated as a ghost ERROR row.
+        try:
+            await _index_store(request).mark_authenticated_error(
+                profile.id,
+                expected_auth_type=expected_auth_type,
+                expected_last_refreshed_at=expected_last_refreshed_at,
+            )
+        except ProfileTransitionConflict:
+            pass
         _invalidate_profile_session(request.app, plugin, account_id, name)
         raise HTTPException(
             status_code=401,
@@ -149,9 +168,19 @@ async def _profile_refresh_lifecycle(
             },
         ) from exc
     else:
+        # Success branch: publish only while the profile still exists (require_present). A profile
+        # deleted during the network window makes this raise -> 409 instead of resurrecting it as
+        # an AUTHENTICATED row.
         profile.state = ProfileState.AUTHENTICATED
         profile.last_refreshed_at = datetime.now(UTC)
-        await _index_store(request).upsert(profile)
+        try:
+            await _index_store(request).upsert(profile, require_present=True)
+        except ProfileTransitionConflict as exc:
+            _invalidate_profile_session(request.app, plugin, account_id, name)
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "profile_conflict", "provider": provider, "profile": name},
+            ) from exc
         _invalidate_profile_session(request.app, plugin, account_id, name)
 
 

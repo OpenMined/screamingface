@@ -15,6 +15,7 @@ from aigateway.core.api_key_validation_http import (
     ApiKeyValidationTransportError,
     BoundedJsonResponse,
     ValidationHttpSession,
+    bounded_retry_after_seconds,
 )
 from aigateway.core.plugin_base import ModelEntry
 
@@ -36,6 +37,10 @@ _BLOCKED_REASONS = frozenset(
     }
 )
 _DURATION_RE = re.compile(r"^(\d+(?:\.\d+)?)s$")
+# WHY (OME-307 L-1): the readiness probe interpolates the upstream model id into the request
+# URL path, so it must be restricted to model-id-safe characters (no control chars, spaces,
+# ':' or '/') that would otherwise raise httpx.InvalidURL mid-probe.
+_SAFE_MODEL_ID = re.compile(r"[A-Za-z0-9._-]+")
 
 
 def _result(
@@ -91,7 +96,7 @@ def _structured_retry_after(details: list[dict[str, Any]]) -> int | None:
         seconds = float(match.group(1))
         if not math.isfinite(seconds) or seconds <= 0:
             return None
-        return math.ceil(seconds)
+        return bounded_retry_after_seconds(math.ceil(seconds))
     return None
 
 
@@ -168,7 +173,9 @@ def _effective_model(
     if not isinstance(upstream, str) or not upstream.startswith("gemini-cli/"):
         return None
     stripped = strip_provider_prefix(upstream)
-    if not stripped or "/" in stripped:
+    # WHY (OME-307 L-1): reject a URL-unsafe model id as a local misconfiguration before any
+    # network call instead of emitting a malformed readiness URL. Subsumes the earlier "/" check.
+    if not _SAFE_MODEL_ID.fullmatch(stripped):
         return None
     return entry.model_name, stripped
 

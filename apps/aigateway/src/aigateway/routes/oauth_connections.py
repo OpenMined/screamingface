@@ -458,12 +458,17 @@ async def refresh_connection(
     # Manual refresh wrote new tokens to the store; drop the cached instance so the
     # chat path rebuilds and reads them (SF-282).
     credential_strategy_cache(request.app).evict(credential_name)
-    connection = await store.complete(
+    # INVARIANT (OME-307 H-1): republish CONDITIONALLY on the still-active row. A delete or revoke
+    # that raced this refresh's network window wins — complete_active updates zero rows and returns
+    # None, and we 409 instead of flipping a revoked/deleted connection back to active.
+    refreshed = await store.complete_active(
         connection,
         label=connection.label,
         identity=response_from_connection(connection).account,
     )
-    return response_from_connection(connection)
+    if refreshed is None:
+        raise HTTPException(status_code=409, detail={"code": "connection_conflict"})
+    return response_from_connection(refreshed)
 
 
 def _store(request: Request) -> OAuthConnectionStore:

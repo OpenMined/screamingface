@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -694,6 +695,76 @@ async def test_mark_pending_error_marks_owned_pending_profile(credential_blobs) 
     )
     generation = await store.begin_pending(pending)
     await store.mark_pending_error(profile_id, expected_generation=generation)
+    errored = await store.get(ACCOUNT_ID, "anthropic", "work")
+    assert errored is not None
+    assert errored.state is ProfileState.ERROR
+
+
+@pytest.mark.asyncio
+async def test_authenticate_pending_publishes_last_refreshed_at_into_owner_fence(
+    credential_blobs,
+) -> None:
+    """OME-307 M-1 — the authenticated owner's refresh timestamp must survive publication.
+
+    FEATURE: profile OAuth authentication with concurrent-refresh safety.
+    STORY: as a user who re-authenticates a profile via OAuth while an earlier credential
+    refresh is still in flight, the earlier refresh's failure must not error the profile I
+    just re-authenticated.
+
+    INVARIANT: ``authenticate_pending`` publishes ``last_refreshed_at`` inside the SAME atomic
+    CAS that flips PENDING->AUTHENTICATED, so the timestamp joins ``mark_authenticated_error``'s
+    ownership fence (state + auth_type + last_refreshed_at). A stale refresh-failure carrying
+    the pre-re-auth timestamp (here the pending row's ``None``) can then no longer match the
+    fence: it is rejected with ``ProfileTransitionConflict`` and the freshly authenticated
+    profile stays AUTHENTICATED. Dropping the field at publication would leave the row at the
+    stale ``None`` and let the stale failure win.
+    """
+    store = ProfileIndexStore(credential_store=credential_blobs.store)
+    pending = Profile(
+        id=profile_id_for(ACCOUNT_ID, "anthropic", "work"),
+        account_id=ACCOUNT_ID,
+        provider="anthropic",
+        name="work",
+        state=ProfileState.PENDING,
+    )
+    generation = await store.begin_pending(pending)
+
+    # The OAuth callback stamps a fresh refresh time on the authenticated form it publishes.
+    refreshed_at = datetime(2026, 7, 23, 12, 0, 0, tzinfo=UTC)
+    authenticated = pending.model_copy(
+        update={
+            "state": ProfileState.AUTHENTICATED,
+            "auth_type": "oauth",
+            "last_refreshed_at": refreshed_at,
+        }
+    )
+    await store.authenticate_pending(authenticated, expected_generation=generation)
+
+    published = await store.get(ACCOUNT_ID, "anthropic", "work")
+    assert published is not None
+    assert published.state is ProfileState.AUTHENTICATED
+    # The owner's refresh timestamp is durably published, not dropped to the pending ``None``.
+    assert published.last_refreshed_at == refreshed_at
+
+    # A stale refresh-failure that read the profile BEFORE re-auth (last_refreshed_at is None)
+    # must NOT be able to error the new owner.
+    with pytest.raises(ProfileTransitionConflict):
+        await store.mark_authenticated_error(
+            published.id,
+            expected_auth_type="oauth",
+            expected_last_refreshed_at=None,
+        )
+    still_authenticated = await store.get(ACCOUNT_ID, "anthropic", "work")
+    assert still_authenticated is not None
+    assert still_authenticated.state is ProfileState.AUTHENTICATED
+
+    # The CURRENT owner (matching timestamp) can still legitimately error it — proving the
+    # fence stayed functional, not merely always-closed.
+    await store.mark_authenticated_error(
+        published.id,
+        expected_auth_type="oauth",
+        expected_last_refreshed_at=refreshed_at,
+    )
     errored = await store.get(ACCOUNT_ID, "anthropic", "work")
     assert errored is not None
     assert errored.state is ProfileState.ERROR

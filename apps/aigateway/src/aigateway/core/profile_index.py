@@ -163,6 +163,11 @@ class ProfileIndexStore:
                 changes = {
                     "state": profile.state,
                     "auth_type": profile.auth_type,
+                    # WHY (OME-307 M-1): publish last_refreshed_at inside this SAME CAS so it
+                    # joins mark_authenticated_error's ownership fence. Omitting it left the row
+                    # at the pending None, letting a stale refresh-failure carrying that None
+                    # error the freshly re-authenticated owner.
+                    "last_refreshed_at": profile.last_refreshed_at,
                 }
                 if account_label is not None:
                     changes["account_label"] = account_label
