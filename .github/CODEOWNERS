@@ -10,6 +10,9 @@
 /apps/aigateway/                 @HupBaHa
 /apps/scoreboard/                @HupBaHa
 
+# Product public docs
+/public-docs/                    @IrinaMBejan
+
 # Shared libraries (url4 SDK and friends land here)
 /packages/                       @sergio-bershadsky @HupBaHa
 
