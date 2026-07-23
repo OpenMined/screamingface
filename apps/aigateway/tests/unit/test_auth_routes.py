@@ -4,8 +4,10 @@ import asyncio
 import base64
 import json
 import logging
+import threading
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from typing import cast
 from urllib.parse import parse_qs, urlparse
@@ -17,6 +19,7 @@ from tortoise import Tortoise
 from tortoise.exceptions import IntegrityError, OperationalError
 
 from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
+from aigateway.core.errors import AuthError
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import OAuthCodeExchangeRequest, OAuthConfig
 from aigateway.core.profile_index import ProfileIndexStore
@@ -547,6 +550,18 @@ async def _seed_pending_profile(
     name: str,
     state: str,
 ) -> None:
+    # Mirror the real start_oauth: publish the pending profile AND claim an ownership
+    # generation via begin_pending, then record that generation on the pending entry so the
+    # callback presents it to authenticate_pending / mark_pending_error (OME-307 Blocker 1).
+    generation = await client.app.state.profile_index.begin_pending(
+        Profile(
+            id=profile_id_for(account_id, provider, name),
+            account_id=account_id,
+            provider=provider,
+            name=name,
+            state=ProfileState.PENDING,
+        )
+    )
     client.app.state.pending_auth.put(
         state,
         PendingAuthEntry(
@@ -556,16 +571,8 @@ async def _seed_pending_profile(
             profile_id=profile_id_for(account_id, provider, name),
             code_verifier="verifier",
             redirect_uri="http://localhost:1455/callback",
+            oauth_generation=generation,
         ),
-    )
-    await client.app.state.profile_index.upsert(
-        Profile(
-            id=profile_id_for(account_id, provider, name),
-            account_id=account_id,
-            provider=provider,
-            name=name,
-            state=ProfileState.PENDING,
-        )
     )
 
 
@@ -911,7 +918,92 @@ def test_connection_exchange_uses_redirect_uri_override(client_with_index) -> No
     assert plugin.exchange_request.redirect_uri == redirect_uri
 
 
-def test_connection_completion_deletes_credentials_when_activation_conflicts(
+def test_connection_delete_wins_over_stalled_oauth_completion(client_with_index) -> None:
+    """A callback consumed before DELETE must not reactivate the revoked connection.
+
+    INVARIANT: OAuth activation conditionally transitions the stable connection row before
+    writing credentials in the same transaction. Once DELETE commits revoked, the callback
+    conflicts without writing an orphan credential.
+    """
+    client, _ = client_with_index
+    exchange_started = threading.Event()
+    release_exchange = threading.Event()
+
+    class _BlockingConnectionOAuthPlugin(_GenericOAuthPlugin):
+        async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict:
+            exchange_started.set()
+            if not await asyncio.to_thread(release_exchange.wait, 5):
+                raise TimeoutError("OAuth exchange was not released")
+            return await super().exchange_oauth_code(request)
+
+    plugin = _BlockingConnectionOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    start = client.post(
+        "/v1/oauth/connections",
+        json={"provider": "generic", "label": "delete-race"},
+    )
+    assert start.status_code == 201
+    connection_id = start.json()["connection_id"]
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        callback = executor.submit(
+            client.post,
+            "/v1/auth/generic/exchange-code",
+            json={"code": "generic-code", "state": start.json()["state"]},
+        )
+        assert exchange_started.wait(5), "callback never consumed state and reached exchange"
+        deleted = client.delete(f"/v1/oauth/connections/{connection_id}")
+        release_exchange.set()
+        completed = callback.result(timeout=5)
+
+    assert deleted.status_code == 204
+    assert completed.status_code == 409
+    assert completed.json()["detail"]["code"] == "connection_conflict"
+    assert plugin.strategy.creds is None
+    assert client.get(f"/v1/oauth/connections/{connection_id}").json()["status"] == "revoked"
+
+
+def test_connection_delete_wins_over_stalled_oauth_failure(client_with_index) -> None:
+    """A stale exchange failure must not rewrite a committed revoke to ERROR."""
+    client, _ = client_with_index
+    exchange_started = threading.Event()
+    release_exchange = threading.Event()
+
+    class _FailingConnectionOAuthPlugin(_GenericOAuthPlugin):
+        async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict:
+            self.exchange_request = request
+            exchange_started.set()
+            if not await asyncio.to_thread(release_exchange.wait, 5):
+                raise TimeoutError("OAuth exchange failure was not released")
+            raise RuntimeError("provider rejected the consumed code")
+
+    plugin = _FailingConnectionOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+    start = client.post(
+        "/v1/oauth/connections",
+        json={"provider": "generic", "label": "delete-failure-race"},
+    )
+    connection_id = start.json()["connection_id"]
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        callback = executor.submit(
+            client.get,
+            "/callback",
+            params={"code": "generic-code", "state": start.json()["state"]},
+            follow_redirects=False,
+        )
+        assert exchange_started.wait(5), "callback never consumed state and reached exchange"
+        deleted = client.delete(f"/v1/oauth/connections/{connection_id}")
+        release_exchange.set()
+        failed = callback.result(timeout=5)
+
+    assert deleted.status_code == 204
+    assert failed.status_code == 500
+    assert client.get(f"/v1/oauth/connections/{connection_id}").json()["status"] == "revoked"
+    assert plugin.strategy.creds is None
+
+
+def test_connection_completion_writes_no_credentials_when_activation_conflicts(
     client_with_index, monkeypatch
 ) -> None:
     client, _ = client_with_index
@@ -922,7 +1014,7 @@ def test_connection_completion_deletes_credentials_when_activation_conflicts(
         raise IntegrityError("simulated connection race")
 
     monkeypatch.setattr(
-        "aigateway.routes.auth.OAuthConnectionStore.complete",
+        "aigateway.routes.auth.OAuthConnectionStore.complete_pending",
         complete_conflict,
     )
 
@@ -939,11 +1031,11 @@ def test_connection_completion_deletes_credentials_when_activation_conflicts(
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "connection_conflict"
-    assert plugin.strategy.creds is not None
-    assert plugin.strategy.deleted is True
+    assert plugin.strategy.creds is None
+    assert plugin.strategy.deleted is False
 
 
-def test_connection_completion_non_integrity_failure_deletes_credentials_and_marks_error(
+def test_connection_completion_non_integrity_failure_writes_no_credentials_and_marks_error(
     client_with_index, monkeypatch
 ) -> None:
     client, _ = client_with_index
@@ -955,7 +1047,7 @@ def test_connection_completion_non_integrity_failure_deletes_credentials_and_mar
         raise OperationalError(f"database locked while handling {leak_marker}")
 
     monkeypatch.setattr(
-        "aigateway.routes.auth.OAuthConnectionStore.complete",
+        "aigateway.routes.auth.OAuthConnectionStore.complete_pending",
         complete_failure,
     )
 
@@ -975,14 +1067,14 @@ def test_connection_completion_non_integrity_failure_deletes_credentials_and_mar
     assert resp.status_code == 503
     assert resp.json()["detail"]["code"] == "connection_activation_failed"
     assert leak_marker not in resp.text
-    assert plugin.strategy.creds is not None
-    assert plugin.strategy.deleted is True
+    assert plugin.strategy.creds is None
+    assert plugin.strategy.deleted is False
     connection = client.get(f"/v1/oauth/connections/{connection_id}").json()
     assert connection["status"] == "error"
     assert leak_marker not in json.dumps(connection)
 
 
-def test_connection_completion_delete_compensation_failure_is_sanitized(
+def test_connection_completion_conflict_needs_no_delete_compensation(
     client_with_index, monkeypatch, caplog
 ) -> None:
     client, _ = client_with_index
@@ -997,7 +1089,7 @@ def test_connection_completion_delete_compensation_failure_is_sanitized(
         raise RuntimeError(f"delete failed for {leak_marker}")
 
     monkeypatch.setattr(
-        "aigateway.routes.auth.OAuthConnectionStore.complete",
+        "aigateway.routes.auth.OAuthConnectionStore.complete_pending",
         complete_conflict,
     )
     monkeypatch.setattr(plugin.strategy, "delete_credentials", delete_failure)
@@ -1016,8 +1108,9 @@ def test_connection_completion_delete_compensation_failure_is_sanitized(
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "connection_conflict"
-    assert "Failed to delete OAuth connection credentials" in caplog.text
-    assert "RuntimeError" in caplog.text
+    assert plugin.strategy.creds is None
+    assert plugin.strategy.deleted is False
+    assert "Failed to delete OAuth connection credentials" not in caplog.text
     assert leak_marker not in caplog.text
 
 
@@ -1099,10 +1192,15 @@ def test_profile_oauth_profile_index_conflict_returns_sanitized_503_html(
     start = client.post("/v1/auth/generic/profiles", json={"name": "index-conflict"})
     assert start.status_code == 201
 
-    async def upsert_conflict(_profile) -> None:
+    async def authenticate_conflict(_profile, **_kwargs) -> None:
         raise CredentialBlobMutationConflict("forced contention")
 
-    monkeypatch.setattr(client.app.state.profile_index, "upsert", upsert_conflict)
+    # WHY: on the OAuth callback path a CAS conflict surfaces from the sole publication
+    # boundary, authenticate_pending() (OME-307 Unit 1); inject there, not at the removed
+    # trailing upsert() seam.
+    monkeypatch.setattr(
+        client.app.state.profile_index, "authenticate_pending", authenticate_conflict
+    )
     auth_header = client.headers.pop("Authorization")
     try:
         with _server_errors_as_responses(client):
@@ -1328,10 +1426,14 @@ def test_callback_restores_api_key_blob_when_profile_index_update_fails(
     start = client.post("/v1/auth/anthropic/profiles", json={"name": "default"})
     state = start.json()["state"]
 
-    async def _boom(_profile) -> None:
+    async def _boom(_profile, **_kwargs) -> None:
         raise RuntimeError("profile index unavailable")
 
-    monkeypatch.setattr(client.app.state.profile_index, "upsert", _boom)
+    # WHY: inject at the real callback publication boundary. The OAuth callback path
+    # authenticates a pending profile via authenticate_pending(); its failure must roll
+    # the credential write back with it (OME-307 Unit 1 removed the redundant trailing
+    # upsert() that this fault used to ride).
+    monkeypatch.setattr(client.app.state.profile_index, "authenticate_pending", _boom)
     auth_header = client.headers.pop("Authorization")
     try:
         with _server_errors_as_responses(client):
@@ -1850,3 +1952,98 @@ def test_delete_profile_invalidates_provider_profile_session(client_with_index) 
     assert resp.status_code == 204
     credential_name = credential_name_for(account_id, "delete-session")
     assert plugin.invalidated_profiles == [credential_name, credential_name]
+
+
+@pytest.mark.asyncio
+async def test_refresh_success_does_not_resurrect_a_concurrently_deleted_profile(
+    client_with_index,
+) -> None:
+    """OME-307 H-1 — a successful refresh after a concurrent delete must NOT resurrect it.
+
+    FEATURE: manual OAuth profile refresh with delete-race safety.
+    STORY: as a user who deletes a profile while its refresh is mid-flight, the delete wins —
+    the refresh's successful token write must not recreate the profile I removed.
+
+    INVARIANT (OME-307 H-1): the success branch publishes conditionally (require_present=True),
+    so a profile deleted during the provider network window makes the publication raise
+    ProfileTransitionConflict -> 409 instead of resurrecting an AUTHENTICATED row.
+    """
+    client, credential_blobs = client_with_index
+    account_id = _account_id(client)
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+
+    # WHY: seed through a FRESH probe-backed store bound to THIS (test) event loop. Awaiting the
+    # app's profile_index here would bind its asyncio.Lock to the test loop; the route then
+    # deadlocks re-entering that lock from the TestClient portal loop while this coroutine is
+    # parked inside the synchronous client.post below.
+    seed_idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    profile_id = profile_id_for(account_id, "generic", "race-refresh")
+    await seed_idx.upsert(
+        Profile(
+            id=profile_id,
+            account_id=account_id,
+            provider="generic",
+            name="race-refresh",
+            state=ProfileState.AUTHENTICATED,
+        )
+    )
+
+    async def _delete_then_succeed() -> None:
+        # A concurrent DELETE commits during the provider network window. Remove through the APP
+        # store, which the route also uses on the portal loop, so the require_present publish
+        # observes the row gone.
+        await client.app.state.profile_index.remove(profile_id)
+
+    plugin.strategy.refresh_credentials = _delete_then_succeed
+
+    resp = client.post("/v1/auth/generic/profiles/race-refresh/refresh")
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "profile_conflict"
+    # Not resurrected: the deleted profile is still gone from the user's view.
+    assert client.get("/v1/auth/generic/profiles/race-refresh").status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_refresh_failure_does_not_resurrect_a_concurrently_deleted_profile(
+    client_with_index,
+) -> None:
+    """OME-307 H-1 — a FAILED refresh after a concurrent delete must NOT leave a ghost row.
+
+    INVARIANT (OME-307 H-1): the error branch marks the profile through the CAS-gated
+    mark_authenticated_error and swallows ProfileTransitionConflict, so a profile deleted during
+    the network window is never recreated as a ghost ERROR row (mirrors
+    chat_credentials._mark_profile_error_fresh).
+    """
+    client, credential_blobs = client_with_index
+    account_id = _account_id(client)
+    plugin = _GenericOAuthPlugin()
+    client.app.state.providers._plugins["generic"] = plugin
+
+    # WHY: seed via a fresh probe-backed store (test loop); never await the app's profile_index
+    # here — its lock would bind to the test loop and deadlock the portal-loop route.
+    seed_idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    profile_id = profile_id_for(account_id, "generic", "race-refresh-fail")
+    await seed_idx.upsert(
+        Profile(
+            id=profile_id,
+            account_id=account_id,
+            provider="generic",
+            name="race-refresh-fail",
+            state=ProfileState.AUTHENTICATED,
+        )
+    )
+
+    async def _delete_then_fail() -> None:
+        await client.app.state.profile_index.remove(profile_id)
+        raise AuthError("refresh token rejected")
+
+    plugin.strategy.refresh_credentials = _delete_then_fail
+
+    resp = client.post("/v1/auth/generic/profiles/race-refresh-fail/refresh")
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["code"] == "auth_required"
+    # No ghost row: the deleted profile was not recreated in ERROR state.
+    assert client.get("/v1/auth/generic/profiles/race-refresh-fail").status_code == 404

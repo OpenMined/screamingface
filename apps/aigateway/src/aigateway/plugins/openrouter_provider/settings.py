@@ -83,6 +83,7 @@ class OpenRouterPluginSettings(PluginSettings):
     # never a provider branch in the loader/registry).
     enabled: bool = False
     default_models: list[str] = Field(default_factory=_default_model_slugs)
+    validation_model: str = "openrouter/openrouter/free"
 
     @field_validator("default_models")
     @classmethod

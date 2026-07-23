@@ -8,6 +8,7 @@ from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
+from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.google_code_assist import (
     account_label_from_credentials,
     extract_account_identity,
@@ -21,6 +22,7 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 
+from .api_key_validation import GeminiApiKeyValidator
 from .auth import (
     CLIENT_AUTH_HEADER_NAMES,
     GeminiOAuth,
@@ -37,6 +39,7 @@ from .oauth_config import (
     GEMINI_SCOPES,
     GEMINI_TOKEN_URL,
 )
+from .settings import GeminiPluginSettings
 
 if TYPE_CHECKING:
     from aigateway.core.credential_blob.store import CredentialBlobStore
@@ -70,8 +73,9 @@ def _detail_for_error(exc: CustomLLMError) -> dict[str, str]:
     return {"code": code, "message": exc.message}
 
 
-class GeminiProviderPlugin(ProviderPluginBase):
+class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
     custom_llm_provider = "gemini-cli"
+    settings_cls = GeminiPluginSettings
 
     def credential_service_provider(self) -> str:
         return "gemini"
@@ -121,6 +125,12 @@ class GeminiProviderPlugin(ProviderPluginBase):
             account="default",
             header_builder=lambda api_key: {"x-goog-api-key": api_key},
             credential_store=credential_store,
+        )
+
+    def api_key_validator(self) -> ApiKeyValidator:
+        return GeminiApiKeyValidator(
+            settings=self.settings,
+            registered_models=self.register_models(),
         )
 
     async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict[str, Any]:
