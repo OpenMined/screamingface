@@ -28,7 +28,7 @@ Iteration (``src*(body)!intent``) resolves to a JSON array of per-row results
 (spec §5.3.8); broadcast (``!*``) to a JSON array of per-source result objects
 (spec §6.1.4).
 
-SDK facades — build expressions in Python (:mod:`url4.builders`), print them
+SDK facades — build expressions in Python (:mod:`url4.core.builders`), print them
 canonically (:func:`render`, the certified inverse of :func:`build`), query as
 a requestor (:class:`Client`), or stand up a node (:class:`Url4Node`)::
 
@@ -52,12 +52,14 @@ a requestor (:class:`Client`), or stand up a node (:class:`Url4Node`)::
 
 The execution engine — DAG compilation, the executor, lowering — lives one
 level down: ``from url4.dag import compile_expression, run``; the wire codecs
-in :mod:`url4.subrequest`; scope internals in :mod:`url4.context`.
+in :mod:`url4.core.subrequest`; scope internals in :mod:`url4.core.context`.
 """
 
 from __future__ import annotations
 
-from url4.builders import (
+from typing import TYPE_CHECKING
+
+from url4.core.builders import (
     ParamsLike,
     SourceLike,
     broadcast,
@@ -72,8 +74,7 @@ from url4.builders import (
     struct,
     text,
 )
-from url4.client import Client, Url4Result, evaluate_sync
-from url4.errors import (
+from url4.core.errors import (
     CollectionError,
     CycleError,
     ParseError,
@@ -82,16 +83,7 @@ from url4.errors import (
     ScopeError,
     Url4Error,
 )
-from url4.io_http import HttpIOLayer
-from url4.io_layer import (
-    FetchRequest,
-    FetchResult,
-    IOLayer,
-    SupportsFetchEx,
-    SupportsHoldings,
-)
-from url4.io_static import StaticIOLayer
-from url4.nodes import (
+from url4.core.nodes import (
     Binding,
     Expression,
     IdentityRef,
@@ -107,11 +99,40 @@ from url4.nodes import (
     Url,
     VarRef,
 )
-from url4.parser import build, walk
-from url4.render import render
-from url4.server import Request, Url4Node
+from url4.core.parser import build, walk
+from url4.core.render import render
+from url4.io.layer import (
+    FetchRequest,
+    FetchResult,
+    IOLayer,
+    SupportsDefaultRoute,
+    SupportsFetchEx,
+    SupportsHoldings,
+    SupportsProcessorRoutes,
+)
+from url4.io.static import StaticIOLayer
+from url4.peer.client import Client, Url4Result, evaluate_sync
+from url4.peer.server import Request, Url4Node
+
+if TYPE_CHECKING:  # `url4.HttpIOLayer` still type-checks; see __getattr__ below.
+    from url4.io.http import HttpIOLayer
 
 __version__ = "0.1.0"
+
+
+# AIDEV-NOTE: HttpIOLayer is resolved lazily (PEP 562) so `import url4` never
+# pulls in httpx — ~44ms of a ~95ms import, paid by `url4 --version` and
+# `url4 eval`, neither of which speaks HTTP. This mirrors the discipline the
+# execution core already keeps: `executor._run_context`, `Client._effective_io`
+# and `Url4Node._outbound_io` all import the concrete transport inside the
+# function, so the static import graph names no transport.
+def __getattr__(name: str) -> object:
+    if name == "HttpIOLayer":
+        from url4.io.http import HttpIOLayer
+
+        return HttpIOLayer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "Binding",
@@ -140,8 +161,10 @@ __all__ = [
     "SourceLike",
     "StaticIOLayer",
     "StructObject",
+    "SupportsDefaultRoute",
     "SupportsFetchEx",
     "SupportsHoldings",
+    "SupportsProcessorRoutes",
     "Text",
     "Url",
     "Url4Error",

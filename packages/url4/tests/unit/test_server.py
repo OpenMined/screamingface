@@ -17,12 +17,12 @@ import httpx
 import pytest
 
 from url4 import StaticIOLayer
-from url4.builders import src
-from url4.client import Client
-from url4.errors import ResolutionError, Url4Error
-from url4.io_http import HttpIOLayer
-from url4.io_layer import FetchRequest
-from url4.server import Request, Url4Node
+from url4.core.builders import src
+from url4.core.errors import ResolutionError, Url4Error
+from url4.io.http import HttpIOLayer
+from url4.io.layer import FetchRequest
+from url4.peer.client import Client
+from url4.peer.server import Request, Url4Node
 
 pytestmark = pytest.mark.asyncio
 
@@ -107,7 +107,7 @@ async def test_data_route_media_type_drives_collection_iteration():
     )
     # The single NDJSON row iterates; CollectNode embeds the JSON object row
     # structurally (spec §5.3.8).
-    result = (await n.evaluate("/api/nd*($item)")).text
+    result = (await n.evaluate("/api/nd*(r:0:$item)!'$r'")).text
     assert json.loads(result) == [{"q": "2+2"}]
 
 
@@ -145,10 +145,12 @@ async def test_identity_handler_can_deny_access(node):
 async def test_endpoint_dispatch_from_engine_internals(node, wire):
     # A relative expression source dispatches to the registered endpoint with
     # the wire-decoded (context, intent) pair — context is opaque data.
-    res = await node.evaluate("(/claude(https://x)!'Go')")
+    res = await node.evaluate("(r:0:/claude(https://x)!'Go')!'$r'")
     assert res.text.startswith("CLAUDE(")
     assert wire[0].path == "/claude"
-    assert wire[0].context == "https://x"
+    # `OME-535`: the caller resolves the context source-list — the endpoint
+    # receives the FETCHED content as opaque data, never the URL text.
+    assert wire[0].context == "ARTICLE"
     assert wire[0].intent == "Go"
 
 
@@ -176,6 +178,30 @@ async def test_eval_path_reattaches_protocol_params(node):
     # ;broadcast has spec-equivalent standing as a protocol param (§6.1.1)
     body = await node.fetch("/v1?broadcast&q=('a', 'b')!'x'", relative=True)
     assert isinstance(json.loads(body), list)
+
+
+async def test_eval_path_accepts_standard_encoded_call_expression(node, wire):
+    # WHY (OME-530): curl --data-urlencode / browsers percent-encode EVERY
+    # head. A fully-encoded bare relative call (%2F head) must evaluate
+    # exactly as its in-process `evaluate()` twin — not mis-decode into a
+    # bogus endpoint_not_found.
+    from urllib.parse import quote
+
+    q = quote("/claude(https://x)!'Go'", safe="")
+    body = await node.fetch(f"/v1?q={q}", relative=True)
+    assert body.startswith("CLAUDE(")
+    assert wire[0].context == "ARTICLE"  # `OME-535`: resolved caller-side
+    assert wire[0].intent == "Go"
+
+
+async def test_eval_path_accepts_standard_encoded_group(node):
+    # Control: the group head (%28) stays on the fully-encoded path, spaces
+    # and $refs intact end-to-end.
+    from urllib.parse import quote
+
+    q = quote("(a=https://x)!'Summarize $a'", safe="")
+    body = await node.fetch(f"/v1?q={q}", relative=True)
+    assert "ARTICLE" in body
 
 
 async def test_unknown_path_fails(node):
@@ -213,7 +239,7 @@ async def test_asgi_full_client_loop(node, wire):
         client = Client(HttpIOLayer(client=http), node="url4://testnode/v1")
         res = await client.query(src("https://x", name="a"), intent="Summarize $a")
     assert "ARTICLE" in res.text or res.text.startswith("CLAUDE(")
-    assert res.request.startswith("(url4://testnode/v1")
+    assert res.request.startswith("(r:0.0:url4://testnode/v1")
 
 
 @pytest.mark.parametrize(
@@ -257,7 +283,10 @@ async def test_registration_validation(node):
         node.endpoint("/claude")  # duplicate
 
 
-async def test_serve_requires_uvicorn(node):
+async def test_serve_requires_uvicorn(node, hide_uvicorn):
+    # `hide_uvicorn` creates the missing-extra condition; without it this test
+    # depended on the ambient venv and, with uvicorn installed, called the real
+    # uvicorn.run().
     with pytest.raises(RuntimeError, match=r"url4\[server\]"):
         node.serve()
 
@@ -270,7 +299,7 @@ async def test_constructor_data_param():
 async def test_dual_wire_conventions_are_codec_owned():
     # WHY: spec §3.4 — a node MUST accept url4's raw-structural escaping AND a
     # standard client's full percent-encoding; the codec module owns both.
-    from url4.subrequest import decode_expression_http, decode_subrequest_http
+    from url4.core.subrequest import decode_expression_http, decode_subrequest_http
 
     raw = "(a=https://x)!'go'"
     encoded = "%28a%3Dhttps%3A%2F%2Fx%29%21%27go%27"
@@ -278,3 +307,41 @@ async def test_dual_wire_conventions_are_codec_owned():
     assert decode_subrequest_http(encoded) == ("a=https://x", "'go'")
     assert decode_expression_http(raw) == raw
     assert decode_expression_http(encoded) == raw
+
+
+# --- default route: first registered endpoint replaces the hardcoded default ----
+
+
+async def test_node_default_route_is_first_registered_endpoint() -> None:
+    n = Url4Node("t")
+    assert n.default_route() is None
+
+    @n.endpoint("/alpha")
+    async def alpha(request: Request) -> str:  # noqa: ARG001 - handler contract
+        return "alpha"
+
+    @n.endpoint("/beta")
+    async def beta(request: Request) -> str:  # noqa: ARG001 - handler contract
+        return "beta"
+
+    assert n.default_route() == "/alpha"
+    assert Url4Node("t", default_processor="/x").default_route() == "/x"
+
+
+async def test_node_reduce_dispatches_to_first_registered_endpoint() -> None:
+    n = Url4Node("t")
+    calls: list[str] = []
+
+    @n.endpoint("/reducer")
+    async def reducer(request: Request) -> str:  # noqa: ARG001 - handler contract
+        calls.append("/reducer")
+        return "REDUCED"
+
+    @n.endpoint("/leaf")
+    async def leaf(request: Request) -> str:  # noqa: ARG001 - handler contract
+        calls.append("/leaf")
+        return "LEAF"
+
+    result = await n.evaluate("(/leaf(x)!'go')!'pick'")
+    assert result.text == "REDUCED"
+    assert calls == ["/leaf", "/reducer"]
