@@ -318,6 +318,16 @@ async def _stream(plugin: Any, body: dict[str, Any]):
             yield f"data: {json.dumps(payload)}\n\n"
         yield "data: [DONE]\n\n"
     except Exception as exc:
-        logger.exception("stream failed")
-        err = {"error": {"message": str(exc), "type": type(exc).__name__}}
+        # INVARIANT: provider-controlled exception text and traceback data stay out of logs.
+        logger.error(
+            "stream failed type=%s plugin=%s",
+            type(exc).__name__,
+            type(plugin).__name__,
+        )
+        err = {
+            "error": {
+                "code": "provider_error",
+                "message": _PROVIDER_ERROR_MESSAGE["provider_error"],
+            }
+        }
         yield f"data: {json.dumps(err)}\n\n"
