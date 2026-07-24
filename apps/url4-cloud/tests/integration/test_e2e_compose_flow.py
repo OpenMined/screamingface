@@ -1,8 +1,8 @@
 """OME-524 — headless full-flow e2e for the compose smoke (spec §11; docs/protocol.md §8).
 
-The docker-compose e2e (NATS + App + Docker mock-runner) needs live infra, so this is its headless
+The docker-compose e2e (NATS + App + mock-runner) needs live infra, so this is its headless
 twin: the real ``create_app`` App, an :class:`InMemoryBus`, and a fake ``JobRunner`` that stands in
-for the scheduled container by publishing the §8 mock stream. Drives the whole contract —
+for the scheduled Runner by publishing the §8 mock stream. Drives the whole contract —
 ``POST /token → open WS → GET /?q= → stream → DELETE → purge`` — asserting every streamed frame
 validates through :data:`OutboundFrameAdapter` and satisfies §8 (roll-up + ordering + sequence).
 """
@@ -42,7 +42,7 @@ T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
 class MockRunnerJobRunner:
     """A fake ``JobRunner`` that 'runs the container' by publishing the §8 mock stream to the bus.
 
-    Mirrors what the compose ``DockerJobRunner`` does — schedule ⇒ a runner starts emitting frames —
+    Mirrors what a scheduled Runner does — schedule ⇒ a runner starts emitting frames —
     but in-process against the injected :class:`InMemoryBus`, so the e2e needs no Docker/NATS.
     """
 
@@ -52,7 +52,16 @@ class MockRunnerJobRunner:
         self.stopped: list[str] = []
         self._tasks: list[asyncio.Task[None]] = []
 
-    def schedule(self, topic: str, url4: str, deadline_s: int) -> str:
+    def schedule(
+        self,
+        topic: str,
+        url4: str,
+        deadline_s: int,
+        *,
+        traceparent: str | None = None,
+        credential: str | None = None,
+        profile: str | None = None,
+    ) -> str:
         self.scheduled.append((topic, url4, deadline_s))
         # WHY: schedule() is sync (the port), but it runs inside the async GET handler, so a running
         # loop exists — spawn the publish as a background task, the container stand-in.

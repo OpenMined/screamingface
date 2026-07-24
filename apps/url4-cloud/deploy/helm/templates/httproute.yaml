@@ -1,0 +1,65 @@
+{{- if and .Values.gateway.enabled .Values.ingress.enabled -}}
+{{- fail "gateway.enabled and ingress.enabled are both true — two front doors for one Service means the edge contract (timeouts, TLS) is defined twice and diverges. Pick one." -}}
+{{- end -}}
+{{- if .Values.gateway.enabled -}}
+{{/*
+Gateway API edge (the successor to Ingress; `ingress.enabled` remains for one release).
+
+WHY Gateway API here specifically: this workload's edge requirements are a long-lived WebSocket
+per run plus a REST call that may legitimately block for `config.syncMaxWaitS`. Under Ingress
+those are expressible ONLY as controller-specific annotations — `nginx.ingress.kubernetes.io/
+proxy-read-timeout` for one controller, a static entrypoint setting for another — so the one
+part of the edge contract that can actually cause an outage lived outside the chart and differed
+per environment. `HTTPRoute.spec.rules[].timeouts` is a TYPED spec field, identical across
+implementations, so the chart finally owns the whole contract and every environment gets it.
+
+INVARIANT: timeouts are BOUNDED, not disabled. The Envoy config this replaces used `0` (no cap)
+for both the stream and the route, which makes a wedged client a permanent resource leak. The
+correct ceiling is the one the run itself already has — `config.jobDeadlineS` — so a stream can
+never outlive the Job it is reporting on.
+
+PREREQUISITES (cluster-level, NOT installed by this chart): the Gateway API CRDs, a GatewayClass,
+and a controller implementing it. TLS/certificates attach to the Gateway's listener, not here —
+with cert-manager that needs its `ExperimentalGatewayAPISupport` feature gate.
+*/}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "url4-cloud.fullname" . }}
+  labels:
+    {{- include "url4-cloud.labels" . | nindent 4 }}
+  {{- with .Values.gateway.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    - name: {{ required "gateway.parentRef.name is required when gateway.enabled=true — the Gateway this route attaches to" .Values.gateway.parentRef.name }}
+      {{- with .Values.gateway.parentRef.namespace }}
+      namespace: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.gateway.parentRef.sectionName }}
+      # Which listener on that Gateway (e.g. `web` vs `websecure`) — omit to attach to all.
+      sectionName: {{ . | quote }}
+      {{- end }}
+  {{- with .Values.gateway.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    # One rule for everything: REST (`/`, `/token`, `/healthz`, `/docs`, `/openapi.json`,
+    # `/metrics`) and the WebSocket (`/ws`) share a single origin and port by design, so
+    # splitting them here would only create two places to keep the timeouts in sync.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        # `request` bounds the whole exchange — it MUST exceed `syncMaxWaitS` or a legitimate
+        # `Prefer: wait=<n>` hold is severed by the edge before the App can answer.
+        request: {{ .Values.gateway.timeouts.request | default (printf "%ds" (int .Values.config.jobDeadlineS)) | quote }}
+        backendRequest: {{ .Values.gateway.timeouts.backendRequest | default (printf "%ds" (int .Values.config.jobDeadlineS)) | quote }}
+      backendRefs:
+        - name: {{ include "url4-cloud.fullname" . }}
+          port: {{ .Values.service.port }}
+{{- end }}

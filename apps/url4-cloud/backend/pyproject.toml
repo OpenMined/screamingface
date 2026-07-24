@@ -1,0 +1,35 @@
+[project]
+name = "url4-cloud"
+version = "0.1.0"
+description = "url4-cloud backend — REST + WebSocket entrypoint: mints tokens, upgrades connections, schedules Runner Jobs."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.136.1",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.1",
+    "uvicorn[standard]>=0.47.0",
+    "pyjwt>=2.10.1",
+    "kubernetes>=31.0.0",
+    "prometheus-client>=0.21.0",
+    # Local-dev mode (make_local_app) drives the real Url4Executor in-process, so the backend
+    # depends on the runner package. Prod still launches the runner as its own image/Job; the
+    # dependency only matters for the co-located local-mode path.
+    "url4-cloud-runner",
+    "url4-cloud-nats",
+    "url4-streaming-protocol",
+]
+
+[project.scripts]
+url4-cloud = "url4_cloud.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+url4-cloud-runner = { path = "../runner", editable = true }
+url4-cloud-nats = { path = "../shared/bus", editable = true }
+url4-streaming-protocol = { path = "../shared/protocol", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/url4_cloud"]

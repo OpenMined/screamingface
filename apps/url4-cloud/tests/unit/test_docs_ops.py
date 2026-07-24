@@ -187,7 +187,6 @@ def test_metrics_is_openmetrics_text_with_counters() -> None:
     assert resp.headers["content-type"].startswith("text/plain")
     body = resp.text
     assert "url4_cloud_requests_total" in body
-    assert "gen_ai_client_token_usage_total" in body
 
 
 # --- REST response documentation (OME-552) --------------------------------

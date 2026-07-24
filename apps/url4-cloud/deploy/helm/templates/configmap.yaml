@@ -6,8 +6,42 @@ metadata:
     {{- include "url4-cloud.labels" . | nindent 4 }}
 data:
   # Keys are the URL4_CLOUD_*-prefixed env consumed by url4_cloud.config.Settings.
-  URL4_CLOUD_NATS_URL: {{ .Values.config.natsUrl | quote }}
+  URL4_CLOUD_NATS_URL: {{ include "url4-cloud.natsUrl" . | quote }}
   URL4_CLOUD_IAT_WINDOW_S: {{ .Values.config.iatWindowS | quote }}
   URL4_CLOUD_SYNC_MAX_WAIT_S: {{ .Values.config.syncMaxWaitS | quote }}
   URL4_CLOUD_WS_HEARTBEAT_S: {{ .Values.config.wsHeartbeatS | quote }}
   URL4_CLOUD_JOB_DEADLINE_S: {{ .Values.config.jobDeadlineS | quote }}
+  # The run substrate the App schedules on (spec §9). `k8s` is what makes this chart functional —
+  # without it the App bridges NATS but answers every `GET /?q=` with 503.
+  URL4_CLOUD_RUNNER: {{ .Values.runner.backend | quote }}
+  # INVARIANT: Jobs are created in the release namespace only — this must match the namespace the
+  # Role/RoleBinding bind, or the App's ServiceAccount is not authorized to create them.
+  URL4_CLOUD_NAMESPACE: {{ .Release.Namespace | quote }}
+  # The Runner is its OWN image (apps/url4-cloud/runner/Dockerfile) — the backend schedules it
+  # as a batch/v1 Job per run (spec §9).
+  URL4_CLOUD_RUNNER_IMAGE: {{ include "url4-cloud.runnerImage" . | quote }}
+  {{- with .Values.runner.resources }}
+  # The Runner's own requests/limits. Carried as JSON because a ConfigMap value is a string and
+  # pydantic-settings parses complex fields as JSON — so the k8s `resources` block travels
+  # verbatim instead of being flattened into a per-field env sprawl.
+  URL4_CLOUD_RUNNER_RESOURCES: {{ toJson . | quote }}
+  {{- end }}
+  {{- with .Values.runner.jobTtlSeconds }}
+  # Optional EXTENSION of how long a finished Runner Job is kept. Unset => the App derives the
+  # floor: iatWindowS + a 60s clock-skew margin. It may only ever be raised — the Job's name is
+  # the single-use replay guard, so reclaiming it while the token is still within `exp` re-opens
+  # replay (Settings refuses a lower value at startup).
+  URL4_CLOUD_JOB_TTL_S: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.aigatewayBaseUrl }}
+  # Forwarded into every Runner Job as AIGATEWAY_BASE_URL. The Runner's own fallback is loopback,
+  # which inside a Job Pod is that Pod — so this must name the aigateway Service to reach it.
+  URL4_CLOUD_AIGATEWAY_BASE_URL: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.tavily.enabled }}
+  # WHY only the Secret's NAME/KEY travel in the ConfigMap: the App forwards a secretKeyRef into
+  # each Runner Job and never reads the credential, so nothing secret belongs in this ConfigMap.
+  # Absent => the Runner never sees TAVILY_API_KEY and web tools stay off (dec:W5).
+  URL4_CLOUD_TAVILY_SECRET_NAME: {{ include "url4-cloud.tavilySecretName" . | quote }}
+  URL4_CLOUD_TAVILY_SECRET_KEY: {{ .Values.tavily.secretKey | quote }}
+  {{- end }}

@@ -52,7 +52,16 @@ class FakeJobRunner:
         self.stopped: list[str] = []
         self.scheduled: list[tuple[str, str, int]] = []
 
-    def schedule(self, topic: str, url4: str, deadline_s: int) -> str:
+    def schedule(
+        self,
+        topic: str,
+        url4: str,
+        deadline_s: int,
+        *,
+        traceparent: str | None = None,
+        credential: str | None = None,
+        profile: str | None = None,
+    ) -> str:
         self.scheduled.append((topic, url4, deadline_s))
         return job_name(topic)
 

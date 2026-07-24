@@ -10,4 +10,12 @@ release/
 .DS_Store
 .env*
 .venv
+**/.venv
 __pycache__
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.codegraph
+# ...but a package's declared `readme` is build metadata — hatchling fails without it.
+!packages/url4/README.md
+!apps/url4-cloud/README.md

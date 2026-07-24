@@ -40,13 +40,22 @@ class FakeJobRunner:
     def __init__(self, *, exists: bool = False, conflict_on_schedule: bool = False) -> None:
         self._exists = exists
         self._conflict = conflict_on_schedule
-        self.scheduled: list[tuple[str, str, int]] = []
+        self.scheduled: list[tuple[str, str, int, str | None]] = []
         self.stopped: list[str] = []
 
-    def schedule(self, topic: str, url4: str, deadline_s: int) -> str:
+    def schedule(
+        self,
+        topic: str,
+        url4: str,
+        deadline_s: int,
+        *,
+        traceparent: str | None = None,
+        credential: str | None = None,
+        profile: str | None = None,
+    ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)
-        self.scheduled.append((topic, url4, deadline_s))
+        self.scheduled.append((topic, url4, deadline_s, traceparent))
         return job_name(topic)
 
     def stop(self, topic: str) -> None:

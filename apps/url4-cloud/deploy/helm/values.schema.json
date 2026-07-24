@@ -1,0 +1,413 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "url4-cloud chart values",
+  "description": "Validated at `helm lint`/`helm install` time. WHY this file exists: a chart's values are an API, and without a schema they are an UNTYPED one \u2014 `runner.backend` was a free-form string that only url4_cloud.config.Settings validated, at container startup, i.e. after a successful deploy reported success. Everything encoded here fails before anything is applied to a cluster.",
+  "type": "object",
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string"
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      },
+      "required": [
+        "repository"
+      ],
+      "additionalProperties": false
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "natsUrl": {
+          "type": "string",
+          "description": "Empty is legal: the natsUrl helper then derives it from nats.fullnameOverride, or fails the render.",
+          "pattern": "^$|^nats://"
+        },
+        "iatWindowS": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "syncMaxWaitS": {
+          "type": "number",
+          "minimum": 0
+        },
+        "wsHeartbeatS": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "jobDeadlineS": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 57600,
+          "description": "Job activeDeadlineSeconds. INVARIANT: the 16h ceiling is spec \u00a73."
+        },
+        "aigatewayBaseUrl": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      },
+      "additionalProperties": false
+    },
+    "runner": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "enum": [
+            "none",
+            "k8s"
+          ],
+          "description": "Mirrors url4_cloud.config.RunnerBackend. `none` deploys an App that cannot schedule and answers 503 to every run."
+        },
+        "image": {
+          "type": "object",
+          "description": "The Runner's OWN image (separate from the App `image`). `tag` empty => the App `image.tag`.",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "repository"
+          ],
+          "additionalProperties": false
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "resources": {
+          "type": "object"
+        },
+        "jobTtlSeconds": {
+          "type": [
+            "integer",
+            "string"
+          ],
+          "description": "Empty string = derive iatWindowS + a 60s clock-skew margin. A value below iatWindowS is refused by Settings at startup: reclaiming a Job while its token is still within `exp` deletes the name that is the single-use replay guard. It deliberately does NOT include jobDeadlineS \u2014 ttlSecondsAfterFinished counts from completion, so the guard must outlive the token, not the run."
+        }
+      },
+      "required": [
+        "backend"
+      ],
+      "additionalProperties": false
+    },
+    "tavily": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "secretKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "apiKey": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "existingSecret": {
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "existingSecret"
+                ]
+              },
+              {
+                "properties": {
+                  "apiKey": {
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "apiKey"
+                ]
+              }
+            ],
+            "description": "tavily.enabled needs a key source: either bring your own Secret (existingSecret) or let the chart create one from apiKey. Enabled with neither would name a Secret that does not exist, and the Runner Pod would fail to start on an unresolvable secretKeyRef."
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "create": {
+          "type": "boolean"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "jwtSecret": {
+          "type": "string"
+        },
+        "jwtSecretKey": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "create": {
+                "const": false
+              }
+            },
+            "required": [
+              "create"
+            ]
+          },
+          "then": {
+            "properties": {
+              "existingSecret": {
+                "minLength": 1
+              }
+            },
+            "required": [
+              "existingSecret"
+            ],
+            "description": "auth.create=false means the JWT signing secret must come from somewhere \u2014 without existingSecret the Deployment references a Secret that was never created."
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "gateway": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "annotations": {
+          "type": "object"
+        },
+        "parentRef": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "namespace": {
+              "type": "string"
+            },
+            "sectionName": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "hostnames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeouts": {
+          "type": "object",
+          "properties": {
+            "request": {
+              "type": "string",
+              "pattern": "^$|^([0-9]{1,5}(h|m|s|ms)){1,4}$"
+            },
+            "backendRequest": {
+              "type": "string",
+              "pattern": "^$|^([0-9]{1,5}(h|m|s|ms)){1,4}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parentRef": {
+                "properties": {
+                  "name": {
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            },
+            "required": [
+              "parentRef"
+            ],
+            "description": "An HTTPRoute with no parentRef attaches to no Gateway and silently serves nothing."
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "ingress": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "className": {
+          "type": "string"
+        },
+        "annotations": {
+          "type": "object"
+        },
+        "hosts": {
+          "type": "array"
+        },
+        "tls": {
+          "type": "array"
+        }
+      },
+      "additionalProperties": false
+    },
+    "nats": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "fullnameOverride": {
+          "type": "string"
+        },
+        "natsBox": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "description": "Upstream defaults this to true; the chart forces it off. It is an interactive shell pod with network access to the bus and no role in the running system."
+        }
+      }
+    },
+    "preStopSleepSeconds": {
+      "type": [
+        "integer",
+        "string"
+      ],
+      "minimum": 0
+    },
+    "terminationGracePeriodSeconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "resources": {
+      "type": "object"
+    },
+    "securityContext": {
+      "type": "object"
+    },
+    "podSecurityContext": {
+      "type": "object"
+    },
+    "serviceAccount": {
+      "type": "object"
+    },
+    "rbac": {
+      "type": "object"
+    },
+    "service": {
+      "type": "object"
+    },
+    "livenessProbe": {
+      "type": "object"
+    },
+    "readinessProbe": {
+      "type": "object"
+    },
+    "podAnnotations": {
+      "type": "object"
+    },
+    "podLabels": {
+      "type": "object"
+    },
+    "imagePullSecrets": {
+      "type": "array"
+    },
+    "nameOverride": {
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "type": "string"
+    },
+    "nodeSelector": {
+      "type": "object"
+    },
+    "tolerations": {
+      "type": "array"
+    },
+    "affinity": {
+      "type": "object"
+    },
+    "global": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "image",
+    "config",
+    "runner"
+  ],
+  "additionalProperties": false,
+  "$comment": "additionalProperties:false is the point of this file \u2014 it turns a stale or misspelled key (a `podDisruptionBudget` block left behind after the template was deleted, a `runner.resource` typo) into an install-time error instead of a value that is silently ignored while the operator believes it took effect. `global` is allowed because Helm injects it for subcharts."
+}
