@@ -154,3 +154,63 @@ def test_every_public_field_is_visible_with_a_status_under_api_key() -> None:
         "provider_params.candidateCount",
     ):
         assert path in params, path
+
+
+# --- OME-583: function calling — Gemini enables tools ONLY (no tool_choice) --------
+#
+# FEATURE: first-class function calling. Gemini's build_generate_content_body maps
+# tools[] → functionDeclarations (§9), so `tools` is ENABLED under both auth modes and
+# carries THAT mode's evidence provenance. But the builder emits NO toolConfig, so
+# `tool_choice` has no wire home — it stays UNRULED and UNOBSERVED, hence absent from the
+# contract (honest: the gateway never advertises a control it cannot honor).
+
+
+def _document(auth_mode: AuthType) -> dict[str, Any]:
+    plugin = GeminiProviderPlugin()
+    return build_model_parameter_document(
+        canonical_id=_MODEL,
+        gateway_provider="gemini-cli",
+        auth_mode=auth_mode,
+        scope="account_profile",
+        context_identity="acct:test|prof:1",
+        rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=auth_mode),
+        observations=plugin.chat_parameter_observations(model=_MODEL, auth_type=auth_mode),
+        tools=plugin.chat_parameter_tools(model=_MODEL, auth_type=auth_mode),
+        transport=plugin.chat_transport_capabilities(model=_MODEL, auth_type=auth_mode),
+        freshness={"stale": False, "degraded": False},
+    )
+
+
+def test_tools_is_enabled_under_both_modes_with_auth_scoped_evidence() -> None:
+    cases: tuple[tuple[AuthType, str], ...] = (("api_key", _DISCOVERY), ("oauth", _CODE_ASSIST))
+    for auth_mode, source in cases:
+        entry = _parameters(auth_mode)["tools"]
+        assert entry["gateway"]["status"] == "enabled", auth_mode
+        assert entry["provider"]["support"] == "supported", auth_mode
+        assert entry["provider"]["source"] == source, auth_mode
+
+
+def test_tool_choice_is_absent_under_both_modes() -> None:
+    # §9: the builder emits no toolConfig, so tool_choice is neither ruled nor observed —
+    # it must NOT appear in the contract at all (honest absence, never disabled-but-listed).
+    for auth_mode in ("api_key", "oauth"):
+        assert "tool_choice" not in _parameters(auth_mode), auth_mode
+
+
+def test_tools_section_reports_function_enabled() -> None:
+    tools_section = _document("api_key")["tools"]
+    assert tools_section == {
+        "function": {"provider_support": "supported", "gateway_status": "enabled"}
+    }
+
+
+def test_tools_in_summary_but_tool_choice_absent() -> None:
+    plugin = GeminiProviderPlugin()
+    summary = set(
+        inline_supported_parameters(
+            plugin.chat_parameter_rules(model=_MODEL, auth_type=None),
+            available_auth_modes=("api_key", "oauth"),
+        )
+    )
+    assert "tools" in summary
+    assert "tool_choice" not in summary

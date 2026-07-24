@@ -103,3 +103,41 @@ def test_native_top_k_is_absent_from_the_contract() -> None:
     params = _parameters()
     assert "top_k" not in params
     assert "provider_params.top_k" not in params
+
+
+# --- OME-583: function calling (tools + tool_choice) overlay -----------------
+#
+# FEATURE: first-class function calling. HF's router is OpenAI-compatible; the installed
+# HuggingFaceChatConfig transform forwards tools[] and tool_choice (§9), so both are
+# ENABLED and evidenced from the same labelled-static source.
+
+
+def _document(auth_mode: AuthType = "api_key") -> dict[str, Any]:
+    plugin = HuggingFaceProviderPlugin()
+    return build_model_parameter_document(
+        canonical_id=_MODEL,
+        gateway_provider="huggingface",
+        auth_mode=auth_mode,
+        scope="account_profile",
+        context_identity="acct:test|prof:1",
+        rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=auth_mode),
+        observations=plugin.chat_parameter_observations(model=_MODEL, auth_type=auth_mode),
+        tools=plugin.chat_parameter_tools(model=_MODEL, auth_type=auth_mode),
+        transport=plugin.chat_transport_capabilities(model=_MODEL, auth_type=auth_mode),
+        freshness={"stale": False, "degraded": False},
+    )
+
+
+def test_tools_and_tool_choice_are_enabled_with_evidence() -> None:
+    params = _parameters()
+    for path in ("tools", "tool_choice"):
+        entry = params[path]
+        assert entry["gateway"]["status"] == "enabled", path
+        assert entry["provider"]["support"] == "supported", path
+        assert entry["provider"]["source"] == "huggingface:static", path
+
+
+def test_tools_section_reports_function_enabled() -> None:
+    assert _document()["tools"] == {
+        "function": {"provider_support": "supported", "gateway_status": "enabled"}
+    }

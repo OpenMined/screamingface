@@ -110,10 +110,13 @@ _NATIVE_TO_REQUEST_PATH: dict[str, str] = {
     "topK": f"{WRAPPER_KEY}.top_k",
 }
 
-# Reviewed sampling natives surfaced from the PUBLIC Discovery schema (excludes tool /
-# structured-output / modality / response machinery, which live in their own contract
-# sections). ``build_generate_content_body`` renames the first five; the rest are public-
-# only (the builder drops them today) → visible-but-DISABLED evidence.
+# Reviewed sampling natives surfaced from the PUBLIC Discovery schema. Tool capabilities
+# remain a SEPARATE contract section, and the ``tools`` request-path observation is now
+# contributed at the plugin level (``tool_parameter_observations`` over the plugin's tool
+# capabilities, OME-583) — kept OUT of this sampling constant so the discovery-parser tests
+# keep their narrow meaning. Structured-output / modality / response machinery likewise
+# live in their own sections. ``build_generate_content_body`` renames the first five; the
+# rest are public-only (the builder drops them today) → visible-but-DISABLED evidence.
 _PUBLIC_SAMPLING_NATIVES: tuple[str, ...] = (
     "temperature",
     "topP",

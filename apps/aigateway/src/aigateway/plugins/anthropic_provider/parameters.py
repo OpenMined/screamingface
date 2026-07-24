@@ -26,7 +26,11 @@ Auth-mode split (§6.3 — Anthropic offers BOTH api-key and OAuth):
 
 from __future__ import annotations
 
-from aigateway.core.chat_parameters import ParameterProjectionRule, ParameterSchema
+from aigateway.core.chat_parameters import (
+    ParameterProjectionRule,
+    ParameterSchema,
+    ToolCapability,
+)
 from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
@@ -35,6 +39,7 @@ from aigateway.core.standard_parameters import (
     TOP_K_SCHEMA,
     TOP_P_SCHEMA,
     direct_rule,
+    function_calling_rules,
     provider_native_rule,
 )
 
@@ -52,6 +57,14 @@ _REVISION = "anthropic-2026-07"
 # value the provider 400s. Provider-local by design: standard_parameters forbids
 # provider-specific ranges (its "no provider names appear here" invariant).
 ANTHROPIC_TEMPERATURE_SCHEMA = ParameterSchema(type="number", minimum=0, maximum=1)
+
+# OME-583: Anthropic accepts OpenAI-style function tools; the INSTALLED litellm
+# AnthropicConfig transform maps tools[] → Anthropic custom tools and tool_choice
+# (string → {"type":"auto"}, object → {"type":"tool","name":…}) onto the wire (§9), so
+# function calling is enabled WITH tool_choice under both auth modes.
+_TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
+    ToolCapability(tool_type="function", provider_support="supported", gateway_status="enabled"),
+)
 
 _RULES: tuple[ParameterProjectionRule, ...] = (
     # direct: stays top-level as reasoning_effort (prepare_chat_body drops the
@@ -103,6 +116,8 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         schema=TOP_K_SCHEMA,
         projection_revision=_REVISION,
     ),
+    # OME-583: tools + tool_choice (enabled under both auth modes, §9 proof above).
+    *function_calling_rules(_TOOL_CAPABILITIES, auth_modes=_AUTH, projection_revision=_REVISION),
 )
 
 
@@ -110,3 +125,11 @@ def anthropic_chat_parameter_rules(
     *, model: str, auth_type: AuthType | None = None
 ) -> tuple[ParameterProjectionRule, ...]:
     return _RULES
+
+
+def anthropic_chat_parameter_tools(
+    *, model: str, auth_type: AuthType | None = None
+) -> tuple[ToolCapability, ...]:
+    # OME-583: the accepted tools[].type discriminator(s); drives the summary's
+    # supported_tools and the detail contract's tools section.
+    return _TOOL_CAPABILITIES

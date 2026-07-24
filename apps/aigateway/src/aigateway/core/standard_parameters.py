@@ -12,7 +12,16 @@ enabling a new parameter is a provider-local edit, never a change here.
 
 from __future__ import annotations
 
-from .chat_parameters import CacheBehavior, ParameterProjectionRule, ParameterSchema
+from collections.abc import Iterable
+
+from .chat_parameters import (
+    CacheBehavior,
+    ParameterProjectionRule,
+    ParameterSchema,
+    ProviderParameterObservation,
+    ToolCapability,
+    supported_tool_types,
+)
 from .profile_models import AuthType
 
 # Bounded schemas for the standard OpenAI-compatible optional fields the gateway
@@ -76,4 +85,102 @@ def provider_native_rule(
         output_affecting=output_affecting,
         projection_revision=projection_revision,
         schema=schema,
+    )
+
+
+# --- function calling: tools / tool_choice (OME-583) -------------------------
+# FEATURE: first-class OpenAI-style function calling. These builders are the
+# shared vocabulary for the two tool request paths; a provider SELECTS them (with
+# its own enabled tool types, auth modes, and source label), so enabling function
+# calling stays a provider-local edit and the no-provider-names invariant holds.
+
+
+def tools_schema(tool_types: tuple[str, ...]) -> ParameterSchema:
+    """``tools``: an array of OpenAI tool objects, each gated by its ``type``.
+
+    INVARIANT: every array item's ``type`` discriminator must be one of the
+    provider's enabled tool types, so a caller sending an unadvertised tool (e.g. a
+    hosted ``web_search``) fails closed at classification, before credential access.
+    """
+    return ParameterSchema(
+        type="array",
+        item_type="object",
+        object_discriminator="type",
+        object_discriminator_enum=tool_types,
+    )
+
+
+def tool_choice_schema(tool_types: tuple[str, ...]) -> ParameterSchema:
+    """``tool_choice``: the OpenAI ``string | object`` union.
+
+    The string form (``"auto"`` / ``"none"`` / ``"required"``) carries no ``type``,
+    so the discriminator is skipped; the object form (``{"type": "function", …}``)
+    must name an enabled tool type or it fails closed.
+    """
+    return ParameterSchema(
+        type=("string", "object"),
+        object_discriminator="type",
+        object_discriminator_enum=tool_types,
+    )
+
+
+def function_calling_rules(
+    tool_capabilities: Iterable[ToolCapability],
+    *,
+    auth_modes: tuple[AuthType, ...],
+    projection_revision: str,
+    tool_choice: bool = True,
+) -> tuple[ParameterProjectionRule, ...]:
+    """The ``tools`` [and ``tool_choice``] rules for a provider's enabled tools.
+
+    Empty when no tool type is enabled — a provider with no function-calling support
+    gets no phantom rule. ``tool_choice=False`` enables ``tools`` alone (Gemini: its
+    builder maps ``tools[]`` but emits no tool-selection control, §9), so the gateway
+    never advertises a control it cannot honor on the wire.
+
+    INVARIANT: authorization lives in ONE place — these rules. There is no separate
+    tools dispatch path, so the classifier and the published contract cannot drift.
+    """
+    tool_types = supported_tool_types(tool_capabilities)
+    if not tool_types:
+        return ()
+    rules = [
+        direct_rule(
+            "tools",
+            auth_modes=auth_modes,
+            schema=tools_schema(tool_types),
+            projection_revision=projection_revision,
+        )
+    ]
+    if tool_choice:
+        rules.append(
+            direct_rule(
+                "tool_choice",
+                auth_modes=auth_modes,
+                schema=tool_choice_schema(tool_types),
+                projection_revision=projection_revision,
+            )
+        )
+    return tuple(rules)
+
+
+def tool_parameter_observations(
+    tool_capabilities: Iterable[ToolCapability],
+    *,
+    source: str,
+    tool_choice: bool = True,
+) -> tuple[ProviderParameterObservation, ...]:
+    """Provider evidence mirroring the tool rules.
+
+    INVARIANT (§4.4): every enabled parameter carries a provider observation, so an
+    enabled tool path is never left unevidenced. Mirrors ``function_calling_rules``
+    exactly — same enablement guard, same ``tool_choice`` flag — so the rules and
+    their evidence can never disagree about which tool paths exist.
+    """
+    if not supported_tool_types(tool_capabilities):
+        return ()
+    paths = ("tools", "tool_choice") if tool_choice else ("tools",)
+    return tuple(
+        ProviderParameterObservation(request_path=path, support="supported", source=source)
+        for path in paths
     )

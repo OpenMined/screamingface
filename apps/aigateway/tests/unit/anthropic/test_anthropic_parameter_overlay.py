@@ -142,3 +142,56 @@ def test_every_observed_field_is_visible_with_a_status() -> None:
         "provider_params.top_k",
     ):
         assert path in params, path
+
+
+# --- OME-583: function calling (tools + tool_choice) overlay -----------------
+#
+# FEATURE: first-class function calling. Anthropic accepts OpenAI-style tools[] AND
+# object/string tool_choice, and the installed AnthropicConfig transform carries both
+# onto the wire (§9), so both are ENABLED under every auth mode Anthropic offers and
+# carry the labelled-static observation's provenance.
+
+
+def _document(auth_mode: AuthType) -> dict[str, Any]:
+    plugin = AnthropicProviderPlugin()
+    return build_model_parameter_document(
+        canonical_id=_MODEL,
+        gateway_provider="anthropic",
+        auth_mode=auth_mode,
+        scope="account_profile",
+        context_identity="acct:test|prof:1",
+        rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=auth_mode),
+        observations=plugin.chat_parameter_observations(model=_MODEL, auth_type=auth_mode),
+        tools=plugin.chat_parameter_tools(model=_MODEL, auth_type=auth_mode),
+        transport=plugin.chat_transport_capabilities(model=_MODEL, auth_type=auth_mode),
+        freshness={"stale": False, "degraded": False},
+    )
+
+
+def test_tools_and_tool_choice_are_enabled_under_both_modes_with_evidence() -> None:
+    # both auth modes: tools AND tool_choice are ruled AND observed → ENABLED carrying
+    # the labelled-static provenance (not "unknown"/"none").
+    for auth_mode in ("api_key", "oauth"):
+        params = _parameters(auth_mode)
+        for path in ("tools", "tool_choice"):
+            entry = params[path]
+            assert entry["gateway"]["status"] == "enabled", (auth_mode, path)
+            assert entry["provider"]["support"] == "supported", (auth_mode, path)
+            assert entry["provider"]["source"] == _STATIC, (auth_mode, path)
+
+
+def test_tools_section_reports_function_enabled() -> None:
+    # the separate tools section (supported_tools detail) advertises the accepted
+    # tools[].type discriminator with its gateway status.
+    tools_section = _document("api_key")["tools"]
+    assert tools_section == {
+        "function": {"provider_support": "supported", "gateway_status": "enabled"}
+    }
+
+
+def test_tools_and_tool_choice_are_in_the_inline_summary() -> None:
+    # enabled under EVERY auth mode → survive the conservative /v1/models intersection.
+    plugin = AnthropicProviderPlugin()
+    rules = plugin.chat_parameter_rules(model=_MODEL, auth_type=None)
+    summary = inline_supported_parameters(rules, available_auth_modes=("api_key", "oauth"))
+    assert {"tools", "tool_choice"} <= set(summary)

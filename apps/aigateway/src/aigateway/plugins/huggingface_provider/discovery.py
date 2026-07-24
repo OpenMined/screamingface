@@ -110,10 +110,13 @@ def parse_hf_backend_capabilities(
 # (a subclass of ``OpenAIGPTConfig``) accepts and forwards — verified against the
 # installed transform's ``get_supported_openai_params`` / ``transform_request``. HF
 # has no native ``top_k``, so it is intentionally NOT listed (honest absence). Tool
-# capabilities live in their own contract section, so ``tools`` / ``tool_choice``
-# are intentionally excluded here.
+# capabilities are reported in their own contract section, and the ``tools`` /
+# ``tool_choice`` request-path observations are contributed at the plugin level
+# (``tool_parameter_observations`` over the plugin's tool capabilities, OME-583) —
+# kept OUT of this sampling constant so it stays a pure sampling-field inventory.
 # AIDEV-NOTE: reviewed labelled-static evidence, not a central inventory — extend
-# only for a field the installed transform provably accepts.
+# only for a SAMPLING field the installed transform provably accepts; tool request
+# paths are added via the plugin's tool observations, never here.
 _STATIC_PARAM_NAMES: tuple[str, ...] = (
     "temperature",
     "top_p",

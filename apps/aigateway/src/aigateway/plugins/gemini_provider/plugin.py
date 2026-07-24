@@ -21,6 +21,7 @@ from aigateway.core.plugin_base import (
     OAuthConfig,
     ProviderPluginBase,
 )
+from aigateway.core.standard_parameters import tool_parameter_observations
 
 from .api_key_validation import GeminiApiKeyValidator
 from .auth import (
@@ -30,7 +31,12 @@ from .auth import (
     exchange_authorization_code,
 )
 from .chat_handler import ensure_litellm_gemini_provider_registered, get_litellm_gemini_handler
-from .discovery import GEMINI_CODE_ASSIST_OBSERVATIONS, GEMINI_DISCOVERY_STATIC_OBSERVATIONS
+from .discovery import (
+    CODE_ASSIST_SOURCE,
+    DISCOVERY_SOURCE,
+    GEMINI_CODE_ASSIST_OBSERVATIONS,
+    GEMINI_DISCOVERY_STATIC_OBSERVATIONS,
+)
 from .models import MODELS
 from .oauth_config import (
     GEMINI_AUTHORIZE_EXTRA_PARAMS,
@@ -40,13 +46,14 @@ from .oauth_config import (
     GEMINI_SCOPES,
     GEMINI_TOKEN_URL,
 )
-from .parameters import gemini_chat_parameter_rules
+from .parameters import gemini_chat_parameter_rules, gemini_chat_parameter_tools
 from .settings import GeminiPluginSettings
 
 if TYPE_CHECKING:
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
+        ToolCapability,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_models import AuthType
@@ -191,6 +198,13 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         # classification. Both auth paths share the builder, so rules apply to both.
         return gemini_chat_parameter_rules(model=model, auth_type=auth_type)
 
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ToolCapability, ...]:
+        # OME-583: build_generate_content_body maps tools[] → functionDeclarations (§9),
+        # so Gemini advertises the `function` tool type (tool_choice stays unruled).
+        return gemini_chat_parameter_tools(model=model, auth_type=auth_type)
+
     def chat_parameter_observations(
         self, *, model: str, auth_type: AuthType | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
@@ -200,10 +214,18 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         # the Code Assist envelope, which has NO public schema, so its only honest
         # evidence is the reviewed builder mapping (source "gemini:code-assist" — a
         # strict subset). This is why public Discovery never overclaims OAuth.
+        # OME-583: the `tools` request path is evidenced HERE too (tool_choice=False —
+        # Gemini has no toolConfig home), carrying THAT mode's label so the auth-scoped
+        # source invariant holds; the sampling-evidence discovery constants stay pure.
         # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+        tools = gemini_chat_parameter_tools(model=model, auth_type=auth_type)
         if auth_type == "oauth":
-            return GEMINI_CODE_ASSIST_OBSERVATIONS
-        return GEMINI_DISCOVERY_STATIC_OBSERVATIONS
+            return GEMINI_CODE_ASSIST_OBSERVATIONS + tool_parameter_observations(
+                tools, source=CODE_ASSIST_SOURCE, tool_choice=False
+            )
+        return GEMINI_DISCOVERY_STATIC_OBSERVATIONS + tool_parameter_observations(
+            tools, source=DISCOVERY_SOURCE, tool_choice=False
+        )
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         out = dict(body)

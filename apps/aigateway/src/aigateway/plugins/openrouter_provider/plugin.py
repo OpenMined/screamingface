@@ -34,10 +34,11 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 from aigateway.core.provider_errors import NonRetryableProviderError
+from aigateway.core.standard_parameters import tool_parameter_observations
 
 from .api_key_validation import OpenRouterApiKeyValidator
-from .discovery import REVIEWED_ENDPOINT_OBSERVATIONS, discover_openrouter_snapshot
-from .parameters import openrouter_chat_parameter_rules
+from .discovery import LOCAL_SOURCE, REVIEWED_ENDPOINT_OBSERVATIONS, discover_openrouter_snapshot
+from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
 from .provenance import converter_error_status, is_http200_body_error
 from .response_errors import (
     _embedded_error_status as _embedded_error_status,
@@ -59,6 +60,7 @@ if TYPE_CHECKING:
         ParameterProjectionRule,
         ProviderDiscoverySnapshot,
         ProviderParameterObservation,
+        ToolCapability,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
@@ -294,6 +296,13 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # fail-closed dispatch. Adding a parameter is a change here, never in core.
         return openrouter_chat_parameter_rules(model=model, auth_type=auth_type)
 
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ToolCapability, ...]:
+        # OME-583: OpenRouter is OpenAI-compatible; the installed litellm openrouter
+        # transform forwards OpenAI tools (§9), so it advertises the `function` type.
+        return openrouter_chat_parameter_tools(model=model, auth_type=auth_type)
+
     def chat_parameter_observations(
         self, *, model: str, auth_type: AuthType | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
@@ -305,8 +314,13 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # this via discover_chat_parameter_snapshot when request-path discovery is
         # wired; endpoint-level evidence is model-independent, so it does not vary
         # by model here.
+        # OME-583: tools + tool_choice are ALSO ruled → ENABLED, evidenced here (same
+        # labelled-local source) so every enabled tool path is fully backed (§4.4).
         # INVARIANT: an observation NEVER enables a parameter — only a rule does.
-        return REVIEWED_ENDPOINT_OBSERVATIONS
+        return REVIEWED_ENDPOINT_OBSERVATIONS + tool_parameter_observations(
+            openrouter_chat_parameter_tools(model=model, auth_type=auth_type),
+            source=LOCAL_SOURCE,
+        )
 
     async def discover_chat_parameter_snapshot(
         self,

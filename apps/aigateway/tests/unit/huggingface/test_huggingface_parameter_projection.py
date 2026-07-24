@@ -101,3 +101,69 @@ def test_native_top_k_is_rejected_fail_closed() -> None:
             auth_mode="api_key",
         )
     assert any("top_k" in path for path in exc.value.rejected)
+
+
+# --- OME-583 (§9): function calling reaches the installed HuggingFaceChatConfig transform --
+
+_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get the weather for a city",
+            "parameters": {
+                "type": "object",
+                "properties": {"location": {"type": "string"}},
+                "required": ["location"],
+            },
+        },
+    }
+]
+
+
+def test_tools_and_tool_choice_are_ruled() -> None:
+    rules = HuggingFaceProviderPlugin().chat_parameter_rules(model=_MODEL, auth_type="api_key")
+    paths = {rule.request_path for rule in rules}
+    assert {"tools", "tool_choice"} <= paths
+
+
+def test_tools_and_tool_choice_reach_installed_final_transform() -> None:
+    prepared = _dispatch_body(
+        {
+            "model": _MODEL,
+            "messages": _MESSAGES,
+            "tools": _TOOLS,
+            "tool_choice": "auto",
+        }
+    )
+    assert prepared["tools"] == _TOOLS
+    assert prepared["tool_choice"] == "auto"
+    # Installed final transform (litellm HuggingFaceChatConfig): both reach the
+    # outbound provider body — pinned against the installed library, not assumed.
+    cfg = HuggingFaceChatConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"tools": _TOOLS, "tool_choice": "auto"},
+        optional_params={},
+        model=_UPSTREAM,
+        drop_params=False,
+    )
+    body = cfg.transform_request(
+        model=_UPSTREAM,
+        messages=prepared["messages"],
+        optional_params=mapped,
+        litellm_params={"api_base": prepared["api_base"]},
+        headers={},
+    )
+    assert body["tools"] == _TOOLS
+    assert body["tool_choice"] == "auto"
+
+
+def test_unadvertised_tool_type_is_rejected_fail_closed() -> None:
+    plugin = HuggingFaceProviderPlugin()
+    with pytest.raises(UnsupportedParametersError) as exc:
+        classify_and_project_chat_parameters(
+            {"model": _MODEL, "messages": _MESSAGES, "tools": [{"type": "web_search"}]},
+            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+            auth_mode="api_key",
+        )
+    assert exc.value.rejected == {"tools": "malformed"}

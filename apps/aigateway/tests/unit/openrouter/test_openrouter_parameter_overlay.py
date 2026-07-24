@@ -113,3 +113,41 @@ def test_observations_are_labelled_local_not_fabricated_per_model() -> None:
     # only labelled-local ("openrouter:static") or rule-only ("none") provenance;
     # never the live "openrouter:models" catalog label without a network fetch.
     assert sources <= {"openrouter:static", "none"}
+
+
+# --- OME-583: function calling (tools + tool_choice) overlay -----------------
+#
+# FEATURE: first-class function calling. OpenRouter is OpenAI-compatible; the installed
+# litellm openrouter path forwards both tools[] and tool_choice (§9), so both are ENABLED
+# and evidenced from the same labelled-local endpoint source.
+
+
+def _document(auth_mode: AuthType = "api_key") -> dict[str, Any]:
+    plugin = OpenRouterProviderPlugin()
+    return build_model_parameter_document(
+        canonical_id=_MODEL,
+        gateway_provider="openrouter",
+        auth_mode=auth_mode,
+        scope="account_profile",
+        context_identity="acct:test|prof:1",
+        rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=auth_mode),
+        observations=plugin.chat_parameter_observations(model=_MODEL, auth_type=auth_mode),
+        tools=plugin.chat_parameter_tools(model=_MODEL, auth_type=auth_mode),
+        transport=plugin.chat_transport_capabilities(model=_MODEL, auth_type=auth_mode),
+        freshness={"stale": False, "degraded": False},
+    )
+
+
+def test_tools_and_tool_choice_are_enabled_with_evidence() -> None:
+    params = _parameters()
+    for path in ("tools", "tool_choice"):
+        entry = params[path]
+        assert entry["gateway"]["status"] == "enabled", path
+        assert entry["provider"]["support"] == "supported", path
+        assert entry["provider"]["source"] == "openrouter:static", path
+
+
+def test_tools_section_reports_function_enabled() -> None:
+    assert _document()["tools"] == {
+        "function": {"provider_support": "supported", "gateway_status": "enabled"}
+    }

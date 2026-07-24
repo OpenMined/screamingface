@@ -139,11 +139,14 @@ LOCAL_SOURCE = "openrouter:static"
 # OpenRouter chat endpoint's accepted optional SAMPLING/GENERATION fields, used
 # as the detail contract's observation source in v1. Each name is backed by
 # verified public ``supported_parameters``; native fields map through the wrapper
-# so an observation lines up with its rule. Tool capabilities are reported in
-# their own contract section (``chat_parameter_tools``), so ``tools`` /
-# ``tool_choice`` are intentionally NOT listed here.
+# so an observation lines up with its rule. Tool capabilities are reported in their
+# own contract section, and the ``tools`` / ``tool_choice`` request-path observations
+# are contributed at the plugin level (``tool_parameter_observations`` over the
+# plugin's tool capabilities, OME-583) — kept OUT of this sampling constant so it
+# stays a pure sampling-field inventory.
 # AIDEV-NOTE: provider-local REVIEWED evidence, not a central inventory — extend
-# deliberately, and only for a field the public catalog proves the endpoint takes.
+# deliberately, and only for a SAMPLING field the public catalog proves the endpoint
+# takes; tool request paths are added via the plugin's tool observations, never here.
 _REVIEWED_ENDPOINT_PARAMS: tuple[str, ...] = (
     "temperature",
     "top_p",

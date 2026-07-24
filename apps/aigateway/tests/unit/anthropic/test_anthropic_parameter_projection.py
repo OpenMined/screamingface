@@ -254,3 +254,132 @@ def test_api_key_only_native_top_k_is_dropped_from_the_cross_auth_summary() -> N
     api_key_view = inline_supported_parameters(rules, available_auth_modes=("api_key",))
     assert "provider_params.top_k" not in cross  # intersection drops the api-key-only field
     assert "provider_params.top_k" in api_key_view  # the single-mode view keeps it
+
+
+# --- OME-583 (§9): function calling reaches the installed AnthropicConfig transform ---
+#
+# FEATURE: first-class function calling. tools[] and tool_choice (string AND object) are
+# enabled under both auth modes; each is pinned to the INSTALLED litellm AnthropicConfig
+# transform — tools[] map to Anthropic {name, input_schema, type:"custom"}, string
+# tool_choice → {"type":"auto"}, object tool_choice → {"type":"tool","name":…}. An
+# unadvertised tools[].type / object tool_choice.type fails closed at classification.
+
+_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get the weather for a city",
+            "parameters": {
+                "type": "object",
+                "properties": {"location": {"type": "string"}},
+                "required": ["location"],
+            },
+        },
+    }
+]
+
+
+def test_tools_and_tool_choice_are_enabled_under_both_auth_modes() -> None:
+    for auth_mode in ("api_key", "oauth"):
+        paths = {r.request_path for r in _rules(auth_mode) if auth_mode in r.applicable_auth_modes}
+        assert {"tools", "tool_choice"} <= paths, (auth_mode, paths)
+
+
+def test_tools_reach_the_installed_transform_as_custom_tools() -> None:
+    prepared = _dispatch_body(
+        {"model": _MODEL, "messages": _MESSAGES, "tools": _TOOLS},
+        auth_mode="api_key",
+    )
+    assert prepared["tools"] == _TOOLS  # projected onto the dispatch body verbatim
+    # Installed final transform (litellm AnthropicConfig): OpenAI tools[] become
+    # Anthropic custom tools — pinned against the installed library, not assumed.
+    cfg = AnthropicConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"tools": _TOOLS},
+        optional_params={},
+        model=_UPSTREAM,
+        drop_params=False,
+    )
+    body = cfg.transform_request(
+        model=_UPSTREAM,
+        messages=prepared["messages"],
+        optional_params=mapped,
+        litellm_params={},
+        headers={},
+    )
+    assert body["tools"][0]["name"] == "get_weather"
+    assert body["tools"][0]["type"] == "custom"
+
+
+def test_string_tool_choice_reaches_the_installed_transform() -> None:
+    prepared = _dispatch_body(
+        {"model": _MODEL, "messages": _MESSAGES, "tools": _TOOLS, "tool_choice": "auto"},
+        auth_mode="api_key",
+    )
+    assert prepared["tool_choice"] == "auto"
+    cfg = AnthropicConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"tools": _TOOLS, "tool_choice": "auto"},
+        optional_params={},
+        model=_UPSTREAM,
+        drop_params=False,
+    )
+    body = cfg.transform_request(
+        model=_UPSTREAM,
+        messages=prepared["messages"],
+        optional_params=mapped,
+        litellm_params={},
+        headers={},
+    )
+    # Anthropic's shape for "let the model decide".
+    assert body["tool_choice"] == {"type": "auto"}
+
+
+def test_object_tool_choice_reaches_the_installed_transform() -> None:
+    choice = {"type": "function", "function": {"name": "get_weather"}}
+    prepared = _dispatch_body(
+        {"model": _MODEL, "messages": _MESSAGES, "tools": _TOOLS, "tool_choice": choice},
+        auth_mode="oauth",
+    )
+    assert prepared["tool_choice"] == choice
+    cfg = AnthropicConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"tools": _TOOLS, "tool_choice": choice},
+        optional_params={},
+        model=_UPSTREAM,
+        drop_params=False,
+    )
+    body = cfg.transform_request(
+        model=_UPSTREAM,
+        messages=prepared["messages"],
+        optional_params=mapped,
+        litellm_params={},
+        headers={},
+    )
+    # OpenAI named-function choice becomes Anthropic's forced-tool shape.
+    assert body["tool_choice"] == {"type": "tool", "name": "get_weather"}
+
+
+def test_unadvertised_tool_type_is_rejected_before_dispatch() -> None:
+    # a tools[].type the provider never advertised fails closed as malformed at
+    # classification — before the route returns to credential access.
+    plugin = AnthropicProviderPlugin()
+    with pytest.raises(UnsupportedParametersError) as exc:
+        classify_and_project_chat_parameters(
+            {"model": _MODEL, "messages": _MESSAGES, "tools": [{"type": "web_search"}]},
+            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+            auth_mode="api_key",
+        )
+    assert exc.value.rejected == {"tools": "malformed"}
+
+
+def test_unadvertised_object_tool_choice_type_is_rejected_before_dispatch() -> None:
+    plugin = AnthropicProviderPlugin()
+    with pytest.raises(UnsupportedParametersError) as exc:
+        classify_and_project_chat_parameters(
+            {"model": _MODEL, "messages": _MESSAGES, "tool_choice": {"type": "web_search"}},
+            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+            auth_mode="api_key",
+        )
+    assert exc.value.rejected == {"tool_choice": "malformed"}

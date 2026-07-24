@@ -29,16 +29,18 @@ from aigateway.core.plugin_base import (
     ModelEntry,
     ProviderPluginBase,
 )
+from aigateway.core.standard_parameters import tool_parameter_observations
 
 from .api_key_validation import HuggingFaceApiKeyValidator
-from .discovery import HF_STATIC_PARAM_OBSERVATIONS
-from .parameters import huggingface_chat_parameter_rules
+from .discovery import HF_STATIC_PARAM_OBSERVATIONS, STATIC_SOURCE
+from .parameters import huggingface_chat_parameter_rules, huggingface_chat_parameter_tools
 from .settings import HuggingFacePluginSettings
 
 if TYPE_CHECKING:
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
+        ToolCapability,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_models import AuthType
@@ -97,6 +99,14 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         # parameter; every other caller field fails closed at classification.
         return huggingface_chat_parameter_rules(model=model, auth_type=auth_type)
 
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ToolCapability, ...]:
+        # OME-583: HF's OpenAI-compatible router forwards tools/tool_choice through the
+        # installed transform (§9), so function calling is a first-class capability —
+        # reported in supported_tools and the detail contract's tools section.
+        return huggingface_chat_parameter_tools(model=model, auth_type=auth_type)
+
     def chat_parameter_observations(
         self, *, model: str, auth_type: AuthType | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
@@ -108,7 +118,13 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         # provenance; the rest stay visible-but-DISABLED (projection_not_implemented).
         # Endpoint-level evidence is model-independent, so it does not vary by model.
         # INVARIANT: an observation NEVER enables a parameter — only a rule does.
-        return HF_STATIC_PARAM_OBSERVATIONS
+        # OME-583: the tools/tool_choice request-path observations are contributed here
+        # (mirroring the tool rules) so §4.4 holds — every enabled tool path has a rule,
+        # a schema, AND an observation — WITHOUT polluting the sampling-field constant.
+        return HF_STATIC_PARAM_OBSERVATIONS + tool_parameter_observations(
+            huggingface_chat_parameter_tools(model=model, auth_type=auth_type),
+            source=STATIC_SOURCE,
+        )
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         out = dict(body)

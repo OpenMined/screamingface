@@ -183,3 +183,73 @@ def test_seeded_rules_are_the_single_source_of_the_summary() -> None:
         "models",
         "provider_params.top_k",
     } <= summary
+
+
+# --- OME-583 (§9): function calling reaches dispatch + the installed transform ---
+
+_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get the weather for a city",
+            "parameters": {
+                "type": "object",
+                "properties": {"location": {"type": "string"}},
+                "required": ["location"],
+            },
+        },
+    }
+]
+
+
+def test_tools_and_tool_choice_reach_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    choice = {"type": "function", "function": {"name": "get_weather"}}
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"tools": _TOOLS, "tool_choice": choice})
+    assert resp.status_code == 200, resp.text
+    assert captured["tools"] == _TOOLS
+    assert captured["tool_choice"] == choice
+
+
+def test_malformed_tool_type_rejects_before_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"tools": [{"type": "web_search"}]})
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["rejected"] == {"tools": "malformed"}
+    assert captured == {}  # fail closed: no provider call happened
+
+
+def test_tools_and_tool_choice_survive_installed_litellm_openrouter_transform() -> None:
+    # FINAL-TRANSFORM PROOF (plan §6.1/§9): tools + tool_choice are enabled only because
+    # the INSTALLED litellm openrouter transform carries them onto the wire body. If
+    # litellm changes this, the rule must be re-reviewed — this test is the tripwire.
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+    from litellm.utils import get_optional_params
+
+    upstream = "google/gemini-2.0-flash-001"
+    optional = get_optional_params(
+        model=upstream,
+        custom_llm_provider="openrouter",
+        tools=_TOOLS,
+        tool_choice="auto",
+    )
+    assert optional.get("tools") == _TOOLS
+    assert optional.get("tool_choice") == "auto"
+    wire = OpenrouterConfig().transform_request(
+        model=upstream,
+        messages=[{"role": "user", "content": "hi"}],
+        optional_params=dict(optional),
+        litellm_params={},
+        headers={},
+    )
+    assert wire["tools"] == _TOOLS
+    assert wire["tool_choice"] == "auto"

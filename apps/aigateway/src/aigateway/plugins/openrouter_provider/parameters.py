@@ -11,7 +11,7 @@ transform carries it onto the wire (proven in tests).
 
 from __future__ import annotations
 
-from aigateway.core.chat_parameters import ParameterProjectionRule
+from aigateway.core.chat_parameters import ParameterProjectionRule, ToolCapability
 from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
@@ -19,6 +19,7 @@ from aigateway.core.standard_parameters import (
     TEMPERATURE_SCHEMA,
     TOP_K_SCHEMA,
     direct_rule,
+    function_calling_rules,
     provider_native_rule,
 )
 
@@ -27,6 +28,13 @@ from aigateway.core.standard_parameters import (
 _AUTH: tuple[AuthType, ...] = ("api_key",)
 # Bump when a projection's semantics change; folds into the contract digests.
 _REVISION = "openrouter-2026-07"
+
+# OME-583: OpenRouter is OpenAI-compatible; the INSTALLED litellm openrouter transform
+# forwards tools[] and tool_choice onto the wire (§9), so function calling is enabled
+# WITH tool_choice.
+_TOOL_CAPABILITIES: tuple[ToolCapability, ...] = (
+    ToolCapability(tool_type="function", provider_support="supported", gateway_status="enabled"),
+)
 
 _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
@@ -52,6 +60,8 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         schema=TOP_K_SCHEMA,
         projection_revision=_REVISION,
     ),
+    # OME-583: tools + tool_choice (OpenAI-native, §9 proof).
+    *function_calling_rules(_TOOL_CAPABILITIES, auth_modes=_AUTH, projection_revision=_REVISION),
 )
 
 
@@ -61,3 +71,11 @@ def openrouter_chat_parameter_rules(
     """The proven rule set is identical for every OpenRouter model; auth-mode
     filtering is applied by the core classifier/contract, not here."""
     return _RULES
+
+
+def openrouter_chat_parameter_tools(
+    *, model: str, auth_type: AuthType | None = None
+) -> tuple[ToolCapability, ...]:
+    # OME-583: the accepted tools[].type discriminator(s); drives supported_tools +
+    # the detail contract's tools section.
+    return _TOOL_CAPABILITIES

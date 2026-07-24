@@ -41,13 +41,16 @@ STATIC_SOURCE = "anthropic:static"
 # AIDEV-NOTE: grows with each native rule added in parameters.py; keep in sync.
 _WRAPPED_NATIVE_PARAMS: frozenset[str] = frozenset({"top_k"})
 
-# OME-479 §6.3 — reviewed labelled-static evidence (NO network). Each name is a field the
-# INSTALLED litellm ``AnthropicConfig`` provably accepts (verified against its
-# ``get_supported_openai_params`` / ``get_optional_params``). Tool/transport/structured-
-# output machinery lives in its own contract section, so ``tools`` / ``tool_choice`` /
-# ``response_format`` / ``stream`` are intentionally excluded here.
+# OME-479 §6.3 — reviewed labelled-static evidence (NO network). Each name is a SAMPLING /
+# generation field the INSTALLED litellm ``AnthropicConfig`` provably accepts (verified
+# against its ``get_supported_openai_params`` / ``get_optional_params``). The tool request
+# paths ``tools`` / ``tool_choice`` are NOT listed here: they are evidenced separately at
+# the plugin level (``tool_parameter_observations`` over the plugin's tool capabilities,
+# OME-583), so this constant stays a pure sampling-field inventory. ``response_format`` /
+# ``stream`` remain excluded — structured output is unruled and ``stream`` is transport.
 # AIDEV-NOTE: reviewed labelled-static evidence, not a central inventory — extend only for
-# a field the installed transform provably accepts for Anthropic.
+# a SAMPLING field the installed transform provably accepts for Anthropic; tool paths are
+# added via the plugin's tool observations, never here.
 _STATIC_PARAM_NAMES: tuple[str, ...] = (
     "temperature",
     "top_p",

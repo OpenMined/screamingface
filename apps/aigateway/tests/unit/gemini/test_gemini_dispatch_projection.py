@@ -297,3 +297,56 @@ async def test_stop_reaches_the_wire_as_stop_sequences(
     await _dispatch(monkeypatch, caller_body=body, auth_mode="api_key", handler_fn=handler)
 
     assert captured["payload"]["generationConfig"]["stopSequences"] == ["\n\n", "END"]
+
+
+# --- OME-583 (§9): tools reach the wire as functionDeclarations; tool_choice fails closed --
+
+_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get the weather for a city",
+            "parameters": {
+                "type": "object",
+                "properties": {"location": {"type": "string"}},
+                "required": ["location"],
+            },
+        },
+    }
+]
+
+
+@pytest.mark.asyncio
+async def test_tools_reach_the_wire_as_function_declarations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # OME-583 end-to-end: a caller tools[] flows through the REAL classifier +
+    # plugin.chat_completion and lands on Gemini's wire body as tools[].functionDeclarations
+    # (build_generate_content_body maps the OpenAI tool onto Gemini's shape).
+    monkeypatch.setenv("GEMINI_API_KEY", "env-key")
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content.decode())
+        return httpx.Response(200, json=_gemini_response())
+
+    body = _caller_body()
+    body["tools"] = _TOOLS
+    await _dispatch(monkeypatch, caller_body=body, auth_mode="api_key", handler_fn=handler)
+
+    declarations = captured["payload"]["tools"][0]["functionDeclarations"]
+    assert declarations[0]["name"] == "get_weather"
+
+
+def test_tool_choice_fails_closed_because_gemini_does_not_support_it() -> None:
+    # §9: Gemini's builder emits no toolConfig, so tool_choice is intentionally UNRULED.
+    # A caller tool_choice is unknown to the rule set and rejected at classification,
+    # before any dispatch — the gateway never forwards a control it cannot honor.
+    plugin = GeminiProviderPlugin()
+    body = _caller_body()
+    body["tools"] = _TOOLS
+    body["tool_choice"] = "auto"
+    with pytest.raises(UnsupportedParametersError) as exc:
+        _project(plugin, body, "api_key")
+    assert exc.value.rejected.get("tool_choice") == "unknown"

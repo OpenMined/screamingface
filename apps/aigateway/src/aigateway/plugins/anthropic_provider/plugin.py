@@ -13,19 +13,21 @@ from aigateway.core.plugin_base import (
     OAuthConfig,
     ProviderPluginBase,
 )
+from aigateway.core.standard_parameters import tool_parameter_observations
 
 from .api_key_validation import AnthropicApiKeyValidator
 from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
 from .chat_handler import chat_completion, chat_completion_stream
-from .discovery import ANTHROPIC_STATIC_PARAM_OBSERVATIONS
-from .parameters import anthropic_chat_parameter_rules
+from .discovery import ANTHROPIC_STATIC_PARAM_OBSERVATIONS, STATIC_SOURCE
+from .parameters import anthropic_chat_parameter_rules, anthropic_chat_parameter_tools
 from .settings import AnthropicPluginSettings
 
 if TYPE_CHECKING:
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
+        ToolCapability,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_index import ProfileIndexStore
@@ -111,6 +113,13 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         # OME-479: one provider-local source drives summary, detail, and dispatch.
         return anthropic_chat_parameter_rules(model=model, auth_type=auth_type)
 
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ToolCapability, ...]:
+        # OME-583: Anthropic validates OpenAI-style function tools through the installed
+        # AnthropicConfig transform (§9), so it advertises the `function` tool type.
+        return anthropic_chat_parameter_tools(model=model, auth_type=auth_type)
+
     def chat_parameter_observations(
         self, *, model: str, auth_type: AuthType | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
@@ -122,9 +131,14 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         # field with its gateway status: temperature/top_p/max_tokens/reasoning_effort are
         # ALSO ruled → ENABLED with this provenance; native provider_params.top_k is ruled
         # for api_key only (ENABLED there, visible-but-DISABLED under OAuth); stop is ALSO
-        # ruled → ENABLED under both modes with this provenance (OME-582).
+        # ruled → ENABLED under both modes with this provenance (OME-582); tools +
+        # tool_choice are ALSO ruled → ENABLED under both modes (OME-583), evidenced here
+        # so every enabled tool path is fully backed (§4.4).
         # INVARIANT: an observation NEVER enables a parameter — only a rule does.
-        return ANTHROPIC_STATIC_PARAM_OBSERVATIONS
+        return ANTHROPIC_STATIC_PARAM_OBSERVATIONS + tool_parameter_observations(
+            anthropic_chat_parameter_tools(model=model, auth_type=auth_type),
+            source=STATIC_SOURCE,
+        )
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         # Claude-Code attribution moved to dispatch time (chat_handler):
