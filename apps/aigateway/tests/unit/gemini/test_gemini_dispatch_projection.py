@@ -20,9 +20,9 @@ auth asymmetry — both call one builder).
 INVARIANT (step 4): user/assistant messages project to Gemini ``contents``
 (``[{role, parts:[{text}]}]``) and a system message to ``systemInstruction``; a
 caller-forged ``contents`` field fails CLOSED at classification, before any dispatch.
-INVARIANT (§4.4, end-to-end): ``stop`` is OBSERVED (9c shows it visible-but-disabled in
-the detail doc) but UNRULED, so the dispatch classifier rejects it — "disabled" in the
-contract genuinely means "cannot reach the wire". Observation never authorizes dispatch.
+INVARIANT (OME-582, end-to-end): ``stop`` is now RULED, so it reaches the wire as
+``generationConfig.stopSequences`` under both auth modes — the ENABLED contract entry
+genuinely means "reaches the wire", the dual of "observation never authorizes dispatch".
 """
 
 from __future__ import annotations
@@ -278,14 +278,22 @@ def test_caller_supplied_contents_fails_closed_before_any_dispatch() -> None:
     assert exc.value.rejected.get("contents") == "unknown"
 
 
-def test_unruled_stop_is_rejected_so_it_can_never_reach_the_wire() -> None:
-    # The end-to-end teeth behind 9c's "visible-but-disabled" stop: because stop has no
-    # RULE (only an observation), the dispatch classifier rejects it as unknown — a
-    # caller can never get stopSequences onto Gemini's wire. Observation informs the
-    # detail doc's visibility; it NEVER authorizes dispatch (§4.4).
-    plugin = GeminiProviderPlugin()
+@pytest.mark.asyncio
+async def test_stop_reaches_the_wire_as_stop_sequences(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # OME-582 end-to-end payoff: stop is now RULED, so a caller stop array flows through
+    # the REAL classifier + plugin.chat_completion and lands on Gemini's wire body as
+    # generationConfig.stopSequences — the dispatch teeth behind the enabled overlay.
+    monkeypatch.setenv("GEMINI_API_KEY", "env-key")
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content.decode())
+        return httpx.Response(200, json=_gemini_response())
+
     body = _caller_body()
-    body["stop"] = ["\n"]
-    with pytest.raises(UnsupportedParametersError) as exc:
-        _project(plugin, body, "api_key")
-    assert exc.value.rejected.get("stop") == "unknown"
+    body["stop"] = ["\n\n", "END"]
+    await _dispatch(monkeypatch, caller_body=body, auth_mode="api_key", handler_fn=handler)
+
+    assert captured["payload"]["generationConfig"]["stopSequences"] == ["\n\n", "END"]

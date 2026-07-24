@@ -16,6 +16,7 @@ so a differently-parameterized request can never share its key.
 
 from __future__ import annotations
 
+import litellm
 import pytest
 
 from aigateway.core.parameter_projection import (
@@ -74,6 +75,20 @@ def test_projection_composes_with_existing_hardening() -> None:
     assert body["extra_headers"]["X-Title"] == "ScreamingFace"
     assert "api_key" not in body
     assert body["extra_body"] == {"top_k": 40}
+
+
+def test_stop_reaches_dispatch_and_installed_transform() -> None:
+    # OME-582 (§9): the enabled stop rule projects the caller field onto the dispatch
+    # body, and the INSTALLED litellm OpenRouter path forwards it as the OpenAI-native
+    # `stop` — pinned against the installed library, not assumed.
+    body = _dispatch_body({"model": _MODEL, "messages": _MESSAGES, "stop": ["\n\n", "END"]})
+    assert body["stop"] == ["\n\n", "END"]
+    optional = litellm.utils.get_optional_params(
+        model="google/gemini-2.0-flash-001",
+        custom_llm_provider="openrouter",
+        stop=["\n\n", "END"],
+    )
+    assert optional["stop"] == ["\n\n", "END"]
 
 
 def test_unruled_parameter_is_rejected_fail_closed() -> None:

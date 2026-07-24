@@ -15,6 +15,7 @@ HF dispatch body is structurally cache-isolated — no shape both dispatches and
 
 from __future__ import annotations
 
+import litellm
 import pytest
 
 from aigateway.core.parameter_projection import (
@@ -62,6 +63,20 @@ def test_enabled_params_compose_with_pinned_router_and_request_local_token() -> 
     # the projected standard fields stay top-level, ready for the installed transform.
     assert body["temperature"] == 0.5
     assert body["max_tokens"] == 128
+
+
+def test_stop_reaches_dispatch_and_installed_transform() -> None:
+    # OME-582 (§9): the enabled stop rule projects the caller field onto the dispatch
+    # body, and the INSTALLED litellm Hugging Face path forwards it as the OpenAI-native
+    # `stop` — pinned against the installed library, not assumed.
+    body = _dispatch_body({"model": _MODEL, "messages": _MESSAGES, "stop": ["\n\n", "END"]})
+    assert body["stop"] == ["\n\n", "END"]
+    optional = litellm.utils.get_optional_params(
+        model="openai/gpt-oss-120b",
+        custom_llm_provider="huggingface",
+        stop=["\n\n", "END"],
+    )
+    assert optional["stop"] == ["\n\n", "END"]
 
 
 def test_caller_supplied_api_key_is_rejected_not_forwarded() -> None:

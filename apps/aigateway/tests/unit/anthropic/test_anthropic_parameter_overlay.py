@@ -9,8 +9,9 @@ top_k and the gateway will project it; on an OAuth (Claude Code subscription) co
 the SAME field is visible-but-disabled — the contract tells me exactly what each
 credential may send, without ever sending credentials to a discovery endpoint (§6.3).
 
-INVARIANT (§4.4): an observation NEVER enables a field; only a rule does. ``stop`` is
-observed-but-unruled → visible-but-DISABLED under every auth mode.
+INVARIANT (§4.4): an observation NEVER enables a field; only a rule does — ``stop`` now
+has a rule (OME-582), so it is ENABLED under every auth mode while still carrying its
+observation's provenance.
 INVARIANT (§6.3): a field enabled for API key only is DROPPED from the conservative
 /v1/models intersection — the summary never overclaims what OAuth cannot prove, even
 though the api-key DETAIL contract lists it enabled.
@@ -61,15 +62,15 @@ def test_ruled_and_observed_standard_fields_are_enabled_with_evidence() -> None:
             assert entry["provider"]["source"] == _STATIC, (auth_mode, path)
 
 
-def test_observed_but_unruled_stop_is_visible_but_disabled() -> None:
-    # `stop` is accepted by the installed transform (observed → stop_sequences) but has
-    # NO gateway rule → visible, rejected, under BOTH auth modes.
+def test_stop_is_enabled_under_both_modes() -> None:
+    # OME-582: `stop` is now RULED (union string | array[string]); it reaches the
+    # installed AnthropicConfig transform as stop_sequences, so it is ENABLED under both
+    # auth modes while keeping the observation's provenance.
     for auth_mode in ("api_key", "oauth"):
         entry = _parameters(auth_mode)["stop"]
         assert entry["provider"]["support"] == "supported", auth_mode
         assert entry["provider"]["source"] == _STATIC, auth_mode
-        assert entry["gateway"]["status"] == "disabled", auth_mode
-        assert entry["gateway"]["reason"] == "projection_not_implemented", auth_mode
+        assert entry["gateway"]["status"] == "enabled", auth_mode
 
 
 def test_native_top_k_is_enabled_under_api_key_with_evidence() -> None:
@@ -91,13 +92,13 @@ def test_native_top_k_is_visible_but_disabled_under_oauth() -> None:
 
 def test_inline_summary_is_the_safe_auth_intersection() -> None:
     # step 5: the /v1/models summary contains only fields enabled under EVERY available
-    # auth mode. top_k (api-key-only) is DROPPED; stop (unruled) is absent.
+    # auth mode. top_k (api-key-only) is DROPPED; stop (ruled under both modes) is kept.
     plugin = AnthropicProviderPlugin()
     rules = plugin.chat_parameter_rules(model=_MODEL, auth_type=None)
     summary = inline_supported_parameters(rules, available_auth_modes=("api_key", "oauth"))
     assert {"temperature", "top_p", "max_tokens", "reasoning_effort"} <= set(summary)
     assert "provider_params.top_k" not in summary  # api-key-only → dropped
-    assert "stop" not in summary  # never ruled
+    assert "stop" in summary  # OME-582: now ruled + enabled under both modes
 
 
 def test_api_key_detail_contract_includes_top_k_that_summary_omits() -> None:

@@ -121,8 +121,8 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         # so it does not vary by model. This makes the detail contract show every accepted
         # field with its gateway status: temperature/top_p/max_tokens/reasoning_effort are
         # ALSO ruled → ENABLED with this provenance; native provider_params.top_k is ruled
-        # for api_key only (ENABLED there, visible-but-DISABLED under OAuth); stop stays
-        # observed-but-DISABLED (projection_not_implemented).
+        # for api_key only (ENABLED there, visible-but-DISABLED under OAuth); stop is ALSO
+        # ruled → ENABLED under both modes with this provenance (OME-582).
         # INVARIANT: an observation NEVER enables a parameter — only a rule does.
         return ANTHROPIC_STATIC_PARAM_OBSERVATIONS
 

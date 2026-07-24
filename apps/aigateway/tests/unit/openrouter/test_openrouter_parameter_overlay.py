@@ -97,10 +97,12 @@ def test_every_endpoint_observed_sampling_field_is_visible_with_a_status() -> No
         "provider_params.top_k",
     ):
         assert path in params, path
-    # every unruled observed field is honest about WHY it is rejected.
-    for path in ("top_p", "frequency_penalty", "presence_penalty", "seed", "stop"):
+    # every STILL-unruled observed field is honest about WHY it is rejected.
+    for path in ("top_p", "frequency_penalty", "presence_penalty", "seed"):
         assert params[path]["gateway"]["status"] == "disabled"
         assert params[path]["gateway"]["reason"] == "projection_not_implemented"
+    # OME-582: stop is now ruled → enabled (still visible in the list above).
+    assert params["stop"]["gateway"]["status"] == "enabled"
 
 
 def test_observations_are_labelled_local_not_fabricated_per_model() -> None:

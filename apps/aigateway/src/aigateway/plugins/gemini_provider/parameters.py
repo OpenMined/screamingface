@@ -17,11 +17,10 @@ Two shapes of enabled field:
   from the ``provider_params.top_k`` wrapper to the top-level ``top_k`` key the
   builder's ``config_map`` reads (renamed to ``topK``).
 
-# AIDEV-NOTE: ``stop`` is mapped by the builder (→ ``stopSequences``) but is
-# deliberately left UNRULED in v1 — its OpenAI ``string | array[string]`` union
-# cannot be expressed by the single-``type`` ``ParameterSchema``, and forcing one
-# type would narrow the accepted surface dishonestly. It surfaces visible-but-
-# disabled in the detail contract; promote it only once core gains union schemas.
+# AIDEV-NOTE: ``stop`` (OpenAI ``string | array[string]``) is ruled via the shared
+# union ``STOP_SCHEMA``; the builder renames it to ``stopSequences`` (scalar coerced
+# to a one-element list). Enabled under both auth modes since both dispatch paths run
+# the SAME builder. A wrong-typed array item fails closed as malformed.
 """
 
 from __future__ import annotations
@@ -30,6 +29,7 @@ from aigateway.core.chat_parameters import ParameterProjectionRule
 from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
+    STOP_SCHEMA,
     TEMPERATURE_SCHEMA,
     TOP_K_SCHEMA,
     TOP_P_SCHEMA,
@@ -51,6 +51,9 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
         "max_tokens", auth_modes=_AUTH, schema=MAX_TOKENS_SCHEMA, projection_revision=_REVISION
     ),
+    # direct: standard stop (string | array[string]); the builder renames it to
+    # stopSequences. Both auth paths share that builder → enabled under both modes.
+    direct_rule("stop", auth_modes=_AUTH, schema=STOP_SCHEMA, projection_revision=_REVISION),
     provider_native_rule(
         "provider_params.top_k",
         provider_target="top_k",

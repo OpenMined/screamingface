@@ -164,6 +164,32 @@ def test_native_top_k_reaches_transform_via_api_key_path() -> None:
     assert body["top_k"] == 40
 
 
+def test_stop_reaches_installed_transform_as_stop_sequences() -> None:
+    # OME-582 (§9): the enabled stop rule projects the caller field onto the dispatch
+    # body, and the installed AnthropicConfig transform renames it to stop_sequences —
+    # pinned against the installed library, not assumed.
+    prepared = _dispatch_body(
+        {"model": _MODEL, "messages": _MESSAGES, "stop": ["\n\n", "END"]},
+        auth_mode="api_key",
+    )
+    assert prepared["stop"] == ["\n\n", "END"]
+    cfg = AnthropicConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"stop": ["\n\n", "END"]},
+        optional_params={},
+        model=_UPSTREAM,
+        drop_params=False,
+    )
+    body = cfg.transform_request(
+        model=_UPSTREAM,
+        messages=prepared["messages"],
+        optional_params=mapped,
+        litellm_params={},
+        headers={},
+    )
+    assert body["stop_sequences"] == ["\n\n", "END"]
+
+
 def test_native_top_k_is_wrong_auth_mode_under_oauth() -> None:
     # the api-key-only rule is KNOWN to the provider but not applicable under OAuth,
     # so it fails closed as wrong_auth_mode (not "unknown") — proving the contract is

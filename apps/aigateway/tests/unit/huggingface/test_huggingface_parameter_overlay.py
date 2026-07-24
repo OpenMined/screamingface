@@ -56,13 +56,21 @@ def test_ruled_and_observed_standard_fields_are_enabled_with_evidence() -> None:
 
 def test_observed_but_unruled_fields_are_visible_but_disabled() -> None:
     params = _parameters()
-    for path in ("top_p", "frequency_penalty", "presence_penalty", "seed", "stop"):
+    for path in ("top_p", "frequency_penalty", "presence_penalty", "seed"):
         entry = params[path]
         # accepted by the endpoint (observed) but no gateway rule → visible, rejected.
         assert entry["provider"]["support"] == "supported"
         assert entry["provider"]["source"] == "huggingface:static"
         assert entry["gateway"]["status"] == "disabled"
         assert entry["gateway"]["reason"] == "projection_not_implemented"
+
+
+def test_stop_is_enabled_with_evidence() -> None:
+    # OME-582: stop is now RULED → ENABLED, still carrying the observation's provenance.
+    entry = _parameters()["stop"]
+    assert entry["provider"]["support"] == "supported"
+    assert entry["provider"]["source"] == "huggingface:static"
+    assert entry["gateway"]["status"] == "enabled"
 
 
 def test_every_observed_sampling_field_is_visible_with_a_status() -> None:

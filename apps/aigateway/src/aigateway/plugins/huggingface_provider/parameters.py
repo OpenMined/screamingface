@@ -10,9 +10,10 @@ single ``api_key`` mode. Backend-conditional TOOL/structured-output support is
 separate catalog evidence and never enables an ordinary parameter here.
 
 # AIDEV-NOTE: broader sampling fields (top_p, frequency_penalty, presence_penalty,
-# seed, stop) are OBSERVED (labelled-static) but deliberately left UNRULED in v1 —
-# they surface visible-but-disabled. Promote one only by adding its rule here with
-# a matching installed-transform characterization test (purely additive).
+# seed) are OBSERVED (labelled-static) but deliberately left UNRULED in v1 — they
+# surface visible-but-disabled. Promote one only by adding its rule here with a
+# matching installed-transform characterization test (purely additive). ``stop`` is
+# now ruled (string | array[string]); the installed transform forwards it verbatim.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from aigateway.core.chat_parameters import ParameterProjectionRule
 from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
+    STOP_SCHEMA,
     TEMPERATURE_SCHEMA,
     direct_rule,
 )
@@ -38,6 +40,9 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
         "max_tokens", auth_modes=_AUTH, schema=MAX_TOKENS_SCHEMA, projection_revision=_REVISION
     ),
+    # direct: standard stop (string | array[string]); the OpenAI-compatible HF router
+    # forwards it verbatim through the installed transform (proven in the dispatch test).
+    direct_rule("stop", auth_modes=_AUTH, schema=STOP_SCHEMA, projection_revision=_REVISION),
 )
 
 

@@ -12,8 +12,8 @@ including frequencyPenalty/seed as visible-but-disabled — and that temperature
 max_tokens/top_k are projected; on an OAuth (Code Assist) connection I see ONLY the
 fields the gateway can actually prove reach that envelope, never a public-only field.
 
-INVARIANT (§4.4): an observation NEVER enables a field; only a rule does. `stop` is
-observed (→ stopSequences) but UNRULED → visible-but-DISABLED under both modes.
+INVARIANT (§4.4): an observation NEVER enables a field; only a rule does — `stop` now
+has a rule (OME-582), so it is ENABLED (→ stopSequences) under both modes.
 INVARIANT (step 2): a public-only field (no OAuth evidence) does NOT appear in the
 OAuth contract at all — honest absence, never an overclaimed OAuth capability.
 INVARIANT: NO network — the detail endpoint composes from labelled-static evidence.
@@ -103,16 +103,15 @@ def test_public_only_fields_are_absent_under_oauth() -> None:
         assert path not in params, path
 
 
-def test_unruled_stop_is_visible_but_disabled_under_both_modes() -> None:
-    # stop maps to stopSequences in the builder and is observed under BOTH evidence
-    # sets, but has no rule → visible-but-DISABLED regardless of auth mode.
+def test_stop_is_enabled_under_both_modes() -> None:
+    # OME-582: stop is now RULED, so it is ENABLED under BOTH evidence sets while keeping
+    # the observation's provenance (support/source unchanged).
     cases: tuple[tuple[AuthType, str], ...] = (("api_key", _DISCOVERY), ("oauth", _CODE_ASSIST))
     for auth_mode, source in cases:
         entry = _parameters(auth_mode)["stop"]
         assert entry["provider"]["support"] == "supported", auth_mode
         assert entry["provider"]["source"] == source, auth_mode
-        assert entry["gateway"]["status"] == "disabled", auth_mode
-        assert entry["gateway"]["reason"] == "projection_not_implemented", auth_mode
+        assert entry["gateway"]["status"] == "enabled", auth_mode
 
 
 def test_inline_summary_keeps_symmetric_top_k() -> None:
@@ -126,7 +125,7 @@ def test_inline_summary_keeps_symmetric_top_k() -> None:
         )
     )
     assert {"temperature", "top_p", "max_tokens", "provider_params.top_k"} <= summary
-    assert "stop" not in summary  # never ruled
+    assert "stop" in summary  # OME-582: now ruled + enabled under both modes
     assert "provider_params.frequencyPenalty" not in summary  # observed, never ruled
 
 

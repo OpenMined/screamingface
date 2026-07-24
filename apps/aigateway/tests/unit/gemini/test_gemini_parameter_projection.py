@@ -20,9 +20,9 @@ by running the request pipeline exactly as ``routes/chat.py`` +
 INVARIANT: both dispatch paths (direct generateContent and the OAuth Code Assist
 envelope) call the SAME builder, so every rule applies under BOTH auth modes —
 there is no fabricated auth asymmetry (contrast Anthropic's api-key-only top_k).
-INVARIANT: ``stop`` is deliberately UNRULED in v1 (its OpenAI ``string|array``
-union cannot be a single bounded ``ParameterSchema``), so it fails closed here and
-surfaces visible-but-disabled in the detail overlay — mirroring Hugging Face.
+INVARIANT (OME-582): ``stop`` is now RULED via the shared union ``STOP_SCHEMA``
+(``string | array[string]``); it reaches ``generationConfig`` as ``stopSequences``
+under both auth modes, and a wrong-typed array item fails closed as malformed.
 """
 
 from __future__ import annotations
@@ -122,17 +122,35 @@ def test_native_top_k_reaches_generation_config_topK() -> None:
         assert config.get("topK") == 40, auth_mode
 
 
-def test_unruled_stop_is_rejected_fail_closed() -> None:
-    # `stop` maps to stopSequences in the builder but is deliberately UNRULED in v1
-    # (union type), so it fails closed — locking the decision as a regression guard.
+def test_stop_is_ruled_and_reaches_generation_config_under_both_modes() -> None:
+    # OME-582: `stop` is now an ENABLED rule (OpenAI union string | array[string], via
+    # the OME-581 schema). It reaches build_generate_content_body's stopSequences under
+    # BOTH auth modes — the array form kept, the scalar form wrapped into a list.
+    for auth_mode in _AUTH_MODES:
+        array_form = _generation_config(
+            {"model": _MODEL, "messages": _MESSAGES, "stop": ["\n\n", "END"]},
+            auth_mode=auth_mode,
+        )
+        assert array_form["stopSequences"] == ["\n\n", "END"], auth_mode
+        scalar_form = _generation_config(
+            {"model": _MODEL, "messages": _MESSAGES, "stop": "STOP"},
+            auth_mode=auth_mode,
+        )
+        assert scalar_form["stopSequences"] == ["STOP"], auth_mode
+
+
+def test_malformed_stop_fails_closed() -> None:
+    # OME-582: the union schema still GUARDS — a non-string array item is malformed and
+    # fails closed at classification, never reaching the builder. Enabling a field never
+    # means accepting any shape.
     plugin = GeminiProviderPlugin()
     with pytest.raises(UnsupportedParametersError) as exc:
         classify_and_project_chat_parameters(
-            {"model": _MODEL, "messages": _MESSAGES, "stop": ["\n\n"]},
+            {"model": _MODEL, "messages": _MESSAGES, "stop": [123]},
             rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
             auth_mode="api_key",
         )
-    assert exc.value.rejected == {"stop": "unknown"}
+    assert exc.value.rejected == {"stop": "malformed"}
 
 
 def test_caller_native_contents_is_rejected_fail_closed() -> None:

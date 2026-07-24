@@ -15,6 +15,7 @@ from aigateway.core.chat_parameters import ParameterProjectionRule
 from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
+    STOP_SCHEMA,
     TEMPERATURE_SCHEMA,
     TOP_K_SCHEMA,
     direct_rule,
@@ -34,6 +35,9 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
         "max_tokens", auth_modes=_AUTH, schema=MAX_TOKENS_SCHEMA, projection_revision=_REVISION
     ),
+    # direct: standard stop (string | array[string]); the installed litellm OpenRouter
+    # path forwards it as the OpenAI-native `stop` (proven in test_openrouter_dispatch).
+    direct_rule("stop", auth_modes=_AUTH, schema=STOP_SCHEMA, projection_revision=_REVISION),
     # WHY: OpenRouter-native routing controls are complex nested values with no
     # scalar schema; a schema-less rule authorizes the path and forwards the
     # value verbatim, preserving existing client behavior under fail-closed.

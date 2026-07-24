@@ -20,7 +20,8 @@ Auth-mode split (§6.3 — Anthropic offers BOTH api-key and OAuth):
 
 # AIDEV-NOTE: the caller-facing wrapper ``provider_params.top_k`` matches OpenRouter
 # for client consistency; only the projection TARGET is provider-specific (top-level
-# top_k here vs extra_body.top_k for OpenRouter). ``stop`` stays observed-but-unruled.
+# top_k here vs extra_body.top_k for OpenRouter). ``stop`` is a standard field the
+# INSTALLED transform renames to ``stop_sequences`` (proven under both auth modes).
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
     REASONING_EFFORT_SCHEMA,
+    STOP_SCHEMA,
     TOP_K_SCHEMA,
     TOP_P_SCHEMA,
     direct_rule,
@@ -80,6 +82,15 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         "top_p",
         auth_modes=_AUTH,
         schema=TOP_P_SCHEMA,
+        projection_revision=_REVISION,
+    ),
+    # direct: standard stop (string | array[string]); the installed AnthropicConfig
+    # transform renames it to stop_sequences on the outbound body. Auth-agnostic like
+    # the other standard fields, so enabled under both modes (survives the summary).
+    direct_rule(
+        "stop",
+        auth_modes=_AUTH,
+        schema=STOP_SCHEMA,
         projection_revision=_REVISION,
     ),
     # provider_native: Anthropic-native top_k (NOT an OpenAI param) projected to the

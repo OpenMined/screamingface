@@ -26,6 +26,11 @@ TOP_K_SCHEMA = ParameterSchema(type="integer", minimum=1)
 REASONING_EFFORT_SCHEMA = ParameterSchema(
     type="string", enum=("none", "minimal", "low", "medium", "high")
 )
+# ``stop`` is the OpenAI top-level UNION string | array[string]: a single stop
+# string, or an array of them. The scalar form skips item validation; the array
+# form requires every item to be a string, so a wrong-typed item (e.g. [123])
+# fails closed as malformed at classification, before any credential access.
+STOP_SCHEMA = ParameterSchema(type=("string", "array"), item_type="string")
 
 
 def direct_rule(
