@@ -9,11 +9,12 @@ are ``direct`` passthrough. HF has NO OAuth, so the auth-mode intersection is a
 single ``api_key`` mode. Backend-conditional TOOL/structured-output support is
 separate catalog evidence and never enables an ordinary parameter here.
 
-# AIDEV-NOTE: broader sampling fields (top_p, frequency_penalty, presence_penalty,
-# seed) are OBSERVED (labelled-static) but deliberately left UNRULED in v1 — they
-# surface visible-but-disabled. Promote one only by adding its rule here with a
-# matching installed-transform characterization test (purely additive). ``stop`` is
-# now ruled (string | array[string]); the installed transform forwards it verbatim.
+# AIDEV-NOTE: broader sampling fields (top_p, frequency_penalty, presence_penalty)
+# are OBSERVED (labelled-static) but deliberately left UNRULED in v1 — they surface
+# visible-but-disabled. Promote one only by adding its rule here with a matching
+# installed-transform characterization test (purely additive). ``stop`` (string |
+# array[string]) and ``seed`` / ``n`` (OME-585) are now ruled; the installed transform
+# forwards each verbatim.
 """
 
 from __future__ import annotations
@@ -22,7 +23,9 @@ from aigateway.core.chat_parameters import ParameterProjectionRule, ToolCapabili
 from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
+    N_SCHEMA,
     RESPONSE_FORMAT_SCHEMA,
+    SEED_SCHEMA,
     STOP_SCHEMA,
     TEMPERATURE_SCHEMA,
     direct_rule,
@@ -62,6 +65,11 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         schema=RESPONSE_FORMAT_SCHEMA,
         projection_revision=_REVISION,
     ),
+    # OME-585: seed + n sampling controls. The installed HuggingFaceChatConfig transform
+    # forwards both VERBATIM (§9 probe), so each is a direct passthrough gated by its
+    # bounded integer schema (seed: any int; n: >= 1).
+    direct_rule("seed", auth_modes=_AUTH, schema=SEED_SCHEMA, projection_revision=_REVISION),
+    direct_rule("n", auth_modes=_AUTH, schema=N_SCHEMA, projection_revision=_REVISION),
     # OME-583: tools + tool_choice (OpenAI-native, §9 installed-transform proof).
     *function_calling_rules(_TOOL_CAPABILITIES, auth_modes=_AUTH, projection_revision=_REVISION),
 )

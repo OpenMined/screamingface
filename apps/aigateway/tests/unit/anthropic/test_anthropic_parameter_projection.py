@@ -408,3 +408,29 @@ def test_response_format_fails_closed_before_dispatch() -> None:
             auth_mode="api_key",
         )
     assert exc.value.rejected == {"response_format": "unknown"}
+
+
+# --- OME-585 (§9): seed + n are EXCLUDED on Anthropic -------------------------
+#
+# The installed AnthropicConfig's get_supported_openai_params carries NEITHER seed nor n
+# (§9 probe: litellm would drop both), so they have no home on the Anthropic wire. They are
+# intentionally UNRULED; a caller value fails closed at classification. Pinned by a test so
+# the exclusion is deliberate, not accidental omission.
+
+
+def test_seed_and_n_are_not_ruled_for_anthropic() -> None:
+    ruled = {r.request_path for r in _rules(None)}
+    assert "seed" not in ruled
+    assert "n" not in ruled
+
+
+def test_seed_and_n_fail_closed_before_dispatch() -> None:
+    plugin = AnthropicProviderPlugin()
+    for path, value in (("seed", 42), ("n", 3)):
+        with pytest.raises(UnsupportedParametersError) as exc:
+            classify_and_project_chat_parameters(
+                {"model": _MODEL, "messages": _MESSAGES, path: value},
+                rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+                auth_mode="api_key",
+            )
+        assert exc.value.rejected == {path: "unknown"}

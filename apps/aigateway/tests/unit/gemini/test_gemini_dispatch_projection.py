@@ -366,3 +366,20 @@ def test_response_format_fails_closed_because_gemini_has_no_wire_home() -> None:
     with pytest.raises(UnsupportedParametersError) as exc:
         _project(plugin, body, "api_key")
     assert exc.value.rejected.get("response_format") == "unknown"
+
+
+# --- OME-585 (§9): seed + n are EXCLUDED on Gemini -----------------------------
+
+
+def test_seed_and_n_fail_closed_because_gemini_has_no_wire_home() -> None:
+    # §9: build_generate_content_body renders no seed/n field (only temperature/top_p/
+    # max_tokens/top_k/stop/tools), so both are intentionally UNRULED. A caller seed or n
+    # is unknown to the rule set and rejected at classification, before any dispatch — the
+    # exclusion is pinned by a test, not silent omission.
+    plugin = GeminiProviderPlugin()
+    for path, value in (("seed", 42), ("n", 3)):
+        body = _caller_body()
+        body[path] = value
+        with pytest.raises(UnsupportedParametersError) as exc:
+            _project(plugin, body, "api_key")
+        assert exc.value.rejected.get(path) == "unknown"

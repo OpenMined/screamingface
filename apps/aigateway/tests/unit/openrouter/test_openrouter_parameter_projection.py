@@ -330,3 +330,68 @@ def test_response_format_survives_installed_litellm_openrouter_transform() -> No
             headers={},
         )
         assert wire["response_format"] == rf
+
+
+# --- OME-585 (§9): seed + n reach dispatch + the installed transform ----------
+
+
+def test_seed_and_n_reach_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"seed": 42, "n": 3})
+    assert resp.status_code == 200, resp.text
+    assert captured["seed"] == 42
+    assert captured["n"] == 3
+
+
+def test_malformed_n_rejects_before_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"n": 0})  # below the minimum of 1
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["rejected"] == {"n": "malformed"}
+    assert captured == {}  # fail closed: no provider call happened
+
+
+def test_non_integer_seed_rejects_before_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"seed": 1.5})  # not an integer
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["rejected"] == {"seed": "malformed"}
+    assert captured == {}
+
+
+def test_seed_and_n_survive_installed_litellm_openrouter_transform() -> None:
+    # FINAL-TRANSFORM PROOF (plan §6.1/§9): seed + n are enabled ONLY because the
+    # INSTALLED litellm openrouter transform carries them onto the wire body VERBATIM.
+    # Mirrors the §9 probe's exact path (map_openai_params -> transform_request); this
+    # test is the tripwire if litellm changes the behavior.
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+
+    upstream = "google/gemini-2.0-flash-001"
+    cfg = OpenrouterConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"seed": 7, "n": 2},
+        optional_params={},
+        model=upstream,
+        drop_params=False,
+    )
+    wire = cfg.transform_request(
+        model=upstream,
+        messages=[{"role": "user", "content": "hi"}],
+        optional_params=mapped,
+        litellm_params={},
+        headers={},
+    )
+    assert wire["seed"] == 7
+    assert wire["n"] == 2

@@ -125,13 +125,15 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         # (mirroring the tool rules) so §4.4 holds — every enabled tool path has a rule,
         # a schema, AND an observation — WITHOUT polluting the sampling-field constant.
         # OME-584: response_format is contributed the same way (ruled → ENABLED, evidenced).
+        # OME-585: seed is already evidenced by the sampling constant; n (a non-sampling
+        # control) is evidenced here alongside response_format — both ruled → ENABLED.
         return (
             HF_STATIC_PARAM_OBSERVATIONS
             + tool_parameter_observations(
                 huggingface_chat_parameter_tools(model=model, auth_type=auth_type),
                 source=STATIC_SOURCE,
             )
-            + direct_parameter_observations(("response_format",), source=STATIC_SOURCE)
+            + direct_parameter_observations(("response_format", "n"), source=STATIC_SOURCE)
         )
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:

@@ -320,6 +320,8 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # OME-583: tools + tool_choice are ALSO ruled → ENABLED, evidenced here (same
         # labelled-local source) so every enabled tool path is fully backed (§4.4).
         # OME-584: response_format is likewise ruled → ENABLED, evidenced here.
+        # OME-585: seed is already evidenced by the sampling constant; n (a non-sampling
+        # control) is evidenced here alongside response_format — both ruled → ENABLED.
         # INVARIANT: an observation NEVER enables a parameter — only a rule does.
         return (
             REVIEWED_ENDPOINT_OBSERVATIONS
@@ -327,7 +329,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                 openrouter_chat_parameter_tools(model=model, auth_type=auth_type),
                 source=LOCAL_SOURCE,
             )
-            + direct_parameter_observations(("response_format",), source=LOCAL_SOURCE)
+            + direct_parameter_observations(("response_format", "n"), source=LOCAL_SOURCE)
         )
 
     async def discover_chat_parameter_snapshot(

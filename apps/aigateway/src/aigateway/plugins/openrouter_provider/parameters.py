@@ -15,7 +15,9 @@ from aigateway.core.chat_parameters import ParameterProjectionRule, ToolCapabili
 from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
+    N_SCHEMA,
     RESPONSE_FORMAT_SCHEMA,
+    SEED_SCHEMA,
     STOP_SCHEMA,
     TEMPERATURE_SCHEMA,
     TOP_K_SCHEMA,
@@ -56,6 +58,11 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         schema=RESPONSE_FORMAT_SCHEMA,
         projection_revision=_REVISION,
     ),
+    # OME-585: seed + n sampling controls. The installed litellm OpenRouter transform
+    # forwards both VERBATIM (§9 probe), so each is a direct passthrough gated by its
+    # bounded integer schema (seed: any int; n: >= 1).
+    direct_rule("seed", auth_modes=_AUTH, schema=SEED_SCHEMA, projection_revision=_REVISION),
+    direct_rule("n", auth_modes=_AUTH, schema=N_SCHEMA, projection_revision=_REVISION),
     # WHY: OpenRouter-native routing controls are complex nested values with no
     # scalar schema; a schema-less rule authorizes the path and forwards the
     # value verbatim, preserving existing client behavior under fail-closed.

@@ -22,7 +22,9 @@ from aigateway.core.chat_parameters import (
     ToolCapability,
 )
 from aigateway.core.standard_parameters import (
+    N_SCHEMA,
     RESPONSE_FORMAT_SCHEMA,
+    SEED_SCHEMA,
     direct_parameter_observations,
     function_calling_rules,
     tool_choice_schema,
@@ -220,3 +222,36 @@ def test_direct_parameter_observations_build_one_observation_per_path() -> None:
 
 def test_direct_parameter_observations_are_empty_for_no_paths() -> None:
     assert direct_parameter_observations((), source="prov:static") == ()
+
+
+# --- OME-585: SEED_SCHEMA (any integer) and N_SCHEMA (integer >= 1) -----------
+
+
+def test_seed_schema_accepts_any_integer() -> None:
+    # OpenAI `seed` is an arbitrary integer — the gateway does not narrow the range
+    # (including 0 and negatives), so it never rejects a value the provider would accept.
+    SEED_SCHEMA.validate_value(0)
+    SEED_SCHEMA.validate_value(42)
+    SEED_SCHEMA.validate_value(-7)
+
+
+def test_seed_schema_rejects_a_non_integer() -> None:
+    # a float is not an integer seed — fails closed as malformed at classification.
+    with pytest.raises(ParameterValidationError):
+        SEED_SCHEMA.validate_value(1.5)
+
+
+def test_n_schema_accepts_one_or_more() -> None:
+    N_SCHEMA.validate_value(1)  # inclusive lower bound
+    N_SCHEMA.validate_value(4)
+
+
+def test_n_schema_rejects_zero() -> None:
+    # `n` is the number of choices to return; 0 is below the minimum of 1.
+    with pytest.raises(ParameterValidationError):
+        N_SCHEMA.validate_value(0)
+
+
+def test_n_schema_rejects_a_non_integer() -> None:
+    with pytest.raises(ParameterValidationError):
+        N_SCHEMA.validate_value(2.5)

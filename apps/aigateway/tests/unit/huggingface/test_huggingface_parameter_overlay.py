@@ -56,7 +56,9 @@ def test_ruled_and_observed_standard_fields_are_enabled_with_evidence() -> None:
 
 def test_observed_but_unruled_fields_are_visible_but_disabled() -> None:
     params = _parameters()
-    for path in ("top_p", "frequency_penalty", "presence_penalty", "seed"):
+    # OME-585: seed retired from this disabled set — it is now ruled → enabled because the
+    # installed transform carries it (§9 proof); the remaining fields have no such proof yet.
+    for path in ("top_p", "frequency_penalty", "presence_penalty"):
         entry = params[path]
         # accepted by the endpoint (observed) but no gateway rule → visible, rejected.
         assert entry["provider"]["support"] == "supported"
@@ -157,3 +159,20 @@ def test_response_format_is_enabled_with_evidence() -> None:
     # carries the observation's evidence, not "unknown/none".
     assert entry["provider"]["support"] == "supported"
     assert entry["provider"]["source"] == "huggingface:static"
+
+
+# --- OME-585: seed + n sampling controls overlay -----------------------------
+#
+# FEATURE: seed (deterministic sampling) + n (number of choices). HF's router is
+# OpenAI-compatible; the installed HuggingFaceChatConfig transform forwards both VERBATIM
+# (§9 probe), so both are ENABLED and evidenced from the labelled-static source (seed via
+# the sampling observation constant already present; n via a direct observation).
+
+
+def test_seed_and_n_are_enabled_with_evidence() -> None:
+    params = _parameters()
+    for path in ("seed", "n"):
+        entry = params[path]
+        assert entry["gateway"]["status"] == "enabled", path
+        assert entry["provider"]["support"] == "supported", path
+        assert entry["provider"]["source"] == "huggingface:static", path

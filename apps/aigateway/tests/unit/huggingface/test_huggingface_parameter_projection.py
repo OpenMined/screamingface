@@ -223,3 +223,58 @@ def test_malformed_response_format_type_is_rejected_fail_closed() -> None:
             auth_mode="api_key",
         )
     assert exc.value.rejected == {"response_format": "malformed"}
+
+
+# --- OME-585 (§9): seed + n reach the installed HuggingFaceChatConfig transform --
+
+
+def test_seed_and_n_are_ruled() -> None:
+    rules = HuggingFaceProviderPlugin().chat_parameter_rules(model=_MODEL, auth_type="api_key")
+    assert {"seed", "n"} <= {rule.request_path for rule in rules}
+
+
+def test_seed_and_n_reach_installed_final_transform() -> None:
+    prepared = _dispatch_body({"model": _MODEL, "messages": _MESSAGES, "seed": 42, "n": 3})
+    # AIGateway-owned boundary: the gateway forwards both at the top level.
+    assert prepared["seed"] == 42
+    assert prepared["n"] == 3
+    # Installed final transform (litellm HuggingFaceChatConfig): both reach the outbound
+    # provider body VERBATIM — pinned against the installed library, not assumed.
+    cfg = HuggingFaceChatConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"seed": 42, "n": 3},
+        optional_params={},
+        model=_UPSTREAM,
+        drop_params=False,
+    )
+    body = cfg.transform_request(
+        model=_UPSTREAM,
+        messages=prepared["messages"],
+        optional_params=mapped,
+        litellm_params={"api_base": prepared["api_base"]},
+        headers={},
+    )
+    assert body["seed"] == 42
+    assert body["n"] == 3
+
+
+def test_malformed_n_is_rejected_fail_closed() -> None:
+    plugin = HuggingFaceProviderPlugin()
+    with pytest.raises(UnsupportedParametersError) as exc:
+        classify_and_project_chat_parameters(
+            {"model": _MODEL, "messages": _MESSAGES, "n": 0},  # below the minimum of 1
+            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+            auth_mode="api_key",
+        )
+    assert exc.value.rejected == {"n": "malformed"}
+
+
+def test_non_integer_seed_is_rejected_fail_closed() -> None:
+    plugin = HuggingFaceProviderPlugin()
+    with pytest.raises(UnsupportedParametersError) as exc:
+        classify_and_project_chat_parameters(
+            {"model": _MODEL, "messages": _MESSAGES, "seed": 1.5},  # not an integer
+            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+            auth_mode="api_key",
+        )
+    assert exc.value.rejected == {"seed": "malformed"}

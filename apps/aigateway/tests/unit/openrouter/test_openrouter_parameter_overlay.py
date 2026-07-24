@@ -98,11 +98,14 @@ def test_every_endpoint_observed_sampling_field_is_visible_with_a_status() -> No
     ):
         assert path in params, path
     # every STILL-unruled observed field is honest about WHY it is rejected.
-    for path in ("top_p", "frequency_penalty", "presence_penalty", "seed"):
+    for path in ("top_p", "frequency_penalty", "presence_penalty"):
         assert params[path]["gateway"]["status"] == "disabled"
         assert params[path]["gateway"]["reason"] == "projection_not_implemented"
     # OME-582: stop is now ruled → enabled (still visible in the list above).
     assert params["stop"]["gateway"]["status"] == "enabled"
+    # OME-585: seed is now ruled → enabled (still visible in the list above); its
+    # disabled guard is retired because the installed transform carries it (§9 proof).
+    assert params["seed"]["gateway"]["status"] == "enabled"
 
 
 def test_observations_are_labelled_local_not_fabricated_per_model() -> None:
@@ -167,3 +170,20 @@ def test_response_format_is_enabled_with_evidence() -> None:
     # carries the observation's evidence, not "unknown/none".
     assert entry["provider"]["support"] == "supported"
     assert entry["provider"]["source"] == "openrouter:static"
+
+
+# --- OME-585: seed + n sampling controls -------------------------------------
+#
+# FEATURE: seed (deterministic sampling) + n (number of choices). OpenRouter is
+# OpenAI-compatible; the installed litellm openrouter transform forwards both VERBATIM
+# (§9 probe), so both are ENABLED and evidenced from the labelled-local endpoint source
+# (seed via the sampling observation constant already present; n via a direct observation).
+
+
+def test_seed_and_n_are_enabled_with_evidence() -> None:
+    params = _parameters()
+    for path in ("seed", "n"):
+        entry = params[path]
+        assert entry["gateway"]["status"] == "enabled", path
+        assert entry["provider"]["support"] == "supported", path
+        assert entry["provider"]["source"] == "openrouter:static", path

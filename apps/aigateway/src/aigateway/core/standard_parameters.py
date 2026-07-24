@@ -50,6 +50,13 @@ RESPONSE_FORMAT_SCHEMA = ParameterSchema(
     object_discriminator="type",
     object_discriminator_enum=("text", "json_object", "json_schema"),
 )
+# ``seed`` (OME-585): OpenAI's deterministic-sampling seed is an ARBITRARY integer
+# (0 and negatives included) — the gateway deliberately sets no numeric bound so it
+# never rejects a value the provider would accept. A non-integer fails closed.
+SEED_SCHEMA = ParameterSchema(type="integer")
+# ``n`` (OME-585): the number of chat completions to generate — at least one. A value
+# below 1 (e.g. 0) or a non-integer fails closed at classification.
+N_SCHEMA = ParameterSchema(type="integer", minimum=1)
 
 
 def direct_rule(
