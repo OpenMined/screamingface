@@ -8,7 +8,7 @@ Headless but real: ``make_local_app`` wires a real :class:`InMemoryBus` +
 """
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 import httpx
@@ -24,7 +24,7 @@ from url4_cloud_runner.aigateway_connector import (
     AigatewayWorld,
     build_aigateway_world,
 )
-from url4_cloud_runner.executor import TraceContext
+from url4_cloud_runner.executor import ExecStep, TraceContext
 from url4_cloud_runner.url4_executor import Url4Executor
 from url4_streaming_protocol import AttachData, AttachEvent
 
@@ -51,7 +51,7 @@ class _BlockingExecutor:
 
     async def execute(
         self, url4: str, *, trace: TraceContext | None = None
-    ) -> Any:  # AsyncIterator[ExecStep]
+    ) -> AsyncIterator[ExecStep]:
         self.started.set()
         await self.gate.wait()
         self.resumed = True

@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 import pytest
+from _k8s_fakes import FakeCreatedJob, fake_created_job
 from kubernetes.client import ApiException
 
 from url4_cloud.jobs import JobAlreadyExists, JobRunner, K8sJobRunner, job_name
@@ -28,16 +29,6 @@ class FakeJob:
     status: FakeJobStatus | None = None
 
 
-@dataclass
-class FakeObjectMeta:
-    uid: str
-
-
-@dataclass
-class FakeCreatedJob:
-    metadata: FakeObjectMeta
-
-
 class FakeBatchV1:
     """Records created Job manifests; raises ApiException like the real BatchV1Api."""
 
@@ -51,7 +42,7 @@ class FakeBatchV1:
         if name in self.jobs:
             raise ApiException(status=409)
         self.jobs[name] = body
-        return FakeCreatedJob(metadata=FakeObjectMeta(uid=f"uid-{name}"))
+        return fake_created_job(f"uid-{name}")
 
     def read_namespaced_job(self, name: str, namespace: str) -> FakeJob:
         if name not in self.jobs:
@@ -315,7 +306,7 @@ def test_status_reraises_non_404_api_errors() -> None:
 
 def test_schedule_reraises_non_409_api_errors() -> None:
     class Boom(FakeBatchV1):
-        def create_namespaced_job(self, namespace: str, body) -> dict:
+        def create_namespaced_job(self, namespace: str, body) -> FakeCreatedJob:
             raise ApiException(status=500)
 
     runner = _runner(Boom())

@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import pytest
+from _k8s_fakes import FakeCreatedJob
 
 from url4_cloud.config import Settings
 from url4_cloud.jobs import K8sJobRunner
@@ -27,7 +28,7 @@ class _FakeBatchApi:
 
     def create_namespaced_job(
         self, namespace: str, body: Mapping[str, object]
-    ) -> object:  # pragma: no cover
+    ) -> FakeCreatedJob:  # pragma: no cover
         raise NotImplementedError
 
     def read_namespaced_job(self, name: str, namespace: str) -> Any:  # pragma: no cover

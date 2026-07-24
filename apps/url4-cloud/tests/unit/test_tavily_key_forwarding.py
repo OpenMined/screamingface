@@ -15,19 +15,11 @@ API key into one Job spec per run would spray plaintext across etcd.
 
 from typing import Any
 
+from _k8s_fakes import FakeCreatedJob, fake_created_job
+
 from url4_cloud.config import Settings
 from url4_cloud.jobs.factory import build_job_runner
 from url4_cloud.jobs.k8s import K8sJobRunner
-
-
-class _CreatedJobMeta:
-    def __init__(self, uid: str) -> None:
-        self.uid = uid
-
-
-class _CreatedJob:
-    def __init__(self, uid: str) -> None:
-        self.metadata = _CreatedJobMeta(uid)
 
 
 class _RecordingBatchApi:
@@ -36,9 +28,9 @@ class _RecordingBatchApi:
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
 
-    def create_namespaced_job(self, namespace: str, body: Any) -> object:
+    def create_namespaced_job(self, namespace: str, body: Any) -> FakeCreatedJob:
         self.created.append(dict(body))
-        return _CreatedJob(uid=f"uid-{body['metadata']['name']}")
+        return fake_created_job(f"uid-{body['metadata']['name']}")
 
     def read_namespaced_job(self, name: str, namespace: str) -> Any:  # pragma: no cover
         raise NotImplementedError

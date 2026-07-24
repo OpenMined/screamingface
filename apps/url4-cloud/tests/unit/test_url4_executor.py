@@ -418,15 +418,16 @@ async def test_overflow_drops_only_logs_and_reports_dropped_count() -> None:
     warn_logs = [
         f
         for f in frames
-        if isinstance(_unwrap(f), LogData)
-        and _unwrap(f).severity_text == "WARN"
-        and "dropped" in _unwrap(f).body
+        if isinstance(payload := _unwrap(f), LogData)
+        and payload.severity_text == "WARN"
+        and "dropped" in payload.body
     ]
     assert len(warn_logs) == 1
-    assert "dropped" in _unwrap(warn_logs[0]).body
     # Far fewer surviving INFO logs than the 20 emitted — most were dropped by the tiny cap.
     info_logs = [
-        f for f in frames if isinstance(_unwrap(f), LogData) and _unwrap(f).severity_text == "INFO"
+        f
+        for f in frames
+        if isinstance(payload := _unwrap(f), LogData) and payload.severity_text == "INFO"
     ]
     assert len(info_logs) < 20
 
@@ -450,10 +451,13 @@ async def test_surviving_log_event_maps_to_log_data() -> None:
     frames = await _drain(executor, _WarningNode())
 
     logs = [
-        f for f in frames if isinstance(_unwrap(f), LogData) and _unwrap(f).body == "custom warning"
+        f
+        for f in frames
+        if isinstance(payload := _unwrap(f), LogData) and payload.body == "custom warning"
     ]
     assert len(logs) == 1
     log = _unwrap(logs[0])
+    assert isinstance(log, LogData)
     assert log.severity_number == 13
     assert log.severity_text == "WARN"
     assert isinstance(logs[0], Traced) and logs[0].span is None

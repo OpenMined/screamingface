@@ -6,6 +6,7 @@ one object per request forever.
 """
 
 import pytest
+from _k8s_fakes import FakeCreatedJob, fake_created_job
 from kubernetes.client import ApiException
 
 from url4_cloud.config import Settings
@@ -18,9 +19,10 @@ class FakeBatchV1:
     def __init__(self) -> None:
         self.jobs: dict[str, dict] = {}
 
-    def create_namespaced_job(self, namespace: str, body) -> dict:
-        self.jobs[body["metadata"]["name"]] = body
-        return body
+    def create_namespaced_job(self, namespace: str, body) -> FakeCreatedJob:
+        name = body["metadata"]["name"]
+        self.jobs[name] = body
+        return fake_created_job(f"uid-{name}")
 
     def read_namespaced_job(self, name: str, namespace: str):
         raise ApiException(status=404)
