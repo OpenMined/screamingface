@@ -59,14 +59,10 @@
         },
         "aigatewayBaseUrl": {
           "type": "string"
-        },
-        "port": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "$comment": "`port` was removed deliberately: the App serves on a hardcoded 9108 (cli.py) and reads no port from its environment, so the value only ever moved the containerPort away from the listening port — a render that lint and install both accepted while the probes and the Service targetPort pointed at nothing. additionalProperties:false now rejects it at install time instead."
     },
     "runner": {
       "type": "object",
@@ -94,13 +90,6 @@
             "repository"
           ],
           "additionalProperties": false
-        },
-        "command": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1
         },
         "resources": {
           "type": "object"

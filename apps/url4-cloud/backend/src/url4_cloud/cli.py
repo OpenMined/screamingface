@@ -97,4 +97,10 @@ def main(argv: list[str] | None = None) -> None:
     # the dependency-injected one tests use — calling it here would build bus=None/job_runner=None
     # and skip `_require_prod_secret`, i.e. an App that cannot stream, cannot schedule, and would
     # boot on the insecure default secret. This is the chart's `command: [url4-cloud]`.
+    #
+    # INVARIANT: 9108 here IS the chart's `containerPort` (deploy/helm/templates/deployment.yaml),
+    # and it is hardcoded on BOTH sides on purpose. This path reads no port from the environment,
+    # so a chart value for it could only ever point the probes and the Service's `targetPort` at a
+    # port nothing listens on — which is exactly what `config.port` did before it was removed.
+    # Changing this means changing the containerPort in the same commit.
     uvicorn.run("url4_cloud.app:create_app_from_env", factory=True, host="0.0.0.0", port=9108)

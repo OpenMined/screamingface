@@ -71,8 +71,10 @@ config:
   # back to loopback (127.0.0.1:9105) — which inside a Job Pod is that Pod itself, so any
   # deployment doing real inference MUST set this to the aigateway Service URL.
   aigatewayBaseUrl: ""
-  # Container port the App (uvicorn) listens on — see url4_cloud/cli.py.
-  port: 9108
+  # NOTE: there is deliberately no `port` here. The App serves on a hardcoded 9108 (cli.py) and
+  # reads no port from its environment, so a value could only ever misconfigure the containerPort
+  # away from the port actually being listened on. Use `service.port` to change what the cluster
+  # dials; the container side is fixed.
 
 # Tavily web tools (spec 2026-07-23) — lets the aigateway connector declare web_search/web_fetch
 # and run its bounded tool-calling loop. Disabled => the Runner never sees TAVILY_API_KEY and the
@@ -196,8 +198,10 @@ runner:
   image:
     repository: ghcr.io/openmined/screamingface-url4-cloud-runner
     tag: ""               # empty => the App `image.tag` (both images release together)
-  command:
-    - url4-cloud-runner
+  # NOTE: there is deliberately no `command` here. The Job's command is the Runner image's own
+  # console script, pinned in code as `jobs.factory.RUNNER_COMMAND` with no env override — a value
+  # here rendered into nothing and was silently ignored, which is worse than not offering it. The
+  # entrypoint belongs to the image: change it in the Dockerfile, not in a values file.
   # The Runner Job's own requests/limits, forwarded into every scheduled Job. This is the
   # workload that actually burns CPU/memory (it drives the url4 DAG engine and buffers model
   # responses) — with nothing set it schedules BestEffort: placed blind, evicted first, and
