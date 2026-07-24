@@ -8,6 +8,13 @@ on:
     paths:
       - "apps/url4-cloud/**"
       - ".github/workflows/url4-cloud-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -26,4 +33,46 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run pyright
-      - run: uv run pytest --cov=url4_cloud --cov=url4_cloud_nats --cov=url4_streaming_protocol --cov=url4_cloud_runner --cov-fail-under=80 -q
+      - name: Run unit tests with aggregate coverage
+        run: |
+          uv run pytest \
+            --tb=short \
+            --junitxml=results.xml \
+            --cov=url4_cloud \
+            --cov=url4_cloud_nats \
+            --cov=url4_streaming_protocol \
+            --cov=url4_cloud_runner \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            -v
+      - name: Test report
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: url4-cloud Test Results (${{ matrix.python-version }})
+          path: apps/url4-cloud/results.xml
+          reporter: java-junit
+      - name: Coverage report
+        uses: orgoro/coverage@v3.2
+        if: always() && github.event_name == 'pull_request'
+        with:
+          coverageFile: apps/url4-cloud/coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.80
+
+  cost:
+    name: CI cost diff
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: HupBaHa/cost-diff@v0.1.2
+        with:
+          current-job-id: ${{ job.check_run_id }}
+          baseline-event: push
+          comment-mode: update
