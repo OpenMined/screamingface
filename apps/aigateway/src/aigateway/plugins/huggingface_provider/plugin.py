@@ -29,7 +29,10 @@ from aigateway.core.plugin_base import (
     ModelEntry,
     ProviderPluginBase,
 )
-from aigateway.core.standard_parameters import tool_parameter_observations
+from aigateway.core.standard_parameters import (
+    direct_parameter_observations,
+    tool_parameter_observations,
+)
 
 from .api_key_validation import HuggingFaceApiKeyValidator
 from .discovery import HF_STATIC_PARAM_OBSERVATIONS, STATIC_SOURCE
@@ -121,9 +124,14 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         # OME-583: the tools/tool_choice request-path observations are contributed here
         # (mirroring the tool rules) so §4.4 holds — every enabled tool path has a rule,
         # a schema, AND an observation — WITHOUT polluting the sampling-field constant.
-        return HF_STATIC_PARAM_OBSERVATIONS + tool_parameter_observations(
-            huggingface_chat_parameter_tools(model=model, auth_type=auth_type),
-            source=STATIC_SOURCE,
+        # OME-584: response_format is contributed the same way (ruled → ENABLED, evidenced).
+        return (
+            HF_STATIC_PARAM_OBSERVATIONS
+            + tool_parameter_observations(
+                huggingface_chat_parameter_tools(model=model, auth_type=auth_type),
+                source=STATIC_SOURCE,
+            )
+            + direct_parameter_observations(("response_format",), source=STATIC_SOURCE)
         )
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:

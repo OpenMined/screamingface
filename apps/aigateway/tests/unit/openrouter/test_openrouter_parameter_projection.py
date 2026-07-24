@@ -253,3 +253,80 @@ def test_tools_and_tool_choice_survive_installed_litellm_openrouter_transform() 
     )
     assert wire["tools"] == _TOOLS
     assert wire["tool_choice"] == "auto"
+
+
+# --- OME-584 (§9): response_format reaches dispatch + the installed transform --
+
+_RESPONSE_FORMAT_JSON_OBJECT = {"type": "json_object"}
+_RESPONSE_FORMAT_JSON_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "weather",
+        "schema": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"],
+        },
+    },
+}
+
+
+def test_response_format_json_object_reaches_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"response_format": _RESPONSE_FORMAT_JSON_OBJECT})
+    assert resp.status_code == 200, resp.text
+    assert captured["response_format"] == _RESPONSE_FORMAT_JSON_OBJECT
+
+
+def test_response_format_json_schema_reaches_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"response_format": _RESPONSE_FORMAT_JSON_SCHEMA})
+    assert resp.status_code == 200, resp.text
+    assert captured["response_format"] == _RESPONSE_FORMAT_JSON_SCHEMA
+
+
+def test_malformed_response_format_type_rejects_before_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"response_format": {"type": "xml"}})
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["rejected"] == {"response_format": "malformed"}
+    assert captured == {}  # fail closed: no provider call happened
+
+
+def test_response_format_survives_installed_litellm_openrouter_transform() -> None:
+    # FINAL-TRANSFORM PROOF (plan §6.1/§9): response_format is enabled ONLY because the
+    # INSTALLED litellm openrouter transform carries both documented forms onto the wire
+    # body VERBATIM. This mirrors the §9 probe's exact path (map_openai_params ->
+    # transform_request); if litellm changes this, the rule must be re-reviewed — this
+    # test is the tripwire.
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+
+    upstream = "google/gemini-2.0-flash-001"
+    cfg = OpenrouterConfig()
+    for rf in (_RESPONSE_FORMAT_JSON_OBJECT, _RESPONSE_FORMAT_JSON_SCHEMA):
+        mapped = cfg.map_openai_params(
+            non_default_params={"response_format": rf},
+            optional_params={},
+            model=upstream,
+            drop_params=False,
+        )
+        wire = cfg.transform_request(
+            model=upstream,
+            messages=[{"role": "user", "content": "hi"}],
+            optional_params=mapped,
+            litellm_params={},
+            headers={},
+        )
+        assert wire["response_format"] == rf

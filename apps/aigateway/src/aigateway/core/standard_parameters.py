@@ -40,6 +40,16 @@ REASONING_EFFORT_SCHEMA = ParameterSchema(
 # form requires every item to be a string, so a wrong-typed item (e.g. [123])
 # fails closed as malformed at classification, before any credential access.
 STOP_SCHEMA = ParameterSchema(type=("string", "array"), item_type="string")
+# ``response_format`` (OME-584): the OpenAI structured-output object, gated by its
+# ``type`` discriminator over the FULL documented range (plain text, json_object, or a
+# named json_schema) — so the gateway does not narrow the provider's valid set. Only the
+# top-level shape + ``type`` are validated; the nested json_schema body is a provider
+# concern. A non-object, or an unknown/absent ``type``, fails closed at classification.
+RESPONSE_FORMAT_SCHEMA = ParameterSchema(
+    type="object",
+    object_discriminator="type",
+    object_discriminator_enum=("text", "json_object", "json_schema"),
+)
 
 
 def direct_rule(
@@ -183,4 +193,23 @@ def tool_parameter_observations(
     return tuple(
         ProviderParameterObservation(request_path=path, support="supported", source=source)
         for path in paths
+    )
+
+
+def direct_parameter_observations(
+    request_paths: Iterable[str],
+    *,
+    source: str,
+) -> tuple[ProviderParameterObservation, ...]:
+    """Provider evidence for non-sampling ``direct`` request paths (OME-584).
+
+    INVARIANT (§4.4): every enabled parameter carries a provider observation, so an
+    enabled non-sampling field (e.g. ``response_format``) is never left unevidenced.
+    Kept OUT of the sampling discovery constants — these are not sampling fields — so
+    the strict discovery-parser tests keep their meaning (mirrors
+    ``tool_parameter_observations``). Empty in, empty out: no phantom evidence.
+    """
+    return tuple(
+        ProviderParameterObservation(request_path=path, support="supported", source=source)
+        for path in request_paths
     )

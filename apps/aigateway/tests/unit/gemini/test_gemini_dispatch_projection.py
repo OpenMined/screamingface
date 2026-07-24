@@ -350,3 +350,19 @@ def test_tool_choice_fails_closed_because_gemini_does_not_support_it() -> None:
     with pytest.raises(UnsupportedParametersError) as exc:
         _project(plugin, body, "api_key")
     assert exc.value.rejected.get("tool_choice") == "unknown"
+
+
+# --- OME-584 (§9): response_format is EXCLUDED on Gemini -----------------------
+
+
+def test_response_format_fails_closed_because_gemini_has_no_wire_home() -> None:
+    # §9: build_generate_content_body renders no response_format field (only
+    # temperature/top_p/max_tokens/top_k/stop/tools), so it is intentionally UNRULED. A
+    # caller response_format is unknown to the rule set and rejected at classification,
+    # before any dispatch — the exclusion is pinned by a test, not silent omission.
+    plugin = GeminiProviderPlugin()
+    body = _caller_body()
+    body["response_format"] = {"type": "json_object"}
+    with pytest.raises(UnsupportedParametersError) as exc:
+        _project(plugin, body, "api_key")
+    assert exc.value.rejected.get("response_format") == "unknown"

@@ -34,7 +34,10 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 from aigateway.core.provider_errors import NonRetryableProviderError
-from aigateway.core.standard_parameters import tool_parameter_observations
+from aigateway.core.standard_parameters import (
+    direct_parameter_observations,
+    tool_parameter_observations,
+)
 
 from .api_key_validation import OpenRouterApiKeyValidator
 from .discovery import LOCAL_SOURCE, REVIEWED_ENDPOINT_OBSERVATIONS, discover_openrouter_snapshot
@@ -316,10 +319,15 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # by model here.
         # OME-583: tools + tool_choice are ALSO ruled → ENABLED, evidenced here (same
         # labelled-local source) so every enabled tool path is fully backed (§4.4).
+        # OME-584: response_format is likewise ruled → ENABLED, evidenced here.
         # INVARIANT: an observation NEVER enables a parameter — only a rule does.
-        return REVIEWED_ENDPOINT_OBSERVATIONS + tool_parameter_observations(
-            openrouter_chat_parameter_tools(model=model, auth_type=auth_type),
-            source=LOCAL_SOURCE,
+        return (
+            REVIEWED_ENDPOINT_OBSERVATIONS
+            + tool_parameter_observations(
+                openrouter_chat_parameter_tools(model=model, auth_type=auth_type),
+                source=LOCAL_SOURCE,
+            )
+            + direct_parameter_observations(("response_format",), source=LOCAL_SOURCE)
         )
 
     async def discover_chat_parameter_snapshot(

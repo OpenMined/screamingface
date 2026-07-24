@@ -167,3 +167,59 @@ def test_unadvertised_tool_type_is_rejected_fail_closed() -> None:
             auth_mode="api_key",
         )
     assert exc.value.rejected == {"tools": "malformed"}
+
+
+# --- OME-584 (§9): response_format reaches the installed HuggingFaceChatConfig transform --
+
+_RESPONSE_FORMAT_JSON_OBJECT = {"type": "json_object"}
+_RESPONSE_FORMAT_JSON_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "weather",
+        "schema": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"],
+        },
+    },
+}
+
+
+def test_response_format_is_ruled() -> None:
+    rules = HuggingFaceProviderPlugin().chat_parameter_rules(model=_MODEL, auth_type="api_key")
+    assert "response_format" in {rule.request_path for rule in rules}
+
+
+def test_response_format_reaches_installed_final_transform() -> None:
+    cfg = HuggingFaceChatConfig()
+    for rf in (_RESPONSE_FORMAT_JSON_OBJECT, _RESPONSE_FORMAT_JSON_SCHEMA):
+        prepared = _dispatch_body({"model": _MODEL, "messages": _MESSAGES, "response_format": rf})
+        # AIGateway-owned boundary: the gateway forwards it at the top level.
+        assert prepared["response_format"] == rf
+        # Installed final transform (litellm HuggingFaceChatConfig): the value reaches
+        # the outbound provider body VERBATIM — pinned against the installed library.
+        mapped = cfg.map_openai_params(
+            non_default_params={"response_format": rf},
+            optional_params={},
+            model=_UPSTREAM,
+            drop_params=False,
+        )
+        body = cfg.transform_request(
+            model=_UPSTREAM,
+            messages=prepared["messages"],
+            optional_params=mapped,
+            litellm_params={"api_base": prepared["api_base"]},
+            headers={},
+        )
+        assert body["response_format"] == rf
+
+
+def test_malformed_response_format_type_is_rejected_fail_closed() -> None:
+    plugin = HuggingFaceProviderPlugin()
+    with pytest.raises(UnsupportedParametersError) as exc:
+        classify_and_project_chat_parameters(
+            {"model": _MODEL, "messages": _MESSAGES, "response_format": {"type": "xml"}},
+            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+            auth_mode="api_key",
+        )
+    assert exc.value.rejected == {"response_format": "malformed"}

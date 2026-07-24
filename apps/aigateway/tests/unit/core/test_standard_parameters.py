@@ -22,6 +22,8 @@ from aigateway.core.chat_parameters import (
     ToolCapability,
 )
 from aigateway.core.standard_parameters import (
+    RESPONSE_FORMAT_SCHEMA,
+    direct_parameter_observations,
     function_calling_rules,
     tool_choice_schema,
     tool_parameter_observations,
@@ -162,3 +164,59 @@ def test_tool_parameter_observations_honor_the_tool_choice_flag() -> None:
 def test_tool_parameter_observations_are_empty_without_an_enabled_tool_type() -> None:
     assert tool_parameter_observations((), source="prov:static") == ()
     assert tool_parameter_observations((_function_cap("disabled"),), source="prov:static") == ()
+
+
+# --- OME-584: RESPONSE_FORMAT_SCHEMA — object gated by the type discriminator --
+
+
+def test_response_format_schema_accepts_the_documented_openai_forms() -> None:
+    # the three documented OpenAI response_format types the OpenAI-compatible routers accept.
+    RESPONSE_FORMAT_SCHEMA.validate_value({"type": "text"})
+    RESPONSE_FORMAT_SCHEMA.validate_value({"type": "json_object"})
+    RESPONSE_FORMAT_SCHEMA.validate_value(
+        {
+            "type": "json_schema",
+            "json_schema": {"name": "weather", "schema": {"type": "object"}},
+        }
+    )
+
+
+def test_response_format_schema_rejects_an_unknown_type() -> None:
+    # an unknown response-format type fails closed at the discriminator (not silently
+    # forwarded) — the gateway gates the shape, the provider validates the rest.
+    with pytest.raises(ParameterValidationError):
+        RESPONSE_FORMAT_SCHEMA.validate_value({"type": "xml"})
+
+
+def test_response_format_schema_rejects_a_typeless_object() -> None:
+    # OpenAI requires response_format.type; a typeless object is malformed.
+    with pytest.raises(ParameterValidationError):
+        RESPONSE_FORMAT_SCHEMA.validate_value({"json_schema": {"name": "x"}})
+
+
+def test_response_format_schema_rejects_a_non_object() -> None:
+    # response_format is an object, never a bare string — a scalar fails closed.
+    with pytest.raises(ParameterValidationError):
+        RESPONSE_FORMAT_SCHEMA.validate_value("json_object")
+
+
+def test_response_format_schema_renders_a_structural_object_json_schema() -> None:
+    rendered = RESPONSE_FORMAT_SCHEMA.to_json_schema()
+    assert rendered["type"] == "object"
+    # the discriminator is a gateway-side constraint, not part of the published shape.
+    assert "enum" not in rendered
+
+
+# --- direct_parameter_observations: evidence for non-sampling ruled fields -----
+
+
+def test_direct_parameter_observations_build_one_observation_per_path() -> None:
+    obs = direct_parameter_observations(("response_format", "n"), source="prov:static")
+    assert {o.request_path for o in obs} == {"response_format", "n"}
+    for observation in obs:
+        assert observation.support == "supported"
+        assert observation.source == "prov:static"
+
+
+def test_direct_parameter_observations_are_empty_for_no_paths() -> None:
+    assert direct_parameter_observations((), source="prov:static") == ()

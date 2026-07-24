@@ -383,3 +383,28 @@ def test_unadvertised_object_tool_choice_type_is_rejected_before_dispatch() -> N
             auth_mode="api_key",
         )
     assert exc.value.rejected == {"tool_choice": "malformed"}
+
+
+# --- OME-584 (§9): response_format is EXCLUDED on Anthropic --------------------
+#
+# The installed AnthropicConfig does NOT carry response_format as response_format:
+# {"type":"json_object"} is dropped, and {"type":"json_schema"} is rewritten into a
+# synthetic json_tool_call tool + forced tool_choice (§9 probe) — never reaching the wire
+# as response_format, and it would collide with the tools channel. So response_format is
+# intentionally UNRULED; a caller value fails closed at classification. Pinned by a test
+# so the exclusion is deliberate, not accidental omission.
+
+
+def test_response_format_is_not_ruled_for_anthropic() -> None:
+    assert "response_format" not in {r.request_path for r in _rules(None)}
+
+
+def test_response_format_fails_closed_before_dispatch() -> None:
+    plugin = AnthropicProviderPlugin()
+    with pytest.raises(UnsupportedParametersError) as exc:
+        classify_and_project_chat_parameters(
+            {"model": _MODEL, "messages": _MESSAGES, "response_format": {"type": "json_object"}},
+            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+            auth_mode="api_key",
+        )
+    assert exc.value.rejected == {"response_format": "unknown"}

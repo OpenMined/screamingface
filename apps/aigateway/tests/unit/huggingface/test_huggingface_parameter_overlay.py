@@ -141,3 +141,19 @@ def test_tools_section_reports_function_enabled() -> None:
     assert _document()["tools"] == {
         "function": {"provider_support": "supported", "gateway_status": "enabled"}
     }
+
+
+# --- OME-584: structured output (response_format) overlay --------------------
+#
+# FEATURE: structured output. HF's router is OpenAI-compatible; the installed
+# HuggingFaceChatConfig transform forwards response_format VERBATIM (§9 probe: both
+# json_object and json_schema land on the wire unchanged), so it is ENABLED and evidenced
+# from the same labelled-static source.
+
+
+def test_response_format_is_enabled_with_evidence() -> None:
+    entry = _parameters()["response_format"]
+    assert entry["gateway"]["status"] == "enabled"
+    # carries the observation's evidence, not "unknown/none".
+    assert entry["provider"]["support"] == "supported"
+    assert entry["provider"]["source"] == "huggingface:static"
