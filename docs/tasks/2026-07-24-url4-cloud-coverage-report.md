@@ -1,12 +1,12 @@
 ---
 id: OME-568
 linear_url: https://linear.app/openmined/issue/OME-568/url4-cloud-ci-publish-coverage-report-test-report-checks-parity-with
-status: in_progress
+status: done
 type: task
 priority: P3
 labels: [url4-cloud, autonomous, agentic]
 created: 2026-07-24
-closed:
+closed: 2026-07-24
 ---
 
 # OME-568 — url4-cloud CI: coverage report + test-report parity
