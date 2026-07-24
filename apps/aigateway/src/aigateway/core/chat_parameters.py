@@ -55,24 +55,82 @@ class ParameterValidationError(ValueError):
     """A caller-supplied value violates its gateway-owned schema."""
 
 
+# Type names ParameterSchema can validate. A tuple of these expresses a
+# TOP-LEVEL union (e.g. ``stop`` is string | array[string]); "object" and
+# "array" are structural container types.
+_SCHEMA_TYPE = Literal["number", "integer", "string", "boolean", "array", "object"]
+_ITEM_TYPE = Literal["number", "integer", "string", "boolean", "object"]
+
+# INVARIANT: bool subclasses int, so a boolean must never satisfy a numeric schema.
+# Single source of per-type predicates, shared by top-level and array-item checks.
+_TYPE_PREDICATES: dict[str, Any] = {
+    "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
+    "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    "boolean": lambda v: isinstance(v, bool),
+    "string": lambda v: isinstance(v, str),
+    "array": lambda v: isinstance(v, list),
+    "object": lambda v: isinstance(v, dict),
+}
+
+
 class ParameterSchema(BaseModel):
     """A bounded, gateway-owned validation schema for one request path.
 
     Deliberately small and dependency-free (no jsonschema): enough to validate
-    the OpenAI-compatible scalar/array params the gateway forwards, and to
-    render a JSON-Schema fragment for the detailed contract.
+    the OpenAI-compatible params the gateway forwards — scalars, typed arrays,
+    top-level objects, and top-level type UNIONS (e.g. ``stop`` is string |
+    array[string]) — and to render a JSON-Schema fragment for the detailed
+    contract.
+
+    INVARIANT (shallow by design): validation proves the TOP-LEVEL shape and,
+    for objects / array items, an optional single-key discriminator (used to
+    gate ``tools[].type`` and object-form ``tool_choice`` against a provider's
+    enabled tool types). Nested function definitions, JSON-Schema bodies, and
+    tool names are LiteLLM/provider concerns and are intentionally NOT modelled.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    type: Literal["number", "integer", "string", "boolean", "array"]
+    # A single type, or a tuple of types for a top-level union.
+    type: _SCHEMA_TYPE | tuple[_SCHEMA_TYPE, ...]
     minimum: float | None = None
     maximum: float | None = None
     enum: tuple[str, ...] | None = None
-    item_type: Literal["number", "integer", "string", "boolean"] | None = None
+    item_type: _ITEM_TYPE | None = None
+    # Optional single-key discriminator: when the value (or each array item) is an
+    # object, its ``object_discriminator`` key must be in ``object_discriminator_enum``
+    # (gates tools[].type fail-closed). Both fields are set together, or neither.
+    object_discriminator: str | None = None
+    object_discriminator_enum: tuple[str, ...] | None = None
+
+    @model_validator(mode="after")
+    def _check_schema_consistency(self) -> ParameterSchema:
+        # INVARIANT: a schema that can match nothing, or a half-specified
+        # discriminator, is a provider-config error — fail closed at construction.
+        if isinstance(self.type, tuple) and not self.type:
+            raise ValueError("type union must be non-empty")
+        has_disc = self.object_discriminator is not None
+        has_enum = self.object_discriminator_enum is not None
+        if has_disc != has_enum:
+            raise ValueError(
+                "object_discriminator and object_discriminator_enum must be set together"
+            )
+        if has_disc:
+            if not self.object_discriminator_enum:
+                raise ValueError("object_discriminator_enum must be non-empty")
+            # A discriminator only means something when the value or its items
+            # can be an object.
+            if "object" not in self._type_options and self.item_type != "object":
+                raise ValueError("object_discriminator requires an object-capable type")
+        return self
+
+    @property
+    def _type_options(self) -> tuple[str, ...]:
+        return (self.type,) if isinstance(self.type, str) else self.type
 
     def to_json_schema(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"type": self.type}
+        rendered_type: Any = self.type if isinstance(self.type, str) else list(self.type)
+        out: dict[str, Any] = {"type": rendered_type}
         if self.minimum is not None:
             out["minimum"] = self.minimum
         if self.maximum is not None:
@@ -81,26 +139,25 @@ class ParameterSchema(BaseModel):
             out["enum"] = list(self.enum)
         if self.item_type is not None:
             out["items"] = {"type": self.item_type}
+        # WHY: the discriminator is a gateway-side validation constraint, not part
+        # of the published shape — the allowed values (e.g. a provider's enabled
+        # tool types) are advertised in the contract's own tools section, so
+        # embedding them here too would duplicate the source of truth. Keep the
+        # rendered fragment purely structural.
         return out
 
     def validate_value(self, value: Any) -> None:
         """Raise ParameterValidationError when ``value`` violates this schema."""
-        # WHY: bool is a subclass of int; a boolean must never satisfy a
-        # numeric schema (temperature=true would otherwise slip through).
-        if self.type == "number" and (
-            isinstance(value, bool) or not isinstance(value, (int, float))
-        ):
-            raise ParameterValidationError("expected a number")
-        if self.type == "integer" and (isinstance(value, bool) or not isinstance(value, int)):
-            raise ParameterValidationError("expected an integer")
-        if self.type == "boolean" and not isinstance(value, bool):
-            raise ParameterValidationError("expected a boolean")
-        if self.type == "string" and not isinstance(value, str):
-            raise ParameterValidationError("expected a string")
-        if self.type == "array":
-            if not isinstance(value, list):
-                raise ParameterValidationError("expected an array")
+        options = self._type_options
+        if not any(_TYPE_PREDICATES[name](value) for name in options):
+            raise ParameterValidationError(f"expected one of {options}")
+        if isinstance(value, list):
             self._validate_items(value)
+            if self.item_type == "object" and self.object_discriminator is not None:
+                for item in value:
+                    self._check_discriminator(item)
+        elif isinstance(value, dict) and self.object_discriminator is not None:
+            self._check_discriminator(value)
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if self.minimum is not None and value < self.minimum:
                 raise ParameterValidationError("below minimum")
@@ -109,16 +166,19 @@ class ParameterSchema(BaseModel):
         if self.enum is not None and value not in self.enum:
             raise ParameterValidationError("not an allowed value")
 
+    def _check_discriminator(self, obj: dict[str, Any]) -> None:
+        # obj is a dict; key/enum set together (construction guard); guard narrows type.
+        key = self.object_discriminator
+        allowed = self.object_discriminator_enum
+        if key is None or allowed is None:
+            return
+        if obj.get(key) not in allowed:
+            raise ParameterValidationError("object discriminator value not allowed")
+
     def _validate_items(self, value: list[Any]) -> None:
         if self.item_type is None:
             return
-        checks = {
-            "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
-            "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
-            "boolean": lambda v: isinstance(v, bool),
-            "string": lambda v: isinstance(v, str),
-        }
-        check = checks[self.item_type]
+        check = _TYPE_PREDICATES[self.item_type]
         if not all(check(item) for item in value):
             raise ParameterValidationError("array item has wrong type")
 
