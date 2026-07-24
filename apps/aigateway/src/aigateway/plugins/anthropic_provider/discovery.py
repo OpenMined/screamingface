@@ -1,0 +1,75 @@
+"""OME-479 §5.1/§6.3 — Anthropic reviewed labelled-static parameter evidence (PURE).
+
+Anthropic P1 has NO live discovery: §6.3 forbids sending credentials to a Models API
+for discovery in v1, and there is no unauthenticated Anthropic catalog to parse. So the
+ONLY honest parameter evidence is reviewed labelled-static — the standard chat fields the
+INSTALLED litellm ``AnthropicConfig`` transform accepts (source ``anthropic:static``, NO
+network), used as the detail contract's observation source.
+
+Two shapes of accepted field, kept apart:
+
+- STANDARD OpenAI-surface fields the transform maps (``temperature``, ``top_p``,
+  ``max_tokens``, ``reasoning_effort`` → ``thinking``, ``stop`` → ``stop_sequences``) —
+  observed at their identity path.
+- The Anthropic-NATIVE ``top_k`` (NOT an OpenAI param; litellm forwards it via
+  ``get_optional_params``) — observed at the ``provider_params.top_k`` wrapper path so a
+  wrapped field's observation lines up with its provider-native rule in the overlay.
+
+INVARIANT (SOLID/hexagonal): pure module-level constants — NO network, NO clock, NO
+credentials, NO provider-name switch. The plugin selects this evidence; core only composes.
+INVARIANT (§4.4): an observation NEVER enables a parameter — only a rule does. ``stop`` is
+observed here but has no rule, so it stays visible-but-DISABLED in the contract.
+INVARIANT (§5.3): honest support only — every name below is a field the installed transform
+provably accepts; ``seed``/``frequency_penalty``/``presence_penalty`` raise
+``UnsupportedParamsError`` for Anthropic, so they are deliberately ABSENT (no fabricated
+support), unlike the OpenAI-compatible providers.
+"""
+
+from __future__ import annotations
+
+from aigateway.core.chat_parameters import ProviderParameterObservation
+from aigateway.core.parameter_projection import WRAPPER_KEY
+
+# Reviewed labelled-static provenance — deliberately DISTINCT from any live label so a
+# reader can tell reviewed-static evidence from a network fetch (§5.1 "labelled"). There
+# is no live Anthropic label because there is no live Anthropic discovery (§6.3).
+STATIC_SOURCE = "anthropic:static"
+
+# Anthropic-native fields AIGateway addresses through the ``provider_params.*`` wrapper
+# (native, non-OpenAI-standard). Mirrors the provider_native rule paths so a wrapped
+# field's observation lines up with its rule in the detail overlay.
+# AIDEV-NOTE: grows with each native rule added in parameters.py; keep in sync.
+_WRAPPED_NATIVE_PARAMS: frozenset[str] = frozenset({"top_k"})
+
+# OME-479 §6.3 — reviewed labelled-static evidence (NO network). Each name is a field the
+# INSTALLED litellm ``AnthropicConfig`` provably accepts (verified against its
+# ``get_supported_openai_params`` / ``get_optional_params``). Tool/transport/structured-
+# output machinery lives in its own contract section, so ``tools`` / ``tool_choice`` /
+# ``response_format`` / ``stream`` are intentionally excluded here.
+# AIDEV-NOTE: reviewed labelled-static evidence, not a central inventory — extend only for
+# a field the installed transform provably accepts for Anthropic.
+_STATIC_PARAM_NAMES: tuple[str, ...] = (
+    "temperature",
+    "top_p",
+    "max_tokens",
+    "reasoning_effort",
+    "stop",
+    "top_k",
+)
+
+
+def _request_path(param: str) -> str:
+    if param in _WRAPPED_NATIVE_PARAMS:
+        return f"{WRAPPER_KEY}.{param}"
+    return param
+
+
+def _observation(param: str) -> ProviderParameterObservation:
+    return ProviderParameterObservation(
+        request_path=_request_path(param), support="supported", source=STATIC_SOURCE
+    )
+
+
+ANTHROPIC_STATIC_PARAM_OBSERVATIONS: tuple[ProviderParameterObservation, ...] = tuple(
+    _observation(param) for param in sorted(_STATIC_PARAM_NAMES)
+)

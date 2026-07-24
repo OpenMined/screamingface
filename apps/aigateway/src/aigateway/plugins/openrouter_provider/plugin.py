@@ -36,6 +36,8 @@ from aigateway.core.plugin_base import (
 from aigateway.core.provider_errors import NonRetryableProviderError
 
 from .api_key_validation import OpenRouterApiKeyValidator
+from .discovery import REVIEWED_ENDPOINT_OBSERVATIONS, discover_openrouter_snapshot
+from .parameters import openrouter_chat_parameter_rules
 from .provenance import converter_error_status, is_http200_body_error
 from .response_errors import (
     _embedded_error_status as _embedded_error_status,
@@ -53,7 +55,14 @@ from .settings import (
 )
 
 if TYPE_CHECKING:
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderDiscoverySnapshot,
+        ProviderParameterObservation,
+    )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
+    from aigateway.core.profile_models import AuthType
 
 
 def _credential_service_for(profile_name: str) -> str:
@@ -277,6 +286,55 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # D9: only 401 proves the stored key is bad. 402 (credits), 403
         # (policy), 408/429/5xx (transient) must not invalidate a valid key.
         return status_code == 401
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-479: one provider-local source drives summary, detail, and
+        # fail-closed dispatch. Adding a parameter is a change here, never in core.
+        return openrouter_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # OME-479 §5.3: labelled-local endpoint evidence (NO network) so the detail
+        # contract shows every accepted field with its gateway status — an unruled
+        # field (e.g. top_p) stays visible-but-DISABLED (projection_not_implemented),
+        # while a ruled+observed field (temperature, provider_params.top_k) is
+        # ENABLED and carries its provenance. The live per-model catalog overlays
+        # this via discover_chat_parameter_snapshot when request-path discovery is
+        # wired; endpoint-level evidence is model-independent, so it does not vary
+        # by model here.
+        # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+        return REVIEWED_ENDPOINT_OBSERVATIONS
+
+    async def discover_chat_parameter_snapshot(
+        self,
+        *,
+        model: str,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+    ) -> ProviderDiscoverySnapshot | None:
+        # OME-479 §5.1: the DYNAMIC source. Strip the gateway prefix to the
+        # upstream id the public catalog is keyed by — the SAME rule as
+        # prepare_chat_body, so discovery and dispatch agree on identity. A value
+        # that is not a valid gateway id is not dispatchable, so there is nothing
+        # to discover: fail closed to None WITHOUT opening a connection.
+        # INVARIANT: never enables a parameter (only a rule does); off the chat
+        # dispatch path; sanitized/degraded (None) on any fetch failure.
+        if not model.startswith(GATEWAY_MODEL_PREFIX):
+            return None
+        upstream = model[len(GATEWAY_MODEL_PREFIX) :]
+        if not is_valid_upstream_model_id(upstream):
+            return None
+        return await discover_openrouter_snapshot(upstream, client=client, limits=limits)
+
+    def strip_provider_dispatch_controls(self, body: dict[str, Any]) -> dict[str, Any]:
+        # OME-479: neutralize LiteLLM orchestration selectors BEFORE the
+        # fail-closed classifier, so they are structurally authorized (§4.5 tier a)
+        # rather than 400-rejected as unknown params. prepare_chat_body repeats
+        # this strip (idempotent) as defense in depth.
+        return _strip_openrouter_litellm_controls(body)
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         out = _strip_openrouter_litellm_controls(body)

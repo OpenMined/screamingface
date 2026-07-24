@@ -29,6 +29,25 @@ from ..core.profile_models import (
 _DEFAULT_PROFILE_NAME = "default"
 
 
+def auth_mode_for_target(
+    profile: Profile | None,
+    connection: OAuthConnection | None,
+) -> AuthType:
+    """Resolve the REAL auth mode for a resolved chat/contract target.
+
+    INVARIANT: the auth mode is never caller-declared — it is derived solely from
+    the stored connection/profile. A connection's own ``auth_type`` wins; a bare
+    profile uses its ``auth_type``; with neither resolved, oauth is the safe
+    default. Single source so chat dispatch and the detailed contract cannot
+    disagree about which mode a profile uses.
+    """
+    if connection is not None:
+        return connection.auth_type or "oauth"
+    if profile is not None:
+        return profile.auth_type
+    return "oauth"
+
+
 _BUCKET_A_FIELDS = (
     "model",
     "max_tokens",
@@ -179,10 +198,10 @@ def _strategy_for_credential_target(
     auth_type: AuthType
     if connection is not None:
         credential_name = credential_key_for(account_id, connection.id)
-        auth_type = connection.auth_type or "oauth"
+        auth_type = auth_mode_for_target(profile, connection)
     elif profile is not None:
         credential_name = credential_name_for(account_id, profile_name)
-        auth_type = profile.auth_type
+        auth_type = auth_mode_for_target(profile, connection)
     else:
         return None, None, "oauth"
     # Share ONE strategy instance per credential across concurrent requests so its

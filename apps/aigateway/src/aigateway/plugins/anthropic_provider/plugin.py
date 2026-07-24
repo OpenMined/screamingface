@@ -18,11 +18,18 @@ from .api_key_validation import AnthropicApiKeyValidator
 from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
 from .chat_handler import chat_completion, chat_completion_stream
+from .discovery import ANTHROPIC_STATIC_PARAM_OBSERVATIONS
+from .parameters import anthropic_chat_parameter_rules
 from .settings import AnthropicPluginSettings
 
 if TYPE_CHECKING:
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderParameterObservation,
+    )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_index import ProfileIndexStore
+    from aigateway.core.profile_models import AuthType
 
 
 def _api_key_headers(api_key: str) -> dict[str, str]:
@@ -97,6 +104,27 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         # gateway profile default enables Anthropic thinking on every request and
         # burns the Claude Code rate-limit pool unexpectedly.
         return field != "reasoning_effort"
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-479: one provider-local source drives summary, detail, and dispatch.
+        return anthropic_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # OME-479 §5.1/§6.3: Anthropic has NO live discovery (no credentialed Models-API
+        # probe in v1), so the ONLY honest parameter evidence is reviewed labelled-static
+        # — the standard chat fields the INSTALLED transform accepts (source
+        # "anthropic:static", NO network). Endpoint-level evidence is model-independent,
+        # so it does not vary by model. This makes the detail contract show every accepted
+        # field with its gateway status: temperature/top_p/max_tokens/reasoning_effort are
+        # ALSO ruled → ENABLED with this provenance; native provider_params.top_k is ruled
+        # for api_key only (ENABLED there, visible-but-DISABLED under OAuth); stop stays
+        # observed-but-DISABLED (projection_not_implemented).
+        # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+        return ANTHROPIC_STATIC_PARAM_OBSERVATIONS
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         # Claude-Code attribution moved to dispatch time (chat_handler):

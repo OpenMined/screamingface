@@ -29,6 +29,10 @@ from litellm.exceptions import (
 )
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.parameter_projection import (
+    UnsupportedParametersError,
+    classify_and_project_chat_parameters,
+)
 from ..core.registry import ProviderRegistry
 from ..core.request_cache.keys import parse_cache_controls
 from ..core.request_cache.store import RequestCacheStore
@@ -37,6 +41,7 @@ from .chat_credentials import (
     _apply_defaults,
     _credential_target_for_chat,
     _inject_credentials,
+    auth_mode_for_target,
 )
 from .chat_dispatch import (
     _dispatch_with_backpressure,
@@ -93,6 +98,41 @@ async def chat_completions(request: Request, response: Response, current: Curren
         profile_name=profile_name,
         plugin=plugin,
     )
+
+    # OME-479 §4.5 tier (a): neutralize this provider's own LiteLLM control-plane
+    # fields (caching/guardrails/prompt-management/named-credential selectors)
+    # BEFORE classification, so they are authorized structurally instead of being
+    # rejected as unknown model params. Pairs with the provider-neutral
+    # strip_dispatch_controls already applied at ingress; the default is identity.
+    body = plugin.strip_provider_dispatch_controls(body)
+
+    # OME-479 §4.5: classify caller-supplied optional parameters against the
+    # provider's enabled rule set for the REAL (never caller-declared) auth mode,
+    # and project accepted fields into a fresh normalized body. This runs on the
+    # CALLER body — before gateway-trusted profile defaults, provider
+    # normalization, and (crucially) credential injection — so unknown, disabled,
+    # wrong-auth, malformed, and duplicate-channel parameters fail closed with
+    # HTTP-safe paths before any credential is read or any provider is dispatched.
+    auth_mode = auth_mode_for_target(profile, connection)
+    try:
+        body = classify_and_project_chat_parameters(
+            body,
+            rules=plugin.chat_parameter_rules(model=model, auth_type=auth_mode),
+            auth_mode=auth_mode,
+        )
+    except UnsupportedParametersError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "unsupported_parameters",
+                "provider": provider,
+                "rejected": exc.rejected,
+                "message": (
+                    "one or more parameters are not enabled for this model; "
+                    "see the model parameter contract"
+                ),
+            },
+        ) from None
 
     body = plugin.prepare_chat_body(_apply_defaults(body, defaults, plugin))
 

@@ -37,6 +37,7 @@ from .routes import (
     auth_session,
     chat,
     health,
+    model_parameters,
     models,
     oauth_connections,
 )
@@ -258,6 +259,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(oauth_connections.router)
     app.include_router(health.router)
     app.include_router(models.router)
+    app.include_router(model_parameters.router)
     app.include_router(chat.router)
 
     logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))

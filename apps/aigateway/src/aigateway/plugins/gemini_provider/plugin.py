@@ -30,6 +30,7 @@ from .auth import (
     exchange_authorization_code,
 )
 from .chat_handler import ensure_litellm_gemini_provider_registered, get_litellm_gemini_handler
+from .discovery import GEMINI_CODE_ASSIST_OBSERVATIONS, GEMINI_DISCOVERY_STATIC_OBSERVATIONS
 from .models import MODELS
 from .oauth_config import (
     GEMINI_AUTHORIZE_EXTRA_PARAMS,
@@ -39,10 +40,16 @@ from .oauth_config import (
     GEMINI_SCOPES,
     GEMINI_TOKEN_URL,
 )
+from .parameters import gemini_chat_parameter_rules
 from .settings import GeminiPluginSettings
 
 if TYPE_CHECKING:
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderParameterObservation,
+    )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.profile_models import AuthType
 
 
 _CLIENT_AUTH_HEADER_NAMES = CLIENT_AUTH_HEADER_NAMES
@@ -174,6 +181,29 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
 
     def invalidate_profile_session(self, profile_name: str) -> None:
         get_litellm_gemini_handler().invalidate_session(profile_name)
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-479 §Phase 9: Gemini's proven sampling fields, each pinned through
+        # build_generate_content_body's generationConfig. A rule is the ONLY thing
+        # that enables a parameter; every other caller field fails closed at
+        # classification. Both auth paths share the builder, so rules apply to both.
+        return gemini_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # OME-479 §Phase 9 step 2: evidence is AUTH-SCOPED. The api-key path talks to
+        # the public generativelanguage API, which publishes a Discovery schema
+        # (source "gemini:discovery" — the richer surface). The OAuth path talks to
+        # the Code Assist envelope, which has NO public schema, so its only honest
+        # evidence is the reviewed builder mapping (source "gemini:code-assist" — a
+        # strict subset). This is why public Discovery never overclaims OAuth.
+        # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+        if auth_type == "oauth":
+            return GEMINI_CODE_ASSIST_OBSERVATIONS
+        return GEMINI_DISCOVERY_STATIC_OBSERVATIONS
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         out = dict(body)

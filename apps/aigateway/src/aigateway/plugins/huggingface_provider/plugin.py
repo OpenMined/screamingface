@@ -31,10 +31,17 @@ from aigateway.core.plugin_base import (
 )
 
 from .api_key_validation import HuggingFaceApiKeyValidator
+from .discovery import HF_STATIC_PARAM_OBSERVATIONS
+from .parameters import huggingface_chat_parameter_rules
 from .settings import HuggingFacePluginSettings
 
 if TYPE_CHECKING:
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderParameterObservation,
+    )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.profile_models import AuthType
 
 # Caller-supplied copies of these are stripped before the gateway injects its own
 # credential, so a client can never smuggle auth material to the upstream router.
@@ -81,6 +88,27 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         # 401 => bad/missing token (invalidate). 403 is ambiguous (model-access vs
         # token permission) and must not invalidate a valid stored credential.
         return status_code == 401
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-479 §6.2: HF's OpenAI-compatible sampling fields, each proven through
+        # the installed final transform. A rule is the ONLY thing that enables a
+        # parameter; every other caller field fails closed at classification.
+        return huggingface_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # OME-479 §5.1/§6.2: HF's catalog carries NO parameter list, so the ONLY
+        # honest parameter evidence is labelled-static — the standard OpenAI sampling
+        # fields the INSTALLED transform accepts (source "huggingface:static", NO
+        # network). This makes the detail contract show every accepted field with its
+        # gateway status: temperature/max_tokens are ALSO ruled → ENABLED with this
+        # provenance; the rest stay visible-but-DISABLED (projection_not_implemented).
+        # Endpoint-level evidence is model-independent, so it does not vary by model.
+        # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+        return HF_STATIC_PARAM_OBSERVATIONS
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         out = dict(body)

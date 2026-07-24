@@ -10,8 +10,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from .api_key_validation import ApiKeyValidator
 
 if TYPE_CHECKING:
+    from .chat_parameters import (
+        ParameterProjectionRule,
+        ProviderDiscoverySnapshot,
+        ProviderParameterObservation,
+        ToolCapability,
+        TransportCapability,
+    )
     from .credential_blob.store import CredentialBlobStore
     from .oauth.identity import AccountIdentity
+    from .parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
     from .profile_index import ProfileIndexStore
     from .profile_models import AuthType
 
@@ -196,6 +204,116 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         ``api_key_strategy_for`` override this to True. Codex stays False (its
         subscription endpoint is OAuth-only and rejects raw keys)."""
         return False
+
+    # --- OME-479 effective parameter contract (Strategy hooks) ---------------
+    #
+    # INVARIANT: core owns the contract algebra; each plugin owns the rules it
+    # selects. These hooks are the ONLY provider-specific input to the summary,
+    # the detailed contract, and dispatch — one source, three projections.
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        """Reviewed, provider-owned dispatch rules for ``model``.
+
+        INVARIANT: a rule is the ONLY thing that enables a parameter, so the
+        default is none — a provider advertises (and later forwards) an
+        optional parameter only by returning a rule here. Dynamic discovery
+        never creates or enables one.
+
+        ``auth_type=None`` requests every rule the provider owns for the model
+        and is used SOLELY to derive the conservative profile-independent
+        summary; it must never be read as permission for every auth mode. A
+        concrete auth mode filters rules for the profile-bound detailed
+        contract and for dispatch.
+        """
+        return ()
+
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ToolCapability, ...]:
+        """Accepted OpenAI-compatible ``tools[].type`` capabilities for ``model``.
+
+        Default: none. A provider advertises ``function`` only once it validates
+        OpenAI-compatible tool definitions through the final provider boundary.
+        """
+        return ()
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        """Raw provider evidence for ``model`` (labelled-local in v1; no network).
+
+        INVARIANT: an observation NEVER authorizes a parameter — only a rule
+        does. Observations exist so the detailed contract can show a
+        provider-supported-but-not-yet-projected field as visible-but-disabled.
+        Default: none.
+        """
+        return ()
+
+    async def discover_chat_parameter_snapshot(
+        self,
+        *,
+        model: str,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+    ) -> ProviderDiscoverySnapshot | None:
+        """Best-effort DYNAMIC evidence for ``model`` from FIXED public catalogs.
+
+        INVARIANT (§4.2/§5.2): the async sibling of
+        ``chat_parameter_observations``. It fetches this provider's FIXED public
+        documents through the INJECTED bounded transport (never a raw client,
+        never a caller-supplied URL, never a credential) and returns sanitized
+        None on any failure. It NEVER runs on the chat dispatch path, and — like
+        an observation — it NEVER enables a parameter; only a rule does.
+
+        Default: None — no dynamic source; the caller relies on labelled-local
+        observations alone.
+        """
+        return None
+
+    def chat_transport_capabilities(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[TransportCapability, ...]:
+        """Transport controls (e.g. ``stream``) reported separately from params.
+
+        Streaming is a transport capability, not an ordinary model parameter, so
+        it is surfaced in its own contract section. Default: none until a
+        transport control is separately reviewed.
+        """
+        return ()
+
+    def available_auth_modes(self) -> tuple[AuthType, ...]:
+        """Auth modes a client could use with this provider (profile-independent).
+
+        Drives the conservative summary intersection on ``/v1/models``. Derived
+        from declared capability: api-key iff ``supports_api_key()``, oauth iff
+        the provider advertises ``oauth_config()``. Providers with bespoke auth
+        override this.
+        """
+        modes: list[AuthType] = []
+        if self.supports_api_key():
+            modes.append("api_key")
+        if self.oauth_config() is not None:
+            modes.append("oauth")
+        return tuple(modes)
+
+    def strip_provider_dispatch_controls(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Remove caller-supplied LiteLLM control-plane fields THIS provider owns.
+
+        # WHY: the global ``strip_dispatch_controls`` covers provider-neutral
+        # control fields; a provider that dispatches through a shared LiteLLM
+        # surface (e.g. OpenRouter) may also expose orchestration selectors
+        # (caching/guardrails/prompt-management/named-credential) that are not
+        # model parameters. Those must be neutralized BEFORE the OME-479
+        # fail-closed classifier runs, so the classifier only ever adjudicates
+        # genuine model-parameter candidates — plan §4.5 tier (a): transport /
+        # gateway-owned fields are authorized structurally, not via a rule.
+        # INVARIANT: the returned body carries no field this provider will refuse
+        # to forward; the strip is idempotent (``prepare_chat_body`` may repeat it
+        # as defense in depth). Default: identity — a provider opts in by override.
+        """
+        return body
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         """Apply provider-specific request normalization before dispatch."""
