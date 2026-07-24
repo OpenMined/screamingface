@@ -1,0 +1,136 @@
+"""The engine observation seam: a passive, pure-data event stream.
+
+The DAG executor emits one small closed set of dataclasses as it runs a graph
+— span start/finish, usage, logs, run boundaries — to an injected
+:class:`Observer`. This module defines only the *shape* of that stream: it is
+a dependency-free leaf (standard library only) so the engine core never gains
+a transport or tracing-backend dependency just because an embedder wants to
+watch a run. Adapting these events onto any particular wire format or
+downstream tracing product is deliberately kept out of this module.
+
+``Observer.on_event`` is synchronous and non-blocking by contract — the
+executor calls it inline from its own coroutines, never behind a task or a
+queue, so a slow or blocking observer would slow the run itself. An observer
+that raises is not caught anywhere in the engine (an embedder bug should be
+loud, not swallowed): the exception propagates out of the run exactly like
+any other node failure.
+"""
+
+from __future__ import annotations
+
+import contextvars
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Literal, Protocol, runtime_checkable
+
+
+@dataclass(frozen=True, slots=True)
+class RunStarted:
+    """Emitted once, at the very start of a top-level owned-context run."""
+
+    trace_id: str  # 32-hex
+    root_span_id: str  # 16-hex
+    expression_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class NodeStarted:
+    """Emitted once per node evaluation, right before ``resolve`` is awaited."""
+
+    span_id: str  # 16-hex
+    parent_span_id: str | None
+    node_kind: str  # type(node).__name__
+    detail: str  # best-effort route/url/text, "" if none
+
+
+@dataclass(frozen=True, slots=True)
+class NodeFinished:
+    """Emitted once per node evaluation, after ``resolve`` settles."""
+
+    span_id: str
+    status: Literal["ok", "error", "cancelled"]
+    engine_seq: int
+    code: str | None = None
+    permanent: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Log:
+    span_id: str | None
+    severity: str
+    body: str
+
+
+@dataclass(frozen=True, slots=True)
+class Usage:
+    span_id: str | None
+    provider: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
+class RunFinished:
+    """Emitted once, after the top-level run settles (success or failure)."""
+
+    status: Literal["ok", "error", "cancelled"]
+    engine_seq: int
+
+
+ObservationEvent = RunStarted | NodeStarted | NodeFinished | Log | Usage | RunFinished
+
+
+@runtime_checkable
+class Observer(Protocol):
+    """The observation port. Concrete tracing/logging adapters live outside url4."""
+
+    def on_event(self, event: ObservationEvent) -> None:
+        """Handle one event. Must be synchronous and non-blocking; may raise."""
+        ...
+
+
+class NullObserver:
+    """The no-op observer — never installed by default, available for callers
+    that want an explicit ``Observer`` without writing their own no-op."""
+
+    __slots__ = ()
+
+    def on_event(self, event: ObservationEvent) -> None:
+        return None
+
+
+UsageSink = Callable[..., None]  # matches ExecutionContext.report_usage's kwargs:
+# (*, provider: str, model: str, input_tokens: int, output_tokens: int) -> None
+
+_usage_sink: contextvars.ContextVar[UsageSink | None] = contextvars.ContextVar(
+    "url4_usage_sink", default=None
+)
+
+
+def current_usage_sink() -> UsageSink | None:
+    """The usage sink bound to the currently-resolving node's span, or ``None``
+    when no observer is attached / outside a node resolve.
+
+    World adapters (e.g. an AI-gateway connector) call this to report model
+    token usage without holding an :class:`~url4.dag.node.ExecutionContext` —
+    the executor binds it around each node's ``resolve`` (see
+    :meth:`~url4.dag.executor.Executor._eval`), scoped to that node's own
+    :class:`asyncio.Task` so concurrent siblings never cross-talk.
+    """
+    return _usage_sink.get()
+
+
+__all__ = [
+    "Log",
+    "NodeFinished",
+    "NodeStarted",
+    "NullObserver",
+    "ObservationEvent",
+    "Observer",
+    "RunFinished",
+    "RunStarted",
+    "Usage",
+    "UsageSink",
+    "current_usage_sink",
+]

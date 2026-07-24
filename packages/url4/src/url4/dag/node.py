@@ -32,6 +32,7 @@ Design notes
 from __future__ import annotations
 
 import asyncio
+import secrets
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import NoReturn, Protocol, runtime_checkable
@@ -46,6 +47,7 @@ from url4.io.layer import (
     SupportsHoldings,
     SupportsProcessorRoutes,
 )
+from url4.observe import Log, ObservationEvent, Observer, Usage
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,18 @@ Payload = str | list[str] | SourceFailure
 ProcessFn = Callable[[str, str | None, Context], Awaitable[str]]
 SpawnFn = Callable[[str, Context], Awaitable[str]]
 ExecuteNodeFn = Callable[["DagNode", Context], Awaitable[Payload]]
+
+# The engine-side wiring shape for spawn/execute_node: unlike SpawnFn/
+# ExecuteNodeFn (the PUBLIC ``ctx.spawn(text, scope)`` / ``ctx.execute_node(node,
+# scope)`` call shape a resolve() sees), these hooks take the INVOKING context
+# explicitly. `ExecutionContext.spawn`/`execute_node` are real bound methods
+# (not per-instance closures), so `self` is always whichever context instance
+# `.spawn(...)` was called on — the hook then builds its sub-executor from
+# THAT context (not a context frozen at wiring time), which is what lets a
+# fragment spawned from deep inside another spawned fragment parent its
+# observation span under its immediate caller rather than the run root.
+SpawnHook = Callable[["ExecutionContext", str, Context], Awaitable[str]]
+ExecuteNodeHook = Callable[["ExecutionContext", "DagNode", Context], Awaitable[Payload]]
 
 
 @runtime_checkable
@@ -117,6 +131,36 @@ class _ErrorTally:
 
     def __init__(self) -> None:
         self.count = 0
+
+
+class _ObsState:
+    """Per-run observation state: the observer, the run's trace id, and a
+    shared monotonic sequence counter (:class:`~url4.observe.NodeFinished` /
+    :class:`~url4.observe.RunFinished` carry ``engine_seq`` so a downstream
+    consumer can order finishes even across concurrent spans). One instance is
+    minted per :func:`~url4.dag.executor.run` call and shared by every
+    :class:`ExecutionContext` in that run (via :meth:`ExecutionContext.child` /
+    :meth:`ExecutionContext.with_span`), the same way :class:`_ErrorTally` is
+    shared — engine-internal wiring, deliberately kept out of the public
+    :mod:`url4.observe` surface.
+    """
+
+    __slots__ = ("observer", "trace_id", "_seq")
+
+    def __init__(self, observer: Observer, trace_id: str) -> None:
+        self.observer = observer
+        self.trace_id = trace_id
+        self._seq = 0
+
+    def emit(self, event: ObservationEvent) -> None:
+        self.observer.on_event(event)
+
+    def new_span_id(self) -> str:
+        return secrets.token_hex(8)  # 16 hex chars
+
+    def next_seq(self) -> int:
+        self._seq += 1
+        return self._seq
 
 
 # WHY: the default run-wide fan-out cap (see BoundedIOLayer below). Without it, a
@@ -219,11 +263,13 @@ class ExecutionContext:
         processor: str | None = None,
         process: ProcessFn = default_process,
         scope: Context | None = None,
-        spawn: SpawnFn | None = None,
         strict_fields: bool = False,
         self_collection: str | None = None,
-        execute_node: ExecuteNodeFn | None = None,
         _tally: _ErrorTally | None = None,
+        _spawn_hook: SpawnHook | None = None,
+        _execute_node_hook: ExecuteNodeHook | None = None,
+        _obs: _ObsState | None = None,
+        _current_span_id: str | None = None,
     ) -> None:
         self.io = io
         # The self-holdings collection for THIS run — spec §5.6.3.1: "a path
@@ -239,10 +285,13 @@ class ExecutionContext:
         self.scope = scope if scope is not None else Context.root()
         self.strict_fields = strict_fields
         self._tally = _tally if _tally is not None else _ErrorTally()
-        self.spawn: SpawnFn = spawn if spawn is not None else _spawn_unset
-        self.execute_node: ExecuteNodeFn = (
-            execute_node if execute_node is not None else _execute_node_unset
-        )
+        self._spawn_hook = _spawn_hook
+        self._execute_node_hook = _execute_node_hook
+        # Observation wiring (both None unless a run() caller passed `observer=`):
+        # `_obs` is the shared per-run emitter, `_current_span_id` is the span
+        # THIS context's resolve() runs under — the parent for anything it spawns.
+        self._obs = _obs
+        self._current_span_id = _current_span_id
 
     @property
     def collected_errors(self) -> int:
@@ -259,12 +308,66 @@ class ExecutionContext:
             processor=self.processor,
             process=self.process,
             scope=scope,
-            spawn=self.spawn,
             strict_fields=self.strict_fields,
             self_collection=self.self_collection,
-            execute_node=self.execute_node,
             _tally=self._tally,
+            _spawn_hook=self._spawn_hook,
+            _execute_node_hook=self._execute_node_hook,
+            _obs=self._obs,
+            _current_span_id=self._current_span_id,
         )
+
+    def with_span(self, span_id: str) -> ExecutionContext:
+        """The SAME scope, under a new current-span — the parent id for
+        anything this node's ``resolve`` spawns (a lazy fragment, a map row,
+        a guarded subtree). Every other field clones like :meth:`child`."""
+        return ExecutionContext(
+            self.io,
+            processor=self.processor,
+            process=self.process,
+            scope=self.scope,
+            strict_fields=self.strict_fields,
+            self_collection=self.self_collection,
+            _tally=self._tally,
+            _spawn_hook=self._spawn_hook,
+            _execute_node_hook=self._execute_node_hook,
+            _obs=self._obs,
+            _current_span_id=span_id,
+        )
+
+    async def spawn(self, text: str, scope: Context) -> str:
+        """Compile and execute a url4 *text fragment* on a fresh executor
+        (MapNode rows, lazy sub-expressions). A real bound method — not a
+        per-instance closure — so the engine hook always sees the context
+        `.spawn` was actually called on, which is what lets a spawned
+        fragment's observation span parent to ITS caller rather than to
+        whichever context first wired the hook."""
+        if self._spawn_hook is None:
+            return await _spawn_unset(text, scope)
+        return await self._spawn_hook(self, text, scope)
+
+    async def execute_node(self, node: DagNode, scope: Context) -> Payload:
+        """Execute a *prebuilt node subtree* on a fresh executor (GuardNode's
+        isolation boundary). See :meth:`spawn` for why this is a bound method."""
+        if self._execute_node_hook is None:
+            return await _execute_node_unset(node, scope)
+        return await self._execute_node_hook(self, node, scope)
+
+    def report_usage(
+        self, *, provider: str, model: str, input_tokens: int, output_tokens: int
+    ) -> None:
+        """Report model token usage under this node's current span. A no-op
+        when no ``observer`` was passed to :func:`~url4.dag.executor.run`."""
+        if self._obs is not None:
+            self._obs.emit(
+                Usage(self._current_span_id, provider, model, input_tokens, output_tokens)
+            )
+
+    def log(self, severity: str, body: str) -> None:
+        """Emit a log line attributed to this node's current span. A no-op
+        when no ``observer`` was passed to :func:`~url4.dag.executor.run`."""
+        if self._obs is not None:
+            self._obs.emit(Log(self._current_span_id, severity, body))
 
 
 async def _spawn_unset(text: str, scope: Context) -> str:

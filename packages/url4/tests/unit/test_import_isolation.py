@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 _FRAMEWORKS = ("uvicorn", "starlette", "fastapi", "flask", "django")
+_FORBIDDEN_OBSERVE_IMPORTS = ("opentelemetry", "cloudevents", "nats", "httpx", "otel")
 
 
 def _loaded_after_import(module: str, watch: tuple[str, ...]) -> set[str]:
@@ -62,3 +64,15 @@ def test_the_probe_detects_a_module_that_IS_imported() -> None:
     # Sanity-check the detector: without this, a typo in the probe would make
     # every assertion above pass vacuously forever.
     assert _loaded_after_import("url4", ("json",)) == {"json"}
+
+
+def test_observe_module_has_no_transport_imports() -> None:
+    # The observation seam (`url4.observe`) is a dependency-free leaf: it must
+    # never import a tracing/transport backend, so watching a run never drags
+    # one into the core's import graph. Sourced directly rather than imported
+    # and inspected, so the check catches even a lazy/local import.
+    import url4.observe as observe_module
+
+    source = Path(observe_module.__file__).read_text()
+    for name in _FORBIDDEN_OBSERVE_IMPORTS:
+        assert name not in source.lower(), f"url4/observe.py must not import {name!r}"
