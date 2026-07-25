@@ -16,6 +16,7 @@ feeds the detailed contract only. Dispatch is authorized by rules alone.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -131,13 +132,22 @@ async def fetch_discovery_json(
     return parsed
 
 
+# WHY: ``max_bytes`` must denote ONE quantity. Asking for an unencoded body makes
+# bytes-on-the-wire, bytes-buffered and bytes-parsed the same number, so the limit
+# stops depending on a ``Content-Encoding`` the source chooses. The extra transfer is
+# ~1 MB once per cache TTL, on a path that is off the dispatch critical path (§5.2).
+_IDENTITY_ENCODING = {"accept-encoding": "identity"}
+
+
 class HttpxDiscoveryClient:
     """The production ``DiscoveryHttpClient`` over httpx (§5.2).
 
     # INVARIANT: ``follow_redirects`` is OFF, so a 3xx is returned as-is for
     # ``fetch_discovery_json`` to fail as a bad status — a Location is never
-    # chased into an unvetted origin. The read is bounded by ``max_bytes`` so a
-    # hostile body cannot exhaust memory before the caller's oversized check.
+    # chased into an unvetted origin.
+    # INVARIANT: this adapter ENFORCES both advertised bounds rather than reporting
+    # near them — an over-cap body raises instead of returning truncated, and
+    # ``timeout_s`` is a total wall-clock deadline, not a per-interval budget.
     # INVARIANT: every httpx fault is translated to ``DiscoveryError`` with a
     # fixed reason and no ``__cause__`` chained out — a raw transport message can
     # carry a host/path, and must never reach API output.
@@ -149,25 +159,58 @@ class HttpxDiscoveryClient:
         self._transport = transport
 
     async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
+        # WHY: ``httpx.Timeout`` bounds each connect/read/write/pool INTERVAL, and
+        # every interval resets on activity — a source that keeps dribbling small
+        # chunks stays "busy" and never trips it. Only an outer deadline bounds the
+        # operation. It sits OUTSIDE the httpx handler below so an expiry is reported
+        # as ``timeout`` rather than reclassified by httpx's own error translation.
+        try:
+            async with asyncio.timeout(timeout_s):
+                return await self._read_bounded(url, timeout_s=timeout_s, max_bytes=max_bytes)
+        except TimeoutError:
+            raise DiscoveryError("timeout") from None
+
+    async def _read_bounded(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
         try:
             async with httpx.AsyncClient(
                 follow_redirects=False,
                 timeout=httpx.Timeout(timeout_s),
                 transport=self._transport,
             ) as client:
-                async with client.stream("GET", url) as response:
-                    chunks: list[bytes] = []
-                    total = 0
-                    async for chunk in response.aiter_bytes():
-                        chunks.append(chunk)
-                        total += len(chunk)
-                        if total > max_bytes:
-                            break  # stop reading a hostile/oversized body early
+                async with client.stream("GET", url, headers=_IDENTITY_ENCODING) as response:
                     return RawResponse(
                         status=response.status_code,
                         content_type=response.headers.get("content-type", ""),
-                        body=b"".join(chunks).decode("utf-8", errors="replace"),
+                        body=await self._bounded_body(response, max_bytes=max_bytes),
                     )
         except httpx.HTTPError:
             # sanitized: a stable reason only; the raw exception is dropped.
             raise DiscoveryError("unreachable") from None
+
+    @staticmethod
+    async def _bounded_body(response: httpx.Response, *, max_bytes: int) -> str:
+        encoding = response.headers.get("content-encoding", "").strip().lower()
+        if encoding and encoding != "identity":
+            # Refused rather than decoded: decoding would move the cap back onto
+            # post-expansion bytes and reopen the expansion path the policy closes.
+            raise DiscoveryError("unsupported_encoding")
+
+        # WHY: with a non-identity encoding already refused above, httpx's decoder for
+        # what remains is the identity decoder, so ``aiter_bytes`` yields exactly the
+        # bytes on the wire — the counted quantity and the wire quantity are the same.
+        # The expansion path is closed by the header refusal, not by the iterator
+        # choice, which is why this does not need ``aiter_raw`` (that additionally
+        # rejects any already-materialised response, e.g. a non-streaming test double).
+        # AIDEV-NOTE: deliberately NO ``chunk_size``. httpx's ByteChunker writes each
+        # incoming read into its own buffer in full before splitting, so a chunk size
+        # would add a copy without bounding memory; unset, it passes reads straight
+        # through at the transport's own sizing.
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in response.aiter_bytes():
+            # INVARIANT: counted BEFORE retained, so the buffer never exceeds the cap.
+            total += len(chunk)
+            if total > max_bytes:
+                raise DiscoveryError("oversized")
+            chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8", errors="replace")
