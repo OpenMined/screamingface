@@ -4,15 +4,29 @@ import logging
 import re
 from typing import Any, cast
 
+#: Every request header whose VALUE is a credential. Cloudflare Access adds three
+#: (OME-591): the signed identity assertion Access injects, the browser cookie
+#: carrying the same assertion, and the service-token secret a machine client
+#: sends to the edge. A leaked assertion is a replayable identity until it
+#: expires, so none of these may ever reach a log line.
+_SENSITIVE_HEADERS = (
+    "x-aigw-provisioning-token",
+    "cf-access-jwt-assertion",
+    "cf-access-client-secret",
+    "cf-access-token",
+)
+
+_HEADER_ALTERNATION = "|".join(re.escape(name) for name in _SENSITIVE_HEADERS)
+
 
 class RedactProvisioningTokenFilter(logging.Filter):
-    _HEADER_NAME = "x-aigw-provisioning-token"
+    _HEADER_NAMES = frozenset(_SENSITIVE_HEADERS)
     _PATTERN = re.compile(
-        r"(X-Aigw-Provisioning-Token(?:\s*[:=]\s*|\s+[\"']))([^\s\"',}]+)",
+        rf"((?:{_HEADER_ALTERNATION})(?:\s*[:=]\s*|\s+[\"']))([^\s\"',}}]+)",
         re.IGNORECASE,
     )
     _RAW_HEADER_PATTERN = re.compile(
-        r"(b?[\"']x-aigw-provisioning-token[\"']\s*,\s*b?[\"'])([^\"']+)",
+        rf"(b?[\"'](?:{_HEADER_ALTERNATION})[\"']\s*,\s*b?[\"'])([^\"']+)",
         re.IGNORECASE,
     )
 
@@ -27,7 +41,7 @@ class RedactProvisioningTokenFilter(logging.Filter):
             value = value.decode("latin-1")
         if not isinstance(value, str):
             return False
-        return value.lower() == cls._HEADER_NAME
+        return value.lower() in cls._HEADER_NAMES
 
     @staticmethod
     def _redacted_like(value: object) -> object:
