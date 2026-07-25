@@ -66,6 +66,29 @@ class _Entry:
     revision: str
 
 
+@dataclass
+class _InFlight:
+    """Coordination state for the callers currently inside ``get_or_refresh`` for one key.
+
+    # WHY: this is state about CALLERS, not about entries. Tying its cleanup to the
+    # entry table (drop the lock when the key is evicted) leaks on every path that
+    # returns without storing — which is every failure path — and bounds the lock
+    # table by "distinct keys ever seen" instead of by concurrency. Owning it here,
+    # created by the first caller in and dropped by the last caller out, makes the
+    # bound structural: coordination state cannot outnumber in-flight callers.
+    """
+
+    lock: asyncio.Lock
+    waiters: int = 0
+    # Completed refresh attempts for this key within THIS batch. A caller reads it
+    # before queuing; if it moved while the caller waited, some other caller already
+    # paid for an attempt.
+    attempts: int = 0
+    # The outcome of the most recent FAILED attempt in this batch, reused by
+    # single-flight losers. Cleared on success.
+    failure: CacheOutcome | None = None
+
+
 class ObservationCache:
     """A bounded, single-flight, TTL+stale in-memory cache for public evidence.
 
@@ -80,8 +103,18 @@ class ObservationCache:
         # OrderedDict doubles as the LRU: most-recently-used is moved to the end,
         # eviction pops from the front.
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
-        # One lock per live key enforces single-flight; dropped when the key leaves.
-        self._locks: dict[str, asyncio.Lock] = {}
+        # Live only while callers are inside get_or_refresh for the key (see _InFlight).
+        self._inflight: dict[str, _InFlight] = {}
+
+    @property
+    def inflight_key_count(self) -> int:
+        """Keys with live coordination state — i.e. callers currently inside the cache.
+
+        # INVARIANT: zero whenever no caller is inside ``get_or_refresh``. Exposed
+        # because "the cache's memory is bounded" is an operational property that
+        # must be assertable without reaching into internals.
+        """
+        return len(self._inflight)
 
     async def get_or_refresh(
         self,
@@ -94,22 +127,63 @@ class ObservationCache:
 
         # INVARIANT: a value is returned ONLY when it is trustworthy for THIS
         # ``revision``. A stale entry from a different revision is never served.
+        # INVARIANT: one upstream attempt per batch of contemporaneous callers,
+        # whether that attempt succeeds or fails.
         """
-        lock = self._locks.setdefault(key, asyncio.Lock())
-        async with lock:
-            entry = self._entries.get(key)
-            if entry is not None and self._is_fresh(entry, revision):
-                self._entries.move_to_end(key)
-                return CacheOutcome(value=entry.value, freshness="fresh")
+        state = self._enter(key)
+        # Read BEFORE queuing: if this moves while we wait, someone else attempted.
+        observed = state.attempts
+        try:
+            async with state.lock:
+                entry = self._entries.get(key)
+                if entry is not None and self._is_fresh(entry, revision):
+                    self._entries.move_to_end(key)
+                    return CacheOutcome(value=entry.value, freshness="fresh")
 
-            # Not fresh (cold, expired, or revision changed) → attempt one refresh.
-            try:
-                value = await refresh()
-            except DiscoveryError:
-                return self._on_refresh_error(entry, revision)
+                # A single-flight LOSER of a failed attempt: reuse that outcome rather
+                # than re-dial a source we just watched fail. Recomputing it would give
+                # the same answer anyway — the winner stored nothing and the clock is
+                # the only other input.
+                if state.failure is not None and state.attempts > observed:
+                    return state.failure
 
-            self._store(key, _Entry(value=value, stored_at=self._clock.now(), revision=revision))
-            return CacheOutcome(value=value, freshness="fresh")
+                # Not fresh (cold, expired, or revision changed) → attempt one refresh.
+                try:
+                    value = await refresh()
+                except DiscoveryError:
+                    state.attempts += 1
+                    state.failure = self._on_refresh_error(entry, revision)
+                    return state.failure
+
+                state.attempts += 1
+                state.failure = None
+                self._store(
+                    key, _Entry(value=value, stored_at=self._clock.now(), revision=revision)
+                )
+                return CacheOutcome(value=value, freshness="fresh")
+        finally:
+            self._leave(key)
+
+    def _enter(self, key: str) -> _InFlight:
+        # AIDEV-NOTE: _enter/_leave are deliberately SYNCHRONOUS. With no await
+        # between the lookup and the counter change, the event loop cannot interleave
+        # another caller here, so the refcount needs no lock of its own.
+        state = self._inflight.get(key)
+        if state is None:
+            state = _InFlight(lock=asyncio.Lock())
+            self._inflight[key] = state
+        state.waiters += 1
+        return state
+
+    def _leave(self, key: str) -> None:
+        state = self._inflight.get(key)
+        if state is None:  # pragma: no cover - _enter always precedes _leave
+            return
+        state.waiters -= 1
+        if state.waiters <= 0:
+            # Last caller out drops the batch — including its failure record, so the
+            # next arrival gets a real attempt instead of a pinned outage verdict.
+            del self._inflight[key]
 
     def _is_fresh(self, entry: _Entry, revision: str) -> bool:
         if entry.revision != revision:
@@ -126,11 +200,9 @@ class ObservationCache:
         return CacheOutcome(value=None, freshness="degraded")
 
     def _store(self, key: str, entry: _Entry) -> None:
+        # Eviction touches the entry table ONLY: coordination state has its own
+        # lifecycle (_enter/_leave), so there is nothing to reconcile here.
         self._entries[key] = entry
         self._entries.move_to_end(key)
         while len(self._entries) > self._limits.max_entries:
-            evicted, _ = self._entries.popitem(last=False)
-            # Drop the evicted key's lock unless a caller is mid-refresh on it.
-            evicted_lock = self._locks.get(evicted)
-            if evicted_lock is not None and not evicted_lock.locked():
-                self._locks.pop(evicted, None)
+            self._entries.popitem(last=False)

@@ -185,3 +185,125 @@ async def test_lru_bound_evicts_oldest() -> None:
     out = await cache.get_or_refresh("a", revision="r", refresh=refresh_a)
     assert state_a["n"] == 1  # "a" was evicted, so it refreshed again
     assert out.value == ["a2"]
+
+
+# --- OME-603: in-flight coordination state is bounded by CALLERS, not by keys ------------
+
+
+def _failing(error: Exception | None = None):
+    return _counting(None, error=error or DiscoveryError("unreachable"))
+
+
+@pytest.mark.asyncio
+async def test_successful_refresh_leaves_no_coordination_state() -> None:
+    # INVARIANT: once no caller is inside get_or_refresh, the cache holds no
+    # per-key coordination state at all — the entry table is the only residue.
+    clock = _FakeClock()
+    cache = _cache(clock)
+    await cache.get_or_refresh("k", revision="r1", refresh=_counting(["v"])[0])
+    assert cache.inflight_key_count == 0
+
+
+@pytest.mark.asyncio
+async def test_cold_failures_leave_no_coordination_state() -> None:
+    # The entry table is bounded by max_entries; coordination state must be bounded
+    # too. Cold failures store nothing, so they are the path that leaks if cleanup
+    # is attached to storing rather than to the caller's exit.
+    clock = _FakeClock()
+    cache = _cache(clock, cap=8)
+    for index in range(100):
+        out = await cache.get_or_refresh(f"k{index}", revision="r1", refresh=_failing()[0])
+        assert out.freshness == "degraded"
+    assert cache.inflight_key_count == 0
+
+
+@pytest.mark.asyncio
+async def test_eviction_while_a_refresh_is_in_flight_leaves_no_coordination_state() -> None:
+    clock = _FakeClock()
+    cache = _cache(clock, ttl=600.0, cap=1)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_refresh():
+        started.set()
+        await release.wait()
+        return ["a"]
+
+    task = asyncio.create_task(cache.get_or_refresh("a", revision="r", refresh=slow_refresh))
+    await started.wait()  # "a" is mid-refresh and holds its key's lock
+    await cache.get_or_refresh("b", revision="r", refresh=_counting(["b"])[0])
+    release.set()
+    await task
+    assert cache.inflight_key_count == 0
+
+
+@pytest.mark.asyncio
+async def test_failed_refresh_coalesces_across_queued_waiters() -> None:
+    # WHY: single-flight exists so an outage costs ONE upstream attempt, not one
+    # per waiter. Success already coalesces via the entry re-check; failure must too.
+    clock = _FakeClock()
+    cache = _cache(clock)
+    calls = {"n": 0}
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_failure():
+        calls["n"] += 1
+        started.set()
+        await release.wait()
+        raise DiscoveryError("unreachable")
+
+    first = asyncio.create_task(cache.get_or_refresh("k", revision="r", refresh=slow_failure))
+    await started.wait()
+    second = asyncio.create_task(cache.get_or_refresh("k", revision="r", refresh=slow_failure))
+    third = asyncio.create_task(cache.get_or_refresh("k", revision="r", refresh=slow_failure))
+    await asyncio.sleep(0)  # let both losers reach and block on the key lock
+    release.set()
+    outcomes = await asyncio.gather(first, second, third)
+
+    assert calls["n"] == 1  # one upstream attempt for the whole batch
+    assert [out.freshness for out in outcomes] == ["degraded"] * 3
+    assert all(out.value is None for out in outcomes)
+    assert cache.inflight_key_count == 0
+
+
+@pytest.mark.asyncio
+async def test_queued_waiters_reuse_the_stale_label_not_degraded() -> None:
+    clock = _FakeClock()
+    cache = _cache(clock, ttl=60.0, stale=120.0)
+    await cache.get_or_refresh("k", revision="r", refresh=_counting(["good"])[0])
+    clock.advance(100.0)  # past ttl, inside the stale window
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_failure():
+        started.set()
+        await release.wait()
+        raise DiscoveryError("unreachable")
+
+    first = asyncio.create_task(cache.get_or_refresh("k", revision="r", refresh=slow_failure))
+    await started.wait()
+    second = asyncio.create_task(cache.get_or_refresh("k", revision="r", refresh=slow_failure))
+    await asyncio.sleep(0)
+    release.set()
+    out1, out2 = await asyncio.gather(first, second)
+
+    # The loser reuses the winner's OUTCOME, so it keeps the last good value.
+    assert out1.freshness == out2.freshness == "stale"
+    assert out1.value == out2.value == ["good"]
+
+
+@pytest.mark.asyncio
+async def test_a_caller_arriving_after_a_failed_batch_retries() -> None:
+    # INVARIANT: the shared failure is scoped to the in-flight batch, NOT a negative
+    # cache. Otherwise continuous traffic could pin the key to degraded forever.
+    clock = _FakeClock()
+    cache = _cache(clock)
+    out = await cache.get_or_refresh("k", revision="r", refresh=_failing()[0])
+    assert out.freshness == "degraded"
+
+    recovered, calls = _counting(["back"])
+    out2 = await cache.get_or_refresh("k", revision="r", refresh=recovered)
+    assert calls["n"] == 1  # the outage record did not suppress the retry
+    assert out2.freshness == "fresh"
+    assert out2.value == ["back"]
