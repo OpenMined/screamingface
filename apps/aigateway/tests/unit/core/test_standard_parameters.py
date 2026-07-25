@@ -27,6 +27,7 @@ from aigateway.core.standard_parameters import (
     PENALTY_SCHEMA,
     RESPONSE_FORMAT_SCHEMA,
     SEED_SCHEMA,
+    TOP_K_SCHEMA,
     TOP_LOGPROBS_SCHEMA,
     direct_parameter_observations,
     function_calling_rules,
@@ -326,3 +327,15 @@ def test_top_logprobs_schema_rejects_a_boolean_and_a_non_integer() -> None:
         TOP_LOGPROBS_SCHEMA.validate_value(True)
     with pytest.raises(ParameterValidationError):
         TOP_LOGPROBS_SCHEMA.validate_value(2.5)
+
+
+def test_shared_top_k_schema_still_rejects_zero() -> None:
+    # INVARIANT (OME-596): the SHARED top_k schema keeps minimum=1. Anthropic and Gemini
+    # bind it and their top-k lower bound is 1; OpenRouter's documented 0 (disable) is
+    # served by its OWN provider-local minimum=0 schema (openrouter_provider/parameters.py),
+    # NOT by widening this one. This guard fails if a future edit loosens the shared bound
+    # and silently widens Anthropic/Gemini along with it.
+    TOP_K_SCHEMA.validate_value(1)  # inclusive lower bound
+    TOP_K_SCHEMA.validate_value(40)
+    with pytest.raises(ParameterValidationError):
+        TOP_K_SCHEMA.validate_value(0)

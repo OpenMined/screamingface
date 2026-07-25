@@ -11,7 +11,11 @@ transform carries it onto the wire (proven in tests).
 
 from __future__ import annotations
 
-from aigateway.core.chat_parameters import ParameterProjectionRule, ToolCapability
+from aigateway.core.chat_parameters import (
+    ParameterProjectionRule,
+    ParameterSchema,
+    ToolCapability,
+)
 from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     LOGPROBS_SCHEMA,
@@ -22,7 +26,6 @@ from aigateway.core.standard_parameters import (
     SEED_SCHEMA,
     STOP_SCHEMA,
     TEMPERATURE_SCHEMA,
-    TOP_K_SCHEMA,
     TOP_LOGPROBS_SCHEMA,
     direct_rule,
     function_calling_rules,
@@ -34,6 +37,12 @@ from aigateway.core.standard_parameters import (
 _AUTH: tuple[AuthType, ...] = ("api_key",)
 # Bump when a projection's semantics change; folds into the contract digests.
 _REVISION = "openrouter-2026-07"
+
+# WHY: OpenRouter documents ``top_k`` as an integer "0 or above" (0 disables top-k
+# sampling) and the installed litellm transform forwards 0 verbatim (§9 probe), so
+# OpenRouter binds its OWN minimum=0 schema. Do NOT widen the shared ``TOP_K_SCHEMA``
+# (minimum=1) — Anthropic and Gemini still bind it and their top-k lower bound is 1.
+OPENROUTER_TOP_K_SCHEMA = ParameterSchema(type="integer", minimum=0)
 
 # OME-583: OpenRouter is OpenAI-compatible; the INSTALLED litellm openrouter transform
 # forwards tools[] and tool_choice onto the wire (§9), so function calling is enabled
@@ -95,7 +104,7 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
         "provider_params.top_k",
         provider_target="extra_body.top_k",
         auth_modes=_AUTH,
-        schema=TOP_K_SCHEMA,
+        schema=OPENROUTER_TOP_K_SCHEMA,
         projection_revision=_REVISION,
     ),
     # OME-583: tools + tool_choice (OpenAI-native, §9 proof).

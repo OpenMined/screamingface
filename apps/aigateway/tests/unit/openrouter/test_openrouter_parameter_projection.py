@@ -501,3 +501,61 @@ def test_logprobs_survive_installed_litellm_openrouter_transform() -> None:
     )
     assert wire["logprobs"] is True
     assert wire["top_logprobs"] == 20
+
+
+# --- OME-596 (§9): OpenRouter provider_params.top_k accepts the documented 0 (disable) ---
+
+
+def test_top_k_zero_is_accepted_and_reaches_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    # STORY: as an OpenRouter caller I disable top-k sampling by sending top_k=0 (the
+    # provider-documented "0 or above", 0 == disabled). INVARIANT: 0 is falsy but must NOT
+    # be dropped — it projects to extra_body.top_k and reaches dispatch verbatim, exactly
+    # like a non-zero value (contrast: a truthiness filter would silently swallow it).
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"provider_params": {"top_k": 0}})
+    assert resp.status_code == 200, resp.text
+    assert captured["extra_body"] == {"top_k": 0}
+    assert "provider_params" not in captured
+    assert "top_k" not in captured  # only under extra_body
+
+
+def test_negative_top_k_rejects_fail_closed(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    # WHY: widening the lower bound to 0 must NOT widen it below 0 — a negative top_k is
+    # not a documented OpenRouter value, so it still fails closed at classification before
+    # any credential access (the OpenRouter schema is minimum=0, not unbounded-below).
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"provider_params": {"top_k": -1}})
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["rejected"] == {"provider_params.top_k": "malformed"}
+    assert captured == {}  # fail closed: no provider call happened
+
+
+def test_top_k_zero_survives_installed_litellm_openrouter_transform() -> None:
+    # FINAL-TRANSFORM PROOF (plan §6.1/§9) at the newly-enabled boundary: top_k=0 is
+    # accepted only because the INSTALLED litellm openrouter transform carries the falsy 0
+    # onto the wire body unchanged. If litellm ever starts dropping falsy extra_body values,
+    # this tripwire fails and the minimum=0 rule must be re-reviewed.
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+    from litellm.utils import get_optional_params
+
+    upstream = "google/gemini-2.0-flash-001"
+    optional = get_optional_params(
+        model=upstream, custom_llm_provider="openrouter", extra_body={"top_k": 0}
+    )
+    assert optional.get("extra_body") == {"top_k": 0}
+    wire = OpenrouterConfig().transform_request(
+        model=upstream,
+        messages=[{"role": "user", "content": "hi"}],
+        optional_params=dict(optional),
+        litellm_params={},
+        headers={},
+    )
+    assert wire.get("top_k") == 0
