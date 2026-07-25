@@ -230,3 +230,34 @@ def test_registered_provider_rule_sets_have_unique_targets() -> None:
             assert len(set(targets)) == len(targets), (canonical, mode, targets)
             examined += 1
     assert examined >= 1
+
+
+def test_every_provider_publishes_a_stream_capability_matching_its_dispatch_gate() -> None:
+    # INVARIANT (OME-601): the contract and the ENFORCED behaviour cannot drift.
+    # /v1/chat/completions rejects stream=true whenever supports_chat_streaming()
+    # is false, so the published transport status must equal that same flag —
+    # otherwise a client reads "enabled" and is answered with a 400 (or reads
+    # "disabled" and never uses a capability that works).
+    #
+    # ``stream`` is gateway-owned, so it can never be a parameter rule; the
+    # transport section is the ONLY surface that can carry it.
+    for plugin, _entry, canonical in _iter_models():
+        streams = plugin.supports_chat_streaming()
+        for mode in (None, *plugin.available_auth_modes()):
+            transport = plugin.chat_transport_capabilities(model=canonical, auth_type=mode)
+            by_name = {cap.name: cap for cap in transport}
+            assert "stream" in by_name, (canonical, mode)
+            cap = by_name["stream"]
+            assert (cap.gateway_status == "enabled") is streams, (canonical, mode)
+            # a disabled control always explains itself; an enabled one has nothing to explain.
+            assert (cap.reason is None) is streams, (canonical, mode)
+
+
+def test_the_composed_transport_section_is_populated_for_every_provider() -> None:
+    # The section reaches the SERVED document, not just the plugin hook — the
+    # previously vacuous transport conformance now has content to check.
+    for plugin, _entry, canonical in _iter_models():
+        for mode in plugin.available_auth_modes():
+            doc = _document(plugin, canonical, mode)
+            assert doc["transport"], (canonical, mode)
+            assert set(doc["transport"]["stream"]) >= {"provider_support", "gateway_status"}

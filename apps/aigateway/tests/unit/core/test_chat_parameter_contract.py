@@ -26,6 +26,7 @@ from aigateway.core.chat_parameters import (
     compose_contract_entries,
     inline_supported_parameters,
     normalize_rules,
+    stream_transport_capability,
     supported_tool_types,
 )
 from aigateway.core.profile_models import AuthType
@@ -419,3 +420,36 @@ def test_to_json_schema_renders_enum_and_array_item_type() -> None:
         "type": "array",
         "items": {"type": "number"},
     }
+
+
+# --- transport capabilities (OME-601) ----------------------------------------
+
+
+def test_stream_transport_capability_reports_an_enabled_gateway() -> None:
+    # The gateway's own streaming policy, published so a client can read it
+    # instead of discovering it from a 400.
+    cap = stream_transport_capability(gateway_enabled=True)
+    assert cap.name == "stream"
+    assert cap.gateway_status == "enabled"
+    # INVARIANT: the flag is GATEWAY policy, not provider evidence — the core has
+    # observed nothing about the upstream, so it claims nothing about it.
+    assert cap.provider_support == "unknown"
+    assert cap.reason is None
+    assert "reason" not in cap.to_dict()
+
+
+def test_stream_transport_capability_reports_a_disabled_gateway_with_a_reason() -> None:
+    cap = stream_transport_capability(gateway_enabled=False)
+    assert cap.name == "stream"
+    assert cap.gateway_status == "disabled"
+    assert cap.provider_support == "unknown"
+    # A STABLE machine-readable code, sibling to the parameters section's
+    # ``projection_not_implemented`` — clients branch on it, so it is contract.
+    assert cap.reason == "gateway_transport_not_implemented"
+    assert cap.to_dict()["reason"] == "gateway_transport_not_implemented"
+
+
+def test_the_stream_transport_name_is_the_field_callers_actually_send() -> None:
+    # WHY it must be exactly "stream": that is the request field the dispatch gate
+    # inspects, so any other spelling would publish a control nobody can act on.
+    assert stream_transport_capability(gateway_enabled=True).name == "stream"

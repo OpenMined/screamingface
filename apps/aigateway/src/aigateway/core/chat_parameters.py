@@ -37,6 +37,14 @@ ProjectionKind = Literal["direct", "provider_native"]
 _REQUEST_PATH_RE = re.compile(r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$")
 _WRAPPER_PREFIX = "provider_params."
 _DISABLED_UNPROJECTED_REASON = "projection_not_implemented"
+# Sibling of the above, for the TRANSPORT section: the provider may well support
+# the control upstream, but this gateway does not carry it yet.
+_DISABLED_TRANSPORT_REASON = "gateway_transport_not_implemented"
+# The transport control's name is the REQUEST FIELD callers actually send, so a
+# client can act on what it reads. ``stream`` is gateway-owned (see
+# ``GATEWAY_OWNED_FIELDS``), hence never expressible as a parameter rule — the
+# transport section is its only possible home.
+STREAM_TRANSPORT_NAME = "stream"
 
 
 class ParameterRuleError(ValueError):
@@ -303,6 +311,33 @@ class TransportCapability(BaseModel):
         if self.reason is not None:
             out["reason"] = self.reason
         return out
+
+
+def stream_transport_capability(*, gateway_enabled: bool) -> TransportCapability:
+    """The ``stream`` transport control, derived from the gateway's own policy.
+
+    FEATURE: discoverable transport contract. ``/v1/chat/completions`` rejects
+    ``stream: true`` for a provider that cannot stream through this gateway;
+    publishing that decision here is what lets a client read the policy instead of
+    discovering it from a 400.
+
+    INVARIANT: ``gateway_status`` carries POLICY, ``provider_support`` carries
+    EVIDENCE, and the two are not the same claim. The gateway knows its own
+    streaming decision; it has observed nothing about the upstream, so support
+    stays ``unknown``. A plugin holding real evidence overrides the hook rather
+    than having this factory invent it.
+
+    AIDEV-NOTE: this reports an ALREADY-ENFORCED behaviour and enables nothing —
+    which is why it needs no provider-transform proof. Keep it that way: if a
+    control is ever published here BEFORE the dispatch path honours it, the
+    contract starts lying.
+    """
+    return TransportCapability(
+        name=STREAM_TRANSPORT_NAME,
+        provider_support="unknown",
+        gateway_status="enabled" if gateway_enabled else "disabled",
+        reason=None if gateway_enabled else _DISABLED_TRANSPORT_REASON,
+    )
 
 
 class ParameterContractEntry(BaseModel):

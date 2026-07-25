@@ -9,6 +9,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .api_key_validation import ApiKeyValidator
 
+# Runtime (not TYPE_CHECKING) import: the default transport capability is
+# CONSTRUCTED here, not merely annotated. Safe — ``chat_parameters`` is pure core
+# vocabulary and imports nothing that reaches this module.
+from .chat_parameters import stream_transport_capability
+
 if TYPE_CHECKING:
     from .chat_parameters import (
         ParameterProjectionRule,
@@ -278,10 +283,18 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         """Transport controls (e.g. ``stream``) reported separately from params.
 
         Streaming is a transport capability, not an ordinary model parameter, so
-        it is surfaced in its own contract section. Default: none until a
-        transport control is separately reviewed.
+        it is surfaced in its own contract section.
+
+        INVARIANT: the default is DERIVED from ``supports_chat_streaming`` — the
+        same flag ``/v1/chat/completions`` enforces — so the published contract
+        cannot disagree with what dispatch actually does. Deriving it here rather
+        than per plugin means a new provider is described correctly with no extra
+        code, and no plugin can publish a status that contradicts its own flag.
+
+        Override to add further controls, or to replace the ``stream`` entry when
+        the plugin has real upstream evidence to report as ``provider_support``.
         """
-        return ()
+        return (stream_transport_capability(gateway_enabled=self.supports_chat_streaming()),)
 
     def available_auth_modes(self) -> tuple[AuthType, ...]:
         """Auth modes a client could use with this provider (profile-independent).
