@@ -22,6 +22,7 @@ from .core.auth.log_filter import (
     install_provisioning_token_redaction,
 )
 from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
+from .core.auth.resolvers import build_default_resolvers
 from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
 from .core.loader import load_plugins
 from .core.pending_auth import PendingAuthTable
@@ -227,6 +228,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     if not settings.auth_enabled:
         app.add_middleware(AuthDisabledLocalOnlyMiddleware)
+
+    # Registry-wired auth: core's `current_account` depends only on the
+    # IdentityResolver port, never on a concrete resolver module.
+    app.state.identity_resolvers = build_default_resolvers()
 
     registry = ProviderRegistry()
     load_plugins(registry)
