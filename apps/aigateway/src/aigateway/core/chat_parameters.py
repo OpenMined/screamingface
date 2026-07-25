@@ -354,13 +354,27 @@ def normalize_rules(
 
     INVARIANT: one request path == at most one rule per provider rule set, so
     the summary and the detailed contract cannot disagree about a path.
+    INVARIANT: one provider target == at most one rule per provider rule set, so
+    two request paths can never race to write the same wire field. ``rule.target``
+    is ``provider_target or request_path``, so direct rules fold into the already
+    unique request-path space and only genuine collisions (two native paths → one
+    target, or a direct path clashing with a native target) trip this. Without it a
+    provider misconfig would surface only as a caller-facing ``duplicate_channel``
+    400 in ``_project`` — and only if a caller supplied both channels at once.
     """
     ordered = sorted(rules, key=lambda rule: rule.request_path)
-    seen: set[str] = set()
+    seen_paths: set[str] = set()
+    seen_targets: dict[str, str] = {}
     for rule in ordered:
-        if rule.request_path in seen:
+        if rule.request_path in seen_paths:
             raise DuplicateParameterRuleError(f"duplicate rule for {rule.request_path!r}")
-        seen.add(rule.request_path)
+        seen_paths.add(rule.request_path)
+        if rule.target in seen_targets:
+            raise DuplicateParameterRuleError(
+                f"duplicate provider target {rule.target!r} for request paths "
+                f"{seen_targets[rule.target]!r} and {rule.request_path!r}"
+            )
+        seen_targets[rule.target] = rule.request_path
     return tuple(ordered)
 
 

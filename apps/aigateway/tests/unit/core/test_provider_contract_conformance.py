@@ -182,3 +182,22 @@ def test_every_enabled_param_is_fully_evidenced() -> None:
                 assert entry_dict["provider"]["source"] != "none", where
     # item-4 non-vacuity: the loop actually inspected enabled params somewhere.
     assert examined >= 1
+
+
+def test_registered_provider_rule_sets_have_unique_targets() -> None:
+    # INVARIANT (OME-597): within one provider rule set, no two rules write the same provider
+    # wire target. normalize_rules enforces it at construction; this locks it for every
+    # registered provider (and any future one) under every auth-mode view — a misconfig that
+    # points two request paths at one target fails in CI here, never as a caller-facing
+    # duplicate_channel 400 in prod. Green today; a future colliding rule turns it red.
+    examined = 0
+    for plugin, _entry, canonical in _iter_models():
+        for mode in (None, *plugin.available_auth_modes()):
+            rules = plugin.chat_parameter_rules(model=canonical, auth_type=mode)
+            # normalize_rules raises DuplicateParameterRuleError on a target collision; the
+            # explicit set-size assertion documents intent and gives a legible failure tuple.
+            normalized = normalize_rules(rules)
+            targets = [rule.target for rule in normalized]
+            assert len(set(targets)) == len(targets), (canonical, mode, targets)
+            examined += 1
+    assert examined >= 1

@@ -142,6 +142,29 @@ def test_duplicate_request_path_fails() -> None:
         normalize_rules([_rule("temperature"), _rule("temperature", auth_modes=("oauth",))])
 
 
+def test_duplicate_provider_target_across_distinct_paths_rejected() -> None:
+    # INVARIANT (OME-597): one provider target == at most one rule per rule set. Two DISTINCT
+    # provider_params.* request paths that both write the same wire target must fail at
+    # construction, not pass silently and collide later as a caller-facing duplicate_channel 400.
+    a = _rule("provider_params.alpha", projection_kind="provider_native", provider_target="top_k")
+    b = _rule("provider_params.beta", projection_kind="provider_native", provider_target="top_k")
+    with pytest.raises(DuplicateParameterRuleError):
+        normalize_rules([a, b])
+
+
+def test_direct_path_colliding_with_native_target_rejected() -> None:
+    # INVARIANT (OME-597): a direct rule's target IS its request_path (provider_target is None).
+    # If a provider_native rule targets that same wire field, the two race to write it — reject
+    # at construction. request_paths differ ("top_k" vs "provider_params.top_k"), so only the
+    # target check catches this; the request_path check alone would let it through.
+    direct = _rule("top_k")  # direct → target == request_path == "top_k"
+    native = _rule(
+        "provider_params.top_k", projection_kind="provider_native", provider_target="top_k"
+    )
+    with pytest.raises(DuplicateParameterRuleError):
+        normalize_rules([direct, native])
+
+
 # --- conservative inline summary (profile-independent intersection) ----------
 
 

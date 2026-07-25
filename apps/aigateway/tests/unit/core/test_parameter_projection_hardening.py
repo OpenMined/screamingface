@@ -203,15 +203,25 @@ def test_provider_params_must_be_an_object() -> None:
 
 
 def test_duplicate_channel_to_the_same_target_rejects() -> None:
-    # Two enabled channels (bare + wrapper) resolve to the SAME provider target;
-    # supplying both is ambiguous and must reject rather than silently drop one.
-    rules = (
-        _direct("top_k", target="extra_body.top_k", schema=_INT),
-        _native("provider_params.top_k", "extra_body.top_k", schema=_INT),
-    )
+    # ONE legitimate rule reached via TWO caller encodings — the flat dot-key
+    # top-level form and the nested provider_params wrapper — resolves to the SAME
+    # provider target; supplying both is ambiguous and must reject rather than
+    # silently drop one. This is the still-reachable duplicate_channel case.
+    #
+    # WHY (OME-597): two DISTINCT rules sharing one target can no longer occur —
+    # normalize_rules now rejects that at CONSTRUCTION (load time), proven by the
+    # duplicate-provider-target tests in test_chat_parameter_contract.py. Both
+    # protections are required and complementary: load-time rejects a conflicting
+    # rule config; this runtime guard rejects two encodings of one legitimate rule.
+    rules = (_native("provider_params.top_k", "extra_body.top_k", schema=_INT),)
     with pytest.raises(UnsupportedParametersError) as exc:
         _classify(
-            {"model": "p/m", "messages": [], "top_k": 40, "provider_params": {"top_k": 50}},
+            {
+                "model": "p/m",
+                "messages": [],
+                "provider_params.top_k": 40,  # flat dot-key encoding
+                "provider_params": {"top_k": 50},  # nested wrapper encoding
+            },
             rules=rules,
         )
     assert exc.value.rejected == {"provider_params.top_k": "duplicate_channel"}
