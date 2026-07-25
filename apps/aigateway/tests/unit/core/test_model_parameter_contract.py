@@ -242,3 +242,203 @@ def test_contract_id_changes_when_only_a_rule_schema_changes() -> None:
     )
     assert wide["contract_id"] != narrow["contract_id"]
     assert wide["context"]["revision"] != narrow["context"]["revision"]
+
+
+# --- identity completeness: EVERY published section moves the digests --------
+#
+# INVARIANT under test (OME-600): the digests are the cache key for the SERVED
+# document, so any change a client can observe must move them. Omitting a
+# published field fails DANGEROUSLY (a stale document under a frozen key);
+# including one that did not need it fails SAFELY (extra churn). Hence: every
+# section is covered, and the single exclusion is asserted deliberately below.
+
+
+def _ids(doc: dict[str, Any]) -> tuple[str, str]:
+    return (doc["contract_id"], doc["context"]["revision"])
+
+
+def _tool(tool_type: str, *, status: str = "enabled") -> ToolCapability:
+    return ToolCapability(
+        tool_type=tool_type,
+        provider_support="supported",
+        gateway_status=status,  # type: ignore[arg-type]
+    )
+
+
+def _obs(
+    request_path: str,
+    *,
+    schema: ParameterSchema | None = None,
+    support: str = "supported",
+) -> ProviderParameterObservation:
+    return ProviderParameterObservation(
+        request_path=request_path,
+        support=support,  # type: ignore[arg-type]
+        source="labelled_static",
+        schema=schema,
+    )
+
+
+def test_digests_move_when_a_tool_is_enabled_or_disabled() -> None:
+    # A tool flipping status is a CONTRACT change: a client that cached on the id
+    # would keep offering a tool the gateway no longer dispatches.
+    enabled = _doc(tools=(_tool("function"),))
+    disabled = _doc(tools=(_tool("function", status="disabled"),))
+    assert _ids(enabled) != _ids(disabled)
+    # guard: the mutation really is visible in the served body.
+    assert enabled["tools"] != disabled["tools"]
+
+
+def test_digests_move_when_a_tool_type_is_added() -> None:
+    one = _doc(tools=(_tool("function"),))
+    two = _doc(tools=(_tool("function"), _tool("web_search")))
+    assert _ids(one) != _ids(two)
+
+
+def test_digests_move_when_a_transport_capability_changes_status() -> None:
+    off = _doc(
+        transport=(
+            TransportCapability(
+                name="stream", provider_support="supported", gateway_status="disabled"
+            ),
+        )
+    )
+    on = _doc(
+        transport=(
+            TransportCapability(
+                name="stream", provider_support="supported", gateway_status="enabled"
+            ),
+        )
+    )
+    assert _ids(off) != _ids(on)
+
+
+def test_digests_move_when_only_a_transport_reason_changes() -> None:
+    # ``reason`` is published only when non-None, so it is the field most likely
+    # to be missed by a hash built from a fixed field list rather than the
+    # serialized section.
+    def _with(reason: str) -> dict[str, Any]:
+        return _doc(
+            transport=(
+                TransportCapability(
+                    name="stream",
+                    provider_support="supported",
+                    gateway_status="disabled",
+                    reason=reason,
+                ),
+            )
+        )
+
+    first = _with("gateway_transport_not_implemented")
+    second = _with("provider_transport_unavailable")
+    assert first["transport"]["stream"]["reason"] != second["transport"]["stream"]["reason"]
+    assert _ids(first) != _ids(second)
+
+
+def test_digests_move_when_a_published_field_merely_APPEARS() -> None:
+    # The structural claim behind digesting the SERIALIZED section: a key that is
+    # only sometimes published still moves the identity when it shows up. This
+    # pins the design — rewriting the section digest as a hand-listed field set
+    # would pass every other test here and fail this one.
+    def _with(reason: str | None) -> dict[str, Any]:
+        return _doc(
+            transport=(
+                TransportCapability(
+                    name="stream",
+                    provider_support="supported",
+                    gateway_status="disabled",
+                    reason=reason,
+                ),
+            )
+        )
+
+    absent = _with(None)
+    present = _with("gateway_transport_not_implemented")
+    assert "reason" not in absent["transport"]["stream"]
+    assert "reason" in present["transport"]["stream"]
+    assert _ids(absent) != _ids(present)
+
+
+def test_digests_move_when_only_a_disabled_entrys_observation_schema_changes() -> None:
+    # An observed-but-unruled path publishes the OBSERVATION's schema directly,
+    # so a change there is caller-visible and must move the identity.
+    wide = _doc(observations=(_obs("provider_params.x", schema=ParameterSchema(type="integer")),))
+    narrow = _doc(
+        observations=(_obs("provider_params.x", schema=ParameterSchema(type="integer", maximum=8)),)
+    )
+    assert (
+        wide["parameters"]["provider_params.x"]["schema"]
+        != (narrow["parameters"]["provider_params.x"]["schema"])
+    )
+    assert _ids(wide) != _ids(narrow)
+
+
+def test_digests_move_when_an_enabled_entry_falls_back_to_the_observation_schema() -> None:
+    # The second publication route: an ENABLED rule carrying no schema of its own
+    # serves the observation's schema instead.
+    def _with(schema: ParameterSchema) -> dict[str, Any]:
+        return _doc(
+            rules=(_rule("temperature"),),
+            observations=(_obs("temperature", schema=schema),),
+        )
+
+    wide = _with(ParameterSchema(type="number", minimum=0, maximum=2))
+    narrow = _with(ParameterSchema(type="number", minimum=0, maximum=1))
+    assert wide["parameters"]["temperature"]["gateway"]["status"] == "enabled"
+    assert wide["parameters"]["temperature"]["schema"]["maximum"] == 2
+    assert _ids(wide) != _ids(narrow)
+
+
+def test_digests_move_when_only_the_gateway_provider_changes() -> None:
+    # Redundant with the model id at today's only call site, but the composer
+    # takes them as INDEPENDENT arguments and enforces no relationship — so the
+    # published value is hashed rather than assumed.
+    a = _doc(gateway_provider="openrouter")
+    b = _doc(gateway_provider="relabelled")
+    assert a["model"]["gateway_provider"] != b["model"]["gateway_provider"]
+    assert _ids(a) != _ids(b)
+
+
+def test_freshness_is_deliberately_excluded_from_the_identity() -> None:
+    # WHY the one exclusion: freshness is TIME-VARYING. Folding it in would move
+    # the id on essentially every request, making it useless as a cache key. The
+    # body genuinely differs — so this test would catch an accidental inclusion,
+    # it is not vacuously true.
+    def _with(freshness: dict[str, Any]) -> dict[str, Any]:
+        return build_model_parameter_document(
+            canonical_id="openrouter/google/gemini-3.6-flash",
+            gateway_provider="openrouter",
+            auth_mode="api_key",
+            scope="account_profile",
+            context_identity="acct:a1|prof:p1:authenticated:-",
+            rules=(_rule("temperature"),),
+            observations=(),
+            tools=(),
+            transport=(),
+            freshness=freshness,
+        )
+
+    fresh = _with({"stale": False, "degraded": False})
+    stale = _with({"stale": True, "degraded": True})
+    assert fresh["freshness"] != stale["freshness"]
+    assert _ids(fresh) == _ids(stale)
+
+
+def test_every_published_section_is_classified_as_covered_or_excluded() -> None:
+    # TRIPWIRE: a new top-level section cannot be added to the document without
+    # someone deciding whether it belongs in the identity. Failing here is the
+    # prompt to make that decision — never to widen the set without one.
+    digest_covered = {"schema_version", "model", "context", "parameters", "tools", "transport"}
+    deliberately_excluded = {"freshness"}
+    identity_itself = {"contract_id"}
+    doc = _doc(
+        rules=(_rule("temperature"),),
+        observations=(_obs("temperature"),),
+        tools=(_tool("function"),),
+        transport=(
+            TransportCapability(
+                name="stream", provider_support="supported", gateway_status="disabled"
+            ),
+        ),
+    )
+    assert set(doc) == digest_covered | deliberately_excluded | identity_itself

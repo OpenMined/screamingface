@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from .chat_parameters import compose_contract_entries, normalize_rules
@@ -84,8 +84,35 @@ def _rules_revision(rules: tuple[ParameterProjectionRule, ...]) -> str:
 def _evidence_revision(observations: Iterable[ProviderParameterObservation]) -> str:
     # The provider evidence revision changes when any observed field/support/
     # source/staleness changes. Sorted so input order is irrelevant.
+    # INVARIANT: the observation SCHEMA is folded in too, because it is PUBLISHED —
+    # directly for every disabled entry, and as the fallback for an enabled entry
+    # whose rule carries no schema of its own (``compose_contract_entries``).
     return _sha(
-        sorted(f"{o.request_path}|{o.support}|{o.source}|{int(o.stale)}" for o in observations)
+        sorted(
+            f"{o.request_path}|{o.support}|{o.source}|{int(o.stale)}"
+            f"|{_schema_key(o.parameter_schema)}"
+            for o in observations
+        )
+    )
+
+
+def _section_revision(section: Mapping[str, Any]) -> str:
+    """Digest of an already-SERIALIZED document section, keyed by published key.
+
+    WHY digest the serialized form rather than the capability objects: coverage
+    then holds structurally instead of by memory. A field added to a capability's
+    ``to_dict`` reaches the digest with no second edit — whereas a hand-listed
+    field set is exactly the kind of "keep these two in sync" seam that let tools
+    and transport drop out of the contract identity in the first place.
+
+    Sorted by key so input ordering is irrelevant; values are canonical JSON so an
+    equal section always yields an equal digest.
+    """
+    return _sha(
+        sorted(
+            f"{key}|{json.dumps(value, sort_keys=True, separators=(',', ':'))}"
+            for key, value in section.items()
+        )
     )
 
 
@@ -113,15 +140,32 @@ def build_model_parameter_document(
     normalized = normalize_rules(rules)
     observations = tuple(observations)
 
+    # Serialize the capability sections ONCE, then digest and serve the very same
+    # objects — there is no second representation that could disagree.
+    tools_section = {tool.tool_type: tool.to_dict() for tool in tools}
+    transport_section = {cap.name: cap.to_dict() for cap in transport}
+
     projection_revision = _rules_revision(normalized)
     evidence_revision = _evidence_revision(observations)
+    # INVARIANT: the digests are the cache key for the SERVED document, so every
+    # published section is folded in — ``freshness`` alone excepted, because it is
+    # time-varying and would move the id on essentially every request, destroying
+    # its value as a cache key. That asymmetry is deliberate: omitting a published
+    # field fails DANGEROUSLY (a stale contract served under a frozen id), while
+    # including a superfluous one fails SAFELY (extra churn). Include by default;
+    # every exclusion is a stated decision. ``gateway_provider`` is hashed even
+    # though the sole caller derives it from ``canonical_id`` — this composer takes
+    # the two as independent arguments and enforces no relationship between them.
     digest_inputs = (
         canonical_id,
+        gateway_provider,
         auth_mode,
         scope,
         context_identity,
         evidence_revision,
         projection_revision,
+        _section_revision(tools_section),
+        _section_revision(transport_section),
         str(SCHEMA_VERSION),
     )
 
@@ -141,6 +185,6 @@ def build_model_parameter_document(
         },
         "freshness": freshness,
         "parameters": {entry.request_path: entry.to_detail_dict() for entry in entries},
-        "tools": {tool.tool_type: tool.to_dict() for tool in tools},
-        "transport": {cap.name: cap.to_dict() for cap in transport},
+        "tools": tools_section,
+        "transport": transport_section,
     }
