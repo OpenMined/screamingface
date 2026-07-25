@@ -9,12 +9,12 @@ are ``direct`` passthrough. HF has NO OAuth, so the auth-mode intersection is a
 single ``api_key`` mode. Backend-conditional TOOL/structured-output support is
 separate catalog evidence and never enables an ordinary parameter here.
 
-# AIDEV-NOTE: broader sampling fields (top_p, frequency_penalty, presence_penalty)
-# are OBSERVED (labelled-static) but deliberately left UNRULED in v1 — they surface
-# visible-but-disabled. Promote one only by adding its rule here with a matching
-# installed-transform characterization test (purely additive). ``stop`` (string |
-# array[string]) and ``seed`` / ``n`` (OME-585) are now ruled; the installed transform
-# forwards each verbatim.
+# AIDEV-NOTE: ``top_p`` is OBSERVED (labelled-static) but deliberately left UNRULED in
+# v1 — it surfaces visible-but-disabled. Promote it only by adding its rule here with a
+# matching installed-transform characterization test (purely additive). ``stop`` (string |
+# array[string]), ``seed`` / ``n`` (OME-585), and ``frequency_penalty`` /
+# ``presence_penalty`` (OME-586) are now ruled; the installed transform forwards each
+# verbatim.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
     N_SCHEMA,
+    PENALTY_SCHEMA,
     RESPONSE_FORMAT_SCHEMA,
     SEED_SCHEMA,
     STOP_SCHEMA,
@@ -70,6 +71,15 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     # bounded integer schema (seed: any int; n: >= 1).
     direct_rule("seed", auth_modes=_AUTH, schema=SEED_SCHEMA, projection_revision=_REVISION),
     direct_rule("n", auth_modes=_AUTH, schema=N_SCHEMA, projection_revision=_REVISION),
+    # OME-586: frequency_penalty + presence_penalty repetition controls. The installed
+    # HuggingFaceChatConfig transform forwards both VERBATIM (§9 probe), so each is a direct
+    # passthrough gated by the shared [-2, 2] penalty schema.
+    direct_rule(
+        "frequency_penalty", auth_modes=_AUTH, schema=PENALTY_SCHEMA, projection_revision=_REVISION
+    ),
+    direct_rule(
+        "presence_penalty", auth_modes=_AUTH, schema=PENALTY_SCHEMA, projection_revision=_REVISION
+    ),
     # OME-583: tools + tool_choice (OpenAI-native, §9 installed-transform proof).
     *function_calling_rules(_TOOL_CAPABILITIES, auth_modes=_AUTH, projection_revision=_REVISION),
 )

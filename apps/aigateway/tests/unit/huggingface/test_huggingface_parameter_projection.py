@@ -278,3 +278,55 @@ def test_non_integer_seed_is_rejected_fail_closed() -> None:
             auth_mode="api_key",
         )
     assert exc.value.rejected == {"seed": "malformed"}
+
+
+# --- OME-586 (§9): frequency_penalty + presence_penalty reach the installed transform --
+
+
+def test_penalties_are_ruled() -> None:
+    rules = HuggingFaceProviderPlugin().chat_parameter_rules(model=_MODEL, auth_type="api_key")
+    assert {"frequency_penalty", "presence_penalty"} <= {rule.request_path for rule in rules}
+
+
+def test_penalties_reach_installed_final_transform() -> None:
+    prepared = _dispatch_body(
+        {
+            "model": _MODEL,
+            "messages": _MESSAGES,
+            "frequency_penalty": 0.5,
+            "presence_penalty": -0.5,
+        }
+    )
+    # AIGateway-owned boundary: the gateway forwards both at the top level.
+    assert prepared["frequency_penalty"] == 0.5
+    assert prepared["presence_penalty"] == -0.5
+    # Installed final transform (litellm HuggingFaceChatConfig): both reach the outbound
+    # provider body VERBATIM — pinned against the installed library, not assumed.
+    cfg = HuggingFaceChatConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"frequency_penalty": 0.5, "presence_penalty": -0.5},
+        optional_params={},
+        model=_UPSTREAM,
+        drop_params=False,
+    )
+    body = cfg.transform_request(
+        model=_UPSTREAM,
+        messages=prepared["messages"],
+        optional_params=mapped,
+        litellm_params={"api_base": prepared["api_base"]},
+        headers={},
+    )
+    assert body["frequency_penalty"] == 0.5
+    assert body["presence_penalty"] == -0.5
+
+
+def test_out_of_range_presence_penalty_is_rejected_fail_closed() -> None:
+    plugin = HuggingFaceProviderPlugin()
+    with pytest.raises(UnsupportedParametersError) as exc:
+        # -3.0 is below the minimum of -2 → fails closed as malformed at classification.
+        classify_and_project_chat_parameters(
+            {"model": _MODEL, "messages": _MESSAGES, "presence_penalty": -3.0},
+            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+            auth_mode="api_key",
+        )
+    assert exc.value.rejected == {"presence_penalty": "malformed"}

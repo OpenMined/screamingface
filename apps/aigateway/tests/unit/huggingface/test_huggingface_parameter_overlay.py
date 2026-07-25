@@ -56,9 +56,10 @@ def test_ruled_and_observed_standard_fields_are_enabled_with_evidence() -> None:
 
 def test_observed_but_unruled_fields_are_visible_but_disabled() -> None:
     params = _parameters()
-    # OME-585: seed retired from this disabled set — it is now ruled → enabled because the
-    # installed transform carries it (§9 proof); the remaining fields have no such proof yet.
-    for path in ("top_p", "frequency_penalty", "presence_penalty"):
+    # OME-585/586: seed, frequency_penalty and presence_penalty retired from this disabled
+    # set — each is now ruled → enabled because the installed transform carries it (§9
+    # proof); top_p remains observed-but-disabled (no such proof yet).
+    for path in ("top_p",):
         entry = params[path]
         # accepted by the endpoint (observed) but no gateway rule → visible, rejected.
         assert entry["provider"]["support"] == "supported"
@@ -172,6 +173,22 @@ def test_response_format_is_enabled_with_evidence() -> None:
 def test_seed_and_n_are_enabled_with_evidence() -> None:
     params = _parameters()
     for path in ("seed", "n"):
+        entry = params[path]
+        assert entry["gateway"]["status"] == "enabled", path
+        assert entry["provider"]["support"] == "supported", path
+        assert entry["provider"]["source"] == "huggingface:static", path
+
+
+# --- OME-586: frequency_penalty + presence_penalty overlay -------------------
+#
+# FEATURE: repetition controls. HF's router is OpenAI-compatible; the installed
+# HuggingFaceChatConfig transform forwards both penalties VERBATIM (§9 probe), so both are
+# ENABLED and evidenced from the labelled-static source (both already in the sampling constant).
+
+
+def test_frequency_and_presence_penalty_are_enabled_with_evidence() -> None:
+    params = _parameters()
+    for path in ("frequency_penalty", "presence_penalty"):
         entry = params[path]
         assert entry["gateway"]["status"] == "enabled", path
         assert entry["provider"]["support"] == "supported", path

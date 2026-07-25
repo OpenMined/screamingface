@@ -395,3 +395,57 @@ def test_seed_and_n_survive_installed_litellm_openrouter_transform() -> None:
     )
     assert wire["seed"] == 7
     assert wire["n"] == 2
+
+
+# --- OME-586 (§9): frequency_penalty + presence_penalty reach dispatch + transform --
+
+
+def test_penalties_reach_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(
+            authenticated_client, {"frequency_penalty": 0.5, "presence_penalty": -0.5}
+        )
+    assert resp.status_code == 200, resp.text
+    assert captured["frequency_penalty"] == 0.5
+    assert captured["presence_penalty"] == -0.5
+
+
+def test_out_of_range_frequency_penalty_rejects_before_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"frequency_penalty": 3.0})  # above the max of 2
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["rejected"] == {"frequency_penalty": "malformed"}
+    assert captured == {}  # fail closed: no provider call happened
+
+
+def test_penalties_survive_installed_litellm_openrouter_transform() -> None:
+    # FINAL-TRANSFORM PROOF (plan §6.1/§9): both penalties are enabled ONLY because the
+    # INSTALLED litellm openrouter transform carries them onto the wire body VERBATIM.
+    # Mirrors the §9 probe's exact path; this test is the tripwire if litellm changes it.
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+
+    upstream = "google/gemini-2.0-flash-001"
+    cfg = OpenrouterConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"frequency_penalty": 0.5, "presence_penalty": -0.5},
+        optional_params={},
+        model=upstream,
+        drop_params=False,
+    )
+    wire = cfg.transform_request(
+        model=upstream,
+        messages=[{"role": "user", "content": "hi"}],
+        optional_params=mapped,
+        litellm_params={},
+        headers={},
+    )
+    assert wire["frequency_penalty"] == 0.5
+    assert wire["presence_penalty"] == -0.5

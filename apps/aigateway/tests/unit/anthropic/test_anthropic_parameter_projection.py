@@ -434,3 +434,29 @@ def test_seed_and_n_fail_closed_before_dispatch() -> None:
                 auth_mode="api_key",
             )
         assert exc.value.rejected == {path: "unknown"}
+
+
+# --- OME-586 (§9): frequency_penalty + presence_penalty are EXCLUDED on Anthropic --
+#
+# The installed AnthropicConfig's get_supported_openai_params carries NEITHER penalty (§9
+# probe: map_openai_params drops both), so they have no home on the Anthropic wire. They are
+# intentionally UNRULED; a caller value fails closed at classification. Pinned by a test so
+# the exclusion is deliberate, not accidental omission.
+
+
+def test_penalties_are_not_ruled_for_anthropic() -> None:
+    ruled = {r.request_path for r in _rules(None)}
+    assert "frequency_penalty" not in ruled
+    assert "presence_penalty" not in ruled
+
+
+def test_penalties_fail_closed_before_dispatch() -> None:
+    plugin = AnthropicProviderPlugin()
+    for path in ("frequency_penalty", "presence_penalty"):
+        with pytest.raises(UnsupportedParametersError) as exc:
+            classify_and_project_chat_parameters(
+                {"model": _MODEL, "messages": _MESSAGES, path: 0.5},
+                rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+                auth_mode="api_key",
+            )
+        assert exc.value.rejected == {path: "unknown"}

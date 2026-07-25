@@ -16,6 +16,7 @@ from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
     N_SCHEMA,
+    PENALTY_SCHEMA,
     RESPONSE_FORMAT_SCHEMA,
     SEED_SCHEMA,
     STOP_SCHEMA,
@@ -63,6 +64,15 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     # bounded integer schema (seed: any int; n: >= 1).
     direct_rule("seed", auth_modes=_AUTH, schema=SEED_SCHEMA, projection_revision=_REVISION),
     direct_rule("n", auth_modes=_AUTH, schema=N_SCHEMA, projection_revision=_REVISION),
+    # OME-586: frequency_penalty + presence_penalty repetition controls. The installed
+    # litellm OpenRouter transform forwards both VERBATIM (§9 probe), so each is a direct
+    # passthrough gated by the shared [-2, 2] penalty schema.
+    direct_rule(
+        "frequency_penalty", auth_modes=_AUTH, schema=PENALTY_SCHEMA, projection_revision=_REVISION
+    ),
+    direct_rule(
+        "presence_penalty", auth_modes=_AUTH, schema=PENALTY_SCHEMA, projection_revision=_REVISION
+    ),
     # WHY: OpenRouter-native routing controls are complex nested values with no
     # scalar schema; a schema-less rule authorizes the path and forwards the
     # value verbatim, preserving existing client behavior under fail-closed.

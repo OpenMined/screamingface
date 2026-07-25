@@ -30,6 +30,10 @@ TEMPERATURE_SCHEMA = ParameterSchema(type="number", minimum=0, maximum=2)
 TOP_P_SCHEMA = ParameterSchema(type="number", minimum=0, maximum=1)
 MAX_TOKENS_SCHEMA = ParameterSchema(type="integer", minimum=1)
 TOP_K_SCHEMA = ParameterSchema(type="integer", minimum=1)
+# ``frequency_penalty`` and ``presence_penalty`` (OME-586) share the OpenAI-compatible
+# [-2, 2] range; one shared schema keeps the two repetition controls consistent (DRY). A
+# value outside the range, or a non-number, fails closed at classification.
+PENALTY_SCHEMA = ParameterSchema(type="number", minimum=-2, maximum=2)
 # Union of the OpenAI reasoning-effort ladder and Anthropic's "none" (disable
 # thinking); a value outside this set fails closed at classification.
 REASONING_EFFORT_SCHEMA = ParameterSchema(

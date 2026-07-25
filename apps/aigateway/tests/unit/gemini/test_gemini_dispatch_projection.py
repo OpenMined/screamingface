@@ -383,3 +383,20 @@ def test_seed_and_n_fail_closed_because_gemini_has_no_wire_home() -> None:
         with pytest.raises(UnsupportedParametersError) as exc:
             _project(plugin, body, "api_key")
         assert exc.value.rejected.get(path) == "unknown"
+
+
+# --- OME-586 (§9): frequency_penalty + presence_penalty are EXCLUDED on Gemini --
+
+
+def test_penalties_fail_closed_because_gemini_builder_renders_neither() -> None:
+    # §9: build_generate_content_body's config_map renders only max_tokens/temperature/
+    # top_p/top_k (+ stop/tools) — neither penalty has a wire home, so both are intentionally
+    # UNRULED. A caller value is unknown to the rule set and rejected at classification,
+    # before any dispatch — the exclusion is pinned by a test, not silent omission.
+    plugin = GeminiProviderPlugin()
+    for path in ("frequency_penalty", "presence_penalty"):
+        body = _caller_body()
+        body[path] = 0.5
+        with pytest.raises(UnsupportedParametersError) as exc:
+            _project(plugin, body, "api_key")
+        assert exc.value.rejected.get(path) == "unknown"

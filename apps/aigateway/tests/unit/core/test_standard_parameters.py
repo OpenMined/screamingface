@@ -23,6 +23,7 @@ from aigateway.core.chat_parameters import (
 )
 from aigateway.core.standard_parameters import (
     N_SCHEMA,
+    PENALTY_SCHEMA,
     RESPONSE_FORMAT_SCHEMA,
     SEED_SCHEMA,
     direct_parameter_observations,
@@ -255,3 +256,29 @@ def test_n_schema_rejects_zero() -> None:
 def test_n_schema_rejects_a_non_integer() -> None:
     with pytest.raises(ParameterValidationError):
         N_SCHEMA.validate_value(2.5)
+
+
+# --- OME-586: PENALTY_SCHEMA (number in the OpenAI-compatible [-2, 2] range) --
+
+
+def test_penalty_schema_accepts_the_inclusive_bounds_and_zero() -> None:
+    # frequency_penalty / presence_penalty share OpenAI's [-2, 2] range; both bounds
+    # are inclusive and the neutral 0 is valid.
+    PENALTY_SCHEMA.validate_value(-2)
+    PENALTY_SCHEMA.validate_value(0)
+    PENALTY_SCHEMA.validate_value(2)
+    PENALTY_SCHEMA.validate_value(0.5)
+
+
+def test_penalty_schema_rejects_out_of_range() -> None:
+    # a value just outside the documented range fails closed as malformed at
+    # classification — the gateway advertises and enforces the provider's real bound.
+    with pytest.raises(ParameterValidationError):
+        PENALTY_SCHEMA.validate_value(2.0001)
+    with pytest.raises(ParameterValidationError):
+        PENALTY_SCHEMA.validate_value(-2.0001)
+
+
+def test_penalty_schema_rejects_a_non_number() -> None:
+    with pytest.raises(ParameterValidationError):
+        PENALTY_SCHEMA.validate_value("high")

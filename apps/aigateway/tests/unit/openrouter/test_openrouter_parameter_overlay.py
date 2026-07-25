@@ -98,7 +98,7 @@ def test_every_endpoint_observed_sampling_field_is_visible_with_a_status() -> No
     ):
         assert path in params, path
     # every STILL-unruled observed field is honest about WHY it is rejected.
-    for path in ("top_p", "frequency_penalty", "presence_penalty"):
+    for path in ("top_p",):
         assert params[path]["gateway"]["status"] == "disabled"
         assert params[path]["gateway"]["reason"] == "projection_not_implemented"
     # OME-582: stop is now ruled → enabled (still visible in the list above).
@@ -106,6 +106,10 @@ def test_every_endpoint_observed_sampling_field_is_visible_with_a_status() -> No
     # OME-585: seed is now ruled → enabled (still visible in the list above); its
     # disabled guard is retired because the installed transform carries it (§9 proof).
     assert params["seed"]["gateway"]["status"] == "enabled"
+    # OME-586: frequency_penalty + presence_penalty are now ruled → enabled; their
+    # disabled guards are retired because the installed transform carries them (§9 proof).
+    assert params["frequency_penalty"]["gateway"]["status"] == "enabled"
+    assert params["presence_penalty"]["gateway"]["status"] == "enabled"
 
 
 def test_observations_are_labelled_local_not_fabricated_per_model() -> None:
@@ -183,6 +187,22 @@ def test_response_format_is_enabled_with_evidence() -> None:
 def test_seed_and_n_are_enabled_with_evidence() -> None:
     params = _parameters()
     for path in ("seed", "n"):
+        entry = params[path]
+        assert entry["gateway"]["status"] == "enabled", path
+        assert entry["provider"]["support"] == "supported", path
+        assert entry["provider"]["source"] == "openrouter:static", path
+
+
+# --- OME-586: frequency_penalty + presence_penalty overlay -------------------
+#
+# FEATURE: repetition controls. OpenRouter is OpenAI-compatible; the installed litellm
+# openrouter transform forwards both penalties VERBATIM (§9 probe), so both are ENABLED and
+# evidenced from the labelled-local endpoint source (both already in the sampling constant).
+
+
+def test_frequency_and_presence_penalty_are_enabled_with_evidence() -> None:
+    params = _parameters()
+    for path in ("frequency_penalty", "presence_penalty"):
         entry = params[path]
         assert entry["gateway"]["status"] == "enabled", path
         assert entry["provider"]["support"] == "supported", path
