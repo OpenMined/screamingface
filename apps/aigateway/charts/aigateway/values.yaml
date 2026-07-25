@@ -34,6 +34,25 @@ config:
   authEnabled: true
   jwtTtlSeconds: 86400
 
+  # Cloudflare Access federated authentication. Users admitted by the Access
+  # policy get accounts provisioned just-in-time; no registration, no /login.
+  #
+  # PRECONDITION: the origin must be reachable ONLY through Cloudflare (a
+  # cloudflared tunnel, or the CF proxy with Authenticated Origin Pulls).
+  # Enabling this on a directly reachable origin is worse than no auth at all,
+  # because the identity header is trivially forgeable.
+  #
+  # Requires authEnabled: true — the gateway refuses to start otherwise.
+  cfAccess:
+    enabled: false
+    # e.g. myteam.cloudflareaccess.com — a bare hostname, no scheme or path.
+    teamDomain: ""
+    # The Access application's Audience (AUD) tag.
+    aud: ""
+    # Emails granted is_admin at provisioning time. Cloudflare decides who can
+    # REACH the gateway; this decides who holds authority inside it.
+    adminEmails: []
+
 publicUrl: https://gateway.screamingface.ai
 
 database:

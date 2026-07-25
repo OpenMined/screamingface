@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from .config import Settings
 from .core.api_key_validation_service import ApiKeyValidationService
 from .core.auth.bootstrap_admin import ensure_admin_account
+from .core.auth.cf_access import build_cf_access_resolver
 from .core.auth.jwt_secret import get_or_create_jwt_secret
 from .core.auth.local_only import AuthDisabledLocalOnlyMiddleware
 from .core.auth.log_filter import (
@@ -231,7 +232,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # Registry-wired auth: core's `current_account` depends only on the
     # IdentityResolver port, never on a concrete resolver module.
-    app.state.identity_resolvers = build_default_resolvers()
+    resolvers = build_default_resolvers()
+    if settings.cf_access_enabled:
+        # Settings validation guarantees both are set when the flag is on.
+        assert settings.cf_access_team_domain and settings.cf_access_aud
+        resolvers.append(
+            build_cf_access_resolver(
+                team_domain=settings.cf_access_team_domain,
+                audience=settings.cf_access_aud,
+                admin_emails=settings.cf_access_admin_email_set,
+            )
+        )
+        logger.info(
+            "cf_access enabled (team=%s); origin MUST be reachable only via Cloudflare",
+            settings.cf_access_team_domain,
+        )
+    app.state.identity_resolvers = resolvers
 
     registry = ProviderRegistry()
     load_plugins(registry)

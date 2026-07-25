@@ -11,3 +11,15 @@ data:
   AIGATEWAY_AUTH_ENABLED: {{ .Values.config.authEnabled | quote }}
   AIGATEWAY_JWT_TTL_SECONDS: {{ .Values.config.jwtTtlSeconds | quote }}
   AIGATEWAY_PUBLIC_URL: {{ .Values.publicUrl | quote }}
+  {{- if .Values.config.cfAccess.enabled }}
+  # Cloudflare Access (OME-588). Team domain and AUD are NON-SECRET by design —
+  # the AUD only names which Access application an assertion is scoped to.
+  #
+  # WARNING: this feature is only sound if the origin is unreachable except
+  # through Cloudflare. `Cf-Access-Jwt-Assertion` is an ordinary header; a
+  # directly reachable origin lets anyone forge any identity.
+  AIGATEWAY_CF_ACCESS_ENABLED: "true"
+  AIGATEWAY_CF_ACCESS_TEAM_DOMAIN: {{ required "config.cfAccess.teamDomain is required when cfAccess.enabled" .Values.config.cfAccess.teamDomain | quote }}
+  AIGATEWAY_CF_ACCESS_AUD: {{ required "config.cfAccess.aud is required when cfAccess.enabled" .Values.config.cfAccess.aud | quote }}
+  AIGATEWAY_CF_ACCESS_ADMIN_EMAILS: {{ join "," .Values.config.cfAccess.adminEmails | quote }}
+  {{- end }}

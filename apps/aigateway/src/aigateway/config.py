@@ -55,6 +55,71 @@ class Settings(BaseSettings):
     # from which credential backs the call.
     credential_mode: str = Field(default="byok", validation_alias="AIGATEWAY_CREDENTIAL_MODE")
 
+    # Cloudflare Access federated authentication (OME-588). Team domain and AUD
+    # are NON-SECRET by design — they are plain chart values, not secrets.
+    cf_access_enabled: bool = Field(default=False, validation_alias="AIGATEWAY_CF_ACCESS_ENABLED")
+    cf_access_team_domain: str | None = Field(
+        default=None, validation_alias="AIGATEWAY_CF_ACCESS_TEAM_DOMAIN"
+    )
+    cf_access_aud: str | None = Field(default=None, validation_alias="AIGATEWAY_CF_ACCESS_AUD")
+    # WHY a raw string and not list[str]: pydantic-settings JSON-decodes complex
+    # field types straight from the env var BEFORE any validator runs, so a
+    # comma-separated value raises SettingsError instead of reaching us. The
+    # operator-friendly format wins; parsing lives in cf_access_admin_email_set.
+    cf_access_admin_emails: str = Field(
+        default="", validation_alias="AIGATEWAY_CF_ACCESS_ADMIN_EMAILS"
+    )
+
+    @field_validator("cf_access_team_domain")
+    @classmethod
+    def _validate_cf_access_team_domain(cls, value: str | None) -> str | None:
+        """Require a bare hostname.
+
+        INVARIANT: the JWKS URL is built as f"https://{team_domain}/cdn-cgi/access/certs".
+        A value carrying a scheme, path, userinfo or port could redirect key
+        retrieval to an attacker-controlled host, which is a total auth bypass —
+        the gateway would happily verify assertions signed by the attacker.
+        """
+        if value is None:
+            return None
+        normalized = value.strip().lower().rstrip(".")
+        if not normalized:
+            return None
+        if not re.fullmatch(
+            r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+", normalized
+        ):
+            raise ValueError(
+                "AIGATEWAY_CF_ACCESS_TEAM_DOMAIN must be a bare hostname "
+                "(e.g. 'myteam.cloudflareaccess.com') with no scheme, port or path"
+            )
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_cf_access(self) -> Settings:
+        if not self.cf_access_enabled:
+            return self
+        # INVARIANT: never fail open. With auth disabled, current_account returns
+        # anonymous_account() for EVERY caller — behind a gateway the operator
+        # believes Cloudflare is protecting. Refuse to start rather than serve.
+        if not self.auth_enabled:
+            raise ValueError(
+                "AIGATEWAY_CF_ACCESS_ENABLED requires AIGATEWAY_AUTH_ENABLED=true; "
+                "with auth disabled every request is anonymous and Cloudflare "
+                "identity would be ignored entirely"
+            )
+        if not self.cf_access_team_domain or not self.cf_access_aud:
+            raise ValueError(
+                "AIGATEWAY_CF_ACCESS_ENABLED requires both "
+                "AIGATEWAY_CF_ACCESS_TEAM_DOMAIN and AIGATEWAY_CF_ACCESS_AUD"
+            )
+        return self
+
+    @property
+    def cf_access_admin_email_set(self) -> frozenset[str]:
+        return frozenset(
+            item.strip().lower() for item in self.cf_access_admin_emails.split(",") if item.strip()
+        )
+
     retry_max_attempts: int = Field(default=3, validation_alias="AIGW_RETRY_MAX_ATTEMPTS")
     retry_backoff_base_seconds: float = Field(
         default=0.5, validation_alias="AIGW_RETRY_BACKOFF_BASE"
