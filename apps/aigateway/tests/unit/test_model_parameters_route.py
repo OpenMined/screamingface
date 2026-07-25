@@ -142,3 +142,142 @@ async def test_response_never_exposes_account_id_or_secrets(credential_blobs, au
     assert resp.status_code == 200, resp.text
     # opaque IDs are one-way: the account id (a digest input) never appears raw.
     assert account_id not in resp.text
+
+
+# --- private cache policy on ERROR exits (OME-598) ---------------------------
+#
+# INVARIANT: the private cache policy is a property of the ROUTE, not of its happy
+# path. Every response it produces — success or error — must be marked
+# unshareable, because the error bodies are the ones carrying caller-identifying
+# data (the requested profile name and a profile-specific reauth URL).
+#
+# WHY these need their own tests: in FastAPI the injected ``Response`` reaches the
+# wire only on a normal return; a raised HTTPException is rendered from the
+# EXCEPTION's headers instead. A policy set on the injected response is therefore
+# structurally invisible to every raise, and no success-path assertion can catch it.
+
+
+async def _seed_profile_record(
+    credential_blobs,
+    account_id: str,
+    *,
+    name: str,
+    state: ProfileState,
+    auth_type: AuthType = "api_key",
+) -> None:
+    idx = ProfileIndexStore(credential_store=credential_blobs.store)
+    await idx.upsert(
+        Profile(
+            id=profile_id_for(account_id, "anthropic", name),
+            account_id=account_id,
+            provider="anthropic",
+            name=name,
+            state=state,
+            auth_type=auth_type,
+        )
+    )
+
+
+def _get_as_profile(client: TestClient, profile: str, model: str = _MODEL):
+    return client.get(
+        "/v1/model-parameters", params={"model": model}, headers={"X-Profile": profile}
+    )
+
+
+def _assert_private_cache_policy(resp) -> None:
+    assert resp.headers.get("cache-control") == "private, no-store", resp.headers
+    vary = resp.headers.get("vary") or ""
+    assert "Authorization" in vary and "X-Profile" in vary, resp.headers
+
+
+def test_unknown_provider_error_carries_private_cache_policy(authenticated_client):
+    resp = _get(authenticated_client, model="bogus/whatever")
+    assert resp.status_code == 400
+    _assert_private_cache_policy(resp)
+
+
+def test_unprefixed_model_error_carries_private_cache_policy(authenticated_client):
+    resp = _get(authenticated_client, model="claude-opus-4-8")
+    assert resp.status_code == 400
+    _assert_private_cache_policy(resp)
+
+
+def test_model_not_found_error_carries_private_cache_policy(authenticated_client):
+    resp = _get(authenticated_client, model="anthropic/not-a-real-model")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "model_not_found"
+    _assert_private_cache_policy(resp)
+
+
+def test_profile_not_found_error_carries_private_cache_policy(authenticated_client):
+    # Profile-dependent 404: the body echoes the requested profile name.
+    resp = _get_as_profile(authenticated_client, "no-such-profile")
+    assert resp.status_code == 404
+    detail = resp.json()["detail"]
+    assert detail["code"] == "profile_not_found"
+    assert detail["name"] == "no-such-profile"
+    _assert_private_cache_policy(resp)
+
+
+@pytest.mark.asyncio
+async def test_pending_profile_conflict_carries_private_cache_policy(
+    credential_blobs, authenticated_client
+):
+    # A DISTINCT X-Profile value (not "default") proves the policy is not tied to
+    # the default-profile path, and that Vary: X-Profile is truthful on errors.
+    account_id = _account_id(authenticated_client)
+    await _seed_profile_record(
+        credential_blobs, account_id, name="staging", state=ProfileState.PENDING
+    )
+
+    resp = _get_as_profile(authenticated_client, "staging")
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["code"] == "profile_pending_auth"
+    assert detail["name"] == "staging"
+    _assert_private_cache_policy(resp)
+
+
+@pytest.mark.asyncio
+async def test_auth_required_error_keeps_reauth_url_and_private_cache_policy(
+    credential_blobs, authenticated_client
+):
+    # The most sensitive error body: it carries a profile-specific reauth URL.
+    # The boundary must ADD headers without disturbing the detail payload.
+    account_id = _account_id(authenticated_client)
+    await _seed_profile_record(
+        credential_blobs, account_id, name="broken", state=ProfileState.ERROR
+    )
+
+    resp = _get_as_profile(authenticated_client, "broken")
+    assert resp.status_code == 401
+    detail = resp.json()["detail"]
+    assert detail["code"] == "auth_required"
+    assert detail["reauth_url"] == "/v1/auth/anthropic/profiles/broken"
+    _assert_private_cache_policy(resp)
+
+
+def test_boundary_preserves_raiser_headers_but_wins_on_the_cache_policy(
+    authenticated_client, monkeypatch
+):
+    # INVARIANT (the merge direction): a raising helper keeps its own headers, but
+    # this route's cache policy is authoritative on the keys it owns — fail closed,
+    # so no future raise can emit the contract with a weaker cache directive.
+    # No raiser sets headers today, so the semantics are pinned with a synthetic one.
+    from fastapi import HTTPException
+
+    from aigateway.routes import model_parameters as route_mod
+
+    async def _raise_with_headers(*_args, **_kwargs):
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "synthetic"},
+            headers={"Retry-After": "5", "Cache-Control": "public, max-age=600"},
+        )
+
+    monkeypatch.setattr(route_mod, "_contract_document", _raise_with_headers)
+
+    resp = _get(authenticated_client)
+    assert resp.status_code == 503
+    assert resp.headers["retry-after"] == "5"  # raiser's own header survives
+    _assert_private_cache_policy(resp)  # ...but the weaker directive is overridden

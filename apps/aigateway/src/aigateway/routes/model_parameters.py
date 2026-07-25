@@ -30,6 +30,19 @@ router = APIRouter()
 # carries no observed_at/expires_at window; discovery freshness arrives later.
 _LOCAL_FRESHNESS: dict[str, Any] = {"stale": False, "degraded": False}
 
+# INVARIANT: this policy belongs to the ROUTE, not to its happy path — EVERY
+# response it produces, success or error, is per-account/profile and unshareable.
+# WHY it must be applied twice: FastAPI merges the injected ``Response`` into the
+# reply only on a NORMAL RETURN, while a raised ``HTTPException`` is rendered by
+# ``http_exception_handler`` from the EXCEPTION's own headers. A policy set only on
+# the injected response is therefore structurally invisible to every raise — and the
+# raises are exactly the profile-dependent 401/404/409 whose bodies carry the
+# requested profile name and a profile-specific reauth URL.
+_PRIVATE_CACHE_HEADERS: dict[str, str] = {
+    "Cache-Control": "private, no-store",
+    "Vary": "Authorization, X-Profile",
+}
+
 
 def _context_identity(
     account_id: str,
@@ -50,13 +63,13 @@ def _context_identity(
     return f"acct:{account_id}|{target}"
 
 
-@router.get("/v1/model-parameters")
-async def model_parameters(
-    request: Request,
-    response: Response,
-    current: CurrentAccount,
-    model: Annotated[str, Query()],
-) -> dict[str, Any]:
+async def _contract_document(request: Request, *, account_id: str, model: str) -> dict[str, Any]:
+    """Resolve provider + profile and compose the contract, or raise ``HTTPException``.
+
+    Split from the route handler so the handler is purely the HTTP policy boundary
+    (see ``_PRIVATE_CACHE_HEADERS``): every exit below — including the ones raised
+    inside the shared chat credential resolution — passes through that one boundary.
+    """
     provider = model.split("/", 1)[0] if "/" in model else None
     if not provider:
         raise HTTPException(status_code=400, detail="model must be provider-prefixed")
@@ -79,7 +92,6 @@ async def model_parameters(
         )
 
     profile_name = (request.headers.get("X-Profile") or "default").strip() or "default"
-    account_id = str(current.id)
     # Reuse the chat resolution verbatim (raises the same 404/409 on a missing/
     # pending/errored profile) so summary, detail, and dispatch agree on context.
     profile, connection, _defaults = await _credential_target_for_chat(
@@ -91,7 +103,7 @@ async def model_parameters(
     )
     auth_mode = auth_mode_for_target(profile, connection)
 
-    document = build_model_parameter_document(
+    return build_model_parameter_document(
         canonical_id=model,
         gateway_provider=provider,
         auth_mode=auth_mode,
@@ -103,6 +115,24 @@ async def model_parameters(
         transport=plugin.chat_transport_capabilities(model=model, auth_type=auth_mode),
         freshness=dict(_LOCAL_FRESHNESS),
     )
-    response.headers["Cache-Control"] = "private, no-store"
-    response.headers["Vary"] = "Authorization, X-Profile"
-    return document
+
+
+@router.get("/v1/model-parameters")
+async def model_parameters(
+    request: Request,
+    response: Response,
+    current: CurrentAccount,
+    model: Annotated[str, Query()],
+) -> dict[str, Any]:
+    # Success path: the injected response is merged into the reply on return.
+    response.headers.update(_PRIVATE_CACHE_HEADERS)
+    try:
+        return await _contract_document(request, account_id=str(current.id), model=model)
+    except HTTPException as exc:
+        # AIDEV-NOTE: policy LAST in the merge. A raiser's own headers (a future
+        # WWW-Authenticate / Retry-After) survive, but this route's cache policy wins
+        # on the keys it owns — an error can never be emitted with a weaker cache
+        # directive than the success response. Do not "simplify" this boundary away:
+        # exc.headers is the ONLY channel that reaches an HTTPException response.
+        exc.headers = {**(exc.headers or {}), **_PRIVATE_CACHE_HEADERS}
+        raise
