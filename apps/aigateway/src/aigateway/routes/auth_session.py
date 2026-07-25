@@ -28,6 +28,19 @@ async def login(body: LoginRequest, request: Request) -> LoginResponse:
     account = await Account.get_or_none(username=body.username)
     password_hash = account.password_hash if account is not None else None
     password_ok = await verify_password_or_dummy(body.password, password_hash)
+    if account is not None and password_hash is None:
+        # INVARIANT (OME-590): a federated account has NO password, so NO password
+        # may authenticate it — and this check must NOT be folded into the
+        # `password_ok` branch below. `verify_password_or_dummy` falls back to the
+        # hash of the module-level constant `_DUMMY_PASSWORD`; that constant is
+        # public, so for a NULL-hash account `password_ok` is True whenever the
+        # caller submits it verbatim. Refusing on the NULL itself closes that.
+        #
+        # Placed AFTER the verify call so the refusal still costs one bcrypt
+        # round, and returning the same generic body as bad credentials leaves no
+        # federation-status enumeration oracle (same rule as SF-335).
+        logger.info("login refused for federated account username=%s", account.username)
+        raise HTTPException(status_code=401, detail=_INVALID_CREDENTIALS)
     if account is None or not password_ok:
         raise HTTPException(status_code=401, detail=_INVALID_CREDENTIALS)
     if not account.is_active:

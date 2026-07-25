@@ -42,6 +42,7 @@ class AccountOut(BaseModel):
     id: UUID
     username: str
     display_name: str | None = None
+    email: str | None = None
     created_at: datetime
     last_login_at: datetime | None = None
     is_active: bool
