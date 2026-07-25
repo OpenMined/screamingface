@@ -22,10 +22,12 @@ from aigateway.core.chat_parameters import (
     ToolCapability,
 )
 from aigateway.core.standard_parameters import (
+    LOGPROBS_SCHEMA,
     N_SCHEMA,
     PENALTY_SCHEMA,
     RESPONSE_FORMAT_SCHEMA,
     SEED_SCHEMA,
+    TOP_LOGPROBS_SCHEMA,
     direct_parameter_observations,
     function_calling_rules,
     tool_choice_schema,
@@ -282,3 +284,45 @@ def test_penalty_schema_rejects_out_of_range() -> None:
 def test_penalty_schema_rejects_a_non_number() -> None:
     with pytest.raises(ParameterValidationError):
         PENALTY_SCHEMA.validate_value("high")
+
+
+# --- OME-595: LOGPROBS_SCHEMA (boolean) and TOP_LOGPROBS_SCHEMA (integer [0, 20]) --
+
+
+def test_logprobs_schema_accepts_booleans() -> None:
+    # logprobs is a plain on/off switch; only True/False are valid.
+    LOGPROBS_SCHEMA.validate_value(True)
+    LOGPROBS_SCHEMA.validate_value(False)
+
+
+def test_logprobs_schema_rejects_a_non_boolean() -> None:
+    # INVARIANT: bool is the ONLY accepted type — an int (even 0/1) or a string fails
+    # closed, so the gateway never forwards a mistyped logprobs the provider would reject.
+    with pytest.raises(ParameterValidationError):
+        LOGPROBS_SCHEMA.validate_value(1)
+    with pytest.raises(ParameterValidationError):
+        LOGPROBS_SCHEMA.validate_value("true")
+
+
+def test_top_logprobs_schema_accepts_the_inclusive_bounds() -> None:
+    # OpenAI's documented range is 0..20 inclusive; both bounds and a mid value are valid.
+    TOP_LOGPROBS_SCHEMA.validate_value(0)
+    TOP_LOGPROBS_SCHEMA.validate_value(5)
+    TOP_LOGPROBS_SCHEMA.validate_value(20)
+
+
+def test_top_logprobs_schema_rejects_out_of_range() -> None:
+    # just outside 0..20 fails closed — the gateway enforces the provider's real bound.
+    with pytest.raises(ParameterValidationError):
+        TOP_LOGPROBS_SCHEMA.validate_value(21)
+    with pytest.raises(ParameterValidationError):
+        TOP_LOGPROBS_SCHEMA.validate_value(-1)
+
+
+def test_top_logprobs_schema_rejects_a_boolean_and_a_non_integer() -> None:
+    # INVARIANT: bool subclasses int but must NOT satisfy an integer schema; a float is
+    # not an integer count of tokens. Both fail closed at classification.
+    with pytest.raises(ParameterValidationError):
+        TOP_LOGPROBS_SCHEMA.validate_value(True)
+    with pytest.raises(ParameterValidationError):
+        TOP_LOGPROBS_SCHEMA.validate_value(2.5)

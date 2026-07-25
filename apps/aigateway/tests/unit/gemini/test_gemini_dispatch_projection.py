@@ -400,3 +400,20 @@ def test_penalties_fail_closed_because_gemini_builder_renders_neither() -> None:
         with pytest.raises(UnsupportedParametersError) as exc:
             _project(plugin, body, "api_key")
         assert exc.value.rejected.get(path) == "unknown"
+
+
+# --- OME-595 (§9): logprobs + top_logprobs are EXCLUDED on Gemini ------------
+
+
+def test_logprobs_fail_closed_because_gemini_builder_renders_neither() -> None:
+    # §9: build_generate_content_body's config_map renders only max_tokens/temperature/
+    # top_p/top_k (+ stop/tools) — neither logprobs field has a wire home, so both are
+    # intentionally UNRULED. A caller value is unknown to the rule set and rejected at
+    # classification, before any dispatch — the exclusion is pinned by a test, not silent.
+    plugin = GeminiProviderPlugin()
+    for path, value in (("logprobs", True), ("top_logprobs", 5)):
+        body = _caller_body()
+        body[path] = value
+        with pytest.raises(UnsupportedParametersError) as exc:
+            _project(plugin, body, "api_key")
+        assert exc.value.rejected.get(path) == "unknown"

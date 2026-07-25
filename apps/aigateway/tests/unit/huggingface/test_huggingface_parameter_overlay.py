@@ -193,3 +193,20 @@ def test_frequency_and_presence_penalty_are_enabled_with_evidence() -> None:
         assert entry["gateway"]["status"] == "enabled", path
         assert entry["provider"]["support"] == "supported", path
         assert entry["provider"]["source"] == "huggingface:static", path
+
+
+# --- OME-595: logprobs + top_logprobs overlay --------------------------------
+#
+# FEATURE: output introspection. HF's router is OpenAI-compatible; the installed
+# HuggingFaceChatConfig transform forwards both fields VERBATIM (§9 probe), so both are
+# ENABLED and evidenced from the labelled-static source (each newly added via a direct
+# observation — neither was in the sampling constant before).
+
+
+def test_logprobs_and_top_logprobs_are_enabled_with_evidence() -> None:
+    params = _parameters()
+    for path in ("logprobs", "top_logprobs"):
+        entry = params[path]
+        assert entry["gateway"]["status"] == "enabled", path
+        assert entry["provider"]["support"] == "supported", path
+        assert entry["provider"]["source"] == "huggingface:static", path

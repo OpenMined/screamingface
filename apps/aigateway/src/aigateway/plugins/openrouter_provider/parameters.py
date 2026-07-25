@@ -14,6 +14,7 @@ from __future__ import annotations
 from aigateway.core.chat_parameters import ParameterProjectionRule, ToolCapability
 from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
+    LOGPROBS_SCHEMA,
     MAX_TOKENS_SCHEMA,
     N_SCHEMA,
     PENALTY_SCHEMA,
@@ -22,6 +23,7 @@ from aigateway.core.standard_parameters import (
     STOP_SCHEMA,
     TEMPERATURE_SCHEMA,
     TOP_K_SCHEMA,
+    TOP_LOGPROBS_SCHEMA,
     direct_rule,
     function_calling_rules,
     provider_native_rule,
@@ -72,6 +74,15 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     ),
     direct_rule(
         "presence_penalty", auth_modes=_AUTH, schema=PENALTY_SCHEMA, projection_revision=_REVISION
+    ),
+    # OME-595: logprobs + top_logprobs output-introspection controls. The installed litellm
+    # OpenRouter transform forwards both VERBATIM (§9 probe), so each is a direct passthrough:
+    # logprobs gated as a boolean, top_logprobs as a bounded integer (0..20).
+    direct_rule(
+        "logprobs", auth_modes=_AUTH, schema=LOGPROBS_SCHEMA, projection_revision=_REVISION
+    ),
+    direct_rule(
+        "top_logprobs", auth_modes=_AUTH, schema=TOP_LOGPROBS_SCHEMA, projection_revision=_REVISION
     ),
     # WHY: OpenRouter-native routing controls are complex nested values with no
     # scalar schema; a schema-less rule authorizes the path and forwards the

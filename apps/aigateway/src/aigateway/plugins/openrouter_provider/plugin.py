@@ -329,7 +329,9 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                 openrouter_chat_parameter_tools(model=model, auth_type=auth_type),
                 source=LOCAL_SOURCE,
             )
-            + direct_parameter_observations(("response_format", "n"), source=LOCAL_SOURCE)
+            + direct_parameter_observations(
+                ("response_format", "n", "logprobs", "top_logprobs"), source=LOCAL_SOURCE
+            )
         )
 
     async def discover_chat_parameter_snapshot(

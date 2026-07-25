@@ -133,7 +133,9 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
                 huggingface_chat_parameter_tools(model=model, auth_type=auth_type),
                 source=STATIC_SOURCE,
             )
-            + direct_parameter_observations(("response_format", "n"), source=STATIC_SOURCE)
+            + direct_parameter_observations(
+                ("response_format", "n", "logprobs", "top_logprobs"), source=STATIC_SOURCE
+            )
         )
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:

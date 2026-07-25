@@ -449,3 +449,55 @@ def test_penalties_survive_installed_litellm_openrouter_transform() -> None:
     )
     assert wire["frequency_penalty"] == 0.5
     assert wire["presence_penalty"] == -0.5
+
+
+# --- OME-595 (§9): logprobs + top_logprobs reach dispatch + transform --------
+
+
+def test_logprobs_reach_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"logprobs": True, "top_logprobs": 5})
+    assert resp.status_code == 200, resp.text
+    assert captured["logprobs"] is True
+    assert captured["top_logprobs"] == 5
+
+
+def test_out_of_range_top_logprobs_rejects_before_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"top_logprobs": 21})  # above the max of 20
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["rejected"] == {"top_logprobs": "malformed"}
+    assert captured == {}  # fail closed: no provider call happened
+
+
+def test_logprobs_survive_installed_litellm_openrouter_transform() -> None:
+    # FINAL-TRANSFORM PROOF (plan §6.1/§9): both fields are enabled ONLY because the
+    # INSTALLED litellm openrouter transform carries them onto the wire body VERBATIM.
+    # Mirrors the §9 probe's exact path; this test is the tripwire if litellm changes it.
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+
+    upstream = "google/gemini-2.0-flash-001"
+    cfg = OpenrouterConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"logprobs": True, "top_logprobs": 20},
+        optional_params={},
+        model=upstream,
+        drop_params=False,
+    )
+    wire = cfg.transform_request(
+        model=upstream,
+        messages=[{"role": "user", "content": "hi"}],
+        optional_params=mapped,
+        litellm_params={},
+        headers={},
+    )
+    assert wire["logprobs"] is True
+    assert wire["top_logprobs"] == 20

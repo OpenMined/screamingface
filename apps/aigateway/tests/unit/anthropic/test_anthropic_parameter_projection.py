@@ -460,3 +460,29 @@ def test_penalties_fail_closed_before_dispatch() -> None:
                 auth_mode="api_key",
             )
         assert exc.value.rejected == {path: "unknown"}
+
+
+# --- OME-595: logprobs + top_logprobs are UNRULED for Anthropic --------------
+#
+# The installed AnthropicConfig's get_supported_openai_params carries NEITHER field (§9
+# probe: map_openai_params drops both), so they have no home on the Anthropic wire. They are
+# intentionally UNRULED; a caller value fails closed at classification. Pinned by a test so
+# the exclusion is deliberate, not accidental omission.
+
+
+def test_logprobs_are_not_ruled_for_anthropic() -> None:
+    ruled = {r.request_path for r in _rules(None)}
+    assert "logprobs" not in ruled
+    assert "top_logprobs" not in ruled
+
+
+def test_logprobs_fail_closed_before_dispatch() -> None:
+    plugin = AnthropicProviderPlugin()
+    for path, value in (("logprobs", True), ("top_logprobs", 5)):
+        with pytest.raises(UnsupportedParametersError) as exc:
+            classify_and_project_chat_parameters(
+                {"model": _MODEL, "messages": _MESSAGES, path: value},
+                rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+                auth_mode="api_key",
+            )
+        assert exc.value.rejected == {path: "unknown"}

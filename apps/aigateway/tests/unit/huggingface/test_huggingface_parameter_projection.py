@@ -330,3 +330,55 @@ def test_out_of_range_presence_penalty_is_rejected_fail_closed() -> None:
             auth_mode="api_key",
         )
     assert exc.value.rejected == {"presence_penalty": "malformed"}
+
+
+# --- OME-595 (§9): logprobs + top_logprobs -----------------------------------
+
+
+def test_logprobs_are_ruled() -> None:
+    rules = HuggingFaceProviderPlugin().chat_parameter_rules(model=_MODEL, auth_type="api_key")
+    assert {"logprobs", "top_logprobs"} <= {rule.request_path for rule in rules}
+
+
+def test_logprobs_reach_installed_final_transform() -> None:
+    prepared = _dispatch_body(
+        {
+            "model": _MODEL,
+            "messages": _MESSAGES,
+            "logprobs": True,
+            "top_logprobs": 5,
+        }
+    )
+    # AIGateway-owned boundary: the gateway forwards both at the top level.
+    assert prepared["logprobs"] is True
+    assert prepared["top_logprobs"] == 5
+    # Installed final transform (litellm HuggingFaceChatConfig): both reach the outbound
+    # provider body VERBATIM — pinned against the installed library, not assumed.
+    cfg = HuggingFaceChatConfig()
+    mapped = cfg.map_openai_params(
+        non_default_params={"logprobs": True, "top_logprobs": 5},
+        optional_params={},
+        model=_UPSTREAM,
+        drop_params=False,
+    )
+    body = cfg.transform_request(
+        model=_UPSTREAM,
+        messages=prepared["messages"],
+        optional_params=mapped,
+        litellm_params={"api_base": prepared["api_base"]},
+        headers={},
+    )
+    assert body["logprobs"] is True
+    assert body["top_logprobs"] == 5
+
+
+def test_out_of_range_top_logprobs_is_rejected_fail_closed() -> None:
+    plugin = HuggingFaceProviderPlugin()
+    with pytest.raises(UnsupportedParametersError) as exc:
+        # 21 is above the maximum of 20 → fails closed as malformed at classification.
+        classify_and_project_chat_parameters(
+            {"model": _MODEL, "messages": _MESSAGES, "top_logprobs": 21},
+            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+            auth_mode="api_key",
+        )
+    assert exc.value.rejected == {"top_logprobs": "malformed"}

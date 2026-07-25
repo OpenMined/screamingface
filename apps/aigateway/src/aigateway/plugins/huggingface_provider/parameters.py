@@ -12,9 +12,9 @@ separate catalog evidence and never enables an ordinary parameter here.
 # AIDEV-NOTE: ``top_p`` is OBSERVED (labelled-static) but deliberately left UNRULED in
 # v1 — it surfaces visible-but-disabled. Promote it only by adding its rule here with a
 # matching installed-transform characterization test (purely additive). ``stop`` (string |
-# array[string]), ``seed`` / ``n`` (OME-585), and ``frequency_penalty`` /
-# ``presence_penalty`` (OME-586) are now ruled; the installed transform forwards each
-# verbatim.
+# array[string]), ``seed`` / ``n`` (OME-585), ``frequency_penalty`` / ``presence_penalty``
+# (OME-586), and ``logprobs`` / ``top_logprobs`` (OME-595) are now ruled; the installed
+# transform forwards each verbatim.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from __future__ import annotations
 from aigateway.core.chat_parameters import ParameterProjectionRule, ToolCapability
 from aigateway.core.profile_models import AuthType
 from aigateway.core.standard_parameters import (
+    LOGPROBS_SCHEMA,
     MAX_TOKENS_SCHEMA,
     N_SCHEMA,
     PENALTY_SCHEMA,
@@ -29,6 +30,7 @@ from aigateway.core.standard_parameters import (
     SEED_SCHEMA,
     STOP_SCHEMA,
     TEMPERATURE_SCHEMA,
+    TOP_LOGPROBS_SCHEMA,
     direct_rule,
     function_calling_rules,
 )
@@ -79,6 +81,15 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     ),
     direct_rule(
         "presence_penalty", auth_modes=_AUTH, schema=PENALTY_SCHEMA, projection_revision=_REVISION
+    ),
+    # OME-595: logprobs + top_logprobs output-introspection controls. The installed
+    # HuggingFaceChatConfig transform forwards both VERBATIM (§9 probe), so each is a direct
+    # passthrough: logprobs gated as a boolean, top_logprobs as a bounded integer (0..20).
+    direct_rule(
+        "logprobs", auth_modes=_AUTH, schema=LOGPROBS_SCHEMA, projection_revision=_REVISION
+    ),
+    direct_rule(
+        "top_logprobs", auth_modes=_AUTH, schema=TOP_LOGPROBS_SCHEMA, projection_revision=_REVISION
     ),
     # OME-583: tools + tool_choice (OpenAI-native, §9 installed-transform proof).
     *function_calling_rules(_TOOL_CAPABILITIES, auth_modes=_AUTH, projection_revision=_REVISION),

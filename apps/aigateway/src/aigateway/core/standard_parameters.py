@@ -61,6 +61,14 @@ SEED_SCHEMA = ParameterSchema(type="integer")
 # ``n`` (OME-585): the number of chat completions to generate — at least one. A value
 # below 1 (e.g. 0) or a non-integer fails closed at classification.
 N_SCHEMA = ParameterSchema(type="integer", minimum=1)
+# ``logprobs`` (OME-595): OpenAI's on/off switch for returning per-token log
+# probabilities. A boolean — an int (even 0/1) or any other type fails closed, so the
+# gateway never forwards a mistyped value the provider would reject.
+LOGPROBS_SCHEMA = ParameterSchema(type="boolean")
+# ``top_logprobs`` (OME-595): how many alternative tokens to return per position, each with
+# its log probability. OpenAI's documented range is an integer 0..20 INCLUSIVE; a value
+# outside it, a boolean, or a non-integer fails closed at classification.
+TOP_LOGPROBS_SCHEMA = ParameterSchema(type="integer", minimum=0, maximum=20)
 
 
 def direct_rule(
