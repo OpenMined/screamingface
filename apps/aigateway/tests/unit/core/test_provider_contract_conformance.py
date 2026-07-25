@@ -27,7 +27,7 @@ from aigateway.core.chat_parameters import normalize_rules
 from aigateway.core.loader import load_plugins
 from aigateway.core.model_capabilities import canonical_model_id, model_row
 from aigateway.core.model_parameter_contract import build_model_parameter_document
-from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS
+from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS, wrapper_path_conflicts
 from aigateway.core.profile_models import AuthType
 from aigateway.core.registry import ProviderRegistry
 
@@ -181,6 +181,35 @@ def test_every_enabled_param_is_fully_evidenced() -> None:
                 assert entry_dict["provider"]["support"] == "supported", where
                 assert entry_dict["provider"]["source"] != "none", where
     # item-4 non-vacuity: the loop actually inspected enabled params somewhere.
+    assert examined >= 1
+
+
+def test_registered_providers_agree_on_which_natives_ride_the_wrapper() -> None:
+    # INVARIANT (OME-599): a provider states "this native rides the provider_params.*
+    # wrapper" in TWO hand-synced places — its discovery literal and its provider_native
+    # rule — and neither imports the other. If they drift, the same field is described at
+    # two request paths at once (the rule wrapped, the observation bare), and the contract
+    # lists it twice.
+    #
+    # WHY this guard is needed despite test_every_enabled_param_is_fully_evidenced: that
+    # test only inspects ENABLED entries, so it catches drift solely in an auth mode where
+    # the rule applies. In a mode where the rule is DISABLED the field silently moves to the
+    # bare path and nothing complains. Checking the None (summary) view AND every real mode
+    # closes that gap, and naming the field reports the actual cause instead of a downstream
+    # "enabled but unevidenced" symptom.
+    examined = 0
+    for plugin, _entry, canonical in _iter_models():
+        for mode in (None, *plugin.available_auth_modes()):
+            paths = [
+                rule.request_path
+                for rule in plugin.chat_parameter_rules(model=canonical, auth_type=mode)
+            ]
+            paths += [
+                obs.request_path
+                for obs in plugin.chat_parameter_observations(model=canonical, auth_type=mode)
+            ]
+            assert wrapper_path_conflicts(paths) == (), (canonical, mode)
+            examined += 1
     assert examined >= 1
 
 

@@ -29,6 +29,7 @@ from aigateway.core.chat_parameters import (
 from aigateway.core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
+    wrapper_path_conflicts,
 )
 from aigateway.core.profile_models import AuthType
 
@@ -258,3 +259,70 @@ def test_every_summary_path_is_accepted_by_dispatch_for_that_auth_mode() -> None
     out = _classify(body, rules=rules, auth_mode="api_key")
     assert out["temperature"] == 1.0
     assert out["max_tokens"] == 8
+
+
+# --- wrapper-path agreement (OME-599) ----------------------------------------
+#
+# INVARIANT: within one provider view a native name is addressed at EXACTLY ONE
+# path — never at both its bare name and its provider_params.* path. A provider
+# states "this field rides the wrapper" in two hand-synced places (its discovery
+# literal and its provider_native rule), and nothing imports one from the other;
+# if they drift, the SAME field is described at two paths at once.
+#
+# WHY a dedicated predicate rather than relying on evidence checks: drift is only
+# caught transitively where the rule is ENABLED (there the wrapped entry goes
+# unevidenced). In an auth mode where the rule is disabled the field just moves to
+# the bare path and nothing complains. This predicate is auth-mode independent.
+#
+# NOTE this is a DIFFERENT invariant from OME-597's one-rule-per-target: that one
+# stops two rules racing to one wire field; this one stops the rule set and the
+# evidence set from disagreeing about where a field lives.
+
+
+def test_bare_and_wrapped_form_of_one_native_is_a_conflict() -> None:
+    assert wrapper_path_conflicts({"top_k", "provider_params.top_k"}) == ("top_k",)
+
+
+def test_wrapped_only_is_coherent() -> None:
+    assert wrapper_path_conflicts({"temperature", "provider_params.top_k"}) == ()
+
+
+def test_bare_only_is_coherent() -> None:
+    assert wrapper_path_conflicts({"temperature", "top_k", "max_tokens"}) == ()
+
+
+def test_no_paths_is_coherent() -> None:
+    assert wrapper_path_conflicts(()) == ()
+
+
+def test_every_conflict_is_reported_sorted_and_deterministic() -> None:
+    conflicts = wrapper_path_conflicts(
+        [
+            "zeta",
+            "provider_params.zeta",
+            "alpha",
+            "provider_params.alpha",
+            "provider_params.only_wrapped",
+        ]
+    )
+    assert conflicts == ("alpha", "zeta")
+
+
+def test_nested_native_under_the_wrapper_does_not_false_positive_on_its_prefix() -> None:
+    # WHY: the native name is the WHOLE remainder after the wrapper prefix.
+    # "provider_params.a.b" addresses field "a.b", which is NOT the field "a", so a
+    # bare "a" alongside it is coherent — a naive first-segment split would flag it.
+    assert wrapper_path_conflicts({"a", "provider_params.a.b"}) == ()
+    assert wrapper_path_conflicts({"a.b", "provider_params.a.b"}) == ("a.b",)
+
+
+def test_the_bare_wrapper_key_itself_is_not_treated_as_a_native() -> None:
+    # "provider_params" with no dotted suffix addresses the wrapper object, not a
+    # native field; it must never be read as a conflict with anything.
+    assert wrapper_path_conflicts({"provider_params", "top_k"}) == ()
+
+
+def test_accepts_any_iterable_and_tolerates_duplicates() -> None:
+    # Callers pass the UNION of rule paths and observation paths, which is a plain
+    # iterable that may repeat a path; the result must not depend on multiplicity.
+    assert wrapper_path_conflicts(["top_k", "top_k", "provider_params.top_k"]) == ("top_k",)

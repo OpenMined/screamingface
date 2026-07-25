@@ -58,6 +58,31 @@ GATEWAY_OWNED_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+
+def wrapper_path_conflicts(request_paths: Iterable[str]) -> tuple[str, ...]:
+    """Native names addressed at BOTH their bare path and their wrapper path.
+
+    INVARIANT: within one provider view a native field is addressed at EXACTLY ONE
+    request path — either bare (``top_k``) or wrapped (``provider_params.top_k``),
+    never both. A provider states "this field rides the wrapper" twice — once in its
+    discovery literal, once via its ``provider_native`` rule — and neither file
+    imports the other, so the two can drift; when they do, the same field is
+    described at two paths and the contract lists it twice.
+
+    PUBLIC and provider-agnostic: callers pass the UNION of a provider's rule paths
+    and observation paths (any iterable, duplicates fine) and get back the offending
+    native names, sorted, so the failure can NAME the drifted field rather than
+    surfacing later as a confusing "enabled but unevidenced" entry.
+
+    WHY the whole remainder is the native name: ``provider_params.a.b`` addresses the
+    field ``a.b``, NOT ``a`` — splitting on the first dot would false-positive against
+    an unrelated bare ``a``.
+    """
+    paths = set(request_paths)
+    wrapped = {path[len(_WRAPPER_PREFIX) :] for path in paths if path.startswith(_WRAPPER_PREFIX)}
+    return tuple(sorted(wrapped & paths))
+
+
 # Rejection reason codes: safe to return to the caller (no raw value leaks).
 _REASON_UNKNOWN = "unknown"
 _REASON_WRONG_AUTH = "wrong_auth_mode"
