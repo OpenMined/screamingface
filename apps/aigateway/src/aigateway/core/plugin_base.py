@@ -268,9 +268,23 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         INVARIANT (§4.2/§5.2): the async sibling of
         ``chat_parameter_observations``. It fetches this provider's FIXED public
         documents through the INJECTED bounded transport (never a raw client,
-        never a caller-supplied URL, never a credential) and returns sanitized
-        None on any failure. It NEVER runs on the chat dispatch path, and — like
-        an observation — it NEVER enables a parameter; only a rule does.
+        never a caller-supplied URL, never a credential). It NEVER runs on the
+        chat dispatch path, and — like an observation — it NEVER enables a
+        parameter; only a rule does.
+
+        INVARIANT (§5.3): three outcomes, three signals, because a consumer must
+        be able to tell an OUTAGE from an absence of evidence:
+
+        - ``ProviderDiscoverySnapshot`` — the source was reached. An EMPTY
+          snapshot is the honest "reached it; this model is not listed".
+        - raises sanitized ``DiscoveryError`` — the fetch was attempted and
+          FAILED. ``ObservationCache`` maps this to its stale/degraded paths.
+        - ``None`` — NO ATTEMPT was made, and no connection was opened.
+
+        AIDEV-NOTE: ``None`` must not be widened back to cover failure. The cache
+        treats every normal return as a successful refresh, so a ``None`` returned
+        for a failure is stored labelled ``fresh`` and evicts the last good
+        snapshot — the contract then claims currency it never had.
 
         Default: None — no dynamic source; the caller relies on labelled-local
         observations alone.

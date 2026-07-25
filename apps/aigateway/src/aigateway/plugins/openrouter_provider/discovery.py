@@ -28,7 +28,6 @@ from aigateway.core.chat_parameters import (
     ProviderParameterObservation,
 )
 from aigateway.core.parameter_discovery import (
-    DiscoveryError,
     DiscoveryHttpClient,
     DiscoveryLimits,
     fetch_discovery_json,
@@ -174,27 +173,29 @@ async def discover_openrouter_snapshot(
     *,
     client: DiscoveryHttpClient,
     limits: DiscoveryLimits | None = None,
-) -> ProviderDiscoverySnapshot | None:
-    """Fetch the FIXED public catalog and return per-model evidence, or None.
+) -> ProviderDiscoverySnapshot:
+    """Fetch the FIXED public catalog and return per-model evidence.
 
-    # INVARIANT (§5.3): a sanitized ``DiscoveryError`` (unreachable / bad shape)
-    # means discovery could observe nothing — return None so the caller falls
-    # back to labelled-local evidence. A SUCCESSFUL fetch whose catalog lacks the
-    # model returns a present-but-empty snapshot (honest "reached, found
-    # nothing"), which is distinct from a failure and never fabricates support.
+    # INVARIANT (§5.3): reaching the source and failing to reach it are DIFFERENT
+    # outcomes and get different signals. A successful fetch whose catalog lacks
+    # the model returns a present-but-empty snapshot — the honest "reached it,
+    # found nothing" — while a sanitized ``DiscoveryError`` PROPAGATES.
+    # AIDEV-NOTE: do not reintroduce a ``return None`` here. Swallowing made a
+    # failure indistinguishable from "no evidence", and ``ObservationCache`` reads
+    # any normal return as a successful refresh — so a swallowed outage was stored
+    # labelled ``fresh``, evicting the last good snapshot. Raising is precisely
+    # what routes it to the stale/degraded paths. It also preserves the reason
+    # code, which ``None`` discards.
     # INVARIANT (§5.1): only per-model evidence is populated here; endpoint
     # evidence keeps its own (empty) field — the live OpenAPI fetch is wired
     # separately and must not be conflated with per-model support.
     """
-    try:
-        catalog = await fetch_discovery_json(
-            MODELS_URL,
-            allowed_origins=ALLOWED_ORIGINS,
-            client=client,
-            limits=limits or DiscoveryLimits(),
-        )
-    except DiscoveryError:
-        return None
+    catalog = await fetch_discovery_json(
+        MODELS_URL,
+        allowed_origins=ALLOWED_ORIGINS,
+        client=client,
+        limits=limits or DiscoveryLimits(),
+    )
     model_observations = parse_model_catalog_observations(
         catalog, upstream_model_id=upstream_model_id
     )

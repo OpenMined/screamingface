@@ -345,9 +345,11 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # upstream id the public catalog is keyed by — the SAME rule as
         # prepare_chat_body, so discovery and dispatch agree on identity. A value
         # that is not a valid gateway id is not dispatchable, so there is nothing
-        # to discover: fail closed to None WITHOUT opening a connection.
+        # to discover: return None WITHOUT opening a connection — NOT ATTEMPTED,
+        # which is a different claim from "attempted and failed".
         # INVARIANT: never enables a parameter (only a rule does); off the chat
-        # dispatch path; sanitized/degraded (None) on any fetch failure.
+        # dispatch path; a sanitized DiscoveryError from the fetch PROPAGATES so
+        # the cache can degrade honestly rather than store a failure as fresh.
         if not model.startswith(GATEWAY_MODEL_PREFIX):
             return None
         upstream = model[len(GATEWAY_MODEL_PREFIX) :]
