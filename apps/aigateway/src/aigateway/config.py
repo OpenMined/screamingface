@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -46,6 +47,13 @@ class Settings(BaseSettings):
     # that never echoes the value.
     secret_key: SecretStr | None = Field(default=None, validation_alias="AIGATEWAY_SECRET_KEY")
     secret_provider: str = Field(default="local", validation_alias="AIGATEWAY_SECRET_PROVIDER")
+
+    # "byok": each account authenticates providers with its own OAuthConnection/api-key
+    # (default, current behavior, unchanged). "shared": every account uses the admin-
+    # provisioned GlobalCredentialPool for a provider instead; per-account usage/audit
+    # attribution is unaffected either way, since it comes from current_account(), not
+    # from which credential backs the call.
+    credential_mode: str = Field(default="byok", validation_alias="AIGATEWAY_CREDENTIAL_MODE")
 
     retry_max_attempts: int = Field(default=3, validation_alias="AIGW_RETRY_MAX_ATTEMPTS")
     retry_backoff_base_seconds: float = Field(
@@ -131,4 +139,12 @@ class Settings(BaseSettings):
         normalized = value.lower()
         if normalized not in {"local", "kms"}:
             raise ValueError("AIGATEWAY_SECRET_PROVIDER must be 'local' or 'kms'")
+        return normalized
+
+    @field_validator("credential_mode")
+    @classmethod
+    def _validate_credential_mode(cls, value: str) -> str:
+        normalized = value.lower()
+        if normalized not in {"byok", "shared"}:
+            raise ValueError("AIGATEWAY_CREDENTIAL_MODE must be 'byok' or 'shared'")
         return normalized

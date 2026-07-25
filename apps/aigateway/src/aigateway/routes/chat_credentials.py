@@ -8,10 +8,11 @@ Phase 1) behind characterization tests; behavior is unchanged.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException, Request
 
+from ..core.credential_pool.store import GlobalCredentialPoolStore, global_pool_credential_key_for
 from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.models import OAuthConnection
@@ -112,6 +113,10 @@ async def _active_oauth_connection_for_profile(
     )
 
 
+def _credential_mode(request: Request) -> str:
+    return getattr(request.app.state.settings, "credential_mode", "byok")
+
+
 async def _credential_target_for_chat(
     request: Request,
     *,
@@ -120,6 +125,13 @@ async def _credential_target_for_chat(
     profile_name: str,
     plugin: Any,
 ) -> tuple[Profile | None, OAuthConnection | None, ProfileDefaults]:
+    if _credential_mode(request) == "shared":
+        # Shared mode never consults per-account Profiles/OAuthConnections —
+        # the credential comes from the provider's GlobalCredentialPool,
+        # resolved later in _inject_credentials. account_id is intentionally
+        # not used for credential resolution here.
+        return None, None, ProfileDefaults()
+
     idx: ProfileIndexStore = request.app.state.profile_index
     profile = await idx.get(account_id, provider, profile_name)
     if profile is None:
@@ -258,6 +270,74 @@ def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any
     return body
 
 
+async def _inject_shared_pool_credentials(
+    request: Request,
+    *,
+    plugin: Any,
+    provider: str,
+    body: dict[str, Any],
+) -> tuple[str | None, AuthType]:
+    """Shared-mode counterpart of _inject_credentials: resolve the provider's
+    active GlobalCredentialPool instead of a per-account profile/connection.
+
+    Pool credential errors are surfaced as 401s but never mark anything error
+    (there is no per-account row to mark) — reconciling a bad shared key is an
+    admin action via /v1/admin/credential-pools, out of scope for a chat
+    request. See docs/spec/2026-07-24-aigateway-shared-credential-pools-spec.md.
+    """
+    pool = await GlobalCredentialPoolStore().get_active_for_provider(provider)
+    if pool is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "credential_pool_not_configured",
+                "provider": provider,
+                "message": (
+                    f"no shared credential configured for provider={provider}; contact an admin"
+                ),
+            },
+        )
+    credential_name = global_pool_credential_key_for(pool.id)
+    auth_type = cast(AuthType, pool.auth_type)
+    strategy = credential_strategy_cache(request.app).get_or_create(
+        provider=provider,
+        auth_type=auth_type,
+        credential_name=credential_name,
+        build=lambda: credential_strategy_from(
+            plugin,
+            credential_name,
+            auth_type=auth_type,
+            credential_store=request.app.state.credential_store,
+            http_client_factory=getattr(request.app.state, f"{provider}_http_factory", None),
+        ),
+    )
+    if strategy is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "api_key_not_supported", "provider": provider},
+        )
+    try:
+        headers = await strategy.get_authorization_header()
+    except (CredentialNotFoundError, AuthError) as exc:
+        credential_strategy_cache(request.app).evict(credential_name)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "shared_credential_invalid",
+                "provider": provider,
+                "message": str(exc),
+            },
+        ) from exc
+    auth_value = headers.pop("Authorization", None)
+    if auth_value and auth_value.lower().startswith("bearer "):
+        body["api_key"] = auth_value.split(" ", 1)[1]
+    if headers:
+        merged = dict(body.get("extra_headers") or {})
+        merged.update(headers)
+        body["extra_headers"] = merged
+    return credential_name, auth_type
+
+
 async def _inject_credentials(
     request: Request,
     *,
@@ -273,6 +353,10 @@ async def _inject_credentials(
     into ``body``; returns ``(credential_name, auth_type)`` for later dispatch
     failure handling. Raises 401 (marking profile/connection errored) when
     stored credentials are unusable."""
+    if _credential_mode(request) == "shared":
+        return await _inject_shared_pool_credentials(
+            request, plugin=plugin, provider=provider, body=body
+        )
     strategy, credential_name, auth_type = _strategy_for_credential_target(
         request,
         plugin,

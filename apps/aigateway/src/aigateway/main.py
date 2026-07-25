@@ -36,6 +36,7 @@ from .routes import (
     auth,
     auth_session,
     chat,
+    credential_pools,
     health,
     models,
     oauth_connections,
@@ -256,6 +257,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_key_validation.router)
     app.include_router(auth.router)
     app.include_router(oauth_connections.router)
+    app.include_router(credential_pools.router)
     app.include_router(health.router)
     app.include_router(models.router)
     app.include_router(chat.router)

@@ -17,6 +17,7 @@ class BaseAccount(Model):
     created_at = fields.DatetimeField(auto_now_add=True)
     last_login_at = fields.DatetimeField(null=True)
     is_active = fields.BooleanField(default=True)
+    is_admin = fields.BooleanField(default=False, db_default="false")
 
 
 class Account(BaseAccount):

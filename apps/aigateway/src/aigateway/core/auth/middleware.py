@@ -53,3 +53,12 @@ async def current_account(request: Request) -> BaseAccount:
 
 
 CurrentAccount = Annotated[BaseAccount, Depends(current_account)]
+
+
+async def current_admin_account(account: CurrentAccount) -> BaseAccount:
+    if not account.is_admin:
+        raise HTTPException(status_code=403, detail={"code": "admin_required"})
+    return account
+
+
+CurrentAdminAccount = Annotated[BaseAccount, Depends(current_admin_account)]
