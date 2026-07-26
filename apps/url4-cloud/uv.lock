@@ -2361,7 +2361,7 @@ notebook = [{ name = "graphviz", specifier = ">=0.20" }]
 [[package]]
 name = "url4-cloud"
 version = "0.1.0"
-source = { editable = "dispatcher" }
+source = { editable = "backend" }
 dependencies = [
     { name = "fastapi" },
     { name = "kubernetes" },
@@ -2416,7 +2416,7 @@ examples = [
 
 [package.metadata]
 requires-dist = [
-    { name = "url4-cloud", editable = "dispatcher" },
+    { name = "url4-cloud", editable = "backend" },
     { name = "url4-cloud-runner", editable = "runner" },
 ]
 
