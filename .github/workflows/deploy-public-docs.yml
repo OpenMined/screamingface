@@ -1,0 +1,40 @@
+name: Deploy public-docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "public-docs/**"
+      - ".github/workflows/deploy-public-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-public-docs
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build
+        working-directory: public-docs
+        run: npm ci && npm run build
+
+      - name: Rsync dist to VM
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DOCS_VM_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DOCS_VM_HOST }}" >> ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key "${{ secrets.DOCS_VM_USER }}@${{ secrets.DOCS_VM_HOST }}" 'mkdir -p ~/screamingface/public-docs/dist'
+          rsync -az --delete -e "ssh -i ~/.ssh/deploy_key" \
+            public-docs/dist/ "${{ secrets.DOCS_VM_USER }}@${{ secrets.DOCS_VM_HOST }}:~/screamingface/public-docs/dist/"
