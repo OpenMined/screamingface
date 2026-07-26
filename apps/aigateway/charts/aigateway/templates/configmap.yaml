@@ -10,6 +10,7 @@ data:
   AIGW_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
   AIGATEWAY_AUTH_ENABLED: {{ .Values.config.authEnabled | quote }}
   AIGATEWAY_JWT_TTL_SECONDS: {{ .Values.config.jwtTtlSeconds | quote }}
+  AIGATEWAY_CREDENTIAL_MODE: {{ .Values.config.credentialMode | quote }}
   AIGATEWAY_PUBLIC_URL: {{ .Values.publicUrl | quote }}
   {{- if .Values.config.cfAccess.enabled }}
   # Cloudflare Access (OME-588). Team domain and AUD are NON-SECRET by design —

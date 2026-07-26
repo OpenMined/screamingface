@@ -34,6 +34,15 @@ config:
   authEnabled: true
   jwtTtlSeconds: 86400
 
+  # How a chat request finds a provider credential.
+  #   byok    — each account authenticates with its own connection/api-key (default).
+  #   shared  — every account uses the admin-provisioned GlobalCredentialPool for the
+  #             provider instead. Usage attribution is unaffected: it comes from the
+  #             authenticated account, not from which credential backed the call.
+  # Provision a pool with POST /v1/admin/credential-pools as an admin account.
+  # Invalid values are rejected at gateway startup, not here — one source of truth.
+  credentialMode: byok
+
   # Cloudflare Access federated authentication. Users admitted by the Access
   # policy get accounts provisioned just-in-time; no registration, no /login.
   #
