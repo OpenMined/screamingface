@@ -44,7 +44,18 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "aigateway.fullname" . }}
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
           env:
+            {{- with .Values.extraEnv }}
+            {{- /* INVARIANT: extras are emitted FIRST, before the secret-backed entries
+                   below. Kubernetes applies duplicate env names last-wins, so putting
+                   these first means an extraEnv entry can never shadow
+                   AIGATEWAY_DATABASE_URL / _JWT_SECRET / _ADMIN_PASSWORD — the chart's
+                   own wiring always takes precedence over operator-supplied extras. */}}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
             - name: AIGATEWAY_DATABASE_URL
               valueFrom:
                 secretKeyRef:

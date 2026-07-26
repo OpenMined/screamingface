@@ -9,6 +9,20 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# Raw core/v1 EnvVar / EnvFromSource entries appended to the gateway container.
+# The escape hatch for application settings the chart does not template — notably the
+# per-provider plugin gates (`AIGW_<PROVIDER>_*`), e.g. the OpenRouter plugin, which
+# ships disabled and fail-closed:
+#
+#   extraEnv:
+#     - name: AIGW_OPENROUTER_ENABLED
+#       value: "true"
+#
+# Emitted BEFORE the chart's own secret-backed env, so these can never shadow
+# AIGATEWAY_DATABASE_URL / _JWT_SECRET / _ADMIN_PASSWORD (k8s duplicate env is last-wins).
+extraEnv: []
+extraEnvFrom: []
+
 serviceAccount:
   create: true
   annotations: {}
