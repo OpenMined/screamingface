@@ -145,7 +145,6 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
             _field("tools", _mono(tools)),
             _field("max tool calls", escape(tool_calls)),
             _field("source", escape(_benchmark_source(benchmark)), wide=True),
-            _field("grader", _grader_detail(benchmark.grader), wide=True),
         )
     )
     return (
@@ -153,6 +152,7 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(benchmark.title)}</span>"
         "<span class='sf-card__kicker'>benchmark</span></div>"
         f"<div class='sf-card__grid'>{fields}</div>"
+        f"{_section('grader', _grader_detail(benchmark.grader))}"
         f"{_benchmark_routes(benchmark)}</div>"
     )
 
@@ -256,15 +256,20 @@ def _reducer_label(reducer: object) -> str:
     return f"{kind} · {route}" if route is not None else kind
 
 
+def _section(title: str, body_html: str) -> str:
+    """An always-visible titled detail section (not collapsed)."""
+
+    return (
+        f"<div class='sf-section'><div class='sf-section__title'>{escape(title)}</div>"
+        f"{body_html}</div>"
+    )
+
+
 def _fusion_detail_html(fusion: Fusion) -> str:
-    """A collapsed section exposing each member's and the reducer's prompt + params."""
+    """Separate, always-visible members and reducer sections (long prompts still collapse)."""
 
     items = "".join(_member_detail(member) for member in fusion.members)
-    return (
-        "<details class='sf-detail'><summary class='sf-summary'>"
-        "<span class='sf-card__k'>members &amp; reducer</span></summary>"
-        f"{items}{_reducer_detail(fusion.reducer)}</details>"
-    )
+    return _section("members", items) + _section("reducer", _reducer_detail(fusion.reducer))
 
 
 def _member_detail(member: object) -> str:
@@ -286,7 +291,7 @@ def _member_detail(member: object) -> str:
 
 def _reducer_detail(reducer: object) -> str:
     kind = str(getattr(reducer, "kind", "reducer")).replace("_", " ")
-    header = f"<div class='sf-detail__name'>reducer · {escape(kind)}</div>"
+    header = f"<div class='sf-detail__name'>{escape(kind)}</div>"
     route = getattr(reducer, "model", None)
     if route is None:  # deterministic reducer (e.g. MajorityVote)
         return (

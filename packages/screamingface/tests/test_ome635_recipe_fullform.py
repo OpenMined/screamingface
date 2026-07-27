@@ -53,8 +53,8 @@ def test_fusion_card_exposes_member_and_reducer_detail_collapsed() -> None:
 
     html = fusion._repr_html_()
 
-    assert "members &amp; reducer" in html
-    assert "sf-detail" in html
+    assert "<div class='sf-section__title'>members</div>" in html
+    assert "<div class='sf-section__title'>reducer</div>" in html
     assert "Be concise." in html  # member prompt
     assert "temperature=0" in html  # member params
     assert "deterministic" in html  # MajorityVote reducer has no prompt/params

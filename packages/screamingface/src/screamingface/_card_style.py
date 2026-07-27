@@ -63,8 +63,10 @@ details[open] > .sf-summary::before{content:'▾'}
 .sf-more__preview{color:var(--sf-ink-3);font-style:italic}
 .sf-more__full{margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere;
   background:var(--sf-surface);padding:6px 8px;font-size:12px;color:var(--sf-ink-2)}
-/* fusion members & reducer detail */
-.sf-detail{margin-top:8px;border-top:1px solid var(--sf-line);padding-top:8px}
+/* always-visible detail sections (members, reducer, grader) */
+.sf-section{margin-top:8px;border-top:1px solid var(--sf-line);padding:8px 12px 0}
+.sf-section__title{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--sf-ink-3)}
 .sf-detail__item{border-left:2px solid var(--sf-line-2);padding:2px 0 6px 10px;margin-top:6px}
 .sf-detail__name{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
   font-weight:600;color:var(--sf-gain)}
