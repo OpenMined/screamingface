@@ -176,5 +176,6 @@ against a stub aigateway exercising two distinct credentials and one credential-
 
 ## Out of scope
 
-Runner refactor (spec §10) · anonymous access · any url4-cloud-held credential ·
+Serving the Runner (spec §10 — ruled out, not deferred) · anonymous access · any
+url4-cloud-held credential ·
 reading `AIGATEWAY_CREDENTIAL_MODE` (spec §2.2) · pagination · any aigateway change.

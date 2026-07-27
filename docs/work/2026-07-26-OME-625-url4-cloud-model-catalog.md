@@ -13,12 +13,12 @@ finished:
 `apps/url4-cloud` exposes no way to discover which models a run can address: the HTTP surface
 is `POST /token`, `GET /?q=`, `DELETE /`, `WS /ws`, `/healthz` and the ops/docs routes. The
 aigateway catalog is read in exactly one place today — `_list_models` inside the **Runner's**
-connector — so every Runner Job boot pays a fresh upstream `GET /v1/models`, and no client can
+connector — where it is consumed inside a Job Pod and never surfaced, so no user, UI, or SDK can
 learn the addressable model set before composing an expression.
 
 This unit adds a read-only, cached `GET /v1/models` to the url4-cloud **backend**, proxied from
-aigateway. It is the discovery primitive a UI/SDK needs, and it establishes the caching seam a
-later ticket can point the Runner at.
+aigateway. It is a **user-facing** discovery primitive; the Runner is deliberately not a consumer
+and keeps its own `_list_models` (owner, 2026-07-26).
 
 ## Decisions
 

@@ -35,11 +35,12 @@ way to learn which `model` paths are addressable.
 
 The aigateway catalog is read in exactly one place today: `_list_models` in the **Runner's**
 connector (`runner/src/url4_cloud_runner/aigateway_connector.py`), invoked from
-`build_aigateway_world`. Two consequences:
+`build_aigateway_world`. It is consumed inside a Job Pod and **never surfaced** — so there is no
+answer a user or an SDK can ask for.
 
-- **No caching exists anywhere.** Every Runner Job boot issues a fresh upstream
-  `GET /v1/models` — one upstream request per run.
-- **The catalog is invisible to clients.** It is consumed inside a Job Pod and never surfaced.
+> **This endpoint is a USER-FACING surface** (owner, 2026-07-26). It exists so a human, a UI, or
+> an SDK can discover the addressable model set. The Runner is deliberately **not** a consumer and
+> keeps its own `_list_models` — see §1.3 and §10.
 
 ### 1.2 What this adds
 
@@ -50,7 +51,7 @@ concurrency bulkhead.
 
 ### 1.3 Non-goals
 
-- Repointing the Runner's `_list_models` at this endpoint (follow-up; §10).
+- **Serving the Runner.** The Runner is not a consumer of this endpoint, now or later (§10).
 - Anonymous / pre-authentication access (§3 D1).
 - url4-cloud holding any aigateway credential of its own (§3 D2).
 - url4-cloud interpreting or reshaping the catalog.
@@ -310,13 +311,26 @@ cache hits, misses, stale-serves, upstream failures, bulkhead waits, and live en
 Without these, "is the cache working in prod" is unanswerable. **No metric is labelled by
 credential or cache key** — that would reintroduce the identity leak at the metrics endpoint.
 
-## 10. Follow-up (not this ticket)
+## 10. The Runner is not a consumer
 
-Repointing the Runner's `build_aigateway_world` at this cached endpoint would remove the
-per-Job-boot upstream fetch — the larger latency win. It needs its own spec: it introduces a
-Runner→backend dependency on the run-critical path and must define behaviour when the backend is
-unreachable but aigateway is not. r3 makes this straightforward: the Runner already holds a
-per-run forwarded credential, which is exactly the key this cache expects.
+An earlier draft floated repointing the Runner's `build_aigateway_world` at this endpoint to save
+its per-Job-boot upstream fetch. **The owner ruled that out on 2026-07-26: this endpoint is for
+users.** Recorded here so the idea is not rediscovered as an optimisation.
+
+Why it would be a poor trade even ignoring intent: it puts a Runner→backend hop on the
+run-critical path, so a backend blip could fail runs that aigateway alone would have served — a
+strictly worse availability story than the Runner's current direct call. The Runner keeps
+`_list_models`; the duplication between it and §6.1 is deliberate (they parse for different
+purposes — see the `AIDEV-NOTE` in `catalog/aigateway.py`).
+
+### Open question for the user-facing direction
+
+There is **no CORS handling anywhere in url4-cloud** — not in the app, not in the chart. Any
+browser client on a different origin will be blocked, and the required `Authorization` /
+`Cf-Access-Jwt-Assertion` headers guarantee a preflight. This is pre-existing and applies equally
+to `POST /token` and `GET /?q=`, so it is out of scope here, but it is the next thing a
+browser-based consumer will hit. It needs its own ticket and a deliberate origin allowlist —
+never `*`, since these are credentialed requests.
 
 ## 11. Acceptance
 
