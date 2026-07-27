@@ -1,12 +1,12 @@
 ---
 id: OME-633
 linear_url: https://linear.app/openmined/issue/OME-633
-status: In Progress
+status: Done
 type: Task
 priority: P2
 labels: [url4-sdk, autonomous, agentic, task]
 created: 2026-07-27
-closed:
+closed: 2026-07-27
 ---
 
 # Typecheck error in test_observe.py keeps the url4 CI gate red

@@ -1,9 +1,9 @@
 ---
 ticket: OME-633
 stack: url4
-status: in_progress
+status: done
 started: 2026-07-27
-finished:
+finished: 2026-07-27
 ---
 
 # OME-633 — typecheck error in test_observe.py keeps the url4 CI gate red
@@ -64,7 +64,8 @@ with the corpus typed.
 ## Outcome
 
 - **Actual files:** as planned — `packages/url4/tests/unit/test_observe.py` only (+2/−1).
-- **Commits:** see the OME-633 commit on `OME-587-url4-cloud-engine-integration`.
+- **Commits:** `4f8330aa` — fix(url4): type the observation-seam corpus so the url4 CI gate can run.
+- **CI:** `url4 Tests` green on 3.12 and 3.13; every check on PR #425 now passes.
 - **Gates:** `run_gates.py url4 --skip-append-only` — **ALL GATES GREEN** (ruff check · ruff
   format · pyright · pytest+coverage vs the 95% floor). Suite **677 passed**.
 - **Deviations:**
@@ -78,8 +79,8 @@ with the corpus typed.
     assertions, zero fixtures and zero test bodies, and all 677 pre-existing tests still
     pass unchanged. Recorded rather than silently skipped, per the Confidence Gate.
   - One environment finding, not a code change: this
-  worktree's `packages/url4/.venv` still carried stale absolute shebangs from the
-  `url4-integration` rename, so `conftest.py` could not import `url4` at all and no local
-  test run was trustworthy until `rm -rf .venv && uv sync --all-extras`. Same root cause
-  recorded in [[OME-623]]/[[OME-624]] — third occurrence, now on the `url4` stack rather
-  than `url4-cloud`.
+    worktree's `packages/url4/.venv` still carried stale absolute shebangs from the
+    `url4-integration` rename, so `conftest.py` could not import `url4` at all and no local
+    test run was trustworthy until `rm -rf .venv && uv sync --all-extras`. Same root cause
+    recorded in [[OME-623]]/[[OME-624]] — third occurrence, now on the `url4` stack rather
+    than `url4-cloud`.
