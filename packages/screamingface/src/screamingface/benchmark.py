@@ -55,6 +55,11 @@ class Case:
         assert isinstance(value, dict)
         return value
 
+    def _repr_html_(self) -> str:
+        from screamingface._card_display import case_card_html
+
+        return case_card_html(self)
+
     def _to_wire(self) -> dict[str, object]:
         return {
             "id": self.id,

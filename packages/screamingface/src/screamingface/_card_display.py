@@ -8,6 +8,7 @@ inventing it would violate the SDK's "simulated but honest" stance.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from html import escape
 from typing import TYPE_CHECKING
@@ -16,8 +17,10 @@ from screamingface._display import STYLE
 
 if TYPE_CHECKING:
     from screamingface._profile import BenchmarkRecord, ModelRecord
-    from screamingface.benchmark import Benchmark
+    from screamingface.benchmark import Benchmark, Case
+    from screamingface.connections import Connection
     from screamingface.fusion import Fusion
+    from screamingface.graders import Rubric
     from screamingface.model import Model
 
 _STYLE = (
@@ -163,6 +166,82 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
     )
 
 
+def connection_card_html(connection: Connection) -> str:
+    """Render one sanitized Connection as a branded status card."""
+
+    account = connection.account_label or "—"
+    method = connection.auth_method or "—"
+    fields = "".join(
+        (
+            _field("provider", f"<span class='sf-mono'>{escape(connection.provider)}</span>"),
+            _field("status", escape(connection.status.replace("_", " "))),
+            _field("auth method", escape(method)),
+            _field("account", escape(account)),
+            _field(
+                "auth methods",
+                f"<span class='sf-mono'>{escape(', '.join(connection.auth_methods))}</span>",
+                wide=True,
+            ),
+        )
+    )
+    return (
+        f"{_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace connection'>"
+        f"<div class='sf-card__head'>"
+        f"<span class='sf-card__title'>{escape(connection.display_name)}</span>"
+        "<span class='sf-card__kicker'>connection</span></div>"
+        f"<div class='sf-card__grid'>{fields}</div></div>"
+    )
+
+
+def case_card_html(case: Case) -> str:
+    """Render one benchmark Case as a branded card of its authoring fields."""
+
+    fields = "".join(
+        (
+            _field("input", escape(case.input), wide=True),
+            _field(
+                "reference",
+                f"<span class='sf-mono'>{escape(_json(case.reference))}</span>",
+                wide=True,
+            ),
+            _field(
+                "metadata",
+                f"<span class='sf-mono'>{escape(_json(case.metadata))}</span>",
+                wide=True,
+            ),
+        )
+    )
+    return (
+        f"{_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace case'>"
+        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(case.id)}</span>"
+        "<span class='sf-card__kicker'>case</span></div>"
+        f"<div class='sf-card__grid'>{fields}</div></div>"
+    )
+
+
+def rubric_card_html(rubric: Rubric) -> str:
+    """Render one Rubric grader as a branded card: judge model, passes, params, prompt."""
+
+    fields = "".join(
+        (
+            _field("model", f"<span class='sf-mono'>{escape(rubric.model)}</span>"),
+            _field("passes", str(rubric.passes)),
+            _field("params", _params_text(rubric.params), wide=True),
+            _field("prompt", escape(rubric.prompt), wide=True),
+        )
+    )
+    return (
+        f"{_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace rubric grader'>"
+        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(rubric.model)}</span>"
+        "<span class='sf-card__kicker'>rubric grader</span></div>"
+        f"<div class='sf-card__grid'>{fields}</div></div>"
+    )
+
+
+def _json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
 def _recipe_html(url4: str) -> str:
     return (
         "<div class='sf-card__recipe'><div class='sf-card__k'>url4</div>"
@@ -236,8 +315,11 @@ def catalog_html(title: str, aria: str, count: int, rows: str) -> str:
 __all__ = [
     "benchmark_card_html",
     "benchmarks_rows_html",
+    "case_card_html",
     "catalog_html",
+    "connection_card_html",
     "fusion_card_html",
     "model_card_html",
     "models_rows_html",
+    "rubric_card_html",
 ]
