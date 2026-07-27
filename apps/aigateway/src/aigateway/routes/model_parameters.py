@@ -126,6 +126,17 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     # fetch on a contract it will never serve.
     discovered = await _discovery_outcome(request, plugin, model=model)
 
+    # OME-629: the observed snapshot reaches the EVIDENCE argument and nothing else.
+    # `rules` above is computed independently of `discovered`, so gateway.status,
+    # the /v1/models summary and dispatch are identical whether this read hit a warm
+    # cache, a cold one, or a degraded source — only the reported provider evidence
+    # and its freshness move.
+    observations = plugin.overlay_discovered_observations(
+        plugin.chat_parameter_observations(model=model, auth_type=auth_mode),
+        discovered.snapshot,
+        stale=bool(discovered.freshness.get("stale")),
+    )
+
     return build_model_parameter_document(
         canonical_id=model,
         gateway_provider=provider,
@@ -133,7 +144,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         scope="account_profile",
         context_identity=_context_identity(account_id, profile, connection),
         rules=plugin.chat_parameter_rules(model=model, auth_type=auth_mode),
-        observations=plugin.chat_parameter_observations(model=model, auth_type=auth_mode),
+        observations=observations,
         tools=plugin.chat_parameter_tools(model=model, auth_type=auth_mode),
         transport=plugin.chat_transport_capabilities(model=model, auth_type=auth_mode),
         freshness=discovered.freshness,

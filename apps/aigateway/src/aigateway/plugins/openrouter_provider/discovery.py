@@ -26,6 +26,7 @@ from typing import Any
 from aigateway.core.chat_parameters import (
     ProviderDiscoverySnapshot,
     ProviderParameterObservation,
+    ProviderSupport,
 )
 from aigateway.core.parameter_discovery import (
     DiscoveryHttpClient,
@@ -58,10 +59,12 @@ def _request_path(catalog_param: str) -> str:
     return catalog_param
 
 
-def _observation(catalog_param: str, *, source: str) -> ProviderParameterObservation:
+def _observation(
+    catalog_param: str, *, source: str, support: ProviderSupport = "supported"
+) -> ProviderParameterObservation:
     return ProviderParameterObservation(
         request_path=_request_path(catalog_param),
-        support="supported",
+        support=support,
         source=source,
     )
 
@@ -75,14 +78,66 @@ def _dedup_sorted(
     return tuple(by_path[path] for path in sorted(by_path))
 
 
+def _listed_parameters(row: Any) -> set[str] | None:
+    """The row's ``supported_parameters`` as a name set, or None when unreadable."""
+    if not isinstance(row, Mapping):
+        return None
+    params = row.get("supported_parameters")
+    if not isinstance(params, list):
+        return None
+    # Gateway-owned fields are protocol plumbing, never model parameters; excluding
+    # them here keeps them out of BOTH the vocabulary and the verdicts, so a row
+    # that omits one can never produce an "unsupported stream" contract row.
+    return {
+        param
+        for param in params
+        if isinstance(param, str) and param and param not in GATEWAY_OWNED_FIELDS
+    }
+
+
+def _catalog_vocabulary(rows: list[Any]) -> frozenset[str]:
+    """Every parameter name this catalog DOCUMENT tracks, across all its rows.
+
+    # WHY derived from the payload instead of a reviewed constant: it is what makes
+    # the closed-world reading below sound. A name some row lists is demonstrably
+    # part of OpenRouter's capability vocabulary, so another row's omission of it
+    # is a real signal. A name NO row mentions is one the catalog does not model at
+    # all (``n``, ``logprobs``), and calling that "unsupported" would fabricate a
+    # negative — and wrongly overwrite reviewed labelled-local evidence for a field
+    # the endpoint does accept. A constant would also silently rot as OpenRouter's
+    # vocabulary grows; the document cannot.
+    """
+    vocabulary: set[str] = set()
+    for row in rows:
+        listed = _listed_parameters(row)
+        if listed is not None:
+            vocabulary |= listed
+    return frozenset(vocabulary)
+
+
 def parse_model_catalog_observations(
     catalog: Any, *, upstream_model_id: str
 ) -> tuple[ProviderParameterObservation, ...]:
     """Per-model evidence from the public ``/api/v1/models`` catalog.
 
-    ``supported_parameters`` for the matching row becomes positive per-model
-    evidence; the catalog only lists SUPPORTED fields, so an unlisted field is
-    left unknown (no observation), never marked unsupported.
+    CLOSED-WORLD INSIDE A PRESENT ROW (OME-629). OpenRouter documents
+    ``supported_parameters`` as "array of supported API parameters for this model"
+    and lets the catalog be FILTERED by it (``/models?supported_parameters=tools``),
+    which only works if each array is complete enough for negative filtering. So
+    within a row that exists and parses, an omission is a genuine ``unsupported``
+    verdict — but only for a name the document's own vocabulary proves the catalog
+    tracks (see ``_catalog_vocabulary``); outside that vocabulary the source is
+    SILENT, and silence yields no observation in either direction.
+
+    # AIDEV-NOTE: this REPLACES the earlier open-world reading ("an unlisted field
+    # is left unknown, never marked unsupported"), which made every model's
+    # evidence a subset of the same static inventory and could never report a
+    # per-model gap. Reverting it would silently re-break that.
+    # INVARIANT: an unreadable document, an absent row, or a malformed array yields
+    # NO observations — the labelled-local evidence then serves. Absence of a
+    # readable source is never turned into a wall of negatives.
+    # INVARIANT: this is EVIDENCE. A negative verdict here narrows what the contract
+    # CLAIMS; it never disables a rule and never blocks dispatch.
     """
     if not isinstance(catalog, Mapping):
         return ()
@@ -95,13 +150,19 @@ def parse_model_catalog_observations(
     )
     if row is None:
         return ()
-    params = row.get("supported_parameters")
-    if not isinstance(params, list):
+    supported = _listed_parameters(row)
+    if supported is None:
         return ()
-    observed = [
-        _observation(param, source=MODEL_SOURCE) for param in params if isinstance(param, str)
-    ]
-    return _dedup_sorted(observed)
+    return _dedup_sorted(
+        [
+            _observation(
+                param,
+                source=MODEL_SOURCE,
+                support="supported" if param in supported else "unsupported",
+            )
+            for param in _catalog_vocabulary(data)
+        ]
+    )
 
 
 def parse_openapi_endpoint_observations(
@@ -162,10 +223,14 @@ REVIEWED_ENDPOINT_OBSERVATIONS: tuple[ProviderParameterObservation, ...] = _dedu
 )
 
 
-# Source identity for a LIVE snapshot's revision. The cache TTL — not this
-# constant — governs freshness; the revision distinguishes source IDENTITY (live
-# catalog vs a labelled-static fallback), so a stable label is the right value.
-_LIVE_REVISION = "openrouter:models:live"
+# Source identity for a LIVE snapshot, and the cache revision it is stored under.
+# The cache TTL — not this constant — governs freshness; the revision identifies
+# the SOURCE together with the gateway-side READING of it.
+# AIDEV-NOTE: bump this whenever the reading changes, not only when the URL does.
+# The 2026-07 value marks the closed-world reading (OME-629): the same bytes now
+# yield different verdicts, so entries cached under the previous open-world label
+# must not be reused. That is precisely what the revision guard is for.
+MODEL_SOURCE_REVISION = "openrouter:models:closed-world-2026-07"
 
 
 async def discover_openrouter_snapshot(
@@ -200,6 +265,6 @@ async def discover_openrouter_snapshot(
         catalog, upstream_model_id=upstream_model_id
     )
     return ProviderDiscoverySnapshot(
-        source_revision=_LIVE_REVISION,
+        source_revision=MODEL_SOURCE_REVISION,
         model_observations=model_observations,
     )

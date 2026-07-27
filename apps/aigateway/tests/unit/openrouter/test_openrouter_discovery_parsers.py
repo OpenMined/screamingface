@@ -93,8 +93,13 @@ def test_model_catalog_extracts_supported_parameters() -> None:
     paths = _paths(obs)
     # standard OpenAI-compatible fields keep their identity path
     assert {"temperature", "top_p", "max_tokens", "tools", "tool_choice"} <= paths
-    # every observation is per-model evidence, positively supported
+    # every observation is per-model evidence
     assert all(o.source == "openrouter:models" for o in obs)
+    # AIDEV-NOTE: all-positive is a property of THIS fixture, not of the parser —
+    # its target row happens to list the whole document's vocabulary. Since OME-629
+    # the reading is closed-world: a vocabulary name a present row omits is a real
+    # `unsupported` verdict (see test_openrouter_catalog_evidence). Do not read this
+    # assertion as "the catalog only ever yields positives".
     assert all(o.support == "supported" for o in obs)
 
 

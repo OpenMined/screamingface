@@ -141,6 +141,31 @@ def credential_blobs(tmp_path: Path, monkeypatch) -> CredentialBlobProbe:
 
 
 @pytest.fixture(autouse=True)
+def _no_discovery_egress(monkeypatch):
+    """INVARIANT: the unit suite never dials a real public catalog.
+
+    # WHY a guard rather than trust: a provider now DECLARES a discovery source
+    # (OME-629), so any test that enables that provider and reads
+    # /v1/model-parameters would otherwise reach the live internet — silently
+    # passing on a good network and flaking on a bad one.
+    # WHY only the default transport: ``HttpxDiscoveryClient`` is legitimately
+    # exercised with an injected ``httpx.MockTransport``; production builds it with
+    # none. Gating on that keeps those tests running the real adapter code while
+    # blocking exactly the path that opens a socket.
+    """
+    from aigateway.core.parameter_discovery import HttpxDiscoveryClient
+
+    real_get = HttpxDiscoveryClient.get
+
+    async def _guarded(self, url: str, *, timeout_s: float, max_bytes: int):
+        if self._transport is None:
+            raise AssertionError(f"test attempted real discovery egress to {url}")
+        return await real_get(self, url, timeout_s=timeout_s, max_bytes=max_bytes)
+
+    monkeypatch.setattr(HttpxDiscoveryClient, "get", _guarded)
+
+
+@pytest.fixture(autouse=True)
 def _fast_bcrypt(monkeypatch):
     from aigateway.core.auth import passwords
 

@@ -12,7 +12,7 @@ from .api_key_validation import ApiKeyValidator
 # Runtime (not TYPE_CHECKING) import: the default transport capability is
 # CONSTRUCTED here, not merely annotated. Safe — ``chat_parameters`` is pure core
 # vocabulary and imports nothing that reaches this module.
-from .chat_parameters import stream_transport_capability
+from .chat_parameters import overlay_observations, stream_transport_capability
 
 if TYPE_CHECKING:
     from .chat_parameters import (
@@ -274,6 +274,37 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         labelled-local observations alone.
         """
         return None
+
+    def overlay_discovered_observations(
+        self,
+        observations: tuple[ProviderParameterObservation, ...],
+        snapshot: ProviderDiscoverySnapshot | None,
+        *,
+        stale: bool = False,
+    ) -> tuple[ProviderParameterObservation, ...]:
+        """Fold a discovered snapshot into this provider's labelled-local evidence.
+
+        INVARIANT (§5.1): per-model evidence is the MORE SPECIFIC claim, so it is
+        applied last and wins over endpoint evidence for a shared path. Both remain
+        strictly evidence — the result is fed to ``compose_contract_entries``
+        alongside the rules, which alone decide ``gateway.status``.
+
+        INVARIANT: ``snapshot is None`` (no dynamic source, NOT ATTEMPTED, or a
+        degraded read past the stale window) returns the labelled-local evidence
+        UNCHANGED. A discovery outage must never empty the contract, and must never
+        be dressed up as a per-model verdict.
+
+        The default is ACTIVE, not a stub: the merge is provider-agnostic, so a
+        plugin that declares a source gets the reviewed behaviour for free.
+        Override only for a genuinely different precedence.
+        """
+        if snapshot is None:
+            return observations
+        return overlay_observations(
+            observations,
+            snapshot.endpoint_observations + snapshot.model_observations,
+            stale=stale,
+        )
 
     async def discover_chat_parameter_snapshot(
         self,

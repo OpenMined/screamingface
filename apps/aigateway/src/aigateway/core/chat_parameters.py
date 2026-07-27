@@ -438,6 +438,40 @@ def inline_supported_parameters(
     )
 
 
+def overlay_observations(
+    base: Iterable[ProviderParameterObservation],
+    overlay: Iterable[ProviderParameterObservation],
+    *,
+    stale: bool = False,
+) -> tuple[ProviderParameterObservation, ...]:
+    """Merge dynamic evidence over labelled-local evidence, one verdict per path.
+
+    FEATURE: model-specific provider evidence. A provider's reviewed
+    labelled-local observations describe its ENDPOINT and cannot vary by model; a
+    discovered snapshot describes ONE model. Where both speak, the more specific
+    claim decides — so the detailed contract stops reporting the same evidence for
+    every model of a provider.
+
+    INVARIANT (evidence axis only): this moves ``support`` / ``source`` / ``stale``
+    and may ADD a path the base never knew. It returns observations, never rules —
+    so nothing here can enable a parameter, change the ``/v1/models`` summary, or
+    authorize dispatch. A path the overlay is SILENT about keeps its base verdict:
+    a partial source must never read as a denial.
+
+    ``stale`` is the CACHE's verdict about this particular read, so it is stamped
+    onto the overlay entries here rather than carried by the parser — and it is set
+    in both directions, so a fresh read can never inherit a stale label.
+    """
+    merged = {observation.request_path: observation for observation in base}
+    for observation in overlay:
+        merged[observation.request_path] = (
+            observation
+            if observation.stale == stale
+            else observation.model_copy(update={"stale": stale})
+        )
+    return tuple(merged[path] for path in sorted(merged))
+
+
 def supported_tool_types(tools: Iterable[ToolCapability]) -> tuple[str, ...]:
     """Sorted accepted tool-type values whose gateway status is enabled."""
     return tuple(sorted({tool.tool_type for tool in tools if tool.gateway_status == "enabled"}))

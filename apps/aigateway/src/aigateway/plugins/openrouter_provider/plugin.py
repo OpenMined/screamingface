@@ -28,6 +28,7 @@ from fastapi import HTTPException
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.parameter_discovery import DiscoverySourceRef
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelEntry,
@@ -40,7 +41,13 @@ from aigateway.core.standard_parameters import (
 )
 
 from .api_key_validation import OpenRouterApiKeyValidator
-from .discovery import LOCAL_SOURCE, REVIEWED_ENDPOINT_OBSERVATIONS, discover_openrouter_snapshot
+from .discovery import (
+    LOCAL_SOURCE,
+    MODEL_SOURCE,
+    MODEL_SOURCE_REVISION,
+    REVIEWED_ENDPOINT_OBSERVATIONS,
+    discover_openrouter_snapshot,
+)
 from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
 from .provenance import converter_error_status, is_http200_body_error
 from .response_errors import (
@@ -73,6 +80,21 @@ if TYPE_CHECKING:
 def _credential_service_for(profile_name: str) -> str:
     """Namespace the stored credential slot by provider + profile/connection."""
     return f"aigateway:openrouter:{profile_name}"
+
+
+def _upstream_model_for_discovery(model: str) -> str | None:
+    """The upstream catalog key for a gateway id, or None when there is none.
+
+    ONE predicate shared by ``chat_discovery_source`` and
+    ``discover_chat_parameter_snapshot``: the source declaration and the fetch must
+    agree on exactly which ids are discoverable, or the runtime sees a provider that
+    promised evidence and then reported NO ATTEMPT. It applies the SAME strip as
+    ``prepare_chat_body``, so discovery and dispatch also agree on model identity.
+    """
+    if not model.startswith(GATEWAY_MODEL_PREFIX):
+        return None
+    upstream = model[len(GATEWAY_MODEL_PREFIX) :]
+    return upstream if is_valid_upstream_model_id(upstream) else None
 
 
 # D7: the gateway owns routing — every dispatch goes to the official API base.
@@ -334,6 +356,19 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             )
         )
 
+    def chat_discovery_source(self, *, model: str) -> DiscoverySourceRef | None:
+        # OME-629: declare the public catalog BEFORE any fetch, so the observation
+        # cache can judge a stored entry's trustworthiness without paying for a
+        # round trip. The revision names the reading as well as the source.
+        # INVARIANT: the SAME predicate gates both hooks — a model this provider
+        # cannot dispatch has nothing to discover. Owning it here (rather than only
+        # in the fetch) makes "declared a source, then reported NOT ATTEMPTED"
+        # structurally unreachable, which is the one inconsistency the runtime
+        # cannot distinguish from a real outage.
+        if _upstream_model_for_discovery(model) is None:
+            return None
+        return DiscoverySourceRef(source=MODEL_SOURCE, revision=MODEL_SOURCE_REVISION)
+
     async def discover_chat_parameter_snapshot(
         self,
         *,
@@ -350,10 +385,8 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # INVARIANT: never enables a parameter (only a rule does); off the chat
         # dispatch path; a sanitized DiscoveryError from the fetch PROPAGATES so
         # the cache can degrade honestly rather than store a failure as fresh.
-        if not model.startswith(GATEWAY_MODEL_PREFIX):
-            return None
-        upstream = model[len(GATEWAY_MODEL_PREFIX) :]
-        if not is_valid_upstream_model_id(upstream):
+        upstream = _upstream_model_for_discovery(model)
+        if upstream is None:
             return None
         return await discover_openrouter_snapshot(upstream, client=client, limits=limits)
 
