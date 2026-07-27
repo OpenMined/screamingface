@@ -15,6 +15,7 @@ import pytest
 
 from url4.core.errors import ResolutionError
 from url4.dag import run
+from url4.dag.node import DagNode
 from url4.io.static import StaticIOLayer
 from url4.observe import (
     Log,
@@ -243,7 +244,7 @@ async def test_log_emits_log_event_with_current_span() -> None:
     assert log.span_id == node_starts[0].span_id
 
 
-_CORPUS: list[object] = [
+_CORPUS: list[str | DagNode] = [
     "https://a!go",
     "(a=https://x, use $a, also $a)!both: $a",
     "(a=https://x;optional, use $a)!go",
