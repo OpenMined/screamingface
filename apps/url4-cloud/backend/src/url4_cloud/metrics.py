@@ -7,9 +7,12 @@ so it never buffers responses or perturbs the WebSocket/streaming paths — it o
 on ``http.response.start``.
 """
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from prometheus_client import CollectorRegistry, Counter
+from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
@@ -62,3 +65,64 @@ def _metrics_of(scope: Scope) -> Metrics | None:
     state = getattr(app, "state", None)
     metrics = getattr(state, "metrics", None)
     return metrics if isinstance(metrics, Metrics) else None
+
+
+class _CatalogCollector:
+    """Reads the catalog cache's counters at SCRAPE time (spec §9).
+
+    WHY a collector rather than ``Counter.inc()`` calls inside the cache: the cache keeps plain
+    ints so its own tests need no registry, and pulling at scrape time cannot double-count or
+    drift from the real values.
+
+    INVARIANT: no metric here carries a label. ``/metrics`` is scraped by infrastructure and is
+    often widely readable, so labelling by credential or cache key would reintroduce at the metrics
+    endpoint exactly the identity leak the hashed cache key exists to prevent.
+    """
+
+    def __init__(self, get_service: Callable[[], Any]) -> None:
+        self._get_service = get_service
+
+    def collect(self) -> Iterable[Any]:
+        service = self._get_service()
+        counters = getattr(service, "counters", None)
+        if counters is None:
+            return
+        yield CounterMetricFamily(
+            "url4_cloud_catalog_cache_hits",
+            "Catalog served from a fresh cache entry.",
+            value=counters.hits,
+        )
+        yield CounterMetricFamily(
+            "url4_cloud_catalog_cache_misses",
+            "Catalog fetched from aigateway.",
+            value=counters.misses,
+        )
+        yield CounterMetricFamily(
+            "url4_cloud_catalog_stale_serves",
+            "Stale catalog served because a refresh failed.",
+            value=counters.stale_serves,
+        )
+        yield CounterMetricFamily(
+            "url4_cloud_catalog_errors",
+            "Upstream catalog fetches that failed.",
+            value=counters.errors,
+        )
+        yield CounterMetricFamily(
+            "url4_cloud_catalog_bulkhead_waits",
+            "Catalog fetches that waited on the upstream concurrency bulkhead.",
+            value=counters.bulkhead_waits,
+        )
+        yield GaugeMetricFamily(
+            "url4_cloud_catalog_entries",
+            "Cached catalog entries currently held.",
+            value=float(getattr(service, "entry_count", 0)),
+        )
+
+
+def register_catalog_metrics(metrics: Metrics, get_service: Callable[[], Any]) -> None:
+    """Expose the catalog cache's counters on ``metrics.registry``.
+
+    ``get_service`` is read lazily so an app whose catalog is injected after build still reports,
+    and an app with no catalog simply contributes no series.
+    """
+    metrics.registry.register(_CatalogCollector(get_service))

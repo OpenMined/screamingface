@@ -36,6 +36,9 @@ data:
   {{- with .Values.config.aigatewayBaseUrl }}
   # Forwarded into every Runner Job as AIGATEWAY_BASE_URL. The Runner's own fallback is loopback,
   # which inside a Job Pod is that Pod — so this must name the aigateway Service to reach it.
+  # ALSO enables the App's own `GET /v1/models` catalog endpoint (OME-625), which proxies
+  # aigateway using the CALLER's forwarded credential — it needs no credential of its own, so this
+  # URL is the only thing that switches the endpoint on. Unset => `/v1/models` answers 503.
   URL4_CLOUD_AIGATEWAY_BASE_URL: {{ . | quote }}
   {{- end }}
   {{- if .Values.tavily.enabled }}

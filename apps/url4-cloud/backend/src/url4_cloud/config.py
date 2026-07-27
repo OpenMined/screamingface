@@ -71,6 +71,26 @@ class Settings(BaseSettings):
     # supplies the numbers. Shape is the k8s `resources` block verbatim, e.g.
     # {"requests": {"cpu": "200m", "memory": "256Mi"}, "limits": {"memory": "1Gi"}}.
     runner_resources: dict[str, dict[str, str]] | None = None
+    # --- model catalog (OME-625). The catalog endpoint forwards the CALLER's credential, so
+    # there is deliberately NO credential setting here: url4-cloud holds no aigateway secret.
+    # `aigateway_base_url` above is the only precondition for the feature.
+    #
+    # WHY a TTL at all: the catalog is a provider registry — it changes on deploy, not on traffic.
+    models_cache_ttl_s: float = 300.0
+    # WHY a ceiling on stale service: an outage should not empty every client's model list, but an
+    # indefinitely stale catalog would advertise models that may since have been retired.
+    models_cache_stale_max_s: float = 3600.0
+    # WHY: single-flight collapses CONCURRENT misses; this bounds SEQUENTIAL retries so a warm
+    # caller polling through an aigateway outage does not hit upstream on every request.
+    models_cache_error_backoff_s: float = 30.0
+    # INVARIANT: cache keys derive from credentials url4-cloud does not verify, so the entry count
+    # must be bounded rather than left to the caller population (spec §7).
+    models_cache_max_entries: int = 256
+    # INVARIANT: distinct credentials bypass single-flight entirely, so this bulkhead is the only
+    # thing bounding concurrent upstream catalog fetches. The apigw is the rate limiter in front;
+    # this is the in-app backstop.
+    models_upstream_concurrency: int = 8
+
     # INVARIANT: a finished Job's NAME is the stateless single-use replay guard, so reclaiming
     # it re-opens replay for that topic — but only for as long as the token is still usable.
     # See `effective_job_ttl_s` and `_reject_replayable_job_ttl`. None => derive the floor.

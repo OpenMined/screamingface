@@ -3,7 +3,7 @@
 import logging
 import os
 import secrets
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -14,13 +14,15 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from url4_cloud.auth import PROBLEM_MEDIA_TYPE, Clock, Problem, install_problem_handlers
+from url4_cloud.catalog import build_catalog_service
+from url4_cloud.catalog.cache import CatalogService
 from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 from url4_cloud.jobs.factory import build_job_runner
 from url4_cloud.jobs.inprocess import InProcessJobRunner
 from url4_cloud.jobs.port import JobRunner
-from url4_cloud.metrics import MetricsMiddleware, build_metrics
+from url4_cloud.metrics import MetricsMiddleware, build_metrics, register_catalog_metrics
 from url4_cloud.ops import router as ops_router
-from url4_cloud.rest import SubscriberGate
+from url4_cloud.rest import SubscriberGate, catalog_router
 from url4_cloud.rest import router as rest_router
 from url4_cloud.schemas import customize_openapi
 from url4_cloud.ws import ConnectionRegistry
@@ -55,8 +57,9 @@ def create_app(
     job_runner: JobRunner | None = None,
     clock: Clock | None = None,
     interest: SubscriberGate | None = None,
+    catalog: CatalogService | None = None,
 ) -> FastAPI:
-    """Build the stateless url4-cloud app; deps (bus/job_runner/clock/interest) are injected."""
+    """Build the stateless url4-cloud app; deps (bus/job_runner/clock/interest/catalog) injected."""
     settings = settings or Settings()
     # WHY: disable FastAPI's built-in Swagger (/docs) + ReDoc (/redoc) — the Scalar reference at
     # /docs replaces them (OME-565). openapi_url stays /openapi.json (FastAPI serves app.openapi()).
@@ -64,9 +67,13 @@ def create_app(
     app.state.settings = settings
     app.state.bus = bus
     app.state.job_runner = job_runner
+    # WHY on state rather than a module global: the catalog cache is per-app, so building two
+    # apps in one test process never shares a warm entry between them.
+    app.state.catalog = catalog
     # WHY: per-app OpenMetrics registry + the ASGI counter shim (§9); state must exist before the
     # middleware sees the first request, so it is set here rather than lazily.
     app.state.metrics = build_metrics()
+    register_catalog_metrics(app.state.metrics, lambda: app.state.catalog)
     app.add_middleware(MetricsMiddleware)
     # INVARIANT: the WS bridge (OME-521) tracks live connections here; it is also the real
     # SubscriberGate the REST 428 guard consumes when no gate is injected (§4). Empty ⇒ 428.
@@ -79,6 +86,7 @@ def create_app(
     install_problem_handlers(app)
     app.include_router(router)
     app.include_router(rest_router)
+    app.include_router(catalog_router)
     app.include_router(ws_router)
     app.include_router(ops_router)
     # WHY: serve the execution-flow diagrams same-origin so Scalar renders them inline in the
@@ -114,9 +122,14 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         logging.warning(
             "URL4_CLOUD_RUNNER is 'none' — this App bridges NATS but cannot schedule runs"
         )
-    app = create_app(settings, bus=bus, job_runner=job_runner)
+    # WHY built here and not in create_app: create_app stays purely dependency-injected so
+    # tests hand it fakes; this env-wired factory is the composition root (spec §6.4).
+    catalog = build_catalog_service(settings)
+    app = create_app(settings, bus=bus, job_runner=job_runner, catalog=catalog)
     # Close the NATS connection on ASGI shutdown (Starlette lifespan hook).
     app.router.on_shutdown.append(bus.close)
+    if catalog is not None:
+        app.router.on_shutdown.append(catalog.aclose)
     return app
 
 
@@ -187,6 +200,29 @@ class _SharedAigatewayWorld:
     world: AigatewayWorld | None = None
 
 
+async def _noop_aclose() -> None:
+    """Teardown for a catalog this process does not own."""
+
+
+def _resolve_catalog(
+    settings: Settings, injected: CatalogService | None
+) -> tuple[CatalogService | None, Callable[[], Awaitable[None]]]:
+    """``(the service to serve, the teardown to run at shutdown)``.
+
+    INVARIANT: close only what you built. An injected service belongs to its injector and, being a
+    bare :class:`~url4_cloud.catalog.cache.CatalogService`, may not even have an ``aclose`` — the
+    same ownership rule ``build_aigateway_world`` applies to an injected httpx client.
+
+    WHY it returns a callable rather than an optional service: the caller can then register
+    teardown unconditionally, keeping the ownership branch here instead of adding one to
+    ``make_local_app``'s already-dense body.
+    """
+    if injected is not None:
+        return injected, _noop_aclose
+    built = build_catalog_service(settings)
+    return built, (_noop_aclose if built is None else built.aclose)
+
+
 def make_local_app(
     *,
     settings: Settings | None = None,
@@ -194,6 +230,7 @@ def make_local_app(
     executor_factory: Callable[[], Executor] | None = None,
     aigateway: AigatewayWorld | None = None,
     aigateway_config: AigatewayConfig | None = None,
+    catalog: CatalogService | None = None,
 ) -> FastAPI:
     """The complete url4-cloud service, entirely in-process: ``InMemoryBus`` +
     ``InProcessJobRunner`` driving the real ``Url4Executor``. Same REST/WS/token protocol as prod
@@ -231,7 +268,10 @@ def make_local_app(
 
     factory = executor_factory or _default_factory
     runner = InProcessJobRunner(bus, factory)
-    app = create_app(settings, bus=bus, job_runner=runner)
+    # WHY local mode gets the catalog too: a laptop run is exactly where a developer wants to
+    # see which models are addressable before composing an expression.
+    catalog_service, close_catalog = _resolve_catalog(settings, catalog)
+    app = create_app(settings, bus=bus, job_runner=runner, catalog=catalog_service)
 
     if aigateway is None and aigateway_config is not None:
 
@@ -253,13 +293,16 @@ def make_local_app(
 
         app.router.on_startup.append(_build_shared_world)
 
-    async def _close_shared_world() -> None:
+    async def _close_owned_resources() -> None:
+        """Close what THIS factory built — the shared aigateway world and, if we built it, the
+        catalog service's upstream client. Injected instances are left to their owner."""
         if shared.world is not None:
             await shared.world.aclose()
+        await close_catalog()
 
     # Cancel every in-flight run and await it on ASGI shutdown (local-mode PRD §3.3.4); the shared
-    # aigateway world (if any was ever built) is closed alongside it, exactly once.
+    # aigateway world and any catalog client we built are closed alongside it, exactly once.
     app.router.on_shutdown.append(runner.aclose)
-    app.router.on_shutdown.append(_close_shared_world)
+    app.router.on_shutdown.append(_close_owned_resources)
     _install_max_runs_gate(app, runner, max_runs)
     return app

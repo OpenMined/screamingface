@@ -44,6 +44,7 @@ replay via `ai.url4.attach`, or cancel via `ai.url4.stop`:
 TAGS: list[dict[str, str]] = [
     {"name": "Token", "description": "Mint a topic-capability JWT (spec §4)."},
     {"name": "Execution", "description": "Start (sync/async) and stop a url4 run (spec §5)."},
+    {"name": "Catalog", "description": "Discover the models a credential can address (OME-625)."},
 ]
 
 
