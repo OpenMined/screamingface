@@ -22,6 +22,7 @@ from url4_cloud.auth import (
 )
 from url4_cloud.config import Settings
 from url4_cloud.jobs.port import JobAlreadyExists, JobRunner
+from url4_cloud.rest._credentials import forwarded_credential
 from url4_cloud.rest.interest import SubscriberGate
 from url4_cloud_nats import Bus
 from url4_cloud_runner.trace import parse_traceparent
@@ -116,36 +117,6 @@ async def _require_subscriber(interest: SubscriberGate, topic: str) -> None:
             title="Precondition Required",
             detail="attach a WebSocket to the topic before starting the run",
         )
-
-
-def _bearer(header: str | None) -> str | None:
-    """The token from a ``Bearer <token>`` ``Authorization`` header, case-insensitive scheme.
-
-    Absent header, a non-Bearer scheme, or an empty token → ``None`` (never forward garbage; the
-    aigateway credential hop, plan §5.3 dec:A — mirrors the ``traceparent`` malformed-input rule).
-    """
-    if header is None:
-        return None
-    scheme, _, token = header.partition(" ")
-    token = token.strip()  # a multi-space "Bearer  <tok>" must not forward a leading-space token
-    if scheme.lower() != "bearer" or not token:
-        return None
-    return token
-
-
-def _forwarded_credential(authorization: str | None, cf_access_jwt: str | None) -> str | None:
-    """The aigateway credential to forward — a Cloudflare Access session JWT, when present,
-    else a client-supplied ``Authorization: Bearer`` token (plan §5.3 dec:A extension).
-
-    WHY Cloudflare Access wins: it is attached by the edge itself once a browser has completed
-    OTP login — the "you are logged in" signal — with no client code involved. A client-supplied
-    ``Authorization`` header stays available as the fallback for direct/service callers that
-    never go through Cloudflare Access (this app never verifies either value itself; aigateway,
-    the actual consumer, verifies whichever one arrives).
-    """
-    if cf_access_jwt:
-        return cf_access_jwt
-    return _bearer(authorization)
 
 
 def _schedule(
@@ -345,7 +316,7 @@ async def start_run(
     url4 = _require_q(q)
     await _require_subscriber(deps.interest, topic)
     inbound_traceparent = traceparent if parse_traceparent(traceparent) is not None else None
-    credential = _forwarded_credential(authorization, cf_access_jwt)
+    credential = forwarded_credential(authorization, cf_access_jwt)
     # WHY: no credential means no forwarded identity at all — a profile label with nothing to
     # scope is garbage the same way a non-Bearer Authorization is (do not forward it, §5.3 dec:A).
     profile = x_profile if credential is not None else None
