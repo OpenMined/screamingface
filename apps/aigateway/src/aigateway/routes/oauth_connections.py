@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from tortoise.exceptions import IntegrityError
+from tortoise.transactions import in_transaction
 
 from aigateway.core.auth.middleware import CurrentAccount
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
@@ -33,6 +34,7 @@ from aigateway.core.oauth_pkce import generate_pkce, generate_state
 from aigateway.core.pending_auth import PendingAuthEntry
 from aigateway.core.plugin_base import credential_service_provider_for, credential_strategy_from
 
+from .api_key_validation import normalize_api_key, require_valid_api_key
 from .auth import _redirect_uri_for
 from .credential_persistence import persist_credentials_or_503
 
@@ -169,7 +171,7 @@ async def create_api_key_connection(
         raise HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": body.provider}
         )
-    api_key = _validate_api_key(body.api_key)
+    api_key = normalize_api_key(body.api_key)
     account_id = str(current.id)
     connection_id = uuid4()
     # Build the strategy BEFORE creating any row: a provider that does not
@@ -193,34 +195,38 @@ async def create_api_key_connection(
         )
     label = body.label or f"api-key-{connection_id}"
     store = _store(request)
-    if await store.find_by_label(account_id, body.provider, label) is not None:
+    if await store.label_exists(account_id, body.provider, label):
         raise HTTPException(
             status_code=409,
             detail={"code": "label_conflict", "provider": body.provider, "label": label},
         )
-    # Persist the key BEFORE activating the row so a credential-write failure
-    # never leaves an active connection with no credential (SF-291 review F4).
-    # The blob slot is keyed by the already-generated connection_id — exactly
-    # the slot the chat path reads.
-    await _persist_api_key_credentials(strategy, api_key)
+    await require_valid_api_key(request, plugin, body.provider, api_key)
+    # WHY (OME-307 Unit 4): persist the key and create the connection row in ONE short
+    # transaction so ROLLBACK — not best-effort except-cleanup — is the atomicity mechanism.
+    # A row failure (or a cancellation after the blob write) unwinds the credential write with
+    # it, so neither an active connection-without-credential nor an orphan
+    # credential-without-connection can ever commit. This matters most for cancellation: a
+    # 3.12 asyncio.CancelledError is a BaseException an `except Exception` compensation could
+    # never catch, but the transaction boundary rolls it back regardless. Persist runs before
+    # the row inside the transaction, writing the blob slot keyed by the already-generated
+    # connection_id — the exact slot the chat path reads (SF-291 review F4 ordering).
     try:
-        connection = await store.create_api_key(
-            account_id=account_id,
-            provider=body.provider,
-            label=label,
-            connection_id=connection_id,
-            credential_provider=credential_service_provider_for(plugin, body.provider),
-        )
-    except Exception as exc:
-        # The row could not be created — drop the orphan blob so no credential
-        # is left without a connection pointing at it.
-        await strategy.delete_credentials()
-        if isinstance(exc, IntegrityError):
-            raise HTTPException(
-                status_code=409,
-                detail={"code": "label_conflict", "provider": body.provider, "label": label},
-            ) from exc
-        raise
+        async with in_transaction():
+            await _persist_api_key_credentials(strategy, api_key)
+            connection = await store.create_api_key(
+                account_id=account_id,
+                provider=body.provider,
+                label=label,
+                connection_id=connection_id,
+                credential_provider=credential_service_provider_for(plugin, body.provider),
+            )
+    except IntegrityError as exc:
+        # Duplicate label lost the race with a concurrent create. The transaction already
+        # rolled the blob back, so no orphan remains — just surface the retryable conflict.
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "label_conflict", "provider": body.provider, "label": label},
+        ) from exc
     credential_strategy_cache(request.app).evict(credential_key_for(account_id, connection_id))
     return response_from_connection(connection)
 
@@ -253,7 +259,7 @@ async def set_connection_api_key(
                 "message": "Connection does not use API-key authentication",
             },
         )
-    api_key = _validate_api_key(body.api_key)
+    api_key = normalize_api_key(body.api_key)
     plugin = request.app.state.providers.get(connection.provider)
     if plugin is None:
         raise HTTPException(
@@ -271,11 +277,45 @@ async def set_connection_api_key(
             status_code=400,
             detail={"code": "api_key_not_supported", "provider": connection.provider},
         )
-    await _persist_api_key_credentials(strategy, api_key)
+    await require_valid_api_key(request, plugin, connection.provider, api_key)
+
+    # WHY: validation is intentionally outside the transaction; only the short publication
+    # boundary is serialized. Re-checking eligibility inside it prevents a stale validation
+    # result from undoing a concurrent delete/revoke, and rollback keeps blob + row coherent.
+    # INVARIANT (OME-307 Blocker 3): serialize on the ALWAYS-PRESENT connection row FIRST, then
+    # write the credential blob SECOND — ONE consistent lock order shared with delete_connection.
+    # reactivate is a conditional UPDATE (status IN active,error) that takes the connection-row
+    # lock; a concurrent delete that revoked the row makes it match 0 rows, so we 409 and roll
+    # back BEFORE writing any credential. The credential row may be ABSENT, and a missing-row
+    # write/delete takes no lock under READ COMMITTED, so it can never serialize the race — only
+    # the always-present connection row can. Persisting first would let a concurrent delete's
+    # missing-row credential delete no-op, then our commit would orphan a credential under a
+    # revoked connection.
+    async with in_transaction():
+        latest_connection = await store.get(account_id, connection_id)
+        if (
+            latest_connection is None
+            or latest_connection.auth_type != "api_key"
+            or latest_connection.status not in ("active", "error")
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "connection_conflict",
+                    "message": "Connection changed during API-key validation",
+                },
+            )
+        connection = await store.reactivate(latest_connection)
+        if connection is None:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "connection_conflict",
+                    "message": "Connection changed during API-key validation",
+                },
+            )
+        await _persist_api_key_credentials(strategy, api_key)
     credential_strategy_cache(request.app).evict(credential_key_for(account_id, connection.id))
-    # Replacing the key clears any prior error and returns the connection to
-    # active (recovery path).
-    connection = await store.reactivate(connection)
     return response_from_connection(connection)
 
 
@@ -292,26 +332,39 @@ async def patch_connection(
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
     if connection.status != "active":
         raise HTTPException(status_code=409, detail={"code": "connection_not_active"})
-    if body.label is not None:
-        connection.label = body.label
+    if body.label is None:
+        return response_from_connection(connection)
     try:
-        await connection.save()
+        patched = await store.patch_active_label(connection, body.label)
     except IntegrityError as exc:
         raise HTTPException(
             status_code=409,
             detail={"code": "label_conflict", "provider": connection.provider, "label": body.label},
         ) from exc
-    return response_from_connection(connection)
+    if patched is None:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "connection_conflict", "message": "Connection changed during patch"},
+        )
+    return response_from_connection(patched)
 
 
 @router.delete("/v1/oauth/connections/{connection_id}", status_code=204)
 async def delete_connection(connection_id: UUID, request: Request, current: CurrentAccount) -> None:
     store = _store(request)
-    connection = await store.get(str(current.id), connection_id)
-    if connection is None:
-        raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-    await _delete_credentials(request, connection.credential_locator)
-    await store.mark_revoked(connection)
+    async with in_transaction():
+        connection = await store.get(str(current.id), connection_id)
+        if connection is None:
+            raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
+        # INVARIANT (OME-307 Blocker 3): mark the ALWAYS-PRESENT connection row revoked FIRST
+        # (mark_revoked UPDATEs by PK and takes its row lock, held until commit), THEN delete the
+        # credential blob SECOND — ONE consistent lock order shared with set_connection_api_key.
+        # The credential row may be ABSENT; a missing-row delete takes no lock under READ
+        # COMMITTED, so it cannot serialize a concurrent set. Locking the connection row first
+        # forces a racing set to observe the revoke (its reactivate CAS matches 0 rows and 409s),
+        # so nothing is orphaned or resurrected.
+        await store.mark_revoked(connection)
+        await _delete_credentials(request, connection.credential_locator)
     # Evict the shared cached strategy so a deleted connection's still-valid token
     # can't keep being served from memory (SF-282).
     credential_strategy_cache(request.app).evict(credential_key_for(str(current.id), connection_id))
@@ -405,12 +458,17 @@ async def refresh_connection(
     # Manual refresh wrote new tokens to the store; drop the cached instance so the
     # chat path rebuilds and reads them (SF-282).
     credential_strategy_cache(request.app).evict(credential_name)
-    connection = await store.complete(
+    # INVARIANT (OME-307 H-1): republish CONDITIONALLY on the still-active row. A delete or revoke
+    # that raced this refresh's network window wins — complete_active updates zero rows and returns
+    # None, and we 409 instead of flipping a revoked/deleted connection back to active.
+    refreshed = await store.complete_active(
         connection,
         label=connection.label,
         identity=response_from_connection(connection).account,
     )
-    return response_from_connection(connection)
+    if refreshed is None:
+        raise HTTPException(status_code=409, detail={"code": "connection_conflict"})
+    return response_from_connection(refreshed)
 
 
 def _store(request: Request) -> OAuthConnectionStore:
@@ -444,20 +502,6 @@ async def _delete_credentials(request: Request, locator: dict) -> None:
     account = locator.get("account")
     if isinstance(service, str) and isinstance(account, str):
         await request.app.state.credential_store.delete(service, account)
-
-
-def _validate_api_key(raw_key: str) -> str:
-    """Normalize and length-check a raw API key (the one rule shared verbatim by
-    the create and replace endpoints). Raises 400 ``invalid_api_key`` if too
-    short. Kept tiny on purpose: each endpoint's provider/strategy resolution
-    stays inline because the two flows order those checks differently."""
-    api_key = raw_key.strip()
-    if len(api_key) < 8:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "invalid_api_key", "message": "api_key is missing or too short"},
-        )
-    return api_key
 
 
 async def _persist_api_key_credentials(strategy, api_key: str) -> None:

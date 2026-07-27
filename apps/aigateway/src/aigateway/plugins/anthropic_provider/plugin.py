@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
+from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.plugin_base import (
     CredentialStrategy,
@@ -13,6 +14,7 @@ from aigateway.core.plugin_base import (
     ProviderPluginBase,
 )
 
+from .api_key_validation import AnthropicApiKeyValidator
 from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
 from .chat_handler import chat_completion, chat_completion_stream
@@ -76,6 +78,12 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
             account=self.settings.keychain_account,
             header_builder=_api_key_headers,
             credential_store=credential_store,
+        )
+
+    def api_key_validator(self) -> ApiKeyValidator:
+        return AnthropicApiKeyValidator(
+            settings=self.settings,
+            registered_models=self.register_models(),
         )
 
     def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:

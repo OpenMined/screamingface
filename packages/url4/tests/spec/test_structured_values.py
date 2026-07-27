@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import pytest
 
-from url4.errors import ParseError
-from url4.grammar import parse
-from url4.nodes import Binding, Expression, Text, Url
+from url4.core.errors import ParseError
+from url4.core.grammar import parse
+from url4.core.nodes import Binding, Expression, Text, Url
 
 # --- §4.1.1.3 four-way weight equivalence -------------------------------------
 
@@ -26,7 +26,7 @@ def test_structured_weight_and_weight_keyed_structured_are_equal() -> None:
 
 def test_bare_structured_weight_shape() -> None:
     # §4.1.1.3 row 3 — structured weight parses to a mapping
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("claude:(_default:0.5):https://x")
     assert isinstance(node, Source)
@@ -38,7 +38,7 @@ def test_bare_structured_weight_shape() -> None:
 
 def test_domain_conditional_structured_weight() -> None:
     # §4.1.1.2 "Structured weight (ex. domain-conditional)"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("claude:(science:0.85,math:0.64,classics:0.10,_default:0.4):https://x")
     assert isinstance(node, Source)
@@ -48,7 +48,7 @@ def test_domain_conditional_structured_weight() -> None:
 
 def test_structured_weight_with_quoted_values_all_match() -> None:
     # §4.1.1.4 "Structured weight — key with quoted value (all entries match struct-pair)"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("claude:(formal:'academic',casual:'conversational',_default:'neutral'):https://x")
     assert isinstance(node, Source)
@@ -57,7 +57,7 @@ def test_structured_weight_with_quoted_values_all_match() -> None:
 
 def test_scalar_budget() -> None:
     # §4.1.1.2 "Scalar budget"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("claude:0.6:tokens=4000:https://x")
     assert isinstance(node, Source)
@@ -66,7 +66,7 @@ def test_scalar_budget() -> None:
 
 def test_domain_conditional_structured_budget() -> None:
     # §4.1.1.2 "Structured budget (domain-conditional)"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("claude:0.6:tokens=(science:6000,math:8000,_default:4000):https://x")
     assert isinstance(node, Source)
@@ -75,7 +75,7 @@ def test_domain_conditional_structured_budget() -> None:
 
 def test_scoped_structured_budget() -> None:
     # §4.1.1.2 "Structured budget (scoped, see §24.4)"
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("claude:0.6:tokens=(_each:4000,_total:5000000):https://x")
     assert isinstance(node, Source)
@@ -84,7 +84,7 @@ def test_scoped_structured_budget() -> None:
 
 def test_nested_scoped_domain_conditional_budget() -> None:
     # §4.1.1.2 "Nested Structured Budgets" — scope → domain → scalar
-    from url4.nodes import Source
+    from url4.core.nodes import Source
 
     node = parse("claude:0.6:tokens=(_each:(science:6000,_default:4000),_total:5000000):https://x")
     assert isinstance(node, Source)
@@ -121,7 +121,7 @@ def test_quoted_first_entry_is_expression_list() -> None:
 
 def test_relative_uri_first_entry_is_expression_list() -> None:
     # §4.1.1.4 valid example — first token is a relative URI
-    from url4.nodes import RelUrl
+    from url4.core.nodes import RelUrl
 
     node = parse("claude:(/api/data, /api/more)!'Merge'")
     assert node == Binding(

@@ -709,3 +709,45 @@ def test_token_endpoint_updates_last_refreshed_at_after_a_refresh(
     ]
     assert after is not None
     assert after != before
+
+
+def test_refresh_does_not_resurrect_a_concurrently_revoked_connection(
+    authenticated_client, credential_blobs
+) -> None:
+    """OME-307 H-1 — connection refresh 409s instead of reactivating a revoked row.
+
+    FEATURE: manual OAuth connection refresh with delete/revoke-race safety.
+    INVARIANT (OME-307 H-1): the success republish is status-fenced on 'active', so a connection
+    revoked (or deleted) during the provider network window makes the refresh return 409 instead
+    of flipping it back to active.
+    """
+    _ = credential_blobs
+    connection_id = _connect_anthropic(authenticated_client, "refresh-revoke-race")
+    account_id = _account_id(authenticated_client)
+    store = authenticated_client.app.state.oauth_connections
+
+    class _RevokingStrategy:
+        async def refresh_credentials(self) -> None:
+            # A concurrent revoke commits during the provider network window. This runs INSIDE the
+            # route on the TestClient portal loop, so the store's Tortoise access stays single-loop.
+            conn = await store.get(account_id, connection_id)
+            await store.mark_revoked(conn)
+
+    cache = credential_strategy_cache(authenticated_client.app)
+    key = credential_key_for(account_id, connection_id)
+    cache.get_or_create(
+        provider="anthropic",
+        auth_type="oauth",
+        credential_name=key,
+        build=lambda: _RevokingStrategy(),
+    )
+
+    resp = authenticated_client.post(f"/v1/oauth/connections/{connection_id}/refresh")
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "connection_conflict"
+    # Not resurrected: the revoked row stays inactive, so a follow-up refresh is rejected at the
+    # status gate before any strategy runs — proving complete_active did not flip it to 'active'.
+    again = authenticated_client.post(f"/v1/oauth/connections/{connection_id}/refresh")
+    assert again.status_code == 409
+    assert again.json()["detail"]["code"] == "connection_not_active"

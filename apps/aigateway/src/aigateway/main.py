@@ -13,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .config import Settings
+from .core.api_key_validation_service import ApiKeyValidationService
 from .core.auth.bootstrap_admin import ensure_admin_account
 from .core.auth.jwt_secret import get_or_create_jwt_secret
 from .core.auth.local_only import AuthDisabledLocalOnlyMiddleware
@@ -29,7 +30,16 @@ from .core.registry import ProviderRegistry
 from .core.request_cache.store import TortoiseRequestCacheStore
 from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .db import close_db, init_db
-from .routes import accounts, auth, auth_session, chat, health, models, oauth_connections
+from .routes import (
+    accounts,
+    api_key_validation,
+    auth,
+    auth_session,
+    chat,
+    health,
+    models,
+    oauth_connections,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +230,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     registry = ProviderRegistry()
     load_plugins(registry)
     app.state.providers = registry
+    app.state.api_key_validation_service = ApiKeyValidationService()
 
     # Test-only OAuth endpoint hooks are gated by env vars so they only activate
     # in e2e harnesses. Credential storage itself is always DB-backed.
@@ -242,6 +253,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth_session.router)
     app.include_router(accounts.router)
+    app.include_router(api_key_validation.router)
     app.include_router(auth.router)
     app.include_router(oauth_connections.router)
     app.include_router(health.router)

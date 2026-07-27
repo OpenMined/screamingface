@@ -27,8 +27,14 @@ Repository = "https://github.com/OpenMined/screamingface"
 Issues = "https://github.com/OpenMined/screamingface/issues"
 
 [project.optional-dependencies]
-# Url4Node.serve() — the ASGI app itself is framework-free; only serving needs this.
+# Url4Node.serve() and `url4 serve` — the ASGI app itself is framework-free; only
+# serving over HTTP needs uvicorn.
 server = ["uvicorn>=0.30"]
+
+# The `url4` CLI: `url4 serve` (HTTP node) and `url4 eval` (network-free one-shot).
+# `serve` additionally needs the `server` extra (uvicorn) at runtime.
+[project.scripts]
+url4 = "url4.cli.app:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -43,6 +49,11 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "C901", "PLR0911", "PLR0912", "PLR0915", "PLR1702"]
+# PLR1702 (too-many-nested-blocks) is preview-gated in ruff; enable preview but
+# scope it to explicitly-selected rules so ONLY PLR1702 activates — not ruff's
+# broad preview behavior. Without this the rule silently does nothing.
+preview = true
+explicit-preview-rules = true
 
 [tool.ruff.lint.mccabe]
 max-complexity = 8

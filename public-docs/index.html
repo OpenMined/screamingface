@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Primary meta -->
+    <title>ScreamingFace — model ensembles, orchestrated</title>
+    <meta
+      name="description"
+      content="ScreamingFace orchestrates model ensembles that run faster, cost less, and reason harder than any single model. Compose ensembles, appoint judges, and ship a reproducible one-liner — using the model subscriptions you already pay for."
+    />
+    <meta
+      name="keywords"
+      content="model ensembles, LLM orchestration, AI ensemble, judge models, ScreamingFace, Fusion Monsters, leaderboard, GPQA, MMLU Pro, HumanEval"
+    />
+    <meta name="author" content="ScreamingFace" />
+    <meta name="theme-color" content="#0C0F17" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#FCFCFD" media="(prefers-color-scheme: light)" />
+    <link rel="canonical" href="https://screamingface.ai/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="ScreamingFace" />
+    <meta property="og:title" content="Ensembles that beat any single model." />
+    <meta
+      property="og:description"
+      content="The loudest ensemble hub. Compose model ensembles, appoint judges, run evals, and climb the leaderboard — with the subscriptions you already have."
+    />
+    <meta property="og:url" content="https://screamingface.ai/" />
+    <meta property="og:image" content="https://screamingface.ai/og.png" />
+    <meta property="og:image:alt" content="ScreamingFace — ensembles that beat any single model." />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Ensembles that beat any single model." />
+    <meta
+      name="twitter:description"
+      content="The loudest ensemble hub — compose model ensembles, appoint judges, and ship a reproducible one-liner."
+    />
+    <meta name="twitter:image" content="https://screamingface.ai/og.png" />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=Hanken+Grotesk:wght@400;500;600&family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500;600&family=Rubik:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Dark mode initialization -->
+    <script>
+      const theme = localStorage.getItem('theme') || 'dark';
+      if (theme === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

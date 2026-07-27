@@ -17,7 +17,7 @@ from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.models import OAuthConnection
 from ..core.oauth.store import OAuthConnectionStore, credential_key_for
 from ..core.plugin_base import credential_strategy_from
-from ..core.profile_index import ProfileIndexStore
+from ..core.profile_index import ProfileIndexStore, ProfileTransitionConflict
 from ..core.profile_models import (
     AuthType,
     Profile,
@@ -222,18 +222,18 @@ def _reauth_url_for(
 async def _mark_profile_error_fresh(
     request: Request,
     *,
-    account_id: str,
-    provider: str,
-    profile_name: str,
+    profile: Profile,
 ) -> None:
-    """Re-fetch the profile before flipping state so a long-running dispatch
-    never clobbers concurrent index writes (e.g. a PUT api-key changing
-    auth_type/account_label mid-flight) with its stale snapshot."""
+    """Mark only the authenticated credential version used by this request."""
     idx: ProfileIndexStore = request.app.state.profile_index
-    fresh = await idx.get(account_id, provider, profile_name)
-    if fresh is not None:
-        fresh.state = ProfileState.ERROR
-        await idx.upsert(fresh)
+    try:
+        await idx.mark_authenticated_error(
+            profile.id,
+            expected_auth_type=profile.auth_type,
+            expected_last_refreshed_at=profile.last_refreshed_at,
+        )
+    except ProfileTransitionConflict:
+        pass
 
 
 def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any) -> dict[str, Any]:
@@ -320,9 +320,7 @@ async def _inject_credentials(
             elif profile is not None:
                 await _mark_profile_error_fresh(
                     request,
-                    account_id=account_id,
-                    provider=provider,
-                    profile_name=profile_name,
+                    profile=profile,
                 )
                 if credential_name is not None:
                     _invalidate_profile_session(plugin, credential_name)
