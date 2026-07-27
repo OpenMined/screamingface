@@ -282,8 +282,28 @@ async def _mark_profile_error_fresh(
         pass
 
 
-def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any) -> dict[str, Any]:
-    """Body wins per field. Fields the body omits get the profile default."""
+def _apply_defaults(
+    body: dict[str, Any], defaults: ProfileDefaults, plugin: Any
+) -> tuple[dict[str, Any], frozenset[str]]:
+    """Body wins per field. Fields the body omits get the profile default.
+
+    Returns the merged body together with the CLASSIFIER REQUEST PATHS this call
+    wrote, so a later parameter rejection can be attributed to the stored profile
+    instead of to the request (OME-638).
+
+    # INVARIANT: the reported paths are request paths, NOT ``ProfileDefaults``
+    # field names — ``timeout_seconds`` is reported as ``timeout``, the name the
+    # classifier sees. A set keyed by the field name could never match a rejected
+    # path, so every profile fault would be silently blamed on the caller.
+    # INVARIANT: a default only ever occupies a path the body omitted. That is what
+    # makes the returned set a sound attribution rather than a guess, and it is why
+    # the caller-supplied paths and these paths are always disjoint.
+    # AIDEV-NOTE: the ``model`` default is unreachable from /v1/chat/completions —
+    # the route rejects a body whose ``model`` is missing or not provider-prefixed
+    # well before this runs, so ``"model" not in body`` is never true there. It
+    # stays because this helper merges ProfileDefaults as a whole.
+    """
+    written: set[str] = set()
     if (
         defaults.system_prompt
         and not _has_system_message(body)
@@ -294,6 +314,7 @@ def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any
             {"role": "system", "content": defaults.system_prompt},
             *body["messages"],
         ]
+        written.add("messages")
     for field in _BUCKET_A_FIELDS:
         gateway_field = "timeout" if field == "timeout_seconds" else field
         if not _should_apply_profile_default(plugin, field):
@@ -301,7 +322,8 @@ def _apply_defaults(body: dict[str, Any], defaults: ProfileDefaults, plugin: Any
         value = getattr(defaults, field)
         if value is not None and gateway_field not in body:
             body[gateway_field] = value
-    return body
+            written.add(gateway_field)
+    return body, frozenset(written)
 
 
 async def _inject_credentials(
