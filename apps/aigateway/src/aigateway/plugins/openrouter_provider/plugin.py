@@ -74,7 +74,7 @@ if TYPE_CHECKING:
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from aigateway.core.profile_models import AuthType
+    from aigateway.core.profile_models import AuthMode
 
 
 def _credential_service_for(profile_name: str) -> str:
@@ -315,21 +315,21 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         return status_code == 401
 
     def chat_parameter_rules(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ParameterProjectionRule, ...]:
         # OME-479: one provider-local source drives summary, detail, and
         # fail-closed dispatch. Adding a parameter is a change here, never in core.
         return openrouter_chat_parameter_rules(model=model, auth_type=auth_type)
 
     def chat_parameter_tools(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ToolCapability, ...]:
         # OME-583: OpenRouter is OpenAI-compatible; the installed litellm openrouter
         # transform forwards OpenAI tools (§9), so it advertises the `function` type.
         return openrouter_chat_parameter_tools(model=model, auth_type=auth_type)
 
     def chat_parameter_observations(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
         # OME-479 §5.3: labelled-local endpoint evidence (NO network) so the detail
         # contract shows every accepted field with its gateway status — an unruled
@@ -357,7 +357,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         )
 
     def chat_discovery_source(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> DiscoverySourceRef | None:
         # OME-632: the catalog is public and auth-INDEPENDENT — OpenRouter publishes
         # one row per model whichever credential dispatch will use — so the resolved
@@ -380,7 +380,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         model: str,
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
-        auth_type: AuthType | None = None,
+        auth_type: AuthMode | None = None,
     ) -> ProviderDiscoverySnapshot | None:
         # OME-479 §5.1: the DYNAMIC source. Strip the gateway prefix to the
         # upstream id the public catalog is keyed by — the SAME rule as

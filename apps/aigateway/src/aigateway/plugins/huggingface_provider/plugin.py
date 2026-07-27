@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from aigateway.core.profile_models import AuthType
+    from aigateway.core.profile_models import AuthMode
 
 # Caller-supplied copies of these are stripped before the gateway injects its own
 # credential, so a client can never smuggle auth material to the upstream router.
@@ -104,7 +104,7 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         return status_code == 401
 
     def chat_parameter_rules(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ParameterProjectionRule, ...]:
         # OME-479 §6.2: HF's OpenAI-compatible sampling fields, each proven through
         # the installed final transform. A rule is the ONLY thing that enables a
@@ -112,7 +112,7 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         return huggingface_chat_parameter_rules(model=model, auth_type=auth_type)
 
     def chat_parameter_tools(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ToolCapability, ...]:
         # OME-583: HF's OpenAI-compatible router forwards tools/tool_choice through the
         # installed transform (§9), so function calling is a first-class capability —
@@ -120,7 +120,7 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         return huggingface_chat_parameter_tools(model=model, auth_type=auth_type)
 
     def chat_parameter_observations(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
         # OME-479 §5.1/§6.2: HF's catalog carries NO parameter list, so the ONLY
         # honest parameter evidence is labelled-static — the standard OpenAI sampling
@@ -148,7 +148,7 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         )
 
     def chat_discovery_source(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> DiscoverySourceRef | None:
         # OME-632: Hugging Face is api-key only and its router catalog is public, so
         # the resolved mode cannot change the evidence — accepted for port
@@ -170,7 +170,7 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         model: str,
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
-        auth_type: AuthType | None = None,
+        auth_type: AuthMode | None = None,
     ) -> ProviderDiscoverySnapshot | None:
         # OME-479 §6.2: the DYNAMIC source. The catalog is keyed by the bare
         # <org>/<model>, and the pinned :<backend> selects one row inside it — so a

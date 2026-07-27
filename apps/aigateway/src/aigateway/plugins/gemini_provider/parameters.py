@@ -26,7 +26,7 @@ Two shapes of enabled field:
 from __future__ import annotations
 
 from aigateway.core.chat_parameters import ParameterProjectionRule, ToolCapability
-from aigateway.core.profile_models import AuthType
+from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
     STOP_SCHEMA,
@@ -40,7 +40,7 @@ from aigateway.core.standard_parameters import (
 
 # Gemini offers BOTH api-key (generativelanguage) and OAuth (Code Assist) auth; both
 # paths run the same body builder, so every proven rule is enabled under both modes.
-_AUTH: tuple[AuthType, ...] = ("api_key", "oauth")
+_AUTH: tuple[AuthMode, ...] = ("api_key", "oauth")
 # Bump when a projection's semantics change; folds into the contract digests.
 _REVISION = "gemini-2026-07"
 
@@ -77,7 +77,7 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
 
 
 def gemini_chat_parameter_rules(
-    *, model: str, auth_type: AuthType | None = None
+    *, model: str, auth_type: AuthMode | None = None
 ) -> tuple[ParameterProjectionRule, ...]:
     """The proven rule set is identical for every Gemini model and every auth mode;
     auth-mode filtering is applied by the core classifier/contract, not here."""
@@ -85,7 +85,7 @@ def gemini_chat_parameter_rules(
 
 
 def gemini_chat_parameter_tools(
-    *, model: str, auth_type: AuthType | None = None
+    *, model: str, auth_type: AuthMode | None = None
 ) -> tuple[ToolCapability, ...]:
     # OME-583: the accepted tools[].type discriminator(s). tool_choice is deliberately
     # NOT enabled (see _TOOL_CAPABILITIES note); this drives supported_tools + the

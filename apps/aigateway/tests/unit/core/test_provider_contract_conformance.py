@@ -28,7 +28,7 @@ from aigateway.core.loader import load_plugins
 from aigateway.core.model_capabilities import canonical_model_id, model_row
 from aigateway.core.model_parameter_contract import build_model_parameter_document
 from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS, wrapper_path_conflicts
-from aigateway.core.profile_models import AuthType
+from aigateway.core.profile_models import AuthMode
 from aigateway.core.registry import ProviderRegistry
 
 
@@ -64,7 +64,7 @@ def _iter_models():
             yield plugin, entry, canonical
 
 
-def _document(plugin: Any, canonical: str, auth_mode: AuthType) -> dict[str, Any]:
+def _document(plugin: Any, canonical: str, auth_mode: AuthMode) -> dict[str, Any]:
     # Mirrors routes/model_parameters.py: the plugin's own hooks + the core composer.
     return build_model_parameter_document(
         canonical_id=canonical,

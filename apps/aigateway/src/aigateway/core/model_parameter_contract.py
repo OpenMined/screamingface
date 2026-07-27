@@ -36,7 +36,7 @@ if TYPE_CHECKING:
         ToolCapability,
         TransportCapability,
     )
-    from .profile_models import AuthType
+    from .profile_models import AuthMode
 
 SCHEMA_VERSION = 1
 
@@ -127,7 +127,7 @@ def build_model_parameter_document(
     *,
     canonical_id: str,
     gateway_provider: str,
-    auth_mode: AuthType,
+    auth_mode: AuthMode,
     scope: str,
     context_identity: str,
     rules: Iterable[ParameterProjectionRule],

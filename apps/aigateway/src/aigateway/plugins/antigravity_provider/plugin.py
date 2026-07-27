@@ -51,7 +51,7 @@ if TYPE_CHECKING:
         ToolCapability,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
-    from aigateway.core.profile_models import AuthType
+    from aigateway.core.profile_models import AuthMode
 
 
 def _retry_after_header(exc: CustomLLMError) -> dict[str, str]:
@@ -169,7 +169,7 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
         get_litellm_antigravity_handler().invalidate_session(profile_name)
 
     def chat_parameter_rules(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ParameterProjectionRule, ...]:
         # OME-634: the fields build_generate_content_body actually reads out of
         # optional_params, each pinned into the Code Assist body it emits. A rule is
@@ -178,14 +178,14 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
         return antigravity_chat_parameter_rules(model=model, auth_type=auth_type)
 
     def chat_parameter_tools(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ToolCapability, ...]:
         # OME-634: the builder converts tools[] → functionDeclarations, so `function`
         # is advertised. It emits no toolConfig, so tool_choice stays unruled.
         return antigravity_chat_parameter_tools(model=model, auth_type=auth_type)
 
     def chat_parameter_observations(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
         # OME-634: the Code Assist envelope publishes no machine-readable schema, so
         # the only honest evidence is the reviewed builder mapping, labelled with THIS

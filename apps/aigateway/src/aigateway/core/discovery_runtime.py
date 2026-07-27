@@ -36,7 +36,7 @@ from .parameter_discovery import (
 if TYPE_CHECKING:
     from .chat_parameters import ProviderDiscoverySnapshot
     from .parameter_discovery_cache import CacheLimits, CacheOutcome
-    from .profile_models import AuthType
+    from .profile_models import AuthMode
 
 # Unit separator: forbidden in a source name, a canonical model id and a revision
 # alike, so the joined key cannot collide across differently-split triples.
@@ -78,7 +78,7 @@ class AuthScopedDiscoverablePlugin(Protocol):
     """
 
     def chat_discovery_source(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> DiscoverySourceRef | None: ...
 
     async def discover_chat_parameter_snapshot(
@@ -87,7 +87,7 @@ class AuthScopedDiscoverablePlugin(Protocol):
         model: str,
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
-        auth_type: AuthType | None = None,
+        auth_type: AuthMode | None = None,
     ) -> ProviderDiscoverySnapshot | None: ...
 
 
@@ -96,7 +96,7 @@ class _AuthScopedView:
     """One provider seen through one contract read's resolved auth mode."""
 
     plugin: AuthScopedDiscoverablePlugin
-    auth_type: AuthType | None
+    auth_type: AuthMode | None
 
     def chat_discovery_source(self, *, model: str) -> DiscoverySourceRef | None:
         return self.plugin.chat_discovery_source(model=model, auth_type=self.auth_type)
@@ -114,7 +114,7 @@ class _AuthScopedView:
 
 
 def auth_scoped(
-    plugin: AuthScopedDiscoverablePlugin, auth_type: AuthType | None
+    plugin: AuthScopedDiscoverablePlugin, auth_type: AuthMode | None
 ) -> DiscoverablePlugin:
     """Bind a contract read's auth mode to a provider's discovery hooks.
 

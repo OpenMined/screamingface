@@ -22,7 +22,7 @@ from .chat_parameters import (
     ToolCapability,
     supported_tool_types,
 )
-from .profile_models import AuthType
+from .profile_models import AuthMode
 
 # Bounded schemas for the standard OpenAI-compatible optional fields the gateway
 # forwards; ranges follow the OpenAI Chat Completions contract.
@@ -74,7 +74,7 @@ TOP_LOGPROBS_SCHEMA = ParameterSchema(type="integer", minimum=0, maximum=20)
 def direct_rule(
     request_path: str,
     *,
-    auth_modes: tuple[AuthType, ...],
+    auth_modes: tuple[AuthMode, ...],
     projection_revision: str,
     schema: ParameterSchema | None = None,
     provider_target: str | None = None,
@@ -98,7 +98,7 @@ def provider_native_rule(
     request_path: str,
     *,
     provider_target: str,
-    auth_modes: tuple[AuthType, ...],
+    auth_modes: tuple[AuthMode, ...],
     projection_revision: str,
     schema: ParameterSchema | None = None,
     cache_behavior: CacheBehavior = "bypass",
@@ -156,7 +156,7 @@ def tool_choice_schema(tool_types: tuple[str, ...]) -> ParameterSchema:
 def function_calling_rules(
     tool_capabilities: Iterable[ToolCapability],
     *,
-    auth_modes: tuple[AuthType, ...],
+    auth_modes: tuple[AuthMode, ...],
     projection_revision: str,
     tool_choice: bool = True,
 ) -> tuple[ParameterProjectionRule, ...]:

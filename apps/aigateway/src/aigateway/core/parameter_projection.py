@@ -34,7 +34,7 @@ from .chat_parameters import (
     ParameterValidationError,
     normalize_rules,
 )
-from .profile_models import AuthType
+from .profile_models import AuthMode
 
 # The one caller-facing wrapper for provider-native fields (never dispatched
 # as-is; each nested key is consumed into its rule target).
@@ -136,7 +136,7 @@ def classify_and_project_chat_parameters(
     body: Mapping[str, Any],
     *,
     rules: Iterable[ParameterProjectionRule],
-    auth_mode: AuthType,
+    auth_mode: AuthMode,
 ) -> dict[str, Any]:
     """Return a fresh normalized dispatch body, or raise on any unsupported field.
 

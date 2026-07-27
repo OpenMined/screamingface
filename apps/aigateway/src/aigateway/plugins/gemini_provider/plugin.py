@@ -61,7 +61,7 @@ if TYPE_CHECKING:
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from aigateway.core.profile_models import AuthType
+    from aigateway.core.profile_models import AuthMode
 
 
 _CLIENT_AUTH_HEADER_NAMES = CLIENT_AUTH_HEADER_NAMES
@@ -195,7 +195,7 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         get_litellm_gemini_handler().invalidate_session(profile_name)
 
     def chat_parameter_rules(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ParameterProjectionRule, ...]:
         # OME-479 §Phase 9: Gemini's proven sampling fields, each pinned through
         # build_generate_content_body's generationConfig. A rule is the ONLY thing
@@ -204,14 +204,14 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         return gemini_chat_parameter_rules(model=model, auth_type=auth_type)
 
     def chat_parameter_tools(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ToolCapability, ...]:
         # OME-583: build_generate_content_body maps tools[] → functionDeclarations (§9),
         # so Gemini advertises the `function` tool type (tool_choice stays unruled).
         return gemini_chat_parameter_tools(model=model, auth_type=auth_type)
 
     def chat_parameter_observations(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
         # OME-479 §Phase 9 step 2: evidence is AUTH-SCOPED. The api-key path talks to
         # the public generativelanguage API, which publishes a Discovery schema
@@ -232,7 +232,7 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
             tools, source=DISCOVERY_SOURCE, tool_choice=False
         )
 
-    def _discovers(self, model: str, auth_type: AuthType | None) -> bool:
+    def _discovers(self, model: str, auth_type: AuthMode | None) -> bool:
         """Is the PUBLIC Discovery document evidence about THIS contract read?
 
         # INVARIANT: the ONE predicate behind both discovery hooks. Owning it here
@@ -248,7 +248,7 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         return auth_type == "api_key" and model.startswith(f"{self.custom_llm_provider}/")
 
     def chat_discovery_source(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> DiscoverySourceRef | None:
         # OME-632: declared BEFORE any fetch, so the observation cache can judge a
         # stored entry's trustworthiness without paying for a round trip. Returning
@@ -264,7 +264,7 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         model: str,
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
-        auth_type: AuthType | None = None,
+        auth_type: AuthMode | None = None,
     ) -> ProviderDiscoverySnapshot | None:
         # OME-479 §Phase 9: the DYNAMIC source. The document is model-INDEPENDENT, so
         # the model only decides WHETHER this provider is being asked, not what is

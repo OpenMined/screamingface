@@ -20,7 +20,7 @@ separate catalog evidence and never enables an ordinary parameter here.
 from __future__ import annotations
 
 from aigateway.core.chat_parameters import ParameterProjectionRule, ToolCapability
-from aigateway.core.profile_models import AuthType
+from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     LOGPROBS_SCHEMA,
     MAX_TOKENS_SCHEMA,
@@ -37,7 +37,7 @@ from aigateway.core.standard_parameters import (
 
 # HF is API-key only (no OAuth); the auth-mode intersection is a single mode, so
 # every proven rule is enabled under it.
-_AUTH: tuple[AuthType, ...] = ("api_key",)
+_AUTH: tuple[AuthMode, ...] = ("api_key",)
 # Bump when a projection's semantics change; folds into the contract digests.
 _REVISION = "huggingface-2026-07"
 
@@ -97,7 +97,7 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
 
 
 def huggingface_chat_parameter_rules(
-    *, model: str, auth_type: AuthType | None = None
+    *, model: str, auth_type: AuthMode | None = None
 ) -> tuple[ParameterProjectionRule, ...]:
     """The proven rule set is identical for every HF model; auth-mode filtering is
     applied by the core classifier/contract, not here."""
@@ -105,7 +105,7 @@ def huggingface_chat_parameter_rules(
 
 
 def huggingface_chat_parameter_tools(
-    *, model: str, auth_type: AuthType | None = None
+    *, model: str, auth_type: AuthMode | None = None
 ) -> tuple[ToolCapability, ...]:
     # OME-583: the accepted tools[].type discriminator(s); drives supported_tools +
     # the detail contract's tools section.

@@ -25,11 +25,11 @@ from ..core.discovery_runtime import (
 from ..core.model_capabilities import canonical_model_id
 from ..core.model_parameter_contract import build_model_parameter_document
 from ..core.registry import ProviderRegistry
-from .chat_credentials import _credential_target_for_chat, auth_mode_for_target
+from .chat_credentials import _credential_target_for_chat, resolved_auth_mode
 
 if TYPE_CHECKING:
     from ..core.oauth.models import OAuthConnection
-    from ..core.profile_models import AuthType, Profile
+    from ..core.profile_models import AuthMode, Profile
 
 router = APIRouter()
 
@@ -39,7 +39,7 @@ async def _discovery_outcome(
     plugin: AuthScopedDiscoverablePlugin,
     *,
     model: str,
-    auth_mode: AuthType,
+    auth_mode: AuthMode,
 ) -> DiscoveryOutcome:
     """Observe this provider's public evidence for ``model``, or report static-only.
 
@@ -129,7 +129,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         profile_name=profile_name,
         plugin=plugin,
     )
-    auth_mode = auth_mode_for_target(profile, connection)
+    auth_mode = resolved_auth_mode(profile, connection, plugin=plugin)
 
     # Observed LAST: a request that fails profile resolution must not have spent a
     # fetch on a contract it will never serve.

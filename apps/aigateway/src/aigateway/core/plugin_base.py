@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from .oauth.identity import AccountIdentity
     from .parameter_discovery import DiscoveryHttpClient, DiscoveryLimits, DiscoverySourceRef
     from .profile_index import ProfileIndexStore
-    from .profile_models import AuthType
+    from .profile_models import AuthMode, AuthType
 
 
 class PluginSettings(BaseSettings):
@@ -221,7 +221,7 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
     # the detailed contract, and dispatch — one source, three projections.
 
     def chat_parameter_rules(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ParameterProjectionRule, ...]:
         """Reviewed, provider-owned dispatch rules for ``model``.
 
@@ -239,7 +239,7 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         return ()
 
     def chat_parameter_tools(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ToolCapability, ...]:
         """Accepted OpenAI-compatible ``tools[].type`` capabilities for ``model``.
 
@@ -249,7 +249,7 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         return ()
 
     def chat_parameter_observations(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
         """Raw provider evidence for ``model`` (labelled-local in v1; no network).
 
@@ -261,7 +261,7 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         return ()
 
     def chat_discovery_source(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> DiscoverySourceRef | None:
         """The cache identity of this provider's dynamic source for ``model``.
 
@@ -350,7 +350,7 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         model: str,
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
-        auth_type: AuthType | None = None,
+        auth_type: AuthMode | None = None,
     ) -> ProviderDiscoverySnapshot | None:
         """Best-effort DYNAMIC evidence for ``model`` from FIXED public catalogs.
 
@@ -385,7 +385,7 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         return None
 
     def chat_transport_capabilities(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[TransportCapability, ...]:
         """Transport controls (e.g. ``stream``) reported separately from params.
 
@@ -403,20 +403,31 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         """
         return (stream_transport_capability(gateway_enabled=self.supports_chat_streaming()),)
 
-    def available_auth_modes(self) -> tuple[AuthType, ...]:
+    def available_auth_modes(self) -> tuple[AuthMode, ...]:
         """Auth modes a client could use with this provider (profile-independent).
 
         Drives the conservative summary intersection on ``/v1/models``. Derived
         from declared capability: api-key iff ``supports_api_key()``, oauth iff
         the provider advertises ``oauth_config()``. Providers with bespoke auth
         override this.
+
+        # WHY the empty case became ``("none",)`` (OME-636): declaring NEITHER
+        # credential type is itself a declaration — the provider needs none. The
+        # summary intersection reads an empty tuple as "nothing can be proven" and
+        # forces ``supported_parameters`` empty, so a credential-free provider
+        # could never advertise a parameter until it had a mode of its own to
+        # prove them under.
+        # INVARIANT: "none" is derived HERE, from the provider's own declaration —
+        # never from an absent profile. A provider that merely permits a
+        # profile-less request (``allows_chatless_profile``) still declares real
+        # credential types and keeps them.
         """
-        modes: list[AuthType] = []
+        modes: list[AuthMode] = []
         if self.supports_api_key():
             modes.append("api_key")
         if self.oauth_config() is not None:
             modes.append("oauth")
-        return tuple(modes)
+        return tuple(modes) or ("none",)
 
     def strip_provider_dispatch_controls(self, body: dict[str, Any]) -> dict[str, Any]:
         """Remove caller-supplied LiteLLM control-plane fields THIS provider owns.

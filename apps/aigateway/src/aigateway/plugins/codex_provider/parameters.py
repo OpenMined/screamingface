@@ -37,7 +37,7 @@ from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ProviderParameterObservation,
 )
-from aigateway.core.profile_models import AuthType
+from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     REASONING_EFFORT_SCHEMA,
     direct_parameter_observations,
@@ -50,7 +50,7 @@ RESPONSES_SOURCE = "codex:responses"
 
 # OAuth-only: the handler rejects sk-/sk-proj- keys outright, and the plugin exposes
 # no api-key strategy, so there is no second mode to rule for.
-_AUTH: tuple[AuthType, ...] = ("oauth",)
+_AUTH: tuple[AuthMode, ...] = ("oauth",)
 # Bump when a projection's semantics change; folds into the contract digests.
 _REVISION = "codex-2026-07"
 
@@ -77,7 +77,7 @@ CODEX_OBSERVATIONS: tuple[ProviderParameterObservation, ...] = direct_parameter_
 
 
 def codex_chat_parameter_rules(
-    *, model: str, auth_type: AuthType | None = None
+    *, model: str, auth_type: AuthMode | None = None
 ) -> tuple[ParameterProjectionRule, ...]:
     """The proven rule set is identical for every Codex model; auth-mode filtering is
     applied by the core classifier/contract, not here."""

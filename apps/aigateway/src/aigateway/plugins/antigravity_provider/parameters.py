@@ -30,7 +30,7 @@ from aigateway.core.chat_parameters import (
     ProviderParameterObservation,
     ToolCapability,
 )
-from aigateway.core.profile_models import AuthType
+from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
     STOP_SCHEMA,
@@ -49,7 +49,7 @@ from aigateway.core.standard_parameters import (
 # so it is never mistaken for, or inferred from, another provider's document.
 CODE_ASSIST_SOURCE = "antigravity:code-assist"
 
-_AUTH: tuple[AuthType, ...] = ("oauth",)
+_AUTH: tuple[AuthMode, ...] = ("oauth",)
 # Bump when a projection's semantics change; folds into the contract digests.
 _REVISION = "antigravity-2026-07"
 
@@ -108,7 +108,7 @@ ANTIGRAVITY_OBSERVATIONS: tuple[ProviderParameterObservation, ...] = tuple(
 
 
 def antigravity_chat_parameter_rules(
-    *, model: str, auth_type: AuthType | None = None
+    *, model: str, auth_type: AuthMode | None = None
 ) -> tuple[ParameterProjectionRule, ...]:
     """The proven rule set is identical for every Antigravity model; auth-mode
     filtering is applied by the core classifier/contract, not here."""
@@ -116,7 +116,7 @@ def antigravity_chat_parameter_rules(
 
 
 def antigravity_chat_parameter_tools(
-    *, model: str, auth_type: AuthType | None = None
+    *, model: str, auth_type: AuthMode | None = None
 ) -> tuple[ToolCapability, ...]:
     # The accepted tools[].type discriminator(s); drives supported_tools and the
     # detail contract's tools section. tool_choice is deliberately not enabled.

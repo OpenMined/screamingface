@@ -1,10 +1,23 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
 
 from .discovery import discover_ollama_models, resolve_ollama_host
+from .parameters import (
+    OLLAMA_OBSERVATIONS,
+    ollama_chat_parameter_rules,
+    ollama_chat_parameter_tools,
+)
+
+if TYPE_CHECKING:
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderParameterObservation,
+        ToolCapability,
+    )
+    from aigateway.core.profile_models import AuthMode
 
 _CLIENT_AUTH_HEADER_NAMES = {"authorization", "x-api-key", "proxy-authorization"}
 
@@ -24,6 +37,31 @@ class OllamaProviderPlugin(ProviderPluginBase):
 
     def allows_chatless_profile(self) -> bool:
         return True
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-636: enabled strictly from what LiteLLM's OllamaChatConfig mapping
+        # emits — see parameters.py for the per-field evidence and for the two
+        # deliberate exclusions (tool_choice, frequency_penalty).
+        # AIDEV-NOTE: available_auth_modes() resolves to ("none",) here because this
+        # plugin declares neither oauth_config() nor supports_api_key(). The rules
+        # apply to that mode alone; adding either declaration would strand them.
+        return ollama_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ToolCapability, ...]:
+        return ollama_chat_parameter_tools(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthMode | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # A local Ollama host publishes no machine-readable parameter schema to the
+        # gateway, so the evidence is the reviewed LiteLLM mapping under Ollama's
+        # own source label.
+        # INVARIANT: an observation NEVER enables a parameter; only a rule does.
+        return OLLAMA_OBSERVATIONS
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         """Sanitize caller auth and adapt Ollama model/api_base for LiteLLM."""

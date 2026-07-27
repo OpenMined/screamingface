@@ -38,7 +38,7 @@ if TYPE_CHECKING:
         ProviderParameterObservation,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
-    from aigateway.core.profile_models import AuthType
+    from aigateway.core.profile_models import AuthMode
 
 
 class CodexProviderPlugin(ProviderPluginBase):
@@ -100,7 +100,7 @@ class CodexProviderPlugin(ProviderPluginBase):
         return False
 
     def chat_parameter_rules(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ParameterProjectionRule, ...]:
         # OME-634: reasoning_effort alone, because _build_payload copies a fixed key
         # list into the Responses body and drops everything else. prepare_chat_body
@@ -111,7 +111,7 @@ class CodexProviderPlugin(ProviderPluginBase):
         return codex_chat_parameter_rules(model=model, auth_type=auth_type)
 
     def chat_parameter_observations(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
         # OME-634: the ChatGPT Responses endpoint publishes no machine-readable
         # schema to the gateway, so the evidence is the reviewed transform mapping

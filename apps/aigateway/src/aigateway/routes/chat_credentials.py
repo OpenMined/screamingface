@@ -16,9 +16,10 @@ from ..core.credential_strategy_cache import credential_strategy_cache
 from ..core.errors import AuthError, CredentialNotFoundError
 from ..core.oauth.models import OAuthConnection
 from ..core.oauth.store import OAuthConnectionStore, credential_key_for
-from ..core.plugin_base import credential_strategy_from
+from ..core.plugin_base import ProviderPluginBase, credential_strategy_from
 from ..core.profile_index import ProfileIndexStore, ProfileTransitionConflict
 from ..core.profile_models import (
+    AuthMode,
     AuthType,
     Profile,
     ProfileDefaults,
@@ -46,6 +47,32 @@ def auth_mode_for_target(
     if profile is not None:
         return profile.auth_type
     return "oauth"
+
+
+def resolved_auth_mode(
+    profile: Profile | None,
+    connection: OAuthConnection | None,
+    *,
+    plugin: ProviderPluginBase,
+) -> AuthMode:
+    """Resolve the auth mode the PARAMETER CONTRACT and dispatch are matched against.
+
+    Same resolution as ``auth_mode_for_target`` for anything with a stored
+    credential, widened by one outcome: a provider that declares no credential
+    type at all resolves to ``"none"`` instead of the ``"oauth"`` fiction (OME-636).
+
+    # WHY this is a separate function rather than a wider return on
+    # ``auth_mode_for_target``: that function also feeds credential-strategy
+    # selection, which has no ``"none"`` branch and cannot grow one. Splitting
+    # keeps the credential path structurally unable to receive a mode it could
+    # not serve, instead of relying on a runtime check.
+    # INVARIANT: ``"none"`` comes from the PROVIDER's declaration, never from an
+    # absent profile. Gemini also permits a profile-less request, so triggering on
+    # the missing profile would silently drop a credentialed provider into no-auth.
+    """
+    if connection is None and profile is None and plugin.available_auth_modes() == ("none",):
+        return "none"
+    return auth_mode_for_target(profile, connection)
 
 
 _BUCKET_A_FIELDS = (

@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.profile_index import ProfileIndexStore
-    from aigateway.core.profile_models import AuthType
+    from aigateway.core.profile_models import AuthMode
 
 
 def _api_key_headers(api_key: str) -> dict[str, str]:
@@ -108,20 +108,20 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         return field != "reasoning_effort"
 
     def chat_parameter_rules(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ParameterProjectionRule, ...]:
         # OME-479: one provider-local source drives summary, detail, and dispatch.
         return anthropic_chat_parameter_rules(model=model, auth_type=auth_type)
 
     def chat_parameter_tools(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ToolCapability, ...]:
         # OME-583: Anthropic validates OpenAI-style function tools through the installed
         # AnthropicConfig transform (§9), so it advertises the `function` tool type.
         return anthropic_chat_parameter_tools(model=model, auth_type=auth_type)
 
     def chat_parameter_observations(
-        self, *, model: str, auth_type: AuthType | None = None
+        self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[ProviderParameterObservation, ...]:
         # OME-479 §5.1/§6.3: Anthropic has NO live discovery (no credentialed Models-API
         # probe in v1), so the ONLY honest parameter evidence is reviewed labelled-static

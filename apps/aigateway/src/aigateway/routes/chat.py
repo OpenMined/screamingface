@@ -41,7 +41,7 @@ from .chat_credentials import (
     _apply_defaults,
     _credential_target_for_chat,
     _inject_credentials,
-    auth_mode_for_target,
+    resolved_auth_mode,
 )
 from .chat_dispatch import (
     _dispatch_with_backpressure,
@@ -113,7 +113,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # normalization, and (crucially) credential injection — so unknown, disabled,
     # wrong-auth, malformed, and duplicate-channel parameters fail closed with
     # HTTP-safe paths before any credential is read or any provider is dispatched.
-    auth_mode = auth_mode_for_target(profile, connection)
+    auth_mode = resolved_auth_mode(profile, connection, plugin=plugin)
     try:
         body = classify_and_project_chat_parameters(
             body,

@@ -31,7 +31,7 @@ from aigateway.core.chat_parameters import (
     ParameterSchema,
     ToolCapability,
 )
-from aigateway.core.profile_models import AuthType
+from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
     REASONING_EFFORT_SCHEMA,
@@ -45,10 +45,10 @@ from aigateway.core.standard_parameters import (
 
 # reasoning_effort/temperature/max_tokens/top_p are model behavior, not auth-specific
 # features, so they are enabled under both modes (surviving the summary intersection).
-_AUTH: tuple[AuthType, ...] = ("api_key", "oauth")
+_AUTH: tuple[AuthMode, ...] = ("api_key", "oauth")
 # top_k: proven through the DIRECT api-key transform only (OAuth subscription path
 # uncaptured in v1) — so it is authorized under api_key alone.
-_API_KEY_ONLY: tuple[AuthType, ...] = ("api_key",)
+_API_KEY_ONLY: tuple[AuthMode, ...] = ("api_key",)
 _REVISION = "anthropic-2026-07"
 
 # WHY: Anthropic's Messages API accepts temperature in [0, 1] (NOT the shared
@@ -122,13 +122,13 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
 
 
 def anthropic_chat_parameter_rules(
-    *, model: str, auth_type: AuthType | None = None
+    *, model: str, auth_type: AuthMode | None = None
 ) -> tuple[ParameterProjectionRule, ...]:
     return _RULES
 
 
 def anthropic_chat_parameter_tools(
-    *, model: str, auth_type: AuthType | None = None
+    *, model: str, auth_type: AuthMode | None = None
 ) -> tuple[ToolCapability, ...]:
     # OME-583: the accepted tools[].type discriminator(s); drives the summary's
     # supported_tools and the detail contract's tools section.

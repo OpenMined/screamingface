@@ -25,7 +25,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .profile_models import AuthType
+from .profile_models import AuthMode
 
 # Public enums (fail-closed: Pydantic rejects any value outside these literals).
 ProviderSupport = Literal["supported", "conditional", "unsupported", "unknown"]
@@ -206,7 +206,7 @@ class ParameterProjectionRule(BaseModel):
 
     request_path: str
     parameter_schema: ParameterSchema | None = Field(default=None, alias="schema")
-    applicable_auth_modes: tuple[AuthType, ...]
+    applicable_auth_modes: tuple[AuthMode, ...]
     projection_kind: ProjectionKind
     provider_target: str | None = None
     cache_behavior: CacheBehavior
@@ -222,7 +222,7 @@ class ParameterProjectionRule(BaseModel):
 
     @field_validator("applicable_auth_modes")
     @classmethod
-    def _normalize_auth_modes(cls, value: tuple[AuthType, ...]) -> tuple[AuthType, ...]:
+    def _normalize_auth_modes(cls, value: tuple[AuthMode, ...]) -> tuple[AuthMode, ...]:
         if not value:
             raise InvalidParameterRuleError("applicable_auth_modes must be non-empty")
         # Deterministic: sorted + deduplicated so equal rules hash/compare equal.
@@ -373,7 +373,7 @@ class ParameterContractEntry(BaseModel):
     gateway_projection: str | None
     gateway_reason: str | None
     cache_behavior: CacheBehavior
-    applicable_auth_modes: tuple[AuthType, ...]
+    applicable_auth_modes: tuple[AuthMode, ...]
 
     def to_detail_dict(self) -> dict[str, Any]:
         gateway: dict[str, Any] = {"status": self.gateway_status}
@@ -435,7 +435,7 @@ def normalize_rules(
 def inline_supported_parameters(
     rules: Iterable[ParameterProjectionRule],
     *,
-    available_auth_modes: tuple[AuthType, ...],
+    available_auth_modes: tuple[AuthMode, ...],
 ) -> tuple[str, ...]:
     """Conservative profile-independent summary.
 
@@ -533,7 +533,7 @@ def compose_contract_entries(
     rules: Iterable[ParameterProjectionRule],
     observations: Iterable[ProviderParameterObservation],
     *,
-    auth_mode: AuthType,
+    auth_mode: AuthMode,
 ) -> tuple[ParameterContractEntry, ...]:
     """Overlay provider observations with gateway rules for one auth mode.
 
