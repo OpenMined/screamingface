@@ -58,3 +58,9 @@ Fix: dropped `.sf-card__grid` bottom border (the following section's top border 
 separator), added a `border-top` to `.sf-card__recipe`, and made engine routes a
 `<details class='sf-section'>` (separated + collapsible). Guarded by `tests/test_ome637_spacing.py`.
 Second commit on the branch; full gate green (append-only clean — new test file only).
+
+## Follow-up — 2026-07-27 (drop source field)
+
+User: drop the "source — engine-advertised…/N local cases" line from the benchmark card.
+Removed the `source` field and the `_benchmark_source` helper; updated two same-session
+unmerged OME-635 benchmark assertions (`--skip-append-only`). Third commit on the branch.

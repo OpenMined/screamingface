@@ -144,7 +144,6 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
             _field("aggregator", escape(benchmark.aggregator.kind.replace("_", " "))),
             _field("tools", _mono(tools)),
             _field("max tool calls", escape(tool_calls)),
-            _field("source", escape(_benchmark_source(benchmark)), wide=True),
         )
     )
     return (
@@ -322,15 +321,6 @@ def _grader_detail(grader: Grader) -> str:
         f"<div class='sf-detail__params'>params: {params}</div>"
         f"{_prompt_block(str(getattr(grader, 'prompt', '')))}"
     )
-
-
-def _benchmark_source(benchmark: Benchmark) -> str:
-    source = benchmark._case_source
-    if source is None:
-        return "engine-advertised — cases resolved by the engine"
-    if isinstance(source, tuple):
-        return f"{len(source)} local case{'' if len(source) == 1 else 's'}"
-    return "local — lazy case producer"
 
 
 def _benchmark_routes(benchmark: Benchmark) -> str:

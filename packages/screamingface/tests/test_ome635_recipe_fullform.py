@@ -89,7 +89,6 @@ def test_benchmark_card_verbose_with_collapsed_rubric_prompt() -> None:
 
     assert "gemini/3.1-pro-preview" in html  # grader model
     assert "3 passes" in html
-    assert "1 local case" in html  # source line
     assert "<details class='sf-more'" in html  # long prompt collapsed into <details>
     assert "chars" in html  # the collapsed summary shows the length
 
@@ -106,7 +105,7 @@ def test_benchmark_card_marks_deterministic_grader() -> None:
     assert "engine routes" not in html  # local benchmark has no engine routes
 
 
-def test_engine_benchmark_shows_source_and_collapsed_routes() -> None:
+def test_engine_benchmark_shows_collapsed_routes() -> None:
     from screamingface.aggregators import Mean
     from screamingface.benchmark import Benchmark
     from screamingface.graders import ExactChoice
@@ -123,7 +122,6 @@ def test_engine_benchmark_shows_source_and_collapsed_routes() -> None:
 
     html = bench._repr_html_()
 
-    assert "engine-advertised" in html  # source line
     assert "engine routes" in html
     assert "/benchmarks/gpqa/1/cases" in html
 
