@@ -114,10 +114,21 @@ failed, stopped, timed_out}`.
 
 ### 5.5 `ai.url4.error` — advisory nack (app-emitted)
 **Decision:** the **app** emits `ai.url4.error` when it rejects an inbound command, rather than
-dropping it silently. `data` is `{code, message, ref_id}`: `code ∈ {invalid_frame, unsupported}`
-(`invalid_frame` = an unparseable or unknown inbound frame; `unsupported` = a valid command the
-bridge cannot act on, e.g. `stop` with no job runner), and `ref_id` echoes the rejected event's
-`id` when known (`null` for an unparseable frame). It is **advisory** — the stream stays open.
+dropping it silently. `data` is `{code, message, ref_id}`:
+`code ∈ {invalid_frame, unsupported, stream_failed}` (`invalid_frame` = an unparseable or unknown
+inbound frame — including an `attach` whose `from_sequence` is below 1, since stream sequences are
+1-based; `unsupported` = a valid command the bridge cannot act on, e.g. `stop` with no job runner;
+`stream_failed` = the topic subscription itself died, so no further frames can arrive until the
+client re-attaches), and `ref_id` echoes the rejected event's `id` when known (`null` for an
+unparseable frame, and for `stream_failed`, which answers no single inbound frame).
+It is **advisory** — the stream stays open.
+
+`stream_failed` is the one code that reports a *bridge* fault rather than a rejected command, and
+it exists because the alternative is worse: the subscription task runs in the background, so
+without it a dead stream emits nothing but heartbeats and is indistinguishable from an idle
+healthy one. The connection stays open deliberately — a fresh `attach` rebuilds the subscription,
+so the failure is recoverable in-place. The message names the failure class only, never the
+underlying broker text, which can carry connection strings.
 Distinct from `terminated.error` (a *run* failure): this is a *protocol* nack, so it carries no
 `permanent` flag.
 

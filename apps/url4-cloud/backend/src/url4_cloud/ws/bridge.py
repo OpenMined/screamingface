@@ -150,7 +150,39 @@ class Bridge:
     def _resubscribe(self, cursor: int | None) -> None:
         if self._sub is not None:
             self._sub.cancel()
-        self._sub = asyncio.ensure_future(self._pump(cursor))
+        sub = asyncio.ensure_future(self._pump(cursor))
+        # INVARIANT: the pump's failure must always reach the client. Without this callback the
+        # task's exception is swallowed (nothing awaits it) while the writer keeps emitting
+        # heartbeats — so a permanently dead stream is indistinguishable from an idle healthy
+        # one. That silence is the OME-623 bug; it had already been observed once for a
+        # different trigger (see NatsBus.subscribe) and worked around only for that trigger.
+        sub.add_done_callback(self._on_pump_done)
+        self._sub = sub
+
+    def _on_pump_done(self, task: asyncio.Task[None]) -> None:
+        """Report a pump that died of anything other than cancellation.
+
+        WHY cancellation is exempt: :meth:`_resubscribe` cancels the previous pump on every
+        re-attach and :meth:`_teardown` cancels it on disconnect — both are normal control flow,
+        and nacking them would spam a correctly-behaving client.
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        # WHY the type name and not str(exc): a broker error can carry connection strings or
+        # credentials, and this frame goes to the client. The class is enough to act on; the
+        # detail belongs in the server's own logs.
+        self._out.put_nowait(
+            _error(
+                self._topic,
+                self._clock,
+                "stream_failed",
+                f"the topic subscription failed ({type(exc).__name__}); re-attach to resume",
+                None,
+            )
+        )
 
     async def _pump(self, cursor: int | None) -> None:
         async for event in self._bus.subscribe(self._topic, cursor):

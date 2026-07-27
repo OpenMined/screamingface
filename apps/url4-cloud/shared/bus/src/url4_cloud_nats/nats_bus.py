@@ -14,6 +14,7 @@ from nats.js import JetStreamContext
 from nats.js.api import ConsumerConfig, DeliverPolicy
 from nats.js.errors import BadRequestError
 
+from url4_cloud_nats.bus import validate_from_sequence
 from url4_cloud_nats.codec import decode, encode, stream_for, subject_for
 from url4_streaming_protocol import OutboundFrame
 
@@ -58,6 +59,7 @@ class NatsBus:
     async def subscribe(
         self, topic: str, from_sequence: int | None = None
     ) -> AsyncIterator[OutboundFrame]:
+        validate_from_sequence(from_sequence)
         js = await self._jetstream()
         # INVARIANT: ensure BEFORE bind, matching ``InMemoryBus.subscribe``. A subscriber
         # legitimately arrives before the stream exists — the REST 428 interest gate REQUIRES the

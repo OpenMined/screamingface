@@ -118,7 +118,14 @@ class StopData(BaseModel):
 class AttachData(BaseModel):
     """Subscribe / resume the stream from a CloudEvents ``sequence``."""
 
-    from_sequence: int | None = None
+    # INVARIANT: stream sequences are 1-based (docs/protocol.md §6), so a `from_sequence` below 1
+    # is a malformed frame, not a legal "start from the beginning" (that is `None`).
+    # WHY enforce it here rather than in the bridge: an unbounded value validated cleanly, reached
+    # JetStream as `opt_start_seq=0`, was rejected there, and killed the subscription task —
+    # which the bridge ran with no done-callback, so the client saw heartbeats forever with no
+    # error at all. Rejecting at the protocol edge turns that silence into the existing
+    # `invalid_frame` nack (OME-623).
+    from_sequence: int | None = Field(default=None, ge=1)
 
 
 class ErrorData(BaseModel):

@@ -23,3 +23,21 @@ class Bus(Protocol):
         self, topic: str, from_sequence: int | None = None
     ) -> AsyncIterator[OutboundFrame]: ...
     async def purge(self, topic: str) -> None: ...
+
+
+def validate_from_sequence(from_sequence: int | None) -> None:
+    """Reject a ``from_sequence`` below 1 — every :class:`Bus` adapter must agree here.
+
+    INVARIANT: stream sequences are 1-based (docs/protocol.md §6); ``None`` means "from the
+    start". Anything below 1 is a caller error.
+
+    WHY this lives on the port rather than in each adapter: the two implementations silently
+    DISAGREED. ``InMemoryBus`` filtered ``seq >= from_sequence``, so 0 matched everything and
+    replayed the whole stream, while JetStream rejects ``opt_start_seq=0`` outright. The double
+    was more permissive than production, so the unit suite could not catch a real hang (OME-623).
+    One shared guard keeps the contract honest in both.
+    """
+    if from_sequence is not None and from_sequence < 1:
+        raise ValueError(
+            f"from_sequence must be >= 1 (1-based stream sequence), got {from_sequence}"
+        )

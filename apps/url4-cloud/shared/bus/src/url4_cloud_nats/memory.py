@@ -3,6 +3,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 
+from url4_cloud_nats.bus import validate_from_sequence
 from url4_cloud_nats.codec import decode, encode
 from url4_streaming_protocol import OutboundFrame
 
@@ -39,6 +40,7 @@ class InMemoryBus:
     async def subscribe(
         self, topic: str, from_sequence: int | None = None
     ) -> AsyncIterator[OutboundFrame]:
+        validate_from_sequence(from_sequence)
         await self.ensure_stream(topic)
         cond = self._conds[topic]
         cursor = 1 if from_sequence is None else from_sequence
