@@ -36,6 +36,7 @@ from .parameter_discovery import (
 if TYPE_CHECKING:
     from .chat_parameters import ProviderDiscoverySnapshot
     from .parameter_discovery_cache import CacheLimits, CacheOutcome
+    from .profile_models import AuthType
 
 # Unit separator: forbidden in a source name, a canonical model id and a revision
 # alike, so the joined key cannot collide across differently-split triples.
@@ -65,6 +66,72 @@ class DiscoverablePlugin(Protocol):
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
     ) -> ProviderDiscoverySnapshot | None: ...
+
+
+class AuthScopedDiscoverablePlugin(Protocol):
+    """The provider port BEFORE one contract read's auth mode is bound.
+
+    A provider whose auth modes reach DIFFERENT upstreams cannot answer "is there
+    a dynamic source for this model" without the resolved mode: an api-key path
+    may talk to an API that publishes a machine-readable schema while the same
+    provider's OAuth path talks to one that does not.
+    """
+
+    def chat_discovery_source(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> DiscoverySourceRef | None: ...
+
+    async def discover_chat_parameter_snapshot(
+        self,
+        *,
+        model: str,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+        auth_type: AuthType | None = None,
+    ) -> ProviderDiscoverySnapshot | None: ...
+
+
+@dataclass(frozen=True)
+class _AuthScopedView:
+    """One provider seen through one contract read's resolved auth mode."""
+
+    plugin: AuthScopedDiscoverablePlugin
+    auth_type: AuthType | None
+
+    def chat_discovery_source(self, *, model: str) -> DiscoverySourceRef | None:
+        return self.plugin.chat_discovery_source(model=model, auth_type=self.auth_type)
+
+    async def discover_chat_parameter_snapshot(
+        self,
+        *,
+        model: str,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+    ) -> ProviderDiscoverySnapshot | None:
+        return await self.plugin.discover_chat_parameter_snapshot(
+            model=model, client=client, limits=limits, auth_type=self.auth_type
+        )
+
+
+def auth_scoped(
+    plugin: AuthScopedDiscoverablePlugin, auth_type: AuthType | None
+) -> DiscoverablePlugin:
+    """Bind a contract read's auth mode to a provider's discovery hooks.
+
+    # WHY the mode is bound HERE rather than threaded through ``observe``: the
+    # runtime never reads it. It caches by (source, model, revision) and dials
+    # whatever the provider declared. Passing a value the runtime only forwards
+    # would put provider-shaped knowledge in ``DiscoverablePlugin`` and break every
+    # auth-independent provider and test double that satisfies it today.
+    #
+    # INVARIANT (cache identity): auth is deliberately ABSENT from the cache key. A
+    # provider whose snapshot CONTENT varies by mode must say so in the ref itself —
+    # a different ``source`` or ``revision`` keys separately. Declaring no ref at
+    # all (the honest answer when an upstream publishes nothing) forms no key.
+    # INVARIANT: binds BOTH hooks with the SAME mode, so a provider's one predicate
+    # cannot be consulted with two different answers.
+    """
+    return _AuthScopedView(plugin=plugin, auth_type=auth_type)
 
 
 @dataclass(frozen=True)

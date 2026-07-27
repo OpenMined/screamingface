@@ -147,7 +147,12 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
             )
         )
 
-    def chat_discovery_source(self, *, model: str) -> DiscoverySourceRef | None:
+    def chat_discovery_source(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> DiscoverySourceRef | None:
+        # OME-632: Hugging Face is api-key only and its router catalog is public, so
+        # the resolved mode cannot change the evidence — accepted for port
+        # conformance and deliberately ignored.
         # OME-631: declare the public router catalog BEFORE any fetch, so the
         # observation cache can judge a stored entry's trustworthiness without
         # paying for a round trip.
@@ -165,6 +170,7 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         model: str,
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
+        auth_type: AuthType | None = None,
     ) -> ProviderDiscoverySnapshot | None:
         # OME-479 §6.2: the DYNAMIC source. The catalog is keyed by the bare
         # <org>/<model>, and the pinned :<backend> selects one row inside it — so a

@@ -16,9 +16,10 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.discovery_runtime import (
-    DiscoverablePlugin,
+    AuthScopedDiscoverablePlugin,
     DiscoveryOutcome,
     DiscoveryRuntime,
+    auth_scoped,
     static_discovery_outcome,
 )
 from ..core.model_capabilities import canonical_model_id
@@ -28,13 +29,17 @@ from .chat_credentials import _credential_target_for_chat, auth_mode_for_target
 
 if TYPE_CHECKING:
     from ..core.oauth.models import OAuthConnection
-    from ..core.profile_models import Profile
+    from ..core.profile_models import AuthType, Profile
 
 router = APIRouter()
 
 
 async def _discovery_outcome(
-    request: Request, plugin: DiscoverablePlugin, *, model: str
+    request: Request,
+    plugin: AuthScopedDiscoverablePlugin,
+    *,
+    model: str,
+    auth_mode: AuthType,
 ) -> DiscoveryOutcome:
     """Observe this provider's public evidence for ``model``, or report static-only.
 
@@ -42,11 +47,15 @@ async def _discovery_outcome(
     # model reaching it has already been validated against the canonical
     # inventory, so a caller cannot steer discovery at an arbitrary target — and
     # no credential is in scope: the runtime reads PUBLIC catalogs only.
+    # OME-632: the RESOLVED auth mode is bound here, never caller-declared. A
+    # provider whose modes reach different upstreams may publish a source for one
+    # and none for the other; binding at this boundary keeps that decision with the
+    # provider while the runtime's own port stays auth-free.
     """
     runtime: DiscoveryRuntime | None = request.app.state.discovery_runtime
     if runtime is None:
         return static_discovery_outcome()
-    return await runtime.observe(plugin, model=model)
+    return await runtime.observe(auth_scoped(plugin, auth_mode), model=model)
 
 
 # INVARIANT: this policy belongs to the ROUTE, not to its happy path — EVERY
@@ -124,7 +133,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
 
     # Observed LAST: a request that fails profile resolution must not have spent a
     # fetch on a contract it will never serve.
-    discovered = await _discovery_outcome(request, plugin, model=model)
+    discovered = await _discovery_outcome(request, plugin, model=model, auth_mode=auth_mode)
 
     # OME-629: the observed snapshot reaches the EVIDENCE argument and nothing else.
     # `rules` above is computed independently of `discovered`, so gateway.status,

@@ -260,13 +260,23 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         """
         return ()
 
-    def chat_discovery_source(self, *, model: str) -> DiscoverySourceRef | None:
+    def chat_discovery_source(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> DiscoverySourceRef | None:
         """The cache identity of this provider's dynamic source for ``model``.
 
         INVARIANT (§5.3): declared BEFORE any fetch, because the observation cache
         must decide whether a stored value is still trustworthy without paying for
         a round trip. A revision read off the fetched payload would let the source
         itself declare its own old evidence valid.
+
+        ``auth_type`` is the RESOLVED mode of the contract read, bound by
+        ``core.discovery_runtime.auth_scoped``. Most providers ignore it — their
+        evidence is the same whichever credential dispatch will use. A provider
+        whose modes reach different upstreams answers ``None`` for the mode with no
+        published source, so no fetch is paid and no freshness window is published
+        for evidence the contract would have had to discard. ``None`` means the
+        mode was not resolved: fail closed, do not guess one.
 
         INVARIANT: this is the ONE place that answers "is there a dynamic source
         for this model". Returning a ref commits the provider to answering
@@ -340,8 +350,13 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         model: str,
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
+        auth_type: AuthType | None = None,
     ) -> ProviderDiscoverySnapshot | None:
         """Best-effort DYNAMIC evidence for ``model`` from FIXED public catalogs.
+
+        ``auth_type`` carries the same resolved mode ``chat_discovery_source``
+        received, from the same binder — so a provider whose source declaration is
+        auth-scoped can gate BOTH hooks on ONE predicate.
 
         INVARIANT (§4.2/§5.2): the async sibling of
         ``chat_parameter_observations``. It fetches this provider's FIXED public

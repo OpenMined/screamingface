@@ -14,6 +14,7 @@ from aigateway.core.google_code_assist import (
     extract_account_identity,
 )
 from aigateway.core.oauth.identity import AccountIdentity
+from aigateway.core.parameter_discovery import DiscoverySourceRef
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelEntry,
@@ -34,8 +35,10 @@ from .chat_handler import ensure_litellm_gemini_provider_registered, get_litellm
 from .discovery import (
     CODE_ASSIST_SOURCE,
     DISCOVERY_SOURCE,
+    DISCOVERY_SOURCE_REVISION,
     GEMINI_CODE_ASSIST_OBSERVATIONS,
     GEMINI_DISCOVERY_STATIC_OBSERVATIONS,
+    discover_gemini_snapshot,
 )
 from .models import MODELS
 from .oauth_config import (
@@ -52,10 +55,12 @@ from .settings import GeminiPluginSettings
 if TYPE_CHECKING:
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
+        ProviderDiscoverySnapshot,
         ProviderParameterObservation,
         ToolCapability,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
     from aigateway.core.profile_models import AuthType
 
 
@@ -226,6 +231,50 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         return GEMINI_DISCOVERY_STATIC_OBSERVATIONS + tool_parameter_observations(
             tools, source=DISCOVERY_SOURCE, tool_choice=False
         )
+
+    def _discovers(self, model: str, auth_type: AuthType | None) -> bool:
+        """Is the PUBLIC Discovery document evidence about THIS contract read?
+
+        # INVARIANT: the ONE predicate behind both discovery hooks. Owning it here
+        # rather than in each makes "declared a source, then reported NOT ATTEMPTED"
+        # structurally unreachable — the one inconsistency the runtime cannot
+        # distinguish from a real outage.
+        # WHY the api-key mode only: that path talks to the public
+        # generativelanguage API, which publishes this document. The OAuth path talks
+        # to the Code Assist envelope, which publishes NO schema — inferring one
+        # upstream's surface from another's would be exactly the overclaim the two
+        # source labels exist to prevent. An unresolved mode fails closed.
+        """
+        return auth_type == "api_key" and model.startswith(f"{self.custom_llm_provider}/")
+
+    def chat_discovery_source(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> DiscoverySourceRef | None:
+        # OME-632: declared BEFORE any fetch, so the observation cache can judge a
+        # stored entry's trustworthiness without paying for a round trip. Returning
+        # None on the OAuth path costs nothing AND publishes no freshness window —
+        # the honest report for a contract no fetch stands behind.
+        if not self._discovers(model, auth_type):
+            return None
+        return DiscoverySourceRef(source=DISCOVERY_SOURCE, revision=DISCOVERY_SOURCE_REVISION)
+
+    async def discover_chat_parameter_snapshot(
+        self,
+        *,
+        model: str,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+        auth_type: AuthType | None = None,
+    ) -> ProviderDiscoverySnapshot | None:
+        # OME-479 §Phase 9: the DYNAMIC source. The document is model-INDEPENDENT, so
+        # the model only decides WHETHER this provider is being asked, not what is
+        # fetched — the evidence lands endpoint-scoped.
+        # INVARIANT: never enables a parameter (only a rule does); off the chat
+        # dispatch path; a sanitized DiscoveryError PROPAGATES so the cache can
+        # degrade honestly rather than store a failure as fresh.
+        if not self._discovers(model, auth_type):
+            return None
+        return await discover_gemini_snapshot(client=client, limits=limits)
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         out = dict(body)

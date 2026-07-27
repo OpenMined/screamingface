@@ -356,7 +356,12 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             )
         )
 
-    def chat_discovery_source(self, *, model: str) -> DiscoverySourceRef | None:
+    def chat_discovery_source(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> DiscoverySourceRef | None:
+        # OME-632: the catalog is public and auth-INDEPENDENT — OpenRouter publishes
+        # one row per model whichever credential dispatch will use — so the resolved
+        # mode is accepted for port conformance and deliberately ignored.
         # OME-629: declare the public catalog BEFORE any fetch, so the observation
         # cache can judge a stored entry's trustworthiness without paying for a
         # round trip. The revision names the reading as well as the source.
@@ -375,6 +380,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         model: str,
         client: DiscoveryHttpClient,
         limits: DiscoveryLimits | None = None,
+        auth_type: AuthType | None = None,
     ) -> ProviderDiscoverySnapshot | None:
         # OME-479 §5.1: the DYNAMIC source. Strip the gateway prefix to the
         # upstream id the public catalog is keyed by — the SAME rule as
