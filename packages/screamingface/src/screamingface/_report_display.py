@@ -25,7 +25,10 @@ _STYLE = (
   padding: 16px;
   border-bottom: 1px solid var(--sf-line);
 }
-.sf-report-title { font-size: 16px; font-weight: 600; color: var(--sf-ink); }
+.sf-report-title {
+  font-family: var(--sf-display, "EB Garamond", Georgia, serif);
+  font-size: 20px; font-weight: 500; letter-spacing: -.01em; color: var(--sf-ink);
+}
 .sf-report-meta,
 .sf-report-status,
 .sf-report-label,

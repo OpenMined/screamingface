@@ -24,7 +24,8 @@ _STYLE = (
 .sf-connection-widget.widget-vbox{border:0!important;box-shadow:none!important}
 .sf-connections__head{height:48px;display:flex;align-items:center;gap:12px;padding:0 12px;
   border-bottom:1px solid var(--sf-line-2)}
-.sf-connections__title{font-size:13px;font-weight:600}
+.sf-connections__title{font-family:var(--sf-display,"EB Garamond",Georgia,serif);
+  font-size:15px;font-weight:500;letter-spacing:-.01em}
 .sf-connections__engine{margin-left:auto;font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:11px;color:var(--sf-ink-3);white-space:nowrap}
 .sf-connections__row{height:48px!important;display:flex!important;flex-flow:row nowrap!important;

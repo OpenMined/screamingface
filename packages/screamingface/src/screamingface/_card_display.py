@@ -97,6 +97,7 @@ def model_card_html(model: Model) -> str:
     )
     return (
         f"{_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace model'>"
+        "<div class='sf-card__accent sf-card__accent--solid'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(model.name)}</span>"
         "<span class='sf-card__kicker'>model</span></div>"
         f"<div class='sf-card__grid'>{fields}</div>"
@@ -126,6 +127,7 @@ def fusion_card_html(fusion: Fusion) -> str:
     )
     return (
         f"{_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace fusion'>"
+        "<div class='sf-card__accent'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(fusion.name)}</span>"
         "<span class='sf-card__kicker'>fusion</span></div>"
         f"<div class='sf-card__grid'>{fields}</div>"
@@ -149,6 +151,7 @@ def benchmark_card_html(benchmark: Benchmark) -> str:
     )
     return (
         f"{_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace benchmark'>"
+        "<div class='sf-card__accent sf-card__accent--solid'></div>"
         "<div class='sf-card__head'><div>"
         f"<span class='sf-card__title'>{escape(benchmark.title)}</span>"
         f"<div class='sf-card__meta'>{escape(benchmark.id)}</div></div>"
@@ -207,6 +210,7 @@ def connection_card_html(connection: Connection) -> str:
     )
     return (
         f"{_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace connection'>"
+        "<div class='sf-card__accent sf-card__accent--solid'></div>"
         f"<div class='sf-card__head'>"
         f"<span class='sf-card__title'>{escape(connection.display_name)}</span>"
         "<span class='sf-card__kicker'>connection</span></div>"
@@ -234,6 +238,7 @@ def case_card_html(case: Case) -> str:
     )
     return (
         f"{_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace case'>"
+        "<div class='sf-card__accent sf-card__accent--solid'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(case.id)}</span>"
         "<span class='sf-card__kicker'>case</span></div>"
         f"<div class='sf-card__grid'>{fields}</div></div>"
@@ -253,6 +258,7 @@ def rubric_card_html(rubric: Rubric) -> str:
     )
     return (
         f"{_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace rubric grader'>"
+        "<div class='sf-card__accent sf-card__accent--solid'></div>"
         f"<div class='sf-card__head'><span class='sf-card__title'>{escape(rubric.model)}</span>"
         "<span class='sf-card__kicker'>rubric grader</span></div>"
         f"<div class='sf-card__grid'>{fields}</div></div>"
