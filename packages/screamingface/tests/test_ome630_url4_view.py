@@ -30,18 +30,19 @@ def test_recipe_is_collapsed_by_default_with_a_copy_button() -> None:
     assert "clipboard" in html  # the copy button wires navigator.clipboard
 
 
-def test_structured_view_shows_routes_params_and_intent() -> None:
+def test_full_form_keeps_the_recipe_and_carries_the_exact_raw() -> None:
+    # The url4 is kept in full form (reflowed in a <pre>), not extracted into fields.
     url4 = _fusion_url4()
 
     html = recipe_details_html(url4)
 
-    assert "member_1" in html
+    assert "sf-url4__pre" in html  # rendered in a <pre> (MathJax skips pre/code)
     assert "/gemini/2.5-flash" in html
     assert "/codex/gpt-5.5" in html
-    assert "temperature" in html  # a rendered param key
-    assert "Answer the question." in html  # the member intent/prompt
-    assert "sf-url4__nodes" in html  # the structured container is present
-    assert escape(url4) in html  # the exact raw recipe is embedded (copy source)
+    assert "temperature" in html
+    assert "Answer the question." in html  # the intent text is preserved verbatim
+    # the exact original recipe is carried for the copy button (quote-escaped attribute)
+    assert f'data-url4="{escape(url4, quote=True)}"' in html
 
 
 def test_structured_view_escapes_injected_intent() -> None:
@@ -54,19 +55,13 @@ def test_structured_view_escapes_injected_intent() -> None:
     assert "&lt;script&gt;" in html
 
 
-def test_unparseable_recipe_falls_back_to_raw_without_raising(monkeypatch) -> None:
-    import screamingface._url4_format as mod
-
-    def _boom(_source: str) -> object:
-        raise mod.url4.Url4Error("unparseable")
-
-    monkeypatch.setattr(mod.url4, "build", _boom)
-
-    html = recipe_details_html("member_1:broken")
+def test_reflow_of_odd_input_does_not_raise() -> None:
+    # Reflow is a pure string transform (no parser), so malformed input never raises — it just
+    # reflows oddly and the text is preserved.
+    html = recipe_details_html("member_1:broken(")
 
     assert "<details class='sf-url4'" in html
-    assert "member_1:broken" in html  # raw shown
-    assert "sf-url4__nodes" not in html  # no structured view on fallback
+    assert "member_1:broken(" in html
 
 
 def test_model_and_fusion_cards_embed_the_collapsible_recipe() -> None:
