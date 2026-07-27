@@ -105,7 +105,8 @@ JetStream agree on out-of-range input; suite green.
 - **Environment finding, not a code change.** The gate's `uv run pytest` kept resolving a
   DIFFERENT pytest (9.0.2, no `pytest-cov`) than `.venv` holds (9.1.1). Root cause: this worktree
   was renamed from `url4-integration`, so every `.venv/bin/*` console script carried a stale
-  shebang pointing at a now-missing interpreter; `uv run` fell through to the linuxbrew pytest on
-  PATH. Recreating the venv fixed it. This also corrects the OME-624 ledger's note, which
-  attributed the same symptom to `uv sync --frozen` pruning — that diagnosis was wrong.
+  ABSOLUTE shebang pointing at a now-missing interpreter; `uv run` fell through to the linuxbrew
+  pytest on PATH. Recreating the venv fixed it, and is what turned the pytest gate green.
+  [[OME-624]] hit the same symptom first and recorded it only as an unexplained "local tooling
+  quirk"; its ledger has since been amended with this root cause.
 - No schema/model change, so stack rule S1 (migrations) does not apply.

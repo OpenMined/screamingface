@@ -43,7 +43,25 @@ suite is unchanged and green.
 - **Gates:** BEFORE — `uv sync --frozen` failed with `Distribution not found at:
   .../apps/url4-cloud/dispatcher`. AFTER — `uv sync --frozen` resolves cleanly. Suite green:
   **276 passed, 3 skipped**, matching the pre-change baseline exactly.
-- **Deviations:** none to the change itself. Note for future runs: `uv run pytest` in this tree
-  resolved a DIFFERENT pytest (9.0.2) than the project venv holds (9.1.1) and failed collection
-  with spurious `ModuleNotFoundError`; `.venv/bin/python -m pytest` is the reliable invocation.
-  That is a local tooling quirk, unrelated to the lockfile.
+- **Deviations:** none to the change itself.
+
+  **Tooling note (root cause established later, during OME-623 — this paragraph supersedes the
+  vaguer "local tooling quirk" wording committed with `f6e28e53`).** While verifying this fix,
+  `uv run pytest` resolved a DIFFERENT pytest (9.0.2) than the project venv holds (9.1.1) and
+  failed collection with spurious `ModuleNotFoundError: fastapi` / `url4_cloud` — which looks
+  exactly like a broken lockfile and is not one.
+
+  The cause is unrelated to `uv.lock`: this worktree was renamed from `url4-integration` to
+  `OME-587-url4-cloud-engine-integration`, and a venv's `bin/` console scripts carry an ABSOLUTE
+  shebang. Every `.venv/bin/*` therefore pointed at
+  `/home/junior/.worktrees/url4-integration/.../.venv/bin/python`, which no longer exists, so
+  `uv run pytest` fell through to the linuxbrew `pytest` on `PATH` — a build with no
+  `pytest-cov`, hence also the `unrecognized arguments: --cov=...` failure in the gate runner.
+
+  Fix: recreate the venv (`rm -rf .venv && uv sync`) after ANY worktree rename or move.
+  `.venv/bin/python -m pytest` is the reliable invocation while the shebangs are stale, but it is
+  a workaround — the recreate is the actual fix, and it is what made `run_gates.py` pass.
+
+  AIDEV-NOTE: this class of failure is invisible and misleading — a moved/renamed worktree
+  produces import errors that read as dependency or lockfile problems. Check
+  `head -1 .venv/bin/pytest` before believing them.
