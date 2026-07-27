@@ -48,3 +48,13 @@ always-visible section so its (collapsible) prompt is unmistakable. Long prompts
 - **Deviations:** append-only skip — updated one same-session unmerged OME-635 fusion test to
   the new (uncollapsed, separate-sections) behavior per the user's request. Confirmed the grader
   prompt was already collapsible; the change gives it its own section so it's unmistakable.
+
+## Follow-up fix — 2026-07-27 (spacing)
+
+User: double line between source and grader, none between grader and engine routes. Cause: the
+grid kept a `border-bottom` while each `.sf-section` also adds `margin-top` + `border-top`
+(→ two lines), and engine routes had reverted to an unstyled `.sf-detail` wrapper (→ no line).
+Fix: dropped `.sf-card__grid` bottom border (the following section's top border is now the sole
+separator), added a `border-top` to `.sf-card__recipe`, and made engine routes a
+`<details class='sf-section'>` (separated + collapsible). Guarded by `tests/test_ome637_spacing.py`.
+Second commit on the branch; full gate green (append-only clean — new test file only).

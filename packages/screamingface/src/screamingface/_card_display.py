@@ -350,8 +350,8 @@ def _benchmark_routes(benchmark: Benchmark) -> str:
     if not rows:
         return ""
     return (
-        "<details class='sf-detail'><summary class='sf-summary'>"
-        "<span class='sf-card__k'>engine routes</span></summary>"
+        "<details class='sf-section'><summary class='sf-summary'>"
+        "<span class='sf-section__title'>engine routes</span></summary>"
         f"{rows}</details>"
     )
 
