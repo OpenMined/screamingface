@@ -70,6 +70,36 @@ _STYLE = (
   color:var(--sf-ink)!important;
   font:12px/1 "IBM Plex Mono",ui-monospace,monospace!important}
 .sf-catalog-widget .widget-text{width:auto!important;margin:8px 12px!important}
+.sf-url4{border:0}
+.sf-url4__summary{cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none}
+.sf-url4__summary::-webkit-details-marker{display:none}
+.sf-url4__summary::before{content:'▸';color:var(--sf-ink-3);font-size:10px}
+.sf-url4[open] .sf-url4__summary::before{content:'▾'}
+.sf-url4__copy{margin-left:auto;cursor:pointer;border-radius:0;
+  border:1px solid var(--sf-line-2);background:var(--sf-bg);color:var(--sf-ink-2);
+  padding:2px 8px;font:11px/1 "IBM Plex Mono",ui-monospace,monospace}
+.sf-url4__copy:hover{border-color:var(--sf-ink-3);color:var(--sf-ink)}
+.sf-url4__body{margin-top:8px}
+.sf-url4__nodes{display:flex;flex-direction:column;gap:6px}
+.sf-url4__node{border-left:2px solid var(--sf-line-2);padding:1px 0 1px 10px}
+.sf-url4__nhead{display:flex;align-items:baseline;gap:8px}
+.sf-url4__name{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
+  font-weight:600;color:var(--sf-gain)}
+.sf-url4__weight{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;
+  color:var(--sf-ink-3)}
+.sf-url4__route{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
+  color:var(--sf-ink);overflow-wrap:anywhere}
+.sf-url4__param,.sf-url4__ctx,.sf-url4__leaf,.sf-url4__struct{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;color:var(--sf-ink-2);
+  padding-left:10px;overflow-wrap:anywhere}
+.sf-url4__struct{white-space:pre-wrap}
+.sf-url4__pk{color:var(--sf-ink-3)}
+.sf-url4__intent{font-size:12px;color:var(--sf-ink-2);background:var(--sf-surface);
+  padding:4px 8px;margin-top:2px;white-space:pre-wrap;overflow-wrap:anywhere}
+.sf-url4__output{margin-top:6px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px}
+.sf-url4__raw{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
+  color:var(--sf-ink-3);white-space:pre-wrap;overflow-wrap:anywhere;
+  margin:8px 0 0;background:transparent;border:0;padding:0}
 </style>"""
 )
 
@@ -242,11 +272,10 @@ def _json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
-def _recipe_html(url4: str) -> str:
-    return (
-        "<div class='sf-card__recipe'><div class='sf-card__k'>url4</div>"
-        f"<code>{escape(url4)}</code></div>"
-    )
+def _recipe_html(recipe_url4: str) -> str:
+    from screamingface._url4_format import recipe_details_html
+
+    return f"<div class='sf-card__recipe'>{recipe_details_html(recipe_url4)}</div>"
 
 
 def _member_row(member: object) -> str:
