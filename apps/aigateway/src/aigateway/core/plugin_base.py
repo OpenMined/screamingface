@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     )
     from .credential_blob.store import CredentialBlobStore
     from .oauth.identity import AccountIdentity
-    from .parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
+    from .parameter_discovery import DiscoveryHttpClient, DiscoveryLimits, DiscoverySourceRef
     from .profile_index import ProfileIndexStore
     from .profile_models import AuthType
 
@@ -255,6 +255,25 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         Default: none.
         """
         return ()
+
+    def chat_discovery_source(self, *, model: str) -> DiscoverySourceRef | None:
+        """The cache identity of this provider's dynamic source for ``model``.
+
+        INVARIANT (§5.3): declared BEFORE any fetch, because the observation cache
+        must decide whether a stored value is still trustworthy without paying for
+        a round trip. A revision read off the fetched payload would let the source
+        itself declare its own old evidence valid.
+
+        INVARIANT: this is the ONE place that answers "is there a dynamic source
+        for this model". Returning a ref commits the provider to answering
+        ``discover_chat_parameter_snapshot`` with a snapshot or a
+        ``DiscoveryError`` — a ``None`` there is then an inconsistency the runtime
+        degrades on rather than caching as evidence.
+
+        Default: None — no dynamic source; the detailed contract is served from
+        labelled-local observations alone.
+        """
+        return None
 
     async def discover_chat_parameter_snapshot(
         self,

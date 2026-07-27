@@ -18,6 +18,7 @@ no scheduler, no new dependency (§5.3, §11): a process-lifetime ``OrderedDict`
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -40,6 +41,17 @@ class MonotonicClock(Protocol):
     """
 
     def now(self) -> float: ...
+
+
+class SystemMonotonicClock:
+    """The production ``MonotonicClock``: the process's own monotonic timer.
+
+    # WHY monotonic and not wall time: an NTP correction or a DST change must not
+    # expire — or resurrect — cached evidence.
+    """
+
+    def now(self) -> float:
+        return time.monotonic()
 
 
 @dataclass(frozen=True)
@@ -105,6 +117,18 @@ class ObservationCache:
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         # Live only while callers are inside get_or_refresh for the key (see _InFlight).
         self._inflight: dict[str, _InFlight] = {}
+
+    @property
+    def limits(self) -> CacheLimits:
+        """The bounds this cache enforces.
+
+        # WHY exposed: a consumer that publishes an expiry window must derive it
+        # from the SAME TTL the cache expires on. Passing the TTL separately
+        # alongside the cache is a two-source-of-truth seam whose drift is
+        # invisible — the contract would advertise a window the cache does not
+        # honour.
+        """
+        return self._limits
 
     @property
     def inflight_key_count(self) -> int:

@@ -48,6 +48,24 @@ class DiscoveryLimits:
 
 
 @dataclass(frozen=True)
+class DiscoverySourceRef:
+    """The cache identity of a provider's discovery source, known BEFORE any fetch.
+
+    # WHY it must precede the fetch: the observation cache decides whether a
+    # stored value is still trustworthy by comparing the ``revision`` it was
+    # stored under. A revision read OFF the fetched payload could only ever be
+    # compared after paying for the fetch, which defeats the cache — and would
+    # let the source itself decide when its old evidence stays valid.
+    # INVARIANT: ``revision`` identifies the SOURCE (which catalog, parsed by
+    # which gateway-side reading), not the freshness of one response. Freshness
+    # is the cache's TTL; the revision is what a TTL is scoped to.
+    """
+
+    source: str
+    revision: str
+
+
+@dataclass(frozen=True)
 class RawResponse:
     """The minimal, transport-agnostic response the discovery layer inspects."""
 

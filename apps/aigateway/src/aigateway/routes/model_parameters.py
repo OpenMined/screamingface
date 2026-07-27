@@ -15,6 +15,12 @@ from typing import TYPE_CHECKING, Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.discovery_runtime import (
+    DiscoverablePlugin,
+    DiscoveryOutcome,
+    DiscoveryRuntime,
+    static_discovery_outcome,
+)
 from ..core.model_capabilities import canonical_model_id
 from ..core.model_parameter_contract import build_model_parameter_document
 from ..core.registry import ProviderRegistry
@@ -26,9 +32,22 @@ if TYPE_CHECKING:
 
 router = APIRouter()
 
-# Local/labelled evidence in v1 is not a time-bounded remote observation, so it
-# carries no observed_at/expires_at window; discovery freshness arrives later.
-_LOCAL_FRESHNESS: dict[str, Any] = {"stale": False, "degraded": False}
+
+async def _discovery_outcome(
+    request: Request, plugin: DiscoverablePlugin, *, model: str
+) -> DiscoveryOutcome:
+    """Observe this provider's public evidence for ``model``, or report static-only.
+
+    # INVARIANT: this is the ONLY route that reaches the discovery runtime. The
+    # model reaching it has already been validated against the canonical
+    # inventory, so a caller cannot steer discovery at an arbitrary target — and
+    # no credential is in scope: the runtime reads PUBLIC catalogs only.
+    """
+    runtime: DiscoveryRuntime | None = request.app.state.discovery_runtime
+    if runtime is None:
+        return static_discovery_outcome()
+    return await runtime.observe(plugin, model=model)
+
 
 # INVARIANT: this policy belongs to the ROUTE, not to its happy path — EVERY
 # response it produces, success or error, is per-account/profile and unshareable.
@@ -103,6 +122,10 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     )
     auth_mode = auth_mode_for_target(profile, connection)
 
+    # Observed LAST: a request that fails profile resolution must not have spent a
+    # fetch on a contract it will never serve.
+    discovered = await _discovery_outcome(request, plugin, model=model)
+
     return build_model_parameter_document(
         canonical_id=model,
         gateway_provider=provider,
@@ -113,7 +136,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         observations=plugin.chat_parameter_observations(model=model, auth_type=auth_mode),
         tools=plugin.chat_parameter_tools(model=model, auth_type=auth_mode),
         transport=plugin.chat_transport_capabilities(model=model, auth_type=auth_mode),
-        freshness=dict(_LOCAL_FRESHNESS),
+        freshness=discovered.freshness,
     )
 
 

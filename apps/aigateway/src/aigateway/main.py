@@ -23,7 +23,14 @@ from .core.auth.log_filter import (
 )
 from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
 from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
+from .core.discovery_runtime import DiscoveryRuntime
 from .core.loader import load_plugins
+from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
+from .core.parameter_discovery_cache import (
+    CacheLimits,
+    ObservationCache,
+    SystemMonotonicClock,
+)
 from .core.pending_auth import PendingAuthTable
 from .core.profile_index import ProfileIndexStore
 from .core.registry import ProviderRegistry
@@ -217,6 +224,37 @@ async def _profile_index_conflict(_request: Request, _exc: Exception) -> JSONRes
     )
 
 
+def _build_discovery_runtime(settings: Settings) -> DiscoveryRuntime | None:
+    """Construct the ONE bounded discovery runtime the detailed contract reads from.
+
+    # WHY built here rather than per request: the cache is the whole point. A
+    # runtime rebuilt per request would carry an empty cache, turning the TTL into
+    # a no-op and re-dialling a public catalog on every contract read.
+    # WHY ``None`` when disabled rather than an unbounded stub: the absence of a
+    # runtime is the honest "no dynamic evidence", and it leaves no object that
+    # could later be handed limits nobody configured.
+    # AIDEV-NOTE: ``HttpxDiscoveryClient`` opens (and closes) its connection per
+    # fetch, so there is nothing to shut down in the lifespan.
+    """
+    if not settings.discovery_enabled:
+        return None
+    return DiscoveryRuntime(
+        client=HttpxDiscoveryClient(),
+        cache=ObservationCache(
+            clock=SystemMonotonicClock(),
+            limits=CacheLimits(
+                ttl_s=settings.discovery_cache_ttl_seconds,
+                stale_ttl_s=settings.discovery_cache_stale_ttl_seconds,
+                max_entries=settings.discovery_cache_max_entries,
+            ),
+        ),
+        limits=DiscoveryLimits(
+            timeout_s=settings.discovery_timeout_seconds,
+            max_bytes=settings.discovery_max_bytes,
+        ),
+    )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         settings = Settings()
@@ -246,6 +284,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _configure_fake_codex_oauth(app)
 
     app.state.pending_auth = PendingAuthTable(ttl_seconds=600)
+    app.state.discovery_runtime = _build_discovery_runtime(settings)
 
     for plugin in registry.all():
         auth_router = plugin.auth_router()
