@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
+from aigateway.core.parameter_discovery import DiscoverySourceRef
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelEntry,
@@ -35,17 +36,25 @@ from aigateway.core.standard_parameters import (
 )
 
 from .api_key_validation import HuggingFaceApiKeyValidator
-from .discovery import HF_STATIC_PARAM_OBSERVATIONS, STATIC_SOURCE
+from .discovery import (
+    HF_STATIC_PARAM_OBSERVATIONS,
+    ROUTER_SOURCE,
+    ROUTER_SOURCE_REVISION,
+    STATIC_SOURCE,
+    discover_huggingface_snapshot,
+)
 from .parameters import huggingface_chat_parameter_rules, huggingface_chat_parameter_tools
-from .settings import HuggingFacePluginSettings
+from .settings import HuggingFacePluginSettings, pinned_router_target
 
 if TYPE_CHECKING:
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
+        ProviderDiscoverySnapshot,
         ProviderParameterObservation,
         ToolCapability,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
     from aigateway.core.profile_models import AuthType
 
 # Caller-supplied copies of these are stripped before the gateway injects its own
@@ -136,6 +145,41 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
             + direct_parameter_observations(
                 ("response_format", "n", "logprobs", "top_logprobs"), source=STATIC_SOURCE
             )
+        )
+
+    def chat_discovery_source(self, *, model: str) -> DiscoverySourceRef | None:
+        # OME-631: declare the public router catalog BEFORE any fetch, so the
+        # observation cache can judge a stored entry's trustworthiness without
+        # paying for a round trip.
+        # INVARIANT: the SAME predicate gates both hooks. Owning it here (rather
+        # than only in the fetch) makes "declared a source, then reported NOT
+        # ATTEMPTED" structurally unreachable — the one inconsistency the runtime
+        # cannot distinguish from a real outage.
+        if pinned_router_target(model) is None:
+            return None
+        return DiscoverySourceRef(source=ROUTER_SOURCE, revision=ROUTER_SOURCE_REVISION)
+
+    async def discover_chat_parameter_snapshot(
+        self,
+        *,
+        model: str,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+    ) -> ProviderDiscoverySnapshot | None:
+        # OME-479 §6.2: the DYNAMIC source. The catalog is keyed by the bare
+        # <org>/<model>, and the pinned :<backend> selects one row inside it — so a
+        # gateway id that pins no backend has nothing single-backend to discover and
+        # returns None WITHOUT opening a connection (NOT ATTEMPTED, a different
+        # claim from "attempted and failed").
+        # INVARIANT: never enables a parameter or a tool (only a rule does); off the
+        # chat dispatch path; a sanitized DiscoveryError PROPAGATES so the cache can
+        # degrade honestly rather than store a failure as fresh.
+        target = pinned_router_target(model)
+        if target is None:
+            return None
+        upstream, backend = target
+        return await discover_huggingface_snapshot(
+            upstream, backend=backend, client=client, limits=limits
         )
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:

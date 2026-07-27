@@ -261,12 +261,30 @@ class ProviderParameterObservation(BaseModel):
     parameter_schema: ParameterSchema | None = Field(default=None, alias="schema")
 
 
+class ProviderToolObservation(BaseModel):
+    """Raw provider evidence for one ``tools[].type``. Never authorizes dispatch.
+
+    # WHY no ``source``/``stale`` twin of ``ProviderParameterObservation``: the
+    # tools section publishes only ``provider_support`` + ``gateway_status``
+    # (``ToolCapability.to_dict``), and a provider that reports a tool verdict also
+    # projects it onto the ``tools``/``tool_choice`` request paths — which DO carry
+    # provenance. Duplicating it here would be state the document never renders.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tool_type: str
+    support: ProviderSupport
+
+
 class ProviderDiscoverySnapshot(BaseModel):
     """A provider's discovered evidence, endpoint- and model-scoped kept separate.
 
     # INVARIANT (§5.1): endpoint evidence (what the API accepts syntactically) and
     # per-model evidence (what one model supports) are held in SEPARATE fields, so
-    # they can never be conflated into a single support verdict for a path.
+    # they can never be conflated into a single support verdict for a path. Tool
+    # evidence is a third, distinct field for the same reason — it feeds a different
+    # published section and must not be merged into a request-path verdict.
     # INVARIANT: discovery NEVER enables a parameter — a rule does. This snapshot is
     # evidence a caller overlays onto rules; on its own it authorizes nothing.
     """
@@ -276,6 +294,7 @@ class ProviderDiscoverySnapshot(BaseModel):
     source_revision: str
     endpoint_observations: tuple[ProviderParameterObservation, ...] = ()
     model_observations: tuple[ProviderParameterObservation, ...] = ()
+    tool_observations: tuple[ProviderToolObservation, ...] = ()
 
 
 class ToolCapability(BaseModel):
@@ -470,6 +489,39 @@ def overlay_observations(
             else observation.model_copy(update={"stale": stale})
         )
     return tuple(merged[path] for path in sorted(merged))
+
+
+def overlay_tool_capabilities(
+    base: Iterable[ToolCapability],
+    overlay: Iterable[ProviderToolObservation],
+) -> tuple[ToolCapability, ...]:
+    """Apply discovered tool evidence to a provider's reviewed tool capabilities.
+
+    FEATURE: backend-specific tool evidence. A tool type is named in TWO published
+    places — the ``tools``/``tool_choice`` request paths and the tools section — so
+    a discovered verdict that reached only one of them would make the detailed
+    contract contradict itself. This is the tools-section half.
+
+    INVARIANT (evidence axis only): this moves ``provider_support`` and NOTHING
+    else. ``gateway_status`` is policy, derived from the provider's reviewed rules,
+    so a backend that lacks a tool cannot change what the gateway forwards — nor the
+    ``/v1/models`` summary, which filters on ``gateway_status``.
+
+    INVARIANT (restrict-only): a tool type with no base capability is IGNORED, not
+    added. This is where tools DIVERGE from parameters: an unruled discovered
+    request path becomes a visible DISABLED entry because ``compose_contract_entries``
+    derives that status from the rules, but a ``ToolCapability`` carries both axes in
+    one record — admitting an unknown type would mean INVENTING a gateway decision
+    for a tool the gateway has no rule for. Silence about a known type likewise
+    preserves its reviewed verdict: a partial source is not a denial.
+    """
+    verdicts = {observation.tool_type: observation.support for observation in overlay}
+    return tuple(
+        tool
+        if tool.tool_type not in verdicts
+        else tool.model_copy(update={"provider_support": verdicts[tool.tool_type]})
+        for tool in base
+    )
 
 
 def supported_tool_types(tools: Iterable[ToolCapability]) -> tuple[str, ...]:

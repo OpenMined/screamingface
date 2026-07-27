@@ -65,6 +65,24 @@ def _validate_model_slug(slug: str) -> str:
     return slug
 
 
+def pinned_router_target(slug: str) -> tuple[str, str] | None:
+    """The ``(<org>/<model>, <backend>)`` pair a gateway id pins, or ``None``.
+
+    Lives beside ``_validate_model_slug`` so there is ONE definition of what a
+    well-formed HF gateway id is; this adds only the discovery-specific condition.
+
+    WHY an unsuffixed id has no target: without ``:<provider>`` the router selects a
+    backend PER REQUEST, so no single backend row describes the next call. Reporting
+    one would be a guess dressed as live evidence.
+    """
+    try:
+        _validate_model_slug(slug)
+    except ValueError:
+        return None
+    repo, sep, backend = slug[len("huggingface/") :].partition(":")
+    return (repo, backend) if sep else None
+
+
 class HuggingFacePluginSettings(PluginSettings):
     model_config = SettingsConfigDict(
         env_prefix="AIGW_HUGGINGFACE_",

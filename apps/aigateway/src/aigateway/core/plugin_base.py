@@ -12,7 +12,11 @@ from .api_key_validation import ApiKeyValidator
 # Runtime (not TYPE_CHECKING) import: the default transport capability is
 # CONSTRUCTED here, not merely annotated. Safe — ``chat_parameters`` is pure core
 # vocabulary and imports nothing that reaches this module.
-from .chat_parameters import overlay_observations, stream_transport_capability
+from .chat_parameters import (
+    overlay_observations,
+    overlay_tool_capabilities,
+    stream_transport_capability,
+)
 
 if TYPE_CHECKING:
     from .chat_parameters import (
@@ -305,6 +309,30 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
             snapshot.endpoint_observations + snapshot.model_observations,
             stale=stale,
         )
+
+    def overlay_discovered_tools(
+        self,
+        tools: tuple[ToolCapability, ...],
+        snapshot: ProviderDiscoverySnapshot | None,
+    ) -> tuple[ToolCapability, ...]:
+        """Fold a discovered snapshot's tool evidence into the reviewed capabilities.
+
+        The tools-section sibling of ``overlay_discovered_observations``, so a
+        provider whose discovered verdict reaches the ``tools``/``tool_choice``
+        request paths cannot leave the tools section disagreeing with them.
+
+        INVARIANT: ``snapshot is None`` (no dynamic source, NOT ATTEMPTED, or a
+        degraded read past the stale window) returns the reviewed capabilities
+        UNCHANGED — a discovery outage must never empty or downgrade this section.
+
+        The default is ACTIVE, not a stub: the merge is provider-agnostic. Note it
+        takes no ``stale`` flag — the tools section publishes no staleness field, so
+        the document's staleness is carried by ``freshness`` and by the mirrored
+        request-path observations, which do have somewhere to put it.
+        """
+        if snapshot is None:
+            return tools
+        return overlay_tool_capabilities(tools, snapshot.tool_observations)
 
     async def discover_chat_parameter_snapshot(
         self,

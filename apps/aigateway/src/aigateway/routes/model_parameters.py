@@ -136,6 +136,14 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         discovered.snapshot,
         stale=bool(discovered.freshness.get("stale")),
     )
+    # OME-631: the SAME snapshot reaches the tools section. A tool type is named in
+    # both places, so folding the evidence into only one would publish a document
+    # that contradicts itself. This moves provider_support only — gateway_status,
+    # and therefore the /v1/models supported_tools summary, is untouched.
+    tools = plugin.overlay_discovered_tools(
+        plugin.chat_parameter_tools(model=model, auth_type=auth_mode),
+        discovered.snapshot,
+    )
 
     return build_model_parameter_document(
         canonical_id=model,
@@ -145,7 +153,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         context_identity=_context_identity(account_id, profile, connection),
         rules=plugin.chat_parameter_rules(model=model, auth_type=auth_mode),
         observations=observations,
-        tools=plugin.chat_parameter_tools(model=model, auth_type=auth_mode),
+        tools=tools,
         transport=plugin.chat_transport_capabilities(model=model, auth_type=auth_mode),
         freshness=discovered.freshness,
     )

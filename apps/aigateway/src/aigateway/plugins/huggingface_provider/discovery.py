@@ -10,9 +10,10 @@ FEATURE: Hugging Face P0 observation overlay. Two kinds of evidence, kept apart:
   the detail contract's observation source. HF's catalog carries NO parameter list
   (§5.1), so parameters can only come from this labelled-static fallback.
 
-INVARIANT (SOLID/hexagonal): pure functions over an already-fetched, already-bounded
-document — NO network, NO clock, NO credentials here. The bounded transport
-(``core/parameter_discovery``) supplies the document; this module only parses it.
+INVARIANT (SOLID/hexagonal): the parsing is pure — functions over an already-fetched
+document, NO clock and NO credentials. The single async entry point below reaches the
+network only through the INJECTED bounded transport (``core/parameter_discovery``),
+never a raw client and never a caller-supplied URL.
 INVARIANT (§5.1): capability and parameter evidence carry DISTINCT source labels.
 INVARIANT (§5.3): a model or backend absent from the catalog yields ``None`` —
 honest absence, never fabricated support.
@@ -24,7 +25,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from aigateway.core.chat_parameters import ProviderParameterObservation
+from aigateway.core.chat_parameters import (
+    ProviderDiscoverySnapshot,
+    ProviderParameterObservation,
+    ProviderSupport,
+    ProviderToolObservation,
+)
+from aigateway.core.parameter_discovery import (
+    DiscoveryHttpClient,
+    DiscoveryLimits,
+    fetch_discovery_json,
+)
 
 # Fixed public source (the async fetch step passes this to the bounded transport;
 # the parsers below never dereference a URL themselves).
@@ -36,6 +47,15 @@ ALLOWED_ORIGINS: frozenset[str] = frozenset({"https://router.huggingface.co"})
 # parameter fallback (§5.1 "labelled").
 ROUTER_SOURCE = "huggingface:router"
 STATIC_SOURCE = "huggingface:static"
+
+# INVARIANT: the revision names the SOURCE **and the gateway-side reading** of it,
+# because the observation cache decides a stored entry's trustworthiness by matching
+# it. Bump this whenever the projection below changes what the same bytes mean.
+ROUTER_SOURCE_REVISION = "huggingface:router:backend-capabilities-2026-07"
+
+# The one OpenAI-compatible tool type the router speaks. `supports_tools` is a single
+# boolean, so it can only ever describe function calling.
+_FUNCTION_TOOL = "function"
 
 
 @dataclass(frozen=True)
@@ -102,6 +122,94 @@ def parse_hf_backend_capabilities(
         output_modalities=_modalities(architecture, "output_modalities"),
         supports_tools=_bool_or_none(entry.get("supports_tools")),
         supports_structured_output=_bool_or_none(entry.get("supports_structured_output")),
+    )
+
+
+def _verdict(flag: bool) -> ProviderSupport:
+    return "supported" if flag else "unsupported"
+
+
+def _router_observation(name: str, flag: bool) -> ProviderParameterObservation:
+    return ProviderParameterObservation(
+        request_path=name, support=_verdict(flag), source=ROUTER_SOURCE
+    )
+
+
+def project_backend_capabilities(
+    capabilities: HfBackendCapabilities | None,
+) -> tuple[tuple[ProviderParameterObservation, ...], tuple[ProviderToolObservation, ...]]:
+    """Turn one backend's capability facts into published evidence (OME-631).
+
+    FEATURE: backend-conditional tool and structured-output reporting. ``tools`` and
+    ``tool_choice`` are request paths while ``function`` is a tool type, but ONE
+    catalog boolean decides all three — so they are emitted together here rather
+    than derived twice, and the detailed contract cannot contradict itself.
+
+    INVARIANT: ``supports_tools`` and ``supports_structured_output`` are INDEPENDENT
+    verdicts. The live catalog contains backends that do function calling but not
+    structured output, so neither may be inferred from the other.
+    INVARIANT (§5.3): ``None`` is silence, not a negative. An absent flag, row or
+    backend contributes nothing and leaves the labelled-static evidence standing.
+    """
+    if capabilities is None:
+        return (), ()
+    parameters: list[ProviderParameterObservation] = []
+    tools: tuple[ProviderToolObservation, ...] = ()
+    if capabilities.supports_tools is not None:
+        flag = capabilities.supports_tools
+        parameters.extend(_router_observation(name, flag) for name in ("tool_choice", "tools"))
+        tools = (ProviderToolObservation(tool_type=_FUNCTION_TOOL, support=_verdict(flag)),)
+    if capabilities.supports_structured_output is not None:
+        parameters.append(
+            _router_observation("response_format", capabilities.supports_structured_output)
+        )
+    return tuple(sorted(parameters, key=lambda o: o.request_path)), tools
+
+
+def parse_router_capability_snapshot(
+    catalog: Any, *, upstream_model_id: str, backend: str
+) -> ProviderDiscoverySnapshot:
+    """Read the router catalog into a snapshot for ONE model+backend pair.
+
+    INVARIANT (§5.1): this is per-MODEL evidence, so it lands in
+    ``model_observations`` — never ``endpoint_observations``, which the overlay
+    treats as the LESS specific claim.
+    AIDEV-NOTE: deliberately NOT closed-world, unlike the OpenRouter catalog. A row
+    lists the backends the router serves and carries no parameter vocabulary at all,
+    so an absent key is an unknown deployment, not a capability denial. Do not
+    "align" this with the OpenRouter reading — the documents make different claims.
+    """
+    parameters, tools = project_backend_capabilities(
+        parse_hf_backend_capabilities(catalog, upstream_model_id=upstream_model_id, backend=backend)
+    )
+    return ProviderDiscoverySnapshot(
+        source_revision=ROUTER_SOURCE_REVISION,
+        model_observations=parameters,
+        tool_observations=tools,
+    )
+
+
+async def discover_huggingface_snapshot(
+    upstream_model_id: str,
+    *,
+    backend: str,
+    client: DiscoveryHttpClient,
+    limits: DiscoveryLimits | None = None,
+) -> ProviderDiscoverySnapshot:
+    """Fetch the fixed public router catalog and project the pinned backend's row.
+
+    INVARIANT (§5.3): a transport failure PROPAGATES as ``DiscoveryError``. An empty
+    snapshot means "reached the source; it lists nothing for this pair" — letting a
+    failure return one would have the cache store an outage labelled fresh.
+    """
+    catalog = await fetch_discovery_json(
+        MODELS_URL,
+        allowed_origins=ALLOWED_ORIGINS,
+        client=client,
+        limits=limits or DiscoveryLimits(),
+    )
+    return parse_router_capability_snapshot(
+        catalog, upstream_model_id=upstream_model_id, backend=backend
     )
 
 
