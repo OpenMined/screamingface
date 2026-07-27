@@ -1,7 +1,7 @@
 ---
 id: OME-630
 linear_url: https://linear.app/openmined/issue/OME-630
-status: in_progress
+status: duplicate  # merged into OME-626 (2026-07-27)
 type: feature
 priority: 3
 labels: [py-screamingface, agentic, autonomous]
