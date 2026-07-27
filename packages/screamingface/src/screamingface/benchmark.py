@@ -225,6 +225,11 @@ class Benchmark:
             return benchmark_url4(self, candidate, first=first)
         return candidates_url4(self, candidate, first=first)
 
+    def _repr_html_(self) -> str:
+        from screamingface._card_display import benchmark_card_html
+
+        return benchmark_card_html(self)
+
     def _materialize_cases(self) -> tuple[Case, ...]:
         if self._case_source is None:
             raise RuntimeError("engine-advertised benchmark cases are evaluated by the engine")

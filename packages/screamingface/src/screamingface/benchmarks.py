@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from screamingface._profile import BenchmarkRecord, load_registry
 from screamingface.aggregators import Mean
@@ -13,23 +14,41 @@ from screamingface.graders import ExactChoice, Grader, Rubric
 from screamingface.models import _filters, _limit, _query
 from screamingface.tools import Tool, WebFetch, WebSearch
 
+if TYPE_CHECKING:
+    from screamingface._catalog_view import BenchmarksView
+
 
 def list(
     *, query: str | None = None, tools: Sequence[str] = (), limit: int | None = None
 ) -> builtins.list[str]:
     """Return engine-advertised benchmark IDs in stable registry order."""
 
-    requested_tools = _filters(tools)
-    needle = _query(query)
     if limit is not None:
         _limit(limit, 0)
-    values = [
-        benchmark.id
-        for benchmark in load_registry().benchmarks
-        if (needle is None or needle in benchmark.id.casefold())
-        and requested_tools.issubset(benchmark.tools)
-    ]
+    values = [record.id for record in _filtered_benchmarks(query=query, tools=tools)]
     return values[: _limit(limit, len(values))]
+
+
+def view(*, query: str | None = None, tools: Sequence[str] = ()) -> BenchmarksView:
+    """Return a searchable notebook catalog of engine-advertised benchmarks."""
+
+    from screamingface._catalog_view import BenchmarksView
+
+    return BenchmarksView(_filtered_benchmarks(query=query, tools=tools))
+
+
+def _filtered_benchmarks(
+    *, query: str | None, tools: Sequence[str]
+) -> builtins.list[BenchmarkRecord]:
+    # INVARIANT: view() and list() share this predicate, so they never disagree on membership.
+    requested_tools = _filters(tools)
+    needle = _query(query)
+    return [
+        record
+        for record in load_registry().benchmarks
+        if (needle is None or needle in record.id.casefold())
+        and requested_tools.issubset(record.tools)
+    ]
 
 
 def load(benchmark_id: str) -> Benchmark:

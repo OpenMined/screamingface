@@ -38,6 +38,11 @@ class Fusion(Recipe):
         object.__setattr__(self, "reducer", reducer)
         _validate_graph(self)
 
+    def _repr_html_(self) -> str:
+        from screamingface._card_display import fusion_card_html
+
+        return fusion_card_html(self)
+
     @property
     def model_ids(self) -> tuple[str, ...]:
         models: list[str] = []
