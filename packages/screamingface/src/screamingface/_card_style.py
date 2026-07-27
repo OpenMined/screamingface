@@ -29,6 +29,22 @@ CARD_STYLE = (
 .sf-card__recipe{padding:8px 12px;background:var(--sf-surface);min-width:0;
   border-top:1px solid var(--sf-line)}
 .sf-mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px}
+.sf-card__meta{margin-top:3px;font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;color:var(--sf-ink-3);overflow-wrap:anywhere}
+/* big-number stat grid (mirrors the evaluation report widget) */
+.sf-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;
+  background:var(--sf-line)}
+.sf-stat{background:var(--sf-bg);padding:12px;min-width:0}
+.sf-stat__k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--sf-ink-3)}
+.sf-stat__v{margin-top:6px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:20px;
+  font-weight:600;font-variant-numeric:tabular-nums;color:var(--sf-ink);line-height:1.15;
+  overflow-wrap:anywhere}
+@media (max-width:620px){.sf-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.sf-chips{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;
+  border-top:1px solid var(--sf-line)}
+.sf-chip{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;color:var(--sf-ink-2);
+  border:1px solid var(--sf-line-2);padding:1px 8px}
 /* catalogs */
 .sf-catalog{border:1px solid var(--sf-line-2)}
 .sf-catalog-widget.widget-vbox{border:0!important;box-shadow:none!important}

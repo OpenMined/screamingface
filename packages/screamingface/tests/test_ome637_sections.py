@@ -37,4 +37,4 @@ def test_benchmark_grader_is_its_own_section_with_collapsible_prompt() -> None:
 
     assert "<div class='sf-section__title'>grader</div>" in html
     assert "<details class='sf-more'" in html  # long grader prompt collapses
-    assert "5 passes" in html
+    assert ">5</div>" in html  # passes shown as a stat value

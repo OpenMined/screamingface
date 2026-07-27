@@ -88,7 +88,7 @@ def test_benchmark_card_verbose_with_collapsed_rubric_prompt() -> None:
     html = bench._repr_html_()
 
     assert "gemini/3.1-pro-preview" in html  # grader model
-    assert "3 passes" in html
+    assert ">3</div>" in html  # passes shown as a stat value
     assert "<details class='sf-more'" in html  # long prompt collapsed into <details>
     assert "chars" in html  # the collapsed summary shows the length
 

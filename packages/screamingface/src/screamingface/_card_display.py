@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from screamingface.fusion import Fusion
     from screamingface.graders import Grader, Rubric
     from screamingface.model import Model
+    from screamingface.tools import Tool
 
 # A prompt/route longer than this collapses into a <details>; shorter renders inline.
 _LONG_LIMIT = 140
@@ -134,25 +135,55 @@ def fusion_card_html(fusion: Fusion) -> str:
 
 
 def benchmark_card_html(benchmark: Benchmark) -> str:
-    """Render one Benchmark verbosely: every interesting field, long ones collapsed."""
+    """Render one Benchmark in the evaluate/report visual language: header + stat grid."""
 
-    tools = ", ".join(tool.id for tool in benchmark.tools) or "none"
+    passes = getattr(benchmark.grader, "passes", None)
     tool_calls = "—" if benchmark.max_tool_calls is None else str(benchmark.max_tool_calls)
-    fields = "".join(
+    stats = "".join(
         (
-            _field("id", _mono(benchmark.id)),
-            _field("aggregator", escape(benchmark.aggregator.kind.replace("_", " "))),
-            _field("tools", _mono(tools)),
-            _field("max tool calls", escape(tool_calls)),
+            _stat("aggregator", benchmark.aggregator.kind.replace("_", " ")),
+            _stat("grader", benchmark.grader.kind.replace("_", " ")),
+            _stat("passes", "—" if passes is None else str(passes)),
+            _stat("max tool calls", tool_calls),
         )
     )
     return (
         f"{_STYLE}<div class='sf-ui sf-card' aria-label='ScreamingFace benchmark'>"
-        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(benchmark.title)}</span>"
+        "<div class='sf-card__head'><div>"
+        f"<span class='sf-card__title'>{escape(benchmark.title)}</span>"
+        f"<div class='sf-card__meta'>{escape(benchmark.id)}</div></div>"
         "<span class='sf-card__kicker'>benchmark</span></div>"
-        f"<div class='sf-card__grid'>{fields}</div>"
-        f"{_section('grader', _grader_detail(benchmark.grader))}"
+        f"<div class='sf-stats'>{stats}</div>"
+        f"{_tool_chips(benchmark.tools)}"
+        f"{_section('grader', _grader_section_body(benchmark.grader))}"
         f"{_benchmark_routes(benchmark)}</div>"
+    )
+
+
+def _stat(label: str, value: str) -> str:
+    return (
+        f"<div class='sf-stat'><div class='sf-stat__k'>{escape(label)}</div>"
+        f"<div class='sf-stat__v'>{escape(value)}</div></div>"
+    )
+
+
+def _tool_chips(tools: Sequence[Tool]) -> str:
+    if not tools:
+        return ""
+    chips = "".join(f"<span class='sf-chip'>{escape(str(tool.id))}</span>" for tool in tools)
+    return f"<div class='sf-chips'>{chips}</div>"
+
+
+def _grader_section_body(grader: Grader) -> str:
+    model = getattr(grader, "model", None)
+    kind = str(getattr(grader, "kind", "grader")).replace("_", " ")
+    if model is None:  # deterministic grader (e.g. ExactChoice)
+        return f"{escape(kind)} <span class='sf-card__hint'>(deterministic)</span>"
+    params = _params_text(getattr(grader, "params", {}))
+    return (
+        f"<div class='sf-detail__params'>model {_mono(str(model))}</div>"
+        f"<div class='sf-detail__params'>params: {params}</div>"
+        f"{_prompt_block(str(getattr(grader, 'prompt', '')))}"
     )
 
 
@@ -303,23 +334,6 @@ def _reducer_detail(reducer: object) -> str:
         f"<div class='sf-detail__route'>{escape(str(route))}</div>"
         f"<div class='sf-detail__params'>params: {params}</div>"
         f"{_prompt_block(str(getattr(reducer, 'prompt', '')))}</div>"
-    )
-
-
-def _grader_detail(grader: Grader) -> str:
-    kind = str(getattr(grader, "kind", "grader")).replace("_", " ")
-    model = getattr(grader, "model", None)
-    if model is None:  # deterministic grader (e.g. ExactChoice)
-        return f"{escape(kind)} <span class='sf-card__hint'>(deterministic)</span>"
-    passes = getattr(grader, "passes", None)
-    head = f"{escape(kind)} · model {_mono(str(model))}"
-    if passes is not None:
-        head += f" · {passes} pass{'' if passes == 1 else 'es'}"
-    params = _params_text(getattr(grader, "params", {}))
-    return (
-        f"<div class='sf-detail__params'>{head}</div>"
-        f"<div class='sf-detail__params'>params: {params}</div>"
-        f"{_prompt_block(str(getattr(grader, 'prompt', '')))}"
     )
 
 
