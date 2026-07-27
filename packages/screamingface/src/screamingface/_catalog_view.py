@@ -59,7 +59,8 @@ class _CatalogView(ABC):
 
         header = widgets.HTML(
             value=(
-                f"{_STYLE}<div class='sf-catalog__head'>"
+                f"{_STYLE}<div class='sf-card__accent sf-card__accent--solid'></div>"
+                f"<div class='sf-catalog__head'>"
                 f"<div class='sf-catalog__title'>{self._title}</div></div>"
             )
         )

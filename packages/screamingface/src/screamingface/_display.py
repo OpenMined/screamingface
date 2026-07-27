@@ -10,7 +10,7 @@ from __future__ import annotations
 
 _FONTS = (
     "@import url('https://fonts.googleapis.com/css2?"
-    "family=EB+Garamond:wght@500&family=IBM+Plex+Mono:wght@400;500;600&"
+    "family=IBM+Plex+Mono:wght@400;500;600&"
     "family=IBM+Plex+Sans:wght@400;500;600&display=swap');"
 )
 
@@ -32,9 +32,6 @@ STYLE = f"""<style>
 {_FONTS}
 .sf-ui {{
   {_LIGHT};
-  --sf-display:"EB Garamond","Iowan Old Style",Georgia,"Times New Roman",serif;
-  --sf-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
-  --sf-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
   max-width:760px;color:var(--sf-ink);background:var(--sf-bg);
   font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   font-size:13px;line-height:1.45;

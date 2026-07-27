@@ -369,17 +369,26 @@ def _benchmark_routes(benchmark: Benchmark) -> str:
 # --- catalogs -----------------------------------------------------------------------------
 
 
+def _chip(text: str, *, muted: bool = False) -> str:
+    css = "sf-chip sf-chip--muted" if muted else "sf-chip"
+    return f"<span class='{css}'>{escape(text)}</span>"
+
+
+def _tags(chips: str) -> str:
+    return f"<div class='sf-catalog__tags'>{chips}</div>"
+
+
 def models_rows_html(records: Sequence[ModelRecord]) -> str:
     if not records:
         return "<div class='sf-catalog__empty'>No models match.</div>"
     rows = []
     for record in records:
-        tools = ", ".join(record.supported_tools) or "no tools"
+        chips = _chip(record.provider) + "".join(_chip(tool) for tool in record.supported_tools)
+        if not record.supported_tools:
+            chips += _chip("no tools", muted=True)
         rows.append(
-            "<div class='sf-catalog__row'>"
-            f"<div class='sf-catalog__id'>{escape(record.id)}</div>"
-            f"<div class='sf-catalog__meta'>{escape(record.provider)} · {escape(tools)}</div>"
-            "</div>"
+            f"<div class='sf-catalog__row'><div class='sf-catalog__id'>{escape(record.id)}</div>"
+            f"{_tags(chips)}</div>"
         )
     return "".join(rows)
 
@@ -389,14 +398,12 @@ def benchmarks_rows_html(records: Sequence[BenchmarkRecord]) -> str:
         return "<div class='sf-catalog__empty'>No benchmarks match.</div>"
     rows = []
     for record in records:
-        tools = ", ".join(record.tools) or "no tools"
+        chips = "".join(_chip(tool) for tool in record.tools) or _chip("no tools", muted=True)
         rows.append(
             "<div class='sf-catalog__row'>"
-            "<div>"
-            f"<div class='sf-catalog__id'>{escape(record.id)}</div>"
+            f"<div><div class='sf-catalog__id'>{escape(record.id)}</div>"
             f"<div class='sf-catalog__sub'>{escape(record.title)}</div></div>"
-            f"<div class='sf-catalog__meta'>{escape(tools)}</div>"
-            "</div>"
+            f"{_tags(chips)}</div>"
         )
     return "".join(rows)
 
@@ -406,6 +413,7 @@ def catalog_html(title: str, aria: str, count: int, rows: str) -> str:
 
     return (
         f"{_STYLE}<div class='sf-ui sf-catalog' aria-label='{escape(aria)}'>"
+        "<div class='sf-card__accent sf-card__accent--solid'></div>"
         f"<div class='sf-catalog__head'><div class='sf-catalog__title'>{escape(title)}</div>"
         f"<div class='sf-catalog__count'>{count}</div></div>"
         f"{rows}</div>"

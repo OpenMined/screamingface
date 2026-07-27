@@ -21,8 +21,7 @@ CARD_STYLE = (
 .sf-card__accent--solid{background:var(--sf-gain)}
 .sf-card__head{display:flex;align-items:baseline;gap:8px;padding:12px;
   border-bottom:1px solid var(--sf-line)}
-.sf-card__title{font-family:var(--sf-display);font-size:20px;font-weight:500;
-  letter-spacing:-.01em;line-height:1.15;color:var(--sf-ink);overflow-wrap:anywhere}
+.sf-card__title{font-size:15px;font-weight:600;color:var(--sf-ink);overflow-wrap:anywhere}
 .sf-card__kicker{margin-left:auto;font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--sf-gain)}
 .sf-card__grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--sf-line)}
@@ -51,15 +50,15 @@ CARD_STYLE = (
 @media (max-width:620px){.sf-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .sf-chips{display:flex;flex-wrap:wrap;gap:6px;padding:10px 12px;
   border-top:1px solid var(--sf-line)}
-.sf-chip{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;color:var(--sf-ink-2);
-  border:1px solid var(--sf-line-2);padding:1px 8px}
+.sf-chip{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;color:var(--sf-gain);
+  border:1px solid var(--sf-gain);padding:1px 8px;background:var(--sf-gain-bg)}
+.sf-chip--muted{color:var(--sf-ink-3);border-color:var(--sf-line-2);background:transparent}
 /* catalogs */
 .sf-catalog{border:1px solid var(--sf-line-2)}
 .sf-catalog-widget.widget-vbox{border:0!important;box-shadow:none!important}
 .sf-catalog__head{display:flex;align-items:center;gap:8px;height:44px;padding:0 12px;
   border-bottom:1px solid var(--sf-line-2)}
-.sf-catalog__title{font-family:var(--sf-display);font-size:16px;font-weight:500;
-  letter-spacing:-.01em}
+.sf-catalog__title{font-size:13px;font-weight:600}
 .sf-catalog__count{margin-left:auto;font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:11px;color:var(--sf-ink-3)}
 .sf-catalog__row{display:grid;grid-template-columns:minmax(0,2fr) 1fr;gap:12px;
@@ -70,6 +69,7 @@ CARD_STYLE = (
 .sf-catalog__sub{color:var(--sf-ink-2)}
 .sf-catalog__meta{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
   color:var(--sf-ink-3);text-align:right;overflow-wrap:anywhere}
+.sf-catalog__tags{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
 .sf-catalog__empty{padding:16px 12px;color:var(--sf-ink-3);text-align:center;
   font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px}
 .sf-catalog-widget .widget-text input{border-radius:0!important;box-shadow:none!important;

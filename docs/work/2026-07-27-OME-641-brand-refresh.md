@@ -63,3 +63,14 @@ cards genuinely appealing (owner: full brand refresh). The brand evolved: gain i
     rationale comment moved out of the shipped CSS to avoid the literal word in output.
   - Brand self-check: gold gain, gold→blue signature (Fusion), serif titles, real fonts via
     `@import` with fallbacks, square, hairline, light+dark equal.
+
+## Follow-up — 2026-07-27 (clear titles + color on connections/models/benchmarks)
+
+User feedback: the EB Garamond serif titles read weird. Reverted card/catalog/report/connection
+titles to the prior clear sans (IBM Plex Sans, 15/16/13px, weight 600) and dropped the now-unused
+EB Garamond font (and `--sf-display`/`--sf-sans`/`--sf-mono` vars); the real IBM Plex Sans/Mono
+still load via `@import`. Also added brand color to the three requested surfaces: gold-bordered
+`.sf-chip`s (models = provider + tool chips; benchmarks = tool chips; benchmark card tools too),
+a solid-gold accent bar on the models/benchmarks catalogs and on the connection panel (solid —
+the panel stays gradient-free). Updated the OME-641 test to the clear-title reality + catalog/
+connection color assertions (`--skip-append-only`, same-session test).
