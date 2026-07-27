@@ -60,3 +60,13 @@ contract (honest fields, HTML-escaped, `.sf-ui` tokens).
     remains the selectable copy source.
   - As before, the 7 pre-existing unrelated example notebooks (OME-400 WIP) were stashed to
     prove a clean whole-tree gate; only OME-630 files committed; stash restored.
+
+## Follow-up fix — 2026-07-27 (pre-merge)
+
+User reported the recipe struct overflowing horizontally with a gold highlight. Investigation:
+the gold is **JupyterLab's Find/search highlight** (`--jp-search-selected-match-background-color:
+#f5c800`) landing on matched text in the output — not SDK styling; it clears when the Find bar
+is closed. The real defect was the flex node containers (`display:flex;flex-direction:column`)
+defaulting to `min-width:auto`, letting long routes/structs push past the card edge. Fixed by
+adding `min-width:0` to `.sf-url4__body/__nodes/__node`; long content now wraps. Guarded by
+`test_recipe_nodes_wrap_long_content_instead_of_overflowing`. Second commit on the same branch.

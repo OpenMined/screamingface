@@ -79,9 +79,9 @@ _STYLE = (
   border:1px solid var(--sf-line-2);background:var(--sf-bg);color:var(--sf-ink-2);
   padding:2px 8px;font:11px/1 "IBM Plex Mono",ui-monospace,monospace}
 .sf-url4__copy:hover{border-color:var(--sf-ink-3);color:var(--sf-ink)}
-.sf-url4__body{margin-top:8px}
-.sf-url4__nodes{display:flex;flex-direction:column;gap:6px}
-.sf-url4__node{border-left:2px solid var(--sf-line-2);padding:1px 0 1px 10px}
+.sf-url4__body{margin-top:8px;min-width:0}
+.sf-url4__nodes{display:flex;flex-direction:column;gap:6px;min-width:0}
+.sf-url4__node{border-left:2px solid var(--sf-line-2);padding:1px 0 1px 10px;min-width:0}
 .sf-url4__nhead{display:flex;align-items:baseline;gap:8px}
 .sf-url4__name{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;
   font-weight:600;color:var(--sf-gain)}
