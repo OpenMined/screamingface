@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -259,6 +259,33 @@ class ProviderPluginBase[TSettings: PluginSettings](ABC):
         Default: none.
         """
         return ()
+
+    def validate_chat_parameter_combination(
+        self, body: Mapping[str, Any], *, model: str, auth_mode: AuthMode
+    ) -> None:
+        """Refuse a COMBINATION of accepted parameters this model cannot serve.
+
+        The one seam for cross-field constraints (OME-640). A
+        ``ParameterProjectionRule`` is per-path by construction and the classifier
+        is deliberately provider-agnostic, so "these two individually-valid fields
+        cannot travel together on THIS model under THIS auth mode" has nowhere
+        else to live without putting a provider switch into core.
+
+        Called once per chat request on the PROJECTED body, after classification
+        and before provider preparation, cache planning, credential access and
+        dispatch. Raise ``IncompatibleParametersError`` to refuse; return to
+        accept.
+
+        INVARIANT: opt-in. The default accepts everything, so a provider that
+        states no cross-field constraint dispatches exactly as it did before —
+        the hook never makes a field newly refusable on its own.
+
+        # AIDEV-NOTE: it RAISES rather than returning an optional error because it
+        # sits directly under the classification seam in the route and is the same
+        # kind of fail-closed refusal; a computed conflict must not be able to
+        # vanish because a caller ignored a return value.
+        """
+        return None
 
     def chat_discovery_source(
         self, *, model: str, auth_type: AuthMode | None = None

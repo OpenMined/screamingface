@@ -374,7 +374,14 @@ async def test_chat_merges_profile_defaults(credential_blobs, authenticated_clie
             provider="anthropic",
             name="default",
             state=ProfileState.AUTHENTICATED,
-            defaults=ProfileDefaults(max_tokens=4096, reasoning_effort="medium"),
+            # AIDEV-NOTE: 8192 is deliberate headroom, not an arbitrary number.
+            # This test is about default MERGING, but reasoning_effort="high"
+            # below becomes a 4096-token thinking budget on this model and
+            # Anthropic requires max_tokens to exceed it (OME-640). The original
+            # 4096 sat exactly on that boundary and made a merge test depend on a
+            # provider constraint it never meant to exercise. The boundary itself
+            # is asserted in tests/unit/anthropic/test_anthropic_thinking_conflict.py.
+            defaults=ProfileDefaults(max_tokens=8192, reasoning_effort="medium"),
         )
     )
 
@@ -405,7 +412,7 @@ async def test_chat_merges_profile_defaults(credential_blobs, authenticated_clie
             },
         )
         assert resp.status_code == 200
-        assert captured["max_tokens"] == 4096
+        assert captured["max_tokens"] == 8192
         assert captured["reasoning_effort"] == "high"
     assert captured["api_key"] == "tok"
 

@@ -22,8 +22,11 @@ from .chat_handler import chat_completion, chat_completion_stream
 from .discovery import ANTHROPIC_STATIC_PARAM_OBSERVATIONS, STATIC_SOURCE
 from .parameters import anthropic_chat_parameter_rules, anthropic_chat_parameter_tools
 from .settings import AnthropicPluginSettings
+from .thinking import raise_on_thinking_conflict
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
@@ -139,6 +142,15 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
             anthropic_chat_parameter_tools(model=model, auth_type=auth_type),
             source=STATIC_SOURCE,
         )
+
+    def validate_chat_parameter_combination(
+        self, body: Mapping[str, Any], *, model: str, auth_mode: AuthMode
+    ) -> None:
+        # OME-640: reasoning_effort and max_tokens each validate alone, but on a
+        # manual-thinking model the effort becomes a thinking budget Anthropic
+        # requires max_tokens to exceed. The rule is model- and auth-specific, so
+        # it lives beside the parameter rules rather than in the classifier.
+        raise_on_thinking_conflict(body, model=model, auth_mode=auth_mode)
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         # Claude-Code attribution moved to dispatch time (chat_handler):

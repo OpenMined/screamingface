@@ -104,6 +104,25 @@ class UnsupportedParametersError(ValueError):
         super().__init__("unsupported chat parameters: " + ", ".join(self.rejected))
 
 
+class IncompatibleParametersError(ValueError):
+    """Individually-valid parameters the provider cannot serve TOGETHER (OME-640).
+
+    Deliberately NOT a variant of ``UnsupportedParametersError``: every path named
+    here IS enabled and DID satisfy its schema. What the provider refuses is the
+    COMBINATION — a cross-field, often model- and auth-specific constraint that a
+    per-path rule cannot express. Reporting it as an unsupported parameter would
+    send the caller looking for a disabled field that does not exist.
+
+    Carries only SAFE request paths plus a reason string the provider composed
+    from its own constants — never a raw submitted value.
+    """
+
+    def __init__(self, paths: Iterable[str], *, reason: str) -> None:
+        self.paths: tuple[str, ...] = tuple(sorted(set(paths)))
+        self.reason = reason
+        super().__init__(f"incompatible chat parameters ({', '.join(self.paths)}): {reason}")
+
+
 class _TargetCollision(Exception):
     """Two accepted channels resolve to the same provider-body location."""
 

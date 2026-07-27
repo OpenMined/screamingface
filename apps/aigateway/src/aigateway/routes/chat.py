@@ -30,6 +30,7 @@ from litellm.exceptions import (
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.parameter_projection import (
+    IncompatibleParametersError,
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
@@ -205,6 +206,36 @@ async def chat_completions(request: Request, response: Response, current: Curren
             provider=provider,
             profile_name=profile_name,
             default_paths=default_paths,
+        ) from None
+
+    # OME-640: a per-path rule cannot say "these two accepted fields cannot travel
+    # together on THIS model under THIS auth mode", so the provider gets one seam
+    # to say it — on the projected body, still ahead of provider preparation,
+    # cache planning, credential access and dispatch. The default accepts
+    # everything, so a provider that states no cross-field constraint is unaffected.
+    try:
+        plugin.validate_chat_parameter_combination(body, model=model, auth_mode=auth_mode)
+    except IncompatibleParametersError as exc:
+        if default_paths & set(exc.paths):
+            # A stored default can be one half of the conflict, and the caller may
+            # not know it exists — so the operator gets their own channel, exactly
+            # as for a rejected default. Paths and the provider's own reason only.
+            logger.warning(
+                "profile defaults in a refused parameter combination "
+                "provider=%s account=%s profile=%s paths=%s",
+                provider,
+                account_id,
+                profile_name,
+                ",".join(sorted(default_paths & set(exc.paths))),
+            )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "incompatible_parameters",
+                "provider": provider,
+                "conflict": list(exc.paths),
+                "message": exc.reason,
+            },
         ) from None
 
     body = plugin.prepare_chat_body(body)
