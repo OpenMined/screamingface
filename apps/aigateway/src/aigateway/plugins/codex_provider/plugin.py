@@ -30,9 +30,15 @@ from .oauth_config import (
     CODEX_SCOPES,
     CODEX_TOKEN_URL,
 )
+from .parameters import CODEX_OBSERVATIONS, codex_chat_parameter_rules
 
 if TYPE_CHECKING:
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderParameterObservation,
+    )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.profile_models import AuthType
 
 
 class CodexProviderPlugin(ProviderPluginBase):
@@ -92,6 +98,26 @@ class CodexProviderPlugin(ProviderPluginBase):
 
     def supports_chat_streaming(self) -> bool:
         return False
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-634: reasoning_effort alone, because _build_payload copies a fixed key
+        # list into the Responses body and drops everything else. prepare_chat_body
+        # below already converted the field — without this rule the classifier
+        # rejected it first, so that conversion was unreachable.
+        # AIDEV-NOTE: chat_parameter_tools is deliberately NOT overridden; the base
+        # default () is correct until the transform learns the Responses tool shape.
+        return codex_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # OME-634: the ChatGPT Responses endpoint publishes no machine-readable
+        # schema to the gateway, so the evidence is the reviewed transform mapping
+        # under Codex's own source label — never OpenAI's.
+        # INVARIANT: an observation NEVER enables a parameter; only a rule does.
+        return CODEX_OBSERVATIONS
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         if "reasoning_effort" in body:

@@ -37,10 +37,21 @@ from .chat_handler import (
     get_litellm_antigravity_handler,
 )
 from .models import MODELS
+from .parameters import (
+    ANTIGRAVITY_OBSERVATIONS,
+    antigravity_chat_parameter_rules,
+    antigravity_chat_parameter_tools,
+)
 from .settings import AntigravityPluginSettings
 
 if TYPE_CHECKING:
+    from aigateway.core.chat_parameters import (
+        ParameterProjectionRule,
+        ProviderParameterObservation,
+        ToolCapability,
+    )
     from aigateway.core.credential_blob.store import CredentialBlobStore
+    from aigateway.core.profile_models import AuthType
 
 
 def _retry_after_header(exc: CustomLLMError) -> dict[str, str]:
@@ -156,6 +167,31 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
 
     def invalidate_profile_session(self, profile_name: str) -> None:
         get_litellm_antigravity_handler().invalidate_session(profile_name)
+
+    def chat_parameter_rules(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ParameterProjectionRule, ...]:
+        # OME-634: the fields build_generate_content_body actually reads out of
+        # optional_params, each pinned into the Code Assist body it emits. A rule is
+        # the ONLY thing that enables a parameter; every other caller field fails
+        # closed at classification, before any credential is read.
+        return antigravity_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def chat_parameter_tools(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ToolCapability, ...]:
+        # OME-634: the builder converts tools[] → functionDeclarations, so `function`
+        # is advertised. It emits no toolConfig, so tool_choice stays unruled.
+        return antigravity_chat_parameter_tools(model=model, auth_type=auth_type)
+
+    def chat_parameter_observations(
+        self, *, model: str, auth_type: AuthType | None = None
+    ) -> tuple[ProviderParameterObservation, ...]:
+        # OME-634: the Code Assist envelope publishes no machine-readable schema, so
+        # the only honest evidence is the reviewed builder mapping, labelled with THIS
+        # provider's own source. Endpoint-level evidence does not vary by model.
+        # INVARIANT: an observation NEVER enables a parameter — only a rule does.
+        return ANTIGRAVITY_OBSERVATIONS
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         # Layer 1 of the two-layer caller-auth strip (findings U4): drop
