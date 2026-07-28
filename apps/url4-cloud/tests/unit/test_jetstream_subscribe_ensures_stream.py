@@ -9,6 +9,8 @@ from url4.streaming.codec import encode
 from url4.streaming.protocol import LogData, LogEvent, OutboundFrame, source_for
 from url4_cloud.adapters.jetstream import JetStreamConsumer
 
+pytestmark = pytest.mark.asyncio
+
 
 class _FakeMsg:
     """One delivered message, shaped like the `nats-py` message the adapter decodes."""
@@ -48,8 +50,18 @@ class _FakeJetStream:
         self.subs: list[_FakeSub] = []
         self._messages_per_sub = messages_per_sub
 
-    async def add_stream(self, name: str, subjects: list[str]) -> object:
+    async def add_stream(
+        self,
+        name: str,
+        subjects: list[str],
+        *,
+        max_age: float | None = None,
+        max_bytes: int | None = None,
+        discard: object = None,
+        **_: object,
+    ) -> object:
         self.calls.append("add_stream")
+        self.stream_limits = {"max_age": max_age, "max_bytes": max_bytes, "discard": discard}
         return object()
 
     async def subscribe(self, subject: str, **kwargs: Any) -> _FakeSub:
@@ -87,3 +99,69 @@ async def test_abandoning_the_iterator_releases_the_subscription() -> None:
     await frames.aclose()
 
     assert js.subs[0].unsubscribed is True
+
+
+async def test_consumers_never_leave_frames_unacked() -> None:
+    """REGRESSION (C2): the replay consumer must declare `ack_policy=none`.
+
+    `subscribe()` with no callback is the nats-py path that acks NOTHING — under the EXPLICIT
+    default every frame is redelivered after AckWait, and delivery stops outright once
+    `max_ack_pending` (server default 1000) unacked messages accumulate, silently truncating any
+    run over ~1000 frames. Nothing local reproduces that: short runs under 30s never redeliver.
+    """
+    from nats.js.api import AckPolicy
+
+    from url4_cloud.adapters.jetstream import _consumer_config
+
+    assert _consumer_config(None).ack_policy is AckPolicy.NONE
+    assert _consumer_config(7).ack_policy is AckPolicy.NONE
+
+
+async def test_streams_are_created_with_retention_limits() -> None:
+    """REGRESSION (C3): an unbounded stream per run is the deployment's real scaling ceiling.
+
+    JetStream's defaults are file storage with every limit infinite, so without these a single
+    runaway expression can fill the NATS filestore and take every other run down with it.
+    """
+    js = _FakeJetStream()
+    stream = JetStreamConsumer("nats://unused:4222")
+    stream._js = cast(JetStreamContext, js)  # noqa: SLF001
+
+    await stream.ensure_stream("t")
+
+    limits = js.stream_limits
+    assert limits["max_age"] and limits["max_age"] > 0
+    assert limits["max_bytes"] and limits["max_bytes"] > 0
+    assert limits["discard"] is not None
+
+
+async def test_delete_stream_reclaims_the_stream_object_and_is_idempotent() -> None:
+    """REGRESSION (C3): `purge` empties a stream but leaves the object, its consumer state and its
+    filestore directory — so a purge-only teardown still adds one permanent stream per run.
+
+    Idempotency matters because DELETE is documented as such: a topic already reclaimed must be a
+    204, not a 500.
+    """
+    from nats.js.errors import NotFoundError
+
+    class _DeletingJetStream(_FakeJetStream):
+        def __init__(self) -> None:
+            super().__init__()
+            self.deleted: list[str] = []
+            self.exists = True
+
+        async def delete_stream(self, name: str) -> bool:
+            if not self.exists:
+                raise NotFoundError
+            self.exists = False
+            self.deleted.append(name)
+            return True
+
+    js = _DeletingJetStream()
+    stream = JetStreamConsumer("nats://unused:4222")
+    stream._js = cast(JetStreamContext, js)  # noqa: SLF001
+
+    await stream.delete_stream("t")
+    await stream.delete_stream("t")  # already gone — must not raise
+
+    assert len(js.deleted) == 1
