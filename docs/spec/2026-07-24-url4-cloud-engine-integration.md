@@ -61,6 +61,8 @@ Two halves, one contract between them:
      `runner/` (the one-shot execution Job), and `shared/` (the `protocol` + NATS `bus` libraries
      both depend on). Each gets its own `pyproject`/`uv.lock`/`Dockerfile`; the release workflow
      builds backend + runner images in parallel.
+     **Superseded — see §2.3.** The split was later collapsed back into one distribution and one
+     image; the boundary it enforced physically is now enforced by a static import gate.
   2. **Real `Url4Executor` adapter** (the only module in url4-cloud permitted to import `url4` —
      contract C6). It bridges `url4.observe`'s synchronous, inline `Observer.on_event` callback
      onto the async-generator execution stream the Runner consumes, and publishes the CloudEvents
@@ -110,6 +112,8 @@ never touching the CloudEvents envelope itself.
 
 ### 2.3 Distro / image topology
 
+As specified (three distributions, two images):
+
 ```
 shared/protocol  (url4_streaming_protocol)  ┐
 shared/bus       (url4_cloud_nats)          ├── both images
@@ -118,14 +122,43 @@ backend/  (url4_cloud)        → image: url4-cloud-backend   (App: REST + WS + 
 runner/   (url4_cloud_runner) → image: url4-cloud-runner    (Job: Url4Executor → publish)
 ```
 
-`runner/` is the **only** distribution that depends on `packages/url4` (C6). `backend/` schedules
-Jobs and bridges NATS→WS but never imports the engine.
+**As it stands today** — the split was collapsed after this spec shipped, in two steps. First the
+distributions merged: the run mode's dependencies were already a strict subset of the serving
+mode's, so two images bought nothing but three hand-synced duplicate modules, and `shared/` had
+no reason to exist once `url4.streaming` carried the wire contract. Then the leftover `backend/`
+directory was flattened away, since a single distribution needs no nesting level to distinguish
+it from its siblings.
+
+```
+apps/url4-cloud/
+    pyproject.toml   ONE distribution (url4-cloud) + the tests/tooling root
+    uv.lock          ONE lockfile
+    Dockerfile       ONE image, built from the REPO ROOT as context
+    url4.toml        the DECLARED model world, baked to /etc/url4/url4.toml
+    src/url4_cloud/  the package — both halves
+    tests/
+```
+
+One image, entered in either of **two modes** (`url4_cloud.cli`): `url4-cloud serve` is the
+control plane, `url4-cloud run` is what a Job runs. The halves are now:
+
+| Half | Modules |
+|---|---|
+| Control plane | `app`, `rest`, `ws`, `auth`, `catalog`, `cli`, `config`, `local`, `metrics`, `ops`, `schemas`, `adapters.k8s`, `adapters.factory` |
+| Data plane | `runner/*` |
+| Shared leaves | `job_env`, `subjects`, `adapters.jetstream`, `testing` |
+
+Nothing at runtime separates them any more, so the boundary is enforced statically:
+`.claude/scripts/check_layering.py` proves the two halves' import graphs stay disjoint, which is
+what keeps a Job's cold start down to the engine plus httpx plus nats-py. It runs as a required
+CI step.
 
 ## 3. Key contracts / invariants
 
-- **C6 — engine isolation.** `url4_cloud_runner.url4_executor` is the only module in url4-cloud
-  allowed to import `url4`. Core never imports plugins; wiring is by port (`Executor`), not
-  direct import.
+- **C6 — engine isolation.** `url4_cloud.runner.executor` (specified as
+  `url4_cloud_runner.url4_executor`, before the distributions merged) is the only module in
+  url4-cloud allowed to import the url4 DAG engine. Core never imports plugins; wiring is by
+  port (`Executor`), not direct import. Enforced by `.claude/scripts/check_layering.py`.
 - **Observer non-blocking contract.** `on_event` is sync, inline, non-blocking; may raise.
 - **One trace tree.** The `traceparent` threaded onto CloudEvents is the engine's real span tree
   (not a synthetic id) — `RunStarted.trace_id`/`root_span_id` and each `NodeStarted.span_id` flow
@@ -165,8 +198,9 @@ Two stacks are touched (per `.claude/sdlc.local.md`); both gate runners must be 
 - **`url4`** (`packages/url4`): `ruff check` · `ruff format --check` · `pyright` ·
   `pytest --cov=url4 --cov-fail-under=95`.
 - **`url4-cloud`** (`apps/url4-cloud`): `ruff check` · `ruff format --check` · `pyright` ·
-  `pytest --cov=url4_cloud --cov=url4_cloud_nats --cov=url4_streaming_protocol
-  --cov=url4_cloud_runner --cov-fail-under=80`.
+  `python3 .claude/scripts/check_layering.py` · `pytest --cov=url4_cloud --cov=url4.streaming
+  --cov-fail-under=80`. (Specified as four `--cov` packages, one per distribution; the merge left
+  one, plus the wire contract that moved into `packages/url4`.)
 
 Run from the repo root: `uv run .claude/scripts/run_gates.py url4` and
 `uv run .claude/scripts/run_gates.py url4-cloud`.

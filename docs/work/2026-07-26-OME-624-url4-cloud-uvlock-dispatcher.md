@@ -8,6 +8,14 @@ finished:
 
 # OME-624 — regenerate url4-cloud uv.lock after the dispatcher → backend rename
 
+> **Path note (added 2026-07-28).** Paths below are as of this unit. The url4-cloud tree has since
+> been flattened: the `backend/`, `runner/` and `shared/` distributions merged into one
+> (`apps/url4-cloud`, package `url4_cloud`, one image, two CLI modes), and the leftover `backend/`
+> directory was removed. Read `backend/src/url4_cloud/X` as `apps/url4-cloud/src/url4_cloud/X`,
+> and the former `shared/protocol` + `shared/bus` as `packages/url4`'s `url4.streaming` and
+> `url4_cloud.adapters.jetstream`.
+
+
 ## Intent
 
 `apps/url4-cloud/uv.lock` still pins the workspace member to `dispatcher`, a directory that no

@@ -1,6 +1,6 @@
 ---
 title: url4-cloud model catalog endpoint — technical specification
-status: implemented — shipped in `92fdf233`; live at `apps/url4-cloud/backend/src/url4_cloud/rest/catalog.py`
+status: implemented — shipped in `92fdf233`; live at `apps/url4-cloud/src/url4_cloud/rest/catalog.py`
 created: 2026-07-26
 revised: 2026-07-26 (r3 — credential required; no service secret; mode-agnostic by construction)
 author: Claude (Opus 5) + Ionesio
@@ -204,12 +204,12 @@ Mirrors the app's established port/adapter/factory shape (`jobs/port.py`, `jobs/
 `jobs/inprocess.py`, `jobs/factory.py`) so it reads like the code around it:
 
 ```
-backend/src/url4_cloud/catalog/
+src/url4_cloud/catalog/
     __init__.py      exports + build_catalog_service(settings)
     port.py          CatalogSource protocol · Credential · ModelCatalog · error hierarchy
     aigateway.py     AigatewayCatalogSource — the httpx adapter
     cache.py         CachedCatalog — keyed TTL · per-key single-flight · stale-on-error
-backend/src/url4_cloud/rest/
+src/url4_cloud/rest/
     _credentials.py  credential resolution shared with routes.py (extracted, not duplicated)
     catalog.py       the GET /v1/models route
 ```
