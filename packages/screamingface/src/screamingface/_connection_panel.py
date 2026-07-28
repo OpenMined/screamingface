@@ -21,6 +21,7 @@ _STYLE = (
     STYLE
     + """<style>
 .sf-connections{border:0;border-radius:0}
+.sf-connections__accent{height:3px;background:var(--sf-gain)}
 .sf-connection-widget.widget-vbox{border:0!important;box-shadow:none!important}
 .sf-connections__head{height:48px;display:flex;align-items:center;gap:12px;padding:0 12px;
   border-bottom:1px solid var(--sf-line-2)}
@@ -123,7 +124,8 @@ class ConnectionPanel:
 
         header = widgets.HTML(
             value=(
-                f"{_STYLE}<div class='sf-connections__head'>"
+                f"{_STYLE}<div class='sf-connections__accent'></div>"
+                "<div class='sf-connections__head'>"
                 "<div class='sf-connections__title'>Provider connections</div>"
                 f"<div class='sf-connections__engine'>Engine · {escape(self.engine)}</div></div>"
             )
@@ -142,6 +144,7 @@ class ConnectionPanel:
         return (
             f"{_STYLE}<div class='sf-ui sf-connections' "
             "aria-label='ScreamingFace provider connections'>"
+            "<div class='sf-connections__accent'></div>"
             "<div class='sf-connections__head'>"
             "<div class='sf-connections__title'>Provider connections</div>"
             f"<div class='sf-connections__engine'>Engine · {escape(self.engine)}</div></div>"

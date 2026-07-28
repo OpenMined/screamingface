@@ -55,6 +55,11 @@ class Case:
         assert isinstance(value, dict)
         return value
 
+    def _repr_html_(self) -> str:
+        from screamingface._card_display import case_card_html
+
+        return case_card_html(self)
+
     def _to_wire(self) -> dict[str, object]:
         return {
             "id": self.id,
@@ -224,6 +229,11 @@ class Benchmark:
         if isinstance(candidate, Recipe):
             return benchmark_url4(self, candidate, first=first)
         return candidates_url4(self, candidate, first=first)
+
+    def _repr_html_(self) -> str:
+        from screamingface._card_display import benchmark_card_html
+
+        return benchmark_card_html(self)
 
     def _materialize_cases(self) -> tuple[Case, ...]:
         if self._case_source is None:

@@ -52,3 +52,8 @@ class Rubric(Grader):
     @property
     def params(self) -> dict[str, ParameterValue]:
         return dict(self._parameter_items)
+
+    def _repr_html_(self) -> str:
+        from screamingface._card_display import rubric_card_html
+
+        return rubric_card_html(self)

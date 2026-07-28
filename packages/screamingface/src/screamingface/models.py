@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import builtins
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
-from screamingface._profile import load_registry
+from screamingface._profile import ModelRecord, load_registry
 from screamingface._tooling import tool_ids
+
+if TYPE_CHECKING:
+    from screamingface._catalog_view import ModelsView
 
 
 def list(
@@ -14,18 +18,30 @@ def list(
 ) -> builtins.list[str]:
     """Return advertised model IDs, optionally filtered in registry order."""
 
-    requested_tools = _filters(tools)
-    needle = _query(query)
     if limit is not None:
         _limit(limit, 0)
-    records = load_registry().models
-    values = [
-        record.id
-        for record in records
+    values = [record.id for record in _filtered_models(query=query, tools=tools)]
+    return values[: _limit(limit, len(values))]
+
+
+def view(*, query: str | None = None, tools: Sequence[str] = ()) -> ModelsView:
+    """Return a searchable notebook catalog of advertised models."""
+
+    from screamingface._catalog_view import ModelsView
+
+    return ModelsView(_filtered_models(query=query, tools=tools))
+
+
+def _filtered_models(*, query: str | None, tools: Sequence[str]) -> builtins.list[ModelRecord]:
+    # INVARIANT: view() and list() share this predicate, so they never disagree on membership.
+    requested_tools = _filters(tools)
+    needle = _query(query)
+    return [
+        record
+        for record in load_registry().models
         if (needle is None or needle in record.id.casefold())
         and requested_tools.issubset(record.supported_tools)
     ]
-    return values[: _limit(limit, len(values))]
 
 
 def _query(value: str | None) -> str | None:

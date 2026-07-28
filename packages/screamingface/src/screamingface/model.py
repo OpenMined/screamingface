@@ -50,6 +50,11 @@ class Model(Recipe):
     def params(self) -> dict[str, ParameterValue]:
         return dict(self._parameter_items)
 
+    def _repr_html_(self) -> str:
+        from screamingface._card_display import model_card_html
+
+        return model_card_html(self)
+
     @property
     def members(self) -> tuple[()]:
         return ()

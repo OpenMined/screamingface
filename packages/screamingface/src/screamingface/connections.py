@@ -57,6 +57,11 @@ class Connection:
         if self.auth_method is not None and self.auth_method not in self.auth_methods:
             raise ValueError("connection auth_method is not advertised by its provider")
 
+    def _repr_html_(self) -> str:
+        from screamingface._card_display import connection_card_html
+
+        return connection_card_html(self)
+
 
 @dataclass(frozen=True, slots=True)
 class OAuthFlow:
