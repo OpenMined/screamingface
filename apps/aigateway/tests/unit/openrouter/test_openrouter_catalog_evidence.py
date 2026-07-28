@@ -38,8 +38,9 @@ from aigateway.core.parameter_discovery import DiscoveryHttpClient, RawResponse
 from aigateway.core.plugin_base import ModelEntry
 from aigateway.plugins.openrouter_provider.discovery import (
     MODEL_SOURCE,
-    MODEL_SOURCE_REVISION,
     MODELS_URL,
+    OPENAPI_URL,
+    SNAPSHOT_SOURCE_REVISION,
     parse_model_catalog_observations,
 )
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
@@ -203,7 +204,7 @@ def test_an_unreadable_neighbour_row_contributes_no_vocabulary() -> None:
 def test_the_plugin_declares_its_catalog_source_before_any_fetch() -> None:
     ref = OpenRouterProviderPlugin().chat_discovery_source(model=f"openrouter/{_FLASH}")
     assert ref is not None
-    assert (ref.source, ref.revision) == (MODEL_SOURCE, MODEL_SOURCE_REVISION)
+    assert (ref.source, ref.revision) == (MODEL_SOURCE, SNAPSHOT_SOURCE_REVISION)
 
 
 def test_a_non_dispatchable_model_declares_no_source() -> None:
@@ -255,7 +256,11 @@ async def test_the_live_snapshot_reads_the_row_closed_world() -> None:
     verdicts = {o.request_path: o.support for o in snapshot.model_observations}
     assert verdicts["temperature"] == "supported"
     assert verdicts["seed"] == "unsupported"
-    assert client.calls == [MODELS_URL]  # only the FIXED public catalog
+    # OME-647: the snapshot is a source PAIR now. Still an EXACT list — the point
+    # of the assertion is that discovery dials the FIXED public documents and
+    # nothing else, which a two-element list pins just as tightly as a one-element
+    # list did.
+    assert client.calls == [MODELS_URL, OPENAPI_URL]
 
 
 # --- composition into the detailed contract ----------------------------------
@@ -272,7 +277,7 @@ def _document(upstream: str, *, observed: str | None = None, stale: bool = False
         None
         if observed is None
         else ProviderDiscoverySnapshot(
-            source_revision=MODEL_SOURCE_REVISION,
+            source_revision=SNAPSHOT_SOURCE_REVISION,
             model_observations=parse_model_catalog_observations(
                 _CATALOG, upstream_model_id=observed
             ),

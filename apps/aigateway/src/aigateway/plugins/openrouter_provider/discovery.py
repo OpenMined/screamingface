@@ -24,9 +24,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from aigateway.core.chat_parameters import (
+    ParameterSchema,
     ProviderDiscoverySnapshot,
     ProviderParameterObservation,
     ProviderSupport,
+    SchemaItemType,
+    SchemaType,
 )
 from aigateway.core.parameter_discovery import (
     DiscoveryHttpClient,
@@ -43,6 +46,15 @@ ALLOWED_ORIGINS: frozenset[str] = frozenset({"https://openrouter.ai"})
 
 MODEL_SOURCE = "openrouter:models"
 ENDPOINT_SOURCE = "openrouter:openapi"
+
+# The component holding the chat endpoint's request body in OpenRouter's document.
+# AIDEV-NOTE: verified against the live document 2026-07-28 — it is ``ChatRequest``,
+# NOT the OpenAI-ish ``ChatCompletionRequest`` one might assume. A wrong name here
+# does not raise: ``parse_openapi_endpoint_observations`` returns () for a schema it
+# cannot find, so the whole endpoint source would go silently empty. That failure
+# mode is exactly why this name is pinned by a wiring test through the real route
+# and not by a fixture alone.
+CHAT_REQUEST_SCHEMA = "ChatRequest"
 
 # OpenRouter params AIGateway addresses through the ``provider_params.*`` wrapper
 # (native, non-OpenAI-standard). Mirrors the provider_native rule paths so a
@@ -165,6 +177,146 @@ def parse_model_catalog_observations(
     )
 
 
+# --- OpenAPI shape reading (OME-647) -----------------------------------------
+#
+# The gateway's ``ParameterSchema`` is deliberately small (scalars, typed arrays,
+# top-level unions). These helpers map the SUBSET of JSON Schema the OpenRouter
+# document actually uses onto it, and return None for anything outside that
+# subset rather than approximating — an approximate published schema is worse
+# than an absent one, because a client cannot tell the two apart.
+# AIDEV-NOTE: keyed by the document's spelling and VALUED by the gateway's own
+# literal type, so the lookup is the narrowing step — a JSON string only becomes a
+# schema type by being found here. Written as maps rather than sets because a set
+# of strings cannot narrow, and the alternative is a cast that would silently pass
+# an unmodelled type name straight into ParameterSchema.
+_MODELLED_TYPES: dict[str, SchemaType] = {
+    "number": "number",
+    "integer": "integer",
+    "string": "string",
+    "boolean": "boolean",
+    "array": "array",
+    "object": "object",
+}
+_MODELLED_ITEM_TYPES: dict[str, SchemaItemType] = {
+    "number": "number",
+    "integer": "integer",
+    "string": "string",
+    "boolean": "boolean",
+    "object": "object",
+}
+_REF_PREFIX = "#/components/schemas/"
+
+
+def _resolve_ref(node: Mapping[str, Any], schemas: Any) -> Mapping[str, Any]:
+    """Follow ONE ``$ref`` hop into ``components.schemas``; never a chain.
+
+    # WHY exactly one hop: the document keeps a property's real shape and its
+    # lifecycle flag behind a single named component (``route`` → ``DeprecatedRoute``),
+    # so refusing to dereference means reading none of it. Following an unbounded
+    # CHAIN, on the other hand, is a cycle risk on a document this module treats as
+    # untrusted input — and one hop is all OpenRouter's chat schema uses.
+    """
+    ref = node.get("$ref")
+    if not isinstance(ref, str) or not ref.startswith(_REF_PREFIX):
+        return node
+    target = schemas.get(ref[len(_REF_PREFIX) :]) if isinstance(schemas, Mapping) else None
+    return target if isinstance(target, Mapping) else node
+
+
+def _union_members(node: Mapping[str, Any], schemas: Any) -> tuple[Mapping[str, Any], ...]:
+    """A property's alternatives: its ``anyOf`` branches, or the node itself."""
+    members = node.get("anyOf")
+    if not isinstance(members, list):
+        return (node,)
+    return tuple(_resolve_ref(m, schemas) for m in members if isinstance(m, Mapping))
+
+
+def _declared_types(node: Mapping[str, Any]) -> tuple[SchemaType, ...]:
+    """The node's modelled types, sorted.
+
+    # WHY ``null`` is dropped: ``"type": ["number", "null"]`` is JSON Schema's
+    # NULLABILITY idiom, not a third value type. Carrying it across would publish a
+    # schema claiming the endpoint accepts a null temperature.
+    """
+    raw = node.get("type")
+    names = (raw,) if isinstance(raw, str) else tuple(raw) if isinstance(raw, list) else ()
+    return tuple(
+        sorted(
+            {
+                modelled
+                for name in names
+                if isinstance(name, str)
+                for modelled in (_MODELLED_TYPES.get(name),)
+                if modelled is not None
+            }
+        )
+    )
+
+
+def _member_item_type(members: tuple[Mapping[str, Any], ...]) -> SchemaItemType | None:
+    """The single element type shared by every array member, if it is modelled."""
+    found: set[SchemaItemType] = set()
+    for member in members:
+        items = member.get("items")
+        if not isinstance(items, Mapping):
+            continue
+        declared = _declared_types(items)
+        if len(declared) != 1:
+            continue
+        item_type = _MODELLED_ITEM_TYPES.get(declared[0])
+        if item_type is not None:
+            found.add(item_type)
+    return found.pop() if len(found) == 1 else None
+
+
+def _member_enum(members: tuple[Mapping[str, Any], ...]) -> tuple[str, ...] | None:
+    """The allowed values — but only when EVERY typed alternative constrains them.
+
+    # INVARIANT: an enum is published only if it is exhaustive. ``tool_choice`` is a
+    # union of three string enums AND two object forms; taking the enums alone would
+    # publish "must be none|auto|required" and silently deny the named-tool object the
+    # endpoint accepts. A partial enum is a fabricated restriction, so it is withheld.
+    """
+    typed = [m for m in members if _declared_types(m)]
+    if not typed or not all(isinstance(m.get("enum"), list) for m in typed):
+        return None
+    values: list[str] = []
+    for member in typed:
+        # a ``null`` entry is nullability again, never an allowed VALUE.
+        values.extend(v for v in member["enum"] if isinstance(v, str))
+    return tuple(dict.fromkeys(values)) or None
+
+
+def _endpoint_schema(members: tuple[Mapping[str, Any], ...]) -> ParameterSchema | None:
+    """Render the union onto the gateway's schema vocabulary, or None if unmodelled.
+
+    # AIDEV-NOTE: no ``minimum``/``maximum`` is ever produced. The document states
+    # ranges in PROSE only ("Sampling temperature (0-2)") and declares no numeric
+    # bounds; parsing a description into a machine-readable constraint would invent
+    # structure the source never committed to. Gateway-owned bounds live in the RULES.
+    """
+    declared: set[SchemaType] = {name for member in members for name in _declared_types(member)}
+    types = tuple(sorted(declared))
+    if not types:
+        return None
+    return ParameterSchema(
+        type=types[0] if len(types) == 1 else types,
+        item_type=_member_item_type(members) if "array" in types else None,
+        enum=_member_enum(members),
+    )
+
+
+def _is_deprecated(members: tuple[Mapping[str, Any], ...]) -> bool:
+    """Whether any alternative carries the document's own ``deprecated`` flag.
+
+    # WHY a plain bool here while the observation field is tri-state: this source
+    # DOES model lifecycle, so an unflagged property is a positive statement that the
+    # field is current (OpenAPI's ``deprecated`` defaults to false). Silence belongs
+    # to sources that never speak of lifecycle at all — they leave the field None.
+    """
+    return any(member.get("deprecated") is True for member in members)
+
+
 def parse_openapi_endpoint_observations(
     openapi: Any, *, schema_name: str
 ) -> tuple[ProviderParameterObservation, ...]:
@@ -173,6 +325,14 @@ def parse_openapi_endpoint_observations(
     # WHY: required-protocol / gateway-owned fields (model, messages, stream, …)
     # are not optional model parameters, so they are excluded here — otherwise the
     # overlay would surface them as disabled "parameters", which is misleading.
+
+    Each observation carries the field's SHAPE and its LIFECYCLE verdict as declared
+    by the document (OME-647 / §6.1), both resolved through at most one ``$ref`` hop
+    — OpenRouter states neither inline on the chat request properties.
+
+    # INVARIANT: this is still pure EVIDENCE. A schema published here describes what
+    # the ENDPOINT accepts; it never validates a caller's value (only a rule's
+    # gateway-owned schema does that) and a ``deprecated`` verdict disables nothing.
     """
     if not isinstance(openapi, Mapping):
         return ()
@@ -182,11 +342,23 @@ def parse_openapi_endpoint_observations(
     properties = schema.get("properties") if isinstance(schema, Mapping) else None
     if not isinstance(properties, Mapping):
         return ()
-    observed = [
-        _observation(name, source=ENDPOINT_SOURCE)
-        for name in properties
-        if isinstance(name, str) and name not in GATEWAY_OWNED_FIELDS
-    ]
+    observed: list[ProviderParameterObservation] = []
+    for name, node in properties.items():
+        if not isinstance(name, str) or name in GATEWAY_OWNED_FIELDS:
+            continue
+        if not isinstance(node, Mapping):
+            observed.append(_observation(name, source=ENDPOINT_SOURCE))
+            continue
+        members = _union_members(_resolve_ref(node, schemas), schemas)
+        observed.append(
+            ProviderParameterObservation(
+                request_path=_request_path(name),
+                support="supported",
+                source=ENDPOINT_SOURCE,
+                schema=_endpoint_schema(members),
+                deprecated=_is_deprecated(members),
+            )
+        )
     return _dedup_sorted(observed)
 
 
@@ -227,10 +399,45 @@ REVIEWED_ENDPOINT_OBSERVATIONS: tuple[ProviderParameterObservation, ...] = _dedu
 # The cache TTL — not this constant — governs freshness; the revision identifies
 # the SOURCE together with the gateway-side READING of it.
 # AIDEV-NOTE: bump this whenever the reading changes, not only when the URL does.
-# The 2026-07 value marks the closed-world reading (OME-629): the same bytes now
-# yield different verdicts, so entries cached under the previous open-world label
-# must not be reused. That is precisely what the revision guard is for.
-MODEL_SOURCE_REVISION = "openrouter:models:closed-world-2026-07"
+# The closed-world tag marks the OME-629 per-model reading; the source-pair tag
+# marks OME-647, where a snapshot stopped being one document and became two. In
+# both cases the same bytes now yield a different snapshot, so entries cached
+# under the previous label must not be reused — that is what the guard is for.
+SNAPSHOT_SOURCE_REVISION = "openrouter:models+openapi:closed-world-source-pair-2026-07"
+
+# Source-specific bounds for the OpenAPI document (§5.2 stays enforced — these are
+# the bounds, not an exemption from them). MEASURED against the live document on
+# 2026-07-28: 1,660,091 bytes, max depth 22, 38,055 nodes. The shared defaults
+# (1,000,000 bytes / depth 16) reject it outright on TWO axes, and its node count
+# already sits at 76% of the shared node ceiling.
+# WHY per-source rather than a global increase: the models catalog is small and flat,
+# and raising the envelope for every provider's every fetch to accommodate one large
+# document would spend the safety margin where it was not needed. These values give
+# the measured document roughly 2.4x headroom on bytes and nodes so ordinary upstream
+# growth does not silently degrade the contract, while still capping memory.
+# The timeout is widened for the same measured reason: reading 1.6 MB inside the 3s
+# budget sized for the catalog needs a sustained ~550 KB/s, and a miss degrades the
+# WHOLE snapshot (see the partial-source note below), not just this half.
+_OPENAPI_MIN_TIMEOUT_S = 10.0
+_OPENAPI_MIN_BYTES = 4_000_000
+_OPENAPI_MIN_DEPTH = 32
+_OPENAPI_MIN_NODES = 150_000
+
+
+def openapi_discovery_limits(limits: DiscoveryLimits) -> DiscoveryLimits:
+    """The operator's bounds, WIDENED where the OpenAPI document provably needs it.
+
+    # INVARIANT (widen, never narrow): every axis is a ``max`` against what the
+    # operator configured, so an installation that has deliberately raised a bound
+    # keeps it. This helper can only ever admit more, never silently tighten a
+    # limit an operator chose.
+    """
+    return DiscoveryLimits(
+        timeout_s=max(limits.timeout_s, _OPENAPI_MIN_TIMEOUT_S),
+        max_bytes=max(limits.max_bytes, _OPENAPI_MIN_BYTES),
+        max_json_depth=max(limits.max_json_depth, _OPENAPI_MIN_DEPTH),
+        max_json_nodes=max(limits.max_json_nodes, _OPENAPI_MIN_NODES),
+    )
 
 
 async def discover_openrouter_snapshot(
@@ -239,7 +446,12 @@ async def discover_openrouter_snapshot(
     client: DiscoveryHttpClient,
     limits: DiscoveryLimits | None = None,
 ) -> ProviderDiscoverySnapshot:
-    """Fetch the FIXED public catalog and return per-model evidence.
+    """Fetch BOTH fixed public documents and return the provider's live evidence.
+
+    §5.1 names a source PAIR: the ``/api/v1/models`` catalog for what one model
+    supports, and the public OpenAPI document for what the endpoint accepts, its
+    field shapes, and their lifecycle. Both are fetched through the injected bounded
+    transport; the OpenAPI half under its own measured bounds.
 
     # INVARIANT (§5.3): reaching the source and failing to reach it are DIFFERENT
     # outcomes and get different signals. A successful fetch whose catalog lacks
@@ -251,20 +463,35 @@ async def discover_openrouter_snapshot(
     # labelled ``fresh``, evicting the last good snapshot. Raising is precisely
     # what routes it to the stale/degraded paths. It also preserves the reason
     # code, which ``None`` discards.
-    # INVARIANT (§5.1): only per-model evidence is populated here; endpoint
-    # evidence keeps its own (empty) field — the live OpenAPI fetch is wired
-    # separately and must not be conflated with per-model support.
+    # WHY a PARTIAL failure also propagates: one snapshot is one revision's evidence
+    # from both documents, and the cache stores whatever is returned as a successful
+    # refresh. Returning the half that succeeded would therefore cache a contract
+    # that is silently missing the other half — the same swallowing bug in a new
+    # place. Trade-off, accepted deliberately: the catalog evidence that ships today
+    # now degrades whenever the larger OpenAPI document is unreachable, which the
+    # stale/degraded machinery already handles honestly.
+    # INVARIANT (§5.1): the two kinds stay in SEPARATE snapshot fields and keep
+    # DISTINCT source labels; nothing here merges them into one support verdict.
     """
+    effective = limits or DiscoveryLimits()
     catalog = await fetch_discovery_json(
         MODELS_URL,
         allowed_origins=ALLOWED_ORIGINS,
         client=client,
-        limits=limits or DiscoveryLimits(),
+        limits=effective,
     )
-    model_observations = parse_model_catalog_observations(
-        catalog, upstream_model_id=upstream_model_id
+    openapi = await fetch_discovery_json(
+        OPENAPI_URL,
+        allowed_origins=ALLOWED_ORIGINS,
+        client=client,
+        limits=openapi_discovery_limits(effective),
     )
     return ProviderDiscoverySnapshot(
-        source_revision=MODEL_SOURCE_REVISION,
-        model_observations=model_observations,
+        source_revision=SNAPSHOT_SOURCE_REVISION,
+        endpoint_observations=parse_openapi_endpoint_observations(
+            openapi, schema_name=CHAT_REQUEST_SCHEMA
+        ),
+        model_observations=parse_model_catalog_observations(
+            catalog, upstream_model_id=upstream_model_id
+        ),
     )

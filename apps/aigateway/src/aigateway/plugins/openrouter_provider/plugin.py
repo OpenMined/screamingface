@@ -44,8 +44,8 @@ from .api_key_validation import OpenRouterApiKeyValidator
 from .discovery import (
     LOCAL_SOURCE,
     MODEL_SOURCE,
-    MODEL_SOURCE_REVISION,
     REVIEWED_ENDPOINT_OBSERVATIONS,
+    SNAPSHOT_SOURCE_REVISION,
     discover_openrouter_snapshot,
 )
 from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
@@ -370,9 +370,13 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # in the fetch) makes "declared a source, then reported NOT ATTEMPTED"
         # structurally unreachable, which is the one inconsistency the runtime
         # cannot distinguish from a real outage.
+        # AIDEV-NOTE (OME-647): ``source`` is the provider's CACHE-KEY label, not a
+        # published claim about which document an observation came from — that
+        # provenance rides on each observation. The snapshot now draws on the
+        # catalog AND the OpenAPI document, and the REVISION names the pair.
         if _upstream_model_for_discovery(model) is None:
             return None
-        return DiscoverySourceRef(source=MODEL_SOURCE, revision=MODEL_SOURCE_REVISION)
+        return DiscoverySourceRef(source=MODEL_SOURCE, revision=SNAPSHOT_SOURCE_REVISION)
 
     async def discover_chat_parameter_snapshot(
         self,

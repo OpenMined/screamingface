@@ -165,6 +165,10 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         tools=tools,
         transport=plugin.chat_transport_capabilities(model=model, auth_type=auth_mode),
         freshness=discovered.freshness,
+        # OME-647: which documents this evidence was read from, and under which
+        # reading, is part of the contract's IDENTITY — so a client that pinned a
+        # contract_id is not silently handed evidence with a different provenance.
+        source_revision=discovered.snapshot.source_revision if discovered.snapshot else None,
     )
 
 

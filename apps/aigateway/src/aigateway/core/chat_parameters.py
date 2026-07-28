@@ -66,8 +66,8 @@ class ParameterValidationError(ValueError):
 # Type names ParameterSchema can validate. A tuple of these expresses a
 # TOP-LEVEL union (e.g. ``stop`` is string | array[string]); "object" and
 # "array" are structural container types.
-_SCHEMA_TYPE = Literal["number", "integer", "string", "boolean", "array", "object"]
-_ITEM_TYPE = Literal["number", "integer", "string", "boolean", "object"]
+SchemaType = Literal["number", "integer", "string", "boolean", "array", "object"]
+SchemaItemType = Literal["number", "integer", "string", "boolean", "object"]
 
 # INVARIANT: bool subclasses int, so a boolean must never satisfy a numeric schema.
 # Single source of per-type predicates, shared by top-level and array-item checks.
@@ -100,11 +100,11 @@ class ParameterSchema(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     # A single type, or a tuple of types for a top-level union.
-    type: _SCHEMA_TYPE | tuple[_SCHEMA_TYPE, ...]
+    type: SchemaType | tuple[SchemaType, ...]
     minimum: float | None = None
     maximum: float | None = None
     enum: tuple[str, ...] | None = None
-    item_type: _ITEM_TYPE | None = None
+    item_type: SchemaItemType | None = None
     # Optional single-key discriminator: when the value (or each array item) is an
     # object, its ``object_discriminator`` key must be in ``object_discriminator_enum``
     # (gates tools[].type fail-closed). Both fields are set together, or neither.
@@ -259,6 +259,15 @@ class ProviderParameterObservation(BaseModel):
     source: str
     stale: bool = False
     parameter_schema: ParameterSchema | None = Field(default=None, alias="schema")
+    # Lifecycle, TRI-STATE on purpose (OME-647): True/False are verdicts a source
+    # actually made, ``None`` means the source does not model lifecycle at all.
+    # WHY not a plain ``bool``: a per-model catalog that lists supported parameter
+    # NAMES has said nothing about deprecation, and defaulting it to False would
+    # publish "the provider affirms this field is current" on evidence that does
+    # not exist. An OpenAPI document, by contrast, does speak: a property it
+    # carries without a ``deprecated`` flag is declared current, so that source
+    # legitimately emits False.
+    deprecated: bool | None = None
 
 
 class ProviderToolObservation(BaseModel):
@@ -369,6 +378,9 @@ class ParameterContractEntry(BaseModel):
     provider_support: ProviderSupport
     provider_source: str
     provider_stale: bool
+    # Published as ``provider.deprecated``; ``None`` when no source spoke. Defaulted
+    # so a provider that models no lifecycle constructs entries unchanged.
+    provider_deprecated: bool | None = None
     gateway_status: GatewayStatus
     gateway_projection: str | None
     gateway_reason: str | None
@@ -393,6 +405,11 @@ class ParameterContractEntry(BaseModel):
                 "support": self.provider_support,
                 "source": self.provider_source,
                 "stale": self.provider_stale,
+                # WHY always present, and null when unknown: a client reading a
+                # UNIFORM shape can tell "the provider declares this deprecated"
+                # from "nobody said" without a key-presence check. Omitting the key
+                # for the silent case makes those two indistinguishable in JSON.
+                "deprecated": self.provider_deprecated,
             },
             "gateway": gateway,
         }
@@ -477,16 +494,32 @@ def overlay_observations(
     authorize dispatch. A path the overlay is SILENT about keeps its base verdict:
     a partial source must never read as a denial.
 
+    INVARIANT (silence is per FIELD, not only per PATH): an observation carries more
+    than one axis, and different sources speak on different ones. A per-model catalog
+    reports SUPPORT and knows nothing about a field's schema or lifecycle, so letting
+    it win wholesale would erase endpoint facts it never contradicted — the same
+    "partial source read as a denial" bug, one level down. ``schema`` and
+    ``deprecated`` are therefore carried forward when the overlay is silent (``None``)
+    about them, while the support axis is replaced outright.
+
     ``stale`` is the CACHE's verdict about this particular read, so it is stamped
     onto the overlay entries here rather than carried by the parser — and it is set
     in both directions, so a fresh read can never inherit a stale label.
     """
     merged = {observation.request_path: observation for observation in base}
     for observation in overlay:
+        prior = merged.get(observation.request_path)
+        # model_copy takes FIELD names, never the ``schema`` alias.
+        updates: dict[str, Any] = {}
+        if observation.stale != stale:
+            updates["stale"] = stale
+        if prior is not None:
+            if observation.parameter_schema is None and prior.parameter_schema is not None:
+                updates["parameter_schema"] = prior.parameter_schema
+            if observation.deprecated is None and prior.deprecated is not None:
+                updates["deprecated"] = prior.deprecated
         merged[observation.request_path] = (
-            observation
-            if observation.stale == stale
-            else observation.model_copy(update={"stale": stale})
+            observation.model_copy(update=updates) if updates else observation
         )
     return tuple(merged[path] for path in sorted(merged))
 
@@ -557,6 +590,7 @@ def compose_contract_entries(
                     provider_support=obs.support if obs else "unknown",
                     provider_source=obs.source if obs else "none",
                     provider_stale=obs.stale if obs else False,
+                    provider_deprecated=obs.deprecated if obs else None,
                     gateway_status="enabled",
                     gateway_projection=rule.projection_kind,
                     gateway_reason=None,
@@ -574,6 +608,7 @@ def compose_contract_entries(
                 provider_support=obs.support,
                 provider_source=obs.source,
                 provider_stale=obs.stale,
+                provider_deprecated=obs.deprecated,
                 gateway_status="disabled",
                 gateway_projection=None,
                 gateway_reason=_DISABLED_UNPROJECTED_REASON,

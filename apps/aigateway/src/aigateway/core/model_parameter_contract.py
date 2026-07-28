@@ -87,10 +87,15 @@ def _evidence_revision(observations: Iterable[ProviderParameterObservation]) -> 
     # INVARIANT: the observation SCHEMA is folded in too, because it is PUBLISHED —
     # directly for every disabled entry, and as the fallback for an enabled entry
     # whose rule carries no schema of its own (``compose_contract_entries``).
+    # INVARIANT: so is the LIFECYCLE verdict (OME-647). It is published as
+    # ``provider.deprecated``, and the tri-state is encoded distinctly — "" for the
+    # silent case, so a source that starts declaring a field CURRENT moves the
+    # identity just as a source that starts declaring it deprecated does.
     return _sha(
         sorted(
             f"{o.request_path}|{o.support}|{o.source}|{int(o.stale)}"
             f"|{_schema_key(o.parameter_schema)}"
+            f"|{'' if o.deprecated is None else int(o.deprecated)}"
             for o in observations
         )
     )
@@ -135,8 +140,14 @@ def build_model_parameter_document(
     tools: Iterable[ToolCapability],
     transport: Iterable[TransportCapability],
     freshness: dict[str, Any],
+    source_revision: str | None = None,
 ) -> dict[str, Any]:
-    """Compose the locked v1 detailed contract for one (model, profile) context."""
+    """Compose the locked v1 detailed contract for one (model, profile) context.
+
+    ``source_revision`` is the discovered snapshot's SOURCE identity — which
+    documents were read, under which gateway-side reading. It is optional because a
+    provider with no dynamic source has none.
+    """
     normalized = normalize_rules(rules)
     observations = tuple(observations)
 
@@ -156,12 +167,19 @@ def build_model_parameter_document(
     # every exclusion is a stated decision. ``gateway_provider`` is hashed even
     # though the sole caller derives it from ``canonical_id`` — this composer takes
     # the two as independent arguments and enforces no relationship between them.
+    # OME-647: the SOURCE revision is folded in as its own input, not left implicit
+    # in the evidence digest. Those two answer different questions — the evidence
+    # digest moves when an observed VALUE changes, while this moves when the gateway
+    # starts reading DIFFERENT documents or reading the same ones differently. A
+    # source-pair change that happened to yield byte-identical observations would
+    # otherwise serve new-meaning evidence under an unchanged contract id.
     digest_inputs = (
         canonical_id,
         gateway_provider,
         auth_mode,
         scope,
         context_identity,
+        source_revision or "",
         evidence_revision,
         projection_revision,
         _section_revision(tools_section),

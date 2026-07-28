@@ -331,6 +331,11 @@ def test_contract_entry_serializes_to_locked_detail_shape() -> None:
         "support": "supported",
         "source": "openrouter_model_catalog",
         "stale": False,
+        # OME-647: lifecycle joins the evidence block. Still an EXACT-equality lock —
+        # the key set is pinned, not merely sampled. `None` is the third state: this
+        # observation's source models support but not deprecation, so nothing was
+        # said, which is distinct from a source declaring the field current.
+        "deprecated": None,
     }
     assert detail["gateway"] == {
         "status": "enabled",

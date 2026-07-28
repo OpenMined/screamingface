@@ -9,8 +9,12 @@ INVARIANT (§5.3): three outcomes, three signals — a snapshot means the source
 REACHED (an empty one means reached-but-unlisted), a sanitized DiscoveryError means
 the attempt FAILED, and None means NO ATTEMPT was made. Discovery never fabricates
 support, and a raw upstream fault never propagates out.
-INVARIANT (§5.2): discovery only ever dials the FIXED public catalog URL; the
+INVARIANT (§5.2): discovery only ever dials OpenRouter's FIXED public documents; the
 gateway model id is stripped to its upstream form before the catalog is queried.
+
+OME-647: a snapshot is now the SOURCE PAIR §5.1 always specified — the catalog plus
+the public OpenAPI document. This file still owns the catalog half and the three
+outcome signals; the endpoint half has its own module.
 """
 
 from __future__ import annotations
@@ -28,7 +32,9 @@ from aigateway.core.parameter_discovery import (
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
 from aigateway.core.plugin_base import ProviderPluginBase
 from aigateway.plugins.openrouter_provider.discovery import (
+    CHAT_REQUEST_SCHEMA,
     MODELS_URL,
+    OPENAPI_URL,
     discover_openrouter_snapshot,
 )
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
@@ -43,6 +49,27 @@ _CATALOG = {
         {"id": "z/other", "supported_parameters": ["temperature"]},
     ]
 }
+
+# OME-647: the snapshot draws on a source PAIR, so every fake transport in this file
+# must serve BOTH fixed documents. The endpoint half is exercised in depth by
+# test_openrouter_openapi_endpoint_source; here it only has to be present and real,
+# so these tests keep proving what they were written to prove about the catalog half.
+_OPENAPI = {
+    "openapi": "3.1.0",
+    "components": {
+        "schemas": {
+            CHAT_REQUEST_SCHEMA: {
+                "type": "object",
+                "properties": {
+                    "messages": {"type": "array"},
+                    "temperature": {"type": ["number", "null"]},
+                    "logit_bias": {"type": ["object", "null"]},
+                },
+            }
+        }
+    },
+}
+_BOTH_DOCUMENTS = {MODELS_URL: _CATALOG, OPENAPI_URL: _OPENAPI}
 
 
 class _FakeClock:
@@ -82,7 +109,7 @@ class _RoutingClient(DiscoveryHttpClient):
 
 @pytest.mark.asyncio
 async def test_live_snapshot_carries_per_model_evidence() -> None:
-    client = _RoutingClient({MODELS_URL: _CATALOG})
+    client = _RoutingClient(_BOTH_DOCUMENTS)
     snap = await discover_openrouter_snapshot(_UPSTREAM, client=client)
     assert isinstance(snap, ProviderDiscoverySnapshot)
     paths = {o.request_path for o in snap.model_observations}
@@ -91,24 +118,40 @@ async def test_live_snapshot_carries_per_model_evidence() -> None:
     assert {"temperature", "top_p", "max_tokens", "provider_params.top_k"} <= paths
     assert "top_k" not in paths
     assert all(o.source == "openrouter:models" for o in snap.model_observations)
-    # only the FIXED public catalog URL was dialed.
-    assert client.calls == [MODELS_URL]
+    # only the two FIXED public documents were dialed — still an exact list.
+    assert client.calls == [MODELS_URL, OPENAPI_URL]
 
 
 @pytest.mark.asyncio
 async def test_live_model_evidence_is_kept_out_of_the_endpoint_field() -> None:
-    # §5.1: live per-model evidence must never masquerade as endpoint evidence.
-    client = _RoutingClient({MODELS_URL: _CATALOG})
+    """§5.1: live per-model evidence must never masquerade as endpoint evidence.
+
+    TRANSITION (OME-647, owner-approved public-contract change): this previously
+    asserted ``endpoint_observations == ()``. That emptiness was the DEFECT — the
+    OpenAPI source existed but no production path fetched it — so the old assertion
+    was passing by describing the bug. The INVARIANT it was written to protect is
+    unchanged and is now proved on real content rather than on a vacuum: the field is
+    populated, every entry is labelled with the endpoint source, and NOTHING the
+    catalog produced appears in it.
+    """
+    client = _RoutingClient(_BOTH_DOCUMENTS)
     snap = await discover_openrouter_snapshot(_UPSTREAM, client=client)
     assert snap is not None
-    assert snap.endpoint_observations == ()
+    assert snap.endpoint_observations != ()
+    assert {o.source for o in snap.endpoint_observations} == {"openrouter:openapi"}
+    # the separation itself: neither field carries the other's provenance label.
+    assert {o.source for o in snap.model_observations} == {"openrouter:models"}
+    assert not (
+        {(o.request_path, o.source) for o in snap.endpoint_observations}
+        & {(o.request_path, o.source) for o in snap.model_observations}
+    )
 
 
 @pytest.mark.asyncio
 async def test_successful_fetch_missing_model_is_empty_but_present() -> None:
     # discovery REACHED the source but the model is absent: honest empty evidence,
     # distinct from a fetch failure (None). Never fabricated support.
-    client = _RoutingClient({MODELS_URL: _CATALOG})
+    client = _RoutingClient(_BOTH_DOCUMENTS)
     snap = await discover_openrouter_snapshot("nope/absent", client=client)
     assert isinstance(snap, ProviderDiscoverySnapshot)
     assert snap.model_observations == ()
@@ -133,7 +176,7 @@ async def test_plugin_hook_strips_gateway_prefix_to_query_upstream() -> None:
     # the detail route knows only the canonical gateway id; the plugin owns the
     # strip to the upstream id the public catalog is keyed by.
     plugin = OpenRouterProviderPlugin()
-    client = _RoutingClient({MODELS_URL: _CATALOG})
+    client = _RoutingClient(_BOTH_DOCUMENTS)
     snap = await plugin.discover_chat_parameter_snapshot(
         model="openrouter/" + _UPSTREAM, client=client
     )
@@ -148,7 +191,7 @@ async def test_plugin_hook_rejects_non_gateway_model_without_dialing() -> None:
     # a model id that is not a valid gateway id is not dispatchable here, so there
     # is nothing to discover — fail closed to None and never open a connection.
     plugin = OpenRouterProviderPlugin()
-    client = _RoutingClient({MODELS_URL: _CATALOG})
+    client = _RoutingClient(_BOTH_DOCUMENTS)
     snap = await plugin.discover_chat_parameter_snapshot(model="bare-model", client=client)
     assert snap is None
     assert client.calls == []
@@ -205,7 +248,7 @@ async def test_outage_degrades_through_the_cache_instead_of_caching_fresh_none()
 
         return _refresh
 
-    healthy = refresh_with(_RoutingClient({MODELS_URL: _CATALOG}))
+    healthy = refresh_with(_RoutingClient(_BOTH_DOCUMENTS))
     failing = refresh_with(_RoutingClient(error=DiscoveryError("unreachable")))
 
     good = await cache.get_or_refresh("or:m", revision="r1", refresh=healthy)
