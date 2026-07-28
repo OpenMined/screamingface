@@ -10,14 +10,21 @@ import pytest
 
 from url4.core.errors import ParseError, ResolutionError
 from url4.io.static import StaticIOLayer
-from url4.observe import Log, NodeFinished, NodeStarted, RunStarted
+from url4.observe import Log, NodeFinished, NodeStarted, RunStarted, Usage
 from url4.streaming.interfaces import Completed, ExecStep, Traced
 from url4.streaming.lifecycle import run as publish_run
-from url4.streaming.protocol import LogData, SpanData, StartedEvent, TerminatedEvent
+from url4.streaming.protocol import (
+    CostUsageData,
+    LogData,
+    SpanData,
+    StartedEvent,
+    TerminatedEvent,
+)
 from url4_cloud.runner.executor import (
     BridgeOverflowError,
     Url4Executor,
     _Bridge,
+    _RunState,
     deny_by_default_world,
 )
 from url4_cloud.testing import InMemoryEventStream
@@ -506,3 +513,60 @@ def test_only_url4_executor_module_imports_url4() -> None:
         if py_file.name in _ALLOWED_URL4_IMPORTERS and _imports_url4_engine(py_file)
     }
     assert allowed == _ALLOWED_URL4_IMPORTERS
+
+
+# --- per-span usage accumulation ---------------------------------------------------------
+
+_SPAN = "0123456789abcdef"
+
+
+def _usage(input_tokens: int, output_tokens: int) -> Usage:
+    return Usage(
+        span_id=_SPAN,
+        provider="openrouter",
+        model="m",
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+
+
+def _one_node_two_usage_events() -> tuple[SpanData, CostUsageData, CostUsageData]:
+    """Drive `_RunState` through ONE node that reports usage TWICE.
+
+    This is the ordinary shape of a `web_tools` route, not a corner case: every aigateway round
+    trip in the tool loop reports its own usage against the same span.
+    """
+    state = _RunState()
+    state.map(NodeStarted(span_id=_SPAN, parent_span_id=None, node_kind="RelUrlNode", detail="m"))
+    state.map(_usage(124, 10))
+    state.map(_usage(3558, 20))
+    frames = state.map(NodeFinished(span_id=_SPAN, status="ok", engine_seq=1))
+    span = next(f.payload for f in frames if isinstance(f.payload, SpanData))
+    self_cost = next(
+        f.payload
+        for f in frames
+        if isinstance(f.payload, CostUsageData) and f.payload.scope == "self"
+    )
+    return span, self_cost, state.build_subtree()
+
+
+def test_a_span_accumulates_usage_across_every_report() -> None:
+    # Regression: this used to ASSIGN, keeping only the final round trip.
+    span, _, _ = _one_node_two_usage_events()
+
+    assert (span.input_tokens, span.output_tokens) == (3682, 30)
+
+
+def test_self_scope_cost_accumulates_usage_across_every_report() -> None:
+    _, self_cost, _ = _one_node_two_usage_events()
+
+    assert (self_cost.usage.input_tokens, self_cost.usage.output_tokens) == (3682, 30)
+
+
+def test_self_and_subtree_agree_when_the_run_is_a_single_node() -> None:
+    # The invariant the bug broke: per-node cost that under-reports against a run total that
+    # does not is worse than either being wrong alone — they are reconciled against each other.
+    _, self_cost, subtree = _one_node_two_usage_events()
+
+    assert self_cost.usage.input_tokens == subtree.usage.input_tokens
+    assert self_cost.usage.output_tokens == subtree.usage.output_tokens

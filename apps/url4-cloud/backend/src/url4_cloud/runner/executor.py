@@ -185,8 +185,21 @@ class _RunState:
         self._sum_output += event.output_tokens
         self._providers_models.add((event.provider, event.model))
         span = self.spans.get(event.span_id) if event.span_id is not None else None
-        if span is not None:
-            span.usage = (event.provider, event.model, event.input_tokens, event.output_tokens)
+        if span is None:
+            return
+        # INVARIANT: a span ACCUMULATES its usage, exactly as the subtree totals above do — one
+        # node can emit several `Usage` events. The web-tools tool loop is the normal case: every
+        # aigateway round trip reports its own usage against the SAME span, so assigning here
+        # (as this once did) kept only the final round trip and silently dropped every earlier
+        # one from both the span frame and its `scope="self"` cost frame, while `subtree` stayed
+        # correct — per-node cost that under-reports against a run total that does not.
+        prior_in, prior_out = (span.usage[2], span.usage[3]) if span.usage else (0, 0)
+        span.usage = (
+            event.provider,
+            event.model,
+            prior_in + event.input_tokens,
+            prior_out + event.output_tokens,
+        )
 
     def _finish(self, event: NodeFinished) -> list[Traced]:
         span = self.spans.pop(event.span_id, None)
