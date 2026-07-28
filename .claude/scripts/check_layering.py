@@ -41,7 +41,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
-SRC = ROOT / "apps/url4-cloud/backend/src/url4_cloud"
+SRC = ROOT / "apps/url4-cloud/src/url4_cloud"
 
 # Submodules of `url4_cloud` that belong to each half. Anything not named in either — `job_env`,
 # `subjects`, `adapters.jetstream`, `testing` — is a shared leaf both halves may import.

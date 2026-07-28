@@ -66,8 +66,8 @@ def _with_runner_config(env: Mapping[str, str]) -> Mapping[str, str]:
     The declared world is baked into the IMAGE at ``/etc/url4/url4.toml`` (the Dockerfile copies
     it there) and is not installed by the wheel — so in a dev checkout that path does not exist
     and every local run would terminate as ``failed`` with a missing-config error before it could
-    reach a model. Falling back to ``backend/url4.toml``, which sits two levels above this
-    package, is what makes `--local` usable straight out of a clone.
+    reach a model. Falling back to the checkout's own ``url4.toml``, which sits two levels above
+    this package, is what makes `--local` usable straight out of a clone.
 
     Deliberately narrow: an explicit ``URL4_RUNNER_CONFIG`` always wins, and so does a real
     ``/etc/url4/url4.toml`` — this only fills a gap that exists nowhere but a source checkout.

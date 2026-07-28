@@ -142,7 +142,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: apps/url4-cloud/backend/Dockerfile
+          file: apps/url4-cloud/Dockerfile
           push: false
           load: true
           tags: url4-cloud:ci

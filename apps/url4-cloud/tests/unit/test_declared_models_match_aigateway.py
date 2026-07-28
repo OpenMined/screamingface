@@ -29,7 +29,7 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _PLUGINS = _REPO_ROOT / "apps/aigateway/src/aigateway/plugins"
-_RUNNER_CONFIG = _REPO_ROOT / "apps/url4-cloud/backend/url4.toml"
+_RUNNER_CONFIG = _REPO_ROOT / "apps/url4-cloud/url4.toml"
 
 # (source file, the assigned name holding the slug list, the gateway's id prefix).
 # WHY anthropic has no prefix: its ModelEntry.model_name is the BARE slug — the `anthropic/`
@@ -127,7 +127,7 @@ def test_every_declared_model_exists_in_aigateway() -> None:
     missing = sorted(declared - _aigateway_model_ids())
 
     assert missing == [], (
-        f"backend/url4.toml declares model(s) aigateway does not serve: {missing}. "
+        f"url4.toml declares model(s) aigateway does not serve: {missing}. "
         "Either the plugin list changed, or the id is misspelled — a declared route that "
         "resolves to nothing fails inside a user's expression, not at boot."
     )

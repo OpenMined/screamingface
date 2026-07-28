@@ -33,12 +33,11 @@ jobs:
           fi
           VERSION="${TAG#url4-cloud-v}"
           # One shipped distribution now (the control plane and the run mode were merged into a
-          # single artifact), so there is exactly one version to agree with the tag.
-          # apps/url4-cloud/pyproject.toml is the dev aggregate — package = false — and is
-          # intentionally not the version source.
-          BACKEND=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' apps/url4-cloud/backend/pyproject.toml)
-          if [ "$BACKEND" != "$VERSION" ]; then
-            echo "::error::tag $TAG implies version $VERSION but backend/pyproject.toml reports $BACKEND"
+          # single artifact), so there is exactly one version to agree with the tag, and one
+          # pyproject.toml holding it.
+          DECLARED=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' apps/url4-cloud/pyproject.toml)
+          if [ "$DECLARED" != "$VERSION" ]; then
+            echo "::error::tag $TAG implies version $VERSION but apps/url4-cloud/pyproject.toml reports $DECLARED"
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -69,7 +68,7 @@ jobs:
           # Context is the REPO ROOT, not the app dir — the Dockerfile COPYs a path dependency
           # (packages/url4) that lives outside its own directory, matching docker-compose.yml.
           context: .
-          file: apps/url4-cloud/backend/Dockerfile
+          file: apps/url4-cloud/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |

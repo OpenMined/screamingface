@@ -9,11 +9,11 @@
 # halves' IMPORT graphs disjoint, which is what actually holds a Job's cold start down.
 #
 # INVARIANT: the build context is the REPO ROOT, not this dir:
-#   docker build -f apps/url4-cloud/backend/Dockerfile -t url4-cloud:dev .
-# WHY: backend/pyproject.toml path-depends on `url4` (../../../packages/url4), which carries both
-# the `url4.streaming` wire contract and the engine, and is outside backend/, so an app-scoped
-# context cannot see it and `uv sync` fails. The repo layout is mirrored under /app so the
-# editable install's relative paths stay valid at runtime.
+#   docker build -f apps/url4-cloud/Dockerfile -t url4-cloud:dev .
+# WHY: pyproject.toml path-depends on `url4` (../../packages/url4), which carries both the
+# `url4.streaming` wire contract and the engine, and is outside this app's directory, so an
+# app-scoped context cannot see it and `uv sync` fails. The repo layout is mirrored under /app so
+# the editable install's relative paths stay valid at runtime.
 #
 # The runtime shape matches BOTH the helm chart's securityContext (deploy/helm/values.yaml) and
 # what K8sJobRunner._manifest hardens each Job Pod with: non-root uid/gid 1000 owning the venv,
@@ -26,14 +26,14 @@ ENV UV_LINK_MODE=copy \
 WORKDIR /app
 # All path dependencies must exist before `uv sync` resolves the lockfile.
 COPY packages/url4 ./packages/url4
-COPY apps/url4-cloud/backend/pyproject.toml apps/url4-cloud/backend/uv.lock ./apps/url4-cloud/backend/
-WORKDIR /app/apps/url4-cloud/backend
+COPY apps/url4-cloud/pyproject.toml apps/url4-cloud/uv.lock ./apps/url4-cloud/
+WORKDIR /app/apps/url4-cloud
 # Deps first (cache-friendly): busts only when pyproject/lock change.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
-# Now the backend source (siblings above are already in place).
-COPY apps/url4-cloud/backend/src ./src
-COPY apps/url4-cloud/backend/url4.toml ./url4.toml
+# Now the app source (siblings above are already in place).
+COPY apps/url4-cloud/src ./src
+COPY apps/url4-cloud/url4.toml ./url4.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
@@ -44,7 +44,7 @@ LABEL org.opencontainers.image.title="url4-cloud" \
 RUN apt-get update && apt-get install -y --no-install-recommends tini \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd -g 1000 app && useradd -u 1000 -g 1000 -M -d /app app
-WORKDIR /app/apps/url4-cloud/backend
+WORKDIR /app/apps/url4-cloud
 # INVARIANT: same absolute layout as the builder — editable installs resolve through these paths.
 COPY --from=builder --chown=1000:1000 /app/packages/url4 /app/packages/url4
 COPY --from=builder --chown=1000:1000 /app/apps/url4-cloud /app/apps/url4-cloud
@@ -52,8 +52,8 @@ COPY --from=builder --chown=1000:1000 /app/apps/url4-cloud /app/apps/url4-cloud
 # DEFAULT_CONFIG_PATH). Endpoints are declared here, never discovered from the gateway catalog —
 # the image decides what CAN exist. URL4_RUNNER_CONFIG overrides the path; a read-only rootfs is
 # fine, it is read once at boot. Unused by the serving mode.
-COPY --from=builder --chown=1000:1000 /app/apps/url4-cloud/backend/url4.toml /etc/url4/url4.toml
-ENV PATH="/app/apps/url4-cloud/backend/.venv/bin:$PATH" \
+COPY --from=builder --chown=1000:1000 /app/apps/url4-cloud/url4.toml /etc/url4/url4.toml
+ENV PATH="/app/apps/url4-cloud/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 USER 1000

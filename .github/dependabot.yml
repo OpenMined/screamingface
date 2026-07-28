@@ -32,11 +32,8 @@ updates:
       url4-python:
         patterns: ["*"]
 
-  # WHY `backend` and not `/apps/url4-cloud`: the aggregate there is `package = false` and holds
-  # no runtime constraints — the real ones live in backend/pyproject.toml, which Dependabot would
-  # otherwise never bump.
   - package-ecosystem: "uv"
-    directory: "/apps/url4-cloud/backend"
+    directory: "/apps/url4-cloud"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
@@ -47,7 +44,7 @@ updates:
   # The runtime image's base layers drift silently otherwise — they are pinned by tag, and
   # nothing else in CI notices a new patch release of the base.
   - package-ecosystem: "docker"
-    directory: "/apps/url4-cloud/backend"
+    directory: "/apps/url4-cloud"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3

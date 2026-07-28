@@ -29,7 +29,7 @@ from url4_cloud.runner.executor import (
 )
 from url4_cloud.testing import InMemoryEventStream
 
-_SRC_ROOT = Path(__file__).resolve().parents[2] / "backend" / "src"
+_SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 
 
 def _unwrap(frame: object) -> object:

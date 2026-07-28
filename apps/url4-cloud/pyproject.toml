@@ -1,29 +1,60 @@
-# url4-cloud dev/test aggregate (NOT a shipped artifact).
+# url4-cloud — ONE distribution, ONE image, TWO modes (`url4-cloud serve` / `url4-cloud run` —
+# see `url4_cloud.cli`). It used to ship two distributions; they were merged because the run
+# mode's dependencies were already a subset of the serving mode's, and the split's real cost was
+# three hand-synced duplicate modules.
 #
-# The tree ships ONE app from under `backend/`, built into one image and entered in either of two
-# modes (`url4-cloud serve` / `url4-cloud run` — see `url4_cloud.cli`). It used to ship two
-# distributions; they were merged because the run mode's dependencies were already a subset of
-# the serving mode's, and the split's real cost was three hand-synced duplicate modules.
-#
-# This pyproject survives the merge because it still earns its keep: it holds the shared
-# ruff/pytest/pyright config and the `tests/` tree, which sit ABOVE `backend/` so the suite can
-# import the engine (`packages/url4`) alongside the app. It is `package = false` (never built
-# into a wheel); the real distribution is `backend/pyproject.toml`, and the image is built from
-# `backend/Dockerfile`.
+# This file is BOTH the shipped distribution and the dev/test root: the package under `src/`, the
+# `tests/` tree, and the shared ruff/pytest tooling all hang off it. There used to be a second
+# `backend/pyproject.toml` beneath a `package = false` aggregate here; the nesting bought nothing
+# once the two distributions became one, so it is gone. The image is built from `Dockerfile`.
 [project]
-name = "url4-cloud-dev"
-version = "0"
-description = "url4-cloud dev/test aggregate — owns the test suite and shared tooling."
+name = "url4-cloud"
+version = "0.1.0"
+description = "url4-cloud — the control plane (REST + WebSocket, schedules Runner Jobs) and the url4 run mode those Jobs execute."
 requires-python = ">=3.12"
+# Merging the former `url4-cloud-runner` distribution in cost NO new dependency: its deps
+# (httpx, nats-py, url4) were already a strict subset of these. What the run mode gains is
+# serving-side packages it never imports; the layering gate is what keeps that true.
 dependencies = [
-    "url4-cloud",
+    # --- serving mode only ---
+    "fastapi>=0.136.1",
+    "uvicorn[standard]>=0.47.0",
+    "pyjwt>=2.10.1",
+    "kubernetes>=31.0.0",
+    "prometheus-client>=0.21.0",
+    "pydantic-settings>=2.14.1",
+    # --- both modes ---
+    "pydantic>=2.13.4",
+    # The catalog's upstream aigateway client (`url4_cloud.catalog`), and the run mode's
+    # aigateway + Tavily clients (`url4_cloud.runner.connector`).
+    "httpx>=0.28.1",
+    # Both directions of the run log: the App consumes (`adapters.jetstream.JetStreamConsumer`),
+    # the run mode publishes (`JetStreamPublisher`) — one adapter module, shared.
+    "nats-py>=2.9.0",
+    # The wire contract (`url4.streaming`) and the engine (`url4.dag`) ship in one distribution:
+    # the App needs the former, the run mode the latter. The `streaming` extra is what pulls in
+    # pydantic — it is NOT a base dependency of the engine, so that embedders who only run
+    # expressions do not install a wire-format library they never import.
+    "url4[streaming]",
 ]
 
-[tool.uv]
-package = false
+[project.scripts]
+url4-cloud = "url4_cloud.cli:main"
+# COMPATIBILITY ALIAS. The Job's command is now `["url4-cloud", "run"]`, but during a rolling
+# upgrade an App pod running the OLD code schedules the NEW image with the old command — the
+# image reference comes from the ConfigMap while the command comes from Python, so the two
+# change at different moments. Keeping this name resolvable makes that window survivable in
+# both directions. Removable one release after the merge ships.
+url4-cloud-runner = "url4_cloud.runner.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/url4_cloud"]
 
 [tool.uv.sources]
-url4-cloud = { path = "backend", editable = true }
 url4 = { path = "../../packages/url4", editable = true }
 
 [tool.ruff]
@@ -41,8 +72,8 @@ max-statements = 26
 max-branches = 7
 max-returns = 3
 
-# The import packages live across backend/ and packages/url4 — name them explicitly so isort
-# treats them as first-party (auto-detection can't, since this project is package = false).
+# `url4` is a path dependency from packages/, so isort cannot infer it as first-party from this
+# project's own layout — name both import packages explicitly.
 [tool.ruff.lint.isort]
 known-first-party = [
     "url4",

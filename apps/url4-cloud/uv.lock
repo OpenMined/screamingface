@@ -2368,7 +2368,7 @@ notebook = [{ name = "graphviz", specifier = ">=0.20" }]
 [[package]]
 name = "url4-cloud"
 version = "0.1.0"
-source = { editable = "backend" }
+source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
@@ -2380,28 +2380,6 @@ dependencies = [
     { name = "pyjwt" },
     { name = "url4", extra = ["streaming"] },
     { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.136.1" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "kubernetes", specifier = ">=31.0.0" },
-    { name = "nats-py", specifier = ">=2.9.0" },
-    { name = "prometheus-client", specifier = ">=0.21.0" },
-    { name = "pydantic", specifier = ">=2.13.4" },
-    { name = "pydantic-settings", specifier = ">=2.14.1" },
-    { name = "pyjwt", specifier = ">=2.10.1" },
-    { name = "url4", extras = ["streaming"], editable = "../../packages/url4" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.47.0" },
-]
-
-[[package]]
-name = "url4-cloud-dev"
-version = "0"
-source = { virtual = "." }
-dependencies = [
-    { name = "url4-cloud" },
 ]
 
 [package.dev-dependencies]
@@ -2421,7 +2399,18 @@ examples = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "url4-cloud", editable = "backend" }]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.136.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "kubernetes", specifier = ">=31.0.0" },
+    { name = "nats-py", specifier = ">=2.9.0" },
+    { name = "prometheus-client", specifier = ">=0.21.0" },
+    { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "pydantic-settings", specifier = ">=2.14.1" },
+    { name = "pyjwt", specifier = ">=2.10.1" },
+    { name = "url4", extras = ["streaming"], editable = "../../packages/url4" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.47.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [
