@@ -24,8 +24,10 @@ dependencies = [
     # the run mode publishes (`JetStreamPublisher`) — one adapter module, shared.
     "nats-py>=2.9.0",
     # The wire contract (`url4.streaming`) and the engine (`url4.dag`) ship in one distribution:
-    # the App needs the former, the run mode the latter.
-    "url4",
+    # the App needs the former, the run mode the latter. The `streaming` extra is what pulls in
+    # pydantic — it is NOT a base dependency of the engine, so that embedders who only run
+    # expressions do not install a wire-format library they never import.
+    "url4[streaming]",
 ]
 
 [project.scripts]
