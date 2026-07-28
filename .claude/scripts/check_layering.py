@@ -91,11 +91,22 @@ _EXEMPT = {
 }
 
 
+def _package_of(path: pathlib.Path) -> list[str]:
+    """The dotted package a module lives in, as parts: `rest/routes.py` -> [url4_cloud, rest]."""
+    return ["url4_cloud", *path.relative_to(SRC).parent.parts]
+
+
 def imported_url4_cloud_submodules(path: pathlib.Path) -> set[str]:
     """`url4_cloud.X` / `url4_cloud.X.Y` names imported by ``path``, as {"X", "X.Y"}.
 
     Includes function-local imports, which are exactly how a boundary violation likes to hide,
-    and TYPE_CHECKING-only ones, which are erased at runtime but still describe the boundary.
+    TYPE_CHECKING-only ones, which are erased at runtime but still describe the boundary, and
+    RELATIVE imports, which resolve to the same modules and were previously skipped outright —
+    appending `from ..runner.executor import Url4Executor` to a control-plane module passed this
+    check cleanly.
+
+    Out of reach by construction: `importlib.import_module(name)` and `__import__` with a computed
+    name. A determined violation can still hide there; every ordinary one is caught.
     """
     found: set[str] = set()
 
@@ -112,13 +123,26 @@ def imported_url4_cloud_submodules(path: pathlib.Path) -> set[str]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 record(alias.name)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0:
-            record(node.module)
-            # `from url4_cloud import job_env` — the submodule is the imported NAME, not the
-            # module path, so it would otherwise read as a bare `url4_cloud` import.
-            if node.module == "url4_cloud":
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0:
+                record(node.module)
+                # `from url4_cloud import job_env` — the submodule is the imported NAME, not the
+                # module path, so it would otherwise read as a bare `url4_cloud` import.
+                if node.module == "url4_cloud":
+                    for alias in node.names:
+                        record(f"url4_cloud.{alias.name}")
+                continue
+            # Relative: level 1 is this module's own package, each extra level walks up one.
+            package = _package_of(path)
+            base = package[: len(package) - (node.level - 1)]
+            if not base or base[0] != "url4_cloud":
+                continue
+            if node.module:
+                record(".".join([*base, node.module]))
+            else:
+                # `from . import runner` — the submodule is the imported name.
                 for alias in node.names:
-                    record(f"url4_cloud.{alias.name}")
+                    record(".".join([*base, alias.name]))
     return found
 
 
@@ -140,6 +164,31 @@ def files_for(subtree: str) -> list[pathlib.Path]:
     return paths
 
 
+def _half_of(path: pathlib.Path) -> str | None:
+    """Which half a module belongs to: "control-plane", "run-mode", or None for a shared leaf."""
+    parts = path.relative_to(SRC).with_suffix("").parts
+    if not parts:
+        return None
+    top, two = parts[0], ".".join(parts[:2])
+    if top in RUN_MODE:
+        return "run-mode"
+    if top in CONTROL_PLANE or two in CONTROL_PLANE:
+        return "control-plane"
+    return None
+
+
+def shared_leaf_files() -> list[pathlib.Path]:
+    """Every module belonging to NEITHER half — `job_env`, `subjects`, `adapters.jetstream`,
+    `adapters.memory`, `adapters.inprocess`, `testing`.
+
+    These were scanned by no rule at all: rule 1 walks `runner/` and rule 2 walks the named
+    control-plane modules, so a cross-half import added to `adapters/memory.py` passed cleanly —
+    and because `local` and `testing` import that module, it would have dragged the engine into
+    the serving half through a file the gate never opened.
+    """
+    return [p for p in python_files(SRC) if _half_of(p) is None]
+
+
 def check_layers() -> list[str]:
     if not SRC.is_dir():
         print(f"ERROR: source tree missing: {SRC}", file=sys.stderr)
@@ -153,6 +202,20 @@ def check_layers() -> list[str]:
                 offenders.append(
                     f"  {path.relative_to(ROOT)}: imports url4_cloud.{module}\n      {why}"
                 )
+    # A shared leaf is shared precisely BECAUSE it depends on neither half; one that reaches into
+    # either stops being a leaf and silently couples every importer to that half.
+    shared_why = (
+        "a shared leaf is importable by BOTH halves, so importing either one couples every "
+        "module that depends on it to that half — move it into the half that needs it, or lift "
+        "what both need into url4.streaming"
+    )
+    for path in shared_leaf_files():
+        if path.name in _EXEMPT:
+            continue
+        for module in sorted(imported_url4_cloud_submodules(path) & (CONTROL_PLANE | RUN_MODE)):
+            offenders.append(
+                f"  {path.relative_to(ROOT)}: imports url4_cloud.{module}\n      {shared_why}"
+            )
     return offenders
 
 
