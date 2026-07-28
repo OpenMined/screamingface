@@ -5,6 +5,8 @@ from kubernetes.client import ApiException
 from url4_cloud.adapters.factory import build_job_runner
 from url4_cloud.config import Settings
 
+pytestmark = pytest.mark.asyncio
+
 TOPIC = "cap-topic"
 
 
@@ -12,23 +14,38 @@ class FakeBatchV1:
     def __init__(self) -> None:
         self.jobs: dict[str, dict] = {}
 
-    def create_namespaced_job(self, namespace: str, body) -> FakeCreatedJob:
+    def create_namespaced_job(
+        self, namespace: str, body, *, _request_timeout: float | None = None
+    ) -> FakeCreatedJob:
         name = body["metadata"]["name"]
         self.jobs[name] = body
         return fake_created_job(f"uid-{name}")
 
-    def read_namespaced_job(self, name: str, namespace: str):
+    def read_namespaced_job(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ):
         raise ApiException(status=404)
 
-    def delete_namespaced_job(self, name: str, namespace: str) -> dict:
+    def delete_namespaced_job(
+        self,
+        name: str,
+        namespace: str,
+        *,
+        propagation_policy: str = "",
+        _request_timeout: float | None = None,
+    ) -> dict:
         return {}
 
 
 class FakeCoreV1Secrets:
-    def create_namespaced_secret(self, namespace: str, body) -> dict:  # pragma: no cover
+    def create_namespaced_secret(
+        self, namespace: str, body, *, _request_timeout: float | None = None
+    ) -> dict:  # pragma: no cover
         raise NotImplementedError
 
-    def delete_namespaced_secret(self, name: str, namespace: str) -> dict:  # pragma: no cover
+    def delete_namespaced_secret(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> dict:  # pragma: no cover
         raise NotImplementedError
 
 
@@ -72,7 +89,7 @@ def test_job_ttl_exactly_at_the_token_lifetime_is_allowed() -> None:
     assert settings.effective_job_ttl_s == 60
 
 
-def test_k8s_runner_job_carries_the_configured_resources_and_ttl() -> None:
+async def test_k8s_runner_job_carries_the_configured_resources_and_ttl() -> None:
     client = FakeBatchV1()
     settings = _k8s_settings(
         iat_window_s=60,
@@ -88,7 +105,7 @@ def test_k8s_runner_job_carries_the_configured_resources_and_ttl() -> None:
         k8s_secrets_client_factory=FakeCoreV1Secrets,
     )
     assert runner is not None
-    name = runner.schedule(TOPIC, "chat(hi)", deadline_s=57600)
+    name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=57600)
 
     spec = client.jobs[name]["spec"]
     assert spec["ttlSecondsAfterFinished"] == 120
@@ -97,7 +114,7 @@ def test_k8s_runner_job_carries_the_configured_resources_and_ttl() -> None:
     assert container["resources"]["limits"]["memory"] == "1Gi"
 
 
-def test_k8s_runner_job_without_configured_resources_still_gets_its_ttl() -> None:
+async def test_k8s_runner_job_without_configured_resources_still_gets_its_ttl() -> None:
     client = FakeBatchV1()
     runner = build_job_runner(
         _k8s_settings(),
@@ -105,7 +122,7 @@ def test_k8s_runner_job_without_configured_resources_still_gets_its_ttl() -> Non
         k8s_secrets_client_factory=FakeCoreV1Secrets,
     )
     assert runner is not None
-    name = runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
+    name = await runner.schedule(TOPIC, "chat(hi)", deadline_s=60)
 
     spec = client.jobs[name]["spec"]
     assert spec["ttlSecondsAfterFinished"] == 120

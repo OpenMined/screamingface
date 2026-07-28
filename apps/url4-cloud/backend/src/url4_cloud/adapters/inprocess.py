@@ -158,7 +158,7 @@ class InProcessJobRunner(JobRunner):
 
     # --- the JobRunner port -----------------------------------------------------------------
 
-    def schedule(
+    async def schedule(
         self,
         topic: str,
         url4: str,
@@ -201,7 +201,7 @@ class InProcessJobRunner(JobRunner):
         self._active += 1
         return name
 
-    def stop(self, topic: str) -> None:
+    async def stop(self, topic: str) -> None:
         """Cancel the run, if one is live. Idempotent — absent or finished is a no-op.
 
         Cancelling is what produces the run's `Terminated(stopped)` frame: `lifecycle.run`
@@ -212,11 +212,11 @@ class InProcessJobRunner(JobRunner):
         if task is not None and not task.done():
             task.cancel()
 
-    def exists(self, topic: str) -> bool:
+    async def exists(self, topic: str) -> bool:
         task = self._tasks.get(job_name(topic))
         return task is not None and not task.done()
 
-    def status(self, topic: str) -> JobStatus:
+    async def status(self, topic: str) -> JobStatus:
         return _map_status(self._tasks.get(job_name(topic)))
 
     async def aclose(self) -> None:

@@ -11,24 +11,35 @@ from url4_cloud.config import Settings
 
 class _FakeBatchApi:
     def create_namespaced_job(
-        self, namespace: str, body: Mapping[str, object]
+        self, namespace: str, body: Mapping[str, object], *, _request_timeout: float | None = None
     ) -> FakeCreatedJob:  # pragma: no cover
         raise NotImplementedError
 
-    def read_namespaced_job(self, name: str, namespace: str) -> Any:  # pragma: no cover
+    def read_namespaced_job(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> Any:  # pragma: no cover
         raise NotImplementedError
 
-    def delete_namespaced_job(self, name: str, namespace: str) -> object:  # pragma: no cover
+    def delete_namespaced_job(
+        self,
+        name: str,
+        namespace: str,
+        *,
+        propagation_policy: str = "",
+        _request_timeout: float | None = None,
+    ) -> object:  # pragma: no cover
         raise NotImplementedError
 
 
 class _FakeCoreV1Api:
     def create_namespaced_secret(
-        self, namespace: str, body: Mapping[str, object]
+        self, namespace: str, body: Mapping[str, object], *, _request_timeout: float | None = None
     ) -> object:  # pragma: no cover
         raise NotImplementedError
 
-    def delete_namespaced_secret(self, name: str, namespace: str) -> object:  # pragma: no cover
+    def delete_namespaced_secret(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> object:  # pragma: no cover
         raise NotImplementedError
 
 

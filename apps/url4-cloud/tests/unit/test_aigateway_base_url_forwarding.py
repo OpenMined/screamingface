@@ -8,6 +8,7 @@ of truth for one value, and the quiet one wins.
 
 from typing import Any
 
+import pytest
 from _k8s_fakes import FakeCreatedJob, fake_created_job
 
 from url4_cloud import job_env as runner_job_env
@@ -15,27 +16,44 @@ from url4_cloud.adapters.factory import build_job_runner
 from url4_cloud.adapters.k8s import K8sJobRunner
 from url4_cloud.config import Settings
 
+pytestmark = pytest.mark.asyncio
+
 
 class _RecordingBatchApi:
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
 
-    def create_namespaced_job(self, namespace: str, body: Any) -> FakeCreatedJob:
+    def create_namespaced_job(
+        self, namespace: str, body: Any, *, _request_timeout: float | None = None
+    ) -> FakeCreatedJob:
         self.created.append(dict(body))
         return fake_created_job(f"uid-{body['metadata']['name']}")
 
-    def read_namespaced_job(self, name: str, namespace: str) -> Any:  # pragma: no cover
+    def read_namespaced_job(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> Any:  # pragma: no cover
         raise NotImplementedError
 
-    def delete_namespaced_job(self, name: str, namespace: str) -> object:  # pragma: no cover
+    def delete_namespaced_job(
+        self,
+        name: str,
+        namespace: str,
+        *,
+        propagation_policy: str = "",
+        _request_timeout: float | None = None,
+    ) -> object:  # pragma: no cover
         raise NotImplementedError
 
 
 class _RecordingSecretsApi:
-    def create_namespaced_secret(self, namespace: str, body: Any) -> object:  # pragma: no cover
+    def create_namespaced_secret(
+        self, namespace: str, body: Any, *, _request_timeout: float | None = None
+    ) -> object:  # pragma: no cover
         raise NotImplementedError
 
-    def delete_namespaced_secret(self, name: str, namespace: str) -> object:  # pragma: no cover
+    def delete_namespaced_secret(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> object:  # pragma: no cover
         raise NotImplementedError
 
 
@@ -47,20 +65,20 @@ def _job_env(api: _RecordingBatchApi) -> dict[str, Any]:
     return {item["name"]: item.get("value") for item in _container(api)["env"]}
 
 
-def test_the_app_never_writes_the_aigateway_base_url_into_a_job() -> None:
+async def test_the_app_never_writes_the_aigateway_base_url_into_a_job() -> None:
     api = _RecordingBatchApi()
 
-    K8sJobRunner(api, image="url4-cloud:1", env_configmap="rel-runner-env").schedule(
+    await K8sJobRunner(api, image="url4-cloud:1", env_configmap="rel-runner-env").schedule(
         "topic-a", "'hi'!'go'", 60
     )
 
     assert runner_job_env.AIGATEWAY_BASE_URL not in _job_env(api)
 
 
-def test_the_job_inherits_it_from_the_charts_configmap_instead() -> None:
+async def test_the_job_inherits_it_from_the_charts_configmap_instead() -> None:
     api = _RecordingBatchApi()
 
-    K8sJobRunner(api, image="url4-cloud:1", env_configmap="rel-runner-env").schedule(
+    await K8sJobRunner(api, image="url4-cloud:1", env_configmap="rel-runner-env").schedule(
         "topic-a", "'hi'!'go'", 60
     )
 

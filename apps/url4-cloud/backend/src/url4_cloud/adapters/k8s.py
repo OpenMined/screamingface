@@ -2,6 +2,7 @@
 Batch v1 Job per run, maps its live status to `JobStatus` (spec §3), and — via Core v1 —
 manages the optional per-run credential Secret a Job's env forwards from."""
 
+import asyncio
 import contextlib
 from collections.abc import Mapping, Sequence
 from typing import Protocol
@@ -62,15 +63,37 @@ class _CreatedJob(Protocol):
     def metadata(self) -> _CreatedObjectMeta: ...
 
 
+# `_request_timeout` is the generated kubernetes client's per-call deadline. It is spelled out in
+# these Protocols (rather than passed through an untyped `**kwargs`) so that a call site which
+# forgets it is a type error: every one of these is a blocking round trip running on a
+# `to_thread` worker, and an un-deadlined one holds that worker until the process exits.
 class BatchV1JobsClient(Protocol):
-    def create_namespaced_job(self, namespace: str, body: Mapping[str, object]) -> _CreatedJob: ...
-    def read_namespaced_job(self, name: str, namespace: str) -> _JobView: ...
-    def delete_namespaced_job(self, name: str, namespace: str) -> object: ...
+    def create_namespaced_job(
+        self, namespace: str, body: Mapping[str, object], *, _request_timeout: float | None = None
+    ) -> _CreatedJob: ...
+    def read_namespaced_job(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> _JobView: ...
+    # `propagation_policy` is required, not optional, and it is why this signature is spelled out:
+    # batch/v1's server-side default is `orphanDependents`, kept for backwards compatibility, so a
+    # delete that omits it removes the Job and LEAVES ITS POD RUNNING.
+    def delete_namespaced_job(
+        self,
+        name: str,
+        namespace: str,
+        *,
+        propagation_policy: str,
+        _request_timeout: float | None = None,
+    ) -> object: ...
 
 
 class CoreV1SecretsClient(Protocol):
-    def create_namespaced_secret(self, namespace: str, body: Mapping[str, object]) -> object: ...
-    def delete_namespaced_secret(self, name: str, namespace: str) -> object: ...
+    def create_namespaced_secret(
+        self, namespace: str, body: Mapping[str, object], *, _request_timeout: float | None = None
+    ) -> object: ...
+    def delete_namespaced_secret(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> object: ...
 
 
 def _terminal_status(conditions: Sequence[_JobCondition] | None) -> JobStatus | None:
@@ -119,9 +142,11 @@ class K8sJobRunner(JobRunner):
         job_ttl_s: int | None = None,
         min_job_ttl_s: int | None = None,
         secrets_client: CoreV1SecretsClient | None = None,
+        request_timeout_s: float | None = None,
     ) -> None:
         self._client = client
         self._secrets_client = secrets_client
+        self._request_timeout_s = request_timeout_s
         self._image = image
         self._namespace = namespace
         self._command = list(command)
@@ -135,7 +160,7 @@ class K8sJobRunner(JobRunner):
             )
         self._job_ttl_s = job_ttl_s
 
-    def schedule(
+    async def schedule(
         self,
         topic: str,
         url4: str,
@@ -152,6 +177,26 @@ class K8sJobRunner(JobRunner):
                 adapter refuses to fall back to injecting it as a plaintext Job env value.
             JobAlreadyExists: a Job for this topic already exists (409 from the API server).
         """
+        return await asyncio.to_thread(
+            self._schedule_blocking,
+            topic,
+            url4,
+            deadline_s,
+            traceparent=traceparent,
+            credential=credential,
+            profile=profile,
+        )
+
+    def _schedule_blocking(
+        self,
+        topic: str,
+        url4: str,
+        deadline_s: int,
+        *,
+        traceparent: str | None = None,
+        credential: str | None = None,
+        profile: str | None = None,
+    ) -> str:
         if credential and self._secrets_client is None:
             raise RuntimeError(
                 "K8sJobRunner received a credential to forward but no secrets_client was "
@@ -162,6 +207,7 @@ class K8sJobRunner(JobRunner):
             created = self._client.create_namespaced_job(
                 self._namespace,
                 self._manifest(name, topic, url4, deadline_s, traceparent, credential, profile),
+                _request_timeout=self._request_timeout_s,
             )
         except ApiException as exc:
             if exc.status == _CONFLICT:
@@ -172,7 +218,7 @@ class K8sJobRunner(JobRunner):
                 self._create_credential_secret(name, created, credential)
             except ApiException:
                 with contextlib.suppress(ApiException):
-                    self._client.delete_namespaced_job(name, self._namespace)
+                    self._delete_job(name)
                 raise
         return name
 
@@ -202,33 +248,65 @@ class K8sJobRunner(JobRunner):
                 },
                 "stringData": {_CREDENTIAL_SECRET_KEY: credential},
             },
+            _request_timeout=self._request_timeout_s,
         )
 
-    def stop(self, topic: str) -> None:
+    async def stop(self, topic: str) -> None:
+        await asyncio.to_thread(self._stop_blocking, topic)
+
+    def _stop_blocking(self, topic: str) -> None:
         name = job_name(topic)
+        # WHY the Job goes first now: deleting the Secret first leaves a window in which the Job
+        # still exists but its `secretKeyRef` target does not. If the Job delete then fails, the
+        # run is left permanently unable to start its container instead of simply still running.
+        try:
+            self._delete_job(name)
+        except ApiException as exc:
+            if exc.status != _NOT_FOUND:
+                raise
+        # The Secret carries an ownerReference on the Job, so k8s GC reclaims it on its own; this
+        # is the prompt path, and a 404 here just means GC won the race.
         if self._secrets_client is not None:
             try:
                 self._secrets_client.delete_namespaced_secret(
-                    _credential_secret_name(name), self._namespace
+                    _credential_secret_name(name),
+                    self._namespace,
+                    _request_timeout=self._request_timeout_s,
                 )
             except ApiException as exc:
                 if exc.status != _NOT_FOUND:
                     raise
-        try:
-            self._client.delete_namespaced_job(name, self._namespace)
-        except ApiException as exc:
-            if exc.status != _NOT_FOUND:
-                raise
 
-    def exists(self, topic: str) -> bool:
-        return self._read(topic) is not None
+    def _delete_job(self, name: str) -> None:
+        """Delete a Job AND the Pod running it.
 
-    def status(self, topic: str) -> JobStatus:
-        return _map_status(self._read(topic))
+        INVARIANT: `propagation_policy="Background"` is mandatory. batch/v1 declares
+        `DefaultGarbageCollectionPolicy: OrphanDependents`, so a delete that omits the policy
+        removes the Job object and leaves its Pod running — still evaluating the expression, still
+        publishing frames, still spending the caller's model credit, with `activeDeadlineSeconds`
+        gone along with the Job that carried it. It is also invisible afterwards: `exists()` reads
+        the Job, so it reports `not_found` while the Pod runs on, and the topic can be scheduled
+        again while the first run is live. This is why `kubectl delete job` passes
+        `--cascade=background` explicitly rather than relying on the default.
+        """
+        self._client.delete_namespaced_job(
+            name,
+            self._namespace,
+            propagation_policy="Background",
+            _request_timeout=self._request_timeout_s,
+        )
+
+    async def exists(self, topic: str) -> bool:
+        return await asyncio.to_thread(self._read, topic) is not None
+
+    async def status(self, topic: str) -> JobStatus:
+        return _map_status(await asyncio.to_thread(self._read, topic))
 
     def _read(self, topic: str) -> _JobView | None:
         try:
-            return self._client.read_namespaced_job(job_name(topic), self._namespace)
+            return self._client.read_namespaced_job(
+                job_name(topic), self._namespace, _request_timeout=self._request_timeout_s
+            )
         except ApiException as exc:
             if exc.status == _NOT_FOUND:
                 return None

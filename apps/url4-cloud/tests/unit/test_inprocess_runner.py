@@ -117,7 +117,9 @@ async def test_schedule_builds_the_same_job_env_contract_a_job_would_get() -> No
     stream = InMemoryEventStream()
     runner, seen = _runner(stream, base_env={job_env.AIGATEWAY_BASE_URL: "http://gw"})
 
-    runner.schedule(TOPIC, "/m('x')!'go'", 42, traceparent=None, credential="tok", profile="p")
+    await runner.schedule(
+        TOPIC, "/m('x')!'go'", 42, traceparent=None, credential="tok", profile="p"
+    )
     await _drain_until_terminal(stream, TOPIC)
 
     env = seen[0]
@@ -135,7 +137,7 @@ async def test_request_credential_wins_over_the_process_credential() -> None:
     stream = InMemoryEventStream()
     runner, seen = _runner(stream, base_env={job_env.AIGATEWAY_TOKEN: "process-token"})
 
-    runner.schedule(TOPIC, "q", 10, credential="caller-token")
+    await runner.schedule(TOPIC, "q", 10, credential="caller-token")
     await _drain_until_terminal(stream, TOPIC)
 
     assert seen[0][job_env.AIGATEWAY_TOKEN] == "caller-token"
@@ -146,7 +148,7 @@ async def test_process_credential_is_the_fallback_when_none_is_forwarded() -> No
     stream = InMemoryEventStream()
     runner, seen = _runner(stream, base_env={job_env.AIGATEWAY_TOKEN: "process-token"})
 
-    runner.schedule(TOPIC, "q", 10, credential=None)
+    await runner.schedule(TOPIC, "q", 10, credential=None)
     await _drain_until_terminal(stream, TOPIC)
 
     assert seen[0][job_env.AIGATEWAY_TOKEN] == "process-token"
@@ -157,7 +159,7 @@ async def test_a_forwarded_credential_does_not_inherit_the_ambient_profile() -> 
     stream = InMemoryEventStream()
     runner, seen = _runner(stream, base_env={job_env.AIGATEWAY_PROFILE: "ambient"})
 
-    runner.schedule(TOPIC, "q", 10, credential="caller-token", profile=None)
+    await runner.schedule(TOPIC, "q", 10, credential="caller-token", profile=None)
     await _drain_until_terminal(stream, TOPIC)
 
     assert job_env.AIGATEWAY_PROFILE not in seen[0]
@@ -167,7 +169,7 @@ async def test_a_malformed_traceparent_is_dropped_rather_than_forwarded() -> Non
     stream = InMemoryEventStream()
     runner, seen = _runner(stream)
 
-    runner.schedule(TOPIC, "q", 10, traceparent="not-a-traceparent")
+    await runner.schedule(TOPIC, "q", 10, traceparent="not-a-traceparent")
     await _drain_until_terminal(stream, TOPIC)
 
     assert job_env.TRACEPARENT not in seen[0]
@@ -180,7 +182,7 @@ async def test_a_run_reaches_a_succeeded_terminal_frame() -> None:
     stream = InMemoryEventStream()
     runner, _ = _runner(stream)
 
-    name = runner.schedule(TOPIC, "q", 10)
+    name = await runner.schedule(TOPIC, "q", 10)
     terminal = await _drain_until_terminal(stream, TOPIC)
 
     assert name == job_name(TOPIC)
@@ -191,25 +193,25 @@ async def test_status_walks_running_then_succeeded() -> None:
     stream = InMemoryEventStream()
     runner, _ = _runner(stream)
 
-    assert runner.status(TOPIC) == "not_found"
-    runner.schedule(TOPIC, "q", 10)
-    assert runner.status(TOPIC) == "running"
+    assert await runner.status(TOPIC) == "not_found"
+    await runner.schedule(TOPIC, "q", 10)
+    assert await runner.status(TOPIC) == "running"
     await _drain_until_terminal(stream, TOPIC)
     await asyncio.sleep(0)  # let the task's done-callback run
-    assert runner.status(TOPIC) == "succeeded"
+    assert await runner.status(TOPIC) == "succeeded"
 
 
 async def test_a_second_run_on_a_live_topic_is_refused() -> None:
     stream = InMemoryEventStream()
     runner, _ = _runner(stream, _StubExecutor(block=True))
 
-    runner.schedule(TOPIC, "q", 10)
-    assert runner.exists(TOPIC) is True
+    await runner.schedule(TOPIC, "q", 10)
+    assert await runner.exists(TOPIC) is True
     with pytest.raises(JobAlreadyExists):
-        runner.schedule(TOPIC, "q", 10)
+        await runner.schedule(TOPIC, "q", 10)
 
     await _await_started(stream, TOPIC)
-    runner.stop(TOPIC)
+    await runner.stop(TOPIC)
     await _drain_until_terminal(stream, TOPIC)
 
 
@@ -218,12 +220,12 @@ async def test_a_finished_topic_frees_its_slot_immediately() -> None:
     stream = InMemoryEventStream()
     runner, _ = _runner(stream)
 
-    runner.schedule(TOPIC, "q", 10)
+    await runner.schedule(TOPIC, "q", 10)
     await _drain_until_terminal(stream, TOPIC)
     await asyncio.sleep(0)
 
-    assert runner.exists(TOPIC) is False
-    runner.schedule(TOPIC, "q", 10)  # must not raise
+    assert await runner.exists(TOPIC) is False
+    await runner.schedule(TOPIC, "q", 10)  # must not raise
 
 
 async def test_stop_terminates_the_stream_rather_than_leaving_it_silent() -> None:
@@ -232,9 +234,9 @@ async def test_stop_terminates_the_stream_rather_than_leaving_it_silent() -> Non
     stream = InMemoryEventStream()
     runner, _ = _runner(stream, _StubExecutor(block=True))
 
-    runner.schedule(TOPIC, "q", 10)
+    await runner.schedule(TOPIC, "q", 10)
     await _await_started(stream, TOPIC)
-    runner.stop(TOPIC)
+    await runner.stop(TOPIC)
 
     terminal = await _drain_until_terminal(stream, TOPIC)
     assert terminal.data.status == "stopped"
@@ -244,18 +246,18 @@ async def test_stop_is_idempotent_on_an_unknown_or_finished_topic() -> None:
     stream = InMemoryEventStream()
     runner, _ = _runner(stream)
 
-    runner.stop("never-scheduled")  # must not raise
-    runner.schedule(TOPIC, "q", 10)
+    await runner.stop("never-scheduled")  # must not raise
+    await runner.schedule(TOPIC, "q", 10)
     await _drain_until_terminal(stream, TOPIC)
     await asyncio.sleep(0)
-    runner.stop(TOPIC)  # must not raise
+    await runner.stop(TOPIC)  # must not raise
 
 
 async def test_an_exploding_executor_terminates_as_failed() -> None:
     stream = InMemoryEventStream()
     runner, _ = _runner(stream, _StubExecutor(boom=RuntimeError("nope")))
 
-    runner.schedule(TOPIC, "q", 10)
+    await runner.schedule(TOPIC, "q", 10)
     terminal = await _drain_until_terminal(stream, TOPIC)
 
     assert terminal.data.status == "failed"
@@ -268,7 +270,7 @@ async def test_a_run_past_its_deadline_terminates_as_timed_out() -> None:
 
     # `deadline_s` is an int on the port, so 1s is the smallest real bound — the executor blocks
     # forever, so exceeding it is deterministic rather than timing-sensitive.
-    runner.schedule(TOPIC, "q", 1)
+    await runner.schedule(TOPIC, "q", 1)
     terminal = await asyncio.wait_for(_drain_until_terminal(stream, TOPIC), timeout=10)
 
     assert terminal.data.status == "timed_out"
@@ -281,12 +283,12 @@ async def test_over_the_concurrency_cap_the_runner_refuses() -> None:
     stream = InMemoryEventStream()
     runner, _ = _runner(stream, _StubExecutor(block=True), max_concurrent_runs=2)
 
-    runner.schedule("a", "q", 10)
-    runner.schedule("b", "q", 10)
+    await runner.schedule("a", "q", 10)
+    await runner.schedule("b", "q", 10)
     assert runner.active_count() == 2
 
     with pytest.raises(JobRunnerAtCapacity) as exc:
-        runner.schedule("c", "q", 10)
+        await runner.schedule("c", "q", 10)
     assert exc.value.limit == 2
 
     await runner.aclose()
@@ -296,12 +298,12 @@ async def test_capacity_is_released_when_a_run_finishes() -> None:
     stream = InMemoryEventStream()
     runner, _ = _runner(stream, max_concurrent_runs=1)
 
-    runner.schedule("a", "q", 10)
+    await runner.schedule("a", "q", 10)
     await _drain_until_terminal(stream, "a")
     await asyncio.sleep(0)
 
     assert runner.active_count() == 0
-    runner.schedule("b", "q", 10)  # must not raise
+    await runner.schedule("b", "q", 10)  # must not raise
 
 
 async def test_history_is_bounded_but_never_evicts_a_live_run() -> None:
@@ -309,7 +311,7 @@ async def test_history_is_bounded_but_never_evicts_a_live_run() -> None:
     runner, _ = _runner(stream, max_history=2)
 
     for topic in ("a", "b", "c", "d"):
-        runner.schedule(topic, "q", 10)
+        await runner.schedule(topic, "q", 10)
         await _drain_until_terminal(stream, topic)
         await asyncio.sleep(0)
 
@@ -320,7 +322,7 @@ async def test_aclose_cancels_in_flight_runs_and_terminates_their_streams() -> N
     stream = InMemoryEventStream()
     runner, _ = _runner(stream, _StubExecutor(block=True))
 
-    runner.schedule(TOPIC, "q", 10)
+    await runner.schedule(TOPIC, "q", 10)
     await _await_started(stream, TOPIC)
     await runner.aclose()
 

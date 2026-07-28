@@ -16,6 +16,8 @@ from url4_cloud import job_env
 from url4_cloud.adapters.k8s import K8sJobRunner
 from url4_cloud.runner.main import RunnerConfigError, params_from_env
 
+pytestmark = pytest.mark.asyncio
+
 TOPIC = "cap-topic"
 EXPRESSION = "/model('x')!'go'"
 NATS_URL = "nats://nats:4222"
@@ -25,26 +27,41 @@ class _RecordingBatchApi:
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
 
-    def create_namespaced_job(self, namespace: str, body: Any) -> FakeCreatedJob:
+    def create_namespaced_job(
+        self, namespace: str, body: Any, *, _request_timeout: float | None = None
+    ) -> FakeCreatedJob:
         self.created.append(dict(body))
         return fake_created_job(f"uid-{body['metadata']['name']}")
 
-    def read_namespaced_job(self, name: str, namespace: str) -> Any:  # pragma: no cover
+    def read_namespaced_job(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> Any:  # pragma: no cover
         raise NotImplementedError
 
-    def delete_namespaced_job(self, name: str, namespace: str) -> object:  # pragma: no cover
+    def delete_namespaced_job(
+        self,
+        name: str,
+        namespace: str,
+        *,
+        propagation_policy: str = "",
+        _request_timeout: float | None = None,
+    ) -> object:  # pragma: no cover
         raise NotImplementedError
 
 
 class _RecordingSecretsApi:
-    def create_namespaced_secret(self, namespace: str, body: Any) -> object:
+    def create_namespaced_secret(
+        self, namespace: str, body: Any, *, _request_timeout: float | None = None
+    ) -> object:
         return object()
 
-    def delete_namespaced_secret(self, name: str, namespace: str) -> object:  # pragma: no cover
+    def delete_namespaced_secret(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> object:  # pragma: no cover
         raise NotImplementedError
 
 
-def _scheduled_env(**extra: Any) -> dict[str, dict[str, Any]]:
+async def _scheduled_env(**extra: Any) -> dict[str, dict[str, Any]]:
     api = _RecordingBatchApi()
     runner = K8sJobRunner(
         api,
@@ -52,13 +69,13 @@ def _scheduled_env(**extra: Any) -> dict[str, dict[str, Any]]:
         secrets_client=_RecordingSecretsApi(),
         **extra,
     )
-    runner.schedule(TOPIC, EXPRESSION, 60, credential="forwarded-token", profile="prof")
+    await runner.schedule(TOPIC, EXPRESSION, 60, credential="forwarded-token", profile="prof")
     container = api.created[0]["spec"]["template"]["spec"]["containers"][0]  # type: ignore[index]
     return {entry["name"]: entry for entry in container["env"]}  # type: ignore[index]
 
 
-def test_every_variable_the_app_writes_is_one_the_runner_reads() -> None:
-    written = set(_scheduled_env())
+async def test_every_variable_the_app_writes_is_one_the_runner_reads() -> None:
+    written = set(await _scheduled_env())
     orphans = written - job_env.WRITTEN_BY_APP
     assert not orphans, (
         f"the App writes {sorted(orphans)} into the Job, but the Runner reads none of them — "
@@ -66,13 +83,13 @@ def test_every_variable_the_app_writes_is_one_the_runner_reads() -> None:
     )
 
 
-def test_the_required_variables_are_always_written() -> None:
-    written = set(_scheduled_env())
+async def test_the_required_variables_are_always_written() -> None:
+    written = set(await _scheduled_env())
     assert job_env.REQUIRED <= written, f"missing {sorted(job_env.REQUIRED - written)}"
 
 
-def test_the_runner_parses_exactly_what_the_app_wrote() -> None:
-    scheduled = _scheduled_env()
+async def test_the_runner_parses_exactly_what_the_app_wrote() -> None:
+    scheduled = await _scheduled_env()
     env = {name: entry["value"] for name, entry in scheduled.items() if "value" in entry}
 
     params = params_from_env(env)
@@ -81,14 +98,14 @@ def test_the_runner_parses_exactly_what_the_app_wrote() -> None:
     assert params.url4 == EXPRESSION
 
 
-def test_the_runner_takes_its_nats_url_from_the_charts_env_not_the_app() -> None:
+async def test_the_runner_takes_its_nats_url_from_the_charts_env_not_the_app() -> None:
     """The App stopped writing it; `envFrom` supplies it, and the Runner cannot tell the source.
 
     Pinned from both directions so the fallback cannot quietly become the real behavior in prod:
     App-written env ALONE yields the loopback default, and the chart-injected value wins.
     """
     app_written = {
-        name: entry["value"] for name, entry in _scheduled_env().items() if "value" in entry
+        name: entry["value"] for name, entry in (await _scheduled_env()).items() if "value" in entry
     }
 
     assert job_env.NATS_URL not in app_written
@@ -105,8 +122,8 @@ def test_the_runner_rejects_an_env_missing_a_required_variable() -> None:
         params_from_env(env)
 
 
-def test_secret_valued_variables_travel_by_reference_never_as_literals() -> None:
-    scheduled = _scheduled_env()
+async def test_secret_valued_variables_travel_by_reference_never_as_literals() -> None:
+    scheduled = await _scheduled_env()
     checked = 0
     for name in job_env.SECRET:
         entry = scheduled.get(name)
@@ -138,9 +155,9 @@ def test_the_two_env_populations_stay_disjoint() -> None:
     )
 
 
-def test_deploy_time_variables_are_not_written_by_the_app() -> None:
+async def test_deploy_time_variables_are_not_written_by_the_app() -> None:
     """Helm owns these end-to-end; the App naming one would be two sources of truth again."""
-    written = set(_scheduled_env())
+    written = set(await _scheduled_env())
 
     assert not (written & job_env.DEPLOY_TIME), (
         f"the App writes {sorted(written & job_env.DEPLOY_TIME)} directly, but the chart injects "
@@ -148,9 +165,9 @@ def test_deploy_time_variables_are_not_written_by_the_app() -> None:
     )
 
 
-def test_the_job_inherits_the_charts_env_sources() -> None:
+async def test_the_job_inherits_the_charts_env_sources() -> None:
     api = _RecordingBatchApi()
-    K8sJobRunner(
+    await K8sJobRunner(
         api, image="runner:test", env_configmap="url4-runner-env", env_secrets=("tavily",)
     ).schedule(TOPIC, EXPRESSION, 60)
 
@@ -162,9 +179,9 @@ def test_the_job_inherits_the_charts_env_sources() -> None:
     ]
 
 
-def test_a_job_with_no_declared_env_sources_omits_env_from() -> None:
+async def test_a_job_with_no_declared_env_sources_omits_env_from() -> None:
     api = _RecordingBatchApi()
-    K8sJobRunner(api, image="runner:test").schedule(TOPIC, EXPRESSION, 60)
+    await K8sJobRunner(api, image="runner:test").schedule(TOPIC, EXPRESSION, 60)
 
     container = api.created[0]["spec"]["template"]["spec"]["containers"][0]  # type: ignore[index]
 

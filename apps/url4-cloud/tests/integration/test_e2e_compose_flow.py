@@ -37,7 +37,7 @@ class MockRunnerJobRunner(JobRunner):
         self.stopped: list[str] = []
         self._tasks: list[asyncio.Task[None]] = []
 
-    def schedule(
+    async def schedule(
         self,
         topic: str,
         url4: str,
@@ -51,13 +51,13 @@ class MockRunnerJobRunner(JobRunner):
         self._tasks.append(asyncio.ensure_future(publish_mock_run(self._stream, topic, url4)))
         return job_name(topic)
 
-    def stop(self, topic: str) -> None:
+    async def stop(self, topic: str) -> None:
         self.stopped.append(topic)
 
-    def exists(self, topic: str) -> bool:
+    async def exists(self, topic: str) -> bool:
         return False
 
-    def status(self, topic: str) -> JobStatus:
+    async def status(self, topic: str) -> JobStatus:
         return "running"
 
 

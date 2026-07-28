@@ -10,6 +10,7 @@ literal in the Job spec. A Job object is readable with `get jobs` RBAC alone.
 
 from typing import Any
 
+import pytest
 from _k8s_fakes import FakeCreatedJob, fake_created_job
 
 from url4_cloud import job_env as runner_job_env
@@ -17,19 +18,32 @@ from url4_cloud.adapters.factory import build_job_runner
 from url4_cloud.adapters.k8s import K8sJobRunner
 from url4_cloud.config import Settings
 
+pytestmark = pytest.mark.asyncio
+
 
 class _RecordingBatchApi:
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
 
-    def create_namespaced_job(self, namespace: str, body: Any) -> FakeCreatedJob:
+    def create_namespaced_job(
+        self, namespace: str, body: Any, *, _request_timeout: float | None = None
+    ) -> FakeCreatedJob:
         self.created.append(dict(body))
         return fake_created_job(f"uid-{body['metadata']['name']}")
 
-    def read_namespaced_job(self, name: str, namespace: str) -> Any:  # pragma: no cover
+    def read_namespaced_job(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> Any:  # pragma: no cover
         raise NotImplementedError
 
-    def delete_namespaced_job(self, name: str, namespace: str) -> object:  # pragma: no cover
+    def delete_namespaced_job(
+        self,
+        name: str,
+        namespace: str,
+        *,
+        propagation_policy: str = "",
+        _request_timeout: float | None = None,
+    ) -> object:  # pragma: no cover
         raise NotImplementedError
 
 
@@ -37,11 +51,15 @@ class _RecordingSecretsApi:
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
 
-    def create_namespaced_secret(self, namespace: str, body: Any) -> object:
+    def create_namespaced_secret(
+        self, namespace: str, body: Any, *, _request_timeout: float | None = None
+    ) -> object:
         self.created.append(dict(body))
         return object()
 
-    def delete_namespaced_secret(self, name: str, namespace: str) -> object:  # pragma: no cover
+    def delete_namespaced_secret(
+        self, name: str, namespace: str, *, _request_timeout: float | None = None
+    ) -> object:  # pragma: no cover
         raise NotImplementedError
 
 
@@ -53,20 +71,20 @@ def _entry(api: _RecordingBatchApi, name: str) -> dict[str, Any] | None:
     return next((e for e in _container(api)["env"] if e["name"] == name), None)
 
 
-def test_the_job_attaches_the_tavily_secret_by_reference() -> None:
+async def test_the_job_attaches_the_tavily_secret_by_reference() -> None:
     api = _RecordingBatchApi()
 
-    K8sJobRunner(api, image="url4-cloud:kind", env_secrets=("url4-cloud-tavily",)).schedule(
+    await K8sJobRunner(api, image="url4-cloud:kind", env_secrets=("url4-cloud-tavily",)).schedule(
         "topic-a", "(x)!go", 60
     )
 
     assert {"secretRef": {"name": "url4-cloud-tavily"}} in _container(api)["envFrom"]
 
 
-def test_the_credential_is_never_a_literal_in_the_job_spec() -> None:
+async def test_the_credential_is_never_a_literal_in_the_job_spec() -> None:
     api = _RecordingBatchApi()
 
-    K8sJobRunner(api, image="url4-cloud:kind", env_secrets=("url4-cloud-tavily",)).schedule(
+    await K8sJobRunner(api, image="url4-cloud:kind", env_secrets=("url4-cloud-tavily",)).schedule(
         "topic-a", "(x)!go", 60
     )
 
@@ -76,15 +94,15 @@ def test_the_credential_is_never_a_literal_in_the_job_spec() -> None:
     )
 
 
-def test_a_job_without_a_configured_secret_attaches_none() -> None:
+async def test_a_job_without_a_configured_secret_attaches_none() -> None:
     api = _RecordingBatchApi()
 
-    K8sJobRunner(api, image="url4-cloud:kind").schedule("topic-b", "(x)!go", 60)
+    await K8sJobRunner(api, image="url4-cloud:kind").schedule("topic-b", "(x)!go", 60)
 
     assert "envFrom" not in _container(api)
 
 
-def test_the_deploy_time_secret_does_not_disturb_the_per_run_credential() -> None:
+async def test_the_deploy_time_secret_does_not_disturb_the_per_run_credential() -> None:
     # Two different mechanisms on one Job: the Tavily Secret rides `envFrom` (deploy-time), the
     # caller's token stays an explicit `valueFrom.secretKeyRef` into a per-Job Secret.
     api = _RecordingBatchApi()
@@ -95,7 +113,7 @@ def test_the_deploy_time_secret_does_not_disturb_the_per_run_credential() -> Non
         secrets_client=_RecordingSecretsApi(),
     )
 
-    runner.schedule("topic-c", "(x)!go", 60, credential="cred-1")
+    await runner.schedule("topic-c", "(x)!go", 60, credential="cred-1")
 
     assert _entry(api, runner_job_env.TOPIC) == {
         "name": runner_job_env.TOPIC,

@@ -10,6 +10,8 @@ from url4_cloud.auth import JwtCodec
 from url4_cloud.config import Settings
 from url4_cloud.testing import InMemoryEventStream
 
+pytestmark = pytest.mark.asyncio
+
 SECRET = "app-factory-secret"
 WINDOW_S = 60
 T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
