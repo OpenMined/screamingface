@@ -146,7 +146,9 @@ def build_model_parameter_document(
 
     ``source_revision`` is the discovered snapshot's SOURCE identity — which
     documents were read, under which gateway-side reading. It is optional because a
-    provider with no dynamic source has none.
+    provider with no dynamic source has none, and it is both PUBLISHED (under
+    ``context``) and HASHED from this one argument, so the served value and the
+    digest input cannot drift apart.
     """
     normalized = normalize_rules(rules)
     observations = tuple(observations)
@@ -200,6 +202,15 @@ def build_model_parameter_document(
             "scope": scope,
             "auth_mode": auth_mode,
             "revision": _opaque_id(_CONTEXT_REVISION_PREFIX, "context", digest_inputs),
+            # OME-648: published HERE and not in ``freshness`` on purpose. Every other
+            # field in this block is a digest input, whereas ``freshness`` is the one
+            # block deliberately EXCLUDED from the digest (see above) — so a hashed
+            # value living there would tell the next reader the opposite of the truth.
+            # Null when the provider declares no dynamic source; the key is always
+            # present, so "read from nothing" needs no key-presence check to detect.
+            # Non-secret by construction: a provider-authored label naming its own
+            # public documents and the gateway's reading of them, never an input.
+            "source_revision": source_revision,
         },
         "freshness": freshness,
         "parameters": {entry.request_path: entry.to_detail_dict() for entry in entries},

@@ -231,6 +231,15 @@ class DiscoveryRuntime:
                 # "no evidence" as a successful refresh — labelled fresh, and
                 # evicting the last good snapshot. Fail the attempt instead.
                 raise DiscoveryError("no_snapshot")
+            if snapshot.source_revision != ref.revision:
+                # INVARIANT (OME-648): the entry is keyed by the revision the provider
+                # declared BEFORE the fetch, while the evidence carries its own stamp.
+                # Storing a disagreeing snapshot would file it under a reading that did
+                # not produce it, and then serve it for that reading until the window
+                # closed — the revision guard's whole purpose, defeated from inside.
+                # Same disposal as any other bad attempt: fail, so the last good entry
+                # survives and the honest stale/degraded signal reaches the client.
+                raise DiscoveryError("revision_mismatch")
             return _Observed(snapshot=snapshot, observed_at=self._now_utc())
 
         outcome = await self._cache.get_or_refresh(
