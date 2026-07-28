@@ -11,7 +11,7 @@ from _pytest.mark import ParameterSet
 
 from url4.streaming.interfaces import (
     Completed,
-    EventConsumer,
+    EventStream,
     ExecStep,
     Executor,
     JobAlreadyExists,
@@ -23,13 +23,14 @@ from url4.streaming.interfaces import (
 from url4.streaming.protocol import (
     CostUsageData,
     LogData,
+    OutboundFrame,
     ResultData,
     SpanData,
     TokenUsage,
 )
 from url4.streaming.protocol.taxonomy import CostBreakdown
 from url4.streaming.testing import TAKE_TIMEOUT_S, take
-from url4_cloud.adapters.jetstream import JetStreamConsumer
+from url4_cloud.adapters.jetstream import JetStreamConsumer, JetStreamPublisher
 from url4_cloud.testing import InMemoryEventStream
 
 NATS_URL = os.environ.get("URL4_CLOUD_TEST_NATS_URL", "nats://localhost:4222")
@@ -55,10 +56,51 @@ def _nats_reachable(url: str = NATS_URL) -> bool:
 
 NATS_AVAILABLE = _nats_reachable()
 
-STREAM_FACTORIES: list[Callable[[], EventConsumer] | ParameterSet] = [
+
+class _JetStreamEventStream(EventStream):
+    """Composes the production Consumer/Publisher pair into one `EventStream` for the shared
+    conformance suite, which needs both directions on one object.
+
+    `JetStreamConsumer` (App-side: subscribe/purge/ensure_stream) and `JetStreamPublisher`
+    (Runner-side: publish) are deliberately TWO classes in production — the two deployables that
+    use them may not import each other (`adapters/jetstream.py`'s own docstring). They never share
+    a process there. Here they share a NATS connection pair, which is what the real system does
+    end to end: the App ensures the stream when a subscriber attaches, the Runner only ever
+    publishes into a stream that already exists — `JetStreamPublisher.publish` does not call
+    `ensure_stream` itself, so this composite's `ensure_stream` correctly delegates to the
+    consumer alone, matching production ordering rather than papering over it.
+    """
+
+    def __init__(self, nats_url: str) -> None:
+        self._consumer = JetStreamConsumer(nats_url)
+        self._publisher = JetStreamPublisher(nats_url)
+
+    async def ensure_stream(self, topic: str) -> None:
+        await self._consumer.ensure_stream(topic)
+
+    async def publish(self, topic: str, event: OutboundFrame) -> None:
+        await self._publisher.publish(topic, event)
+
+    def subscribe(
+        self, topic: str, from_sequence: int | None = None
+    ) -> AsyncIterator[OutboundFrame]:
+        return self._consumer.subscribe(topic, from_sequence)
+
+    async def purge(self, topic: str) -> None:
+        await self._consumer.purge(topic)
+
+    async def delete_stream(self, topic: str) -> None:
+        await self._consumer.delete_stream(topic)
+
+    async def close(self) -> None:
+        await self._consumer.close()
+        await self._publisher.close()
+
+
+STREAM_FACTORIES: list[Callable[[], EventStream] | ParameterSet] = [
     pytest.param(InMemoryEventStream, id="InMemoryEventStream"),
     pytest.param(
-        lambda: JetStreamConsumer(NATS_URL),
+        lambda: _JetStreamEventStream(NATS_URL),
         id="JetStreamConsumer",
         marks=pytest.mark.skipif(
             not NATS_AVAILABLE,
