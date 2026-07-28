@@ -32,6 +32,15 @@ updates:
       url4-python:
         patterns: ["*"]
 
+  - package-ecosystem: "uv"
+    directory: "/apps/url4-cloud"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      url4-cloud-python:
+        patterns: ["*"]
+
   # Keep GitHub Actions pinned-version bumps current too (low volume).
   - package-ecosystem: "github-actions"
     directory: "/"

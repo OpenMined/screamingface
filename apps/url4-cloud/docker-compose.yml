@@ -1,0 +1,73 @@
+# docker-compose e2e (spec §11) — NATS (JetStream) + the App + a Docker mock-runner, so the
+# NATS -> WebSocket bridge can be exercised end-to-end WITHOUT a k8s cluster.
+#
+# OWNER-RUN. This needs a live Docker daemon + NATS, so it is NOT part of the headless gate
+# (INFRA rule). The authoritative, always-green proof of the §8 contract is the headless
+# integration suite: `tests/integration/test_e2e_compose_flow.py` (full POST/token -> WS -> GET ->
+# stream -> DELETE -> purge) + `test_mock_runner_stream.py` (§8 invariants on the raw stream).
+#
+# Run it:
+#   1. cd apps/url4-cloud && docker compose up --build -d nats app
+#   2. mint a capability token for the demo topic (JWT_SECRET below), then open a WebSocket
+#      `ws://localhost:9108/ws?ticket=<token>` (subprotocol `cloudevents.json`) — see the
+#      OME-524 work ledger for the exact one-liner.
+#   3. docker compose run --rm mock-runner        # publishes a §8-valid run to topic `demo`
+#   4. observe the streamed CloudEvents on the WebSocket; docker compose down -v to tear down.
+#
+# NOTE (documented limitation): in prod the App's k8s/Docker JobRunner *schedules* the runner on a
+# freshly-minted random topic. The compose `DockerJobRunner` path needs the runner container joined
+# to this network (not yet supported), so the compose demo instead runs the mock publisher on a
+# fixed `demo` topic to exercise the real NATS -> WS bridge. The scheduling path is covered headless.
+
+services:
+  nats:
+    image: nats:2.10-alpine
+    # -js enables JetStream (docs/protocol.md §6/§8); -m 8222 exposes monitoring.
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Env-wired factory (url4_cloud.app:create_app_from_env) binds a live NatsBus (spec §11).
+    command:
+      - uvicorn
+      - url4_cloud.app:create_app_from_env
+      - --factory
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "9108"
+    environment:
+      URL4_CLOUD_NATS_URL: nats://nats:4222
+      URL4_CLOUD_JWT_SECRET: dev-insecure-change-me
+      URL4_CLOUD_IAT_WINDOW_S: "60"
+    ports:
+      - "9108:9108"
+    depends_on:
+      nats:
+        condition: service_healthy
+
+  # The Docker mock-runner (spec §11) — the same image, the headless §8 publisher as its command.
+  # `profiles` keeps it out of `up`; run it on demand with `docker compose run --rm mock-runner`.
+  mock-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "url4_cloud.testing.mock_runner"]
+    environment:
+      URL4_CLOUD_NATS_URL: nats://nats:4222
+      URL4_CLOUD_TOPIC: demo
+      URL4_CLOUD_EXPRESSION: "(gpt,claude)!'demo'"
+    profiles: ["mock"]
+    depends_on:
+      nats:
+        condition: service_healthy

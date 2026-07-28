@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "url4-cloud.fullname" . }}
+  labels:
+    {{- include "url4-cloud.labels" . | nindent 4 }}
+data:
+  # Keys are the URL4_CLOUD_*-prefixed env consumed by url4_cloud.config.Settings.
+  URL4_CLOUD_NATS_URL: {{ .Values.config.natsUrl | quote }}
+  URL4_CLOUD_IAT_WINDOW_S: {{ .Values.config.iatWindowS | quote }}
+  URL4_CLOUD_SYNC_MAX_WAIT_S: {{ .Values.config.syncMaxWaitS | quote }}
+  URL4_CLOUD_WS_HEARTBEAT_S: {{ .Values.config.wsHeartbeatS | quote }}
+  URL4_CLOUD_JOB_DEADLINE_S: {{ .Values.config.jobDeadlineS | quote }}
