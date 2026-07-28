@@ -132,7 +132,7 @@ async def _require_subscriber(interest: SubscriberGate, topic: str) -> None:
         )
 
 
-def _schedule(
+async def _schedule(
     deps: _Deps,
     topic: str,
     url4: str,
@@ -146,10 +146,10 @@ def _schedule(
     Topics are single-shot: both the pre-check and the runner's own ``JobAlreadyExists`` guard
     against a race collapse into the same 409 problem.
     """
-    if deps.job_runner.exists(topic):
+    if await deps.job_runner.exists(topic):
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
     try:
-        deps.job_runner.schedule(
+        await deps.job_runner.schedule(
             topic,
             url4,
             deps.settings.job_deadline_s,
@@ -230,7 +230,13 @@ def _terminal_response(terminated: TerminatedEvent, result: ResultEvent | None) 
     status = terminated.data.status
     if status == "succeeded":
         return _result_response(result)
-    http_status, title, detail = _TERMINAL_PROBLEM[status]
+    # `.get` and not `[...]`: a terminal status added to the protocol but not mapped here would
+    # otherwise surface as an unhandled KeyError — a bare 500 with a traceback, rather than a
+    # response that still tells the caller the run ended and did not succeed.
+    http_status, title, detail = _TERMINAL_PROBLEM.get(
+        status,
+        (502, "Bad Gateway", f"the run ended with an unhandled terminal status: {status}"),
+    )
     raise ProblemException(status=http_status, title=title, detail=detail)
 
 
@@ -376,7 +382,7 @@ async def start_run(
     # WHY: a routing profile is only meaningful alongside a credential to route — without one,
     # there is nothing for aigateway to route, so the profile is dropped rather than forwarded.
     profile = x_profile if credential is not None else None
-    _schedule(
+    await _schedule(
         deps, topic, url4, traceparent=inbound_traceparent, credential=credential, profile=profile
     )
     pref = _parse_prefer(prefer or "")
@@ -404,6 +410,10 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             title="Forbidden",
             detail="the capability token is not authorized for that topic",
         )
-    deps.job_runner.stop(sub)
-    await deps.stream.purge(sub)
+    await deps.job_runner.stop(sub)
+    # WHY delete and not purge: this is the run's terminal teardown, and purging a broker-backed
+    # stream empties it but leaves the stream object, its consumer state and its filestore
+    # directory behind — one permanent stream per run, forever. `delete_stream` defaults to
+    # `purge` for adapters with nothing broker-side to reclaim, so both modes stay correct.
+    await deps.stream.delete_stream(sub)
     return Response(status_code=204)
