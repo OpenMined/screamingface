@@ -110,6 +110,29 @@ _TRUSTED_ATTRIBUTION = {
     "X-Title": "ScreamingFace",
 }
 
+# OME-651: the gateway-owned strict-routing policy, forced on EVERY chat dispatch.
+#
+# WHY: OpenRouter defaults ``provider.require_parameters`` to false and documents
+# that an endpoint which does not support a supplied parameter may still receive the
+# request and ignore the unknown field. Without this, gateway acceptance, a published
+# ``enabled`` status and a successful projection can all hold while the parameter has
+# no effect — HTTP 200, silently wrong. Per-model evidence cannot close the gap: one
+# OpenRouter model is served by several endpoints with different parameter support,
+# so only the provider knows which one can honor this request.
+#
+# INVARIANT: a successful OpenRouter completion means the selected endpoint declared
+# support for EVERY supplied parameter. The alternative is an explicit provider
+# refusal, never a silent discard.
+#
+# AIDEV-NOTE: this is policy, NOT a projected caller parameter — which is why it sits
+# beside ``api_base``/``extra_headers`` rather than in ``extra_body`` (the projection's
+# native-target output). The two are equivalent on the wire: litellm folds a non-OpenAI
+# dispatch kwarg into ``extra_body``, then the OpenRouter transform flattens
+# ``extra_body`` onto the top level. That double indirection is a litellm behaviour, not
+# a promise, so ``test_openrouter_strict_routing`` pins the FINAL wire JSON against the
+# installed version — if it ever changes, strictness would vanish silently.
+_STRICT_ROUTING_PROVIDER = {"require_parameters": True}
+
 # Caller copies of auth, host/framing, and attribution headers are dropped
 # before the gateway injects its own (D7). Lower-cased for comparison.
 _STRIPPED_CALLER_HEADERS = frozenset(
@@ -431,6 +454,12 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         # value; request-local api_base beats every LiteLLM global/env
         # fallback (litellm 1.87.0 main.py precedence).
         out["api_base"] = OFFICIAL_API_BASE
+        # OME-651: assignment, never a merge. The classifier already refuses a caller
+        # `provider` as unknown, so nothing should be here — but the two layers are
+        # deliberately independent, and a merge would let a `require_parameters: false`
+        # that ever slipped through survive. A fresh dict per request keeps one caller
+        # from mutating the policy the next one gets.
+        out["provider"] = dict(_STRICT_ROUTING_PROVIDER)
         return out
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:
