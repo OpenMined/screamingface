@@ -7,6 +7,7 @@ import pytest
 from url4_cloud import job_env
 from url4_cloud.runner.config import (
     AigatewaySection,
+    ModelSpec,
     RunnerConfig,
     RunnerConfigError,
     load_config,
@@ -43,24 +44,26 @@ def _toml(text: str) -> dict:
 
 
 def test_routes_are_one_to_one_with_gateway_ids() -> None:
-    assert routes_for(("claude-haiku-4-5", "codex/gpt-5.5")) == {
-        "/claude-haiku-4-5": "claude-haiku-4-5",
-        "/codex/gpt-5.5": "codex/gpt-5.5",
+    haiku, codex = ModelSpec(id="claude-haiku-4-5"), ModelSpec(id="codex/gpt-5.5")
+
+    assert routes_for((haiku, codex)) == {
+        "/claude-haiku-4-5": haiku,
+        "/codex/gpt-5.5": codex,
     }
 
 
 def test_no_bare_alias_is_synthesized_for_a_prefixed_id() -> None:
     # The aliasing this replaces mislabeled `openrouter/openai/gpt-5.5` as `/openai/gpt-5.5`,
     # which reads as the OpenAI API while billing OpenRouter.
-    routes = routes_for(("openrouter/openai/gpt-5.5",))
+    routes = routes_for((ModelSpec(id="openrouter/openai/gpt-5.5"),))
 
-    assert routes == {"/openrouter/openai/gpt-5.5": "openrouter/openai/gpt-5.5"}
+    assert routes == {"/openrouter/openai/gpt-5.5": ModelSpec(id="openrouter/openai/gpt-5.5")}
     assert "/openai/gpt-5.5" not in routes
     assert "/gpt-5.5" not in routes
 
 
 def test_multi_segment_ids_keep_every_segment() -> None:
-    routes = routes_for(("openrouter/anthropic/claude-opus-4.8",))
+    routes = routes_for((ModelSpec(id="openrouter/anthropic/claude-opus-4.8"),))
 
     assert "/openrouter/anthropic/claude-opus-4.8" in routes
 
@@ -72,7 +75,7 @@ def test_parses_the_aigateway_table() -> None:
     section = _section(_MINIMAL)
 
     assert section.base_url == "http://aigateway.test"
-    assert section.models == ("claude-haiku-4-5", "codex/gpt-5.5")
+    assert section.models == (ModelSpec(id="claude-haiku-4-5"), ModelSpec(id="codex/gpt-5.5"))
     assert section.default_model == "claude-haiku-4-5"
 
 
@@ -146,6 +149,72 @@ def test_models_must_be_a_list() -> None:
         _parse('[aigateway]\ndefault_route = "/x"\nmodels = "x"\n')
 
 
+# --- per-route capability tables ------------------------------------------------
+
+_TABLES = """
+[aigateway]
+default_route = "/plain"
+
+[[aigateway.models]]
+id = "plain"
+
+[[aigateway.models]]
+id = "searcher"
+web_tools = true
+"""
+
+
+def test_a_route_declared_as_a_table_carries_its_capabilities() -> None:
+    assert _section(_TABLES).models == (
+        ModelSpec(id="plain", web_tools=False),
+        ModelSpec(id="searcher", web_tools=True),
+    )
+
+
+def test_web_tools_defaults_off_so_a_route_opts_in_explicitly() -> None:
+    # The deny-by-default half of the gate: supplying a Tavily key must not retroactively
+    # change the request every undeclared model sees.
+    assert _section(_TABLES).models[0].web_tools is False
+
+
+def test_a_bare_id_string_is_shorthand_for_a_capability_free_route() -> None:
+    assert _section(_MINIMAL).models[0] == ModelSpec(id="claude-haiku-4-5", web_tools=False)
+
+
+def test_the_two_spellings_may_be_mixed() -> None:
+    section = _section(
+        '[aigateway]\ndefault_route = "/a"\nmodels = ["a", { id = "b", web_tools = true }]\n'
+    )
+
+    assert section.models == (ModelSpec(id="a"), ModelSpec(id="b", web_tools=True))
+
+
+def test_a_route_table_without_an_id_is_rejected() -> None:
+    with pytest.raises(RunnerConfigError, match="missing its `id`"):
+        _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ web_tools = true }]\n')
+
+
+def test_unknown_key_on_a_route_table_is_rejected() -> None:
+    # A typo'd capability must fail loudly, not read as "declared nothing".
+    with pytest.raises(RunnerConfigError, match="unknown key"):
+        _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ id = "a", web_tool = true }]\n')
+
+
+def test_non_boolean_web_tools_is_rejected() -> None:
+    with pytest.raises(RunnerConfigError, match="web_tools must be a boolean"):
+        _parse('[aigateway]\ndefault_route = "/a"\nmodels = [{ id = "a", web_tools = "yes" }]\n')
+
+
+def test_a_route_entry_of_the_wrong_type_is_rejected() -> None:
+    with pytest.raises(RunnerConfigError, match="table or an id string"):
+        _parse('[aigateway]\ndefault_route = "/a"\nmodels = [1]\n')
+
+
+def test_duplicate_ids_are_rejected_across_both_spellings() -> None:
+    with pytest.raises(RunnerConfigError, match="duplicate"):
+        _parse('[aigateway]\ndefault_route = "/a"\nmodels = ["a", { id = "a" }]\n')
+
+
 # --- env overrides --------------------------------------------------------------
 
 
@@ -176,7 +245,7 @@ def test_load_config_reads_the_declared_path(tmp_path: Path) -> None:
     section = load_config({"URL4_RUNNER_CONFIG": str(path)}).aigateway
 
     assert section is not None
-    assert section.models == ("claude-haiku-4-5", "codex/gpt-5.5")
+    assert section.models == (ModelSpec(id="claude-haiku-4-5"), ModelSpec(id="codex/gpt-5.5"))
 
 
 def test_missing_config_file_is_a_config_error(tmp_path: Path) -> None:

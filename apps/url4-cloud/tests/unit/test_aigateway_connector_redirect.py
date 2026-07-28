@@ -10,11 +10,12 @@ import pytest
 
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
+from url4_cloud.runner.config import ModelSpec
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 
 _TOKEN = "tok"  # noqa: S105 - not a real credential
 _MODEL = "claude-haiku-4-5"
-_CFG = AigatewayConfig(base_url="http://aigw", default_model=_MODEL, models=(_MODEL,))
+_CFG = AigatewayConfig(base_url="http://aigw", default_model=_MODEL, models=(ModelSpec(id=_MODEL),))
 
 
 def _redirect_handler(request: httpx.Request) -> httpx.Response:

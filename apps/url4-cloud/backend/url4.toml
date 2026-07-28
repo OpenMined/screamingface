@@ -3,7 +3,7 @@
 # Baked into the image at /etc/url4/url4.toml (see Dockerfile). The image decides what CAN
 # exist; env supplies only per-Job values (the token, and optional base_url / model overrides).
 #
-# INVARIANT: a route path is exactly "/" + the gateway id. No renaming, no aliases. `models`
+# INVARIANT: a route path is exactly "/" + the gateway id. No renaming, no aliases. `id`
 # entries must match aigateway's `/v1/models` ids EXACTLY — note that Anthropic's ids are
 # UNPREFIXED (`claude-haiku-4-5`), the `anthropic/` prefix appearing only in litellm_params,
 # while every other provider prefixes. `tests/unit/test_declared_models_match_aigateway.py`
@@ -11,6 +11,15 @@
 #
 # Adding a model is a deliberate, reviewable edit: these paths are a public naming surface that
 # url4 expressions depend on.
+#
+# Each route is a TABLE, not a bare id, so its capabilities are declared beside it:
+#
+#   web_tools   Offer the Tavily-backed web_search/web_fetch tool loop to this model.
+#               Defaults to FALSE — a route gets tools only by declaring it. Declaring it does
+#               not by itself enable anything: the deployment must ALSO supply TAVILY_API_KEY,
+#               or the route serves plain completions (see `runner/connector.py`). Enabling it
+#               changes the request the model sees (a `tools`/`tool_choice` payload, then extra
+#               round trips feeding results back), which is why it is per-route, not global.
 
 [aigateway]
 base_url = "http://127.0.0.1:9105"
@@ -20,27 +29,83 @@ default_route = "/claude-haiku-4-5"
 # been able to fetch them. Set false to hand the node a denying outbound layer instead.
 allow_outbound = true
 
-models = [
-  # anthropic — unprefixed ids
-  "claude-opus-4-8",
-  "claude-opus-4-7",
-  "claude-sonnet-4-6",
-  "claude-sonnet-4-5",
-  "claude-haiku-4-5",
-  # codex
-  "codex/gpt-5.5",
-  "codex/gpt-5.4",
-  "codex/gpt-5.4-mini",
-  "codex/gpt-5.3-codex",
-  "codex/gpt-5.2",
-  # gemini
-  "gemini-cli/gemini-3.1-flash-lite",
-  "gemini-cli/gemini-2.5-pro",
-  "gemini-cli/gemini-2.5-flash",
-  "gemini-cli/gemini-2.5-flash-lite",
-  # antigravity
-  "antigravity/gemini-3-flash",
-]
+# --- anthropic — unprefixed ids -----------------------------------------------------------
+# web_tools OFF: the plugin dispatches OpenAI-shape tool calls through litellm, which IS the
+# shape `_WEB_TOOLS` declares, so the loop is expected to round-trip — but that has not been
+# verified end-to-end against a live Anthropic credential, and only verified routes opt in.
+[[aigateway.models]]
+id = "claude-opus-4-8"
+
+[[aigateway.models]]
+id = "claude-opus-4-7"
+
+[[aigateway.models]]
+id = "claude-sonnet-4-6"
+
+[[aigateway.models]]
+id = "claude-sonnet-4-5"
+
+[[aigateway.models]]
+id = "claude-haiku-4-5"
+
+# --- codex ---------------------------------------------------------------------------------
+# web_tools stays OFF: these dispatch through the Codex OAuth backend, whose tool-call handling
+# is not verified end-to-end here. Flip a route to true once it is — the flag is per route
+# precisely so that is a one-line, reviewable change rather than a global switch.
+[[aigateway.models]]
+id = "codex/gpt-5.5"
+
+[[aigateway.models]]
+id = "codex/gpt-5.4"
+
+[[aigateway.models]]
+id = "codex/gpt-5.4-mini"
+
+[[aigateway.models]]
+id = "codex/gpt-5.3-codex"
+
+[[aigateway.models]]
+id = "codex/gpt-5.2"
+
+# --- gemini --------------------------------------------------------------------------------
+# web_tools OFF for the same reason as codex: Google Code Assist backend, unverified here.
+[[aigateway.models]]
+id = "gemini-cli/gemini-3.1-flash-lite"
+
+[[aigateway.models]]
+id = "gemini-cli/gemini-2.5-pro"
+
+[[aigateway.models]]
+id = "gemini-cli/gemini-2.5-flash"
+
+[[aigateway.models]]
+id = "gemini-cli/gemini-2.5-flash-lite"
+
+# --- antigravity ---------------------------------------------------------------------------
+[[aigateway.models]]
+id = "antigravity/gemini-3-flash"
+
+# --- openrouter ----------------------------------------------------------------------------
+# aigateway's OpenRouter SEED models (`_default_model_slugs()`). The provider is gated behind
+# AIGW_OPENROUTER_ENABLED, so a deployment that leaves it disabled serves none of them and
+# these routes resolve to nothing. They are declared anyway because a declared route is how an
+# expression addresses a model at all; the deployment decides whether it answers.
+#
+# CAVEAT: unlike the four static catalogs above, this list is env-overridable at deploy time
+# (AIGW_OPENROUTER_DEFAULT_MODELS), so the pinning test can only hold it to the seeds compiled
+# into the plugin — a deployment that overrides them is on its own.
+# web_tools: verified end-to-end through OpenRouter's OpenAI-shape tool calling.
+[[aigateway.models]]
+id = "openrouter/openai/gpt-5.5"
+web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/anthropic/claude-opus-4.8"
+web_tools = true
+
+[[aigateway.models]]
+id = "openrouter/anthropic/claude-fable-5"
+web_tools = true
 
 # RESERVED — the format carries these (they are `url4 serve`'s tables) but the Runner does not
 # parse them yet; declaring one is a loud config error, never a silent no-op:
@@ -50,6 +115,6 @@ models = [
 #   [holdings]    default = { file = "…" }
 #   [identities]
 #
-# ollama / openrouter / huggingface build their model lists at runtime from local installs or
-# fetched slugs, so they are undeclarable here by construction; a deployment that serves them
-# adds its own entries.
+# ollama / huggingface build their model lists at runtime from local installs or fetched slugs,
+# so they are undeclarable here by construction; a deployment that serves them adds its own
+# entries.

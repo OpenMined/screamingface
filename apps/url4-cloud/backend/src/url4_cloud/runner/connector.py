@@ -16,7 +16,7 @@ from url4.core.errors import ResolutionError
 from url4.io.static import StaticIOLayer
 from url4.observe import current_usage_sink
 from url4.peer.server import Request, Url4Node
-from url4_cloud.runner.config import RunnerConfigError, routes_for
+from url4_cloud.runner.config import ModelSpec, RunnerConfigError, routes_for
 
 _WEB_TOOLS = [
     {
@@ -59,8 +59,9 @@ class AigatewayConfig:
     base_url: str = "http://127.0.0.1:9105"
     default_model: str = "claude-haiku-4-5"
     # WHY: DECLARED, never discovered — see `config.routes_for`. Empty is a config error, not a
-    # signal to go ask the gateway what it serves.
-    models: tuple[str, ...] = ()
+    # signal to go ask the gateway what it serves. Each entry carries its own capabilities
+    # (`web_tools`), so a route's behavior is declared beside the route.
+    models: tuple[ModelSpec, ...] = ()
     # WHY: absolute-URL sources are a real url4 feature, so the default preserves the behavior a
     # `Url4Node` world has always had. Set False to hand the node a denying outbound layer.
     allow_outbound: bool = True
@@ -84,8 +85,14 @@ class AigatewayWorld:
 
     @property
     def web_tools_enabled(self) -> bool:
-        """Derived, not stored: a Tavily client exists exactly when a key was configured, so a
-        separate flag could only ever agree with `_tavily_client` — or drift from it."""
+        """Whether this world CAN serve web tools at all — i.e. a Tavily key was configured.
+
+        Derived, not stored: a Tavily client exists exactly when a key was configured, so a
+        separate flag could only ever agree with `_tavily_client` — or drift from it.
+
+        This is the world-level capability, NOT a promise that any given call sends tools:
+        a route sends them only when its own `ModelSpec.web_tools` is true. Both must hold.
+        """
         return self._tavily_client is not None
 
     async def aclose(self) -> None:
@@ -123,7 +130,7 @@ class _ModelEndpoint:
         cfg: AigatewayConfig,
         token: str,
         profile: str | None,
-        routes: dict[str, str],
+        routes: dict[str, ModelSpec],
         tavily_http: httpx.AsyncClient | None,
         tavily_api_key: str | None,
     ) -> None:
@@ -136,15 +143,19 @@ class _ModelEndpoint:
         self._tavily_api_key = tavily_api_key
 
     async def __call__(self, request: Request) -> str:
+        # The route resolves to its whole spec, so the id and the capabilities it was declared
+        # with travel together — the call can never run one route's model under another's flags.
+        spec = self._routes[request.path]
         return await _chat_completion_loop(
             http_client=self._http_client,
             cfg=self._cfg,
             token=self._token,
             profile=self._profile,
-            model=self._routes[request.path],
+            model=spec.id,
             messages=_messages(request.context, request.intent),
             tavily_http=self._tavily_http,
             tavily_api_key=self._tavily_api_key,
+            web_tools=spec.web_tools,
         )
 
 
@@ -167,9 +178,10 @@ async def build_aigateway_world(
             "aigateway declares no models — the runner's endpoints are declared in url4.toml, "
             "not discovered from the gateway catalog"
         )
-    if cfg.default_model not in cfg.models:
+    declared_ids = [model.id for model in cfg.models]
+    if cfg.default_model not in declared_ids:
         raise RunnerConfigError(
-            f"default_model {cfg.default_model!r} is not a declared model {list(cfg.models)!r}"
+            f"default_model {cfg.default_model!r} is not a declared model {declared_ids!r}"
         )
 
     owns_client = client is None
@@ -287,15 +299,22 @@ async def _chat_completion_loop(
     messages: list[dict],
     tavily_http: httpx.AsyncClient | None,
     tavily_api_key: str | None,
+    web_tools: bool,
 ) -> str:
     """Drive one `_ModelEndpoint` call: post to aigateway, execute any requested tool calls,
     and repeat until the model answers with content instead of another tool call.
+
+    Tools are offered only when the ROUTE opted in (`web_tools`) AND the world can serve them
+    (a Tavily client exists). Both conditions are load-bearing: without the route's opt-in a
+    configured key would silently change every model's request payload, and without the client
+    the model could call a tool nothing can execute.
 
     Raises:
         ResolutionError: the loop exceeds `cfg.web_tool_max_iterations` without a final
             answer — the model keeps calling tools instead of returning content.
     """
-    extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if tavily_http is not None else {}
+    offer_tools = web_tools and tavily_http is not None
+    extra = {"tools": _WEB_TOOLS, "tool_choice": "auto"} if offer_tools else {}
     headers = _headers(token, profile)
     for _ in range(cfg.web_tool_max_iterations):
         resp = await http_client.post(

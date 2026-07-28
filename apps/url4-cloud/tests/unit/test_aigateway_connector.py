@@ -9,7 +9,7 @@ import pytest
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
-from url4_cloud.runner.config import RunnerConfigError
+from url4_cloud.runner.config import ModelSpec, RunnerConfigError
 from url4_cloud.runner.connector import AigatewayConfig, build_aigateway_world
 
 pytestmark = pytest.mark.asyncio
@@ -34,8 +34,18 @@ class _MockAigateway:
         models: tuple[str, ...],
         *,
         responses: dict[str, str | tuple[int, dict] | dict | list] | None = None,
+        web_tools: bool = True,
     ) -> None:
-        self.models = models
+        # `ids` is the wire spelling aigateway advertises; `models` is the declared-world
+        # shape the connector consumes. `web_tools` applies to every route this mock serves —
+        # tests that need a mixed world build the ModelSpec tuple themselves.
+        #
+        # WHY it defaults True while production defaults False: offering tools also requires a
+        # Tavily client, and these tests pass one only when the tool loop IS the subject — so
+        # this default is inert everywhere else. The route-level gate is proven on its own by
+        # `test_no_tools_when_the_route_did_not_opt_in`, which sets it False with a key present.
+        self.ids = models
+        self.models = tuple(ModelSpec(id=m, web_tools=web_tools) for m in models)
         self.responses = responses or {}
         self.requests: list[httpx.Request] = []
         self._seq_index: dict[str, int] = {}
@@ -48,7 +58,7 @@ class _MockAigateway:
                 200,
                 json={
                     "object": "list",
-                    "data": [{"id": m, "owned_by": "test"} for m in self.models],
+                    "data": [{"id": m, "owned_by": "test"} for m in self.ids],
                 },
             )
         assert request.url.path == "/v1/chat/completions"
@@ -354,7 +364,9 @@ async def test_aigateway_http_errors_map_to_resolution_error(
 
 async def test_default_model_must_be_one_of_the_declared_models() -> None:
     gw = _MockAigateway(("openrouter/gpt-4o",))
-    cfg = AigatewayConfig(default_model="anthropic/claude-haiku-4-5", models=("openrouter/gpt-4o",))
+    cfg = AigatewayConfig(
+        default_model="anthropic/claude-haiku-4-5", models=(ModelSpec(id="openrouter/gpt-4o"),)
+    )
     async with gw.client() as client:
         with pytest.raises(RunnerConfigError, match="anthropic/claude-haiku-4-5"):
             await build_aigateway_world(cfg, token=_TOKEN, client=client)
@@ -362,7 +374,8 @@ async def test_default_model_must_be_one_of_the_declared_models() -> None:
 
 async def test_owned_client_is_created_and_closed_by_aclose() -> None:
     cfg = AigatewayConfig(
-        default_model="anthropic/claude-haiku-4-5", models=("anthropic/claude-haiku-4-5",)
+        default_model="anthropic/claude-haiku-4-5",
+        models=(ModelSpec(id="anthropic/claude-haiku-4-5"),),
     )
 
     world = await build_aigateway_world(cfg, token=_TOKEN)
@@ -391,7 +404,9 @@ async def test_injected_client_is_not_closed_by_aclose() -> None:
 async def test_a_bad_default_model_is_rejected_before_any_client_is_created() -> None:
     # The config is self-describing, so this is decidable without touching the network —
     # validate first and there is no half-built world to leak.
-    cfg = AigatewayConfig(default_model="not/in-catalog", models=("anthropic/claude-haiku-4-5",))
+    cfg = AigatewayConfig(
+        default_model="not/in-catalog", models=(ModelSpec(id="anthropic/claude-haiku-4-5"),)
+    )
     created: list[bool] = []
     real_init = httpx.AsyncClient.__init__
 
@@ -456,7 +471,8 @@ _MODEL = "anthropic/claude-haiku-4-5"
 
 
 async def test_no_tools_when_tavily_key_absent() -> None:
-    gw = _MockAigateway((_MODEL,), responses={_MODEL: "plain answer"})
+    # The route opts IN, so the absent key is the only thing that can withhold the tools.
+    gw = _MockAigateway((_MODEL,), responses={_MODEL: "plain answer"}, web_tools=True)
     cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, token=_TOKEN, client=client)
@@ -467,6 +483,49 @@ async def test_no_tools_when_tavily_key_absent() -> None:
     body = json.loads(gw.posts_to(_MODEL)[0].content)
     assert "tools" not in body
     assert "tool_choice" not in body
+
+
+async def test_no_tools_when_the_route_did_not_opt_in() -> None:
+    # The other half of the gate: a configured Tavily key must NOT rewrite the request of a
+    # model that never declared `web_tools`. Without this, supplying a key to serve one route
+    # would silently change what every other model is asked.
+    gw = _MockAigateway((_MODEL,), responses={_MODEL: "plain answer"}, web_tools=False)
+    tvly = _MockTavily()
+    cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
+    async with gw.client() as client, tvly.client() as tclient:
+        world = await build_aigateway_world(
+            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+        )
+
+        # The WORLD can serve web tools; this ROUTE still does not ask for them.
+        assert world.web_tools_enabled is True
+        await url4_run(f"/{_MODEL}(ctx)!go", io=world.node)
+
+    body = json.loads(gw.posts_to(_MODEL)[0].content)
+    assert "tools" not in body
+    assert "tool_choice" not in body
+    assert tvly.requests == []
+
+
+async def test_opted_in_and_opted_out_routes_coexist_in_one_world() -> None:
+    # The point of a per-ROUTE flag: one world, two behaviors, decided by the declaration.
+    plain, searcher = "anthropic/plain", "anthropic/searcher"
+    gw = _MockAigateway((plain, searcher), responses={plain: "a", searcher: "b"})
+    tvly = _MockTavily()
+    cfg = AigatewayConfig(
+        models=(ModelSpec(id=plain, web_tools=False), ModelSpec(id=searcher, web_tools=True)),
+        default_model=plain,
+    )
+    async with gw.client() as client, tvly.client() as tclient:
+        world = await build_aigateway_world(
+            cfg, token=_TOKEN, client=client, tavily_api_key=_TAVILY_TOKEN, tavily_client=tclient
+        )
+
+        await url4_run(f"/{plain}(ctx)!go", io=world.node)
+        await url4_run(f"/{searcher}(ctx)!go", io=world.node)
+
+    assert "tools" not in json.loads(gw.posts_to(plain)[0].content)
+    assert "tools" in json.loads(gw.posts_to(searcher)[0].content)
 
 
 async def test_tools_declared_when_tavily_key_present() -> None:
@@ -750,7 +809,7 @@ async def test_malformed_neither_content_nor_tool_calls_still_raises() -> None:
 
 
 async def test_owned_tavily_client_closed_on_aclose() -> None:
-    cfg = AigatewayConfig(default_model=_MODEL, models=(_MODEL,))
+    cfg = AigatewayConfig(default_model=_MODEL, models=(ModelSpec(id=_MODEL),))
     world = await build_aigateway_world(cfg, token=_TOKEN, tavily_api_key=_TAVILY_TOKEN)
 
     assert world._owns_tavily_client is True

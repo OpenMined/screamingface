@@ -35,6 +35,7 @@ DEFAULT_CONFIG_PATH = "/etc/url4/url4.toml"
 wiring: the App never writes that variable — the file is baked into the image."""
 
 _AIGATEWAY_KEYS = frozenset({"base_url", "default_route", "models", "allow_outbound", "timeout_s"})
+_MODEL_KEYS = frozenset({"id", "web_tools"})
 _RESERVED_TABLES = frozenset({"data", "commands", "holdings", "identities"})
 _TOP_LEVEL_KEYS = frozenset({"aigateway"})
 
@@ -44,12 +45,32 @@ class RunnerConfigError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelSpec:
+    """One declared route: the gateway id, plus the per-route capabilities it opts into.
+
+    A route is addressed as a table rather than a bare id so capabilities are declared WHERE
+    the route is, not in a parallel list that can silently disagree with it. `web_tools` is the
+    first such capability; the shape is what a second one extends.
+
+    WHY `web_tools` defaults to False: the tool loop rewrites the request the model sees (a
+    `tools`/`tool_choice` payload, then extra round trips feeding results back). That is a
+    behavior change per model, and not every provider handles an OpenAI-shape tool call the
+    same way — so it is opted INTO per route, never inherited from the mere presence of a
+    Tavily key. An operator who supplies a key but declares no `web_tools = true` route gets
+    exactly the plain completions they declared.
+    """
+
+    id: str
+    web_tools: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class AigatewaySection:
-    """One declared aigateway world: which models exist and how to reach them."""
+    """One declared aigateway world: which routes exist, and how to reach them."""
 
     base_url: str
     default_model: str
-    models: tuple[str, ...]
+    models: tuple[ModelSpec, ...]
     allow_outbound: bool = True
     timeout_s: float = 60.0
 
@@ -61,9 +82,15 @@ class RunnerConfig:
     aigateway: AigatewaySection | None = None
 
 
-def routes_for(models: Sequence[str]) -> dict[str, str]:
-    """Map each gateway id to its route path — ``"/" + id``, 1:1, no aliases."""
-    return {"/" + model: model for model in models}
+def routes_for(models: Sequence[ModelSpec]) -> dict[str, ModelSpec]:
+    """Map each route path — ``"/" + id``, 1:1, no aliases — to the spec that declared it.
+
+    The VALUE is the whole spec, not the bare id: the endpoint that serves a route needs the
+    capabilities declared alongside it (`web_tools`), and resolving them from the same lookup
+    that resolves the id is what keeps a route and its capabilities from being fetched through
+    two different paths that can disagree.
+    """
+    return {"/" + model.id: model for model in models}
 
 
 def load_config(env: Mapping[str, str]) -> RunnerConfig:
@@ -134,33 +161,72 @@ def _apply_env(section: AigatewaySection, env: Mapping[str, str]) -> AigatewaySe
     return section
 
 
-def _require_declared(default_model: str, models: tuple[str, ...]) -> None:
-    if default_model not in models:
+def _require_declared(default_model: str, models: tuple[ModelSpec, ...]) -> None:
+    ids = [model.id for model in models]
+    if default_model not in ids:
         raise RunnerConfigError(
             f"default_route {'/' + default_model!r} is not a declared model — "
-            f"declared: {sorted(models)}"
+            f"declared: {sorted(ids)}"
         )
 
 
-def _models(value: object) -> tuple[str, ...]:
+def _models(value: object) -> tuple[ModelSpec, ...]:
     if not isinstance(value, list):
         raise RunnerConfigError(f"[aigateway] models must be a list, got {value!r}")
     if not value:
         raise RunnerConfigError("[aigateway] must declare at least one model")
-    models: list[str] = []
+    models: list[ModelSpec] = []
+    seen: set[str] = set()
     for entry in value:
-        model = str(entry)
-        if not model:
-            raise RunnerConfigError("[aigateway] declares an empty model id")
-        if model.startswith("/"):
-            raise RunnerConfigError(
-                f"model id {model!r} must not start with '/' — the route path is derived as "
-                "'/' + id"
-            )
-        if model in models:
-            raise RunnerConfigError(f"[aigateway] declares duplicate model id {model!r}")
-        models.append(model)
+        spec = _model_spec(entry)
+        if spec.id in seen:
+            raise RunnerConfigError(f"[aigateway] declares duplicate model id {spec.id!r}")
+        seen.add(spec.id)
+        models.append(spec)
     return tuple(models)
+
+
+def _model_spec(entry: object) -> ModelSpec:
+    """One `[[aigateway.models]]` entry — a table, or a bare id string as shorthand.
+
+    The string form is exactly ``{ id = "<it>" }``: a route that opts into nothing. It stays
+    supported because "declare a plain route" should not require a table, and because every
+    capability defaults off, so the two spellings cannot mean different things.
+    """
+    if isinstance(entry, Mapping):
+        return _model_table(entry)
+    if isinstance(entry, str):
+        return ModelSpec(id=_model_id(entry))
+    raise RunnerConfigError(
+        f"[aigateway] model entry must be a table or an id string, got {entry!r}"
+    )
+
+
+def _model_table(table: Mapping[str, object]) -> ModelSpec:
+    unknown = sorted(set(map(str, table)) - _MODEL_KEYS)
+    if unknown:
+        raise RunnerConfigError(
+            f"[[aigateway.models]] has unknown key(s) {unknown} (expected {sorted(_MODEL_KEYS)})"
+        )
+    raw_id = table.get("id")
+    if raw_id is None:
+        raise RunnerConfigError("[[aigateway.models]] entry is missing its `id`")
+    web_tools = table.get("web_tools", False)
+    if not isinstance(web_tools, bool):
+        raise RunnerConfigError(
+            f"[[aigateway.models]] web_tools must be a boolean, got {web_tools!r}"
+        )
+    return ModelSpec(id=_model_id(str(raw_id)), web_tools=web_tools)
+
+
+def _model_id(model: str) -> str:
+    if not model:
+        raise RunnerConfigError("[aigateway] declares an empty model id")
+    if model.startswith("/"):
+        raise RunnerConfigError(
+            f"model id {model!r} must not start with '/' — the route path is derived as '/' + id"
+        )
+    return model
 
 
 def _normalize_id(value: str) -> str:
