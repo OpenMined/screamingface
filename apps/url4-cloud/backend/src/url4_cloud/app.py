@@ -78,10 +78,26 @@ def create_app(
     return app
 
 
+# RFC 7518 §3.2: an HMAC key must be at least as long as the hash output — 32 bytes for SHA-256.
+# PyJWT warns below this; here it is refused, because the token is the whole authorization model.
+_MIN_JWT_SECRET_BYTES = 32
+
+
 def _require_prod_secret(settings: Settings) -> None:
-    """Raise RuntimeError if `settings.jwt_secret` is still the insecure dev default."""
+    """Raise RuntimeError if `settings.jwt_secret` is unset or too weak to sign a capability.
+
+    Sentinel equality alone was not enough: it rejected the shipped dev default but accepted any
+    other string, so a 4-character production secret passed. The capability token IS the topic
+    authorization, so a brute-forceable signing key is a full authorization bypass — refused at
+    boot rather than at the first forged token.
+    """
     if settings.jwt_secret == INSECURE_DEFAULT_JWT_SECRET:
         raise RuntimeError("URL4_CLOUD_JWT_SECRET must be set in production")
+    if len(settings.jwt_secret.encode("utf-8")) < _MIN_JWT_SECRET_BYTES:
+        raise RuntimeError(
+            f"URL4_CLOUD_JWT_SECRET must be at least {_MIN_JWT_SECRET_BYTES} bytes "
+            f"(RFC 7518 §3.2 for HS256); it signs the topic-capability token"
+        )
 
 
 def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INFRA rule, spec §11)
