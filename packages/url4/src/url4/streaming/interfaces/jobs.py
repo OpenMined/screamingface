@@ -45,8 +45,18 @@ def job_name(topic: str) -> str:
 
 
 class JobRunner(ABC):
+    """Schedules and observes one run per topic on some substrate.
+
+    INVARIANT: every method is async because the production substrate is a REMOTE one — these are
+    network round trips to an API server, not local bookkeeping. An adapter whose client library
+    is synchronous (the kubernetes one is) must offload the blocking call to a thread rather than
+    make it inline; the port is async precisely so that obligation is visible at the signature
+    instead of being discovered when one stuck API server freezes the whole control plane. Callers
+    run on the same event loop that drives every WebSocket pump and heartbeat in the process.
+    """
+
     @abstractmethod
-    def schedule(
+    async def schedule(
         self,
         topic: str,
         url4: str,
@@ -58,10 +68,10 @@ class JobRunner(ABC):
     ) -> str: ...
 
     @abstractmethod
-    def stop(self, topic: str) -> None: ...
+    async def stop(self, topic: str) -> None: ...
 
     @abstractmethod
-    def exists(self, topic: str) -> bool: ...
+    async def exists(self, topic: str) -> bool: ...
 
     @abstractmethod
-    def status(self, topic: str) -> JobStatus: ...
+    async def status(self, topic: str) -> JobStatus: ...
