@@ -67,6 +67,12 @@ def _parse_inbound(raw: str) -> _InboundEvent | None:
         return None
 
 
+# How many frames may sit undelivered for ONE connection before the pump stops draining the
+# stream. Sized to absorb an ordinary burst (a fan-out node finishing many spans at once) without
+# letting a stalled reader accumulate a run's entire history in memory.
+OUTBOUND_QUEUE_MAX_FRAMES = 1024
+
+
 class Bridge:
     """Owns the lifecycle of one WS connection: an inbound task that parses attach/stop
     frames and drives (re)subscription to the topic's event stream, and an outbound
@@ -90,9 +96,28 @@ class Bridge:
         self._job_runner = job_runner
         self._clock = clock
         self._heartbeat_s = heartbeat_s
-        self._out: asyncio.Queue[OutboundFrame] = asyncio.Queue()
+        # INVARIANT: bounded. `_pump` awaits `put`, so a full queue is BACKPRESSURE — the pump
+        # stops draining the stream until the client catches up, instead of buffering the run's
+        # whole frame history in this process's heap. An unbounded queue turns one slow or stalled
+        # reader (a paused browser tab, a stalled TCP window) into unbounded server memory, and
+        # every attached client has its own queue.
+        self._out: asyncio.Queue[OutboundFrame] = asyncio.Queue(maxsize=OUTBOUND_QUEUE_MAX_FRAMES)
         self._stop = asyncio.Event()
         self._sub: asyncio.Task[None] | None = None
+
+    def _offer(self, frame: OutboundFrame) -> None:
+        """Queue an advisory frame, dropping it if the client is already too far behind.
+
+        WHY dropping is right here and blocking is not: these are nacks and notices produced from
+        the inbound task and from a done-callback, neither of which may block. A full queue
+        already means the client is not reading, so a nack it would receive 1024 frames from now
+        has no value — and `put_nowait` on a BOUNDED queue raises QueueFull, which in a
+        done-callback is swallowed and in `_inbound` would tear down the connection.
+        """
+        try:
+            self._out.put_nowait(frame)
+        except asyncio.QueueFull:
+            pass
 
     async def run(self) -> None:
         """Run the connection until it ends, then cancel and drain both tasks.
@@ -115,7 +140,7 @@ class Bridge:
             while True:
                 event = _parse_inbound(await self._ws.receive_text())
                 if event is None:
-                    self._out.put_nowait(
+                    self._offer(
                         _error(
                             self._topic,
                             self._clock,
@@ -125,13 +150,13 @@ class Bridge:
                         )
                     )
                     continue
-                self._handle(event)
+                await self._handle(event)
         except WebSocketDisconnect:
             pass
         finally:
             self._stop.set()
 
-    def _handle(self, event: _InboundEvent) -> None:
+    async def _handle(self, event: _InboundEvent) -> None:
         """Dispatch a validated inbound frame: attach (re)subscribes the stream from
         the given cursor, stop delegates to the job runner if one is configured, or
         else queues an `unsupported` error frame.
@@ -140,9 +165,9 @@ class Bridge:
             self._resubscribe(event.data.from_sequence)
         elif isinstance(event, StopEvent):
             if self._job_runner is not None:
-                self._job_runner.stop(self._topic)
+                await self._job_runner.stop(self._topic)
             else:
-                self._out.put_nowait(
+                self._offer(
                     _error(
                         self._topic,
                         self._clock,
@@ -170,7 +195,7 @@ class Bridge:
         exc = task.exception()
         if exc is None:
             return
-        self._out.put_nowait(
+        self._offer(
             _error(
                 self._topic,
                 self._clock,
