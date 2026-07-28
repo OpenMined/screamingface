@@ -266,7 +266,7 @@ wheels = [
 
 [[package]]
 name = "fastapi"
-version = "0.139.2"
+version = "0.140.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
@@ -275,9 +275,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/95/d3f0ae10836324a2eab98a52b61210ac609f08200bf4bb0dc8132d32f78a/fastapi-0.139.2.tar.gz", hash = "sha256:333145a6891e9b5b3cfceb69baf817e8240cde4d4588ae5a10bf56ffacb6255e", size = 423428, upload-time = "2026-07-16T15:06:17.912Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/fa/67d7232a733c5f5cea8859dcd6f6de78a688bb8886676808e3f5a8358008/fastapi-0.140.2.tar.gz", hash = "sha256:5f64faeb12339d783510db0498da660539195ac7b5bdf69c0fc558f4580a9724", size = 421280, upload-time = "2026-07-27T14:15:39.682Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5f/c7/cb03251d9dfb177246a9809a76f189d21df32dbd4a845951881d11323b7f/fastapi-0.139.2-py3-none-any.whl", hash = "sha256:b9ad015a835173d59865e2f5d8296fbc2b317bf56a2ba1a5bfbdd03de2fd4b1c", size = 130234, upload-time = "2026-07-16T15:06:19.557Z" },
+    { url = "https://files.pythonhosted.org/packages/74/ed/15196be41f2bf84e358d899e62daf5666ba4f6dbab4cbad87d16cc16df6d/fastapi-0.140.2-py3-none-any.whl", hash = "sha256:944336ef298148dfd97478638567b223d929aba8717ad8be73ae962a62ecd61d", size = 130883, upload-time = "2026-07-27T14:15:38.099Z" },
 ]
 
 [[package]]
@@ -591,11 +591,11 @@ wheels = [
 
 [[package]]
 name = "prometheus-client"
-version = "0.25.0"
+version = "0.26.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1b/fb/d9aa83ffe43ce1f19e557c0971d04b90561b0cfd50762aafb01968285553/prometheus_client-0.25.0.tar.gz", hash = "sha256:5e373b75c31afb3c86f1a52fa1ad470c9aace18082d39ec0d2f918d11cc9ba28", size = 86035, upload-time = "2026-04-09T19:53:42.359Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/52/73/f1334c29c2af4cd9dba6c7817e61b611bd0215e2eb5565c6064a4de18802/prometheus_client-0.26.0.tar.gz", hash = "sha256:04a91bcf94e2cf74a44a1a874d651a2e853ed354b6e822f3b7487751465d5c2b", size = 92910, upload-time = "2026-07-24T19:36:41.893Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8d/9b/d4b1e644385499c8346fa9b622a3f030dce14cd6ef8a1871c221a17a67e7/prometheus_client-0.25.0-py3-none-any.whl", hash = "sha256:d5aec89e349a6ec230805d0df882f3807f74fd6c1a2fa86864e3c2279059fed1", size = 64154, upload-time = "2026-04-09T19:53:41.324Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/a3/b69efbf4143b5b9859b977770bbbabcc2796b702fa69dc40271e45cd5a56/prometheus_client-0.26.0-py3-none-any.whl", hash = "sha256:fa93d06737aa02bacd05794768508bb97d2fbee28cb3bca04eaae92f0ca953d6", size = 64494, upload-time = "2026-07-24T19:36:40.854Z" },
 ]
 
 [[package]]
@@ -949,11 +949,13 @@ version = "0.1.0"
 source = { editable = "../../../packages/url4" }
 dependencies = [
     { name = "httpx" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
+    { name = "pydantic", specifier = ">=2.13.4" },
     { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.30" },
 ]
 provides-extras = ["server"]
@@ -974,75 +976,30 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "kubernetes" },
+    { name = "nats-py" },
     { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
-    { name = "url4-cloud-nats" },
-    { name = "url4-cloud-runner" },
-    { name = "url4-streaming-protocol" },
+    { name = "url4" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.136.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "kubernetes", specifier = ">=31.0.0" },
+    { name = "nats-py", specifier = ">=2.9.0" },
     { name = "prometheus-client", specifier = ">=0.21.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.14.1" },
     { name = "pyjwt", specifier = ">=2.10.1" },
-    { name = "url4-cloud-nats", editable = "../shared/bus" },
-    { name = "url4-cloud-runner", editable = "../runner" },
-    { name = "url4-streaming-protocol", editable = "../shared/protocol" },
+    { name = "url4", editable = "../../../packages/url4" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.47.0" },
 ]
-
-[[package]]
-name = "url4-cloud-nats"
-version = "0.1.0"
-source = { editable = "../shared/bus" }
-dependencies = [
-    { name = "nats-py" },
-    { name = "url4-streaming-protocol" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "nats-py", specifier = ">=2.9.0" },
-    { name = "url4-streaming-protocol", editable = "../shared/protocol" },
-]
-
-[[package]]
-name = "url4-cloud-runner"
-version = "0.1.0"
-source = { editable = "../runner" }
-dependencies = [
-    { name = "httpx" },
-    { name = "url4" },
-    { name = "url4-cloud-nats" },
-    { name = "url4-streaming-protocol" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "url4", editable = "../../../packages/url4" },
-    { name = "url4-cloud-nats", editable = "../shared/bus" },
-    { name = "url4-streaming-protocol", editable = "../shared/protocol" },
-]
-
-[[package]]
-name = "url4-streaming-protocol"
-version = "0.1.0"
-source = { editable = "../shared/protocol" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.13.4" }]
 
 [[package]]
 name = "urllib3"

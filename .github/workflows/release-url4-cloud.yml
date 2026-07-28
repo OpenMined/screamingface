@@ -32,37 +32,27 @@ jobs:
             TAG="${GITHUB_REF#refs/tags/}"
           fi
           VERSION="${TAG#url4-cloud-v}"
-          # The backend and runner are separate distributions that RELEASE TOGETHER, so both
-          # pyprojects must report the tag's version. (apps/url4-cloud/pyproject.toml is the dev
-          # aggregate — package = false — and is intentionally not the version source.)
+          # One shipped distribution now (the control plane and the run mode were merged into a
+          # single artifact), so there is exactly one version to agree with the tag.
+          # apps/url4-cloud/pyproject.toml is the dev aggregate — package = false — and is
+          # intentionally not the version source.
           BACKEND=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' apps/url4-cloud/backend/pyproject.toml)
-          RUNNER=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' apps/url4-cloud/runner/pyproject.toml)
           if [ "$BACKEND" != "$VERSION" ]; then
             echo "::error::tag $TAG implies version $VERSION but backend/pyproject.toml reports $BACKEND"
-            exit 1
-          fi
-          if [ "$RUNNER" != "$VERSION" ]; then
-            echo "::error::runner version $RUNNER must match backend/$VERSION (the two images release together)"
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-  # Two images, built in parallel. Both Dockerfiles use the REPO ROOT as context (they COPY
-  # packages/url4 + apps/url4-cloud/shared, and the backend also needs apps/url4-cloud/runner).
+  # ONE image, entered in either of two modes (`url4-cloud serve` / `url4-cloud run`). The
+  # Dockerfile uses the REPO ROOT as context: it COPYs packages/url4, which carries both the wire
+  # contract (`url4.streaming`) the control plane needs and the engine (`url4.dag`) the run mode
+  # needs.
   image:
     needs: verify
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - app: backend
-            repo: ghcr.io/openmined/screamingface-url4-cloud
-            file: apps/url4-cloud/backend/Dockerfile
-          - app: runner
-            repo: ghcr.io/openmined/screamingface-url4-cloud-runner
-            file: apps/url4-cloud/runner/Dockerfile
+    env:
+      REPO: ghcr.io/openmined/screamingface-url4-cloud
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -73,19 +63,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push ${{ matrix.app }}
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          # Context is the REPO ROOT, not the app dir — both Dockerfiles COPY path dependencies
-          # (packages/url4, apps/url4-cloud/shared, and for the backend apps/url4-cloud/runner)
-          # that live outside their own directory, matching docker-compose.yml.
+          # Context is the REPO ROOT, not the app dir — the Dockerfile COPYs a path dependency
+          # (packages/url4) that lives outside its own directory, matching docker-compose.yml.
           context: .
-          file: ${{ matrix.file }}
+          file: apps/url4-cloud/backend/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ matrix.repo }}:${{ needs.verify.outputs.version }}
-            ${{ matrix.repo }}:latest
+            ${{ env.REPO }}:${{ needs.verify.outputs.version }}
+            ${{ env.REPO }}:latest
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.verify.outputs.version }}
@@ -117,10 +106,10 @@ jobs:
           name: ScreamingFace url4-cloud ${{ needs.verify.outputs.version }}
           draft: true
           body: |
-            Container images (two — the backend and the runner are separate artifacts now):
+            Container image (one artifact, two modes — `url4-cloud serve` and `url4-cloud run`;
+            the separate runner image is merged in as of this release):
             ```
             docker pull ghcr.io/openmined/screamingface-url4-cloud:${{ needs.verify.outputs.version }}
-            docker pull ghcr.io/openmined/screamingface-url4-cloud-runner:${{ needs.verify.outputs.version }}
             ```
 
             Helm chart: OCI publish deferred until the NATS dependency is pinned (see OME-567).

@@ -6,7 +6,7 @@ narrative) and `docs/protocol.md` (the wire contract).
 
 ---
 
-## 1. End-to-end execution flow (backend + runner)
+## 1. End-to-end execution flow (`serve` + `run` — one image, two modes)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -14,60 +14,62 @@ narrative) and `docs/protocol.md` (the wire contract).
 └──────┬──────────────────────────────────────────────────────────────────────┘
        │  ① POST /token                          ② WS /ws?ticket=<jwt>
        ▼                                          ▼
-┌────────────────────────────── BACKEND (url4_cloud) ──────────────────────────┐
-│                                                                              │
+┌─────────────────────────── CONTROL PLANE (url4_cloud) ───────────────────────┐
+│  entered as `url4-cloud serve` — the default subcommand, the image's CMD     │
 │  rest/routes.py ──mint_token──► auth/jwt.py  ──sign──► {token}               │
 │                                                                              │
 │  ws/endpoint.py ──verify ticket──► ws/registry.py .add(topic)  ◄── 428 GATE  │
-│                  └─► ws/bridge.py  (Bus → WebSocket, single-writer)          │
+│                  └─► ws/bridge.py  (EventStream → WS, single-writer)         │
 │                                          ▲                                   │
 │  rest/routes.py  GET /?q=                 │ same JetStream stream            │
 │   ├─ _require_q            (400)          │   (sync scanner + WS bridge are  │
 │   ├─ rest/interest.py      (428 if no WS) │    independent consumers)        │
 │   ├─ trace.parse_traceparent (drop bad)   │                                   │
 │   ├─ _forwarded_credential (CF→Bearer)    │                                   │
-│   ├─ _schedule ─► jobs/port.py            │                                   │
+│   ├─ _schedule ─► JobRunner (abstract)    │                                   │
 │   │      └─ exists? (409) else schedule   │                                   │
-│   │            ┌─────────────┴─────────────┴── ADAPTER ──┐                    │
-│   │            ▼                                           ▼                   │
-│   │   jobs/k8s.py (prod)                        jobs/inprocess.py (local)     │
-│   │   batch/v1 Job + per-run                    asyncio.Task =               │
-│   │   credential Secret                         publish.run(...)             │
-│   │            │                                           │                   │
-│   └─ _run_sync (sync) OR _accepted (202)        │            │               │
-└──────────────────────────────────────────────────┼────────────┼───────────────┘
-                                                   │            │
-                                                   ▼            ▼
-┌──────────────────────────── RUNNER (url4_cloud_runner) ──────────────────────┐
+│   │            ┌─────────────┴── ADAPTER ──┐                                  │
+│   │            ▼                                                               │
+│   │   adapters/k8s.py (the only adapter)                                           │
+│   │   batch/v1 Job: THE SAME IMAGE, command ["url4-cloud", "run"]              │
+│   │   + per-run credential Secret                                              │
+│   │            │                                                               │
+│   └─ _run_sync (sync) OR _accepted (202)                                       │
+└──────────────────────────────────────────────────┼────────────────────────────┘
+                                                   │
+                                                   ▼
+┌─────────────────────────── RUN MODE (url4_cloud.runner) ─────────────────────┐
+│  the SAME image, entered as `url4-cloud run` — serves no port, exits at end   │
 │                                                                               │
-│  __main__.py  ◄── entrypoint (url4-cloud-runner)                              │
+│  runner/main.py  ◄── entrypoint (url4-cloud run)                              │
 │   ├─ params_from_env   ──► RunnerParams(topic,url4,nats)                      │
-│   └─ build_executor    ──► AIGATEWAY_TOKEN?                                   │
-│         ├─ yes ► aigateway_connector.build_aigateway_world ─► Url4Executor    │
-│         └─ no  ► url4_executor.deny_by_default_world      ─► Url4Executor    │
+│   └─ build_executor    ──► runner/config.py load_config (url4.toml)           │
+│         ├─ [aigateway] ► runner/connector.build_aigateway_world ─► Url4Executor│
+│         └─ no table    ► runner/executor.deny_by_default_world  ─► Url4Executor│
 │                                                                               │
-│  publish.run(bus, executor, topic, url4, traceparent)   ◄── THE ORCHESTRATOR │
+│  url4.streaming.lifecycle.run(bus, executor, topic, url4, tp)  ◄── ORCHESTRATOR│
 │   │  trace.py.parse_traceparent → run-root trace context                      │
 │   │  Started → (telemetry…) → CostUsage{subtree} → Result → Terminated        │
 │   │            │                                                               │
 │   │            ▼ async for step in executor.execute(url4, trace=…)            │
 │   │  ┌──────────────────────────────────────────────────────────────────┐     │
-│   │  │ url4_executor.Url4Executor                                         │     │
+│   │  │ runner/executor.Url4Executor                                       │     │
 │   │  │   _Bridge  (sync Observer ─► async generator, priority-drop)      │     │
 │   │  │   _RunState (engine events ─► Traced Span/Cost/Log + subtree)     │     │
 │   │  │   drives url4.dag.run(io = aigateway Url4Node world) ─────────┐   │     │
 │   │  └──────────────────────────────────────────────────────────────│───┘     │
 │   │                                                                 ▼         │
-│   │              aigateway_connector ── POST /v1/chat/completions ──► aigateway│
+│   │              runner/connector ── POST /v1/chat/completions ──► aigateway  │
 │   │                              └─ optional Tavily web_search/web_fetch loop │
 │   └─► bus.publish(topic, CloudEvent)  ── one per frame, monotonic sequence    │
 └──────────────────────────────────────────────────┬────────────────────────────┘
                                                   │
                                                   ▼  NATS JetStream (shared append-log)
                           ┌───────────────────────┐
-                          │  Bus port (url4_cloud │
-                          │  _nats: bus / nats_bus│
-                          │  / memory)            │
+                          │ adapters/jetstream.py │
+                          │ Publisher (run) ⇄     │
+                          │ Consumer (serve)      │
+                          │ — a SHARED leaf       │
                           └───────────┬───────────┘
                                       │ frames flow back up
                                       ▼
@@ -76,28 +78,29 @@ narrative) and `docs/protocol.md` (the wire contract).
 
 ---
 
-## 2. Runner package — execution flow (`url4_cloud_runner/`)
+## 2. Run mode — execution flow (`url4_cloud/runner/`)
 
 ```
                          ┌─────────────────────────────────────┐
-   entrypoint ──────────►│  __main__.py                        │
-   url4-cloud-runner     │   params_from_env() → topic/url4    │
-                         │   build_executor()  ────────────┐   │
+   entrypoint ──────────►│  runner/main.py                     │
+   url4-cloud run        │   params_from_env() → topic/url4    │
+   (via cli.py, lazily)  │   build_executor()  ────────────┐   │
                          └────────────────────────────────┬──┘
                                                           │
                          ┌────────────────────────────────┘
                          ▼
-                    ┌──────────────────────────────┐     no token
-                    │  aigateway_connector.py      │◄─────────────┐
+                    ┌──────────────────────────────┐   no [aigateway]
+                    │  runner/connector.py         │◄─────────────┐
                     │  build_aigateway_world()     │             │
-                    │  → Url4Node world (routes →  │   deny_by_default_world()
+                    │  → Url4Node world (routes    │   deny_by_default_world()
+                    │     DECLARED by url4.toml →  │             │
                     │     POST /v1/chat/completions│             │
                     │     [+ Tavily tools])        │             │
                     └──────────────┬───────────────┘             │
                                    │  io=world.node              │
                                    ▼                             │
                     ┌──────────────────────────────┐             │
-                    │  url4_executor.py            │◄────────────┘
+                    │  runner/executor.py          │◄────────────┘
                     │  Url4Executor.execute()      │
                     │   ├─ _Bridge  (sync Observer │
                     │   │   ─► async generator)    │
@@ -108,38 +111,45 @@ narrative) and `docs/protocol.md` (the wire contract).
                                    │ async yield ExecStep
                                    ▼
                     ┌──────────────────────────────┐
-   orchestrator ◄───│  publish.py  run()           │
-                    │   establish root trace       │◄─── trace.py
-                    │   Started → telemetry… →     │     parse_traceparent()
+   orchestrator ◄───│  url4.streaming.lifecycle    │
+   (shared, in      │   .run()                     │◄─── url4.streaming.trace
+    packages/url4)  │   establish root trace       │     parse_traceparent()
+                    │   Started → telemetry… →     │
                     │   CostUsage{subtree} →       │
                     │   Result → Terminated        │
                     └──────────────┬───────────────┘
                                    │ bus.publish(CloudEvent)
                                    ▼
-                                NATS Bus  ──► backend ──► client
+                          JetStream ──► control plane ──► client
 
    ┌─────────────────────────────────────────────────────────────┐
-   │  executor.py   the PORT — Executor Protocol, ExecStep,      │
+   │  url4.streaming.interfaces.executor                         │
+   │                the PORT — Executor, ExecStep,               │
    │                Traced, Completed, Telemetry, TraceContext   │
-   │                (publish + url4_executor both depend on it)  │
+   │                (lifecycle + runner/executor both depend     │
+   │                 on it, and on nothing of each other)        │
    └─────────────────────────────────────────────────────────────┘
 ```
 
-### Runner call sequence (one run)
+The run mode's own reading of `runner/config.py` is the only place the DECLARED model world
+enters: `url4.toml` ships in the image at `/etc/url4/url4.toml`, baked from
+`backend/url4.toml` (it moved there with the merge — there is no `runner/` tree any more).
+
+### Run-mode call sequence (one run)
 
 ```
-__main__.main()
+runner/main.py::main()
  │
  │  ① params_from_env(env) ───────────────────► trace.py (not here; pure env parse)
  │
  │  ② build_executor(env)
- │        │  AIGATEWAY_TOKEN?
- │        ├─ yes ─► aigateway_connector.build_aigateway_world()
- │        │              └─► GET /v1/models → routes → Url4Node  (+ Tavily client)
- │        │           Url4Executor(world.node, world_aclose=world.aclose)
- │        └─ no  ─► Url4Executor(deny_by_default_world())
+ │        │  load_config(env) → url4.toml; [aigateway] table?
+ │        ├─ yes ─► runner/connector.build_aigateway_world()
+ │        │              └─► routes_for(declared models) → Url4Node  (+ Tavily client)
+ │        │           Url4Executor(world_factory=…)  ◄── world resolved on first execute
+ │        └─ no  ─► Url4Executor over deny_by_default_world()
  │
- │  ③ publish.run(bus, executor, topic, url4, traceparent)
+ │  ③ url4.streaming.lifecycle.run(bus, executor, topic, url4, traceparent)
  │        │
  │        │  trace.parse_traceparent(traceparent) → trace_id (or mint fresh)
  │        │  TraceContext + _Sequencer ;  bus.ensure_stream(topic)
@@ -149,7 +159,7 @@ __main__.main()
  │        │     │
  │        │     │  ┌── inside Url4Executor.execute() ──────────────┐
  │        │     │  │ url4.dag.run(io=Url4Node, observer=_Bridge)   │
- │        │     │  │   engine → aigateway_connector route →        │
+ │        │     │  │   engine → runner/connector route →           │
  │        │     │  │     POST /v1/chat/completions (± Tavily loop) │
  │        │     │  │   engine calls _Bridge.on_event() INLINE/sync │
  │        │     │  │ _RunState.map() → Traced(Span/Cost/Log)       │
@@ -169,73 +179,71 @@ __main__.main()
 
 ## 3. File purpose — one line each
 
-### Runner (`runner/src/url4_cloud_runner/`)
+### Run mode (`backend/src/url4_cloud/runner/`)
 
 ```
 ┌─ entrypoint ──────────────────────────────────────────────────┐
-│ __main__.py   env → NatsBus + executor → publish.run()        │
-├─ orchestrator ────────────────────────────────────────────────┤
-│ publish.py    drives executor, wraps frames as CloudEvents,   │
+│ runner/main.py   env → publisher + executor → lifecycle.run() │
+├─ orchestrator (shared: url4.streaming) ───────────────────────┤
+│ lifecycle.py  drives executor, wraps frames as CloudEvents,   │
 │               publishes the Started…Terminated lifecycle      │
 ├─ adapter (the only url4 importer) ────────────────────────────┤
-│ url4_executor.py   Url4Executor: _Bridge (sync→async),        │
-│                    _RunState (events→Traced), drives the DAG  │
+│ runner/executor.py   Url4Executor: _Bridge (sync→async),      │
+│                      _RunState (events→Traced), drives the DAG│
 ├─ world builder ───────────────────────────────────────────────┤
-│ aigateway_connector.py   credential → Url4Node route-per-     │
-│                          model (+ optional Tavily web tools)  │
-├─ port (the contract) ─────────────────────────────────────────┤
-│ executor.py   Executor Protocol, ExecStep, Traced, Completed, │
-│               Telemetry, TraceContext — the seam              │
-├─ shared helper ───────────────────────────────────────────────┤
-│ trace.py      parse_traceparent() — strict W3C validation     │
-├─ package hub ─────────────────────────────────────────────────┤
-│ __init__.py   re-exports the public runner API                │
+│ runner/connector.py   declared routes + credential → Url4Node │
+│                       (+ optional Tavily web tools)           │
+├─ declared world ──────────────────────────────────────────────┤
+│ runner/config.py   parses url4.toml (/etc/url4/url4.toml)     │
+├─ boundary doc ────────────────────────────────────────────────┤
+│ runner/__init__.py   states the layering rule the gate proves │
 └───────────────────────────────────────────────────────────────┘
 ```
 
 | File | Purpose |
 |---|---|
-| `__main__.py` | Job entrypoint: read env → wire `NatsBus` + executor → call `publish.run` |
-| `publish.py` | `run()` orchestrator — drives the executor, publishes the CloudEvents lifecycle |
-| `url4_executor.py` | The **only** url4-engine adapter (`_Bridge` sync→async, `_RunState`, `Url4Executor`) |
-| `aigateway_connector.py` | Builds the `Url4Node` "world" of routes → aigateway chat (+ optional Tavily tools) |
-| `executor.py` | The `Executor` **port** — the seam (stream `Telemetry`/`Traced` → one `Completed`) |
-| `trace.py` | Shared W3C `traceparent` strict validation (used by runner + backend) |
-| `__init__.py` | Public re-export hub |
+| `runner/main.py` | `url4-cloud run` entrypoint: read env (names from `url4_cloud/job_env.py`) → wire `JetStreamPublisher` + executor → call `lifecycle.run` |
+| `runner/executor.py` | The **only** url4-engine adapter (`_Bridge` sync→async, `_RunState`, `Url4Executor`) |
+| `runner/connector.py` | Builds the `Url4Node` "world" of declared routes → aigateway chat (+ optional Tavily tools) |
+| `runner/config.py` | Parses `url4.toml` — the DECLARED model world, baked into the image at `/etc/url4/url4.toml` from `backend/url4.toml` |
+| `runner/__init__.py` | No re-exports — it carries the layering rule (what this half may and may not import) |
 
-### Backend (`backend/src/url4_cloud/`)
+### Control plane (`backend/src/url4_cloud/`)
 
 | File | Purpose |
 |---|---|
-| `app.py` | FastAPI factory — `create_app` (DI) / `create_app_from_env` (prod) / `make_local_app` (in-process) |
+| `cli.py` | The one console script, `url4-cloud` — argv picks `serve` (default) or `run`; imports each mode lazily and is the only module exempt from the layering gate |
+| `app.py` | FastAPI factory — `create_app` (DI) / `create_app_from_env` (prod) |
 | `config.py` | `Settings` + replay-window TTL validation |
 | `rest/routes.py` | REST control plane — `POST /token`, `GET /?q=` (sync/async), `DELETE /` |
 | `rest/interest.py` | `SubscriberGate` **port** behind the 428 gate |
 | `ws/endpoint.py` | `GET /ws` — verify ticket, register interest, start bridge |
-| `ws/bridge.py` | `Bridge` — Bus→WS streaming, single-writer, `Attach`/`Stop`, heartbeats, nacks |
+| `ws/bridge.py` | `Bridge` — EventStream→WS streaming, single-writer, `Attach`/`Stop`, heartbeats, nacks |
 | `ws/registry.py` | `ConnectionRegistry` — live-WS counts per topic (the real 428 source) |
-| `jobs/port.py` | `JobRunner` **port** + `job_name(topic)` (the stateless 409 identity) |
-| `jobs/k8s.py` | Prod adapter — batch/v1 Job + per-run credential Secret (refs, never literals) |
-| `jobs/inprocess.py` | Local adapter — spawns `publish.run` as an `asyncio.Task` |
-| `jobs/factory.py` | Composition root — `URL4_CLOUD_RUNNER` → k8s adapter or `None` |
+| `adapters/k8s.py` | Prod adapter — batch/v1 Job + per-run credential Secret (refs, never literals) |
+| `testing/memory_stream.py` | `InMemoryEventStream` — the headless suite's stream double (no broker) |
+| `adapters/jetstream.py` | **Shared leaf** — `JetStreamPublisher` (run mode writes) + `JetStreamConsumer` (control plane reads); one binding, no second copy to keep in sync |
+| `job_env.py`, `subjects.py` | The other two **shared leaves** — the Job env-var contract (per-run + per-deploy sections in one module) and the NATS subject/stream naming |
+| `adapters/factory.py` | Composition root — `URL4_CLOUD_RUNNER` → k8s adapter or `None` |
 | `auth/*` | `JwtCodec`, RFC 9457 `Problem` handlers, FastAPI `VerifiedClaims` dependency |
 | `schemas/*` | OpenAPI/AsyncAPI/CloudEvents Pydantic models (`type` `oneOf`) |
 | `metrics.py`, `ops.py` | OpenMetrics `/metrics`, `/livez` `/readyz` probes |
 | `testing/mock_runner.py` | Test executor/runner doubles |
 
-### Shared (`shared/`)
+### Shared (`url4.streaming`, from packages/url4)
 
 | Package | Purpose |
 |---|---|
-| `url4_cloud_nats` | `Bus` port + `NatsBus` / `InMemoryBus` adapters + codec |
-| `url4_streaming_protocol` | The wire contract: CloudEvents envelope, `taxonomy`, `signals`, `unions` |
+| `url4.streaming` | The shared CONCEPTS: the wire `protocol`, the abstract `EventPublisher`/`EventConsumer`/`Executor`/`JobRunner`, and the pure logic over them (`lifecycle`, `codec`, `trace`, `job_name`). No broker and no framework — ever (it ships alongside the engine but imports none of it). The Job env-var names are NOT here — they are url4-cloud's, and since the merge they live in exactly one module, `url4_cloud/job_env.py`, with nothing left to keep in parity |
 
 ---
 
 ## 4. Key invariants
 
-- The **runner produces** the CloudEvents lifecycle; the **backend only bridges/schedules** — it never re-shapes a frame.
-- The two packages talk through exactly **two shared contracts**: the **`Bus`** (NATS) and the **`url4_streaming_protocol`** wire models.
-- Within the runner, `publish.py` ↔ `url4_executor.py` talk **only** through the `executor.py` port (`Executor` Protocol); `publish` never imports `url4`.
-- Only `aigateway_connector.py` + `__main__` construct a `Url4Executor`; everything else treats it as an opaque `Executor`.
-- The runner is a 4-layer pipeline: **entrypoint → orchestrator → adapter → (url4 engine + aigateway world)**, all typed by one `executor.py` port, with `trace.py` as a shared leaf helper.
+- The **run mode produces** the CloudEvents lifecycle; the **control plane only bridges/schedules** — it never re-shapes a frame.
+- The two halves talk through **`url4.streaming`** — the wire models, the `EventPublisher`/`EventConsumer`/`Executor`/`JobRunner` abstractions and the run lifecycle — plus three shared leaves of this app's own vocabulary (`job_env`, `subjects`, `adapters.jetstream`). Neither knows how the other is built.
+- **One image, two modes, chosen by argv.** `K8sJobRunner` schedules the App's own image with `command: ["url4-cloud", "run"]`, so a Job missing its env fails loudly at boot instead of silently starting a web server nothing will dial. `serve` is the default, which is what keeps the image `CMD` and the chart's Deployment command unchanged.
+- **The import graph is the boundary.** Two distributions used to make a cross-import uninstallable; one venv makes it merely a typo that type-checks. `.claude/scripts/check_layering.py` replaces that structure: `url4_cloud.runner.*` must not import the control plane and vice versa, `cli.py` excepted. Verified empirically — importing `url4_cloud.runner.main` loads none of fastapi, uvicorn, starlette, kubernetes, jwt or prometheus_client, which is what holds a Job's cold start to the engine + httpx + nats-py.
+- `lifecycle.run` ↔ `runner/executor.py` talk **only** through the `Executor` port; the lifecycle never imports `url4`, which is why the control plane could run it in-process too.
+- Only `runner/connector.py` + `runner/main.py` construct a `Url4Executor`; everything else treats it as an opaque `Executor`.
+- The run mode is a 4-layer pipeline: **entrypoint → orchestrator → adapter → (url4 engine + aigateway world)**, all typed by one `Executor` abstraction; the orchestrator is shared code in `url4.streaming`, only the ends are this app's own.

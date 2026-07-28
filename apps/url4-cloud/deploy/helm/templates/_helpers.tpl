@@ -47,16 +47,6 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/*
-Runner image — its OWN artifact now (apps/url4-cloud/runner/Dockerfile), separate from the App
-`image` block. `runner.image.tag` empty => the App's tag, so a release keeps both images
-version-aligned.
-*/}}
-{{- define "url4-cloud.runnerImage" -}}
-{{- $tag := default .Chart.AppVersion .Values.image.tag -}}
-{{- printf "%s:%s" .Values.runner.image.repository (default $tag .Values.runner.image.tag) -}}
-{{- end -}}
-
-{{/*
 Where the App reaches NATS.
 
 WHY a helper and not a plain value: the previous default hardcoded `nats://url4-cloud-nats:4222`,

@@ -19,6 +19,8 @@ classifiers = [
 ]
 dependencies = [
     "httpx>=0.27",
+    # `url4.streaming` — the CloudEvents/OTel wire contract IS pydantic models.
+    "pydantic>=2.13.4",
 ]
 
 [project.urls]
@@ -69,6 +71,13 @@ testpaths = ["tests"]
 filterwarnings = [
     "error::DeprecationWarning:url4",
 ]
+
+[tool.coverage.run]
+# `url4.streaming` is the url4-cloud wire contract. It ships from this distribution, but its tests
+# live with its only consumers, in apps/url4-cloud/tests — that suite gates it via `--cov=url4.streaming`.
+# Measuring it here too would drag this package's engine-focused 95% gate down to whatever the
+# streaming contract happens to score, which is a number this suite has no way to move.
+omit = ["src/url4/streaming/*"]
 
 [dependency-groups]
 dev = [

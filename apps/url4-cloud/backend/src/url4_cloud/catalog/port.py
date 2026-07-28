@@ -7,6 +7,11 @@ credential.
 STORY: as a client composing a url4 expression, I ask url4-cloud which model paths exist before I
 reference one, instead of guessing and failing at run time.
 
+Defines the domain value types (``Credential``, ``ModelCatalog``), the RFC 9457-style error
+hierarchy the aigateway adapter and the REST layer share, and the ``CatalogSource`` Protocol — the
+port that concrete catalog adapters (e.g. ``AigatewayCatalogSource`` in ``catalog/aigateway.py``)
+implement.
+
 AIDEV-NOTE: this module is a dependency-free leaf on purpose — no httpx, no FastAPI. Both the
 adapter (which speaks HTTP) and the cache (which speaks to nothing) import it, and the route maps
 its error types onto RFC 9457 problems. Keep transport concerns out of here.
@@ -53,6 +58,8 @@ class Credential:
         never sit in a dict key where a heap dump or debugger would surface it, and a digest is
         fixed-length, so per-entry memory cannot be chosen by whoever sends the token (spec §7).
         """
+        # WHY: separate token and profile with a NUL byte before hashing so distinct
+        # (token, profile) pairs can't collide by concatenating to the same string.
         material = f"{token}{_KEY_SEPARATOR}{profile or ''}".encode()
         return cls(
             token=SecretStr(token),
@@ -76,9 +83,9 @@ class ModelCatalog:
 def compute_etag(body: dict[str, object]) -> str:
     """A strong ETag over the catalog's content (spec §5.2).
 
-    INVARIANT: determined by content, not by dict ordering — ``sort_keys`` is what makes a
-    re-fetch of an unchanged catalog produce the same validator, so a cache refresh does not
-    needlessly invalidate every client's copy.
+    INVARIANT: determined by content, not by dict ordering — ``sort_keys`` (and compact
+    separators) is what makes a re-fetch of an unchanged catalog produce the same validator, so a
+    cache refresh does not needlessly invalidate every client's copy.
     """
     canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()[:_ETAG_LENGTH]
@@ -110,7 +117,7 @@ class CatalogRejected(CatalogError):
 
 
 class CatalogBadResponse(CatalogError):
-    """Upstream answered, but not with a usable catalog (bad status, non-JSON, wrong shape)."""
+    """The upstream response was malformed, non-JSON, or otherwise unusable."""
 
     status = 502
     title = "Bad Gateway"
@@ -118,7 +125,7 @@ class CatalogBadResponse(CatalogError):
 
 
 class CatalogUnavailable(CatalogError):
-    """Upstream could not be reached in time."""
+    """The upstream request timed out."""
 
     status = 504
     title = "Gateway Timeout"
@@ -129,9 +136,9 @@ class CatalogUnavailable(CatalogError):
 class CatalogSource(Protocol):
     """Anything that can produce a catalog for a credential.
 
-    Implemented by the aigateway adapter and — as a decorator over another source — by
-    :class:`~url4_cloud.catalog.cache.CachedCatalog`, which is what lets the route depend on one
-    type whether or not caching is in play.
+    Implemented by the aigateway adapter (``AigatewayCatalogSource``) and — as a decorator over
+    another source — by :class:`~url4_cloud.catalog.cache.CachedCatalog`, which is what lets the
+    route depend on one type whether or not caching is in play.
     """
 
     async def fetch(self, credential: Credential) -> ModelCatalog: ...

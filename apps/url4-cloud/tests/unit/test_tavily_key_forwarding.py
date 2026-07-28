@@ -1,30 +1,24 @@
-"""The App plumbs the Tavily web-tools key into every Runner Job (web tools, spec 2026-07-23).
+"""How the Tavily credential reaches a Runner Job — by reference, and named by the chart.
 
-FEATURE: the aigateway connector declares ``web_search``/``web_fetch`` and runs its bounded
-tool-calling loop ONLY when the Runner sees ``TAVILY_API_KEY``
-(``url4_cloud_runner.__main__.build_executor``). Without this forwarding the connector's web
-tools are unreachable in every deployed configuration — ``web_tools_enabled`` is structurally
-always ``False``.
+The Secret is deploy-time, so each Job attaches it whole with `envFrom.secretRef`. That injects
+every key under its OWN name and cannot rename, which is why the Secret's key must literally be
+`TAVILY_API_KEY` (the chart pins that; `tavily.secretKey` is gone).
 
-INVARIANT (the security core of this unit): the App forwards a *reference*
-(``valueFrom.secretKeyRef``), NEVER the literal key. A ``batch/v1`` Job object is not a secret
-— it is readable with ``get jobs`` RBAC (far looser than ``get secrets``) and shows up in
-``kubectl describe``/``-o yaml`` and create-call audit logs. Copying a long-lived operator
-API key into one Job spec per run would spray plaintext across etcd.
+The invariant that matters is unchanged and stricter than before: the credential is never a
+literal in the Job spec. A Job object is readable with `get jobs` RBAC alone.
 """
 
 from typing import Any
 
 from _k8s_fakes import FakeCreatedJob, fake_created_job
 
+from url4_cloud import job_env as runner_job_env
+from url4_cloud.adapters.factory import build_job_runner
+from url4_cloud.adapters.k8s import K8sJobRunner
 from url4_cloud.config import Settings
-from url4_cloud.jobs.factory import build_job_runner
-from url4_cloud.jobs.k8s import K8sJobRunner
 
 
 class _RecordingBatchApi:
-    """Captures the Job manifest the adapter would POST."""
-
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
 
@@ -40,9 +34,6 @@ class _RecordingBatchApi:
 
 
 class _RecordingSecretsApi:
-    """Captures the per-run credential Secret the adapter would POST — the ``CoreV1SecretsClient``
-    counterpart to :class:`_RecordingBatchApi`."""
-
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
 
@@ -54,86 +45,70 @@ class _RecordingSecretsApi:
         raise NotImplementedError
 
 
-def _job_env(api: _RecordingBatchApi) -> list[dict[str, Any]]:
-    spec = api.created[0]["spec"]
-    container = spec["template"]["spec"]["containers"][0]  # type: ignore[index]
-    return container["env"]  # type: ignore[index,no-any-return]
+def _container(api: _RecordingBatchApi) -> dict[str, Any]:
+    return api.created[0]["spec"]["template"]["spec"]["containers"][0]
 
 
-def _entry(env: list[dict[str, Any]], name: str) -> dict[str, Any] | None:
-    return next((e for e in env if e["name"] == name), None)
+def _entry(api: _RecordingBatchApi, name: str) -> dict[str, Any] | None:
+    return next((e for e in _container(api)["env"] if e["name"] == name), None)
 
 
-# --- k8s: reference-pass -----------------------------------------------------------------
-
-
-def test_k8s_job_env_carries_a_secret_ref_not_the_literal_key() -> None:
-    # INVARIANT: the Job spec names the Secret; the plaintext never enters the manifest.
+def test_the_job_attaches_the_tavily_secret_by_reference() -> None:
     api = _RecordingBatchApi()
-    runner = K8sJobRunner(
-        api, image="url4-cloud:kind", tavily_secret_ref=("url4-cloud-tavily", "api-key")
+
+    K8sJobRunner(api, image="url4-cloud:kind", env_secrets=("url4-cloud-tavily",)).schedule(
+        "topic-a", "(x)!go", 60
     )
 
-    runner.schedule("topic-a", "(x)!go", 60)
-
-    entry = _entry(_job_env(api), "TAVILY_API_KEY")
-    assert entry is not None
-    assert entry["valueFrom"]["secretKeyRef"] == {
-        "name": "url4-cloud-tavily",
-        "key": "api-key",
-    }
-    # INVARIANT: no `value` key at all — a literal would defeat the whole point.
-    assert "value" not in entry
+    assert {"secretRef": {"name": "url4-cloud-tavily"}} in _container(api)["envFrom"]
 
 
-def test_k8s_job_env_omits_tavily_when_no_secret_ref_is_configured() -> None:
-    # INVARIANT: deny-by-default (dec:W5) — unconfigured means the Runner never sees the var,
-    # so the connector's request body stays byte-identical to the no-web-tools shape.
+def test_the_credential_is_never_a_literal_in_the_job_spec() -> None:
     api = _RecordingBatchApi()
-    runner = K8sJobRunner(api, image="url4-cloud:kind")
 
-    runner.schedule("topic-b", "(x)!go", 60)
+    K8sJobRunner(api, image="url4-cloud:kind", env_secrets=("url4-cloud-tavily",)).schedule(
+        "topic-a", "(x)!go", 60
+    )
 
-    assert _entry(_job_env(api), "TAVILY_API_KEY") is None
+    assert "tvly-" not in repr(api.created[0])
+    assert _entry(api, runner_job_env.TAVILY_API_KEY) is None, (
+        "the App must not name TAVILY_API_KEY at all — envFrom injects it under the Secret's key"
+    )
 
 
-def test_k8s_tavily_secret_ref_does_not_disturb_the_other_job_env() -> None:
-    # WHY: the ref is additive; the pre-existing carriage (topic/expression/aigateway) is a
-    # contract other tests pin, and this unit must not perturb it.
+def test_a_job_without_a_configured_secret_attaches_none() -> None:
+    api = _RecordingBatchApi()
+
+    K8sJobRunner(api, image="url4-cloud:kind").schedule("topic-b", "(x)!go", 60)
+
+    assert "envFrom" not in _container(api)
+
+
+def test_the_deploy_time_secret_does_not_disturb_the_per_run_credential() -> None:
+    # Two different mechanisms on one Job: the Tavily Secret rides `envFrom` (deploy-time), the
+    # caller's token stays an explicit `valueFrom.secretKeyRef` into a per-Job Secret.
     api = _RecordingBatchApi()
     runner = K8sJobRunner(
         api,
         image="url4-cloud:kind",
-        aigateway_base_url="http://aigateway:9105",
-        tavily_secret_ref=("s", "k"),
+        env_secrets=("s",),
         secrets_client=_RecordingSecretsApi(),
     )
 
     runner.schedule("topic-c", "(x)!go", 60, credential="cred-1")
 
-    env = _job_env(api)
-    assert _entry(env, "URL4_CLOUD_TOPIC") == {"name": "URL4_CLOUD_TOPIC", "value": "topic-c"}
-    assert _entry(env, "AIGATEWAY_BASE_URL") == {
-        "name": "AIGATEWAY_BASE_URL",
-        "value": "http://aigateway:9105",
+    assert _entry(api, runner_job_env.TOPIC) == {
+        "name": runner_job_env.TOPIC,
+        "value": "topic-c",
     }
-    # INVARIANT: the forwarded aigateway credential is a Secret REFERENCE too — same rationale
-    # as the Tavily key above — never a literal Job env value.
-    token_entry = _entry(env, "AIGATEWAY_TOKEN")
-    assert token_entry is not None
-    assert "value" not in token_entry
-    assert token_entry["valueFrom"]["secretKeyRef"]["key"] == "token"
+    token = _entry(api, runner_job_env.AIGATEWAY_TOKEN)
+    assert token is not None
+    assert "value" not in token
+    assert token["valueFrom"]["secretKeyRef"]["key"] == "token"
 
 
-# --- Settings + factory wiring -----------------------------------------------------------
-
-
-def test_k8s_settings_build_a_runner_carrying_the_secret_ref() -> None:
-    settings = Settings(
-        runner="k8s",
-        tavily_secret_name="url4-cloud-tavily",
-        tavily_secret_key="api-key",
-    )
+def test_settings_build_a_runner_carrying_the_secret_name() -> None:
+    settings = Settings(runner="k8s", tavily_secret_name="url4-cloud-tavily")
 
     runner = build_job_runner(
         settings,
@@ -142,10 +117,10 @@ def test_k8s_settings_build_a_runner_carrying_the_secret_ref() -> None:
     )
 
     assert isinstance(runner, K8sJobRunner)
-    assert runner._tavily_secret_ref == ("url4-cloud-tavily", "api-key")
+    assert runner._env_secrets == ["url4-cloud-tavily"]
 
 
-def test_k8s_settings_without_a_secret_name_leave_the_ref_unset() -> None:
+def test_settings_without_a_secret_name_attach_no_secret() -> None:
     runner = build_job_runner(
         Settings(runner="k8s"),
         k8s_client_factory=_RecordingBatchApi,
@@ -153,4 +128,4 @@ def test_k8s_settings_without_a_secret_name_leave_the_ref_unset() -> None:
     )
 
     assert isinstance(runner, K8sJobRunner)
-    assert runner._tavily_secret_ref is None
+    assert runner._env_secrets == []

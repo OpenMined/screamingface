@@ -66,7 +66,7 @@ concurrency bulkhead.
 @router.get("/v1/models")
 async def list_models(request: Request, _current: CurrentAccount) -> dict:
     registry = request.app.state.providers
-    data = [ ... for plugin in registry.all() for entry in plugin.register_models() ]
+    data = [... for plugin in registry.all() for entry in plugin.register_models()]
     return {"object": "list", "data": data}
 ```
 
@@ -220,14 +220,17 @@ backend/src/url4_cloud/rest/
 @dataclass(frozen=True, slots=True)
 class Credential:
     """A caller-supplied upstream identity. `token` is the raw secret; `key` is its hash."""
+
     token: SecretStr
     profile: str | None
-    key: str            # sha256(token, profile)[:32] — never the raw token
+    key: str  # sha256(token, profile)[:32] — never the raw token
+
 
 @dataclass(frozen=True, slots=True)
 class ModelCatalog:
     body: dict[str, object]
     etag: str
+
 
 class CatalogSource(Protocol):
     async def fetch(self, credential: Credential) -> ModelCatalog: ...

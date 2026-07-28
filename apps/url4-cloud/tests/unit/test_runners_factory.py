@@ -1,0 +1,69 @@
+from collections.abc import Mapping
+from typing import Any
+
+import pytest
+from _k8s_fakes import FakeCreatedJob
+
+from url4_cloud.adapters.factory import build_job_runner
+from url4_cloud.adapters.k8s import K8sJobRunner
+from url4_cloud.config import Settings
+
+
+class _FakeBatchApi:
+    def create_namespaced_job(
+        self, namespace: str, body: Mapping[str, object]
+    ) -> FakeCreatedJob:  # pragma: no cover
+        raise NotImplementedError
+
+    def read_namespaced_job(self, name: str, namespace: str) -> Any:  # pragma: no cover
+        raise NotImplementedError
+
+    def delete_namespaced_job(self, name: str, namespace: str) -> object:  # pragma: no cover
+        raise NotImplementedError
+
+
+class _FakeCoreV1Api:
+    def create_namespaced_secret(
+        self, namespace: str, body: Mapping[str, object]
+    ) -> object:  # pragma: no cover
+        raise NotImplementedError
+
+    def delete_namespaced_secret(self, name: str, namespace: str) -> object:  # pragma: no cover
+        raise NotImplementedError
+
+
+def test_runner_none_builds_no_job_runner() -> None:
+    assert build_job_runner(Settings(runner="none")) is None
+
+
+def test_default_settings_build_no_job_runner() -> None:
+    assert build_job_runner(Settings()) is None
+
+
+def test_k8s_runner_is_built_from_settings() -> None:
+    settings = Settings(
+        runner="k8s",
+        namespace="url4-prod",
+        runner_image="ghcr.io/openmined/url4-cloud:1.2.3",
+        nats_url="nats://nats.url4-prod:4222",
+    )
+    loaded: list[bool] = []
+
+    runner = build_job_runner(
+        settings,
+        k8s_client_factory=lambda: (loaded.append(True), _FakeBatchApi())[1],
+        k8s_secrets_client_factory=_FakeCoreV1Api,
+    )
+
+    assert isinstance(runner, K8sJobRunner)
+    assert loaded == [True]
+    assert isinstance(runner._secrets_client, _FakeCoreV1Api)
+    assert runner._namespace == "url4-prod"
+    assert runner._image == "ghcr.io/openmined/url4-cloud:1.2.3"
+    # The Job runs the App's OWN image in run mode, so the command IS the mode switch.
+    assert runner._command == ["url4-cloud", "run"]
+
+
+def test_unknown_runner_is_rejected_at_settings_construction() -> None:
+    with pytest.raises(ValueError):
+        Settings(runner="kubernetes")  # type: ignore[arg-type]

@@ -1,19 +1,9 @@
-"""Runner Jobs must not inherit kubelet's legacy Docker-link Service env (spec §9).
-
-FEATURE: a Runner Job is configured ONLY by what the App puts in its env.
-
-INVARIANT: kubelet exports one ``{SERVICE_NAME}_PORT=tcp://<ip>:<port>`` per Service in the
-namespace unless ``enableServiceLinks: false``. The App's Service is ``url4-cloud``, which yields
-``URL4_CLOUD_PORT`` — colliding with this project's own ``URL4_CLOUD_`` settings prefix. The App
-Deployment hit exactly that (crash on ``int("tcp://10.96.x.x:9108")``); Jobs read the same
-``URL4_CLOUD_*`` namespace, so they are pinned here too rather than left to luck.
-"""
-
 from typing import Any
 
 from _k8s_fakes import FakeCreatedJob, fake_created_job
 
-from url4_cloud.jobs.k8s import K8sJobRunner
+from url4_cloud import job_env
+from url4_cloud.adapters.k8s import K8sJobRunner
 
 
 class _RecordingBatchApi:
@@ -43,16 +33,15 @@ def test_runner_job_disables_service_link_env_injection() -> None:
 
 
 def test_runner_job_env_is_exactly_what_the_app_set() -> None:
-    """The Job carries only the App-supplied contract keys — no ambient Service noise."""
+    """The App's explicit `env` is PER-RUN only; deploy-time values arrive via `envFrom`.
+
+    An exact-set assertion, so a deploy-time variable creeping back into `_env` fails here — that
+    would give one value two sources of truth, with the App's copy silently winning.
+    """
     api = _RecordingBatchApi()
-    K8sJobRunner(api, image="url4-cloud:1", nats_url="nats://nats:4222").schedule(
+    K8sJobRunner(api, image="url4-cloud:1", env_configmap="rel-runner-env").schedule(
         "topic-a", "'hi'!'go'", 60
     )
 
     names = {e["name"] for e in _pod_spec(api)["containers"][0]["env"]}
-    assert names == {
-        "URL4_CLOUD_TOPIC",
-        "URL4_CLOUD_EXPRESSION",
-        "URL4_CLOUD_JOB_DEADLINE_S",
-        "URL4_CLOUD_NATS_URL",
-    }
+    assert names == {job_env.TOPIC, job_env.EXPRESSION, job_env.JOB_DEADLINE_S}

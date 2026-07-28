@@ -6,6 +6,12 @@ the App **Deployment · Service · ConfigMap · Secret**, one of two edge object
 (**ServiceAccount · Role · RoleBinding**) that lets the App schedule Runner Jobs in its own
 namespace.
 
+**One image, two modes.** The Deployment runs `url4-cloud` (which defaults to `serve`); every
+Runner Job runs the **same** image with `command: ["url4-cloud", "run"]`. There is no second
+`runner.image` block and no separate template helper for it any more — `URL4_CLOUD_RUNNER_IMAGE`
+renders from the App's own `image:` block via `url4-cloud.image`, so the two can no longer drift
+out of version alignment.
+
 ## Install
 
 NATS (JetStream) is the telemetry bus, declared as a chart dependency (`Chart.yaml`, condition
@@ -92,8 +98,8 @@ topic. To do that it needs, **in its own namespace only**:
 | `""`      | `pods/log` | get                                |
 
 The `RoleBinding` targets the App's `ServiceAccount` (the Deployment's subject). These are exactly
-the calls `url4_cloud.jobs.k8s.K8sJobRunner` makes, and the Role covers the labels the App stamps
-on the Jobs it creates (`url4_cloud.jobs.port.RUNNER_LABELS`).
+the calls `url4_cloud.adapters.k8s.K8sJobRunner` makes, and the Role covers the labels the App stamps
+on the Jobs it creates (`url4_cloud.adapters.k8s.RUNNER_LABELS`).
 
 Note the App needs **no** `get secrets`: the Tavily credential travels into each Job as a
 `secretKeyRef`, so the App names the Secret without ever reading it.
@@ -107,6 +113,11 @@ maintained as a second definition.)
 
 What the App schedules:
 
+- the App's **own image** in run mode — `command: ["url4-cloud", "run"]`, pinned in
+  `url4_cloud.adapters.k8s` rather than in values: the command is the mode switch and nothing
+  else, so a chart override could only ever name a mode the image does not have. The image
+  reference itself stays a value (`URL4_CLOUD_RUNNER_IMAGE`, rendered from `image:`) so a staged
+  rollout can still pin Jobs to a different tag than the Deployment
 - run-once — `backoffLimit: 0`, `restartPolicy: Never` (retry = new token, new job; spec §2.3)
 - `activeDeadlineSeconds` = `config.jobDeadlineS`, surfacing as `timed_out`
 - `enableServiceLinks: false` — kubelet's legacy Docker-link vars would export
@@ -154,7 +165,8 @@ statelessness for throughput.
 
 ## Workload hardening
 
-Both workloads run non-root (uid 1000, the image's own `USER`), with `ALL` capabilities dropped,
+Both workloads — the same image, entered in its two modes — run non-root (uid 1000, the image's
+own `USER`), with `ALL` capabilities dropped,
 `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true` + an `emptyDir` at `/tmp`, and a
 `RuntimeDefault` seccomp profile — the Pod Security Standard **restricted** profile. Deploying into
 a namespace labelled `pod-security.kubernetes.io/enforce: restricted` works as-is.
@@ -174,7 +186,8 @@ managed-by·part-of·component`) via `templates/_helpers.tpl` (docs/protocol.md 
 
 ## OCI image annotations
 
-The container image should carry the OCI **`org.opencontainers.image.*`** annotations
+There is exactly one container image, and it should carry the OCI
+**`org.opencontainers.image.*`** annotations
 (opencontainers/image-spec) — set as `LABEL`s at build time, e.g.:
 
 ```dockerfile
@@ -187,7 +200,7 @@ LABEL org.opencontainers.image.title="url4-cloud" \
 ```
 
 `image.repository` defaults to `ghcr.io/openmined/screamingface-url4-cloud`; the tag defaults to the
-chart `appVersion`.
+chart `appVersion`. Both the Deployment and every Runner Job resolve to that one reference.
 
 ## Lint / render
 

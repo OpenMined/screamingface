@@ -1,0 +1,55 @@
+# url4-cloud RUNNER — the declared world.
+#
+# Baked into the image at /etc/url4/url4.toml (see Dockerfile). The image decides what CAN
+# exist; env supplies only per-Job values (the token, and optional base_url / model overrides).
+#
+# INVARIANT: a route path is exactly "/" + the gateway id. No renaming, no aliases. `models`
+# entries must match aigateway's `/v1/models` ids EXACTLY — note that Anthropic's ids are
+# UNPREFIXED (`claude-haiku-4-5`), the `anthropic/` prefix appearing only in litellm_params,
+# while every other provider prefixes. `tests/unit/test_declared_models_match_aigateway.py`
+# fails if this list drifts from the plugins' MODELS.
+#
+# Adding a model is a deliberate, reviewable edit: these paths are a public naming surface that
+# url4 expressions depend on.
+
+[aigateway]
+base_url = "http://127.0.0.1:9105"
+default_route = "/claude-haiku-4-5"
+
+# Absolute-URL sources (`https://…`) are a real url4 feature and a Url4Node world has always
+# been able to fetch them. Set false to hand the node a denying outbound layer instead.
+allow_outbound = true
+
+models = [
+  # anthropic — unprefixed ids
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-sonnet-4-6",
+  "claude-sonnet-4-5",
+  "claude-haiku-4-5",
+  # codex
+  "codex/gpt-5.5",
+  "codex/gpt-5.4",
+  "codex/gpt-5.4-mini",
+  "codex/gpt-5.3-codex",
+  "codex/gpt-5.2",
+  # gemini
+  "gemini-cli/gemini-3.1-flash-lite",
+  "gemini-cli/gemini-2.5-pro",
+  "gemini-cli/gemini-2.5-flash",
+  "gemini-cli/gemini-2.5-flash-lite",
+  # antigravity
+  "antigravity/gemini-3-flash",
+]
+
+# RESERVED — the format carries these (they are `url4 serve`'s tables) but the Runner does not
+# parse them yet; declaring one is a loud config error, never a silent no-op:
+#
+#   [data]        "/corpus/papers" = { file = "…", media_type = "application/json" }
+#   [commands]    "/python" = ["python3", "/opt/tools/run.py", "{intent}"]
+#   [holdings]    default = { file = "…" }
+#   [identities]
+#
+# ollama / openrouter / huggingface build their model lists at runtime from local installs or
+# fetched slugs, so they are undeclarable here by construction; a deployment that serves them
+# adds its own entries.

@@ -3,10 +3,14 @@ on:
   push:
     paths:
       - "apps/url4-cloud/**"
+      # the wire contract (`url4.streaming`) and the engine both ship from here
+      - "packages/url4/**"
       - ".github/workflows/url4-cloud-tests.yml"
   pull_request:
     paths:
       - "apps/url4-cloud/**"
+      # the wire contract (`url4.streaming`) and the engine both ship from here
+      - "packages/url4/**"
       - ".github/workflows/url4-cloud-tests.yml"
   workflow_dispatch:
 
@@ -33,15 +37,18 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run pyright
+      # One image holds both modes, so nothing at runtime proves the boundary — this is what
+      # keeps the run mode's import graph free of FastAPI/uvicorn/the kubernetes client, and the
+      # control plane free of the engine.
+      - name: Check layering
+        run: python3 ../../.claude/scripts/check_layering.py
       - name: Run unit tests with aggregate coverage
         run: |
           uv run pytest \
             --tb=short \
             --junitxml=results.xml \
             --cov=url4_cloud \
-            --cov=url4_cloud_nats \
-            --cov=url4_streaming_protocol \
-            --cov=url4_cloud_runner \
+            --cov=url4.streaming \
             --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
             --cov-fail-under=80 \

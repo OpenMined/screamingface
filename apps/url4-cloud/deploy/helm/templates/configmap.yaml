@@ -17,9 +17,12 @@ data:
   # INVARIANT: Jobs are created in the release namespace only — this must match the namespace the
   # Role/RoleBinding bind, or the App's ServiceAccount is not authorized to create them.
   URL4_CLOUD_NAMESPACE: {{ .Release.Namespace | quote }}
-  # The Runner is its OWN image (apps/url4-cloud/runner/Dockerfile) — the backend schedules it
-  # as a batch/v1 Job per run (spec §9).
-  URL4_CLOUD_RUNNER_IMAGE: {{ include "url4-cloud.runnerImage" . | quote }}
+  # The Job runs THIS SAME image in its run mode (`url4-cloud run`) — one artifact, two modes.
+  # WHY the App is told its own image rather than discovering it: a process cannot reliably read
+  # back the image reference it was started from (that lives in the pod spec, needs RBAC on pods,
+  # and the Downward API does not expose it). Rendering the same `image:` the Deployment gets is
+  # what keeps the Job and the App on one version through an upgrade.
+  URL4_CLOUD_RUNNER_IMAGE: {{ include "url4-cloud.image" . | quote }}
   {{- with .Values.runner.resources }}
   # The Runner's own requests/limits. Carried as JSON because a ConfigMap value is a string and
   # pydantic-settings parses complex fields as JSON — so the k8s `resources` block travels
@@ -41,10 +44,14 @@ data:
   # URL is the only thing that switches the endpoint on. Unset => `/v1/models` answers 503.
   URL4_CLOUD_AIGATEWAY_BASE_URL: {{ . | quote }}
   {{- end }}
+  # The ConfigMap of DEPLOY-TIME Runner env (configmap-runner-env.yaml). The App only references
+  # it by name in each Job's `envFrom` — it never reads the keys, so adding a variable there needs
+  # no App change and no restart.
+  URL4_CLOUD_RUNNER_ENV_CONFIGMAP: {{ include "url4-cloud.fullname" . }}-runner-env
   {{- if .Values.tavily.enabled }}
-  # WHY only the Secret's NAME/KEY travel in the ConfigMap: the App forwards a secretKeyRef into
-  # each Runner Job and never reads the credential, so nothing secret belongs in this ConfigMap.
+  # WHY only the Secret's NAME travels: the App attaches it to each Job with `envFrom.secretRef`
+  # and never reads the credential, so nothing secret belongs in this ConfigMap. The Secret's KEY
+  # must be `TAVILY_API_KEY` — `envFrom` injects keys under their own names and does no renaming.
   # Absent => the Runner never sees TAVILY_API_KEY and web tools stay off (dec:W5).
   URL4_CLOUD_TAVILY_SECRET_NAME: {{ include "url4-cloud.tavilySecretName" . | quote }}
-  URL4_CLOUD_TAVILY_SECRET_KEY: {{ .Values.tavily.secretKey | quote }}
   {{- end }}

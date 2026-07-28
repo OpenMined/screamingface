@@ -1,22 +1,13 @@
-"""The ``Bus`` → WebSocket streaming engine (spec §6; docs/protocol.md §8).
-
-One CloudEvent per WS message (structured mode). Three cooperating pieces on the app's event loop:
-
-- **subscription task** — ``Bus.subscribe(topic, cursor)`` feeding an outbound queue; (re)started
-  from an inbound ``Attach`` so a reconnecting client resumes from ``from_sequence`` (spec §6).
-- **writer** — the *sole* sender: drains the queue, and on idle (``ws_heartbeat_s`` elapsed) emits a
-  ``HeartbeatEvent`` for liveness. Single sender ⇒ no interleaved WS writes, no lock.
-- **inbound** — reads client frames; ``Attach`` re-subscribes, ``Stop`` calls ``JobRunner.stop``.
-
-The bridge ends when the client disconnects (inbound raises ``WebSocketDisconnect``) or a send
-fails; either sets the stop event and the rest is cancelled.
+"""Bridges an accepted WebSocket connection to an `EventConsumer` stream and an
+optional `JobRunner`, per the `url4.streaming.protocol` wire contract: inbound
+attach/stop frames drive (re)subscription and job control, outbound stream
+events and heartbeats are multiplexed onto the socket through a single writer.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 from collections.abc import Callable
 from datetime import datetime
 from uuid import uuid4
@@ -24,9 +15,9 @@ from uuid import uuid4
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
-from url4_cloud.jobs.port import JobRunner
-from url4_cloud_nats import Bus
-from url4_streaming_protocol import (
+from url4.streaming.codec import encode
+from url4.streaming.interfaces import EventConsumer, JobRunner
+from url4.streaming.protocol import (
     AttachEvent,
     ErrorData,
     ErrorEvent,
@@ -34,6 +25,7 @@ from url4_streaming_protocol import (
     InboundFrameAdapter,
     OutboundFrame,
     StopEvent,
+    source_for,
 )
 
 Clock = Callable[[], datetime]
@@ -42,20 +34,20 @@ _InboundEvent = AttachEvent | StopEvent
 
 
 async def _send(ws: WebSocket, event: OutboundFrame) -> None:
-    # INVARIANT: serialize per protocol.md §1 — by_alias yields the gen_ai.* + CloudEvents shape.
-    await ws.send_json(event.model_dump(mode="json", by_alias=True))
+    # WHY: through the codec, not `model_dump_json` — the outbound wire convention is decided
+    # in one place, so the WS binding and the NATS binding cannot emit different JSON for one
+    # frame.
+    await ws.send_text(encode(event).decode())
 
 
 def _heartbeat(topic: str, clock: Clock) -> HeartbeatEvent:
-    return HeartbeatEvent(id=uuid4().hex, source=f"/trace/{topic}", subject=topic, time=clock())
+    return HeartbeatEvent(id=uuid4().hex, source=source_for(topic), subject=topic, time=clock())
 
 
 def _error(topic: str, clock: Clock, code: str, message: str, ref_id: str | None) -> ErrorEvent:
-    # WHY: an advisory nack for a rejected inbound frame — an outbound OutboundFrame the inbound
-    # task *enqueues* (never sends), so the writer stays the sole ws.send caller (single-writer).
     return ErrorEvent(
         id=uuid4().hex,
-        source=f"/trace/{topic}",
+        source=source_for(topic),
         subject=topic,
         time=clock(),
         data=ErrorData(code=code, message=message, ref_id=ref_id),
@@ -63,24 +55,29 @@ def _error(topic: str, clock: Clock, code: str, message: str, ref_id: str | None
 
 
 def _parse_inbound(raw: str) -> _InboundEvent | None:
-    # WHY: tolerate malformed client frames — ignore rather than tear down the stream.
+    """Decode a raw inbound WS text frame into an attach/stop event.
+
+    Returns None (rather than raising) on anything unparseable or failing schema
+    validation, so the caller can turn it into an `invalid_frame` error event
+    instead of tearing down the connection.
+    """
     try:
-        obj = json.loads(raw)
-    except json.JSONDecodeError:
-        return None
-    try:
-        return InboundFrameAdapter.validate_python(obj)
+        return InboundFrameAdapter.validate_json(raw)
     except ValidationError:
         return None
 
 
 class Bridge:
-    """Bridges one topic's ``Bus`` stream to one WebSocket for the life of the connection."""
+    """Owns the lifecycle of one WS connection: an inbound task that parses attach/stop
+    frames and drives (re)subscription to the topic's event stream, and an outbound
+    writer that drains a shared queue to the socket, falling back to heartbeats when
+    the queue is idle. Either side failing (disconnect, send error) stops the other.
+    """
 
     def __init__(
         self,
         ws: WebSocket,
-        bus: Bus,
+        stream: EventConsumer,
         topic: str,
         *,
         job_runner: JobRunner | None,
@@ -88,7 +85,7 @@ class Bridge:
         heartbeat_s: float,
     ) -> None:
         self._ws = ws
-        self._bus = bus
+        self._stream = stream
         self._topic = topic
         self._job_runner = job_runner
         self._clock = clock
@@ -98,21 +95,26 @@ class Bridge:
         self._sub: asyncio.Task[None] | None = None
 
     async def run(self) -> None:
+        """Run the connection until it ends, then cancel and drain both tasks.
+
+        Blocks for the connection's whole lifetime: either the inbound task
+        observes a disconnect or the writer fails to send, and both paths set
+        `_stop`, which is the only way this coroutine returns.
+        """
         inbound = asyncio.ensure_future(self._inbound())
         writer = asyncio.ensure_future(self._writer())
-        # WHY: teardown in a finally so it also runs when the ASGI task is *cancelled* (the
-        # TestClient/uvicorn shutdown path) — not only on a graceful WebSocketDisconnect.
         try:
             await self._stop.wait()
         finally:
             await self._teardown(inbound, writer)
 
     async def _inbound(self) -> None:
+        # INVARIANT: `_stop` is set in `finally` regardless of how this loop exits, so
+        # a client disconnect here always unblocks `run()` and tears down `_writer`.
         try:
             while True:
                 event = _parse_inbound(await self._ws.receive_text())
                 if event is None:
-                    # INVARIANT: enqueue the nack — the inbound task never calls ws.send.
                     self._out.put_nowait(
                         _error(
                             self._topic,
@@ -130,13 +132,16 @@ class Bridge:
             self._stop.set()
 
     def _handle(self, event: _InboundEvent) -> None:
+        """Dispatch a validated inbound frame: attach (re)subscribes the stream from
+        the given cursor, stop delegates to the job runner if one is configured, or
+        else queues an `unsupported` error frame.
+        """
         if isinstance(event, AttachEvent):
             self._resubscribe(event.data.from_sequence)
         elif isinstance(event, StopEvent):
             if self._job_runner is not None:
                 self._job_runner.stop(self._topic)
             else:
-                # WHY: no runner ⇒ the Stop cannot act; nack it so the client isn't left guessing.
                 self._out.put_nowait(
                     _error(
                         self._topic,
@@ -148,32 +153,23 @@ class Bridge:
                 )
 
     def _resubscribe(self, cursor: int | None) -> None:
+        # WHY: an attach mid-connection (e.g. client resuming after a gap) replaces
+        # the running subscription rather than layering a second one, so at most one
+        # pump task is ever forwarding events into `_out`.
         if self._sub is not None:
             self._sub.cancel()
         sub = asyncio.ensure_future(self._pump(cursor))
-        # INVARIANT: the pump's failure must always reach the client. Without this callback the
-        # task's exception is swallowed (nothing awaits it) while the writer keeps emitting
-        # heartbeats — so a permanently dead stream is indistinguishable from an idle healthy
-        # one. That silence is the OME-623 bug; it had already been observed once for a
-        # different trigger (see NatsBus.subscribe) and worked around only for that trigger.
         sub.add_done_callback(self._on_pump_done)
         self._sub = sub
 
     def _on_pump_done(self, task: asyncio.Task[None]) -> None:
-        """Report a pump that died of anything other than cancellation.
-
-        WHY cancellation is exempt: :meth:`_resubscribe` cancels the previous pump on every
-        re-attach and :meth:`_teardown` cancels it on disconnect — both are normal control flow,
-        and nacking them would spam a correctly-behaving client.
-        """
+        # WHY: a cancellation here means `_resubscribe` (or teardown) intentionally
+        # replaced/stopped this pump — not a failure — so it is not reported.
         if task.cancelled():
             return
         exc = task.exception()
         if exc is None:
             return
-        # WHY the type name and not str(exc): a broker error can carry connection strings or
-        # credentials, and this frame goes to the client. The class is enough to act on; the
-        # detail belongs in the server's own logs.
         self._out.put_nowait(
             _error(
                 self._topic,
@@ -185,7 +181,8 @@ class Bridge:
         )
 
     async def _pump(self, cursor: int | None) -> None:
-        async for event in self._bus.subscribe(self._topic, cursor):
+        """Forward stream events for `_topic`, from `cursor` onward, into `_out`."""
+        async for event in self._stream.subscribe(self._topic, cursor):
             await self._out.put(event)
 
     async def _writer(self) -> None:
@@ -197,12 +194,18 @@ class Bridge:
             self._stop.set()
 
     async def _next(self) -> OutboundFrame:
+        # WHY: the timeout is what turns an idle `_out` queue into a heartbeat
+        # cadence — without it, a quiet topic would leave the socket silent long
+        # enough for intermediaries (proxies, load balancers) to consider it dead.
         try:
             return await asyncio.wait_for(self._out.get(), timeout=self._heartbeat_s)
         except TimeoutError:
             return _heartbeat(self._topic, self._clock)
 
     async def _try_send(self, event: OutboundFrame) -> bool:
+        """Send one frame; return False (rather than raising) on disconnect so the
+        writer loop can stop cleanly instead of propagating a send error.
+        """
         try:
             await _send(self._ws, event)
         except (WebSocketDisconnect, RuntimeError):
@@ -210,23 +213,30 @@ class Bridge:
         return True
 
     async def _teardown(self, *tasks: asyncio.Task[None]) -> None:
+        # INVARIANT: the active pump subscription (`_sub`) is always cancelled here
+        # alongside the inbound/writer tasks passed in, so `run()` never returns
+        # while a subscription is still forwarding events into `_out`.
         pending = [task for task in (self._sub, *tasks) if task is not None]
         for task in pending:
             task.cancel()
-        # WHY: swallow a re-delivered cancellation of *this* await so the drain always completes;
-        # the original cancellation (if any) still re-raises out of the enclosing finally.
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.gather(*pending, return_exceptions=True)
 
 
 async def run_bridge(
     ws: WebSocket,
-    bus: Bus,
+    stream: EventConsumer,
     topic: str,
     *,
     job_runner: JobRunner | None,
     clock: Clock,
     heartbeat_s: float,
 ) -> None:
-    """Run the bridge until the client disconnects (spec §6)."""
-    await Bridge(ws, bus, topic, job_runner=job_runner, clock=clock, heartbeat_s=heartbeat_s).run()
+    """Construct a `Bridge` for an already-accepted socket and run it to completion.
+
+    The public entry point for the WS endpoint; blocks until the connection ends
+    (client disconnect or an unrecoverable send failure).
+    """
+    await Bridge(
+        ws, stream, topic, job_runner=job_runner, clock=clock, heartbeat_s=heartbeat_s
+    ).run()

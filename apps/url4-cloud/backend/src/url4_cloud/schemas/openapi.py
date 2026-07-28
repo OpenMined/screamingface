@@ -1,10 +1,6 @@
-"""OpenAPI 3.1 authoring (spec §12): a rich ``info`` block + the CloudEvents component schemas.
-
-FastAPI generates the REST paths from the routes; we override ``app.openapi`` to enrich the result
-without post-editing the routes — merging the shared ``url4_streaming_protocol`` schemas into
-``components.schemas`` so Scalar renders the full telemetry contract, and giving ``info`` the
-title / markdown description / contact / license the §12 DOC-GATE requires.
-"""
+"""Customizes FastAPI's generated OpenAPI document: control-plane title/description/tags, the
+protocol-event schemas shared with the AsyncAPI doc, the `Problem` (RFC 9457) schema, and the
+capability-JWT security scheme applied to the `GET`/`DELETE /` operations."""
 
 from typing import Any
 
@@ -39,8 +35,6 @@ replay via `ai.url4.attach`, or cancel via `ai.url4.stop`:
 ![Streaming, resume and cancel](/diagrams/url4-cloud-execution-stream.svg)
 """
 
-# WHY: only tags with in-schema REST operations — "Stream" (WS, AsyncAPI-only) and "Ops" (hidden
-# routes) would render as empty sidebar sections in /scalar, so they are omitted (OME-566).
 TAGS: list[dict[str, str]] = [
     {"name": "Token", "description": "Mint a topic-capability JWT (spec §4)."},
     {"name": "Execution", "description": "Start (sync/async) and stop a url4 run (spec §5)."},
@@ -49,7 +43,11 @@ TAGS: list[dict[str, str]] = [
 
 
 def customize_openapi(app: FastAPI) -> None:
-    """Install a cached ``app.openapi`` that emits the enriched OpenAPI 3.1 document."""
+    """Replaces `app.openapi` with a customizer that patches FastAPI's default schema in place.
+
+    Follows FastAPI's own caching convention (`app.openapi_schema` memoizes the result on the
+    app), so the merge/patch work below runs at most once per process.
+    """
 
     def openapi() -> dict[str, Any]:
         if app.openapi_schema:
@@ -70,15 +68,9 @@ def customize_openapi(app: FastAPI) -> None:
         )
         components = schema.setdefault("components", {})
         merged = protocol_component_schemas()
-        merged.update(components.get("schemas", {}))  # keep FastAPI's own error schemas
-        # WHY: the REST error responses reference RFC 9457 Problem by $ref under problem+json (no
-        # FastAPI `model=`, which would force an application/json variant), so register the schema
-        # here for the ref to resolve (OME-552).
+        merged.update(components.get("schemas", {}))
         merged.setdefault("Problem", Problem.model_json_schema())
         components["schemas"] = merged
-        # WHY: the per-run capability rides a dedicated URL4-Capability header (apiKey), decoupled
-        # from `Authorization`; declare it so Scalar renders the header input and the execution ops
-        # advertise the requirement (OME-556). WS auth is the `?ticket=` query param (§6).
         components.setdefault("securitySchemes", {})["URL4Capability"] = {
             "type": "apiKey",
             "in": "header",

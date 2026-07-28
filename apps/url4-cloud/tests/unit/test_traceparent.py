@@ -1,37 +1,28 @@
-"""traceparent / W3C span tree end-to-end (trace PRD §7): real-engine-driven
-:mod:`~url4_cloud_runner.publish` runs, through
-:class:`~url4_cloud_runner.url4_executor.Url4Executor`, must produce the same wire shape
-:mod:`~url4_cloud.testing.mock_runner` already fakes.
-
-Every test drives the real url4 engine (:class:`~url4.io.static.StaticIOLayer`, no network) — no
-mocking of ``publish.run`` or ``Url4Executor`` themselves.
-"""
-
 import asyncio
 import re
 from datetime import UTC, datetime
 
 import httpx
 import pytest
+from _fakes import FixedGate, RecordingJobRunner, ScheduledRun
 from fastapi import FastAPI
 from httpx import ASGITransport
-from url4.io.static import StaticIOLayer
 
-from url4_cloud.app import create_app
-from url4_cloud.auth import JwtCodec
-from url4_cloud.config import Settings
-from url4_cloud.jobs.port import JobStatus, job_name
-from url4_cloud.testing.mock_runner import build_run
-from url4_cloud_nats import InMemoryBus
-from url4_cloud_runner.publish import run as publish_run
-from url4_cloud_runner.url4_executor import Url4Executor
-from url4_streaming_protocol import (
+from url4.io.static import StaticIOLayer
+from url4.streaming.lifecycle import run as publish_run
+from url4.streaming.protocol import (
     OutboundFrame,
     ResultEvent,
     SpanEvent,
     StartedEvent,
     TerminatedEvent,
 )
+from url4_cloud.app import create_app
+from url4_cloud.auth import JwtCodec
+from url4_cloud.config import Settings
+from url4_cloud.runner.executor import Url4Executor
+from url4_cloud.testing import InMemoryEventStream
+from url4_cloud.testing.mock_runner import build_run
 
 _TP_RE = re.compile(r"^00-([0-9a-f]{32})-([0-9a-f]{16})-01$")
 
@@ -40,12 +31,11 @@ WINDOW_S = 60
 T0 = datetime(2026, 7, 21, 9, 0, 0, tzinfo=UTC)
 
 
-async def _collect(bus: InMemoryBus, topic: str) -> list[OutboundFrame]:
-    """Every frame published on ``topic``, from the start through the terminal frame."""
+async def _collect(stream: InMemoryEventStream, topic: str) -> list[OutboundFrame]:
     frames: list[OutboundFrame] = []
 
     async def _run() -> None:
-        async for frame in bus.subscribe(topic, from_sequence=1):
+        async for frame in stream.subscribe(topic, from_sequence=1):
             frames.append(frame)
             if isinstance(frame, TerminatedEvent):
                 return
@@ -55,9 +45,6 @@ async def _collect(bus: InMemoryBus, topic: str) -> list[OutboundFrame]:
 
 
 def _edge_shape(spans: list[SpanEvent]) -> list[str | None]:
-    """A literal-id-independent fingerprint of a span tree's edges: ``None`` for the (unique)
-    tracestate-less root, ``"root"`` for a span whose ``tracestate`` names the root, sorted so two
-    structurally-identical trees compare equal regardless of their actual span ids."""
     root = next(f for f in spans if f.tracestate is None)
     root_span_id = _TP_RE.match(root.traceparent).group(2)  # type: ignore[union-attr]
     shape: list[str | None] = []
@@ -70,17 +57,14 @@ def _edge_shape(spans: list[SpanEvent]) -> list[str | None]:
     return sorted(shape, key=lambda x: (x is not None, x))
 
 
-# --- 1. every published frame's traceparent is well-formed, and the run shares ONE trace_id ----
-
-
 @pytest.mark.asyncio
 async def test_every_frame_traceparent_matches_w3c_and_shares_one_trace_id() -> None:
     io = StaticIOLayer(fetch_map={"https://a": "A"})
-    bus = InMemoryBus()
+    stream = InMemoryEventStream()
     topic = "trace-topic-1"
 
-    await publish_run(bus, Url4Executor(io), topic, "https://a!go")
-    frames = await _collect(bus, topic)
+    await publish_run(stream, Url4Executor(io), topic, "https://a!go")
+    frames = await _collect(stream, topic)
 
     trace_ids = set()
     for frame in frames:
@@ -90,17 +74,14 @@ async def test_every_frame_traceparent_matches_w3c_and_shares_one_trace_id() -> 
     assert len(trace_ids) == 1
 
 
-# --- 2. non-top span tracestate names its parent; top span + all non-span frames are None -------
-
-
 @pytest.mark.asyncio
 async def test_span_tracestate_and_non_span_tracestate_none() -> None:
     io = StaticIOLayer(fetch_map={"https://x": "X", "https://y": "Y"})
-    bus = InMemoryBus()
+    stream = InMemoryEventStream()
     topic = "trace-topic-2"
 
-    await publish_run(bus, Url4Executor(io), topic, "(https://x, https://y)!go")
-    frames = await _collect(bus, topic)
+    await publish_run(stream, Url4Executor(io), topic, "(https://x, https://y)!go")
+    frames = await _collect(stream, topic)
 
     span_frames = [f for f in frames if isinstance(f, SpanEvent)]
     non_span_frames = [f for f in frames if not isinstance(f, SpanEvent)]
@@ -118,17 +99,14 @@ async def test_span_tracestate_and_non_span_tracestate_none() -> None:
         assert child.tracestate == f"url4.parent={root_span_id}"
 
 
-# --- 3. a fan-out's span EDGE structure matches mock_runner's root ← {leaf-0, leaf-1} ------------
-
-
 @pytest.mark.asyncio
 async def test_fanout_span_edge_set_matches_mock_runner_shape() -> None:
     io = StaticIOLayer(fetch_map={"https://x": "X", "https://y": "Y"})
-    bus = InMemoryBus()
+    stream = InMemoryEventStream()
     topic = "trace-topic-3"
 
-    await publish_run(bus, Url4Executor(io), topic, "(https://x, https://y)!go")
-    frames = await _collect(bus, topic)
+    await publish_run(stream, Url4Executor(io), topic, "(https://x, https://y)!go")
+    frames = await _collect(stream, topic)
     real_spans = [f for f in frames if isinstance(f, SpanEvent)]
     assert len(real_spans) == 3
 
@@ -138,17 +116,14 @@ async def test_fanout_span_edge_set_matches_mock_runner_shape() -> None:
     assert _edge_shape(real_spans) == _edge_shape(mock_spans) == [None, "root", "root"]
 
 
-# --- 4. a malformed inbound traceparent mints a fresh trace (never propagates garbage) -----------
-
-
 @pytest.mark.asyncio
 async def test_malformed_inbound_traceparent_mints_a_fresh_trace() -> None:
     io = StaticIOLayer(fetch_map={"https://a": "A"})
-    bus = InMemoryBus()
+    stream = InMemoryEventStream()
     topic = "trace-topic-4"
 
-    await publish_run(bus, Url4Executor(io), topic, "https://a!go", traceparent="garbage")
-    frames = await _collect(bus, topic)
+    await publish_run(stream, Url4Executor(io), topic, "https://a!go", traceparent="garbage")
+    frames = await _collect(stream, topic)
 
     trace_ids = set()
     for frame in frames:
@@ -159,18 +134,15 @@ async def test_malformed_inbound_traceparent_mints_a_fresh_trace() -> None:
     assert next(iter(trace_ids)) != "garbage"
 
 
-# --- 4b. an all-zero (W3C-invalid) inbound traceparent is rejected, not propagated ---------------
-
-
 @pytest.mark.asyncio
 async def test_all_zero_inbound_traceparent_mints_a_fresh_trace() -> None:
     io = StaticIOLayer(fetch_map={"https://a": "A"})
-    bus = InMemoryBus()
+    stream = InMemoryEventStream()
     topic = "trace-topic-4b"
-    all_zero = f"00-{'0' * 32}-{'b' * 16}-01"  # W3C-invalid all-zero trace-id
+    all_zero = f"00-{'0' * 32}-{'b' * 16}-01"
 
-    await publish_run(bus, Url4Executor(io), topic, "https://a!go", traceparent=all_zero)
-    frames = await _collect(bus, topic)
+    await publish_run(stream, Url4Executor(io), topic, "https://a!go", traceparent=all_zero)
+    frames = await _collect(stream, topic)
 
     trace_ids = set()
     for frame in frames:
@@ -178,56 +150,21 @@ async def test_all_zero_inbound_traceparent_mints_a_fresh_trace() -> None:
         assert match is not None
         trace_ids.add(match.group(1))
     assert len(trace_ids) == 1
-    # the null-sentinel trace-id must NOT have been adopted
     assert next(iter(trace_ids)) != "0" * 32
-
-
-# --- 5. routes.py: a valid inbound header forwards; absent/malformed schedules with None ---------
-
-
-class _FakeJobRunner:
-    """A headless ``JobRunner`` that only records the ``traceparent`` kwarg it was scheduled
-    with."""
-
-    def __init__(self) -> None:
-        self.scheduled: list[tuple[str, str, int, str | None]] = []
-
-    def schedule(
-        self,
-        topic: str,
-        url4: str,
-        deadline_s: int,
-        *,
-        traceparent: str | None = None,
-        credential: str | None = None,
-        profile: str | None = None,
-    ) -> str:
-        self.scheduled.append((topic, url4, deadline_s, traceparent))
-        return job_name(topic)
-
-    def stop(self, topic: str) -> None:
-        raise NotImplementedError
-
-    def exists(self, topic: str) -> bool:
-        return False
-
-    def status(self, topic: str) -> JobStatus:
-        return "running"
-
-
-class _FakeGate:
-    async def has_subscriber(self, topic: str) -> bool:
-        return True
 
 
 def _token(topic: str) -> str:
     return JwtCodec(secret=SECRET, iat_window_s=WINDOW_S).sign(topic, T0)
 
 
-def _app(job_runner: _FakeJobRunner) -> FastAPI:
+def _app(job_runner: RecordingJobRunner) -> FastAPI:
     settings = Settings(jwt_secret=SECRET, iat_window_s=WINDOW_S)
     return create_app(
-        settings, bus=InMemoryBus(), job_runner=job_runner, clock=lambda: T0, interest=_FakeGate()
+        settings,
+        stream=InMemoryEventStream(),
+        job_runner=job_runner,
+        clock=lambda: T0,
+        interest=FixedGate(),
     )
 
 
@@ -238,7 +175,7 @@ def _client(app: FastAPI) -> httpx.AsyncClient:
 @pytest.mark.asyncio
 async def test_routes_valid_inbound_traceparent_forwards_into_schedule() -> None:
     topic = "trace-topic-5-valid"
-    runner = _FakeJobRunner()
+    runner = RecordingJobRunner()
     app = _app(runner)
     valid_tp = f"00-{'a' * 32}-{'b' * 16}-01"
 
@@ -253,13 +190,22 @@ async def test_routes_valid_inbound_traceparent_forwards_into_schedule() -> None
             },
         )
     assert resp.status_code == 202
-    assert runner.scheduled == [(topic, "gpt(hi)", app.state.settings.job_deadline_s, valid_tp)]
+    assert runner.scheduled == [
+        ScheduledRun(
+            topic=topic,
+            url4="gpt(hi)",
+            deadline_s=app.state.settings.job_deadline_s,
+            traceparent=valid_tp,
+            credential=None,
+            profile=None,
+        )
+    ]
 
 
 @pytest.mark.asyncio
 async def test_routes_absent_traceparent_schedules_with_none() -> None:
     topic = "trace-topic-5-absent"
-    runner = _FakeJobRunner()
+    runner = RecordingJobRunner()
     app = _app(runner)
 
     async with _client(app) as client:
@@ -269,13 +215,13 @@ async def test_routes_absent_traceparent_schedules_with_none() -> None:
             headers={"URL4-Capability": _token(topic), "Prefer": "respond-async"},
         )
     assert resp.status_code == 202
-    assert runner.scheduled[0][3] is None
+    assert runner.scheduled[0].traceparent is None
 
 
 @pytest.mark.asyncio
 async def test_routes_malformed_traceparent_schedules_with_none() -> None:
     topic = "trace-topic-5-malformed"
-    runner = _FakeJobRunner()
+    runner = RecordingJobRunner()
     app = _app(runner)
 
     async with _client(app) as client:
@@ -289,20 +235,17 @@ async def test_routes_malformed_traceparent_schedules_with_none() -> None:
             },
         )
     assert resp.status_code == 202
-    assert runner.scheduled[0][3] is None
-
-
-# --- 6. non-span lifecycle frames carry the root traceparent, tracestate None --------------------
+    assert runner.scheduled[0].traceparent is None
 
 
 @pytest.mark.asyncio
 async def test_non_span_lifecycle_frames_carry_root_traceparent() -> None:
     io = StaticIOLayer(fetch_map={"https://a": "A"})
-    bus = InMemoryBus()
+    stream = InMemoryEventStream()
     topic = "trace-topic-6"
 
-    await publish_run(bus, Url4Executor(io), topic, "https://a!go")
-    frames = await _collect(bus, topic)
+    await publish_run(stream, Url4Executor(io), topic, "https://a!go")
+    frames = await _collect(stream, topic)
 
     started = next(f for f in frames if isinstance(f, StartedEvent))
     result = next(f for f in frames if isinstance(f, ResultEvent))

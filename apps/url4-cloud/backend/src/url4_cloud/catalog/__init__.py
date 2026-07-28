@@ -1,12 +1,9 @@
-"""Composition root for the model-catalog port (spec §6.4).
+"""Public surface of the model-catalog subsystem.
 
-FEATURE: model-catalog discovery. ``create_app`` stays purely dependency-injected (tests hand it
-fakes); this module is the ONE place that turns ``Settings`` into a live, cached, aigateway-backed
-service — so prod and local mode share a single wiring path.
-
-INVARIANT: there is no credential to configure. The catalog endpoint forwards the CALLER's
-credential upstream, so ``aigateway_base_url`` is the only precondition and url4-cloud stores no
-aigateway secret of its own (spec D2).
+Re-exports the hexagonal port (``catalog/port.py``), the aigateway adapter
+(``catalog/aigateway.py``), and the caching layer (``catalog/cache.py``), and
+provides ``build_catalog_service`` — the composition root that wires an
+``AigatewayCatalogSource`` behind a ``CachedCatalog`` from ``Settings``.
 """
 
 from __future__ import annotations
@@ -29,9 +26,6 @@ from url4_cloud.catalog.port import (
 )
 from url4_cloud.config import Settings
 
-# WHY a short timeout: this is a synchronous dependency of an interactive request, and the cache
-# already absorbs the cost of a miss. Blocking a client on a wedged upstream is strictly worse
-# than a fast 504 it can retry.
 _UPSTREAM_TIMEOUT_S = 10.0
 
 
@@ -44,17 +38,11 @@ def build_catalog_service(
     *,
     client_factory: Callable[[str], httpx.AsyncClient] = _default_client,
 ) -> CachedCatalog | None:
-    """Return the cached catalog service, or ``None`` when aigateway is not configured.
+    """Wire the aigateway-backed, cached catalog service from ``settings``.
 
-    INVARIANT: total over the configuration space, mirroring
-    :func:`~url4_cloud.jobs.factory.build_job_runner`'s "unconfigured ⇒ ``None``" contract — which
-    the route turns into a 503 rather than letting a ``None`` raise ``AttributeError`` (500).
-
-    ``client_factory`` is injectable so this composition path is testable headless; importing this
-    module must never open a socket.
+    Returns None when no aigateway base URL is configured, matching the 503
+    "not configured" response `rest/catalog.py` raises for that case.
     """
-    # WHY a local: it narrows `str | None` to `str` for the type checker across the guard, so
-    # the client factory needs no assert or cast.
     base_url = settings.aigateway_base_url
     if not base_url:
         return None

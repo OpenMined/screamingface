@@ -9,9 +9,11 @@
 # size one against.
 replicaCount: 1
 
-# Two images now: the backend (App, this block + the Deployment below) and the Runner are
-# separate artifacts. The Runner has its own repository under `runner.image` below. Build-time
-# OCI labels the images should carry are listed in README.md (org.opencontainers.image.*).
+# ONE image, used two ways: the Deployment runs it as the control plane (`url4-cloud serve`),
+# and every Runner Job runs the SAME image in run mode (`url4-cloud run`) — see
+# `URL4_CLOUD_RUNNER_IMAGE` in configmap.yaml. There is no second `runner.image` block any more;
+# the two artifacts were merged, so they cannot drift out of version alignment. Build-time OCI
+# labels the image should carry are listed in README.md (org.opencontainers.image.*).
 image:
   repository: ghcr.io/openmined/screamingface-url4-cloud
   tag: ""            # defaults to .Chart.AppVersion
@@ -67,6 +69,9 @@ config:
   wsHeartbeatS: 15
   # k8s Job activeDeadlineSeconds ceiling = 16h (spec §3); the Runner Job's hard timeout.
   jobDeadlineS: 57600
+  # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
+  # image's own default. Must be one of the models that url4.toml declares.
+  aigatewayModel: ""
   # Where scheduled Runner Jobs reach aigateway. Empty = forward nothing, and the Runner falls
   # back to loopback (127.0.0.1:9105) — which inside a Job Pod is that Pod itself, so any
   # deployment doing real inference MUST set this to the aigateway Service URL.
@@ -80,7 +85,7 @@ config:
 # and run its bounded tool-calling loop. Disabled => the Runner never sees TAVILY_API_KEY and the
 # connector stays deny-by-default (dec:W5), with a request body identical to the no-tools shape.
 #
-# INVARIANT: the App forwards a Secret *reference* into each Runner Job (secretKeyRef), never the
+# INVARIANT: the App attaches the Secret to each Runner Job by reference (envFrom.secretRef), never the
 # literal key — a Job spec is not a secret (readable with `get jobs`, echoed by `kubectl describe`
 # and the audit log). The App therefore never reads this value and needs NO extra RBAC, and
 # rotating the Secret takes effect on the next Job with no App restart.
@@ -88,8 +93,9 @@ tavily:
   enabled: false
   # Bring your own Secret (recommended for prod — created out-of-band or by an External Secrets
   # / Sealed Secrets flow). Empty + enabled => the chart creates one from `apiKey` below.
+  # NOTE: the credential must be keyed `TAVILY_API_KEY` in the Secret — each Runner Job attaches
+  # it with `envFrom.secretRef`, which injects keys under their own names and cannot rename.
   existingSecret: ""
-  secretKey: api-key
   # Dev-only convenience for a chart-created Secret. NEVER commit a real key to a values file;
   # pass it with `--set-file tavily.apiKey=<path>` or `--set`, or use `existingSecret`.
   apiKey: ""
@@ -192,16 +198,14 @@ runner:
   # Which JobRunner substrate the App schedules on (url4_cloud.config.RunnerBackend). `k8s` is the
   # point of this chart; `none` degrades the App to a token-minting NATS bridge that cannot run.
   backend: k8s
-  # The Runner's OWN image (separate from the App `image` above). `tag` empty => the App's tag,
-  # so a release keeps both artifacts version-aligned. The backend schedules this image as a
-  # batch/v1 Job per run (K8sJobRunner._manifest).
-  image:
-    repository: ghcr.io/openmined/screamingface-url4-cloud-runner
-    tag: ""               # empty => the App `image.tag` (both images release together)
-  # NOTE: there is deliberately no `command` here. The Job's command is the Runner image's own
-  # console script, pinned in code as `jobs.factory.RUNNER_COMMAND` with no env override — a value
-  # here rendered into nothing and was silently ignored, which is worse than not offering it. The
-  # entrypoint belongs to the image: change it in the Dockerfile, not in a values file.
+  # NOTE: there is deliberately no `image` here any more. A Runner Job runs the App's OWN image
+  # (the `image:` block at the top of this file) in its run mode, so there is nothing left to
+  # configure separately — and nothing that can drift out of version alignment during an upgrade.
+  #
+  # NOTE: there is deliberately no `command` here either. The Job's command is the mode switch
+  # `["url4-cloud", "run"]`, pinned in code beside the Job spec that uses it
+  # (`adapters/k8s.py`). A value here rendered into nothing and was silently ignored, which is
+  # worse than not offering it. The entrypoint belongs to the image.
   # The Runner Job's own requests/limits, forwarded into every scheduled Job. This is the
   # workload that actually burns CPU/memory (it drives the url4 DAG engine and buffers model
   # responses) — with nothing set it schedules BestEffort: placed blind, evicted first, and

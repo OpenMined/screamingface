@@ -4,8 +4,8 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-import url4_streaming_protocol
-from url4_streaming_protocol import (
+import url4.streaming.protocol
+from url4.streaming.protocol import (
     CostBreakdown,
     CostUsageData,
     CostUsageEvent,
@@ -78,8 +78,6 @@ def test_span_dumps_gen_ai_keys_and_no_cost() -> None:
 
 
 def test_inbound_adapter_rejects_execute() -> None:
-    # INVARIANT: ai.url4.execute left the WS inbound surface (OME-548) — runs start via REST
-    # GET /?q=…, never over the socket; the InboundFrame discriminator no longer knows the tag.
     with pytest.raises(ValidationError):
         InboundFrameAdapter.validate_python(
             {
@@ -92,9 +90,8 @@ def test_inbound_adapter_rejects_execute() -> None:
 
 
 def test_execute_symbols_removed() -> None:
-    # INVARIANT: ExecuteEvent/ExecuteData are deleted entirely — no consumer anywhere (OME-548).
-    assert not hasattr(url4_streaming_protocol, "ExecuteEvent")
-    assert not hasattr(url4_streaming_protocol, "ExecuteData")
+    assert not hasattr(url4.streaming.protocol, "ExecuteEvent")
+    assert not hasattr(url4.streaming.protocol, "ExecuteData")
 
 
 def test_money_serializes_as_string() -> None:

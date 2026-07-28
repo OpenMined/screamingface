@@ -1,35 +1,48 @@
 [project]
 name = "url4-cloud"
 version = "0.1.0"
-description = "url4-cloud backend — REST + WebSocket entrypoint: mints tokens, upgrades connections, schedules Runner Jobs."
+description = "url4-cloud — the control plane (REST + WebSocket, schedules Runner Jobs) and the url4 run mode those Jobs execute."
 requires-python = ">=3.12"
+# ONE distribution, TWO modes (`url4-cloud serve` / `url4-cloud run`) — see `url4_cloud.cli`.
+# Merging the former `url4-cloud-runner` distribution in cost NO new dependency: its deps
+# (httpx, nats-py, url4) were already a strict subset of these. What the run mode gains is
+# serving-side packages it never imports; the layering gate is what keeps that true.
 dependencies = [
+    # --- serving mode only ---
     "fastapi>=0.136.1",
-    "pydantic>=2.13.4",
-    "pydantic-settings>=2.14.1",
     "uvicorn[standard]>=0.47.0",
     "pyjwt>=2.10.1",
     "kubernetes>=31.0.0",
     "prometheus-client>=0.21.0",
-    # Local-dev mode (make_local_app) drives the real Url4Executor in-process, so the backend
-    # depends on the runner package. Prod still launches the runner as its own image/Job; the
-    # dependency only matters for the co-located local-mode path.
-    "url4-cloud-runner",
-    "url4-cloud-nats",
-    "url4-streaming-protocol",
+    "pydantic-settings>=2.14.1",
+    # --- both modes ---
+    "pydantic>=2.13.4",
+    # The catalog's upstream aigateway client (`url4_cloud.catalog`), and the run mode's
+    # aigateway + Tavily clients (`url4_cloud.runner.connector`).
+    "httpx>=0.28.1",
+    # Both directions of the run log: the App consumes (`adapters.jetstream.JetStreamConsumer`),
+    # the run mode publishes (`JetStreamPublisher`) — one adapter module, shared.
+    "nats-py>=2.9.0",
+    # The wire contract (`url4.streaming`) and the engine (`url4.dag`) ship in one distribution:
+    # the App needs the former, the run mode the latter.
+    "url4",
 ]
 
 [project.scripts]
 url4-cloud = "url4_cloud.cli:main"
+# COMPATIBILITY ALIAS. The Job's command is now `["url4-cloud", "run"]`, but during a rolling
+# upgrade an App pod running the OLD code schedules the NEW image with the old command — the
+# image reference comes from the ConfigMap while the command comes from Python, so the two
+# change at different moments. Keeping this name resolvable makes that window survivable in
+# both directions. Removable one release after the merge ships.
+url4-cloud-runner = "url4_cloud.runner.main:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-url4-cloud-runner = { path = "../runner", editable = true }
-url4-cloud-nats = { path = "../shared/bus", editable = true }
-url4-streaming-protocol = { path = "../shared/protocol", editable = true }
+url4 = { path = "../../../packages/url4", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/url4_cloud"]

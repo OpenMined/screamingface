@@ -1,19 +1,22 @@
 # url4-cloud dev/test aggregate (NOT a shipped artifact).
 #
-# The repo ships TWO apps from under this tree — `backend/` (the App) and `runner/` (the
-# Runner) — plus two shared libraries under `shared/` (`protocol/`, `bus/`). This pyproject is
-# the one place that pulls them all into a single venv so the cross-package test suite and the
-# shared ruff/pytest/pyright config run from `apps/url4-cloud` with one `uv sync`. It is
-# `package = false` (never built into a wheel); the real distributions are the four pyprojects
-# below. Docker images are built per-app from `backend/Dockerfile` and `runner/Dockerfile`.
+# The tree ships ONE app from under `backend/`, built into one image and entered in either of two
+# modes (`url4-cloud serve` / `url4-cloud run` — see `url4_cloud.cli`). It used to ship two
+# distributions; they were merged because the run mode's dependencies were already a subset of
+# the serving mode's, and the split's real cost was three hand-synced duplicate modules.
+#
+# This pyproject survives the merge because it still earns its keep: it holds the shared
+# ruff/pytest/pyright config and the `tests/` tree, which sit ABOVE `backend/` so the suite can
+# import the engine (`packages/url4`) alongside the app. It is `package = false` (never built
+# into a wheel); the real distribution is `backend/pyproject.toml`, and the image is built from
+# `backend/Dockerfile`.
 [project]
 name = "url4-cloud-dev"
 version = "0"
-description = "url4-cloud dev/test aggregate — owns the cross-package test suite and shared tooling."
+description = "url4-cloud dev/test aggregate — owns the test suite and shared tooling."
 requires-python = ">=3.12"
 dependencies = [
-    "url4-cloud", # the backend
-    "url4-cloud-runner", # the runner
+    "url4-cloud",
 ]
 
 [tool.uv]
@@ -21,9 +24,6 @@ package = false
 
 [tool.uv.sources]
 url4-cloud = { path = "backend", editable = true }
-url4-cloud-runner = { path = "runner", editable = true }
-url4-cloud-nats = { path = "shared/bus", editable = true }
-url4-streaming-protocol = { path = "shared/protocol", editable = true }
 url4 = { path = "../../packages/url4", editable = true }
 
 [tool.ruff]
@@ -41,14 +41,12 @@ max-statements = 26
 max-branches = 7
 max-returns = 3
 
-# The four import packages live across backend/, runner/, shared/* — name them explicitly so
-# isort treats them as first-party (auto-detection can't, since this project is package = false).
+# The import packages live across backend/ and packages/url4 — name them explicitly so isort
+# treats them as first-party (auto-detection can't, since this project is package = false).
 [tool.ruff.lint.isort]
 known-first-party = [
+    "url4",
     "url4_cloud",
-    "url4_cloud_runner",
-    "url4_cloud_nats",
-    "url4_streaming_protocol",
 ]
 
 [tool.pytest.ini_options]

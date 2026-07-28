@@ -1,301 +1,141 @@
-"""Unit tests for local-mode wiring: dev-secret split + CLI flag/port-check plumbing
-(local-mode PRD §7 tests 7-8, docs/plans/url4-cloud-integration/prd/local-mode.md).
+"""`url4_cloud.local` — the composition root that fuses the control plane and the run mode.
 
-Headless: no real server bind except the deliberate occupied-port probe in
-``test_main_local_occupied_port_exits_before_uvicorn``, which never reaches ``uvicorn.run`` — the
-pre-bind check fires first.
+It is the ONE declared exception to the layering rule, so what matters here is that the exception
+stays contained: the App it builds must be the real one with two adapters swapped, and importing
+the ordinary serving path must not drag the engine in behind it.
 """
 
-import asyncio
-import logging
-import socket
+import subprocess
+import sys
+from pathlib import Path
 
-import httpx
 import pytest
-from fastapi.testclient import TestClient
+from fastapi import FastAPI
 
-import url4_cloud.app as app_module
-from url4_cloud.app import _local_settings, _require_prod_secret, make_local_app
-from url4_cloud.cli import main
-from url4_cloud.config import Settings
-from url4_cloud.jobs.inprocess import InProcessJobRunner
-from url4_cloud_nats import InMemoryBus
-from url4_cloud_runner.aigateway_connector import (
-    AigatewayConfig,
-    AigatewayWorld,
-    build_aigateway_world,
-)
-from url4_streaming_protocol import OutboundFrame, TerminatedEvent
-
-_INSECURE_DEFAULT = "dev-insecure-change-me"
-_TOKEN = "test-token"  # noqa: S105 - not a real credential
-_MODEL_EXPR = "/claude-haiku-4-5(ctx)!'hi'"
+from url4_cloud import job_env
+from url4_cloud.adapters.inprocess import InProcessJobRunner
+from url4_cloud.adapters.memory import InMemoryEventStream
+from url4_cloud.config import INSECURE_DEFAULT_JWT_SECRET, Settings
+from url4_cloud.local import LOCAL_HOST, _with_runner_config, create_local_app
 
 
-def _aigateway_handler(request: httpx.Request) -> httpx.Response:
-    return httpx.Response(
-        200,
-        json={
-            "choices": [{"message": {"content": "hi there"}}],
-            "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7},
-        },
-    )
+def _app(**kwargs: object) -> FastAPI:
+    return create_local_app(Settings(jwt_secret="s" * 32, **kwargs), env={})  # type: ignore[arg-type]
 
 
-async def _build_world(*, token: str = _TOKEN) -> AigatewayWorld:
-    cfg = AigatewayConfig(models=("claude-haiku-4-5",))
-    client = httpx.AsyncClient(
-        transport=httpx.MockTransport(_aigateway_handler), base_url="http://aigw"
-    )
-    return await build_aigateway_world(cfg, token=token, client=client)
+def test_local_app_wires_the_in_memory_pair() -> None:
+    app = _app()
 
-
-async def _drain_until_terminated(bus: InMemoryBus, topic: str) -> list[OutboundFrame]:
-    frames: list[OutboundFrame] = []
-    async for event in bus.subscribe(topic):
-        frames.append(event)
-        if isinstance(event, TerminatedEvent):
-            break
-    return frames
-
-
-async def _schedule_and_drain(
-    runner: InProcessJobRunner, bus: InMemoryBus, topic: str, url4: str
-) -> list[OutboundFrame]:
-    # WHY a single portal-called coroutine: `InProcessJobRunner.schedule` calls
-    # `asyncio.get_running_loop()` internally, so it must run IN the app's event loop (the
-    # TestClient portal's loop), not the sync test thread — same as `_drain_until_terminated`.
-    runner.schedule(topic, url4, deadline_s=60)
-    return await asyncio.wait_for(_drain_until_terminated(bus, topic), timeout=2.0)
-
-
-# --- Deliverable 3: dev-secret split (PRD test 8) --------------------------------------------
-
-
-def test_local_settings_generates_a_random_secret_and_warns(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    monkeypatch.delenv("URL4_CLOUD_JWT_SECRET", raising=False)
-    with caplog.at_level(logging.WARNING):
-        settings = _local_settings()
-    assert settings.jwt_secret != _INSECURE_DEFAULT
-    assert len(settings.jwt_secret) == 64
-    int(settings.jwt_secret, 16)  # a valid hex string
-    assert any("ephemeral dev secret" in record.message for record in caplog.records)
-
-
-def test_require_prod_secret_rejects_the_insecure_default() -> None:
-    with pytest.raises(RuntimeError):
-        _require_prod_secret(Settings(jwt_secret=_INSECURE_DEFAULT))
-
-
-def test_require_prod_secret_accepts_a_real_secret() -> None:
-    _require_prod_secret(Settings(jwt_secret="a-real-production-secret"))  # no raise
-
-
-# --- make_local_app: adapter wiring ------------------------------------------------------------
-
-
-def test_make_local_app_wires_inmemory_bus_and_inprocess_runner() -> None:
-    app = make_local_app()
-    assert isinstance(app.state.bus, InMemoryBus)
+    assert isinstance(app.state.stream, InMemoryEventStream)
     assert isinstance(app.state.job_runner, InProcessJobRunner)
 
 
-# --- Batch 4: local mode's shared aigateway world ------------------------------------------------
+def test_the_stream_is_ONE_object_shared_by_both_sides() -> None:
+    """The App reads it as an `EventConsumer` and the runner writes it as an `EventPublisher`.
+
+    Two instances would be two disjoint logs: every run would publish into a stream nobody reads,
+    and every subscriber would wait forever on an empty one. That shared instance IS the bus.
+    """
+    app = _app()
+
+    runner: InProcessJobRunner = app.state.job_runner
+    assert runner._stream is app.state.stream  # noqa: SLF001 - identity is the invariant
 
 
-@pytest.mark.asyncio
-async def test_shared_aigateway_world_routes_a_model_expression_to_it() -> None:
-    world = await _build_world()
-    app = make_local_app(aigateway=world)
-    runner = app.state.job_runner
-    bus = app.state.bus
-    topic = "shared-world-topic"
+def test_local_mode_registers_a_shutdown_hook_for_in_flight_runs() -> None:
+    """Without it, `aclose` never runs and in-flight runs die with the loop, publishing nothing."""
+    app = _app()
 
-    runner.schedule(topic, _MODEL_EXPR, deadline_s=60)
-
-    frames = await asyncio.wait_for(_drain_until_terminated(bus, topic), timeout=2.0)
-
-    assert isinstance(frames[-1], TerminatedEvent)
-    assert frames[-1].data.status == "succeeded"
+    runner: InProcessJobRunner = app.state.job_runner
+    assert runner.aclose in app.router.on_shutdown
 
 
-@pytest.mark.asyncio
-async def test_without_a_shared_aigateway_world_stays_deny_by_default() -> None:
-    app = make_local_app()
-    runner = app.state.job_runner
-    bus = app.state.bus
-    topic = "deny-by-default-topic"
+def test_local_mode_boots_on_the_insecure_default_secret() -> None:
+    """`create_app_from_env` REFUSES this secret; local mode accepts it deliberately.
 
-    runner.schedule(topic, _MODEL_EXPR, deadline_s=60)
+    That is the trade `LOCAL_HOST` pays for — so if this ever starts raising, the loopback bind
+    has become load-bearing for something it was not designed to carry.
+    """
+    app = create_local_app(Settings(jwt_secret=INSECURE_DEFAULT_JWT_SECRET), env={})
 
-    frames = await asyncio.wait_for(_drain_until_terminated(bus, topic), timeout=2.0)
-
-    assert isinstance(frames[-1], TerminatedEvent)
-    assert frames[-1].data.status == "failed"
+    assert isinstance(app, FastAPI)
 
 
-def test_shutdown_closes_the_shared_aigateway_world_exactly_once() -> None:
-    world = asyncio.run(_build_world())
-    closed: list[int] = []
-    real_aclose = world.aclose
+def test_the_insecure_default_is_warned_about(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING"):
+        create_local_app(Settings(jwt_secret=INSECURE_DEFAULT_JWT_SECRET), env={})
 
-    async def _spy_aclose() -> None:
-        closed.append(1)
-        await real_aclose()
-
-    world.aclose = _spy_aclose  # type: ignore[method-assign]
-    app = make_local_app(aigateway=world)
-
-    # `TestClient.__enter__`/`__exit__` drive the real ASGI lifespan (on_startup/on_shutdown) over
-    # a portal in the app's own event loop — the same harness the local-spine tests use.
-    with TestClient(app):
-        pass
-
-    assert closed == [1]
+    assert "INSECURE" in caplog.text
 
 
-def test_aigateway_config_builds_the_shared_world_at_startup_from_env_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("AIGATEWAY_TOKEN", "env-token")
-    monkeypatch.setenv("AIGATEWAY_PROFILE", "env-profile")
-    built_world = asyncio.run(_build_world(token="env-token"))
-    calls: list[tuple[AigatewayConfig, str, str | None]] = []
+def test_a_real_secret_produces_no_warning(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING"):
+        _app()
 
-    async def _fake_build(
-        cfg: AigatewayConfig,
-        *,
-        token: str,
-        profile: str | None = None,
-        # Signature sync only: local mode now also forwards the Tavily key (web tools,
-        # spec 2026-07-23). Accepted-and-ignored here; pinned by the test below.
-        tavily_api_key: str | None = None,
-    ) -> AigatewayWorld:
-        calls.append((cfg, token, profile))
-        return built_world
-
-    monkeypatch.setattr(app_module, "build_aigateway_world", _fake_build)
-    cfg = AigatewayConfig(models=("claude-haiku-4-5",))
-    app = make_local_app(aigateway_config=cfg)
-
-    with TestClient(app) as client:
-        # startup already ran on __enter__ — the fake was called with the env-sourced credentials.
-        assert calls == [(cfg, "env-token", "env-profile")]
-        portal = client.portal
-        assert portal is not None
-        frames = portal.call(
-            _schedule_and_drain,
-            app.state.job_runner,
-            app.state.bus,
-            "startup-world-topic",
-            _MODEL_EXPR,
-        )
-
-    assert isinstance(frames[-1], TerminatedEvent)
-    assert frames[-1].data.status == "succeeded"
+    assert "INSECURE" not in caplog.text
 
 
-def test_aigateway_config_without_env_token_stays_deny_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("AIGATEWAY_TOKEN", raising=False)
-    cfg = AigatewayConfig(models=("claude-haiku-4-5",))
-    app = make_local_app(aigateway_config=cfg)
-
-    with TestClient(app) as client:
-        portal = client.portal
-        assert portal is not None
-        frames = portal.call(
-            _schedule_and_drain,
-            app.state.job_runner,
-            app.state.bus,
-            "no-token-topic",
-            _MODEL_EXPR,
-        )
-
-    assert isinstance(frames[-1], TerminatedEvent)
-    assert frames[-1].data.status == "failed"
+def test_local_host_is_loopback() -> None:
+    # INVARIANT: not configurable, and not 0.0.0.0. See the docstring on `LOCAL_HOST`.
+    assert LOCAL_HOST == "127.0.0.1"
 
 
-# --- Deliverable 5: CLI (PRD test 7) ------------------------------------------------------------
+def test_settings_tune_the_local_bounds() -> None:
+    app = _app(local_max_concurrent_runs=3, local_stream_max_frames=7, local_max_run_history=5)
+
+    runner: InProcessJobRunner = app.state.job_runner
+    assert runner._max_concurrent == 3  # noqa: SLF001
+    assert runner._max_history == 5  # noqa: SLF001
+    assert app.state.stream._max_frames == 7  # noqa: SLF001
 
 
-def test_main_local_help_documents_the_flags(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["local", "--help"])
-    assert exc_info.value.code == 0
-    out = capsys.readouterr().out
-    assert "--host" in out
-    assert "--port" in out
-    assert "--max-runs" in out
+def test_an_unconfigured_local_run_falls_back_to_the_checkout_config() -> None:
+    """Without this, every run in a dev checkout fails before reaching a model.
+
+    The declared world is baked into the IMAGE at `/etc/url4/url4.toml` and is not installed by
+    the wheel, so the default path does not exist outside a container.
+    """
+    resolved = _with_runner_config({})
+
+    config_path = Path(resolved[job_env.RUNNER_CONFIG])
+    assert config_path.is_file()
+    assert config_path.name == "url4.toml"
 
 
-def test_main_local_occupied_port_exits_before_uvicorn() -> None:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as blocker:
-        blocker.bind(("127.0.0.1", 0))
-        blocker.listen(1)
-        port = blocker.getsockname()[1]
+def test_an_explicit_runner_config_is_never_overridden() -> None:
+    resolved = _with_runner_config({job_env.RUNNER_CONFIG: "/somewhere/else.toml"})
 
-        with pytest.raises(SystemExit) as exc_info:
-            main(["local", "--port", str(port), "--host", "127.0.0.1"])
-
-    assert exc_info.value.code == 2
+    assert resolved[job_env.RUNNER_CONFIG] == "/somewhere/else.toml"
 
 
-# --- Tavily web tools in local mode (spec 2026-07-23, dec:W4) ------------------------------------
+def test_the_fallback_leaves_the_rest_of_the_environment_alone() -> None:
+    resolved = _with_runner_config({job_env.AIGATEWAY_TOKEN: "tok"})
+
+    assert resolved[job_env.AIGATEWAY_TOKEN] == "tok"
 
 
-def test_local_mode_forwards_the_tavily_key_from_env_into_the_shared_world(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # FEATURE: local mode's single shared world must enable web tools the same way the k8s
-    # Runner Job does — from the runner-level TAVILY_API_KEY operator secret.
-    monkeypatch.setenv("AIGATEWAY_TOKEN", "env-token")
-    monkeypatch.setenv("TAVILY_API_KEY", "tvly-dev-local")
-    built_world = asyncio.run(_build_world(token="env-token"))
-    seen: list[str | None] = []
+def test_importing_the_serving_app_does_not_pull_in_local_mode_or_the_run_mode() -> None:
+    """INVARIANT: the fusion edge points ONE way — `local` imports `app`, never the reverse.
 
-    async def _fake_build(
-        cfg: AigatewayConfig,
-        *,
-        token: str,
-        profile: str | None = None,
-        tavily_api_key: str | None = None,
-    ) -> AigatewayWorld:
-        seen.append(tavily_api_key)
-        return built_world
+    `local` is exempt from the layering gate, so the containment of that exemption is exactly
+    what needs pinning: an ordinary `url4-cloud serve` must not reach the run mode just because a
+    local mode exists. If `url4_cloud.app` ever imported `local` at module scope, every deployed
+    App would load `runner.connector`/`runner.executor` and httpx behind it.
 
-    monkeypatch.setattr(app_module, "build_aigateway_world", _fake_build)
-    app = make_local_app(aigateway_config=AigatewayConfig(models=("claude-haiku-4-5",)))
+    NOT asserted here: that the url4 ENGINE stays unloaded. `url4/__init__` imports the DAG, so
+    any `url4.streaming` import loads it — which `check_layering.py`'s SCOPE NOTE already records
+    as unenforceable by construction. A subprocess because this interpreter has imported the lot.
+    """
+    probe = (
+        "import sys, url4_cloud.app;"
+        "leaked = sorted(m for m in sys.modules "
+        "if m == 'url4_cloud.local' or m.startswith('url4_cloud.runner'));"
+        "print(','.join(leaked))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
 
-    with TestClient(app):
-        assert seen == ["tvly-dev-local"]
-
-
-def test_local_mode_leaves_tavily_unset_when_the_env_has_no_key(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # INVARIANT: deny-by-default (dec:W5) — no key in the env means the world is built without
-    # one, so the connector never declares web_search/web_fetch.
-    monkeypatch.setenv("AIGATEWAY_TOKEN", "env-token")
-    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    built_world = asyncio.run(_build_world(token="env-token"))
-    seen: list[str | None] = []
-
-    async def _fake_build(
-        cfg: AigatewayConfig,
-        *,
-        token: str,
-        profile: str | None = None,
-        tavily_api_key: str | None = None,
-    ) -> AigatewayWorld:
-        seen.append(tavily_api_key)
-        return built_world
-
-    monkeypatch.setattr(app_module, "build_aigateway_world", _fake_build)
-    app = make_local_app(aigateway_config=AigatewayConfig(models=("claude-haiku-4-5",)))
-
-    with TestClient(app):
-        assert seen == [None]
+    assert result.stdout.strip() == "", (
+        f"importing url4_cloud.app reached the run mode: {result.stdout.strip()}"
+    )

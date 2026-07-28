@@ -1,9 +1,11 @@
-"""url4-cloud application settings (env-prefixed ``URL4_CLOUD_``)."""
+"""Typed settings for the url4-cloud App, loaded from `URL4_CLOUD_*` environment variables."""
 
 from typing import Literal, Self
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from url4_cloud import job_env
 
 # WHY a margin at all: the App decides a token is expired from its own clock, while the k8s TTL
 # controller deletes the Job from the control plane's. Without slack a skewed pair could reclaim
@@ -14,7 +16,7 @@ _TTL_SKEW_MARGIN_S = 60
 RunnerBackend = Literal["none", "k8s"]
 """Which ``JobRunner`` substrate the deployed App schedules runs on (spec §9).
 
-``k8s`` is prod (namespace-scoped batch/v1 Jobs) and ``none`` a bus-only App that mints tokens
+``k8s`` is prod (namespace-scoped batch/v1 Jobs) and ``none`` a stream-only App that mints tokens
 and bridges NATS but schedules nothing.
 """
 
@@ -26,13 +28,16 @@ INSECURE_DEFAULT_JWT_SECRET = "dev-insecure-change-me"
 
 
 class Settings(BaseSettings):
-    """Runtime configuration; overridable via ``URL4_CLOUD_*`` env vars."""
+    """Environment-backed configuration for the App: auth, NATS, job-runner backend selection,
+    and model-catalog cache tuning."""
 
     model_config = SettingsConfigDict(env_prefix="URL4_CLOUD_")
 
     # WHY: HS256 signing secret for the JWT topic-capability token (spec §4). Never logged.
     jwt_secret: str = INSECURE_DEFAULT_JWT_SECRET
-    nats_url: str = "nats://localhost:4222"
+    # WHY the shared constant and not a literal: `job_env` states the fallback beside the variable
+    # name so serve and run cannot be pointed at different brokers by a one-sided edit.
+    nats_url: str = job_env.DEFAULT_NATS_URL
     # INVARIANT: stateless iat window (seconds) — start rejected when now - iat exceeds it (§4).
     iat_window_s: int = 60
     # WHY: sync-hold cap; a run outliving it degrades to 202 async (spec §5).
@@ -46,25 +51,35 @@ class Settings(BaseSettings):
     runner: RunnerBackend = "none"
     # INVARIANT: the App's RBAC Role is namespace-scoped, so Jobs are only ever created here (§9).
     namespace: str = "default"
-    # WHY: the Runner is its OWN image now (apps/url4-cloud/runner/Dockerfile), entered through
-    # the `url4-cloud-runner` console script — so this is that image's tag. The backend
-    # schedules it as a batch/v1 Job per run (K8sJobRunner._manifest).
-    runner_image: str = "url4-cloud-runner:latest"
-    # WHY: forwarded into every Runner Job as AIGATEWAY_BASE_URL. The Runner's own fallback is
-    # loopback (127.0.0.1:9105), which inside a Job Pod resolves to itself — so an in-cluster
-    # deployment MUST supply the aigateway Service URL here. `None` = forward nothing and let the
-    # Runner keep its default (the local/dev shape).
+    # WHY this is still a setting when the Job now runs the App's OWN image: a process cannot
+    # reliably learn the image reference it was started from (the pod spec holds it, reading it
+    # back needs RBAC on pods and the Downward API does not expose it), so the deployment states
+    # it. The chart renders the same `image:` it gives the Deployment, which is what keeps the
+    # two in lockstep. It is a distinct field rather than a hardcoded constant precisely so a
+    # deployment CAN pin the Job to a different tag during a staged rollout.
+    runner_image: str = "url4-cloud:latest"
+    # WHY: the model catalog forwards the CALLER's credential to aigateway directly, and this is
+    # its ONLY consumer (`catalog/__init__.py:build_catalog_service`) — despite sitting among the
+    # runner-config fields around it, it is no longer forwarded into a Runner Job's env (that now
+    # travels via `runner_env_configmap`/`K8sJobRunner._env_from`, below). It used to be: the
+    # Runner's own fallback is loopback (127.0.0.1:9105), which inside a Job Pod resolves to
+    # itself, not the aigateway Service — the trap `runner_env_configmap` now sidesteps by having
+    # Helm value the variable directly instead of copying it through this field. `None` disables
+    # the model-catalog endpoint (503 "not configured").
     aigateway_base_url: str | None = None
+    # WHY: deploy-time Runner env travels as k8s objects the Job references with `envFrom`, so the
+    # App neither names nor reads those variables — Helm owns name AND value. These two settings
+    # are the only thing it needs: what to reference.
+    runner_env_configmap: str | None = None
     # --- Tavily web tools (spec 2026-07-23). The connector declares web_search/web_fetch ONLY
     # when the Runner sees TAVILY_API_KEY; unset here => deny-by-default (dec:W5).
     #
     # WHY a reference (not a value): a ``batch/v1`` Job object is NOT a secret — readable with
     # ``get jobs`` RBAC (far looser than ``get secrets``) and surfaced in ``kubectl describe``/
-    # ``-o yaml`` and the create-call audit log — so the key travels as a Secret *reference*, not
-    # a literal copied into the manifest (see ``K8sJobRunner._env``). The name/key of the Secret
-    # the Runner Job's env references:
+    # ``-o yaml`` and the create-call audit log — so the key travels as a Secret *reference*, via
+    # `envFrom.secretRef`, never a literal copied into the manifest (see
+    # ``K8sJobRunner._env_from``). The name of the Secret the Runner Job's env references:
     tavily_secret_name: str | None = None
-    tavily_secret_key: str = "api-key"
     # WHY: the Runner drives the url4 DAG engine and buffers model responses — it is the
     # workload that actually consumes CPU/memory here. Without requests it schedules into the
     # BestEffort QoS class (placed blind, evicted first, free to OOM its node), so the chart
@@ -90,6 +105,23 @@ class Settings(BaseSettings):
     # thing bounding concurrent upstream catalog fetches. The apigw is the rate limiter in front;
     # this is the in-app backstop.
     models_upstream_concurrency: int = 8
+
+    # --- local mode (`url4-cloud serve --local`). Ignored by every other backend: these bound
+    # resources that only a single-process deployment has to bound for itself.
+    #
+    # INVARIANT: local mode is selected by ARGV, never by these settings — they tune it, they do
+    # not enable it. See the mode invariant in `cli.py`.
+    #
+    # WHY a concurrency cap at all: k8s spreads Jobs across a cluster and queues the surplus, but
+    # every local run shares one event loop and one process, so admitting without bound degrades
+    # the runs already in flight instead of delaying new ones.
+    local_max_concurrent_runs: int = 8
+    # WHY: the in-memory stream has no retention policy of its own (JetStream does), so a
+    # long-lived dev server would accumulate every frame of every run it ever served.
+    local_stream_max_frames: int = 10_000
+    # WHY bounded run history: `status()` answers from finished tasks, so they are retained past
+    # completion — this caps how many, the way `ttlSecondsAfterFinished` caps retained Jobs.
+    local_max_run_history: int = 1000
 
     # INVARIANT: a finished Job's NAME is the stateless single-use replay guard, so reclaiming
     # it re-opens replay for that topic — but only for as long as the token is still usable.

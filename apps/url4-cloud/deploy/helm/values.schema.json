@@ -59,10 +59,14 @@
         },
         "aigatewayBaseUrl": {
           "type": "string"
+        },
+        "aigatewayModel": {
+          "type": "string",
+          "description": "Overrides the default model route declared in the Runner image's url4.toml. Empty uses the image default; must name a model url4.toml declares."
         }
       },
       "additionalProperties": false,
-      "$comment": "`port` was removed deliberately: the App serves on a hardcoded 9108 (cli.py) and reads no port from its environment, so the value only ever moved the containerPort away from the listening port — a render that lint and install both accepted while the probes and the Service targetPort pointed at nothing. additionalProperties:false now rejects it at install time instead."
+      "$comment": "`port` was removed deliberately: the App serves on a hardcoded 9108 (cli.py) and reads no port from its environment, so the value only ever moved the containerPort away from the listening port \u2014 a render that lint and install both accepted while the probes and the Service targetPort pointed at nothing. additionalProperties:false now rejects it at install time instead."
     },
     "runner": {
       "type": "object",
@@ -73,23 +77,6 @@
             "k8s"
           ],
           "description": "Mirrors url4_cloud.config.RunnerBackend. `none` deploys an App that cannot schedule and answers 503 to every run."
-        },
-        "image": {
-          "type": "object",
-          "description": "The Runner's OWN image (separate from the App `image`). `tag` empty => the App `image.tag`.",
-          "properties": {
-            "repository": {
-              "type": "string",
-              "minLength": 1
-            },
-            "tag": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "repository"
-          ],
-          "additionalProperties": false
         },
         "resources": {
           "type": "object"
@@ -115,10 +102,6 @@
         },
         "existingSecret": {
           "type": "string"
-        },
-        "secretKey": {
-          "type": "string",
-          "minLength": 1
         },
         "apiKey": {
           "type": "string"

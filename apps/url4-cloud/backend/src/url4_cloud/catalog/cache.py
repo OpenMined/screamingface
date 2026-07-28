@@ -2,7 +2,9 @@
 
 FEATURE: model-catalog discovery. This is the piece that turns "one upstream call per request"
 into "one upstream call per credential per TTL", and the piece that keeps an endpoint whose cache
-keys come from unverified credentials from becoming a lever against aigateway.
+keys come from unverified credentials from becoming a lever against aigateway. This module wraps
+any ``CatalogSource`` (see ``catalog/port.py``) — it composes a port implementation rather than
+defining one.
 
 Five behaviours compose here, each closing a specific failure:
 
@@ -83,7 +85,10 @@ class CachedCatalog:
     """A ``CatalogSource`` decorator that caches per credential.
 
     Being a source itself is what lets the route depend on one type whether or not caching is in
-    play, and lets every test here drive a counting in-memory fake instead of HTTP.
+    play, and lets every test here drive a counting in-memory fake instead of HTTP. Coalesces
+    concurrent misses for the same credential into a single upstream fetch, serves a stale entry
+    while refreshes are failing (up to ``stale_max_s``), and bounds upstream concurrency with a
+    semaphore bulkhead.
     """
 
     def __init__(
@@ -112,8 +117,6 @@ class CachedCatalog:
         # sleeping.
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         self._inflight: dict[str, asyncio.Future[ModelCatalog]] = {}
-        # WHY built lazily: asyncio.Semaphore binds to the running loop in older idioms, and this
-        # object is constructed at import/app-build time, outside any loop.
         self._upstream_concurrency = upstream_concurrency
         self._semaphore: asyncio.Semaphore | None = None
         self.counters = CacheCounters()
@@ -135,8 +138,9 @@ class CachedCatalog:
     def max_age_s(self, credential: Credential) -> int:
         """Seconds this credential's entry may still be considered fresh, floored at 0.
 
-        Feeds ``Cache-Control: max-age`` so a downstream cache expires in step with this one
-        rather than extending staleness past our own TTL.
+        Feeds ``Cache-Control: max-age`` (in ``rest/catalog.py``) so a downstream cache expires in
+        step with this one rather than extending staleness past our own TTL; returns 0 for a cold
+        (never-fetched) key.
         """
         entry = self._entries.get(credential.key)
         if entry is None:
@@ -145,6 +149,11 @@ class CachedCatalog:
         return max(0, int(remaining))
 
     async def fetch(self, credential: Credential) -> ModelCatalog:
+        """Return a fresh, in-flight-shared, or backoff-fallback catalog for ``credential``.
+
+        Concurrent callers that miss on the same key await the same in-flight
+        upstream fetch rather than issuing duplicate requests.
+        """
         key = credential.key
         now = self._clock()
         fresh = self._fresh(key, now)
@@ -185,7 +194,11 @@ class CachedCatalog:
         return await self._refresh(credential, key)
 
     async def _refresh(self, credential: Credential, key: str) -> ModelCatalog:
-        """Fetch upstream as the single flight for ``key``, settling every waiter identically."""
+        """Fetch upstream as the single flight for ``key``, settling every waiter identically.
+
+        On failure, falls back to a stale entry via ``_on_failure`` when one is still within
+        ``stale_max_s``; otherwise the error propagates to all waiters.
+        """
         future: asyncio.Future[ModelCatalog] = asyncio.get_running_loop().create_future()
         self._inflight[key] = future
         try:
@@ -217,6 +230,8 @@ class CachedCatalog:
     async def _fetch_upstream(self, credential: Credential) -> ModelCatalog:
         """The one place upstream is called, behind the concurrency bulkhead (spec §7)."""
         if self._semaphore is None:
+            # WHY: asyncio.Semaphore binds to the running loop, so it's built lazily
+            # here on first use rather than in __init__, where no loop may be running.
             self._semaphore = asyncio.Semaphore(self._upstream_concurrency)
         if self._semaphore.locked():
             self.counters.bulkhead_waits += 1
@@ -231,7 +246,7 @@ class CachedCatalog:
     def _stale_or_raise(
         self, entry: _Entry, now: float, error: CatalogError | None
     ) -> ModelCatalog:
-        """Serve the stale entry, or raise once staleness passes the ceiling."""
+        """Serve the stale entry if within ``stale_max_s`` of its last fetch, else raise."""
         if now - entry.fetched_at <= self._stale_max_s:
             self.counters.stale_serves += 1
             logger.warning(
@@ -245,7 +260,9 @@ class CachedCatalog:
         """Record the failure against a KNOWN key and decide whether stale service applies.
 
         INVARIANT: an unknown key records nothing — see :class:`_Entry`. Backoff exists to protect
-        established callers during an outage, not to allocate state for arbitrary tokens.
+        established callers during an outage, not to allocate state for arbitrary tokens. Returns
+        the stale catalog if the entry is still within ``stale_max_s``, else ``None`` so the caller
+        propagates the error instead.
         """
         entry = self._entries.get(key)
         if entry is None:
@@ -263,6 +280,7 @@ class CachedCatalog:
         """Insert as most-recently-used and evict down to ``max_entries``."""
         self._entries[key] = _Entry(catalog=catalog, fetched_at=self._clock())
         self._entries.move_to_end(key)
+        # INVARIANT: entry count never exceeds max_entries; least-recently-used evicted first.
         while len(self._entries) > self._max_entries:
             self._entries.popitem(last=False)
 

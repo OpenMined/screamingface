@@ -1,26 +1,22 @@
-"""The App forwards the aigateway endpoint into every Runner Job (spec §9 env carriage).
+"""How the aigateway base URL reaches a Runner Job — via the chart, not via the App.
 
-FEATURE: a Runner Pod must reach the in-cluster aigateway Service. The Runner reads
-``AIGATEWAY_BASE_URL`` (``url4_cloud_runner.__main__``) and otherwise falls back to
-``http://127.0.0.1:9105`` — a loopback that resolves to the Runner's OWN pod, so without this
-forwarding every scheduled run silently talks to nothing.
-
-INVARIANT: the endpoint is deployment config carried by the App (ConfigMap → Settings → Job env),
-never baked into an image — a baked value cannot follow the Service across namespaces/clusters.
+It is constant for a deployment, so the chart names it AND values it in the runner-env ConfigMap
+and each Job inherits it with `envFrom`. The App only references that ConfigMap by name. These
+tests pin the App OUT of the path: if it starts writing the variable again there are two sources
+of truth for one value, and the quiet one wins.
 """
 
 from typing import Any
 
 from _k8s_fakes import FakeCreatedJob, fake_created_job
 
+from url4_cloud import job_env as runner_job_env
+from url4_cloud.adapters.factory import build_job_runner
+from url4_cloud.adapters.k8s import K8sJobRunner
 from url4_cloud.config import Settings
-from url4_cloud.jobs.factory import build_job_runner
-from url4_cloud.jobs.k8s import K8sJobRunner
 
 
 class _RecordingBatchApi:
-    """Captures the Job manifest the adapter would POST."""
-
     def __init__(self) -> None:
         self.created: list[dict[str, Any]] = []
 
@@ -36,9 +32,6 @@ class _RecordingBatchApi:
 
 
 class _RecordingSecretsApi:
-    """Stand-in for the ``CoreV1SecretsClient`` slice — unused by these tests (no ``.schedule()``
-    call here forwards a credential), but ``build_job_runner`` always constructs one."""
-
     def create_namespaced_secret(self, namespace: str, body: Any) -> object:  # pragma: no cover
         raise NotImplementedError
 
@@ -46,33 +39,36 @@ class _RecordingSecretsApi:
         raise NotImplementedError
 
 
-def _job_env(api: _RecordingBatchApi) -> dict[str, str]:
-    spec = api.created[0]["spec"]["template"]["spec"]["containers"][0]
-    return {item["name"]: item["value"] for item in spec["env"]}
+def _container(api: _RecordingBatchApi) -> dict[str, Any]:
+    return api.created[0]["spec"]["template"]["spec"]["containers"][0]
 
 
-def test_k8s_job_env_carries_the_configured_aigateway_base_url() -> None:
+def _job_env(api: _RecordingBatchApi) -> dict[str, Any]:
+    return {item["name"]: item.get("value") for item in _container(api)["env"]}
+
+
+def test_the_app_never_writes_the_aigateway_base_url_into_a_job() -> None:
     api = _RecordingBatchApi()
-    runner = K8sJobRunner(
-        api, image="url4-cloud:1", aigateway_base_url="http://aigateway.url4-cloud:9105"
+
+    K8sJobRunner(api, image="url4-cloud:1", env_configmap="rel-runner-env").schedule(
+        "topic-a", "'hi'!'go'", 60
     )
 
-    runner.schedule("topic-a", "'hi'!'go'", 60)
-
-    assert _job_env(api)["AIGATEWAY_BASE_URL"] == "http://aigateway.url4-cloud:9105"
+    assert runner_job_env.AIGATEWAY_BASE_URL not in _job_env(api)
 
 
-def test_k8s_job_env_omits_aigateway_base_url_when_unset() -> None:
-    # INVARIANT: absent config forwards nothing — the Runner keeps its own default rather than
-    # inheriting an empty string that would break URL joining.
+def test_the_job_inherits_it_from_the_charts_configmap_instead() -> None:
     api = _RecordingBatchApi()
-    K8sJobRunner(api, image="url4-cloud:1").schedule("topic-a", "'hi'!'go'", 60)
 
-    assert "AIGATEWAY_BASE_URL" not in _job_env(api)
+    K8sJobRunner(api, image="url4-cloud:1", env_configmap="rel-runner-env").schedule(
+        "topic-a", "'hi'!'go'", 60
+    )
+
+    assert {"configMapRef": {"name": "rel-runner-env"}} in _container(api)["envFrom"]
 
 
-def test_factory_threads_aigateway_base_url_from_settings() -> None:
-    settings = Settings(runner="k8s", aigateway_base_url="http://aigateway.prod:9105")
+def test_the_factory_threads_the_configmap_name_from_settings() -> None:
+    settings = Settings(runner="k8s", runner_env_configmap="url4-cloud-runner-env")
 
     runner = build_job_runner(
         settings,
@@ -81,8 +77,18 @@ def test_factory_threads_aigateway_base_url_from_settings() -> None:
     )
 
     assert isinstance(runner, K8sJobRunner)
-    assert runner._aigateway_base_url == "http://aigateway.prod:9105"
+    assert runner._env_configmap == "url4-cloud-runner-env"
 
 
-def test_aigateway_base_url_defaults_to_unset() -> None:
+def test_the_configmap_name_defaults_to_unset() -> None:
+    # A chartless deployment (docker compose, local dev) has no ConfigMap to reference; the Job
+    # simply gets no `envFrom` and the Runner falls back to its own defaults.
+    assert Settings().runner_env_configmap is None
+
+
+def test_aigateway_base_url_remains_a_setting_for_the_apps_own_catalog_endpoint() -> None:
+    # It stopped being forwarded to Jobs, but the App still needs it for `GET /v1/models`.
     assert Settings().aigateway_base_url is None
+    assert Settings(aigateway_base_url="http://aigateway:9105").aigateway_base_url == (
+        "http://aigateway:9105"
+    )

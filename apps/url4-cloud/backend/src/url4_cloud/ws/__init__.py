@@ -1,4 +1,6 @@
-"""url4_cloud.ws — the CloudEvents WebSocket bridge + live-connection interest gate (§6, §8)."""
+"""WebSocket layer: the FastAPI router that terminates client connections and the
+in-process registry that tracks active per-topic subscribers.
+"""
 
 from url4_cloud.ws.endpoint import router
 from url4_cloud.ws.registry import ConnectionRegistry

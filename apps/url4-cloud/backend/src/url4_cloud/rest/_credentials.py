@@ -1,43 +1,38 @@
-"""Resolving the aigateway credential a request forwards (plan §5.3 dec:A; spec §4).
+"""Shared helper for resolving the aigateway credential to forward from an inbound request.
 
-FEATURE: identity forwarding. Two entry points need the SAME answer to "which credential does this
-request carry?" — ``GET /?q=`` (which forwards it into the run) and ``GET /v1/models`` (which
-forwards it upstream to fetch the catalog).
-
-AIDEV-NOTE: extracted from ``rest.routes`` when the catalog endpoint arrived (OME-625). Keep it
-shared: if these two endpoints ever disagree about precedence, a caller could get a catalog for one
-identity and a run executed under another — a confusing, hard-to-see bug. url4-cloud verifies
-neither value; aigateway, the actual consumer, verifies whichever one arrives.
+Used by both ``routes.py`` (``GET /``) and ``catalog.py`` (``GET /v1/models``) so the two
+endpoints agree on which header wins and how a bearer scheme is parsed.
 """
 
 from __future__ import annotations
 
 
 def bearer_token(header: str | None) -> str | None:
-    """The token from a ``Bearer <token>`` ``Authorization`` header, case-insensitive scheme.
+    """Extract the token from an ``Authorization: Bearer <token>`` header value.
 
-    Absent header, a non-Bearer scheme, or an empty token → ``None`` (never forward garbage —
-    mirrors the ``traceparent`` malformed-input rule).
+    Returns ``None`` if the header is absent, uses a non-Bearer scheme, or carries no token.
     """
     if header is None:
         return None
     scheme, _, token = header.partition(" ")
-    token = token.strip()  # a multi-space "Bearer  <tok>" must not forward a leading-space token
+    token = token.strip()
     if scheme.lower() != "bearer" or not token:
         return None
     return token
 
 
 def forwarded_credential(authorization: str | None, cf_access_jwt: str | None) -> str | None:
-    """The aigateway credential to forward — a Cloudflare Access session JWT, when present, else a
-    client-supplied ``Authorization: Bearer`` token (plan §5.3 dec:A extension).
+    """Pick the aigateway credential to forward: ``Cf-Access-Jwt-Assertion`` over ``Authorization``.
 
-    WHY Cloudflare Access wins: it is attached by the edge itself once a browser has completed OTP
-    login — the "you are logged in" signal — with no client code involved. A client-supplied
-    ``Authorization`` header stays available as the fallback for direct/service callers that never
-    go through Cloudflare Access.
+    Returns ``None`` when neither header supplies a usable credential — callers then treat the
+    run/request as unauthenticated toward aigateway.
     """
     if cf_access_jwt:
+        # WHY: Cf-Access-Jwt-Assertion is attached by the Cloudflare Access edge, not the
+        # client, so it is trusted ahead of a client-supplied Authorization header, ON THE
+        # PRECONDITION that this deployment's ingress guarantees all traffic transits CF
+        # Access (nothing in this code verifies that or strips a client-forged copy of this
+        # header — that's an edge/network-topology guarantee, not a code-level one).
         return cf_access_jwt
     return bearer_token(authorization)
 

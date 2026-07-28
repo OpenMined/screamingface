@@ -1,5 +1,7 @@
-"""url4_cloud.auth — capability topic + JWT + RFC 9457 capability-header guard
-(docs/protocol.md §7)."""
+"""Public surface of the auth package: capability-token errors, the HS256 JWT codec,
+RFC 9457 problem-details plumbing, and the FastAPI dependency that verifies a
+request's capability token and yields its claims.
+"""
 
 from url4_cloud.auth.dependencies import Clock, VerifiedClaims, verified_claims
 from url4_cloud.auth.errors import (

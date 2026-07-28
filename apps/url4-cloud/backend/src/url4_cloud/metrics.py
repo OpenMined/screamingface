@@ -1,11 +1,5 @@
-"""OpenMetrics instrumentation (docs/protocol.md §9).
-
-A per-app :class:`prometheus_client.CollectorRegistry` (never the process-global default) so
-building several apps in one test process cannot raise a duplicate-timeseries error and each app's
-counters stay isolated. :class:`MetricsMiddleware` is a pure-ASGI shim (not ``BaseHTTPMiddleware``)
-so it never buffers responses or perturbs the WebSocket/streaming paths — it only bumps a counter
-on ``http.response.start``.
-"""
+"""Prometheus/OpenMetrics wiring for the url4-cloud App: a per-request counter middleware and a
+custom collector that surfaces the model-catalog cache counters at scrape time."""
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -18,14 +12,17 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 @dataclass(frozen=True)
 class Metrics:
-    """The app's isolated metric registry + the counters exposed at ``/metrics``."""
+    """The App's private Prometheus registry and metric handles, held on `app.state.metrics`.
+
+    Uses a per-instance `CollectorRegistry` rather than the global default one so multiple
+    `create_app()` calls (e.g. across tests) don't collide on duplicate metric registration.
+    """
 
     registry: CollectorRegistry
     requests: Counter
 
 
 def build_metrics() -> Metrics:
-    """Create a fresh registry with the HTTP request counter."""
     registry = CollectorRegistry()
     requests = Counter(
         "url4_cloud_requests",
@@ -37,7 +34,8 @@ def build_metrics() -> Metrics:
 
 
 class MetricsMiddleware:
-    """Count every HTTP response by method/path/status; non-HTTP scopes pass straight through."""
+    """ASGI middleware that increments `Metrics.requests`, labeled by method/path/status, for
+    every HTTP response the App sends."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -61,6 +59,8 @@ class MetricsMiddleware:
 
 
 def _metrics_of(scope: Scope) -> Metrics | None:
+    """Best-effort lookup of `Metrics` off the ASGI scope's app state; None if unset or the wrong
+    type (e.g. a bare test double without `create_app`'s wiring)."""
     app = scope.get("app")
     state = getattr(app, "state", None)
     metrics = getattr(state, "metrics", None)
@@ -68,21 +68,13 @@ def _metrics_of(scope: Scope) -> Metrics | None:
 
 
 class _CatalogCollector:
-    """Reads the catalog cache's counters at SCRAPE time (spec §9).
-
-    WHY a collector rather than ``Counter.inc()`` calls inside the cache: the cache keeps plain
-    ints so its own tests need no registry, and pulling at scrape time cannot double-count or
-    drift from the real values.
-
-    INVARIANT: no metric here carries a label. ``/metrics`` is scraped by infrastructure and is
-    often widely readable, so labelling by credential or cache key would reintroduce at the metrics
-    endpoint exactly the identity leak the hashed cache key exists to prevent.
-    """
+    """A `prometheus_client` custom collector that exposes the catalog service's cache counters."""
 
     def __init__(self, get_service: Callable[[], Any]) -> None:
         self._get_service = get_service
 
     def collect(self) -> Iterable[Any]:
+        """Called by `prometheus_client` once per `/metrics` scrape."""
         service = self._get_service()
         counters = getattr(service, "counters", None)
         if counters is None:
@@ -120,9 +112,5 @@ class _CatalogCollector:
 
 
 def register_catalog_metrics(metrics: Metrics, get_service: Callable[[], Any]) -> None:
-    """Expose the catalog cache's counters on ``metrics.registry``.
-
-    ``get_service`` is read lazily so an app whose catalog is injected after build still reports,
-    and an app with no catalog simply contributes no series.
-    """
+    """Register a `_CatalogCollector` for `get_service` on `metrics.registry`."""
     metrics.registry.register(_CatalogCollector(get_service))

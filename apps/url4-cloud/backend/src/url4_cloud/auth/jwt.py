@@ -1,4 +1,9 @@
-"""HS256 capability-token codec — RFC 7519 registered claims (spec §4; docs/protocol.md §7)."""
+"""HS256 JWT minting and verification for url4-cloud capability tokens.
+
+A capability token binds a client to a topic (the WS/stream routing key) and
+carries an ``iat``-based freshness window rather than relying solely on JWT's
+own ``exp`` handling — see :meth:`JwtCodec.verify`.
+"""
 
 import secrets
 from dataclasses import dataclass
@@ -19,18 +24,19 @@ _JTI_BYTES = 16
 
 @dataclass(frozen=True)
 class JwtCodec:
-    """Signs and verifies the per-run capability JWT.
-
-    Bound to a single ``secret`` and ``iat_window_s`` so callers cannot mix acceptance windows.
-    The clock is always **injected** (``now``) — verification is deterministic and never reads
-    wall-clock time, so the stateless freshness guard is testable and reproducible.
+    """Symmetric (HS256) signer/verifier for capability tokens, bound to a
+    shared secret and an iat acceptance window.
     """
 
+    # AIDEV-NOTE: `secret` is signing key material — never log it, include it in an
+    # error/problem detail, or otherwise let it leak to a client-facing response.
     secret: str
     iat_window_s: int
 
     def sign(self, topic: str, now: datetime) -> str:
-        """Mint a token binding ``topic`` (``sub``); ``exp = iat + iat_window_s`` plus a ``jti``."""
+        """Mint a capability token for `topic`, stamped with `now` as issued-at
+        and expiring after `iat_window_s` seconds.
+        """
         iat = int(now.timestamp())
         payload = {
             "sub": topic,
@@ -41,13 +47,18 @@ class JwtCodec:
         return pyjwt.encode(payload, self.secret, algorithm=_ALGORITHM)
 
     def verify(self, token: str, now: datetime) -> dict[str, object]:
-        """Return the claims, or raise a typed :mod:`errors` failure.
+        """Verify signature and freshness, returning the decoded claims.
 
-        Signature is checked by PyJWT; time is checked here against the injected ``now`` so the
-        result does not depend on the process clock (docs/protocol.md §7 "belt-and-suspenders").
+        Raises:
+            InvalidToken: token is malformed or its signature does not verify.
+            MissingIat: token has no ``iat`` claim.
+            IatWindowExceeded: ``now - iat`` exceeds `iat_window_s`.
+            TokenExpired: the token's ``exp`` claim has passed.
         """
         try:
-            # WHY: verify_exp off — PyJWT would use wall-clock; we enforce exp below vs `now`.
+            # WHY: exp is not trusted to pyjwt's own clock; it — and the iat window
+            # below — are checked manually against the caller-supplied `now`, so
+            # verification stays deterministic and testable under a fake Clock.
             claims = pyjwt.decode(
                 token, self.secret, algorithms=[_ALGORITHM], options={"verify_exp": False}
             )

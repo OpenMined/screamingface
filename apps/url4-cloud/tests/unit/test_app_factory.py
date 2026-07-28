@@ -1,13 +1,3 @@
-"""Behaviour tests for the deployed App's composition root + misconfiguration guard.
-
-FEATURE: a stock `helm install` must produce an App that can actually schedule Runner Jobs.
-STORY: as an operator, when I deploy the chart, `GET /?q=` schedules a k8s Job — and if I
-misconfigure the substrate, the App tells me so instead of raising an opaque 500.
-
-Headless (INFRA rule): no live NATS/k8s — the prod entrypoint is asserted by the factory path
-the CLI hands uvicorn, and the guard is driven through an injected ``job_runner=None`` app.
-"""
-
 from datetime import UTC, datetime
 
 import httpx
@@ -18,7 +8,7 @@ from url4_cloud import cli
 from url4_cloud.app import create_app
 from url4_cloud.auth import JwtCodec
 from url4_cloud.config import Settings
-from url4_cloud_nats import InMemoryBus
+from url4_cloud.testing import InMemoryEventStream
 
 SECRET = "app-factory-secret"
 WINDOW_S = 60
@@ -31,11 +21,10 @@ class _PresentGate:
 
 
 def _unconfigured_app() -> object:
-    """An App built the way the pre-fix prod path built it: no job runner wired."""
     settings = Settings(jwt_secret=SECRET, iat_window_s=WINDOW_S)
     return create_app(
         settings,
-        bus=InMemoryBus(),
+        stream=InMemoryEventStream(),
         job_runner=None,
         clock=lambda: T0,
         interest=_PresentGate(),
@@ -48,8 +37,6 @@ def _cap(topic: str) -> dict[str, str]:
 
 @pytest.mark.anyio
 async def test_run_start_without_job_runner_is_503_not_500() -> None:
-    # INVARIANT: a substrate-less App is *unavailable*, not *broken* — never an opaque
-    # AttributeError 500 from dereferencing a None job runner.
     app = _unconfigured_app()
     transport = ASGITransport(app=app)  # type: ignore[arg-type]
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -71,10 +58,6 @@ async def test_stop_without_job_runner_is_503_not_500() -> None:
 
 
 def test_prod_cli_serves_the_env_wired_factory(monkeypatch: pytest.MonkeyPatch) -> None:
-    """INVARIANT: the `url4-cloud` console entrypoint (the chart's `command:`) must serve the
-    env-wired factory — the bare `create_app` builds bus=None/job_runner=None and skips the
-    prod secret guard, which is exactly the misconfiguration this suite exists to prevent.
-    """
     recorded: dict[str, object] = {}
 
     def _fake_run(app: object, **kwargs: object) -> None:

@@ -1,4 +1,8 @@
-"""RFC 9457 Problem Details — ``application/problem+json`` rendering (docs/protocol.md §7)."""
+"""RFC 9457 (application/problem+json) error responses shared by the auth layer
+and, via `install_problem_handlers`, the rest of the app: a `Problem` body model,
+a `ProblemException` any handler can raise to produce one, and the FastAPI
+exception handler that renders it.
+"""
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
@@ -18,7 +22,9 @@ class Problem(BaseModel):
 
 
 class ProblemException(Exception):
-    """Raise to abort a request with an RFC 9457 problem response."""
+    """Exception carrying a `Problem` (and optional response headers) to be
+    rendered by `problem_exception_handler`.
+    """
 
     def __init__(
         self,
@@ -34,8 +40,14 @@ class ProblemException(Exception):
 
 
 async def problem_exception_handler(request: Request, exc: Exception) -> Response:
-    """Render a :class:`ProblemException` as ``application/problem+json`` (RFC 9457)."""
+    """Render a :class:`ProblemException` as ``application/problem+json`` (RFC 9457).
+
+    Typed `Exception` (not `ProblemException`) to match FastAPI's exception
+    handler signature.
+    """
     # INVARIANT: only registered for ProblemException; re-raise anything else untouched.
+    # Raising here does NOT re-dispatch to a sibling handler — it propagates to the
+    # outer error middleware and becomes an unhandled 500.
     if not isinstance(exc, ProblemException):
         raise exc
     return JSONResponse(
