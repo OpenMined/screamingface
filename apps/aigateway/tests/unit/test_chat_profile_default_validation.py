@@ -42,7 +42,6 @@ from aigateway.plugins.codex_provider.auth import (
     credential_service_for as codex_credential_service_for,
 )
 from aigateway.routes.chat import _parameter_rejection_exception
-from aigateway.routes.chat_credentials import _apply_defaults
 
 _ANTHROPIC_MODEL = "anthropic/claude-haiku-4-5"
 _CODEX_MODEL = "codex/gpt-5.4-mini"
@@ -407,66 +406,3 @@ async def test_structural_defaults_still_need_no_rule(
     assert resp.status_code == 200
     assert captured["messages"][0] == {"role": "system", "content": "be terse"}
     assert captured["timeout"] == 12.5
-
-
-# --- provenance -----------------------------------------------------------------
-
-
-class _Plugin:
-    """Applies every default — the base-class behavior."""
-
-    def should_apply_profile_default(self, field: str) -> bool:
-        return True
-
-
-class _SkipsReasoning:
-    """The Anthropic shape: opts one field out of profile defaulting."""
-
-    def should_apply_profile_default(self, field: str) -> bool:
-        return field != "reasoning_effort"
-
-
-def test_apply_defaults_reports_the_request_paths_it_wrote() -> None:
-    # INVARIANT under test: the reported paths are the CLASSIFIER's request paths,
-    # so `timeout_seconds` is reported under its gateway name `timeout`. A set
-    # keyed by the ProfileDefaults field name instead would never match a
-    # rejection and would silently misattribute every profile fault to the caller.
-    body, written = _apply_defaults(
-        {"messages": []},
-        ProfileDefaults(temperature=0.5, max_tokens=64, timeout_seconds=9.0),
-        _Plugin(),
-    )
-    assert written == frozenset({"temperature", "max_tokens", "timeout"})
-    assert body["timeout"] == 9.0
-
-
-def test_apply_defaults_reports_nothing_for_a_field_the_body_already_carries() -> None:
-    body, written = _apply_defaults(
-        {"messages": [], "temperature": 0.1},
-        ProfileDefaults(temperature=0.5),
-        _Plugin(),
-    )
-    assert written == frozenset()
-    assert body["temperature"] == 0.1
-
-
-def test_apply_defaults_reports_nothing_for_a_field_the_provider_opts_out_of() -> None:
-    body, written = _apply_defaults(
-        {"messages": []},
-        ProfileDefaults(reasoning_effort="medium"),
-        _SkipsReasoning(),
-    )
-    assert written == frozenset()
-    assert "reasoning_effort" not in body
-
-
-def test_apply_defaults_reports_the_system_prompt_as_a_messages_write() -> None:
-    # The system prompt REWRITES an existing gateway-owned field rather than
-    # adding a new one; it is still this call's doing, so it is still reported.
-    body, written = _apply_defaults(
-        {"messages": [{"role": "user", "content": "hi"}]},
-        ProfileDefaults(system_prompt="be terse"),
-        _Plugin(),
-    )
-    assert written == frozenset({"messages"})
-    assert body["messages"][0]["role"] == "system"

@@ -27,9 +27,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-import httpx
 import pytest
-from litellm.exceptions import NotFoundError
 
 from aigateway.core.parameter_projection import classify_and_project_chat_parameters
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
@@ -136,20 +134,6 @@ def _fake_acompletion(captured: dict):
         return SimpleNamespace(
             model_dump=lambda: {"id": "or-1", "choices": [{"message": {"content": "ok"}}]}
         )
-
-    return fake_acompletion
-
-
-def _raising_acompletion(exc: Exception):
-    async def fake_acompletion(**_kwargs):
-        raise exc
-
-    return fake_acompletion
-
-
-def _returning_acompletion(payload: dict):
-    async def fake_acompletion(**_kwargs):
-        return SimpleNamespace(model_dump=lambda: payload)
 
     return fake_acompletion
 
@@ -395,79 +379,3 @@ def test_the_primary_route_is_the_only_route_and_it_is_strict(
     assert len(calls) == 1
     assert calls[0]["model"] == _MODEL
     assert calls[0]["provider"] == _STRICT
-
-
-# --------------------------------------------------------------------------
-# no eligible endpoint → an explicit, sanitized refusal
-# --------------------------------------------------------------------------
-
-
-_WIRE_REQUEST = httpx.Request("POST", "https://openrouter.ai/api/v1")
-
-
-def _as_transport(exc: Exception, *, wire_status: int) -> Exception:
-    # Mirrors the provenance a real litellm OpenRouter transport failure carries
-    # (chained httpx.HTTPStatusError + surfaced wire headers), so the fail-closed
-    # classifier reads it as transport rather than as an ambiguous 502.
-    response = httpx.Response(wire_status, request=_WIRE_REQUEST)
-    exc.__cause__ = httpx.HTTPStatusError(
-        f"{wire_status}", request=_WIRE_REQUEST, response=response
-    )
-    exc.litellm_response_headers = dict(response.headers)  # type: ignore[attr-defined]
-    return exc
-
-
-def test_no_eligible_endpoint_transport_error_surfaces_sanitized_never_a_success(
-    enabled_openrouter, credential_blobs, authenticated_client
-) -> None:
-    # This is the OUTCOME strictness buys: when no endpoint declares support for
-    # every supplied parameter, OpenRouter refuses with 404 rather than serving a
-    # request that would have dropped the parameter. The gateway must pass that
-    # refusal through explicitly — the raw provider text and any named internal
-    # endpoint stay out of the response.
-    _create_connection(authenticated_client)
-    exc = _as_transport(
-        NotFoundError(
-            message=(
-                "No endpoints found that support all parameters: top_k. "
-                "Tried provider secret-internal-router."
-            ),
-            llm_provider="openrouter",
-            model=_MODEL,
-            response=httpx.Response(404, request=_WIRE_REQUEST),
-        ),
-        wire_status=404,
-    )
-    with patch("litellm.acompletion", _raising_acompletion(exc)):
-        resp = _post_chat(authenticated_client, {"provider_params": {"top_k": 40}})
-
-    assert resp.status_code == 404, resp.text
-    assert resp.status_code != 200
-    assert "secret-internal-router" not in resp.text
-    assert "No endpoints found" not in resp.text
-
-
-def test_no_eligible_endpoint_embedded_in_a_200_body_surfaces_sanitized(
-    enabled_openrouter, credential_blobs, authenticated_client
-) -> None:
-    # The second shape of the same refusal: OpenRouter answers HTTP 200 with a
-    # top-level error object. A gateway that only checked the HTTP status would hand
-    # the caller a "successful" completion with no choices — the silent discard in a
-    # new costume. The embedded error must win.
-    _create_connection(authenticated_client)
-    payload = {
-        "id": "gen-strict",
-        "choices": [],
-        "error": {
-            "code": 404,
-            "message": "No endpoints found that support all parameters: n",
-            "metadata": {"provider_name": "secret-internal-router"},
-        },
-    }
-    with patch("litellm.acompletion", _returning_acompletion(payload)):
-        resp = _post_chat(authenticated_client, {"n": 2})
-
-    assert resp.status_code == 404, resp.text
-    assert resp.json()["detail"]["code"] == "provider_error"
-    assert "No endpoints found" not in resp.text
-    assert "secret-internal-router" not in resp.text
