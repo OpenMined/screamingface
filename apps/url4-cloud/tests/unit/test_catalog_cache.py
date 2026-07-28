@@ -7,6 +7,7 @@ import pytest
 from url4_cloud.catalog.cache import CachedCatalog
 from url4_cloud.catalog.port import (
     CatalogBadResponse,
+    CatalogError,
     CatalogUnavailable,
     Credential,
     ModelCatalog,
@@ -279,3 +280,47 @@ async def test_concurrent_upstream_fetches_never_exceed_the_bulkhead() -> None:
     await asyncio.gather(*(cache.fetch(cred) for cred in creds))
     assert len(source.calls) == 10
     assert source.max_concurrent <= 2
+
+
+async def test_a_saturated_bulkhead_fails_fast_instead_of_queueing_forever() -> None:
+    """The bulkhead protects aigateway; the wait bound protects THIS process.
+
+    Cache keys derive from credentials url4-cloud does not verify, so distinct bogus tokens
+    bypass single-flight entirely and every request takes the cold-miss path. Without a bound on
+    the wait, those queue behind the upstream call with no ceiling — indistinguishable, from the
+    caller's side, from a hang.
+    """
+    started = asyncio.Event()
+
+    class _Blocking:
+        async def fetch(self, credential: Credential) -> ModelCatalog:
+            started.set()
+            await asyncio.sleep(3600)
+            raise AssertionError("unreachable")
+
+    cache = CachedCatalog(_Blocking(), upstream_concurrency=1, bulkhead_wait_s=0.05)
+    holder = asyncio.ensure_future(cache.fetch(Credential.derive("first")))
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    with pytest.raises(CatalogError, match="saturated"):
+        await cache.fetch(Credential.derive("second"))
+
+    holder.cancel()
+
+
+async def test_the_bulkhead_slot_is_released_when_upstream_fails() -> None:
+    """A slot leaked on the error path would shrink the bulkhead by one per failure until every
+    request timed out waiting — an outage that never recovers on its own."""
+
+    class _Failing:
+        async def fetch(self, credential: Credential) -> ModelCatalog:
+            raise CatalogError("upstream down")
+
+    cache = CachedCatalog(_Failing(), upstream_concurrency=1, bulkhead_wait_s=0.05)
+    for i in range(5):
+        with pytest.raises(CatalogError):
+            await cache.fetch(Credential.derive(f"cred-{i}"))
+
+    # If slots leaked, this raises "saturated" rather than the upstream's own error.
+    with pytest.raises(CatalogError, match="upstream down"):
+        await cache.fetch(Credential.derive("final"))

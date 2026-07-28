@@ -100,6 +100,7 @@ class CachedCatalog:
         error_backoff_s: float = 30.0,
         max_entries: int = 256,
         upstream_concurrency: int = 8,
+        bulkhead_wait_s: float = 15.0,
         clock: Callable[[], float] = time.monotonic,
         source_aclose: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
@@ -118,6 +119,7 @@ class CachedCatalog:
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         self._inflight: dict[str, asyncio.Future[ModelCatalog]] = {}
         self._upstream_concurrency = upstream_concurrency
+        self._bulkhead_wait_s = bulkhead_wait_s
         self._semaphore: asyncio.Semaphore | None = None
         self.counters = CacheCounters()
 
@@ -228,15 +230,34 @@ class CachedCatalog:
                 future.cancel()
 
     async def _fetch_upstream(self, credential: Credential) -> ModelCatalog:
-        """The one place upstream is called, behind the concurrency bulkhead (spec §7)."""
+        """The one place upstream is called, behind the concurrency bulkhead (spec §7).
+
+        INVARIANT: waiting for the bulkhead is bounded. The bulkhead exists to protect AIGATEWAY
+        from a stampede; the wait bound is what protects THIS process. Cache keys derive from
+        credentials url4-cloud does not verify, so a flood of distinct bogus tokens bypasses
+        single-flight entirely — every request takes the cold-miss path and queues behind an
+        upstream call that may itself take the full request timeout. Unbounded, that queue is
+        just latency with no ceiling and no way for a caller to tell a slow answer from a hung
+        one; bounded, an overloaded catalog degrades to a prompt 503 the caller can retry.
+        """
         if self._semaphore is None:
             # WHY: asyncio.Semaphore binds to the running loop, so it's built lazily
             # here on first use rather than in __init__, where no loop may be running.
             self._semaphore = asyncio.Semaphore(self._upstream_concurrency)
         if self._semaphore.locked():
             self.counters.bulkhead_waits += 1
-        async with self._semaphore:
+        try:
+            async with asyncio.timeout(self._bulkhead_wait_s):
+                await self._semaphore.acquire()
+        except TimeoutError as exc:
+            self.counters.errors += 1
+            raise CatalogError(
+                f"catalog upstream is saturated — waited {self._bulkhead_wait_s}s for a slot"
+            ) from exc
+        try:
             return await self._source.fetch(credential)
+        finally:
+            self._semaphore.release()
 
     def _inside_backoff(self, entry: _Entry, now: float) -> bool:
         if entry.last_error_at is None or entry.last_error is None:
@@ -254,7 +275,13 @@ class CachedCatalog:
                 now - entry.fetched_at,
             )
             return entry.catalog
-        raise error if error is not None else CatalogError("stale catalog exceeded its ceiling")
+        if error is None:
+            raise CatalogError("stale catalog exceeded its ceiling")
+        # WHY a fresh exception and not `raise error`: `entry.last_error` is a STORED instance,
+        # re-raised on every request inside the backoff window and shared across concurrent
+        # tasks. Python appends a frame to `__traceback__` on each raise, so the object grows for
+        # as long as the outage lasts and its traceback interleaves unrelated callers.
+        raise type(error)(*error.args) from error
 
     def _on_failure(self, key: str, exc: CatalogError) -> ModelCatalog | None:
         """Record the failure against a KNOWN key and decide whether stale service applies.
