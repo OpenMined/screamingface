@@ -1,7 +1,10 @@
+import os
+import socket
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal, NamedTuple
+from urllib.parse import urlsplit
 
 import pytest
 from _pytest.mark import ParameterSet
@@ -29,12 +32,38 @@ from url4.streaming.testing import TAKE_TIMEOUT_S, take
 from url4_cloud.adapters.jetstream import JetStreamConsumer
 from url4_cloud.testing import InMemoryEventStream
 
+NATS_URL = os.environ.get("URL4_CLOUD_TEST_NATS_URL", "nats://localhost:4222")
+
+
+def _nats_reachable(url: str = NATS_URL) -> bool:
+    """Whether a NATS server is listening, probed once at collection time.
+
+    WHY this is `skipif` and not a bare `skip`: these parameters are the ONLY thing that ever runs
+    the conformance suite against the real broker, and a bare `skip` disables them unconditionally
+    — not just in CI, but on a developer machine with NATS already running, and with no way to opt
+    in. The one class of bug this system has actually shipped (a WS hang that survived a green
+    suite) came from `InMemoryEventStream` and `JetStreamConsumer` disagreeing, which is precisely
+    what a real-broker run of the shared contract catches and a fake-only run cannot.
+    """
+    parsed = urlsplit(url)
+    try:
+        with socket.create_connection((parsed.hostname or "localhost", parsed.port or 4222), 0.5):
+            return True
+    except OSError:
+        return False
+
+
+NATS_AVAILABLE = _nats_reachable()
+
 STREAM_FACTORIES: list[Callable[[], EventConsumer] | ParameterSet] = [
     pytest.param(InMemoryEventStream, id="InMemoryEventStream"),
     pytest.param(
-        lambda: JetStreamConsumer("nats://localhost:4222"),
+        lambda: JetStreamConsumer(NATS_URL),
         id="JetStreamConsumer",
-        marks=pytest.mark.skip(reason="owner-run: needs real NATS (INFRA rule)"),
+        marks=pytest.mark.skipif(
+            not NATS_AVAILABLE,
+            reason=f"needs a reachable NATS at {NATS_URL} (set URL4_CLOUD_TEST_NATS_URL)",
+        ),
     ),
 ]
 
@@ -55,7 +84,7 @@ class RecordingJobRunner(JobRunner):
         self.scheduled: list[ScheduledRun] = []
         self.stopped: list[str] = []
 
-    def schedule(
+    async def schedule(
         self,
         topic: str,
         url4: str,
@@ -72,13 +101,13 @@ class RecordingJobRunner(JobRunner):
         )
         return job_name(topic)
 
-    def stop(self, topic: str) -> None:
+    async def stop(self, topic: str) -> None:
         self.stopped.append(topic)
 
-    def exists(self, topic: str) -> bool:
+    async def exists(self, topic: str) -> bool:
         return self._exists
 
-    def status(self, topic: str) -> JobStatus:
+    async def status(self, topic: str) -> JobStatus:
         return "running"
 
 
