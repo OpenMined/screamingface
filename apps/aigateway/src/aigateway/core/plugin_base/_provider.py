@@ -1,0 +1,210 @@
+"""The provider-plugin base: auth, model registration, and dispatch.
+
+FEATURE: everything a plugin does OTHER than describe its chat-parameter
+contract — contributing models, producing credentials, exchanging OAuth codes,
+mounting auth routes, and dispatching a completion.
+
+AIDEV-NOTE: this is the LOWER half of ``ProviderPluginBase``, not a second port.
+Plugins subclass ``ProviderPluginBase`` (in ``._contract``), which extends this
+class; nothing subclasses ``ProviderPluginCore`` directly, and it is deliberately
+NOT re-exported from the package. The two halves exist only to keep each file
+within the repository's 450-line limit.
+
+WHY the contract half is the SUBCLASS rather than a sibling mixin: its
+derivations READ the capability declarations defined here —
+``available_auth_modes`` calls ``supports_api_key`` and ``oauth_config``, and
+``chat_transport_capabilities`` calls ``supports_chat_streaming``. A mixin would
+have to redeclare all three, giving every one of those defaults two definitions
+that could drift apart. Inheritance resolves them with none.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any, ClassVar, cast
+
+from ..api_key_validation import ApiKeyValidator
+from ._ports import (
+    CredentialStrategy,
+    ModelEntry,
+    OAuthCodeExchangeRequest,
+    OAuthConfig,
+    PluginSettings,
+)
+
+if TYPE_CHECKING:
+    from ..credential_blob.store import CredentialBlobStore
+    from ..oauth.identity import AccountIdentity
+    from ..profile_index import ProfileIndexStore
+    from ..profile_models import AuthType
+
+
+class ProviderPluginCore[TSettings: PluginSettings](ABC):
+    """The auth, model-registration and dispatch half of the plugin contract.
+
+    Not a port of its own: see the module docstring. ``ProviderPluginBase``
+    extends this class and is the name every plugin subclasses.
+    """
+
+    custom_llm_provider: str
+    settings_cls: ClassVar[type[PluginSettings]] = PluginSettings
+
+    def __init__(self, settings: TSettings | None = None) -> None:
+        self.settings = settings if settings is not None else cast(TSettings, self.settings_cls())
+
+    @abstractmethod
+    def register_models(self) -> list[ModelEntry]:
+        """Return the model_list entries this plugin contributes."""
+
+    def oauth_config(self) -> OAuthConfig | None:
+        """Return provider OAuth metadata, or None for no-auth providers (e.g. local Ollama)."""
+        return None
+
+    def oauth_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        credential_store: CredentialBlobStore | None = None,
+        http_client_factory: Any | None = None,
+    ) -> CredentialStrategy | None:
+        """Return a per-profile OAuth strategy. Default: no auth."""
+        return None
+
+    def api_key_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        credential_store: CredentialBlobStore | None = None,
+    ) -> CredentialStrategy | None:
+        """Return a per-profile API-key strategy, or None when the provider
+        does not support API-key auth (e.g. codex subscription endpoints)."""
+        return None
+
+    def api_key_validator(self) -> ApiKeyValidator | None:
+        """Return an operational API-key validator, or None when unavailable."""
+        return None
+
+    def credential_strategy_for(
+        self,
+        profile_name: str,
+        *,
+        auth_type: AuthType = "oauth",
+        credential_store: CredentialBlobStore | None = None,
+        http_client_factory: Any | None = None,
+    ) -> CredentialStrategy | None:
+        """Resolve the credential strategy for ``profile_name`` by auth type."""
+        if auth_type == "api_key":
+            return self.api_key_strategy_for(profile_name, credential_store=credential_store)
+        return self.oauth_strategy_for(
+            profile_name,
+            credential_store=credential_store,
+            http_client_factory=http_client_factory,
+        )
+
+    async def exchange_oauth_code(self, request: OAuthCodeExchangeRequest) -> dict[str, Any]:
+        """Exchange an OAuth authorization code for provider credentials."""
+        raise NotImplementedError(f"{self.custom_llm_provider} does not exchange OAuth codes")
+
+    def account_label_from_credentials(self, _credentials: dict[str, Any]) -> str | None:
+        """Return a display label for credentials persisted after OAuth, if available."""
+        return None
+
+    def credential_service_provider(self) -> str:
+        """Return the provider namespace used in persisted credential service keys."""
+        return self.custom_llm_provider
+
+    async def extract_identity(
+        self,
+        _credentials: dict[str, Any],
+        *,
+        http_client_factory: Any | None = None,
+    ) -> AccountIdentity | None:
+        """Return stable account identity from provider credentials when available."""
+        return None
+
+    def requires_oauth_connection_label(self) -> bool:
+        """Whether first-class OAuth connection creation needs a user label up front."""
+        return False
+
+    def supports_chat_streaming(self) -> bool:
+        """Whether `/v1/chat/completions` may create a streaming response."""
+        return True
+
+    def supports_api_key(self) -> bool:
+        """Whether this provider accepts a raw API key (vs OAuth-only).
+
+        Capability flag surfaced to clients so the UI only offers API-key auth
+        where it works. The default is False; providers that implement
+        ``api_key_strategy_for`` override this to True. Codex stays False (its
+        subscription endpoint is OAuth-only and rejects raw keys)."""
+        return False
+
+    def strip_provider_dispatch_controls(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Remove caller-supplied LiteLLM control-plane fields THIS provider owns.
+
+        # WHY: the global ``strip_dispatch_controls`` covers provider-neutral
+        # control fields; a provider that dispatches through a shared LiteLLM
+        # surface (e.g. OpenRouter) may also expose orchestration selectors
+        # (caching/guardrails/prompt-management/named-credential) that are not
+        # model parameters. Those must be neutralized BEFORE the OME-479
+        # fail-closed classifier runs, so the classifier only ever adjudicates
+        # genuine model-parameter candidates — plan §4.5 tier (a): transport /
+        # gateway-owned fields are authorized structurally, not via a rule.
+        # INVARIANT: the returned body carries no field this provider will refuse
+        # to forward; the strip is idempotent (``prepare_chat_body`` may repeat it
+        # as defense in depth). Default: identity — a provider opts in by override.
+        """
+        return body
+
+    def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Apply provider-specific request normalization before dispatch."""
+        return body
+
+    def should_apply_profile_default(self, field: str) -> bool:
+        """Return whether a profile default field should be merged into chat bodies."""
+        return True
+
+    def allows_chatless_profile(self) -> bool:
+        """Whether chat may proceed when no gateway OAuth profile exists."""
+        return False
+
+    def invalidate_profile_session(self, _profile_name: str) -> None:
+        """Drop provider-owned per-profile chat/session cache, if any."""
+        return None
+
+    def should_mark_profile_error_on_dispatch_status(self, _status_code: int) -> bool:
+        """Whether a provider dispatch failure means stored profile auth is unusable."""
+        return False
+
+    async def chat_completion(self, body: dict[str, Any]) -> Any:
+        """Dispatch a normalized OpenAI-compatible chat completion request."""
+        import litellm
+
+        return await litellm.acompletion(**body)
+
+    async def chat_completion_stream(self, body: dict[str, Any]) -> AsyncIterator[Any]:
+        """Dispatch a normalized streaming chat completion request."""
+        import litellm
+
+        stream: Any = await litellm.acompletion(**body)
+        async for chunk in stream:
+            yield chunk
+
+    def auth_router(self):
+        """Provider-specific auth routes.
+
+        Handlers should require `CurrentAccount` unless they are OAuth callback
+        targets protected by a pending-auth state nonce.
+        """
+        return None
+
+    async def bootstrap_profiles(
+        self,
+        *,
+        account_id: str,
+        credential_store: CredentialBlobStore | None = None,
+        index_store: ProfileIndexStore | None = None,
+    ) -> None:
+        """Populate provider-owned profile metadata at startup, if any."""
+        return None

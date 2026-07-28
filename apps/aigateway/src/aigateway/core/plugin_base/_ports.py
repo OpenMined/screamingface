@@ -1,0 +1,97 @@
+"""Provider-plugin value types and the credential port.
+
+FEATURE: the plugin contract's nouns — what a plugin contributes
+(``ModelEntry``), how it is configured (``PluginSettings``), and the auth port it
+implements (``CredentialStrategy``) together with the OAuth metadata that drives
+the flow.
+
+AIDEV-NOTE: import these from the ``plugin_base`` PACKAGE, never from this module
+directly — the split between files is an implementation detail.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Any
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class PluginSettings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore", populate_by_name=True)
+
+
+@dataclass(frozen=True)
+class ModelEntry:
+    """Single entry contributed to LiteLLM's model_list.
+
+    Maps directly onto the dict shape that `litellm.Router(model_list=...)`
+    expects. `model_name` is the user-facing alias; `litellm_params.model`
+    is the fully-qualified provider/model string.
+    """
+
+    model_name: str
+    litellm_params: dict[str, Any]
+
+
+class CredentialStrategy(ABC):
+    """Per-provider credential producer (the auth "port").
+
+    Implementations own credential reads, refresh-on-401 with locking, and
+    any provider-specific header construction. The auth bridge calls
+    `get_authorization_header()` right before LiteLLM dispatches a request.
+    Implementations may be OAuth-backed (token refresh) or API-key-backed
+    (no refresh; `refresh_credentials` is a no-op).
+    """
+
+    @abstractmethod
+    async def get_authorization_header(self) -> dict[str, str]:
+        """Return headers to merge into the upstream request.
+
+        Example: ``{"Authorization": "Bearer ..."}``.
+        """
+
+    async def invalidate(self) -> None:
+        """Drop any cached token. Called after a 401 from upstream."""
+
+    @abstractmethod
+    async def persist_credentials(self, credentials: dict[str, Any]) -> None:
+        """Persist newly exchanged provider credentials for this profile."""
+
+    @abstractmethod
+    async def delete_credentials(self) -> None:
+        """Delete persisted provider credentials for this profile."""
+
+    @abstractmethod
+    async def refresh_credentials(self) -> None:
+        """Refresh persisted provider credentials for this profile."""
+
+
+# Back-compat alias: existing plugins/tests import the port under its original
+# OAuth-specific name. New code should use CredentialStrategy.
+OAuthStrategy = CredentialStrategy
+
+
+@dataclass(frozen=True)
+class OAuthConfig:
+    """Provider-level OAuth metadata used to drive the start + callback flow."""
+
+    authorize_url: str
+    token_url: str
+    client_id: str
+    scopes: list[str]
+    redirect_path: str  # absolute path on the gateway callback surface
+    extra_authorize_params: dict[str, str] | None = None
+    loopback_redirect_ports: list[int] | None = None
+
+
+@dataclass(frozen=True)
+class OAuthCodeExchangeRequest:
+    """Provider-owned authorization-code exchange input."""
+
+    code: str
+    code_verifier: str
+    redirect_uri: str
+    state: str
+    http_client_factory: Any | None = None
