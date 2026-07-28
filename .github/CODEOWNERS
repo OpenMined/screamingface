@@ -9,6 +9,7 @@
 # Deployable apps
 /apps/aigateway/                 @HupBaHa
 /apps/scoreboard/                @HupBaHa
+/apps/url4-cloud/                @sergio-bershadsky
 
 # Product public docs
 /public-docs/                    @IrinaMBejan

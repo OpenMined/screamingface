@@ -1,0 +1,25 @@
+# First pre-commit config in the monorepo (OME-525).
+# FAST hooks gate every commit (see .githooks/pre-commit). The HEAVY per-stack suite
+# (run_gates.py — pytest, pyright, coverage) runs on pre-push + CI (see .githooks/pre-push),
+# so commits stay fast.
+default_language_version:
+  python: python3.12
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        exclude: '(^|/)templates/.*\.ya?ml$'   # Helm templates use Go-template syntax, not valid YAML
+      - id: check-toml
+      - id: check-added-large-files
+      - id: check-merge-conflict
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.0
+    hooks:
+      # ruff resolves each stack's own [tool.ruff] config (incl. C901/PLR complexity) per file.
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
