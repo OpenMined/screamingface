@@ -22,6 +22,11 @@ class Metrics:
     requests: Counter
 
 
+# The `path` label value used when a request matched no route. Every unrouted request — a 404, a
+# probe for `/wp-login.php`, an asset under a mounted sub-app — collapses onto this one string.
+UNMATCHED_PATH = "<unmatched>"
+
+
 def build_metrics() -> Metrics:
     registry = CollectorRegistry()
     requests = Counter(
@@ -34,7 +39,7 @@ def build_metrics() -> Metrics:
 
 
 class MetricsMiddleware:
-    """ASGI middleware that increments `Metrics.requests`, labeled by method/path/status, for
+    """ASGI middleware that increments `Metrics.requests`, labeled by method/route/status, for
     every HTTP response the App sends."""
 
     def __init__(self, app: ASGIApp) -> None:
@@ -45,17 +50,61 @@ class MetricsMiddleware:
             await self.app(scope, receive, send)
             return
         method = str(scope.get("method", "GET"))
-        path = str(scope.get("path", ""))
 
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
                 metrics = _metrics_of(scope)
                 if metrics is not None:
                     status = str(message.get("status", 0))
-                    metrics.requests.labels(method=method, path=path, status=status).inc()
+                    # WHY the label is read here and not before `self.app(...)`: routing happens
+                    # inside the app, so `scope["route"]` only exists once a response starts.
+                    metrics.requests.labels(
+                        method=method, path=_route_label(scope), status=status
+                    ).inc()
             await send(message)
 
         await self.app(scope, receive, send_wrapper)
+
+
+def _route_label(scope: Scope) -> str:
+    """The matched route's template (`/v1/models`, `/runs/{run_id}`), never the raw request path.
+
+    INVARIANT: the returned value comes from a finite set — one entry per registered route, plus
+    `UNMATCHED_PATH`. This is what bounds the `requests` counter's cardinality. Labeling with
+    `scope["path"]` instead would let any unauthenticated caller mint an unbounded number of
+    permanent Counter children (`GET /aaaa1`, `/aaaa2`, ...) and exhaust the process's memory;
+    `POST /token` needs no credential, so nothing upstream stops them reaching this middleware.
+
+    FastAPI's `APIRoute.matches` puts the matched route on the scope, which is the cheap path.
+    Plain Starlette routes and `Mount`s (the `/diagrams` static assets) do not, so those are
+    resolved by asking the router itself; anything still unmatched is a genuine 404.
+    """
+    path_format = getattr(scope.get("route"), "path_format", None)
+    if isinstance(path_format, str) and path_format:
+        return path_format
+    return _match_against_router(scope)
+
+
+def _match_against_router(scope: Scope) -> str:
+    """Resolve the route template by re-running the router's own matching.
+
+    Bounded by the number of registered routes, and only reached when the framework did not
+    already record the match. Deliberately uses `route.matches` rather than reimplementing path
+    matching, so this can never disagree with where the request was actually dispatched.
+    """
+    routes = getattr(scope.get("app"), "routes", None) or ()
+    for route in routes:
+        matches = getattr(route, "matches", None)
+        path_format = getattr(route, "path_format", None)
+        if matches is None or not isinstance(path_format, str) or not path_format:
+            continue
+        try:
+            match, _ = matches(scope)
+        except Exception:  # a route that cannot answer is simply not the match
+            continue
+        if getattr(match, "name", "") == "FULL":
+            return path_format
+    return UNMATCHED_PATH
 
 
 def _metrics_of(scope: Scope) -> Metrics | None:
