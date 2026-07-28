@@ -170,9 +170,14 @@ jobs:
         run: |
           helm template url4-cloud apps/url4-cloud/deploy/helm \
             --set config.natsUrl=nats://nats.example:4222 > /dev/null
+      # WHY no `helm dependency build`: the NATS subchart is already vendored at
+      # `charts/nats-1.2.2.tgz`, matching `Chart.lock`. `dependency build` re-resolves
+      # every dependency against its registered `helm repo`, which is not registered on a
+      # fresh runner — `Error: no repository definition for https://nats-io.github.io/...`
+      # — even though the vendored archive already satisfies the template. Templating reads
+      # straight from `charts/`, so nothing needs re-fetching here.
       - name: Template with the bundled NATS subchart
         run: |
-          helm dependency build apps/url4-cloud/deploy/helm
           helm template url4-cloud apps/url4-cloud/deploy/helm \
             --set nats.enabled=true \
             --set config.natsUrl=nats://url4-cloud-nats:4222 > /dev/null
