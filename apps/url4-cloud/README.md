@@ -16,8 +16,11 @@ the environment:
 - **`url4-cloud serve --local`** — both halves fused in one process, for development. Runs execute
   as `asyncio` tasks (`InProcessJobRunner`) and frames travel an in-memory log
   (`InMemoryEventStream`) instead of JetStream, so neither Kubernetes nor NATS is needed.
-  **Only the two adapters change** — auth, the 428 subscriber gate, sequencing, replay-from and
-  the model catalog are the production code path. See [Local mode](#local-mode).
+  **Only the two adapters change** — the 428 subscriber gate, sequencing, replay-from and the
+  model catalog are the production code path, and auth is the same code with one deliberate
+  exception: the prod boot REFUSES the insecure default JWT secret (`_require_prod_secret`),
+  while local warns and starts anyway (`_warn_if_insecure`) so a dev server needs no setup.
+  Token minting and verification are otherwise identical. See [Local mode](#local-mode).
 
 **WHY one artifact rather than two.** The two halves already shared their whole wire vocabulary —
 the Job env contract, the NATS subject naming, the JetStream binding — so the split's real cost was

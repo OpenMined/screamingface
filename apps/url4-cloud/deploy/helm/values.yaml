@@ -1,6 +1,17 @@
-# The App is stateless, so >1 is cheap — but note it holds long-lived WebSockets, and a client
-# is bridged by whichever replica accepted its connection. Raising this is safe (NATS is the
-# shared substrate); it does not by itself make a single run's stream survive losing that pod.
+# MUST STAY 1 until the subscriber gate is shared. Raising this is NOT safe today.
+#
+# WHY: the 428 gate ("attach a WebSocket before starting the run") is answered from
+# `ws/registry.py`, an IN-PROCESS dict of live connections — not from NATS. So with two replicas
+# and no session affinity, a WebSocket accepted on pod A and a `GET /?q=` routed to pod B gives a
+# permanent 428: the run can never start, and whether it works is a coin flip per request. The
+# App is stateless in every other respect, which is exactly what makes this one easy to miss.
+#
+# To go above 1, do ONE of:
+#   - implement the NATS interest check spec §4 actually specifies (consumer count for the
+#     topic), which makes the gate genuinely stateless; or
+#   - pin a client to one replica for the whole run: `sessionAffinity: ClientIP` on the Service
+#     AND matching affinity on the ingress/Gateway, which is a workaround, not a fix — it breaks
+#     again the moment that replica restarts.
 #
 # AIDEV-NOTE: going above 1 for an availability target? Add a PodDisruptionBudget at the same
 # time, or a node drain can still evict every replica at once. It is deliberately NOT shipped

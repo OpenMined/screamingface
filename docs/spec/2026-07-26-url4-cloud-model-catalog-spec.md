@@ -1,6 +1,6 @@
 ---
 title: url4-cloud model catalog endpoint — technical specification
-status: proposed — awaiting owner approval; implementation not started
+status: implemented — shipped in `92fdf233`; live at `apps/url4-cloud/backend/src/url4_cloud/rest/catalog.py`
 created: 2026-07-26
 revised: 2026-07-26 (r3 — credential required; no service secret; mode-agnostic by construction)
 author: Claude (Opus 5) + Ionesio
