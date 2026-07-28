@@ -3,7 +3,7 @@
 REST + WebSocket url4 execution runner (k8s Jobs + NATS). Design: `docs/spec/2026-07-21-url4-cloud.md`
 · epic OME-513.
 
-One app, one image, two modes — `apps/url4-cloud/backend/`, package `url4_cloud`, image
+One app, one image, two modes — `apps/url4-cloud/`, package `url4_cloud`, image
 `ghcr.io/openmined/screamingface-url4-cloud`. The mode is chosen by **argv**, never sniffed from
 the environment:
 
@@ -115,7 +115,7 @@ Runs still require an attached WebSocket subscriber first — the `428` gate is 
 and local mode keeps it rather than relaxing it for `curl`.
 
 The declared world (`url4.toml`) is baked into the image at `/etc/url4/url4.toml` and is **not**
-installed by the wheel, so in a checkout local mode falls back to `backend/url4.toml`. Set
+installed by the wheel, so in a checkout local mode falls back to the checkout's `url4.toml`. Set
 `URL4_RUNNER_CONFIG` to override. Tuning: `URL4_CLOUD_LOCAL_MAX_CONCURRENT_RUNS`,
 `URL4_CLOUD_LOCAL_STREAM_MAX_FRAMES`, `URL4_CLOUD_LOCAL_MAX_RUN_HISTORY`.
 

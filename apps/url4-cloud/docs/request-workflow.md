@@ -11,9 +11,9 @@ selected by argv: `url4-cloud serve` is the App, `url4-cloud run` is the Job. Th
 apart by an import rule, not by packaging — see `.claude/scripts/check_layering.py`.
 
 It is grounded in the actual source:
-`apps/url4-cloud/backend/src/url4_cloud/{cli,app,rest/routes,ws/{endpoint,bridge,registry},
+`apps/url4-cloud/src/url4_cloud/{cli,app,rest/routes,ws/{endpoint,bridge,registry},
 adapters/{factory,k8s,jetstream},job_env,subjects}.py`,
-`apps/url4-cloud/backend/src/url4_cloud/runner/{main,executor,connector,config}.py`,
+`apps/url4-cloud/src/url4_cloud/runner/{main,executor,connector,config}.py`,
 `packages/url4/src/url4/streaming/{interfaces/{stream,jobs,executor},lifecycle}.py`,
 `apps/aigateway/src/aigateway/{main,routes/chat}.py`, and the helm chart
 (`apps/url4-cloud/deploy/helm/templates/*.yaml`).
