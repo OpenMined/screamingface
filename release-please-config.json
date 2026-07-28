@@ -38,7 +38,7 @@
       "component": "url4-cloud",
       "tag-separator": "-",
       "include-component-in-tag": true,
-      "version-file": "apps/url4-cloud/pyproject.toml"
+      "version-file": "apps/url4-cloud/backend/pyproject.toml"
     }
   }
 }
