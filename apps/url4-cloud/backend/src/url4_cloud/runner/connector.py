@@ -71,6 +71,16 @@ class AigatewayConfig:
     tavily_max_results: int = 5
     tavily_timeout_s: float = 30.0
     web_tool_max_iterations: int = 5
+    # INVARIANT: the iteration count alone does NOT bound this loop's cost. Two other dimensions
+    # have to be bounded or a single expression can run away:
+    #
+    # - a tool result is appended to `messages` and RE-SENT on every later iteration, so an
+    #   uncapped `raw_content` from one `web_fetch` is paid for repeatedly and can exceed the
+    #   model's context window outright (a 400 the loop turns into a permanent failure);
+    # - the model chooses how many tool calls one turn contains, and they are dispatched
+    #   concurrently, so an unbounded fan-out is an unbounded burst of upstream requests.
+    web_tool_max_result_bytes: int = 32_768
+    web_tool_max_calls_per_turn: int = 8
 
 
 @dataclass
@@ -328,17 +338,36 @@ async def _chat_completion_loop(
         content, tool_calls = _parse_choice(data)
         if not tool_calls:
             return content or ""
+        # Cap the fan-out BEFORE dispatching: the model decides how many calls a turn carries, and
+        # they all run concurrently. The dropped ones still get a tool message, because the API
+        # requires one reply per tool_call_id — omitting them makes the next request malformed.
+        served, dropped = (
+            tool_calls[: cfg.web_tool_max_calls_per_turn],
+            tool_calls[cfg.web_tool_max_calls_per_turn :],
+        )
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
         results = await asyncio.gather(
-            *(_execute_tool(tc, tavily_http, cfg, tavily_api_key) for tc in tool_calls)
+            *(_execute_tool(tc, tavily_http, cfg, tavily_api_key) for tc in served)
         )
-        for tc, result in zip(tool_calls, results, strict=True):
+        for tc, result in zip(served, results, strict=True):
             messages.append(
                 {
                     "role": "tool",
                     "tool_call_id": tc["id"],
                     "name": tc["function"]["name"],
-                    "content": result,
+                    "content": _truncate_tool_result(result, cfg.web_tool_max_result_bytes),
+                }
+            )
+        for tc in dropped:
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "name": tc.get("function", {}).get("name", ""),
+                    "content": (
+                        f"error: not executed — at most {cfg.web_tool_max_calls_per_turn} tool "
+                        f"calls are served per turn; request fewer"
+                    ),
                 }
             )
     raise ResolutionError(
@@ -346,6 +375,26 @@ async def _chat_completion_loop(
         code="web_tool_loop_limit",
         permanent=False,
     )
+
+
+_TOOL_TRUNCATION_MARKER = "\n…[truncated]"
+
+
+def _truncate_tool_result(result: str, cap: int) -> str:
+    """Bound one tool result to `cap` UTF-8 bytes, marking that it was cut.
+
+    Cuts on a byte boundary (`errors="ignore"` drops a partial trailing character rather than
+    raising), mirroring `_RunState.build_result`. The marker matters: a silently truncated web
+    page reads to the model as a complete one, and it will answer confidently from the fragment.
+    """
+    encoded = result.encode("utf-8")
+    if len(encoded) <= cap:
+        return result
+    marker = _TOOL_TRUNCATION_MARKER.encode("utf-8")
+    if len(marker) >= cap:
+        return marker[:cap].decode("utf-8", errors="ignore")
+    kept = encoded[: cap - len(marker)]
+    return kept.decode("utf-8", errors="ignore") + _TOOL_TRUNCATION_MARKER
 
 
 def _tool_args(tool_call: dict) -> tuple[str, dict | None]:

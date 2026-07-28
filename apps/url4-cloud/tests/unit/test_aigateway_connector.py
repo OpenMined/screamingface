@@ -917,3 +917,31 @@ async def test_tavily_key_never_sent_to_aigateway() -> None:
     for req in gw.posts_to(_MODEL):
         assert req.headers["authorization"] == f"Bearer {_TOKEN}"
         assert _TAVILY_TOKEN not in str(req.headers) + req.content.decode("utf-8", errors="ignore")
+
+
+async def test_a_tool_result_is_capped_before_it_re_enters_the_prompt() -> None:
+    """A tool result is appended to `messages` and re-sent on EVERY later iteration, so an
+    uncapped one is paid for repeatedly and can exceed the model's context outright."""
+    from url4_cloud.runner.connector import _truncate_tool_result
+
+    out = _truncate_tool_result("x" * 100_000, 1000)
+
+    assert len(out.encode("utf-8")) <= 1000
+    assert out.endswith("…[truncated]"), "a silent cut reads to the model as a complete document"
+
+
+async def test_a_short_tool_result_is_left_exactly_alone() -> None:
+    from url4_cloud.runner.connector import _truncate_tool_result
+
+    assert _truncate_tool_result("small", 1000) == "small"
+
+
+async def test_truncation_never_splits_a_multibyte_character() -> None:
+    """The cap is in BYTES but the value must stay valid UTF-8 — a split character would raise on
+    encode at the next request rather than at the cut."""
+    from url4_cloud.runner.connector import _truncate_tool_result
+
+    out = _truncate_tool_result("é" * 5000, 137)
+
+    assert len(out.encode("utf-8")) <= 137
+    out.encode("utf-8").decode("utf-8")  # must not raise
