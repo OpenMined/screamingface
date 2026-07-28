@@ -2335,7 +2335,7 @@ wheels = [
 
 [[package]]
 name = "url4"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "../../packages/url4" }
 dependencies = [
     { name = "httpx" },
