@@ -389,7 +389,18 @@ async def test_surviving_log_event_maps_to_log_data() -> None:
     assert isinstance(log, LogData)
     assert log.severity_number == 13
     assert log.severity_text == "WARN"
-    assert isinstance(logs[0], Traced) and logs[0].span is None
+    # A log emitted from inside a node is attributed to THAT node's span, not to the run root.
+    # This assertion used to require `span is None`, which pinned the defect: the engine supplies
+    # `Log.span_id`, the executor discarded it, and every log line on the wire looked as though it
+    # came from the run itself — so no consumer could tell which node logged what.
+    assert isinstance(logs[0], Traced)
+    assert logs[0].span is not None
+    span_ids = {
+        f.span.span_id
+        for f in frames
+        if isinstance(f, Traced) and f.span is not None and isinstance(f.payload, SpanData)
+    }
+    assert logs[0].span.span_id in span_ids
 
 
 class _LongResultNode:

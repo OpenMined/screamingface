@@ -109,7 +109,20 @@ async def _terminate(
 def _trace_fields(
     payload: Telemetry, span_ref: SpanRef | None, root_ctx: TraceContext, root_tp: str
 ) -> tuple[str, str | None]:
-    if isinstance(payload, SpanData) and span_ref is not None:
+    """Resolve the ``traceparent``/``tracestate`` a frame is published under.
+
+    INVARIANT: attribution follows the SPAN, not the payload type. Any frame the executor tagged
+    with a :class:`SpanRef` — a span, a per-node ``cost.usage``, a log line — is published under
+    that span's traceparent; only genuinely run-level frames fall back to ``root_tp``.
+
+    This used to test ``isinstance(payload, SpanData)`` as well, which silently discarded the
+    span on every other frame type. The effect was that all `scope="self"` cost frames in a run
+    were published under one identical traceparent, so a consumer could not tell WHICH node spent
+    the tokens and could not reconcile per-node cost against the subtree total — defeating the
+    per-node accounting the engine goes to trouble to produce (`ctx.report_usage` and `ctx.log`
+    both attribute to the current span id). Log lines lost their node the same way.
+    """
+    if span_ref is not None:
         traceparent = format_traceparent(root_ctx.trace_id, span_ref.span_id)
         parent = span_ref.parent_span_id
         if parent is None or parent == root_ctx.root_span_id:

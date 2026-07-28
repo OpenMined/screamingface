@@ -173,12 +173,29 @@ class _RunState:
                 event.node_kind, event.detail, datetime.now(UTC), event.parent_span_id
             )
         elif isinstance(event, Log):
-            return [Traced(payload=_log_frame(event), span=None)]
+            # The engine attributes each log line to the span that emitted it; carry that through
+            # so a consumer can tell WHICH node logged. A span-less line (logged outside any
+            # node) legitimately has none and falls back to the run root.
+            return [Traced(payload=_log_frame(event), span=self._span_ref(event.span_id))]
         elif isinstance(event, Usage):
             self._fold_usage(event)
         elif isinstance(event, NodeFinished):
             return self._finish(event)
         return []
+
+    def _span_ref(self, span_id: str | None) -> SpanRef | None:
+        """A `SpanRef` for a live span, or None when the frame belongs to the run itself.
+
+        A span id the run has never seen (or has already finished) resolves to None rather than
+        being fabricated: publishing under an id no span frame ever carried would be worse than
+        falling back to the root, because a consumer cannot tell the two apart.
+        """
+        if span_id is None:
+            return None
+        span = self.spans.get(span_id)
+        if span is None:
+            return None
+        return SpanRef(span_id, span.parent_span_id)
 
     def _fold_usage(self, event: Usage) -> None:
         self._sum_input += event.input_tokens
@@ -238,7 +255,12 @@ class _RunState:
                         usage=TokenUsage(input_tokens=usage[2], output_tokens=usage[3]),
                         cost=CostBreakdown(total_usd=Decimal("0")),
                     ),
-                    span=None,
+                    # INVARIANT: the self-scoped cost carries the SAME span as the span frame it
+                    # accompanies. Without it every `scope="self"` frame in a run is published
+                    # under the run root and is therefore indistinguishable from every other —
+                    # nobody can tell which node spent the tokens, and self cannot be reconciled
+                    # against subtree per node, which is the whole point of emitting both.
+                    span=SpanRef(event.span_id, parent_span_id),
                 )
             )
         return frames
