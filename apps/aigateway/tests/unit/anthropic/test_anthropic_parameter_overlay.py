@@ -87,7 +87,12 @@ def test_native_top_k_is_visible_but_disabled_under_oauth() -> None:
     assert entry["provider"]["support"] == "supported"
     assert entry["provider"]["source"] == _STATIC
     assert entry["gateway"]["status"] == "disabled"
-    assert entry["gateway"]["reason"] == "projection_not_implemented"
+    # TRANSITION (OME-649, owner-approved): this asserted "projection_not_implemented",
+    # which stated the defect as the contract — the gateway HAS a reviewed api-key
+    # projection for this path, so the honest reason names the credential, and the
+    # applicability tells the client which one would enable it.
+    assert entry["gateway"]["reason"] == "projection_not_available_for_auth_mode"
+    assert entry["gateway"]["applicable_auth_modes"] == ["api_key"]
 
 
 def test_inline_summary_is_the_safe_auth_intersection() -> None:

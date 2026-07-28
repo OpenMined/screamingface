@@ -341,6 +341,9 @@ def test_contract_entry_serializes_to_locked_detail_shape() -> None:
         "status": "enabled",
         "projection": "direct",
         "cache_behavior": "bypass",
+        # OME-649: auth applicability joins the POLICY block. Still an EXACT-equality
+        # lock — the lock catching a newly published key is the lock doing its job.
+        "applicable_auth_modes": ["api_key"],
     }
 
 

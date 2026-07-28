@@ -124,6 +124,8 @@ def test_parameters_are_keyed_by_path_and_use_the_detail_shape() -> None:
         "status": "enabled",
         "projection": "direct",
         "cache_behavior": "bypass",
+        # OME-649: auth applicability joins the published policy block.
+        "applicable_auth_modes": ["api_key"],
     }
     # observed-but-unruled field is VISIBLE but never dispatchable.
     disabled = params["provider_params.new_option"]

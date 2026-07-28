@@ -40,6 +40,12 @@ _DISABLED_UNPROJECTED_REASON = "projection_not_implemented"
 # Sibling of the above, for the TRANSPORT section: the provider may well support
 # the control upstream, but this gateway does not carry it yet.
 _DISABLED_TRANSPORT_REASON = "gateway_transport_not_implemented"
+# WHY a THIRD reason rather than reusing the first: "the gateway has no projection
+# for this path" and "the gateway has a reviewed projection this CREDENTIAL cannot
+# use" are different facts with different remedies — the first waits on gateway
+# work, the second is fixed by connecting the other auth mode. Collapsing them
+# tells a client to wait for something that already exists.
+_DISABLED_AUTH_MODE_REASON = "projection_not_available_for_auth_mode"
 # The transport control's name is the REQUEST FIELD callers actually send, so a
 # client can act on what it reads. ``stream`` is gateway-owned (see
 # ``GATEWAY_OWNED_FIELDS``), hence never expressible as a parameter rule — the
@@ -394,6 +400,13 @@ class ParameterContractEntry(BaseModel):
         else:
             gateway["reason"] = self.gateway_reason
         gateway["cache_behavior"] = self.cache_behavior
+        # WHY published rather than kept internal: without it a DISABLED row cannot
+        # say WHICH credential would enable it, so "not available under this auth
+        # mode" is a dead end for the client. Empty tuple == no gateway rule at all.
+        # No new exposure: ``context.auth_mode`` already names the reading mode in
+        # this same profile-bound document, and these are gateway-authored policy
+        # values, never account or credential material.
+        gateway["applicable_auth_modes"] = list(self.applicable_auth_modes)
         return {
             "request_path": self.request_path,
             "schema": (
@@ -571,49 +584,60 @@ def compose_contract_entries(
     """Overlay provider observations with gateway rules for one auth mode.
 
     - A rule applicable to ``auth_mode`` produces an ENABLED entry.
+    - A rule the gateway HAS but which does not cover ``auth_mode`` produces a
+      DISABLED entry with ``projection_not_available_for_auth_mode``, carrying the
+      modes that DO cover it.
     - An observed-but-unruled path produces a DISABLED entry with
       ``projection_not_implemented`` — visible, but never dispatchable.
+
+    INVARIANT (OME-649): a rule is never DROPPED for not covering the read's auth
+    mode; only its ``gateway.status`` reacts. Filtering it out here would make the
+    contract claim the gateway has no projection at all for that path, which is
+    both false and unactionable — the client cannot see that switching credentials
+    would enable it. Dispatch is unaffected: it filters rules by auth mode on its
+    OWN path (``parameter_projection``), and every entry produced here for a
+    non-covering mode is DISABLED, so nothing new becomes forwardable.
+
+    INVARIANT: the published ``applicable_auth_modes`` is the rule's real tuple, so
+    the contract shows the same value ``_rules_revision`` already hashes. The
+    identity digest covers EVERY rule regardless of the read's mode; publishing
+    only the covering ones meant hashing a field the document never showed.
     """
-    enabled_rules = {
-        rule.request_path: rule for rule in rules if auth_mode in rule.applicable_auth_modes
-    }
+    by_path = {rule.request_path: rule for rule in rules}
     observed = {obs.request_path: obs for obs in observations}
     entries: list[ParameterContractEntry] = []
-    for path in sorted(set(enabled_rules) | set(observed)):
-        rule = enabled_rules.get(path)
+    for path in sorted(set(by_path) | set(observed)):
+        rule = by_path.get(path)
         obs = observed.get(path)
-        if rule is not None:
-            entries.append(
-                ParameterContractEntry(
-                    request_path=path,
-                    schema=rule.parameter_schema or (obs.parameter_schema if obs else None),
-                    provider_support=obs.support if obs else "unknown",
-                    provider_source=obs.source if obs else "none",
-                    provider_stale=obs.stale if obs else False,
-                    provider_deprecated=obs.deprecated if obs else None,
-                    gateway_status="enabled",
-                    gateway_projection=rule.projection_kind,
-                    gateway_reason=None,
-                    cache_behavior=rule.cache_behavior,
-                    applicable_auth_modes=rule.applicable_auth_modes,
-                )
-            )
-            continue
-        # obs is not None here (path came from the observed set).
-        assert obs is not None
+        # ``covering`` is the rule that AUTHORIZES this read; ``rule`` is merely the
+        # rule that EXISTS. Keeping them as separate names is what lets the three
+        # cases below stay one expression each.
+        covering = rule if rule is not None and auth_mode in rule.applicable_auth_modes else None
+        if rule is None:
+            reason = _DISABLED_UNPROJECTED_REASON
+        elif covering is None:
+            reason = _DISABLED_AUTH_MODE_REASON
+        else:
+            reason = None
         entries.append(
             ParameterContractEntry(
                 request_path=path,
-                schema=obs.parameter_schema,
-                provider_support=obs.support,
-                provider_source=obs.source,
-                provider_stale=obs.stale,
-                provider_deprecated=obs.deprecated,
-                gateway_status="disabled",
-                gateway_projection=None,
-                gateway_reason=_DISABLED_UNPROJECTED_REASON,
-                cache_behavior="bypass",
-                applicable_auth_modes=(),
+                # The rule's reviewed schema wins wherever one exists — including on
+                # a disabled-by-auth row, where it is exactly the validation the
+                # client would face after connecting a covering credential.
+                schema=(rule.parameter_schema if rule is not None else None)
+                or (obs.parameter_schema if obs is not None else None),
+                provider_support=obs.support if obs else "unknown",
+                provider_source=obs.source if obs else "none",
+                provider_stale=obs.stale if obs else False,
+                provider_deprecated=obs.deprecated if obs else None,
+                gateway_status="enabled" if covering else "disabled",
+                gateway_projection=covering.projection_kind if covering else None,
+                gateway_reason=reason,
+                # A disabled row forwards nothing, so it keys nothing — ``bypass``
+                # describes what this read actually does, in every disabled case.
+                cache_behavior=covering.cache_behavior if covering else "bypass",
+                applicable_auth_modes=rule.applicable_auth_modes if rule else (),
             )
         )
     return tuple(entries)
