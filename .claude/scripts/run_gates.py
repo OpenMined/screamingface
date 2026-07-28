@@ -15,6 +15,7 @@ Usage:
 
 Exit codes: 0 all green · 1 a gate or the append-only check failed · 2 config error.
 """
+
 import argparse
 import fnmatch
 import pathlib
@@ -36,8 +37,10 @@ GREEN, RED = "✓", "✗"
 
 def fail_config(msg: str) -> NoReturn:
     print(f"CONFIG ERROR: {msg}")
-    print("If the card is missing: copy templates/sdlc.local.md from the sdlc plugin "
-          "into .claude/, fill it, and re-run.")
+    print(
+        "If the card is missing: copy templates/sdlc.local.md from the sdlc plugin "
+        "into .claude/, fill it, and re-run."
+    )
     sys.exit(2)
 
 
@@ -48,7 +51,9 @@ def load_card(path: pathlib.Path) -> dict:
     if not lines or lines[0].strip() != "---":
         fail_config(f"{path} has no YAML frontmatter (must start with ---)")
     try:
-        end = next(i for i, line in enumerate(lines[1:], start=1) if line.strip() == "---")
+        end = next(
+            i for i, line in enumerate(lines[1:], start=1) if line.strip() == "---"
+        )
     except StopIteration:
         fail_config(f"{path} frontmatter is not closed with ---")
     try:
@@ -64,7 +69,9 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
     """True when no previously committed test file was modified/deleted/renamed."""
     proc = subprocess.run(
         ["git", "diff", "--relative", "--name-status", base],
-        cwd=root, capture_output=True, text=True,
+        cwd=root,
+        capture_output=True,
+        text=True,
     )
     if proc.returncode != 0:
         fail_config(f"git diff failed in {root}: {proc.stderr.strip()}")
@@ -72,17 +79,23 @@ def append_only_check(root: pathlib.Path, base: str, globs: list[str]) -> bool:
     for line in proc.stdout.splitlines():
         parts = line.split("\t")
         status, paths = parts[0], parts[1:]
-        if status[:1] not in "MDR":  # A(dded)/C(opied) etc. are fine — adding tests is always fine
+        if (
+            status[:1] not in "MDR"
+        ):  # A(dded)/C(opied) etc. are fine — adding tests is always fine
             continue
         for p in paths:
             if any(fnmatch.fnmatch(p, g) for g in globs):
                 offenders.append(f"  {status}\t{p}")
                 break
     if offenders:
-        print(f"{RED} append-only test check — prior tests were modified/deleted (vs {base}):")
+        print(
+            f"{RED} append-only test check — prior tests were modified/deleted (vs {base}):"
+        )
         print("\n".join(offenders))
-        print("Tests are append-only across cycles (sdlc rule 5). Changing a prior test is a "
-              "Confidence-Gate decision — STOP and ask.")
+        print(
+            "Tests are append-only across cycles (sdlc rule 5). Changing a prior test is a "
+            "Confidence-Gate decision — STOP and ask."
+        )
         return False
     print(f"{GREEN} append-only test check (vs {base})")
     return True
@@ -117,7 +130,9 @@ def main() -> int:
 
     if ok:
         for gate in gates:
-            proc = subprocess.run(gate, shell=True, cwd=root, capture_output=True, text=True)
+            proc = subprocess.run(
+                gate, shell=True, cwd=root, capture_output=True, text=True
+            )
             if proc.returncode == 0:
                 print(f"{GREEN} {gate}")
             else:
