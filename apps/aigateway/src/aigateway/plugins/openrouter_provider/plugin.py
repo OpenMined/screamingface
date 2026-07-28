@@ -21,10 +21,7 @@ An API-key-only provider (no OAuth) routed through LiteLLM's built-in
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
-
-from fastapi import HTTPException
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
@@ -34,7 +31,6 @@ from aigateway.core.plugin_base import (
     ModelEntry,
     ProviderPluginBase,
 )
-from aigateway.core.provider_errors import NonRetryableProviderError
 from aigateway.core.standard_parameters import (
     direct_parameter_observations,
     tool_parameter_observations,
@@ -47,6 +43,15 @@ from .discovery import (
     REVIEWED_ENDPOINT_OBSERVATIONS,
     SNAPSHOT_SOURCE_REVISION,
     discover_openrouter_snapshot,
+)
+from .dispatch_errors import (
+    _embedded_error_exception,
+    _invalid_model_error,
+    _unsafe_litellm_state_error,
+)
+from .litellm_controls import (
+    _has_unsafe_litellm_global_state,
+    _strip_openrouter_litellm_controls,
 )
 from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
 from .provenance import converter_error_status, is_http200_body_error
@@ -152,139 +157,6 @@ _STRIPPED_CALLER_HEADERS = frozenset(
         "x-title",
     }
 )
-
-_LITELLM_GLOBAL_CALLBACK_FIELDS = (
-    "callbacks",
-    "input_callback",
-    "success_callback",
-    "failure_callback",
-    "_async_input_callback",
-    "_async_success_callback",
-    "_async_failure_callback",
-)
-
-_LITELLM_GLOBAL_RULE_FIELDS = ("pre_call_rules", "post_call_rules")
-
-_OPENROUTER_LITELLM_CONTROL_FIELDS = frozenset(
-    {
-        "litellm_credential_name",
-        "guardrails",
-        "guardrail_config",
-        "disable_global_guardrails",
-        "prompt_id",
-        "prompt_variables",
-        "prompt_label",
-        "prompt_version",
-        "caching",
-        "cache_key",
-        "preset_cache_key",
-    }
-)
-
-_OPENROUTER_METADATA_CONTROL_FIELDS = frozenset(
-    {"disable_global_guardrails", "guardrails", "previous_models"}
-)
-
-_OPENROUTER_NESTED_METADATA_CONTROL_FIELDS = frozenset({"disable_global_guardrails", "guardrails"})
-
-
-def _invalid_model_error() -> HTTPException:
-    # Gateway-authored message only — never echo the raw caller value.
-    return HTTPException(
-        status_code=400,
-        detail={
-            "code": "invalid_model",
-            "provider": "openrouter",
-            "message": (
-                "model must be 'openrouter/<author>/<model>' with an optional single ':variant'"
-            ),
-        },
-    )
-
-
-class _UnsafeLiteLLMStateError(HTTPException):
-    """A pre-dispatch global-state conflict that the retry loop must not repeat."""
-
-    aigw_non_retryable = True
-
-
-def _unsafe_litellm_state_error() -> _UnsafeLiteLLMStateError:
-    return _UnsafeLiteLLMStateError(
-        status_code=503,
-        detail={
-            "code": "provider_unavailable",
-            "message": "OpenRouter dispatch is unavailable",
-        },
-    )
-
-
-def _has_unsafe_litellm_global_state(litellm: Any, model: object) -> bool:
-    """Detect process-global controls that can observe or reroute BYOK calls."""
-    aliases = getattr(litellm, "model_alias_map", None)
-    if isinstance(model, str) and isinstance(aliases, Mapping) and model in aliases:
-        return True
-    if getattr(litellm, "model_fallbacks", None):
-        return True
-    if any(bool(getattr(litellm, field, None)) for field in _LITELLM_GLOBAL_RULE_FIELDS):
-        return True
-    for field in _LITELLM_GLOBAL_CALLBACK_FIELDS:
-        callbacks = getattr(litellm, field, None)
-        if callbacks and any(callback != "cache" for callback in callbacks):
-            return True
-    return False
-
-
-def _strip_openrouter_litellm_controls(body: dict[str, Any]) -> dict[str, Any]:
-    """Remove LiteLLM orchestration selectors without changing other providers."""
-    out = {
-        key: value for key, value in body.items() if key not in _OPENROUTER_LITELLM_CONTROL_FIELDS
-    }
-    metadata = out.get("metadata")
-    if not isinstance(metadata, Mapping):
-        return out
-    sanitized_metadata = {
-        key: value
-        for key, value in metadata.items()
-        if key not in _OPENROUTER_METADATA_CONTROL_FIELDS
-    }
-    for nested_key in ("requester_metadata", "user_api_key_metadata"):
-        nested_metadata = sanitized_metadata.get(nested_key)
-        if isinstance(nested_metadata, Mapping):
-            sanitized_metadata[nested_key] = {
-                key: value
-                for key, value in nested_metadata.items()
-                if key not in _OPENROUTER_NESTED_METADATA_CONTROL_FIELDS
-            }
-    out["metadata"] = sanitized_metadata
-    return out
-
-
-def _embedded_error_exception(status: int | None) -> HTTPException:
-    """Sanitized gateway error for an embedded provider failure.
-
-    Only the numeric status survives; raw provider message/metadata is
-    discarded. Malformed/status-less embedded errors map to 502 (D9).
-
-    # INVARIANT (CODE-2): the upstream call already returned this payload, so
-    # the error is non-retryable — an embedded 429/503/529 must make exactly
-    # one upstream call. No Retry-After is invented: the embedded JSON schema
-    # was not shown to carry one; validated hints survive only on actual
-    # transport exceptions.
-    """
-    resolved = status if status is not None else 502
-    code = "provider_error"
-    if resolved == 401:
-        code = "auth_required"
-    elif resolved == 400:
-        code = "bad_request"
-    elif resolved == 429:
-        code = "rate_limited"
-    elif resolved >= 500 and status is not None:
-        code = "provider_unavailable"
-    return NonRetryableProviderError(
-        status_code=resolved,
-        detail={"code": code, "message": "OpenRouter reported a provider error"},
-    )
 
 
 class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
