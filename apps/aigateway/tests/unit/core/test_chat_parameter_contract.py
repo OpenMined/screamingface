@@ -283,6 +283,10 @@ def test_enabled_rule_without_observation_reports_unknown_provider_support() -> 
     assert entry.request_path == "temperature"
     assert entry.gateway_status == "enabled"
     assert entry.provider_support == "unknown"
+    # Honest about the ABSENCE too: no observation means no source to cite. This pair
+    # is the provider-agnostic home of the property (OME-646 removed the OpenRouter
+    # instance of it when its last ruled-but-unobserved field was withdrawn).
+    assert entry.provider_source == "none"
 
 
 def test_inline_summary_entries_are_enabled_in_the_detailed_contract() -> None:

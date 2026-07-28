@@ -73,13 +73,21 @@ def test_ruled_and_observed_standard_field_is_enabled_with_evidence() -> None:
     assert temperature["provider"]["source"] == "openrouter:static"
 
 
-def test_ruled_but_unobserved_field_is_enabled_with_unknown_support() -> None:
-    # `provider` is a ruled routing control, deliberately NOT in the sampling-param
-    # evidence set — so it is enabled but honestly carries no provider evidence.
-    provider = _parameters()["provider"]
-    assert provider["gateway"]["status"] == "enabled"
-    assert provider["provider"]["support"] == "unknown"
-    assert provider["provider"]["source"] == "none"
+def test_native_routing_controls_are_absent_from_the_contract() -> None:
+    # OME-646: `provider`, `plugins`, `route` and `models` used to be ruled here without
+    # a validation schema — the one OpenRouter case of "enabled but carrying no provider
+    # evidence". Both halves were the defect: an enabled ordinary parameter must declare
+    # a gateway-owned validation schema, and these are fallback/routing controls the task
+    # excludes. Unruled AND unobserved, they are absent from the contract entirely, and a
+    # caller who sends one gets a named 400 (test_openrouter_security).
+    #
+    # AIDEV-NOTE: the general property this test used to carry — a ruled-but-unobserved
+    # field is enabled with honest unknown/none evidence — is provider-agnostic and lives
+    # in core: test_chat_parameter_contract::
+    # test_enabled_rule_without_observation_reports_unknown_provider_support.
+    params = _parameters()
+    for path in ("provider", "plugins", "route", "models"):
+        assert path not in params, path
 
 
 def test_every_endpoint_observed_sampling_field_is_visible_with_a_status() -> None:

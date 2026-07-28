@@ -28,13 +28,46 @@ from aigateway.core.loader import load_plugins
 from aigateway.core.model_capabilities import canonical_model_id, model_row
 from aigateway.core.model_parameter_contract import build_model_parameter_document
 from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS, wrapper_path_conflicts
+from aigateway.core.plugin_base import PluginSettings
 from aigateway.core.profile_models import AuthMode
 from aigateway.core.registry import ProviderRegistry
 
 
+def _operator_gate_overrides(settings_cls: type[PluginSettings]) -> dict[str, bool]:
+    """The plugin's operator on/off gates, mapped to ON.
+
+    A gate is recognised by SHAPE, never by name: a boolean setting that defaults to
+    False is an operator switch an installation must opt into. Keying off the shape
+    keeps this file free of provider names (see the module INVARIANT) and sweeps a
+    future provider's gate automatically, without editing anything here.
+    """
+    return {
+        name: True
+        for name, field in settings_cls.model_fields.items()
+        if field.annotation is bool and field.default is False
+    }
+
+
 def _load_registry() -> ProviderRegistry:
+    """The registry the CONTRACT is defined by: every operator gate forced ON.
+
+    WHY (OME-646): a provider that ships disabled contributes no models, so every
+    invariant below held vacuously for it while the suite still reported success — the
+    gate could not fail for that provider. Conformance describes the declared contract,
+    which does not change when an operator flips a switch, so the sweep opts every
+    provider in.
+
+    AIDEV-NOTE: this reaches only gates expressible as settings. A plugin that builds
+    its catalogue by querying a live external process at call time still contributes
+    nothing here when that process is absent, and its rules stay unswept — a real
+    residual hole, but one no settings choice can close.
+    """
+    discovered = ProviderRegistry()
+    load_plugins(discovered)
     registry = ProviderRegistry()
-    load_plugins(registry)
+    for plugin in discovered.all():
+        overrides = _operator_gate_overrides(plugin.settings_cls)
+        registry.register(type(plugin)(plugin.settings_cls(**overrides)) if overrides else plugin)
     return registry
 
 
@@ -85,6 +118,36 @@ def test_registry_discovery_is_non_vacuous() -> None:
     # vacuously. Assert a floor WITHOUT naming providers (a count is not an inventory).
     assert len(_REGISTRY.all()) >= 1
     assert sum(len(plugin.register_models()) for plugin in _REGISTRY.all()) >= 1
+
+
+def test_an_operator_gate_cannot_hide_a_provider_from_conformance() -> None:
+    # NON-VACUITY, per-provider (OME-646). The guard above sums models across the WHOLE
+    # registry, so a provider contributing ZERO still passes it — and every invariant in
+    # this file then holds vacuously for that provider while the suite reports success.
+    # That is exactly how a schema-less enabled rule survived a green gate: the provider
+    # sat behind an operator on/off gate that is off by default, so the sweep examined
+    # none of its rows.
+    #
+    # INVARIANT: conformance is a property of the DECLARED contract, not of one
+    # deployment's configuration. A provider whose catalog appears once its operator
+    # gates are forced on MUST be in the sweep. Stated this way the check is not
+    # self-referential: it compares default-settings plugins against the swept registry,
+    # so it fails the moment _load_registry stops forcing the gates.
+    #
+    # A provider that declares no models even with every gate forced on is discovering
+    # its catalog from a live external process at call time; no settings choice can make
+    # it declarable here, so it is out of this guard's reach (see the AIDEV-NOTE on
+    # _load_registry for that residual).
+    swept = {plugin.custom_llm_provider for plugin, _entry, _canonical in _iter_models()}
+    as_configured = ProviderRegistry()
+    load_plugins(as_configured)
+    for plugin in as_configured.all():
+        overrides = _operator_gate_overrides(plugin.settings_cls)
+        if not overrides or plugin.register_models():
+            continue
+        ungated = type(plugin)(plugin.settings_cls(**overrides))
+        if ungated.register_models():
+            assert plugin.custom_llm_provider in swept, plugin.custom_llm_provider
 
 
 def test_every_model_id_routes_to_its_owning_plugin() -> None:

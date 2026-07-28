@@ -2,11 +2,12 @@
 
 INVARIANT: every rule here is backed by a capture/boundary test proving the
 field reaches OpenRouter dispatch, so enabling it is earned, not speculative
-(plan §12). Standard sampling fields are ``direct``; OpenRouter-native routing
-controls sent bare at the top level are classified individually as ``direct``
-passthrough; ``top_k`` — not a standard OpenAI param for OpenRouter — is the P0
-promotion, projected through ``extra_body`` where the installed litellm
-transform carries it onto the wire (proven in tests).
+(plan §12). INVARIANT: every rule here also carries a validation schema — an
+enabled ordinary parameter that cannot be validated is not enabled at all
+(OME-646). Standard sampling fields are ``direct``; ``top_k`` — not a standard
+OpenAI param for OpenRouter — is the P0 promotion, projected through
+``extra_body`` where the installed litellm transform carries it onto the wire
+(proven in tests).
 """
 
 from __future__ import annotations
@@ -93,13 +94,16 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
         "top_logprobs", auth_modes=_AUTH, schema=TOP_LOGPROBS_SCHEMA, projection_revision=_REVISION
     ),
-    # WHY: OpenRouter-native routing controls are complex nested values with no
-    # scalar schema; a schema-less rule authorizes the path and forwards the
-    # value verbatim, preserving existing client behavior under fail-closed.
-    direct_rule("provider", auth_modes=_AUTH, projection_revision=_REVISION),
-    direct_rule("plugins", auth_modes=_AUTH, projection_revision=_REVISION),
-    direct_rule("route", auth_modes=_AUTH, projection_revision=_REVISION),
-    direct_rule("models", auth_modes=_AUTH, projection_revision=_REVISION),
+    # AIDEV-NOTE (OME-646): `provider`, `plugins`, `route` and `models` were enabled here
+    # by schema-less rules. `_accept` validates only when `rule.parameter_schema is not
+    # None`, so each authorized a path and forwarded arbitrary nested JSON verbatim —
+    # while §Definition of done requires every enabled ordinary parameter to declare a
+    # gateway-owned validation schema, and Excluded scope names fallbacks and arbitrary
+    # provider controls outright. `route: "fallback"` and `models: [...]` are OpenRouter's
+    # server-side fallback controls; `provider` carries `allow_fallbacks`. Both readings
+    # forbid the rules, so they are gone and the fields now fail closed with a named 400.
+    # Re-enabling any of them needs an approved bounded schema per field — a permissive
+    # object/array union added just to satisfy the conformance gate is NOT that.
     provider_native_rule(
         "provider_params.top_k",
         provider_target="extra_body.top_k",

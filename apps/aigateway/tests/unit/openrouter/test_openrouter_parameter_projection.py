@@ -174,15 +174,10 @@ def test_seeded_rules_are_the_single_source_of_the_summary() -> None:
     plugin = OpenRouterProviderPlugin(OpenRouterPluginSettings(enabled=True))
     rules = plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key")
     summary = set(inline_supported_parameters(rules, available_auth_modes=("api_key",)))
-    assert {
-        "temperature",
-        "max_tokens",
-        "provider",
-        "plugins",
-        "route",
-        "models",
-        "provider_params.top_k",
-    } <= summary
+    assert {"temperature", "max_tokens", "provider_params.top_k"} <= summary
+    # OME-646: the schema-less native routing controls are no longer ruled, so the
+    # summary must not advertise them either — /v1/models and dispatch agree.
+    assert summary.isdisjoint({"provider", "plugins", "route", "models"})
 
 
 # --- OME-583 (§9): function calling reaches dispatch + the installed transform ---
