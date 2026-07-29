@@ -10,11 +10,14 @@ export type SavedModel = {
   providerName: string;
 };
 
+export type ModelParam = { key: string; value: string };
+
 export type SavedSlot = {
   id: string;
   model: SavedModel;
   systemPrompt: string;
   weight: number;
+  params?: ModelParam[];
 };
 
 export type SavedRunModelResult = {

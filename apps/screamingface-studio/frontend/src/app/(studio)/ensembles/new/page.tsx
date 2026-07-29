@@ -42,6 +42,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  type ModelParam,
   type SavedEnsemble,
   type SavedModel,
   type SavedRun,
@@ -71,7 +72,37 @@ type Slot = {
   model: Model;
   systemPrompt: string;
   weight: number;
+  params?: ModelParam[];
 };
+
+const PARAM_CATALOG: {
+  key: string;
+  label: string;
+  kind: "number" | "int" | "text" | "select";
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: string[];
+  placeholder?: string;
+}[] = [
+  { key: "temperature", label: "temperature", kind: "number", min: 0, max: 2, step: 0.1 },
+  { key: "top_p", label: "top_p", kind: "number", min: 0, max: 1, step: 0.05 },
+  { key: "top_k", label: "top_k", kind: "int" },
+  { key: "max_output_tokens", label: "max_output_tokens", kind: "int" },
+  { key: "frequency_penalty", label: "frequency_penalty", kind: "number", min: -2, max: 2, step: 0.1 },
+  { key: "presence_penalty", label: "presence_penalty", kind: "number", min: -2, max: 2, step: 0.1 },
+  { key: "reasoning_effort", label: "reasoning_effort", kind: "select", options: ["low", "medium", "high"] },
+  { key: "seed", label: "seed", kind: "int" },
+  { key: "stop", label: "stop", kind: "text", placeholder: "e.g. \\n\\n" },
+];
+
+function defaultParamValue(
+  entry: (typeof PARAM_CATALOG)[number],
+): string {
+  if (entry.kind === "select") return entry.options?.[0] ?? "";
+  if (entry.kind === "text") return "";
+  return String(entry.min ?? 0);
+}
 
 const strategies: {
   value: ReduceStrategy;
@@ -270,6 +301,116 @@ function InlineModelPicker({
             </>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ParamEditor({
+  params,
+  onChange,
+}: {
+  params: ModelParam[];
+  onChange: (next: ModelParam[]) => void;
+}) {
+  const present = new Set(params.map((param) => param.key));
+  const available = PARAM_CATALOG.filter((entry) => !present.has(entry.key));
+
+  const setValue = (key: string, value: string) =>
+    onChange(
+      params.map((param) =>
+        param.key === key ? { ...param, value } : param,
+      ),
+    );
+  const removeParam = (key: string) =>
+    onChange(params.filter((param) => param.key !== key));
+  const addParam = (key: string) => {
+    const entry = PARAM_CATALOG.find((item) => item.key === key);
+    if (!entry) return;
+    onChange([...params, { key: entry.key, value: defaultParamValue(entry) }]);
+  };
+
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      {params.map((param) => {
+        const entry = PARAM_CATALOG.find((item) => item.key === param.key);
+        return (
+          <div
+            key={param.key}
+            className="flex items-center gap-2 border-t border-border/40 pt-2 first:border-t-0 first:pt-0"
+          >
+            <span className="w-36 shrink-0 truncate font-mono text-xs text-muted-foreground">
+              {entry?.label ?? param.key}
+            </span>
+            {entry?.kind === "select" ? (
+              <div className="min-w-0 flex-1">
+                <StageSelect
+                  value={param.value}
+                  options={(entry.options ?? []).map((option) => ({
+                    value: option,
+                    label: option,
+                    description: "",
+                  }))}
+                  onChange={(value) => setValue(param.key, value)}
+                />
+              </div>
+            ) : (
+              <Input
+                type={
+                  entry?.kind === "number" || entry?.kind === "int"
+                    ? "number"
+                    : "text"
+                }
+                inputMode={entry?.kind === "int" ? "numeric" : undefined}
+                min={entry?.min}
+                max={entry?.max}
+                step={
+                  entry?.kind === "int" ? 1 : entry?.step
+                }
+                placeholder={entry?.placeholder}
+                value={param.value}
+                className="h-8 min-w-0 flex-1 font-mono text-xs"
+                onChange={(event) => setValue(param.key, event.target.value)}
+              />
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0 text-muted-foreground"
+              aria-label={`Remove ${entry?.label ?? param.key}`}
+              onClick={() => removeParam(param.key)}
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        );
+      })}
+      {available.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-fit rounded-lg bg-card"
+            >
+              <Plus className="size-3.5" />
+              Add parameter
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-60 overflow-hidden p-0">
+            <DropdownMenuRadioGroup value="" onValueChange={addParam}>
+              {available.map((entry) => (
+                <DropdownMenuRadioItem
+                  key={entry.key}
+                  value={entry.key}
+                  className="rounded-none py-2 pl-3 pr-8 font-mono text-xs"
+                >
+                  {entry.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       )}
     </div>
   );
@@ -1708,6 +1849,14 @@ function EnsembleComposer() {
     setSlots((current) => current.filter((slot) => slot.id !== id));
   }
 
+  function updateSlotParams(id: string, next: ModelParam[]) {
+    setSlots((current) =>
+      current.map((slot) =>
+        slot.id === id ? { ...slot, params: next } : slot,
+      ),
+    );
+  }
+
   function setJudgeModel(model: Model) {
     setJudge({ id: crypto.randomUUID(), model, systemPrompt: "", weight: 0 });
   }
@@ -1938,6 +2087,13 @@ function EnsembleComposer() {
                                   : item,
                               ),
                             )
+                          }
+                        />
+
+                        <ParamEditor
+                          params={slot.params ?? []}
+                          onChange={(next) =>
+                            updateSlotParams(slot.id, next)
                           }
                         />
 
