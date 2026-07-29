@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlertTriangle,
   ArrowDown,
   ArrowRight,
   Check,
@@ -9,7 +8,6 @@ import {
   ChevronLeft,
   Copy,
   Cpu,
-  Database,
   BarChart3,
   Globe,
   History,
@@ -18,7 +16,6 @@ import {
   Play,
   Plug,
   Plus,
-  Repeat,
   Scale,
   Share2,
   Upload,
@@ -54,6 +51,7 @@ import {
 import {
   ALL_MODELS,
   PROVIDER_COLORS,
+  type ModelProvider,
   useModelStore,
 } from "@/lib/model-store";
 import { useOpenMinedStore } from "@/lib/openmined-store";
@@ -69,6 +67,7 @@ type ReduceStrategy =
 type Model = SavedModel;
 
 type Slot = {
+  id: string;
   model: Model;
   systemPrompt: string;
   weight: number;
@@ -184,6 +183,98 @@ function StageSelect({
   );
 }
 
+function InlineModelPicker({
+  providers,
+  onAdd,
+  label = "Add model",
+}: {
+  providers: ModelProvider[];
+  onAdd: (model: Model) => void;
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const connected = providers.filter(
+    (provider) => provider.connected && provider.models.length > 0,
+  );
+  const needle = query.trim().toLowerCase();
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-fit rounded-lg"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Plus className="size-3.5" />
+        {label}
+      </Button>
+      {open && (
+        <div className="rounded-xl border bg-card p-2">
+          {connected.length === 0 ? (
+            <div className="flex flex-col items-start gap-2 p-2">
+              <p className="text-xs text-muted-foreground">
+                No connected providers yet — connect one to pick its models.
+              </p>
+              <Button variant="outline" size="sm" className="rounded-lg" asChild>
+                <Link href="/models/" prefetch={false}>
+                  <Plug className="size-3.5" />
+                  Connect a provider
+                </Link>
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Input
+                autoFocus
+                value={query}
+                placeholder="Search models…"
+                className="mb-2 h-8"
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <div className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+                {connected.map((provider) => {
+                  const models = provider.models.filter((model) =>
+                    model.name.toLowerCase().includes(needle),
+                  );
+                  if (models.length === 0) return null;
+                  return (
+                    <div key={provider.id}>
+                      <p className="px-2 py-1 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                        {provider.name}
+                      </p>
+                      {models.map((model) => (
+                        <button
+                          type="button"
+                          key={model.id}
+                          onClick={() => {
+                            onAdd(model);
+                            setOpen(false);
+                            setQuery("");
+                          }}
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs transition-colors hover:bg-muted/50"
+                        >
+                          <ProviderDot provider={model.providerId} />
+                          <span className="min-w-0 flex-1 truncate">
+                            {model.name}
+                          </span>
+                          <Plus className="size-3.5 shrink-0 text-muted-foreground" />
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function parseRecipe(raw: string) {
   const match = raw.match(/^url4:\/\/([^?]+)\?(.*)$/);
   if (!match) return null;
@@ -192,7 +283,12 @@ function parseRecipe(raw: string) {
     .split(/[+\s]+/)
     .map((id) => ALL_MODELS.find((model) => model.id === id))
     .filter((model): model is Model => Boolean(model))
-    .map((model) => ({ model, systemPrompt: "", weight: 0.5 }));
+    .map((model) => ({
+      id: crypto.randomUUID(),
+      model,
+      systemPrompt: "",
+      weight: 0.5,
+    }));
   const reduce = params.get("reduce") as ReduceStrategy | null;
   const reduceScriptId = reduce?.startsWith("script:")
     ? reduce.slice(7)
@@ -356,21 +452,22 @@ function inspectedQuestions(run: SavedRun, count: number) {
       ];
     };
     const models = run.modelResults.map((result) => {
+      const seedId = result.slotId ?? result.modelId;
       const hit =
-        stableFraction(`${run.id}:q${index}:m${result.modelId}`) <
+        stableFraction(`${run.id}:q${index}:m${seedId}`) <
         result.score / 100;
       return {
         name: result.modelName,
         correct: hit,
         answer: {
           short: chooseAnswer(
-            `${run.id}:q${index}:w${result.modelId}`,
+            `${run.id}:q${index}:w${seedId}`,
             hit,
           ),
           reasoning:
             reasoningTraces[
               Math.floor(
-                stableFraction(`${run.id}:q${index}:t${result.modelId}`) *
+                stableFraction(`${run.id}:q${index}:t${seedId}`) *
                   reasoningTraces.length,
               )
             ],
@@ -880,6 +977,7 @@ function RunsPanel({
     setProgress(0);
     setModelResults(
       slots.map((slot) => ({
+        slotId: slot.id,
         modelId: slot.model.id,
         modelName: slot.model.name,
         score: 0,
@@ -911,6 +1009,7 @@ function RunsPanel({
         if (intervalRef.current) window.clearInterval(intervalRef.current);
         intervalRef.current = null;
         const finalResults = slots.map((slot, index) => ({
+          slotId: slot.id,
           modelId: slot.model.id,
           modelName: slot.model.name,
           score: scoreForModel(slot.model.id),
@@ -1240,15 +1339,6 @@ function RunsPanel({
         </div>
 
         <div className="mt-8">
-          {slots.length === 1 && !running && (
-            <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
-              <Database className="mt-0.5 size-3.5 shrink-0 text-primary" />
-              <p className="text-xs leading-relaxed text-primary">
-                This ensemble has one model, so loop and reduce strategies will
-                not affect the result.
-              </p>
-            </div>
-          )}
           {!running ? (
             <Button
               disabled={slots.length === 0}
@@ -1282,7 +1372,7 @@ function RunsPanel({
               <div className="overflow-hidden rounded-xl border">
                 {modelResults.map((result) => (
                   <div
-                    key={result.modelId}
+                    key={result.slotId ?? result.modelId}
                     className="flex items-center justify-between border-b px-5 py-3 last:border-0"
                   >
                     <span className="text-sm">{result.modelName}</span>
@@ -1326,7 +1416,7 @@ function EnsembleComposer() {
   const setActiveEnsemble = useEnsembleStore(
     (state) => state.setActiveEnsemble,
   );
-  const library = useModelStore((state) => state.library);
+  const providers = useModelStore((state) => state.providers);
   const addLibraryModels = useModelStore((state) => state.addLibraryModels);
   const scripts = useScriptStore((state) => state.scripts);
   const loopScripts = useMemo(
@@ -1346,7 +1436,7 @@ function EnsembleComposer() {
   const [reduceScriptId, setReduceScriptId] = useState<string | null>(null);
   const [loopMode, setLoopMode] = useState<"parallel" | "custom">("parallel");
   const [loopScriptId, setLoopScriptId] = useState<string | null>(null);
-  const [judgeId, setJudgeId] = useState<string | null>(null);
+  const [judge, setJudge] = useState<Slot | null>(null);
   const [runHistory, setRunHistory] = useState<SavedRun[]>([]);
   const [tab, setTab] = useState<"compose" | "runs">("compose");
   const [copied, setCopied] = useState(false);
@@ -1365,44 +1455,83 @@ function EnsembleComposer() {
     const frame = window.requestAnimationFrame(() => {
       if (saved) {
         const savedRunHistory = saved.runHistory ?? [];
+        const nextSlots = saved.slots.map((slot) => ({
+          ...slot,
+          id: slot.id ?? crypto.randomUUID(),
+        }));
+        const nextJudge =
+          saved.judge ??
+          (saved.judgeId
+            ? (() => {
+                const model =
+                  nextSlots.find((slot) => slot.model.id === saved.judgeId)
+                    ?.model ??
+                  ALL_MODELS.find((item) => item.id === saved.judgeId);
+                return model
+                  ? {
+                      id: crypto.randomUUID(),
+                      model,
+                      systemPrompt: "",
+                      weight: 0,
+                    }
+                  : null;
+              })()
+            : null);
         setName(saved.name);
-        setSlots(saved.slots);
-        addLibraryModels(saved.slots.map((slot) => slot.model));
+        setSlots(nextSlots);
+        addLibraryModels(nextSlots.map((slot) => slot.model));
         setStrategy(saved.strategy);
         setCustomReduce(saved.customReduce);
         setReduceScriptId(saved.reduceScriptId ?? null);
         setLoopMode(saved.loopMode);
         setLoopScriptId(saved.loopScriptId ?? null);
-        setJudgeId(saved.judgeId);
+        setJudge(nextJudge);
         setRunHistory(savedRunHistory);
         setSavedSnapshot(
           JSON.stringify({
             ...saved,
+            slots: nextSlots,
             reduceScriptId: saved.reduceScriptId ?? null,
             loopScriptId: saved.loopScriptId ?? null,
+            judge: nextJudge,
+            judgeId: nextJudge?.model.id ?? null,
             runs: savedRunHistory.length,
             runHistory: savedRunHistory,
             updatedAt: 0,
           }),
         );
       } else if (parsed) {
+        const nextSlots = parsed.slots.map((slot) => ({
+          ...slot,
+          id: slot.id ?? crypto.randomUUID(),
+        }));
+        const nextJudge = parsed.judgeId
+          ? (() => {
+              const model =
+                nextSlots.find((slot) => slot.model.id === parsed.judgeId)
+                  ?.model ??
+                ALL_MODELS.find((item) => item.id === parsed.judgeId);
+              return model
+                ? {
+                    id: crypto.randomUUID(),
+                    model,
+                    systemPrompt: "",
+                    weight: 0,
+                  }
+                : null;
+            })()
+          : null;
         setName(parsed.name);
-        setSlots(parsed.slots);
-        addLibraryModels(parsed.slots.map((slot) => slot.model));
+        setSlots(nextSlots);
+        addLibraryModels(nextSlots.map((slot) => slot.model));
         setStrategy(parsed.strategy);
         setCustomReduce(parsed.customReduce);
         setReduceScriptId(parsed.reduceScriptId);
         setLoopMode(parsed.loopMode);
         setLoopScriptId(parsed.loopScriptId);
-        setJudgeId(null);
+        setJudge(nextJudge);
         setRunHistory([]);
         setSavedSnapshot("");
-        if (
-          parsed.judgeId &&
-          parsed.slots.some((slot) => slot.model.id === parsed.judgeId)
-        ) {
-          setJudgeId(parsed.judgeId);
-        }
       } else {
         setName("ensemble-1");
         setSlots([]);
@@ -1411,7 +1540,7 @@ function EnsembleComposer() {
         setReduceScriptId(null);
         setLoopMode("parallel");
         setLoopScriptId(null);
-        setJudgeId(null);
+        setJudge(null);
         setRunHistory([]);
         setSavedSnapshot(
           JSON.stringify({
@@ -1423,6 +1552,7 @@ function EnsembleComposer() {
             reduceScriptId: null,
             loopMode: "parallel",
             loopScriptId: null,
+            judge: null,
             judgeId: null,
             runs: 0,
             runHistory: [],
@@ -1462,11 +1592,8 @@ function EnsembleComposer() {
         : null,
     [customReduce, reduceScriptId, reduceScripts],
   );
-  const judge = slots.find((slot) => slot.model.id === judgeId)?.model;
-  const weightSum = slots
-    .filter((slot) => slot.model.id !== judgeId)
-    .reduce((sum, slot) => sum + slot.weight, 0);
-  const recipe = `url4://${name}?models=${slots.map((slot) => slot.model.id).join("+")}&reduce=${customReduce ? `script:${resolvedReduceScriptId ?? "custom"}` : strategy}&loop=${loopMode === "custom" ? `script:${resolvedLoopScriptId ?? "custom"}` : "parallel"}${!customReduce && judgeId ? `&judge=${judgeId}` : ""}`;
+  const weightSum = slots.reduce((sum, slot) => sum + slot.weight, 0);
+  const recipe = `url4://${name}?models=${slots.map((slot) => slot.model.id).join("+")}&reduce=${customReduce ? `script:${resolvedReduceScriptId ?? "custom"}` : strategy}&loop=${loopMode === "custom" ? `script:${resolvedLoopScriptId ?? "custom"}` : "parallel"}${!customReduce && judge ? `&judge=${judge.model.id}` : ""}`;
   const draft = useMemo<SavedEnsemble>(
     () => ({
       id: ensembleId,
@@ -1477,7 +1604,8 @@ function EnsembleComposer() {
       reduceScriptId: resolvedReduceScriptId,
       loopMode,
       loopScriptId: resolvedLoopScriptId,
-      judgeId,
+      judge,
+      judgeId: judge?.model.id ?? null,
       runs: runHistory.length,
       runHistory,
       updatedAt: 0,
@@ -1485,7 +1613,7 @@ function EnsembleComposer() {
     [
       customReduce,
       ensembleId,
-      judgeId,
+      judge,
       loopMode,
       name,
       resolvedLoopScriptId,
@@ -1569,17 +1697,23 @@ function EnsembleComposer() {
     setSavedSnapshot(JSON.stringify(savedDraft));
   }
 
-  function addModel(model: Model) {
-    if (slots.some((slot) => slot.model.id === model.id)) return;
+  function addMember(model: Model) {
     setSlots((current) => [
       ...current,
-      { model, systemPrompt: "", weight: 0.5 },
+      { id: crypto.randomUUID(), model, systemPrompt: "", weight: 0.5 },
     ]);
   }
 
-  function removeModel(id: string) {
-    setSlots((current) => current.filter((slot) => slot.model.id !== id));
-    if (judgeId === id) setJudgeId(null);
+  function removeMember(id: string) {
+    setSlots((current) => current.filter((slot) => slot.id !== id));
+  }
+
+  function setJudgeModel(model: Model) {
+    setJudge({ id: crypto.randomUUID(), model, systemPrompt: "", weight: 0 });
+  }
+
+  function removeJudge() {
+    setJudge(null);
   }
 
   async function copyRecipe() {
@@ -1695,141 +1829,75 @@ function EnsembleComposer() {
         value="compose"
         className="m-0 flex min-h-0 flex-1 overflow-hidden"
       >
-          <aside className="w-56 shrink-0 overflow-y-auto border-r px-4 py-5">
-            <p className="mb-3 text-xs text-muted-foreground">Add from library</p>
-            {library.length === 0 ? (
-              <div className="flex flex-col items-start gap-4">
-                <p className="text-xs leading-relaxed text-muted-foreground/50">
-                  No models in your library yet. Add some in the Models tab.
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="rounded-lg"
-                  asChild
-                >
-                  <Link href="/models/" prefetch={false}>
-                    <Plug className="size-3.5" />
-                    Connect Models
-                  </Link>
-                </Button>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {library.map((model) => {
-                  const selected = slots.some(
-                    (slot) => slot.model.id === model.id,
-                  );
-                  return (
-                    <button
-                      type="button"
-                      key={model.id}
-                      disabled={selected}
-                      onClick={() => addModel(model)}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      <ProviderDot provider={model.providerId} />
-                      <span className="min-w-0 flex-1 truncate text-xs">
-                        {model.name}
-                      </span>
-                      {!selected && (
-                        <Plus className="size-3 shrink-0 text-muted-foreground" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </aside>
-
-          <main className="min-w-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
+          <main className="min-w-0 flex-1 overflow-y-auto px-6 py-6 lg:px-10">
             <div className="mx-auto flex max-w-2xl flex-col">
-              {slots.length === 1 && (
-                <div className="mb-5 flex items-start gap-2.5 rounded-xl border border-primary/40 bg-primary/10 px-4 py-3 text-primary">
-                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                  <p className="text-xs leading-snug">
-                    An ensemble needs at least 2 models — the loop and reduce
-                    steps have no effect on a single model. Add another from the
-                    library on the left.
-                  </p>
-                </div>
-              )}
-
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Repeat className="size-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Loop</span>
-                  <span className="text-xs text-muted-foreground">
-                    · {loopMode === "custom"
-                      ? loopScripts.find(
-                          (script) => script.id === resolvedLoopScriptId,
-                        )
-                          ?.name ?? "Custom script…"
-                      : "runs the models"}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StageSelect
-                    value={loopMode}
-                    options={[
-                      {
-                        value: "parallel",
-                        label: "Parallel",
-                        description: "Run every model on each question",
-                      },
-                      {
-                        value: "custom",
-                        label: "Custom script…",
-                        description: "Plug in a loop script",
-                      },
-                    ]}
-                    onChange={(value) => {
-                      const nextMode = value as "parallel" | "custom";
-                      setLoopMode(nextMode);
-                      setLoopScriptId(
-                        nextMode === "custom"
-                          ? resolvedLoopScriptId
-                          : null,
-                      );
-                    }}
-                  />
-                  {loopMode === "custom" && loopScripts.length > 0 && (
-                    <StageSelect
-                      value={resolvedLoopScriptId ?? loopScripts[0].id}
-                      options={loopScripts.map((script) => ({
-                        value: script.id,
-                        label: script.name,
-                        description: "Custom response loop",
-                      }))}
-                      onChange={setLoopScriptId}
-                    />
-                  )}
-                  {loopMode === "custom" && loopScripts.length === 0 && (
-                    <span className="text-xs text-muted-foreground/70">
-                      No loop scripts — add one in Scripts
+              <section className="rounded-xl border bg-card">
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="grid size-5 shrink-0 place-items-center rounded-md bg-muted font-mono text-xs font-medium text-muted-foreground">
+                      1
                     </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2.5">
-                {slots.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/40 py-12 text-muted-foreground">
-                    <Plus className="size-5 opacity-20" />
-                    <span className="text-sm opacity-50">
-                      Add models from the library on the left
+                    <span className="text-sm font-medium">Loop</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      · the members that answer each question
                     </span>
                   </div>
-                ) : (
-                  slots.map((slot, index) => {
-                    const isJudge = slot.model.id === judgeId;
-                    return (
+                  <div className="flex items-center gap-2">
+                    <StageSelect
+                      value={loopMode}
+                      options={[
+                        {
+                          value: "parallel",
+                          label: "Parallel",
+                          description: "Run every model on each question",
+                        },
+                        {
+                          value: "custom",
+                          label: "Custom script…",
+                          description: "Plug in a loop script",
+                        },
+                      ]}
+                      onChange={(value) => {
+                        const nextMode = value as "parallel" | "custom";
+                        setLoopMode(nextMode);
+                        setLoopScriptId(
+                          nextMode === "custom"
+                            ? resolvedLoopScriptId
+                            : null,
+                        );
+                      }}
+                    />
+                    {loopMode === "custom" && loopScripts.length > 0 && (
+                      <StageSelect
+                        value={resolvedLoopScriptId ?? loopScripts[0].id}
+                        options={loopScripts.map((script) => ({
+                          value: script.id,
+                          label: script.name,
+                          description: "Custom response loop",
+                        }))}
+                        onChange={setLoopScriptId}
+                      />
+                    )}
+                    {loopMode === "custom" && loopScripts.length === 0 && (
+                      <span className="text-xs text-muted-foreground/70">
+                        No loop scripts — add one in Scripts
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2.5 px-4 py-4">
+                  {slots.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/40 py-12 text-muted-foreground">
+                      <Plus className="size-5 opacity-20" />
+                      <span className="text-sm opacity-50">
+                        Add models with <strong>+ Add model</strong> below
+                      </span>
+                    </div>
+                  ) : (
+                    slots.map((slot, index) => (
                       <article
-                        key={slot.model.id}
-                        className={cn(
-                          "rounded-xl border bg-card p-3.5",
-                          isJudge && "border-accent/50",
-                        )}
+                        key={slot.id}
+                        className="rounded-xl border bg-card p-3.5"
                       >
                         <div className="mb-2.5 flex items-center justify-between gap-2">
                           <div className="flex min-w-0 items-center gap-2.5">
@@ -1837,47 +1905,17 @@ function EnsembleComposer() {
                               {index + 1}
                             </span>
                             <ProviderDot provider={slot.model.providerId} />
-                            <span className="truncate text-sm font-medium">
+                            <span className="truncate font-mono text-sm">
                               {slot.model.name}
                             </span>
-                            <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                              [{slot.model.providerName}]
-                            </span>
-                            {isJudge && (
-                              <Badge
-                                variant="secondary"
-                                className="shrink-0 gap-0.5 bg-accent/15 text-accent"
-                              >
-                                <Scale className="size-2.5" />
-                                judge
-                              </Badge>
-                            )}
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5">
-                            {!customReduce && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  setJudgeId(isJudge ? null : slot.model.id)
-                                }
-                                className={cn(
-                                  "h-7 rounded-lg px-2",
-                                  isJudge
-                                    ? "border-accent/50 bg-accent/10 text-accent"
-                                    : "text-muted-foreground",
-                                )}
-                              >
-                                <Scale className="size-3" />
-                                {isJudge ? "Judge" : "Make judge"}
-                              </Button>
-                            )}
                             <Button
                               variant="ghost"
                               size="icon"
                               className="size-7 text-muted-foreground"
                               aria-label={`Remove ${slot.model.name}`}
-                              onClick={() => removeModel(slot.model.id)}
+                              onClick={() => removeMember(slot.id)}
                             >
                               <X className="size-3.5" />
                             </Button>
@@ -1892,7 +1930,7 @@ function EnsembleComposer() {
                           onChange={(event) =>
                             setSlots((current) =>
                               current.map((item) =>
-                                item.model.id === slot.model.id
+                                item.id === slot.id
                                   ? {
                                       ...item,
                                       systemPrompt: event.target.value,
@@ -1903,7 +1941,7 @@ function EnsembleComposer() {
                           }
                         />
 
-                        {strategy === "weighted_avg" && !isJudge && (
+                        {strategy === "weighted_avg" && (
                           <div className="mt-3 flex items-center gap-3">
                             <span className="shrink-0 text-xs text-muted-foreground">
                               Weight
@@ -1917,7 +1955,7 @@ function EnsembleComposer() {
                               onValueChange={([value]) =>
                                 setSlots((current) =>
                                   current.map((item) =>
-                                    item.model.id === slot.model.id
+                                    item.id === slot.id
                                       ? {
                                           ...item,
                                           weight: value,
@@ -1938,145 +1976,248 @@ function EnsembleComposer() {
                           </div>
                         )}
                       </article>
-                    );
-                  })
-                )}
-              </div>
+                    ))
+                  )}
 
-              <div className="my-4 flex items-center gap-2 text-muted-foreground/40">
-                <div className="h-px flex-1 bg-border" />
-                <ArrowDown className="size-3.5" />
-                <div className="h-px flex-1 bg-border" />
-              </div>
-
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Scale className="size-3.5 text-muted-foreground" />
-                  <span className="text-sm font-medium">Reduce</span>
-                  <span className="text-xs text-muted-foreground">
-                    · combines into one answer
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StageSelect
-                    value={customReduce ? "custom" : strategy}
-                    options={[
-                      ...strategies,
-                      {
-                        value: "custom",
-                        label: "Custom script…",
-                        description: "Plug in a reduce script",
-                      },
-                    ]}
-                    onChange={(value) => {
-                      if (value === "custom") {
-                        setCustomReduce(true);
-                        setReduceScriptId(
-                          resolvedReduceScriptId,
-                        );
-                        setJudgeId(null);
-                      } else {
-                        setCustomReduce(false);
-                        setReduceScriptId(null);
-                        setStrategy(value as ReduceStrategy);
-                      }
+                  <InlineModelPicker
+                    providers={providers}
+                    onAdd={(model) => {
+                      addMember(model);
+                      addLibraryModels([model]);
                     }}
                   />
-                  {customReduce && reduceScripts.length > 0 && (
-                    <StageSelect
-                      value={resolvedReduceScriptId ?? reduceScripts[0].id}
-                      options={reduceScripts.map((script) => ({
-                        value: script.id,
-                        label: script.name,
-                        description: "Custom reduce script",
-                      }))}
-                      onChange={setReduceScriptId}
-                    />
-                  )}
-                  {customReduce && reduceScripts.length === 0 && (
-                    <span className="text-xs text-muted-foreground/70">
-                      No reduce scripts — add one in Scripts
-                    </span>
-                  )}
                 </div>
+              </section>
+
+              <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
+                <ArrowDown className="size-3.5" />
+                answers
               </div>
 
-              <section className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent/10">
-                    <Scale className="size-4 text-accent" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="truncate text-sm font-medium">
-                      {customReduce
-                          ? reduceScripts.find(
-                            (script) => script.id === resolvedReduceScriptId,
-                          )?.name ?? "Choose a script"
-                        : selectedStrategy.label}
-                    </h3>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {customReduce
-                        ? "Custom reduce script"
-                        : selectedStrategy.description}
-                    </p>
-                  </div>
-                </div>
-                {!customReduce && (
-                  <div className="flex items-center justify-between gap-2 border-t border-border/50 pt-3">
-                    <span className="text-xs text-muted-foreground">
-                      Judge model
+              <section className="rounded-xl border bg-card">
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="grid size-5 shrink-0 place-items-center rounded-md bg-muted font-mono text-xs font-medium text-muted-foreground">
+                      2
                     </span>
-                    {judge ? (
-                      <span className="flex items-center gap-1 text-xs text-accent">
-                        <Scale className="size-2.5" />
-                        {judge.name}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-primary">
-                        none — use “Make judge” on a loop model
+                    <span className="text-sm font-medium">Reduce</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      · combines the members into one answer
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StageSelect
+                      value={customReduce ? "custom" : strategy}
+                      options={[
+                        ...strategies,
+                        {
+                          value: "custom",
+                          label: "Custom script…",
+                          description: "Plug in a reduce script",
+                        },
+                      ]}
+                      onChange={(value) => {
+                        if (value === "custom") {
+                          setCustomReduce(true);
+                          setReduceScriptId(resolvedReduceScriptId);
+                        } else {
+                          setCustomReduce(false);
+                          setReduceScriptId(null);
+                          setStrategy(value as ReduceStrategy);
+                        }
+                      }}
+                    />
+                    {customReduce && reduceScripts.length > 0 && (
+                      <StageSelect
+                        value={resolvedReduceScriptId ?? reduceScripts[0].id}
+                        options={reduceScripts.map((script) => ({
+                          value: script.id,
+                          label: script.name,
+                          description: "Custom reduce script",
+                        }))}
+                        onChange={setReduceScriptId}
+                      />
+                    )}
+                    {customReduce && reduceScripts.length === 0 && (
+                      <span className="text-xs text-muted-foreground/70">
+                        No reduce scripts — add one in Scripts
                       </span>
                     )}
                   </div>
-                )}
+                </div>
+                <div className="flex flex-col gap-4 px-4 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-accent/10">
+                      <Scale className="size-4 text-accent" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-medium">
+                        {customReduce
+                          ? reduceScripts.find(
+                              (script) => script.id === resolvedReduceScriptId,
+                            )?.name ?? "Choose a script"
+                          : selectedStrategy.label}
+                      </h3>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {customReduce
+                          ? "Custom reduce script"
+                          : selectedStrategy.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  {customReduce ? (
+                    <p className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+                      A custom reduce script handles arbitration — no separate
+                      judge needed.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2.5">
+                      <span className="text-sm font-medium">
+                        Judge{" "}
+                        <span className="text-muted-foreground">
+                          (optional)
+                        </span>
+                      </span>
+                      {judge ? (
+                        <article className="rounded-xl border bg-card p-3.5">
+                          <div className="mb-2.5 flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              <ProviderDot provider={judge.model.providerId} />
+                              <span className="truncate font-mono text-sm">
+                                {judge.model.name}
+                              </span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground"
+                              aria-label="Remove judge"
+                              onClick={removeJudge}
+                            >
+                              <X className="size-3.5" />
+                            </Button>
+                          </div>
+                          <Textarea
+                            rows={2}
+                            value={judge.systemPrompt}
+                            placeholder="System prompt (optional) — Judge the candidate answers and pick the best…"
+                            className="resize-none text-xs"
+                            onChange={(event) =>
+                              setJudge((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      systemPrompt: event.target.value,
+                                    }
+                                  : current,
+                              )
+                            }
+                          />
+                        </article>
+                      ) : (
+                        <InlineModelPicker
+                          providers={providers}
+                          label="Add model"
+                          onAdd={(model) => {
+                            setJudgeModel(model);
+                            addLibraryModels([model]);
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
               </section>
 
-              {slots.length > 0 && (
-                <section className="mt-6 rounded-xl border border-border/60 bg-muted/20 p-4">
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    url4 Recipe
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <code className="min-w-0 flex-1 break-all font-mono text-xs text-primary/90">
-                      {recipe}
-                    </code>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={copyRecipe}
-                      aria-label="Copy url4 recipe"
-                      className="size-8 shrink-0 text-muted-foreground"
-                    >
-                      {copied ? (
-                        <Check className="size-3.5 text-accent" />
-                      ) : (
-                        <Copy className="size-3.5" />
-                      )}
-                    </Button>
-                  </div>
-                </section>
-              )}
-
-              <div className="mt-8 flex justify-end">
-                <Button
-                  className="h-10 rounded-xl px-6"
-                  onClick={() => setTab("runs")}
-                >
-                  Next: Run
-                  <ArrowRight className="size-4" />
-                </Button>
+              <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
+                <ArrowDown className="size-3.5" />
+                final answer
               </div>
             </div>
           </main>
+
+          <aside className="flex w-80 shrink-0 flex-col gap-6 overflow-y-auto border-l bg-muted/10 px-5 py-6">
+            <div>
+              <p className="mb-3 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                Pipeline
+              </p>
+              {slots.length > 0 ? (
+                <div className="flex flex-col gap-1.5">
+                  <p className="flex items-center gap-1.5 text-xs">
+                    <span className="font-mono text-muted-foreground">①</span>
+                    <span>
+                      Loop · {slots.length} member
+                      {slots.length === 1 ? "" : "s"} ·{" "}
+                      {loopMode === "custom" ? "custom" : "parallel"}
+                    </span>
+                  </p>
+                  <span className="pl-0.5 text-xs text-muted-foreground">↓</span>
+                  <p className="flex items-center gap-1.5 text-xs">
+                    <span className="font-mono text-muted-foreground">②</span>
+                    <span className="min-w-0 truncate">
+                      Reduce ·{" "}
+                      {customReduce
+                        ? reduceScripts.find(
+                            (script) => script.id === resolvedReduceScriptId,
+                          )?.name ?? "custom"
+                        : selectedStrategy.label}
+                    </span>
+                  </p>
+                  {judge && (
+                    <p className="flex items-center gap-1.5 pl-5 text-xs text-muted-foreground">
+                      <ProviderDot provider={judge.model.providerId} />
+                      <span className="min-w-0 truncate">
+                        Judge · {judge.model.name}
+                      </span>
+                    </p>
+                  )}
+                  <span className="pl-0.5 text-xs text-muted-foreground">↓</span>
+                  <p className="text-xs text-accent">Final answer</p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Add members to build your fusion.
+                </p>
+              )}
+            </div>
+
+            {slots.length > 0 && (
+              <div>
+                <p className="mb-3 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                  url4 Recipe
+                </p>
+                <div className="rounded-lg border bg-card p-2">
+                  <code className="block break-all font-mono text-[11px] text-primary/90">
+                    {recipe}
+                  </code>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 w-full"
+                  onClick={copyRecipe}
+                >
+                  {copied ? (
+                    <Check className="size-3.5 text-accent" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              </div>
+            )}
+
+            <div>
+              <Button
+                className="w-full rounded-xl"
+                onClick={() => setTab("runs")}
+              >
+                Next: Run
+                <ArrowRight className="size-4" />
+              </Button>
+            </div>
+          </aside>
       </TabsContent>
       <TabsContent
         value="runs"

@@ -212,9 +212,9 @@ export default function EnsemblesPage() {
                 </div>
                 <div className="flex min-h-4 items-center gap-1.5">
                   {ensemble.slots.length > 0 ? (
-                    ensemble.slots.slice(0, 6).map((slot) => (
+                    ensemble.slots.slice(0, 6).map((slot, index) => (
                       <span
-                        key={slot.model.id}
+                        key={slot.id ?? `${slot.model.id}-${index}`}
                         className="size-2 rounded-full"
                         style={{
                           background:
