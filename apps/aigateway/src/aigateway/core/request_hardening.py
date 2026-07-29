@@ -163,4 +163,23 @@ def chat_body_shape_error(body: object) -> str | None:
     # bool is checked with `is not` on type: `stream: 1` must not pass as truthy.
     if "stream" in body and type(body["stream"]) is not bool:
         return "stream must be a boolean"
+    tools = body.get("tools")
+    if isinstance(tools, list):
+        for tool in tools:
+            if not isinstance(tool, Mapping) or tool.get("type") != "function":
+                continue
+            function = tool.get("function")
+            name = function.get("name") if isinstance(function, Mapping) else None
+            # INVARIANT: an accepted function tool must survive provider adaptation;
+            # Gemini-family adapters deliberately skip nameless declarations.
+            if not isinstance(name, str) or not name.strip():
+                return "each function tool must include a non-empty function.name"
+    response_format = body.get("response_format")
+    if isinstance(response_format, Mapping) and response_format.get("type") == "json_schema":
+        json_schema = response_format.get("json_schema")
+        schema = json_schema.get("schema") if isinstance(json_schema, Mapping) else None
+        # INVARIANT: LiteLLM omits Ollama's `format` when this schema is absent,
+        # silently turning a structured-output request into free-form generation.
+        if not isinstance(schema, Mapping):
+            return "response_format.json_schema.schema must be an object"
     return None

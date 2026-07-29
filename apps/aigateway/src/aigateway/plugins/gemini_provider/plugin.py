@@ -31,7 +31,11 @@ from .auth import (
     credential_service_for,
     exchange_authorization_code,
 )
-from .chat_handler import ensure_litellm_gemini_provider_registered, get_litellm_gemini_handler
+from .chat_handler import (
+    _env_api_key,
+    ensure_litellm_gemini_provider_registered,
+    get_litellm_gemini_handler,
+)
 from .discovery import (
     CODE_ASSIST_SOURCE,
     DISCOVERY_SOURCE,
@@ -184,6 +188,11 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
 
     def allows_chatless_profile(self) -> bool:
         return True
+
+    def profileless_auth_mode(self) -> AuthMode | None:
+        # INVARIANT: this is the same selector the handler consults before
+        # dispatching to the public generativelanguage endpoint.
+        return "api_key" if _env_api_key() is not None else None
 
     def supports_chat_streaming(self) -> bool:
         return False

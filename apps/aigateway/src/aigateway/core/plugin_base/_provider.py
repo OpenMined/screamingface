@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from ..credential_blob.store import CredentialBlobStore
     from ..oauth.identity import AccountIdentity
     from ..profile_index import ProfileIndexStore
-    from ..profile_models import AuthType
+    from ..profile_models import AuthMode, AuthType
 
 
 class ProviderPluginCore[TSettings: PluginSettings](ABC):
@@ -177,6 +177,10 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     def allows_chatless_profile(self) -> bool:
         """Whether chat may proceed when no gateway OAuth profile exists."""
         return False
+
+    def profileless_auth_mode(self) -> AuthMode | None:
+        """Return the runtime-selected auth mode when no stored target exists."""
+        return None
 
     def invalidate_profile_session(self, _profile_name: str) -> None:
         """Drop provider-owned per-profile chat/session cache, if any."""

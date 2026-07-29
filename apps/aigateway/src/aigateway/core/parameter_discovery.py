@@ -231,4 +231,9 @@ class HttpxDiscoveryClient:
             if total > max_bytes:
                 raise DiscoveryError("oversized")
             chunks.append(chunk)
-        return b"".join(chunks).decode("utf-8", errors="replace")
+        try:
+            return b"".join(chunks).decode("utf-8")
+        except UnicodeDecodeError:
+            # INVARIANT: replacement decoding can erase restrictive model evidence
+            # while leaving syntactically valid JSON that would be cached as fresh.
+            raise DiscoveryError("malformed_json") from None

@@ -70,8 +70,12 @@ def resolved_auth_mode(
     # absent profile. Gemini also permits a profile-less request, so triggering on
     # the missing profile would silently drop a credentialed provider into no-auth.
     """
-    if connection is None and profile is None and plugin.available_auth_modes() == ("none",):
-        return "none"
+    if connection is None and profile is None:
+        profileless_mode = plugin.profileless_auth_mode()
+        if profileless_mode is not None:
+            return profileless_mode
+        if plugin.available_auth_modes() == ("none",):
+            return "none"
     return auth_mode_for_target(profile, connection)
 
 

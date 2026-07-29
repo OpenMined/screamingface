@@ -104,9 +104,10 @@ class _InFlight:
     # before queuing; if it moved while the caller waited, some other caller already
     # paid for an attempt.
     attempts: int = 0
-    # The outcome of the most recent FAILED attempt in this batch, reused by
-    # single-flight losers. Cleared on success.
-    failure: tuple[str, CacheOutcome] | None = None
+    # The exact outcome of the most recent completed attempt in this batch.
+    # A capacity eviction may remove a successful entry before queued losers run,
+    # so both successful and failed outcomes need this non-durable handoff.
+    result: tuple[str, CacheOutcome] | None = None
 
 
 class ObservationCache:
@@ -125,6 +126,10 @@ class ObservationCache:
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         # Negative entries carry no evidence, only a bounded retry-suppression window.
         self._failures: OrderedDict[str, _FailureEntry] = OrderedDict()
+        # INVARIANT: positive and negative records share ONE advertised capacity.
+        # This index owns cross-table recency; the payload maps remain separate so
+        # a failure can coexist with the last-good evidence it may serve as stale.
+        self._record_lru: OrderedDict[tuple[str, str], None] = OrderedDict()
         # Live only while callers are inside get_or_refresh for the key (see _InFlight).
         self._inflight: dict[str, _InFlight] = {}
 
@@ -172,7 +177,19 @@ class ObservationCache:
                 entry = self._entries.get(key)
                 if entry is not None and self._is_fresh(entry, revision):
                     self._entries.move_to_end(key)
+                    self._touch_record("entry", key)
                     return CacheOutcome(value=entry.value, freshness="fresh")
+
+                # A single-flight LOSER reuses the winner's exact outcome before
+                # consulting durable negative cache. Capacity eviction may have
+                # removed the stale payload after the winner captured it, so
+                # recomputing from current records could downgrade stale to degraded.
+                if (
+                    state.result is not None
+                    and state.result[0] == revision
+                    and state.attempts > observed
+                ):
+                    return state.result[1]
 
                 failure = self._failures.get(key)
                 if failure is not None:
@@ -185,19 +202,13 @@ class ObservationCache:
                         self._failures.move_to_end(key)
                         # INVARIANT: recompute trust from the current clock; suppressing
                         # a retry must never extend a last-good value's stale window.
-                        return self._on_refresh_error(entry, revision)
+                        outcome = self._on_refresh_error(entry, revision)
+                        if outcome.value is not None and self._entries.get(key) is entry:
+                            self._touch_record("entry", key)
+                        self._touch_record("failure", key)
+                        return outcome
                     del self._failures[key]
-
-                # A single-flight LOSER of a failed attempt: reuse that outcome rather
-                # than re-dial a source we just watched fail. Recomputing it would give
-                # the same answer anyway — the winner stored nothing and the clock is
-                # the only other input.
-                if (
-                    state.failure is not None
-                    and state.failure[0] == revision
-                    and state.attempts > observed
-                ):
-                    return state.failure[1]
+                    self._record_lru.pop(("failure", key), None)
 
                 # Not fresh (cold, expired, or revision changed) → attempt one refresh.
                 try:
@@ -205,17 +216,23 @@ class ObservationCache:
                 except DiscoveryError:
                     state.attempts += 1
                     outcome = self._on_refresh_error(entry, revision)
-                    state.failure = (revision, outcome)
+                    state.result = (revision, outcome)
+                    # Another key may have evicted this stale entry while refresh
+                    # awaited I/O. Never resurrect only its LRU token as a ghost.
+                    if outcome.value is not None and self._entries.get(key) is entry:
+                        self._touch_record("entry", key)
                     self._store_failure(key, revision)
                     return outcome
 
                 state.attempts += 1
-                state.failure = None
+                outcome = CacheOutcome(value=value, freshness="fresh")
+                state.result = (revision, outcome)
                 self._failures.pop(key, None)
+                self._record_lru.pop(("failure", key), None)
                 self._store(
                     key, _Entry(value=value, stored_at=self._clock.now(), revision=revision)
                 )
-                return CacheOutcome(value=value, freshness="fresh")
+                return outcome
         finally:
             self._leave(key)
 
@@ -259,17 +276,31 @@ class ObservationCache:
         # lifecycle (_enter/_leave), so there is nothing to reconcile here.
         self._entries[key] = entry
         self._entries.move_to_end(key)
-        while len(self._entries) > self._limits.max_entries:
-            self._entries.popitem(last=False)
+        self._touch_record("entry", key)
+        self._trim_records()
 
     def _store_failure(self, key: str, revision: str) -> None:
         if self._limits.failure_ttl_s <= 0:
             self._failures.pop(key, None)
+            self._record_lru.pop(("failure", key), None)
             return
         self._failures[key] = _FailureEntry(
             failed_at=self._clock.now(),
             revision=revision,
         )
         self._failures.move_to_end(key)
-        while len(self._failures) > self._limits.max_entries:
-            self._failures.popitem(last=False)
+        self._touch_record("failure", key)
+        self._trim_records()
+
+    def _touch_record(self, kind: str, key: str) -> None:
+        record = (kind, key)
+        self._record_lru[record] = None
+        self._record_lru.move_to_end(record)
+
+    def _trim_records(self) -> None:
+        while len(self._record_lru) > self._limits.max_entries:
+            (kind, key), _ = self._record_lru.popitem(last=False)
+            if kind == "entry":
+                self._entries.pop(key, None)
+            else:
+                self._failures.pop(key, None)
