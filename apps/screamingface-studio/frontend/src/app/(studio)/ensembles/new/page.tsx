@@ -1058,6 +1058,7 @@ function RunDetail({
 
 function RunsPanel({
   slots,
+  judge,
   runs,
   onComplete,
   onPublish,
@@ -1065,6 +1066,7 @@ function RunsPanel({
   onBackToCompose,
 }: {
   slots: Slot[];
+  judge: Slot | null;
   runs: SavedRun[];
   onComplete: (run: SavedRun) => void;
   onPublish: (run: SavedRun) => void;
@@ -1083,6 +1085,9 @@ function RunsPanel({
   const [modelResults, setModelResults] = useState<
     (SavedRunModelResult & { status: "pending" | "running" | "done" })[]
   >([]);
+  const [judgeStatus, setJudgeStatus] = useState<
+    "idle" | "running" | "done"
+  >("idle");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const intervalRef = useRef<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1110,12 +1115,14 @@ function RunsPanel({
     setRunning(false);
     setProgress(0);
     setModelResults([]);
+    setJudgeStatus("idle");
   }
 
   function startRun() {
     if (slots.length === 0) return;
     setRunning(true);
     setProgress(0);
+    setJudgeStatus("idle");
     setModelResults(
       slots.map((slot) => ({
         slotId: slot.id,
@@ -1132,6 +1139,15 @@ function RunsPanel({
       tick += 1;
       const nextProgress = Math.min(100, tick * 5);
       setProgress(nextProgress);
+      if (judge) {
+        if (nextProgress === 100) {
+          setJudgeStatus("done");
+        } else if (nextProgress >= 85) {
+          setJudgeStatus((current) =>
+            current === "idle" ? "running" : current,
+          );
+        }
+      }
       setModelResults((current) =>
         current.map((result, index) => {
           const startAt = index * 2;
@@ -1490,12 +1506,22 @@ function RunsPanel({
               Run Evaluation
             </Button>
           ) : (
+            (() => {
+              const totalQuestions = full ? benchmark.questions : sampleSize;
+              const answeredQuestions = Math.min(
+                totalQuestions,
+                Math.round((progress / 100) * totalQuestions),
+              );
+              return (
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-3">
                 <LoaderCircle className="size-4 animate-spin text-primary" />
                 <p className="min-w-0 flex-1 truncate text-sm">
                   Running {benchmark.name} · {full ? "Full" : `${sampleSize}q`} · {effectiveCompute === "om" ? "OM compute" : "own compute"}
                 </p>
+                <span className="font-mono text-xs text-muted-foreground">
+                  {answeredQuestions.toLocaleString()} / {totalQuestions.toLocaleString()} questions
+                </span>
                 <span className="font-mono text-xs text-muted-foreground">
                   {progress}%
                 </span>
@@ -1510,30 +1536,69 @@ function RunsPanel({
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <div className="overflow-hidden rounded-xl border">
-                {modelResults.map((result) => (
-                  <div
-                    key={result.slotId ?? result.modelId}
-                    className="flex items-center justify-between border-b px-5 py-3 last:border-0"
-                  >
-                    <span className="text-sm">{result.modelName}</span>
-                    {result.status === "pending" ? (
-                      <span className="text-xs text-muted-foreground">queued</span>
-                    ) : result.status === "running" ? (
-                      <span className="flex items-center gap-2 text-xs text-primary">
-                        <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-                        answering…
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1.5 text-xs text-accent">
-                        <Check className="size-3.5" />
-                        answered
-                      </span>
-                    )}
+              <div className="flex flex-col gap-3">
+                <div>
+                  <p className="mb-2 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Members
+                  </p>
+                  <div className="overflow-hidden rounded-xl border">
+                    {modelResults.map((result) => (
+                      <div
+                        key={result.slotId ?? result.modelId}
+                        className="flex items-center justify-between border-b px-5 py-3 last:border-0"
+                      >
+                        <span className="text-sm">{result.modelName}</span>
+                        {result.status === "pending" ? (
+                          <span className="text-xs text-muted-foreground">queued</span>
+                        ) : result.status === "running" ? (
+                          <span className="flex items-center gap-2 text-xs text-primary">
+                            <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                            answering…
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1.5 text-xs text-accent">
+                            <Check className="size-3.5" />
+                            answered
+                          </span>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
+                {judge && (
+                  <div>
+                    <p className="mb-2 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+                      Judge
+                    </p>
+                    <div className="overflow-hidden rounded-xl border">
+                      <div className="flex items-center justify-between border-b px-5 py-3 last:border-0">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <ProviderDot provider={judge.model.providerId} />
+                          <span className="truncate text-sm">
+                            {judge.model.name}
+                          </span>
+                        </span>
+                        {judgeStatus === "idle" ? (
+                          <span className="text-xs text-muted-foreground">waiting</span>
+                        ) : judgeStatus === "running" ? (
+                          <span className="flex items-center gap-2 text-xs text-primary">
+                            <span className="size-1.5 animate-pulse rounded-full bg-primary" />
+                            arbitrating…
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1.5 text-xs text-accent">
+                            <Check className="size-3.5" />
+                            done
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
+              );
+            })()
           )}
         </div>
       </div>
@@ -2381,6 +2446,7 @@ function EnsembleComposer() {
       >
         <RunsPanel
           slots={slots}
+          judge={judge}
           runs={runHistory}
           ensembleName={name}
           onComplete={completeRun}
