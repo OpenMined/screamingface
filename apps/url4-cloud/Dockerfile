@@ -37,7 +37,7 @@ COPY apps/url4-cloud/url4.toml ./url4.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.14-slim-bookworm AS runtime
 LABEL org.opencontainers.image.title="url4-cloud" \
       org.opencontainers.image.source="https://github.com/openmined/screamingface" \
       org.opencontainers.image.description="url4-cloud — REST + WebSocket control plane and url4 run mode"
