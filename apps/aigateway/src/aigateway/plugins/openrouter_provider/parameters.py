@@ -28,6 +28,7 @@ from aigateway.core.standard_parameters import (
     STOP_SCHEMA,
     TEMPERATURE_SCHEMA,
     TOP_LOGPROBS_SCHEMA,
+    TOP_P_SCHEMA,
     direct_rule,
     function_calling_rules,
     provider_native_rule,
@@ -56,6 +57,17 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
         "temperature", auth_modes=_AUTH, schema=TEMPERATURE_SCHEMA, projection_revision=_REVISION
     ),
+    # OME-479 (closure Unit 2): the P0 promotion of a genuinely observed-but-unruled
+    # field. `top_p` was reported by this provider's own evidence (openrouter:static,
+    # supported) while no rule authorized it, so the gateway published it as
+    # visible-but-disabled and rejected it at dispatch. Enabling it is exactly this one
+    # provider-local rule — no shared core/route edit — because the installed litellm
+    # openrouter transform forwards the value VERBATIM onto the wire, including the 0.0
+    # and 1.0 boundaries (§9 probe against litellm 1.87.0), and OpenRouter's accepted
+    # range IS the standard OpenAI [0, 1], so the SHARED schema binds unchanged.
+    # Contrast OPENROUTER_TOP_K_SCHEMA below, which exists only because OpenRouter's
+    # top_k floor genuinely differs from the shared one.
+    direct_rule("top_p", auth_modes=_AUTH, schema=TOP_P_SCHEMA, projection_revision=_REVISION),
     direct_rule(
         "max_tokens", auth_modes=_AUTH, schema=MAX_TOKENS_SCHEMA, projection_revision=_REVISION
     ),

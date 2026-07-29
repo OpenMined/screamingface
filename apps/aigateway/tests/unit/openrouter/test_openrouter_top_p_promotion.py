@@ -1,0 +1,496 @@
+"""OME-479 closure Unit 2: promoting a genuinely observed-but-unruled P0 field.
+
+FEATURE: a provider-local parameter promotion. The framework's claim is that
+enabling a new parameter is a PROVIDER-LOCAL edit — one rule in one plugin
+package, with no change to shared ``core/`` or ``routes/`` source. ``top_p`` is
+the field that proves it: before this promotion it was the ONLY OpenRouter path
+that appeared in the provider's observations and in no rule, so the gateway
+published it as visible-but-``disabled`` and rejected it at dispatch.
+
+STORY: as an API consumer I could already SEE that OpenRouter accepts ``top_p``;
+now I can actually send it, with the gateway validating the value, projecting it
+to the wire, keeping strict routing on, and honouring the cache behaviour it
+published for it.
+
+INVARIANT (§4.4): the observation did not enable the field and still does not —
+only the rule does. ``test_the_observation_alone_still_does_not_authorize`` holds
+the real observation set fixed and withholds the rule to prove the two axes stay
+independent after the promotion.
+
+INVARIANT (OME-651): the promoted field rides a STRICT request. A parameter the
+selected endpoint cannot honour must produce an explicit provider refusal, never
+a silently ignored field — so the final wire JSON carries ``top_p`` and
+``provider.require_parameters=true`` together.
+
+AIDEV-NOTE: the route harness below (fixtures + helpers) is a verbatim copy of
+the one in ``test_openrouter_standard_parameter_projection``, NOT a shared
+import — ``_api_key_validation_ok`` is autouse, and an autouse fixture applies
+only to the module that DECLARES it.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from aigateway.core.chat_parameters import inline_supported_parameters
+from aigateway.core.model_parameter_contract import build_model_parameter_document
+from aigateway.core.parameter_projection import (
+    UnsupportedParametersError,
+    classify_and_project_chat_parameters,
+)
+from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
+from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
+from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
+
+_KEY = "sk-or-v1-test"
+_MODEL = "openrouter/anthropic/claude-fable-5"
+_UPSTREAM = "anthropic/claude-fable-5"
+_MESSAGES: list[Any] = [{"role": "user", "content": "hi"}]
+# Spelled out rather than imported: a rename of the production constant must not
+# be able to silently rename what OpenRouter receives.
+_STRICT = {"require_parameters": True}
+
+
+# --------------------------------------------------------------------------
+# harness
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _api_key_validation_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Explicit test double (per tests/unit/conftest.py AIDEV-NOTE): key readiness
+    # is not what this promotion exercises.
+    from aigateway.core.api_key_validation import (
+        ApiKeyValidationResult,
+        ApiKeyValidationStage,
+        ApiKeyValidationState,
+    )
+    from aigateway.core.api_key_validation_service import ApiKeyValidationService
+
+    async def _valid(_self, _plugin, _provider, _api_key) -> ApiKeyValidationResult:
+        return ApiKeyValidationResult(
+            state=ApiKeyValidationState.VALID, stage=ApiKeyValidationStage.READINESS
+        )
+
+    monkeypatch.setattr(ApiKeyValidationService, "validate", _valid)
+
+
+@pytest.fixture()
+def enabled_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        openrouter_plugin_module.PLUGIN, "settings", OpenRouterPluginSettings(enabled=True)
+    )
+
+
+@pytest.fixture()
+def _cache_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Must run before the `client` fixture builds the app so Settings sees it.
+    monkeypatch.setenv("AIGW_REQUEST_CACHE_ENABLED", "true")
+
+
+@pytest.fixture()
+def cache_client(_cache_env, authenticated_client: TestClient) -> TestClient:
+    return authenticated_client
+
+
+def _rules(*, without: str | None = None):
+    plugin = OpenRouterProviderPlugin()
+    rules = plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key")
+    if without is None:
+        return rules
+    return tuple(rule for rule in rules if rule.request_path != without)
+
+
+def _dispatch_body(caller_body: dict[str, Any], *, without: str | None = None) -> dict[str, Any]:
+    """The exact route pipeline: strip controls → fail-closed classify/project → prepare."""
+    plugin = OpenRouterProviderPlugin()
+    stripped = plugin.strip_provider_dispatch_controls(caller_body)
+    projected = classify_and_project_chat_parameters(
+        stripped, rules=_rules(without=without), auth_mode="api_key"
+    )
+    return plugin.prepare_chat_body(projected)
+
+
+def _wire_json(dispatch_body: dict[str, Any]) -> dict[str, Any]:
+    """The FINAL OpenRouter request JSON, through the installed litellm path."""
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+    from litellm.utils import get_optional_params
+
+    passthrough = {
+        key: value
+        for key, value in dispatch_body.items()
+        # Transport plumbing, not request content — never part of the JSON body.
+        if key not in {"model", "messages", "api_base", "extra_headers", "api_key"}
+    }
+    optional = get_optional_params(model=_UPSTREAM, custom_llm_provider="openrouter", **passthrough)
+    return OpenrouterConfig().transform_request(
+        model=_UPSTREAM,
+        messages=list(_MESSAGES),
+        optional_params=dict(optional),
+        litellm_params={},
+        headers={},
+    )
+
+
+def _parameters(*, without: str | None = None) -> dict[str, Any]:
+    # Mirrors routes/model_parameters.py verbatim: the SAME plugin hooks, the SAME
+    # composer. ``without`` withholds a rule while leaving observations untouched.
+    plugin = OpenRouterProviderPlugin()
+    document = build_model_parameter_document(
+        canonical_id=_MODEL,
+        gateway_provider="openrouter",
+        auth_mode="api_key",
+        scope="account_profile",
+        context_identity="acct:test|prof:1",
+        rules=_rules(without=without),
+        observations=plugin.chat_parameter_observations(model=_MODEL, auth_type="api_key"),
+        tools=plugin.chat_parameter_tools(model=_MODEL, auth_type="api_key"),
+        transport=plugin.chat_transport_capabilities(model=_MODEL, auth_type="api_key"),
+        freshness={"stale": False, "degraded": False},
+    )
+    return document["parameters"]
+
+
+def _create_connection(client) -> None:
+    resp = client.post(
+        "/v1/oauth/connections/api-key",
+        json={"provider": "openrouter", "label": "work-openrouter", "api_key": _KEY},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def _fake_acompletion(captured: dict):
+    async def fake_acompletion(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            model_dump=lambda: {"id": "or-1", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    return fake_acompletion
+
+
+def _post_chat(client, body: dict[str, Any] | None = None):
+    payload = {"model": _MODEL, "messages": list(_MESSAGES), **(body or {})}
+    return client.post("/v1/chat/completions", json=payload)
+
+
+# --------------------------------------------------------------------------
+# (1) provider-local schema validation
+# --------------------------------------------------------------------------
+
+
+def test_the_rule_binds_the_shared_bounded_top_p_schema() -> None:
+    # The promotion reuses the shared [0, 1] schema rather than inventing one:
+    # OpenRouter's accepted range for top_p is the standard OpenAI range, and the
+    # installed transform forwards the value unchanged, so there is nothing
+    # provider-specific to narrow or widen (contrast OPENROUTER_TOP_K_SCHEMA,
+    # which exists precisely because OpenRouter's top_k floor differs).
+    from aigateway.core.standard_parameters import TOP_P_SCHEMA
+
+    rule = next(r for r in _rules() if r.request_path == "top_p")
+    assert rule.parameter_schema == TOP_P_SCHEMA
+    assert rule.applicable_auth_modes == ("api_key",)
+
+
+@pytest.mark.parametrize("value", [0, 0.5, 1, 1.0])
+def test_in_range_values_validate(value) -> None:
+    rule = next(r for r in _rules() if r.request_path == "top_p")
+    assert rule.parameter_schema is not None
+    rule.parameter_schema.validate_value(value)  # does not raise
+
+
+@pytest.mark.parametrize("value", [-0.1, 1.1, 2, "0.5", True, None, [0.5]])
+def test_out_of_range_or_mistyped_values_fail_closed(value) -> None:
+    from aigateway.core.chat_parameters import ParameterValidationError
+
+    rule = next(r for r in _rules() if r.request_path == "top_p")
+    assert rule.parameter_schema is not None
+    with pytest.raises(ParameterValidationError):
+        rule.parameter_schema.validate_value(value)
+
+
+# --------------------------------------------------------------------------
+# (2) provider-local rule and projection
+# --------------------------------------------------------------------------
+
+
+def test_top_p_projects_to_its_own_top_level_target() -> None:
+    # A DIRECT rule: the request path IS the provider target. It must not be
+    # swept into extra_body (which in this codebase means "a native target the
+    # projection produced") and must not disturb an unrelated native promotion.
+    body = _dispatch_body(
+        {
+            "model": _MODEL,
+            "messages": list(_MESSAGES),
+            "top_p": 0.9,
+            "provider_params": {"top_k": 40},
+        }
+    )
+    assert body["top_p"] == 0.9
+    assert body["extra_body"] == {"top_k": 40}
+    assert "provider_params" not in body
+
+
+# --------------------------------------------------------------------------
+# (3) observation is evidence; the rule is authorization
+# --------------------------------------------------------------------------
+
+
+def test_the_observation_alone_still_does_not_authorize() -> None:
+    """The two axes stay independent AFTER the promotion.
+
+    Before this unit, ``top_p`` demonstrated the property by accident: it was
+    observed and happened to have no rule. Withholding the rule while leaving the
+    REAL observation set untouched proves the same property deliberately — the
+    observation is unchanged by this commit, so it cannot be what enabled the
+    field.
+    """
+    plugin = OpenRouterProviderPlugin()
+    observed = {o.request_path for o in plugin.chat_parameter_observations(model=_MODEL)}
+    assert "top_p" in observed, "the evidence this unit relies on must still be present"
+
+    with pytest.raises(UnsupportedParametersError) as exc:
+        classify_and_project_chat_parameters(
+            {"model": _MODEL, "messages": list(_MESSAGES), "top_p": 0.9},
+            rules=_rules(without="top_p"),
+            auth_mode="api_key",
+        )
+    assert exc.value.rejected == {"top_p": "unknown"}
+
+    # …and the contract says so too, for the same reason.
+    entry = _parameters(without="top_p")["top_p"]
+    assert entry["provider"]["support"] == "supported"
+    assert entry["gateway"]["status"] == "disabled"
+    assert entry["gateway"]["reason"] == "projection_not_implemented"
+
+
+def test_the_promotion_added_a_rule_and_left_the_evidence_alone() -> None:
+    # The promotion is one rule, not a new observation: the observed set is what
+    # it was, and the ruled set grew by exactly this path.
+    plugin = OpenRouterProviderPlugin()
+    observed = {o.request_path for o in plugin.chat_parameter_observations(model=_MODEL)}
+    ruled = {r.request_path for r in _rules()}
+    assert "top_p" in ruled
+    assert observed - ruled == set(), (
+        "every observed OpenRouter path is now ruled; if this fails a new "
+        "observation appeared and needs its own review, not an automatic rule"
+    )
+
+
+# --------------------------------------------------------------------------
+# (4) the detailed contract moves the field from disabled to enabled
+# --------------------------------------------------------------------------
+
+
+def test_the_detail_contract_publishes_top_p_as_enabled_with_evidence() -> None:
+    entry = _parameters()["top_p"]
+    assert entry["gateway"]["status"] == "enabled"
+    assert entry["gateway"]["projection"] == "direct"
+    assert entry["gateway"]["applicable_auth_modes"] == ["api_key"]
+    # the disabled reason is GONE, not left stale next to an enabled status
+    assert "reason" not in entry["gateway"]
+    # it keeps the evidence it always had — enabling did not fabricate provenance
+    assert entry["provider"]["support"] == "supported"
+    assert entry["provider"]["source"] == "openrouter:static"
+    # and it publishes the bounded schema callers must satisfy
+    assert entry["schema"]["type"] == "number"
+    assert entry["schema"]["minimum"] == 0
+    assert entry["schema"]["maximum"] == 1
+
+
+# --------------------------------------------------------------------------
+# (5) the /v1/models summary stays correct
+# --------------------------------------------------------------------------
+
+
+def test_the_model_summary_advertises_top_p_from_the_same_rule_set() -> None:
+    summary = set(inline_supported_parameters(_rules(), available_auth_modes=("api_key",)))
+    assert "top_p" in summary
+    # one source, three surfaces: the summary never advertises a path the
+    # classifier would reject.
+    assert summary == {r.request_path for r in _rules()}
+
+
+def test_the_live_models_route_lists_top_p_for_openrouter(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    rows = authenticated_client.get("/v1/models").json()["data"]
+    openrouter_rows = [row for row in rows if row["id"].startswith("openrouter/")]
+    assert openrouter_rows, "the enabled OpenRouter plugin must contribute rows"
+    for row in openrouter_rows:
+        assert "top_p" in row["supported_parameters"], row["id"]
+
+
+# --------------------------------------------------------------------------
+# (6) chat accepts valid values and rejects invalid ones before dispatch
+# --------------------------------------------------------------------------
+
+
+def test_a_valid_top_p_reaches_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"top_p": 0.9})
+    assert resp.status_code == 200, resp.text
+    assert captured["top_p"] == 0.9
+
+
+@pytest.mark.parametrize("value", [1.5, -0.5, "0.9"])
+def test_an_invalid_top_p_rejects_before_credential_access_and_dispatch(
+    value, enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    # INVARIANT: a malformed value costs the caller nothing — no credential read,
+    # no provider call. A parameter that reaches OpenRouter and fails there has
+    # already spent a stored credential.
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"top_p": value})
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["rejected"] == {"top_p": "malformed"}
+    assert captured == {}  # fail closed
+
+
+# --------------------------------------------------------------------------
+# (7) + (8) the final wire JSON carries the value AND strict routing
+# --------------------------------------------------------------------------
+
+
+def test_final_wire_json_carries_top_p_together_with_strict_routing() -> None:
+    # The load-bearing proof, against the INSTALLED litellm transform rather than
+    # mocked dispatch kwargs: the promotion is only real if OpenRouter receives
+    # the value, and only SAFE if it receives it under require_parameters=true —
+    # otherwise an endpoint that ignores top_p would silently serve a differently
+    # sampled response.
+    wire = _wire_json(_dispatch_body({"model": _MODEL, "messages": list(_MESSAGES), "top_p": 0.9}))
+    assert wire["top_p"] == 0.9
+    assert wire["provider"] == _STRICT
+
+
+@pytest.mark.parametrize("value", [0.0, 1.0])
+def test_the_boundary_values_survive_the_installed_transform(value) -> None:
+    # FINAL-TRANSFORM PROOF: the gateway accepts the closed interval [0, 1], so
+    # both endpoints must reach the wire unchanged — 0.0 in particular, since a
+    # falsy value is the one a "drop empty params" transform would silently eat.
+    body = _dispatch_body({"model": _MODEL, "messages": list(_MESSAGES), "top_p": value})
+    wire = _wire_json(body)
+    assert wire["top_p"] == value
+    assert wire["provider"] == _STRICT
+
+
+def test_a_caller_cannot_relax_strict_routing_alongside_top_p(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    # `provider` carries no rule, so the fail-closed classifier refuses the whole
+    # request before any credential is read — the caller cannot pair a promoted
+    # parameter with permission for the endpoint to ignore it.
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(
+            authenticated_client,
+            {"top_p": 0.9, "provider": {"require_parameters": False, "allow_fallbacks": True}},
+        )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["rejected"] == {"provider": "unknown"}
+    assert captured == {}
+
+
+def test_the_boundary_overwrites_a_provider_that_reaches_it_with_top_p_present() -> None:
+    # Second, independent layer: even handed a body that already carries a
+    # permissive `provider`, preparation ASSIGNS the policy rather than merging.
+    plugin = OpenRouterProviderPlugin()
+    body = plugin.prepare_chat_body(
+        {
+            "model": _MODEL,
+            "messages": list(_MESSAGES),
+            "top_p": 0.9,
+            "provider": {"require_parameters": False},
+        }
+    )
+    assert body["provider"] == _STRICT
+    assert body["top_p"] == 0.9
+
+
+# --------------------------------------------------------------------------
+# (9) observed cache behaviour matches the published declaration
+# --------------------------------------------------------------------------
+
+
+def test_the_contract_declares_bypass_for_top_p() -> None:
+    assert _parameters()["top_p"]["gateway"]["cache_behavior"] == "bypass"
+
+
+def test_the_caller_visible_policy_reports_top_p_as_a_bypass_path() -> None:
+    """Attribution: the DECLARATION is what forces the bypass, on its own.
+
+    AIDEV-NOTE: an end-to-end "bypass" header cannot attribute the decision for
+    this provider. Every OpenRouter dispatch body carries the pinned ``api_base``
+    and the gateway-owned ``provider`` policy block, and neither is a field
+    ``build_cache_key`` knows, so EVERY OpenRouter request — even a bare prompt
+    with no optional parameters — is structurally cache-ineligible. That is
+    pre-existing and safe (it can only ever bypass, never mis-serve), but it
+    means the route header alone would report "bypass" whatever this rule said.
+
+    So the attribution is proven here instead, against the closure Unit 1
+    primitive that reads the published ``cache_behavior`` off the caller-visible
+    contract: ``top_p`` is a declared bypass path in its own right, independent
+    of anything preparation adds.
+    """
+    from aigateway.core.parameter_projection import caller_cache_bypass_paths
+
+    rule = next(r for r in _rules() if r.request_path == "top_p")
+    assert rule.cache_behavior == "bypass", "the rule must declare what the contract publishes"
+
+    paths = caller_cache_bypass_paths(
+        {"model": _MODEL, "messages": list(_MESSAGES), "top_p": 0.9},
+        rules=_rules(),
+        auth_mode="api_key",
+    )
+    assert paths == ("top_p",)
+    # …and the same body WITHOUT the parameter declares no bypass path, so the
+    # verdict tracks the promoted field rather than the prompt.
+    assert (
+        caller_cache_bypass_paths(
+            {"model": _MODEL, "messages": list(_MESSAGES)},
+            rules=_rules(),
+            auth_mode="api_key",
+        )
+        == ()
+    )
+
+
+def test_a_top_p_request_bypasses_the_cache_through_the_real_route(
+    enabled_openrouter, credential_blobs, cache_client
+) -> None:
+    # The published declaration, observed end-to-end: what the caller SEES must
+    # match ``gateway.cache_behavior`` for this path. Attribution is established
+    # by the test above; this one pins the observable header and the symmetry —
+    # a declared-bypass request neither reads nor writes an entry, so two
+    # identical requests both dispatch.
+    _create_connection(cache_client)
+    calls: list[dict] = []
+
+    async def counting_acompletion(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            model_dump=lambda: {"id": "or-1", "choices": [{"message": {"content": "ok"}}]}
+        )
+
+    with patch("litellm.acompletion", counting_acompletion):
+        first = _post_chat(cache_client, {"top_p": 0.9, "cache": {"use-cache": True}})
+        second = _post_chat(cache_client, {"top_p": 0.9, "cache": {"use-cache": True}})
+
+    assert first.status_code == second.status_code == 200, first.text
+    assert first.headers["X-AIGW-Cache"] == "bypass"
+    assert second.headers["X-AIGW-Cache"] == "bypass"
+    assert "X-AIGW-Cache-Key" not in first.headers
+    assert len(calls) == 2, "a declared-bypass request must reach the provider every time"
+    assert calls[0]["top_p"] == 0.9

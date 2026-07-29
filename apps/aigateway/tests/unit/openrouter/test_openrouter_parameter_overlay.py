@@ -6,12 +6,15 @@ document over the plugin's OWN rules + observations) surfaces EVERY endpoint-
 accepted field with an honest gateway status, from labelled-local evidence and
 with NO network.
 
-STORY: as an API consumer, I can see that OpenRouter accepts top_p even though the
-gateway does not yet project it (visible-but-DISABLED), while temperature and the
-promoted provider_params.top_k are ENABLED — so I know exactly what I may send.
+STORY: as an API consumer, every field OpenRouter accepts is visible here with an
+honest gateway status — so I know exactly what I may send. A field the gateway does
+not project is visible-but-DISABLED rather than hidden.
 
 INVARIANT (§4.4): an observation NEVER enables a field; only a rule does. An
 observed-but-unruled field stays visible-but-rejected (projection_not_implemented).
+Since OME-479 closure Unit 2 promoted top_p — the last OpenRouter path that was
+observed with no rule — that case is constructed by withholding a rule from the
+composer, which isolates the rule as the sole authorizing input.
 INVARIANT: no network — the detail endpoint composes from labelled-local evidence.
 """
 
@@ -26,17 +29,22 @@ from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugi
 _MODEL = "openrouter/google/gemini-2.0-flash-001"
 
 
-def _parameters(auth_mode: AuthType = "api_key") -> dict[str, Any]:
+def _parameters(auth_mode: AuthType = "api_key", *, without: str | None = None) -> dict[str, Any]:
     # Mirrors routes/model_parameters.py verbatim: the SAME plugin hooks, the SAME
     # composer — only the profile resolution (auth_mode) is supplied directly.
+    # ``without`` withholds ONE rule while leaving the observations untouched, so a
+    # test can construct the observed-but-unruled case for a field that is ruled.
     plugin = OpenRouterProviderPlugin()
+    rules = tuple(plugin.chat_parameter_rules(model=_MODEL, auth_type=auth_mode))
+    if without is not None:
+        rules = tuple(rule for rule in rules if rule.request_path != without)
     document = build_model_parameter_document(
         canonical_id=_MODEL,
         gateway_provider="openrouter",
         auth_mode=auth_mode,
         scope="account_profile",
         context_identity="acct:test|prof:1",
-        rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=auth_mode),
+        rules=rules,
         observations=plugin.chat_parameter_observations(model=_MODEL, auth_type=auth_mode),
         tools=plugin.chat_parameter_tools(model=_MODEL, auth_type=auth_mode),
         transport=plugin.chat_transport_capabilities(model=_MODEL, auth_type=auth_mode),
@@ -46,8 +54,16 @@ def _parameters(auth_mode: AuthType = "api_key") -> dict[str, Any]:
 
 
 def test_observed_but_unruled_field_is_visible_but_disabled() -> None:
-    top_p = _parameters()["top_p"]
-    # top_p is accepted by the endpoint (observed) but has NO gateway rule.
+    # A field accepted by the endpoint (observed) but with NO gateway rule stays
+    # visible and honestly disabled.
+    #
+    # AIDEV-NOTE: `top_p` used to supply this scenario for free — it was the one
+    # OpenRouter path observed with no rule. It was promoted (OME-479 closure
+    # Unit 2), so the scenario is now CONSTRUCTED by withholding only the RULE
+    # while the real observation set stays untouched. Every assertion is the one
+    # this test always made; what changed is that the observation is now proven
+    # NOT to be what enables a field, instead of merely happening not to.
+    top_p = _parameters(without="top_p")["top_p"]
     assert top_p["provider"]["support"] == "supported"
     assert top_p["provider"]["source"] == "openrouter:static"
     assert top_p["gateway"]["status"] == "disabled"
@@ -105,10 +121,16 @@ def test_every_endpoint_observed_sampling_field_is_visible_with_a_status() -> No
         "provider_params.top_k",
     ):
         assert path in params, path
-    # every STILL-unruled observed field is honest about WHY it is rejected.
-    for path in ("top_p",):
-        assert params[path]["gateway"]["status"] == "disabled"
-        assert params[path]["gateway"]["reason"] == "projection_not_implemented"
+    # OME-479 closure Unit 2: top_p is now ruled → enabled; its disabled guard is
+    # retired because the installed transform carries it (§9 probe), exactly as the
+    # three promotions below retired theirs. It was the LAST observed-but-unruled
+    # OpenRouter path, so no "still-unruled" loop remains here — the deliberate
+    # construction of that case now lives in
+    # test_observed_but_unruled_field_is_visible_but_disabled.
+    assert params["top_p"]["gateway"]["status"] == "enabled"
+    # …and the disabled REASON is gone rather than left stale beside an enabled
+    # status, which would tell a caller the field is unprojected while it dispatches.
+    assert "reason" not in params["top_p"]["gateway"]
     # OME-582: stop is now ruled → enabled (still visible in the list above).
     assert params["stop"]["gateway"]["status"] == "enabled"
     # OME-585: seed is now ruled → enabled (still visible in the list above); its

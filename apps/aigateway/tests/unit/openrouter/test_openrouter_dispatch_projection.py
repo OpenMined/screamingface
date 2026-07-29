@@ -92,16 +92,37 @@ def test_stop_reaches_dispatch_and_installed_transform() -> None:
 
 
 def test_unruled_parameter_is_rejected_fail_closed() -> None:
+    # An observed-but-unruled field is VISIBLE in the detail contract and REJECTED
+    # at dispatch — the two projections of one source agree.
+    #
+    # AIDEV-NOTE: `top_p` used to supply this scenario for free, being the one
+    # OpenRouter path that was observed with no rule. It was promoted (OME-479
+    # closure Unit 2), so the scenario is now CONSTRUCTED: the real observation set
+    # is left untouched and the rule is withheld. Same field, same assertion, and
+    # the property is now proven deliberately rather than borrowed from a gap —
+    # withholding only the rule is what isolates it as the sole authorizing input.
     plugin = OpenRouterProviderPlugin()
+    observed = {o.request_path for o in plugin.chat_parameter_observations(model=_MODEL)}
+    assert "top_p" in observed, "the evidence half of the scenario must be real"
+    unruled = tuple(
+        rule
+        for rule in plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key")
+        if rule.request_path != "top_p"
+    )
     with pytest.raises(UnsupportedParametersError) as exc:
         classify_and_project_chat_parameters(
             {"model": _MODEL, "messages": _MESSAGES, "top_p": 0.9},
-            rules=plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key"),
+            rules=unruled,
             auth_mode="api_key",
         )
-    # top_p is observed-but-unruled: VISIBLE in the detail contract, REJECTED at
-    # dispatch — the two projections of one source agree.
     assert exc.value.rejected == {"top_p": "unknown"}
+
+
+def test_promoted_top_p_projects_to_dispatch() -> None:
+    # The other side of the same coin (OME-479 closure Unit 2): WITH its rule, the
+    # very same field is accepted and lands at its own top-level target.
+    body = _dispatch_body({"model": _MODEL, "messages": _MESSAGES, "top_p": 0.9})
+    assert body["top_p"] == 0.9
 
 
 def test_caller_supplied_api_key_is_rejected_not_forwarded() -> None:
