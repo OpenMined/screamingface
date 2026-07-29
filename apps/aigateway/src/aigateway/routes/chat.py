@@ -32,6 +32,7 @@ from ..core.auth.middleware import CurrentAccount
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
+    caller_cache_bypass_paths,
     classify_and_project_chat_parameters,
 )
 from ..core.registry import ProviderRegistry
@@ -182,10 +183,15 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # cache planning, and (crucially) credential injection — so unknown, disabled,
     # wrong-auth, malformed and duplicate-channel parameters fail closed with
     # HTTP-safe paths before any credential is read or any provider is dispatched.
+    rules = tuple(plugin.chat_parameter_rules(model=model, auth_type=auth_mode))
+    # The caller-visible parameter view, kept before projection replaces it: it is
+    # what the published contract describes, and therefore what the cache decision
+    # below must be taken from.
+    caller_parameters = body
     try:
         body = classify_and_project_chat_parameters(
             body,
-            rules=plugin.chat_parameter_rules(model=model, auth_type=auth_mode),
+            rules=rules,
             auth_mode=auth_mode,
         )
     except UnsupportedParametersError as exc:
@@ -238,6 +244,19 @@ async def chat_completions(request: Request, response: Response, current: Curren
             },
         ) from None
 
+    # OME-479 §4.6 (closure Unit 1): resolve the cache POLICY from the accepted
+    # caller-visible contract, while that view still exists. prepare_chat_body may
+    # remove, rename, flatten or nest an accepted field (anthropic drops
+    # reasoning_effort="none", which is what omission already means), and the body
+    # it hands to the key builder would then be indistinguishable from a bare
+    # prompt — silently making a request the contract calls `bypass` cacheable.
+    # INVARIANT: what the detailed contract publishes for a request path and what
+    # the pipeline does with that path are derived from the SAME rule, so they
+    # cannot drift per provider or per value.
+    cache_bypass_paths = caller_cache_bypass_paths(
+        caller_parameters, rules=rules, auth_mode=auth_mode
+    )
+
     body = plugin.prepare_chat_body(body)
 
     # Cache key is computed from the normalized body, before credential
@@ -249,6 +268,7 @@ async def chat_completions(request: Request, response: Response, current: Curren
         provider=provider,
         body=body,
         controls=cache_controls,
+        bypass_paths=cache_bypass_paths,
     )
 
     if body.get("stream") and not plugin.supports_chat_streaming():

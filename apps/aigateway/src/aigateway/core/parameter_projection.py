@@ -151,6 +151,74 @@ def _project(body: dict[str, Any], dotted_target: str, value: Any) -> None:
     node[leaf] = value
 
 
+def _addressed_request_paths(body: Mapping[str, Any]) -> Iterable[str]:
+    """Every optional-parameter request path this body ADDRESSES.
+
+    The caller-visible addressing forms, and only those: a bare top-level field,
+    or a key nested under the one ``provider_params`` wrapper. Gateway-owned
+    fields are authorized structurally and are never a request path.
+
+    AIDEV-NOTE: this is the same enumeration ``classify_and_project_chat_parameters``
+    performs inline (it needs the values, the gateway-owned passthrough and the
+    per-path rejection reasons interleaved, so it cannot simply call this). The two
+    are locked together by ``test_caller_cache_policy`` — if one learns a new
+    addressing form and the other does not, that test fails.
+    """
+    for key in body:
+        if key == WRAPPER_KEY or key in GATEWAY_OWNED_FIELDS:
+            continue
+        yield key
+    wrapper = body.get(WRAPPER_KEY)
+    if isinstance(wrapper, Mapping):
+        for nested_key in wrapper:
+            yield f"{_WRAPPER_PREFIX}{nested_key}"
+
+
+def caller_cache_bypass_paths(
+    body: Mapping[str, Any],
+    *,
+    rules: Iterable[ParameterProjectionRule],
+    auth_mode: AuthMode,
+) -> tuple[str, ...]:
+    """Request paths present in ``body`` whose enabled rule declares ``bypass``.
+
+    FEATURE: an honest ``cache_behavior``. Plan §4.6 defines ``bypass`` as "any
+    presence of the field bypasses prompt caching", and the detailed contract
+    publishes ONE unconditional value per request path. This derives the runtime
+    decision from the SAME rule set the contract is derived from, so the two
+    cannot disagree.
+
+    INVARIANT: computed from the CALLER-VISIBLE body — before projection to
+    provider targets and before ``plugin.prepare_chat_body``. A provider hook may
+    remove, rename, flatten or nest an accepted field on its way to the wire
+    (Anthropic drops ``reasoning_effort == "none"``, which means exactly what
+    omission means); none of that may turn a declared-bypass request into a
+    cacheable one. Scanning the POST-preparation body cannot express this: the
+    stripped body is, by construction, indistinguishable from a bare one.
+
+    INVARIANT: reads ``rule.cache_behavior`` rather than assuming it. A ``keyed``
+    or ``transport_only`` rule is not a bypass path — the registry conformance
+    sweep separately proves such a rule can only name a field the cache key
+    builder actually reads.
+
+    Provider-agnostic and pure: no provider name, no I/O, no mutation.
+    """
+    enabled = {
+        rule.request_path: rule
+        for rule in normalize_rules(rules)
+        if auth_mode in rule.applicable_auth_modes
+    }
+    return tuple(
+        sorted(
+            {
+                path
+                for path in _addressed_request_paths(body)
+                if path in enabled and enabled[path].cache_behavior == "bypass"
+            }
+        )
+    )
+
+
 def classify_and_project_chat_parameters(
     body: Mapping[str, Any],
     *,

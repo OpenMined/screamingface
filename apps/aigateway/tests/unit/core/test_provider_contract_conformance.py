@@ -31,6 +31,7 @@ from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS, wrapper_pa
 from aigateway.core.plugin_base import PluginSettings
 from aigateway.core.profile_models import AuthMode
 from aigateway.core.registry import ProviderRegistry
+from aigateway.core.request_cache.keys import PROMPT_KEY_FIELDS
 
 
 def _operator_gate_overrides(settings_cls: type[PluginSettings]) -> dict[str, bool]:
@@ -314,6 +315,37 @@ def test_every_provider_publishes_a_stream_capability_matching_its_dispatch_gate
             assert (cap.gateway_status == "enabled") is streams, (canonical, mode)
             # a disabled control always explains itself; an enabled one has nothing to explain.
             assert (cap.reason is None) is streams, (canonical, mode)
+
+
+def test_every_enabled_rule_declares_a_cache_behavior_the_pipeline_can_honor() -> None:
+    # INVARIANT (OME-479 §4.6, closure Unit 1): the published `cache_behavior` is a
+    # PROMISE about the real pipeline, and the pipeline has exactly two outcomes for a
+    # request path — it participates in the cache key, or its presence bypasses.
+    # `build_cache_key` keys ONLY the prompt fields, so any other request path can be
+    # honoured solely as `bypass`. A rule declaring `keyed` or `transport_only` for a
+    # path the key builder does not read would publish a promise the runtime breaks
+    # (the request would bypass while the contract says otherwise).
+    #
+    # WHY here rather than in a provider suite: this is the cross-provider half of the
+    # composition guard. The route-level test proves the CURRENT pipeline honours a
+    # declared bypass even across `prepare_chat_body`; this proves no provider — present
+    # or future — can declare a cache behaviour that pipeline is unable to deliver.
+    examined = 0
+    for plugin, _entry, canonical in _iter_models():
+        for mode in plugin.available_auth_modes():
+            for rule in plugin.chat_parameter_rules(model=canonical, auth_type=mode):
+                if mode not in rule.applicable_auth_modes:
+                    continue
+                examined += 1
+                if rule.cache_behavior == "bypass":
+                    continue
+                assert rule.request_path in PROMPT_KEY_FIELDS, (
+                    canonical,
+                    mode,
+                    rule.request_path,
+                    rule.cache_behavior,
+                )
+    assert examined >= 1
 
 
 def test_the_composed_transport_section_is_populated_for_every_provider() -> None:

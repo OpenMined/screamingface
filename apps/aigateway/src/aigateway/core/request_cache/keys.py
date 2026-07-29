@@ -17,6 +17,11 @@ KEY_VERSION = "aigw-chat-cache-v1"
 
 # Part of the prompt hash. Everything else is either ignored or a bypass.
 _PROMPT_FIELDS = ("model", "messages", "system")
+# PUBLIC (OME-479 §4.6): the ONLY request paths this key builder can key. A rule
+# declaring any other ``cache_behavior`` than ``bypass`` for a path outside this
+# set publishes a promise the pipeline cannot deliver — locked by the registry
+# conformance sweep rather than left to per-provider review.
+PROMPT_KEY_FIELDS: frozenset[str] = frozenset(_PROMPT_FIELDS)
 # Transport/auth fields that never affect provider output. ``cache`` is the
 # gateway's own control object and is popped before eligibility runs; it is
 # listed defensively in case a caller re-injects it.
