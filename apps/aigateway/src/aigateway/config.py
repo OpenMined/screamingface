@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     discovery_cache_stale_ttl_seconds: float = Field(
         default=3600.0, ge=0, validation_alias="AIGW_DISCOVERY_CACHE_STALE_TTL_SECONDS"
     )
+    # Suppress repeated sequential dials during a source outage without delaying
+    # recovery for more than a small, operator-controlled window.
+    discovery_cache_failure_ttl_seconds: float = Field(
+        default=5.0, ge=0, validation_alias="AIGW_DISCOVERY_CACHE_FAILURE_TTL_SECONDS"
+    )
     discovery_cache_max_entries: int = Field(
         default=512, gt=0, validation_alias="AIGW_DISCOVERY_CACHE_MAX_ENTRIES"
     )

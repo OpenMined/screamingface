@@ -16,6 +16,7 @@ move again.
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any, Literal
 
@@ -32,6 +33,12 @@ ProjectionKind = Literal["direct", "provider_native"]
 # request paths are dotted identifier segments: "temperature", "provider_params.top_k".
 _REQUEST_PATH_RE = re.compile(r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$")
 _WRAPPER_PREFIX = "provider_params."
+# INVARIANT: explicit provider targets cannot overwrite protocol or gateway
+# transport surfaces. Direct rules such as ``stream`` remain valid because those
+# fields are authorized structurally by the projection pipeline.
+GATEWAY_OWNED_FIELDS: frozenset[str] = frozenset(
+    {"model", "messages", "stream", "extra_headers", "metadata", "timeout"}
+)
 _DISABLED_UNPROJECTED_REASON = "projection_not_implemented"
 # Sibling of the above, for the TRANSPORT section: the provider may well support
 # the control upstream, but this gateway does not carry it yet.
@@ -81,6 +88,10 @@ _TYPE_PREDICATES: dict[str, Any] = {
     "array": lambda v: isinstance(v, list),
     "object": lambda v: isinstance(v, dict),
 }
+
+
+def _is_non_finite_float(value: Any) -> bool:
+    return isinstance(value, float) and not math.isfinite(value)
 
 
 class ParameterSchema(BaseModel):
@@ -161,6 +172,10 @@ class ParameterSchema(BaseModel):
         options = self._type_options
         if not any(_TYPE_PREDICATES[name](value) for name in options):
             raise ParameterValidationError(f"expected one of {options}")
+        # INVARIANT: range checks are fail-open for NaN, and unbounded numeric
+        # schemas also admit infinities. Reject every non-finite float first.
+        if _is_non_finite_float(value):
+            raise ParameterValidationError("not a finite number")
         if isinstance(value, list):
             self._validate_items(value)
             if self.item_type == "object" and self.object_discriminator is not None:
@@ -191,6 +206,8 @@ class ParameterSchema(BaseModel):
         check = _TYPE_PREDICATES[self.item_type]
         if not all(check(item) for item in value):
             raise ParameterValidationError("array item has wrong type")
+        if self.item_type == "number" and any(_is_non_finite_float(item) for item in value):
+            raise ParameterValidationError("array item is not a finite number")
 
 
 class ParameterProjectionRule(BaseModel):
@@ -236,6 +253,11 @@ class ParameterProjectionRule(BaseModel):
         # controls; an ordinary output-affecting field can never claim it.
         if self.output_affecting and self.cache_behavior == "transport_only":
             raise InvalidParameterRuleError("output-affecting rule cannot be transport_only")
+        if (
+            self.provider_target is not None
+            and self.provider_target.split(".", 1)[0] in GATEWAY_OWNED_FIELDS
+        ):
+            raise InvalidParameterRuleError("parameter rule cannot target a gateway-owned field")
         if self.projection_kind == "provider_native":
             if not self.request_path.startswith(_WRAPPER_PREFIX):
                 raise InvalidParameterRuleError(

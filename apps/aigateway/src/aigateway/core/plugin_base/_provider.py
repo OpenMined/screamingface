@@ -57,6 +57,15 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     def register_models(self) -> list[ModelEntry]:
         """Return the model_list entries this plugin contributes."""
 
+    def conformance_models(self) -> list[ModelEntry]:
+        """Return deterministic model representatives for contract conformance.
+
+        The default is the production catalog. Providers whose catalog requires a
+        live local process may override with test-only representatives; runtime
+        registration and route validation must continue to call ``register_models``.
+        """
+        return self.register_models()
+
     def oauth_config(self) -> OAuthConfig | None:
         """Return provider OAuth metadata, or None for no-auth providers (e.g. local Ollama)."""
         return None

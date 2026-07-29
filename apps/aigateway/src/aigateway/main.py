@@ -246,6 +246,7 @@ def _build_discovery_runtime(settings: Settings) -> DiscoveryRuntime | None:
                 ttl_s=settings.discovery_cache_ttl_seconds,
                 stale_ttl_s=settings.discovery_cache_stale_ttl_seconds,
                 max_entries=settings.discovery_cache_max_entries,
+                failure_ttl_s=settings.discovery_cache_failure_ttl_seconds,
             ),
         ),
         limits=DiscoveryLimits(

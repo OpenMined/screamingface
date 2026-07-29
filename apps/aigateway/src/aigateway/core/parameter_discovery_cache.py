@@ -61,6 +61,8 @@ class CacheLimits:
     ttl_s: float
     stale_ttl_s: float
     max_entries: int
+    # Zero preserves eager retries for direct callers that do not opt in.
+    failure_ttl_s: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,12 @@ class CacheOutcome:
 class _Entry:
     value: Any
     stored_at: float
+    revision: str
+
+
+@dataclass(frozen=True)
+class _FailureEntry:
+    failed_at: float
     revision: str
 
 
@@ -98,7 +106,7 @@ class _InFlight:
     attempts: int = 0
     # The outcome of the most recent FAILED attempt in this batch, reused by
     # single-flight losers. Cleared on success.
-    failure: CacheOutcome | None = None
+    failure: tuple[str, CacheOutcome] | None = None
 
 
 class ObservationCache:
@@ -115,6 +123,8 @@ class ObservationCache:
         # OrderedDict doubles as the LRU: most-recently-used is moved to the end,
         # eviction pops from the front.
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
+        # Negative entries carry no evidence, only a bounded retry-suppression window.
+        self._failures: OrderedDict[str, _FailureEntry] = OrderedDict()
         # Live only while callers are inside get_or_refresh for the key (see _InFlight).
         self._inflight: dict[str, _InFlight] = {}
 
@@ -164,23 +174,44 @@ class ObservationCache:
                     self._entries.move_to_end(key)
                     return CacheOutcome(value=entry.value, freshness="fresh")
 
+                failure = self._failures.get(key)
+                if failure is not None:
+                    age = self._clock.now() - failure.failed_at
+                    if (
+                        failure.revision == revision
+                        and self._limits.failure_ttl_s > 0
+                        and age <= self._limits.failure_ttl_s
+                    ):
+                        self._failures.move_to_end(key)
+                        # INVARIANT: recompute trust from the current clock; suppressing
+                        # a retry must never extend a last-good value's stale window.
+                        return self._on_refresh_error(entry, revision)
+                    del self._failures[key]
+
                 # A single-flight LOSER of a failed attempt: reuse that outcome rather
                 # than re-dial a source we just watched fail. Recomputing it would give
                 # the same answer anyway — the winner stored nothing and the clock is
                 # the only other input.
-                if state.failure is not None and state.attempts > observed:
-                    return state.failure
+                if (
+                    state.failure is not None
+                    and state.failure[0] == revision
+                    and state.attempts > observed
+                ):
+                    return state.failure[1]
 
                 # Not fresh (cold, expired, or revision changed) → attempt one refresh.
                 try:
                     value = await refresh()
                 except DiscoveryError:
                     state.attempts += 1
-                    state.failure = self._on_refresh_error(entry, revision)
-                    return state.failure
+                    outcome = self._on_refresh_error(entry, revision)
+                    state.failure = (revision, outcome)
+                    self._store_failure(key, revision)
+                    return outcome
 
                 state.attempts += 1
                 state.failure = None
+                self._failures.pop(key, None)
                 self._store(
                     key, _Entry(value=value, stored_at=self._clock.now(), revision=revision)
                 )
@@ -230,3 +261,15 @@ class ObservationCache:
         self._entries.move_to_end(key)
         while len(self._entries) > self._limits.max_entries:
             self._entries.popitem(last=False)
+
+    def _store_failure(self, key: str, revision: str) -> None:
+        if self._limits.failure_ttl_s <= 0:
+            self._failures.pop(key, None)
+            return
+        self._failures[key] = _FailureEntry(
+            failed_at=self._clock.now(),
+            revision=revision,
+        )
+        self._failures.move_to_end(key)
+        while len(self._failures) > self._limits.max_entries:
+            self._failures.popitem(last=False)

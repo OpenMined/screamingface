@@ -35,6 +35,23 @@ class OllamaProviderPlugin(ProviderPluginBase):
             for name in discover_ollama_models(host)
         ]
 
+    def conformance_models(self) -> list[ModelEntry]:
+        models = self.register_models()
+        if models:
+            return models
+        host = resolve_ollama_host()
+        # INVARIANT: this representative exercises provider-owned rules only; it is
+        # never returned by register_models and therefore cannot reach runtime routes.
+        return [
+            ModelEntry(
+                model_name="ollama/__conformance__",
+                litellm_params={
+                    "model": "ollama_chat/__conformance__",
+                    "api_base": host,
+                },
+            )
+        ]
+
     def allows_chatless_profile(self) -> bool:
         return True
 

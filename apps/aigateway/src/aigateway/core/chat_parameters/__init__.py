@@ -33,6 +33,7 @@ from ._algebra import (
     supported_tool_types,
 )
 from ._types import (
+    GATEWAY_OWNED_FIELDS,
     STREAM_TRANSPORT_NAME,
     CacheBehavior,
     DuplicateParameterRuleError,
@@ -56,6 +57,7 @@ from ._types import (
 )
 
 __all__ = [
+    "GATEWAY_OWNED_FIELDS",
     "STREAM_TRANSPORT_NAME",
     "CacheBehavior",
     "DuplicateParameterRuleError",

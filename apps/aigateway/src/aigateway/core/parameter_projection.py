@@ -30,6 +30,8 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from .chat_parameters import (
+    GATEWAY_OWNED_FIELDS,
+    InvalidParameterRuleError,
     ParameterProjectionRule,
     ParameterValidationError,
     normalize_rules,
@@ -40,23 +42,6 @@ from .profile_models import AuthMode
 # as-is; each nested key is consumed into its rule target).
 WRAPPER_KEY = "provider_params"
 _WRAPPER_PREFIX = f"{WRAPPER_KEY}."
-
-# Tier (a) — required-protocol / gateway-owned / transport fields. Authorized
-# structurally, never by a rule. ``timeout`` is a gateway-managed dispatch
-# control (deliberately not stripped upstream); ``extra_headers``/``metadata``
-# are gateway-owned surfaces already sanitized upstream and re-owned downstream.
-# PUBLIC: the single source of "not an optional model parameter" — reused by
-# provider discovery parsers to exclude protocol fields from endpoint evidence.
-GATEWAY_OWNED_FIELDS: frozenset[str] = frozenset(
-    {
-        "model",
-        "messages",
-        "stream",
-        "extra_headers",
-        "metadata",
-        "timeout",
-    }
-)
 
 
 def wrapper_path_conflicts(request_paths: Iterable[str]) -> tuple[str, ...]:
@@ -297,6 +282,7 @@ def classify_and_project_chat_parameters(
     if rejected:
         raise UnsupportedParametersError(rejected)
     # INVARIANT: the wrapper is fully consumed; a raw provider_params object can
-    # never reach a provider.
-    assert WRAPPER_KEY not in fresh
+    # never reach a provider, even under optimized Python where asserts disappear.
+    if WRAPPER_KEY in fresh:
+        raise InvalidParameterRuleError("parameter rule cannot target the provider_params wrapper")
     return fresh

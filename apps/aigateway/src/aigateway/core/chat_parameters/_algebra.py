@@ -59,6 +59,15 @@ def normalize_rules(
                 f"duplicate provider target {rule.target!r} for request paths "
                 f"{seen_targets[rule.target]!r} and {rule.request_path!r}"
             )
+        target_parts = tuple(rule.target.split("."))
+        for seen_target, seen_path in seen_targets.items():
+            seen_parts = tuple(seen_target.split("."))
+            common = min(len(target_parts), len(seen_parts))
+            if target_parts[:common] == seen_parts[:common]:
+                raise DuplicateParameterRuleError(
+                    f"prefix-related provider targets {seen_target!r} and {rule.target!r} "
+                    f"for request paths {seen_path!r} and {rule.request_path!r}"
+                )
         seen_targets[rule.target] = rule.request_path
     return tuple(ordered)
 
