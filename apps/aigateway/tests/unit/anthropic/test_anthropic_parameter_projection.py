@@ -254,3 +254,42 @@ def test_api_key_only_native_top_k_is_dropped_from_the_cross_auth_summary() -> N
     api_key_view = inline_supported_parameters(rules, available_auth_modes=("api_key",))
     assert "provider_params.top_k" not in cross  # intersection drops the api-key-only field
     assert "provider_params.top_k" in api_key_view  # the single-mode view keeps it
+
+
+@pytest.mark.parametrize("model", ["claude-opus-4-8", "claude-opus-4-7"])
+def test_models_without_sampling_support_neither_advertise_nor_rule_it(model: str) -> None:
+    # INVARIANT: Anthropic returns 400 for every non-default sampling value on
+    # these models, so evidence and authorization must agree that the paths are off.
+    plugin = AnthropicProviderPlugin()
+    canonical = f"anthropic/{model}"
+    ruled = {
+        rule.request_path
+        for rule in plugin.chat_parameter_rules(model=canonical, auth_type="api_key")
+    }
+    observed = {
+        observation.request_path: observation.support
+        for observation in plugin.chat_parameter_observations(model=canonical, auth_type="api_key")
+    }
+
+    assert {"temperature", "top_p", "provider_params.top_k"}.isdisjoint(ruled)
+    assert observed["temperature"] == "unsupported"
+    assert observed["top_p"] == "unsupported"
+    assert observed["provider_params.top_k"] == "unsupported"
+    assert {"max_tokens", "reasoning_effort", "stop", "tools", "tool_choice"} <= ruled
+
+
+def test_an_unreviewed_model_does_not_inherit_sampling_rules_or_evidence() -> None:
+    plugin = AnthropicProviderPlugin()
+    model = "anthropic/claude-future-unreviewed"
+    sampling = {"temperature", "top_p", "provider_params.top_k"}
+
+    ruled = {
+        rule.request_path for rule in plugin.chat_parameter_rules(model=model, auth_type="api_key")
+    }
+    observed = {
+        observation.request_path
+        for observation in plugin.chat_parameter_observations(model=model, auth_type="api_key")
+    }
+
+    assert sampling.isdisjoint(ruled)
+    assert sampling.isdisjoint(observed)

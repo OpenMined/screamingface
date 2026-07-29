@@ -7,7 +7,7 @@ before profile lookup, cache planning, or credential access.
 ``DISPATCH_CONTROL_FIELDS`` is the known LiteLLM control plane: fields that
 redirect routing (``api_base``/``base_url``/``fallbacks``/``model_list`` are
 credential-exfiltration vectors), smuggle credentials (``api_key``,
-``headers``), disable safety (``ssl_verify``), forge accounting
+``headers``/``extra_headers``), disable safety (``ssl_verify``), forge accounting
 (``*_cost_per_*``), or bend dispatch behavior (retry/mock/drop controls).
 Stripping is silent in local mode — legitimate provider fields (OpenRouter
 ``provider``/``plugins``/``route``/``models``, tools, sampling params) pass
@@ -66,6 +66,7 @@ DISPATCH_CONTROL_FIELDS: frozenset[str] = frozenset(
         "api_base",
         "base_url",
         "headers",
+        "extra_headers",
         "model_list",
         "fallbacks",
         "context_window_fallbacks",

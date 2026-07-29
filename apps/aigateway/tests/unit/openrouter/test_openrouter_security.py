@@ -88,7 +88,7 @@ def test_trusted_attribution_overrides_caller_headers(
                     "x-title": "evil",
                     "Authorization": "Bearer sk-evil",
                     "X-Api-Key": "sk-evil",
-                    "X-Trace-Id": "trace-123",  # ordinary caller header survives
+                    "X-Trace-Id": "trace-123",
                 }
             },
         )
@@ -97,7 +97,7 @@ def test_trusted_attribution_overrides_caller_headers(
     assert headers["HTTP-Referer"] == "https://screamingface.ai"
     assert headers["X-OpenRouter-Title"] == "ScreamingFace"
     assert headers["X-Title"] == "ScreamingFace"
-    assert headers["X-Trace-Id"] == "trace-123"
+    assert "X-Trace-Id" not in headers
     assert "evil" not in json.dumps(headers).lower()
     assert not any(key.lower() in {"authorization", "x-api-key"} for key in headers)
 

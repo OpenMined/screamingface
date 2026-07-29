@@ -1,4 +1,4 @@
-"""Anthropic reasoning/max-token cross-field rule (OME-479 §4.5, OME-640).
+"""Anthropic thinking cross-field rules (OME-479 §4.5, OME-640).
 
 FEATURE: one effective parameter contract. ``reasoning_effort`` and ``max_tokens``
 each validate alone, but on a MANUAL-thinking model the installed transform turns
@@ -69,6 +69,9 @@ MANUAL_THINKING_BUDGETS: dict[str, int] = {
 INTERLEAVED_BETA_MODELS: frozenset[str] = frozenset({"claude-sonnet-4-5"})
 
 _CONFLICT_PATHS = ("reasoning_effort", "max_tokens")
+_THINKING_SAMPLING_MODELS: frozenset[str] = frozenset(
+    {"claude-sonnet-4-6", *MANUAL_THINKING_MODELS}
+)
 
 
 def _has_tools(body: Mapping[str, Any]) -> bool:
@@ -85,8 +88,29 @@ def _budget_applies(model_id: str, *, auth_mode: AuthMode, body: Mapping[str, An
     return not interleaved
 
 
+def _sampling_conflict_paths(body: Mapping[str, Any], *, model_id: str) -> tuple[str, ...]:
+    if model_id not in _THINKING_SAMPLING_MODELS:
+        return ()
+    conflicts: list[str] = []
+    if "temperature" in body:
+        conflicts.append("temperature")
+    if "top_k" in body:
+        # WHY: the hook runs after provider-native projection, but errors stay caller-facing.
+        conflicts.append("provider_params.top_k")
+    top_p = body.get("top_p")
+    if isinstance(top_p, (int, float)) and not isinstance(top_p, bool):
+        if not 0.95 <= top_p <= 1:
+            conflicts.append("top_p")
+    return tuple(conflicts)
+
+
+def _forced_tool_choice(body: Mapping[str, Any]) -> bool:
+    choice = body.get("tool_choice")
+    return choice == "required" or isinstance(choice, Mapping)
+
+
 def raise_on_thinking_conflict(body: Mapping[str, Any], *, model: str, auth_mode: AuthMode) -> None:
-    """Refuse a thinking budget that ``max_tokens`` leaves no room for.
+    """Refuse parameter combinations the selected thinking mode cannot serve.
 
     # INVARIANT: the model table is a CLOSED WORLD of reviewed registered ids. An
     # unrecognized id is left alone — guessing "manual" would refuse a legal
@@ -94,14 +118,26 @@ def raise_on_thinking_conflict(body: Mapping[str, Any], *, model: str, auth_mode
     # check must not have.
     """
     effort = body.get("reasoning_effort")
-    max_tokens = body.get("max_tokens")
-    if not isinstance(effort, str) or not isinstance(max_tokens, int):
+    if not isinstance(effort, str):
         return
     budget = MANUAL_THINKING_BUDGETS.get(effort)
     if budget is None:
         # "none" (and anything the schema did not admit) requests no thinking.
         return
     model_id = upstream_model_id(model)
+
+    conflicts = list(_sampling_conflict_paths(body, model_id=model_id))
+    if model_id in MANUAL_THINKING_MODELS and _forced_tool_choice(body):
+        conflicts.append("tool_choice")
+    if conflicts:
+        raise IncompatibleParametersError(
+            ("reasoning_effort", *conflicts),
+            reason=f"{model_id} cannot serve these parameters while thinking is enabled",
+        )
+
+    max_tokens = body.get("max_tokens")
+    if not isinstance(max_tokens, int):
+        return
     if not _budget_applies(model_id, auth_mode=auth_mode, body=body):
         return
     if max_tokens > budget:

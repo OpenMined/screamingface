@@ -81,6 +81,9 @@ _CATALOG: dict[str, Any] = {
         },
     ]
 }
+_OPENAPI: dict[str, object] = {
+    "components": {"schemas": {"ChatRequest": {"properties": {"temperature": {}}}}}
+}
 
 
 class _CatalogClient(DiscoveryHttpClient):
@@ -91,7 +94,8 @@ class _CatalogClient(DiscoveryHttpClient):
 
     async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
         self.calls.append(url)
-        return RawResponse(status=200, content_type="application/json", body=json.dumps(_CATALOG))
+        body = _CATALOG if url == MODELS_URL else _OPENAPI
+        return RawResponse(status=200, content_type="application/json", body=json.dumps(body))
 
 
 def _verdicts(upstream: str) -> dict[str, ProviderParameterObservation]:

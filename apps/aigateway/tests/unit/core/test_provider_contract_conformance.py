@@ -21,8 +21,12 @@ adds visibility. Every enabled entry here is proven rule-backed AND fully eviden
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+import pytest
+
+import aigateway.plugins as plugin_packages
 from aigateway.core.chat_parameters import normalize_rules
 from aigateway.core.loader import load_plugins
 from aigateway.core.model_capabilities import canonical_model_id, model_row
@@ -114,11 +118,50 @@ def _document(plugin: Any, canonical: str, auth_mode: AuthMode) -> dict[str, Any
     )
 
 
+def _assert_non_vacuous_contract_views() -> None:
+    swept_providers: set[str] = set()
+    for plugin, _entry, canonical in _iter_models():
+        swept_providers.add(plugin.custom_llm_provider)
+        for mode in plugin.available_auth_modes():
+            applicable = [
+                rule
+                for rule in plugin.chat_parameter_rules(model=canonical, auth_type=mode)
+                if mode in rule.applicable_auth_modes
+            ]
+            assert applicable, (plugin.custom_llm_provider, canonical, mode)
+    assert swept_providers
+
+
+@pytest.fixture(autouse=True)
+def _non_vacuous_contract_population() -> None:
+    _assert_non_vacuous_contract_views()
+
+
+_SWEPT_PROVIDER_NAMES = tuple(
+    sorted({plugin.custom_llm_provider for plugin, _entry, _canonical in _iter_models()})
+)
+
+
+@pytest.mark.parametrize("provider_name", _SWEPT_PROVIDER_NAMES)
+def test_population_guard_rejects_a_provider_with_an_empty_rule_set(
+    monkeypatch: pytest.MonkeyPatch, provider_name: str
+) -> None:
+    plugin = next(
+        plugin
+        for plugin, _entry, _canonical in _iter_models()
+        if plugin.custom_llm_provider == provider_name
+    )
+    monkeypatch.setattr(plugin, "chat_parameter_rules", lambda **_kwargs: ())
+
+    with pytest.raises(AssertionError):
+        _assert_non_vacuous_contract_views()
+
+
 def test_registry_discovery_is_non_vacuous() -> None:
-    # Guard: if load_plugins silently found nothing, every other test below would pass
-    # vacuously. Assert a floor WITHOUT naming providers (a count is not an inventory).
-    assert len(_REGISTRY.all()) >= 1
-    assert sum(len(plugin.register_models()) for plugin in _REGISTRY.all()) >= 1
+    # Filesystem discovery is independent of the registry under test: a package that
+    # silently stops loading cannot disappear from both sides of this assertion.
+    package_root = Path(plugin_packages.__file__).parent
+    assert len(_REGISTRY.all()) == len(tuple(package_root.glob("*_provider/plugin.py")))
 
 
 def test_an_operator_gate_cannot_hide_a_provider_from_conformance() -> None:
@@ -221,7 +264,6 @@ def test_every_enabled_param_is_fully_evidenced() -> None:
     # backed by a rule applicable to that mode AND carry the full evidence a client relies
     # on — a validation schema, a projection kind, a cache behavior, and a corroborating
     # provider observation (support == supported, with a real source). No enabled-but-blank.
-    examined = 0
     for plugin, _entry, canonical in _iter_models():
         for mode in plugin.available_auth_modes():
             rule_by_path = {
@@ -230,10 +272,11 @@ def test_every_enabled_param_is_fully_evidenced() -> None:
                 if mode in rule.applicable_auth_modes
             }
             parameters = _document(plugin, canonical, mode)["parameters"]
+            enabled_paths: set[str] = set()
             for path, entry_dict in parameters.items():
                 if entry_dict["gateway"]["status"] != "enabled":
                     continue
-                examined += 1
+                enabled_paths.add(path)
                 where = (canonical, mode, path)
                 # auth evidence: enabled-ness is rule-driven for THIS mode.
                 assert path in rule_by_path, where
@@ -244,8 +287,7 @@ def test_every_enabled_param_is_fully_evidenced() -> None:
                 # final-boundary evidence: a real observation corroborates support.
                 assert entry_dict["provider"]["support"] == "supported", where
                 assert entry_dict["provider"]["source"] != "none", where
-    # item-4 non-vacuity: the loop actually inspected enabled params somewhere.
-    assert examined >= 1
+            assert enabled_paths == set(rule_by_path), (canonical, mode)
 
 
 def test_registered_providers_agree_on_which_natives_ride_the_wrapper() -> None:
@@ -261,7 +303,6 @@ def test_registered_providers_agree_on_which_natives_ride_the_wrapper() -> None:
     # bare path and nothing complains. Checking the None (summary) view AND every real mode
     # closes that gap, and naming the field reports the actual cause instead of a downstream
     # "enabled but unevidenced" symptom.
-    examined = 0
     for plugin, _entry, canonical in _iter_models():
         for mode in (None, *plugin.available_auth_modes()):
             paths = [
@@ -273,8 +314,6 @@ def test_registered_providers_agree_on_which_natives_ride_the_wrapper() -> None:
                 for obs in plugin.chat_parameter_observations(model=canonical, auth_type=mode)
             ]
             assert wrapper_path_conflicts(paths) == (), (canonical, mode)
-            examined += 1
-    assert examined >= 1
 
 
 def test_registered_provider_rule_sets_have_unique_targets() -> None:
@@ -283,7 +322,6 @@ def test_registered_provider_rule_sets_have_unique_targets() -> None:
     # registered provider (and any future one) under every auth-mode view — a misconfig that
     # points two request paths at one target fails in CI here, never as a caller-facing
     # duplicate_channel 400 in prod. Green today; a future colliding rule turns it red.
-    examined = 0
     for plugin, _entry, canonical in _iter_models():
         for mode in (None, *plugin.available_auth_modes()):
             rules = plugin.chat_parameter_rules(model=canonical, auth_type=mode)
@@ -292,8 +330,6 @@ def test_registered_provider_rule_sets_have_unique_targets() -> None:
             normalized = normalize_rules(rules)
             targets = [rule.target for rule in normalized]
             assert len(set(targets)) == len(targets), (canonical, mode, targets)
-            examined += 1
-    assert examined >= 1
 
 
 def test_every_provider_publishes_a_stream_capability_matching_its_dispatch_gate() -> None:
@@ -330,13 +366,11 @@ def test_every_enabled_rule_declares_a_cache_behavior_the_pipeline_can_honor() -
     # composition guard. The route-level test proves the CURRENT pipeline honours a
     # declared bypass even across `prepare_chat_body`; this proves no provider — present
     # or future — can declare a cache behaviour that pipeline is unable to deliver.
-    examined = 0
     for plugin, _entry, canonical in _iter_models():
         for mode in plugin.available_auth_modes():
             for rule in plugin.chat_parameter_rules(model=canonical, auth_type=mode):
                 if mode not in rule.applicable_auth_modes:
                     continue
-                examined += 1
                 if rule.cache_behavior == "bypass":
                     continue
                 assert rule.request_path in PROMPT_KEY_FIELDS, (
@@ -345,7 +379,6 @@ def test_every_enabled_rule_declares_a_cache_behavior_the_pipeline_can_honor() -
                     rule.request_path,
                     rule.cache_behavior,
                 )
-    assert examined >= 1
 
 
 def test_the_composed_transport_section_is_populated_for_every_provider() -> None:

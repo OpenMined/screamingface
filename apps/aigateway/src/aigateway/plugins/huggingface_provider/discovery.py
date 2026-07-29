@@ -32,6 +32,7 @@ from aigateway.core.chat_parameters import (
     ProviderToolObservation,
 )
 from aigateway.core.parameter_discovery import (
+    DiscoveryError,
     DiscoveryHttpClient,
     DiscoveryLimits,
     fetch_discovery_json,
@@ -51,7 +52,10 @@ STATIC_SOURCE = "huggingface:static"
 # INVARIANT: the revision names the SOURCE **and the gateway-side reading** of it,
 # because the observation cache decides a stored entry's trustworthiness by matching
 # it. Bump this whenever the projection below changes what the same bytes mean.
-ROUTER_SOURCE_REVISION = "huggingface:router:backend-capabilities-2026-07"
+ROUTER_SOURCE_REVISION = "huggingface:router:bounded-backend-capabilities-2026-07"
+
+_MAX_CATALOG_MODELS = 10_000
+_MAX_MODEL_PROVIDERS = 512
 
 # The one OpenAI-compatible tool type the router speaks. `supports_tools` is a single
 # boolean, so it can only ever describe function calling.
@@ -101,6 +105,8 @@ def parse_hf_backend_capabilities(
     data = catalog.get("data")
     if not isinstance(data, list):
         return None
+    if len(data) > _MAX_CATALOG_MODELS:
+        raise DiscoveryError("model_catalog_too_large")
     row = next(
         (m for m in data if isinstance(m, Mapping) and m.get("id") == upstream_model_id),
         None,
@@ -110,6 +116,8 @@ def parse_hf_backend_capabilities(
     providers = row.get("providers")
     if not isinstance(providers, list):
         return None
+    if len(providers) > _MAX_MODEL_PROVIDERS:
+        raise DiscoveryError("provider_catalog_too_large")
     entry = next(
         (p for p in providers if isinstance(p, Mapping) and p.get("provider") == backend),
         None,

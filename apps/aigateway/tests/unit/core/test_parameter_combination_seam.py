@@ -62,10 +62,11 @@ def test_the_default_hook_accepts_everything() -> None:
 
 
 @pytest.mark.parametrize("auth_mode", ["oauth", "api_key", "none"])
-def test_only_anthropic_overrides_the_seam(auth_mode: AuthMode) -> None:
-    # The unit's scope is Anthropic. Every other loaded provider must still be
-    # running the inherited no-op, so a body that conflicts on Anthropic passes
-    # untouched everywhere else.
+def test_only_providers_with_cross_field_contracts_override_the_seam(
+    auth_mode: AuthMode,
+) -> None:
+    # An Anthropic-only conflict remains legal for every other provider even as
+    # OpenRouter and Hugging Face opt in for their separate logprobs dependency.
     registry = ProviderRegistry()
     load_plugins(registry)
     conflicting = {"reasoning_effort": "high", "max_tokens": 1}
@@ -77,7 +78,7 @@ def test_only_anthropic_overrides_the_seam(auth_mode: AuthMode) -> None:
         is not ProviderPluginBase.validate_chat_parameter_combination
     }
 
-    assert overriding == {"anthropic"}
+    assert overriding == {"anthropic", "huggingface", "openrouter"}
     for name, plugin in registry._plugins.items():
         if name == "anthropic":
             continue

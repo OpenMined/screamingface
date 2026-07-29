@@ -20,11 +20,13 @@ Key design points (validated against litellm 1.87.0):
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.parameter_discovery import DiscoverySourceRef
+from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import (
     CredentialStrategy,
     ModelEntry,
@@ -110,6 +112,20 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
         # the installed final transform. A rule is the ONLY thing that enables a
         # parameter; every other caller field fails closed at classification.
         return huggingface_chat_parameter_rules(model=model, auth_type=auth_type)
+
+    def validate_chat_parameter_combination(
+        self,
+        body: Mapping[str, Any],
+        *,
+        model: str,
+        auth_mode: AuthMode,
+    ) -> None:
+        del model, auth_mode
+        if "top_logprobs" in body and body.get("logprobs") is not True:
+            raise IncompatibleParametersError(
+                ("logprobs", "top_logprobs"),
+                reason="top_logprobs_requires_logprobs_true",
+            )
 
     def chat_parameter_tools(
         self, *, model: str, auth_type: AuthMode | None = None

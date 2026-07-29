@@ -27,6 +27,7 @@ from aigateway.core.chat_parameters import (
     SchemaItemType,
     SchemaType,
 )
+from aigateway.core.parameter_discovery import DiscoveryError
 from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS
 
 from .observations import ENDPOINT_SOURCE, _dedup_sorted, _observation, _request_path
@@ -57,6 +58,17 @@ _MODELLED_ITEM_TYPES: dict[str, SchemaItemType] = {
     "object": "object",
 }
 _REF_PREFIX = "#/components/schemas/"
+_MAX_REQUEST_PROPERTIES = 512
+
+
+def openapi_request_schema_present(openapi: Any, *, schema_name: str) -> bool:
+    """Whether the pinned component exists with a readable properties mapping."""
+    if not isinstance(openapi, Mapping):
+        return False
+    components = openapi.get("components")
+    schemas = components.get("schemas") if isinstance(components, Mapping) else None
+    schema = schemas.get(schema_name) if isinstance(schemas, Mapping) else None
+    return isinstance(schema, Mapping) and isinstance(schema.get("properties"), Mapping)
 
 
 def _resolve_ref(node: Mapping[str, Any], schemas: Any) -> Mapping[str, Any]:
@@ -194,6 +206,8 @@ def parse_openapi_endpoint_observations(
     properties = schema.get("properties") if isinstance(schema, Mapping) else None
     if not isinstance(properties, Mapping):
         return ()
+    if len(properties) > _MAX_REQUEST_PROPERTIES:
+        raise DiscoveryError("openapi_schema_too_large")
     observed: list[ProviderParameterObservation] = []
     for name, node in properties.items():
         if not isinstance(name, str) or name in GATEWAY_OWNED_FIELDS:

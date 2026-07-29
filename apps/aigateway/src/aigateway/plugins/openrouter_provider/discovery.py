@@ -34,6 +34,7 @@ from aigateway.core.chat_parameters import (
     ProviderParameterObservation,
 )
 from aigateway.core.parameter_discovery import (
+    DiscoveryError,
     DiscoveryHttpClient,
     DiscoveryLimits,
     fetch_discovery_json,
@@ -41,7 +42,7 @@ from aigateway.core.parameter_discovery import (
 from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS
 
 from .observations import LOCAL_SOURCE, MODEL_SOURCE, _dedup_sorted, _observation
-from .openapi_schema import parse_openapi_endpoint_observations
+from .openapi_schema import openapi_request_schema_present, parse_openapi_endpoint_observations
 
 # Fixed public sources (the async fetch step passes these to the bounded
 # transport; the parsers below never dereference a URL themselves).
@@ -58,6 +59,11 @@ ALLOWED_ORIGINS: frozenset[str] = frozenset({"https://openrouter.ai"})
 # and not by a fixture alone.
 CHAT_REQUEST_SCHEMA = "ChatRequest"
 
+# Cardinality limits are distinct from the transport's byte/node envelope: they
+# bound the number of contract observations one accepted document can generate.
+_MAX_CATALOG_MODELS = 10_000
+_MAX_PARAMETER_NAMES = 512
+
 
 def _listed_parameters(row: Any) -> set[str] | None:
     """The row's ``supported_parameters`` as a name set, or None when unreadable."""
@@ -66,6 +72,8 @@ def _listed_parameters(row: Any) -> set[str] | None:
     params = row.get("supported_parameters")
     if not isinstance(params, list):
         return None
+    if len(params) > _MAX_PARAMETER_NAMES:
+        raise DiscoveryError("parameter_catalog_too_large")
     # Gateway-owned fields are protocol plumbing, never model parameters; excluding
     # them here keeps them out of BOTH the vocabulary and the verdicts, so a row
     # that omits one can never produce an "unsupported stream" contract row.
@@ -93,6 +101,8 @@ def _catalog_vocabulary(rows: list[Any]) -> frozenset[str]:
         listed = _listed_parameters(row)
         if listed is not None:
             vocabulary |= listed
+            if len(vocabulary) > _MAX_PARAMETER_NAMES:
+                raise DiscoveryError("parameter_catalog_too_large")
     return frozenset(vocabulary)
 
 
@@ -125,6 +135,8 @@ def parse_model_catalog_observations(
     data = catalog.get("data")
     if not isinstance(data, list):
         return ()
+    if len(data) > _MAX_CATALOG_MODELS:
+        raise DiscoveryError("model_catalog_too_large")
     row = next(
         (m for m in data if isinstance(m, Mapping) and m.get("id") == upstream_model_id),
         None,
@@ -182,7 +194,7 @@ REVIEWED_ENDPOINT_OBSERVATIONS: tuple[ProviderParameterObservation, ...] = _dedu
 # marks OME-647, where a snapshot stopped being one document and became two. In
 # both cases the same bytes now yield a different snapshot, so entries cached
 # under the previous label must not be reused — that is what the guard is for.
-SNAPSHOT_SOURCE_REVISION = "openrouter:models+openapi:closed-world-source-pair-2026-07"
+SNAPSHOT_SOURCE_REVISION = "openrouter:models+openapi:bounded-source-pair-2026-07"
 
 # Source-specific bounds for the OpenAPI document (§5.2 stays enforced — these are
 # the bounds, not an exemption from them). MEASURED against the live document on
@@ -265,11 +277,16 @@ async def discover_openrouter_snapshot(
         client=client,
         limits=openapi_discovery_limits(effective),
     )
+    if not openapi_request_schema_present(openapi, schema_name=CHAT_REQUEST_SCHEMA):
+        raise DiscoveryError("schema_not_found")
+    endpoint_observations = parse_openapi_endpoint_observations(
+        openapi, schema_name=CHAT_REQUEST_SCHEMA
+    )
+    if not endpoint_observations:
+        raise DiscoveryError("schema_not_found")
     return ProviderDiscoverySnapshot(
         source_revision=SNAPSHOT_SOURCE_REVISION,
-        endpoint_observations=parse_openapi_endpoint_observations(
-            openapi, schema_name=CHAT_REQUEST_SCHEMA
-        ),
+        endpoint_observations=endpoint_observations,
         model_observations=parse_model_catalog_observations(
             catalog, upstream_model_id=upstream_model_id
         ),

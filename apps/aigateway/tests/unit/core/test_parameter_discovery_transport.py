@@ -128,6 +128,19 @@ async def test_malformed_json_is_sanitized() -> None:
 
 
 @pytest.mark.asyncio
+async def test_json_parser_recursion_failure_is_sanitized() -> None:
+    # Parsing happens before the explicit depth walk, so hostile nesting can hit
+    # CPython's recursion guard while still fitting comfortably inside the byte cap.
+    body = "[" * 10_000 + "]" * 10_000
+    client = _FakeClient(RawResponse(status=200, content_type="application/json", body=body))
+
+    with pytest.raises(DiscoveryError) as exc:
+        await _fetch(client)
+
+    assert exc.value.reason == "malformed_json"
+
+
+@pytest.mark.asyncio
 async def test_too_deep_json_fails() -> None:
     node: dict = {}
     cur = node

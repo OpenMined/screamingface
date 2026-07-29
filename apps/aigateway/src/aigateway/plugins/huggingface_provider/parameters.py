@@ -19,7 +19,11 @@ separate catalog evidence and never enables an ordinary parameter here.
 
 from __future__ import annotations
 
-from aigateway.core.chat_parameters import ParameterProjectionRule, ToolCapability
+from aigateway.core.chat_parameters import (
+    ParameterProjectionRule,
+    ParameterSchema,
+    ToolCapability,
+)
 from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     LOGPROBS_SCHEMA,
@@ -30,7 +34,6 @@ from aigateway.core.standard_parameters import (
     SEED_SCHEMA,
     STOP_SCHEMA,
     TEMPERATURE_SCHEMA,
-    TOP_LOGPROBS_SCHEMA,
     direct_rule,
     function_calling_rules,
 )
@@ -40,6 +43,12 @@ from aigateway.core.standard_parameters import (
 _AUTH: tuple[AuthMode, ...] = ("api_key",)
 # Bump when a projection's semantics change; folds into the contract digests.
 _REVISION = "huggingface-2026-07"
+
+_HF_TOP_LOGPROBS_SCHEMA = ParameterSchema(
+    type="integer",
+    minimum=0,
+    maximum=5,
+)
 
 # OME-583: HF's router is OpenAI-compatible; the INSTALLED litellm HuggingFace transform
 # forwards tools[] and tool_choice onto the wire (§9), so function calling is enabled WITH
@@ -84,12 +93,15 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
     ),
     # OME-595: logprobs + top_logprobs output-introspection controls. The installed
     # HuggingFaceChatConfig transform forwards both VERBATIM (§9 probe), so each is a direct
-    # passthrough: logprobs gated as a boolean, top_logprobs as a bounded integer (0..20).
+    # passthrough: logprobs gated as a boolean, top_logprobs as HF's documented 0..5.
     direct_rule(
         "logprobs", auth_modes=_AUTH, schema=LOGPROBS_SCHEMA, projection_revision=_REVISION
     ),
     direct_rule(
-        "top_logprobs", auth_modes=_AUTH, schema=TOP_LOGPROBS_SCHEMA, projection_revision=_REVISION
+        "top_logprobs",
+        auth_modes=_AUTH,
+        schema=_HF_TOP_LOGPROBS_SCHEMA,
+        projection_revision=_REVISION,
     ),
     # OME-583: tools + tool_choice (OpenAI-native, §9 installed-transform proof).
     *function_calling_rules(_TOOL_CAPABILITIES, auth_modes=_AUTH, projection_revision=_REVISION),

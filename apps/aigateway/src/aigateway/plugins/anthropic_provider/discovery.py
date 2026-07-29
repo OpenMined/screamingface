@@ -27,8 +27,12 @@ support), unlike the OpenAI-compatible providers.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from aigateway.core.chat_parameters import ProviderParameterObservation
 from aigateway.core.parameter_projection import WRAPPER_KEY
+
+from .parameters import anthropic_sampling_support
 
 # Reviewed labelled-static provenance — deliberately DISTINCT from any live label so a
 # reader can tell reviewed-static evidence from a network fetch (§5.1 "labelled"). There
@@ -59,6 +63,7 @@ _STATIC_PARAM_NAMES: tuple[str, ...] = (
     "stop",
     "top_k",
 )
+_SAMPLING_PARAMS: frozenset[str] = frozenset({"temperature", "top_p", "top_k"})
 
 
 def _request_path(param: str) -> str:
@@ -67,12 +72,31 @@ def _request_path(param: str) -> str:
     return param
 
 
-def _observation(param: str) -> ProviderParameterObservation:
+def _observation(
+    param: str, *, support: Literal["supported", "unsupported"] = "supported"
+) -> ProviderParameterObservation:
     return ProviderParameterObservation(
-        request_path=_request_path(param), support="supported", source=STATIC_SOURCE
+        request_path=_request_path(param), support=support, source=STATIC_SOURCE
     )
 
 
 ANTHROPIC_STATIC_PARAM_OBSERVATIONS: tuple[ProviderParameterObservation, ...] = tuple(
     _observation(param) for param in sorted(_STATIC_PARAM_NAMES)
 )
+
+
+def anthropic_static_param_observations(model: str) -> tuple[ProviderParameterObservation, ...]:
+    """Reviewed static evidence narrowed by the selected model."""
+    sampling_support = anthropic_sampling_support(model)
+    observations: list[ProviderParameterObservation] = []
+    for param in sorted(_STATIC_PARAM_NAMES):
+        if param not in _SAMPLING_PARAMS:
+            observations.append(_observation(param))
+        elif sampling_support is not None:
+            observations.append(
+                _observation(
+                    param,
+                    support="supported" if sampling_support else "unsupported",
+                )
+            )
+    return tuple(observations)

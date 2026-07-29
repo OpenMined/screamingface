@@ -39,6 +39,7 @@ _D6_CONTROL_FIELDS = {
     "api_base",
     "base_url",
     "headers",
+    "extra_headers",
     "model_list",
     "fallbacks",
     "context_window_fallbacks",
@@ -138,6 +139,21 @@ def test_strip_removes_every_control_field() -> None:
     assert set(stripped) == {"model", "messages"}
 
 
+def test_strip_removes_caller_extra_headers() -> None:
+    # INVARIANT: raw headers are control-plane input. Provider and credential
+    # headers are created later by trusted gateway code, never accepted here.
+    body = {
+        "model": "anthropic/claude-sonnet-4-5",
+        "messages": [],
+        "extra_headers": {"authorization": "Bearer sk-ant-oat01-attacker"},
+    }
+
+    assert strip_dispatch_controls(body) == {
+        "model": "anthropic/claude-sonnet-4-5",
+        "messages": [],
+    }
+
+
 def test_strip_removes_nested_callback_metadata_without_mutating_input() -> None:
     body = {
         "model": "openrouter/a/b",
@@ -196,7 +212,6 @@ def test_strip_preserves_ordinary_and_provider_fields() -> None:
         "temperature": 0.5,
         "max_tokens": 128,
         "timeout": 30,  # deliberately NOT stripped: gemini/codex/antigravity consume it
-        "extra_headers": {"x-custom": "1"},
         "provider": {"order": ["anthropic"]},
         "plugins": [{"id": "web"}],
         "route": "fallback",

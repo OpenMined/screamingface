@@ -19,7 +19,7 @@ from .api_key_validation import AnthropicApiKeyValidator
 from .auth import AnthropicOAuth, credential_service_for, exchange_authorization_code
 from .bootstrap import bootstrap_from_claude_code
 from .chat_handler import chat_completion, chat_completion_stream
-from .discovery import ANTHROPIC_STATIC_PARAM_OBSERVATIONS, STATIC_SOURCE
+from .discovery import STATIC_SOURCE, anthropic_static_param_observations
 from .parameters import anthropic_chat_parameter_rules, anthropic_chat_parameter_tools
 from .settings import AnthropicPluginSettings
 from .thinking import raise_on_thinking_conflict
@@ -138,7 +138,7 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         # tool_choice are ALSO ruled → ENABLED under both modes (OME-583), evidenced here
         # so every enabled tool path is fully backed (§4.4).
         # INVARIANT: an observation NEVER enables a parameter — only a rule does.
-        return ANTHROPIC_STATIC_PARAM_OBSERVATIONS + tool_parameter_observations(
+        return anthropic_static_param_observations(model) + tool_parameter_observations(
             anthropic_chat_parameter_tools(model=model, auth_type=auth_type),
             source=STATIC_SOURCE,
         )

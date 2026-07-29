@@ -31,6 +31,7 @@ from aigateway.core.parameter_discovery import (
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
 from aigateway.core.profile_index import ProfileIndexStore
 from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
+from aigateway.plugins.openrouter_provider.discovery import MODELS_URL
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
 
 _FLASH = "openrouter/google/gemini-2.0-flash-001"
@@ -48,6 +49,9 @@ _CATALOG = {
         },
     ]
 }
+_OPENAPI: dict[str, object] = {
+    "components": {"schemas": {"ChatRequest": {"properties": {"temperature": {}}}}}
+}
 
 
 class _CatalogClient(DiscoveryHttpClient):
@@ -61,7 +65,8 @@ class _CatalogClient(DiscoveryHttpClient):
         self.calls.append(url)
         if self._error is not None:
             raise self._error
-        return RawResponse(status=200, content_type="application/json", body=json.dumps(_CATALOG))
+        body = _CATALOG if url == MODELS_URL else _OPENAPI
+        return RawResponse(status=200, content_type="application/json", body=json.dumps(body))
 
 
 class _Clock:

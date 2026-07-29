@@ -45,7 +45,9 @@ _BOTH: tuple[AuthType, ...] = ("api_key", "oauth")
 _AUTH_REASON = "projection_not_available_for_auth_mode"
 _UNPROJECTED_REASON = "projection_not_implemented"
 
-_ANTHROPIC_MODEL = "anthropic/claude-opus-4-8"
+# WHY: this suite exercises auth applicability, so use a model where top_k is
+# genuinely supported. Opus 4.7+ rejects every non-default sampling value.
+_ANTHROPIC_MODEL = "anthropic/claude-sonnet-4-5"
 _NATIVE_TOP_K = "provider_params.top_k"
 _STATIC = "anthropic:static"
 

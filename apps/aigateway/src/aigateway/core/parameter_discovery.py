@@ -142,7 +142,7 @@ async def fetch_discovery_json(
 
     try:
         parsed = json.loads(response.body)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, RecursionError):
         # sanitized: the raw body is discarded, only a fixed reason survives.
         raise DiscoveryError("malformed_json") from None
 

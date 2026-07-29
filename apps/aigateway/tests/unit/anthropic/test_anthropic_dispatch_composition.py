@@ -25,6 +25,7 @@ import pytest
 
 from aigateway.core.parameter_projection import classify_and_project_chat_parameters
 from aigateway.core.profile_models import AuthType
+from aigateway.core.request_hardening import strip_dispatch_controls
 from aigateway.plugins.anthropic_provider.chat_handler import chat_completion
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 
@@ -75,7 +76,7 @@ def _prepared(caller_body: dict, *, auth_mode: AuthType) -> dict:
     # injected AFTER prepare (mirrored by the callers below), never as a caller param.
     plugin = AnthropicProviderPlugin()
     projected = classify_and_project_chat_parameters(
-        plugin.strip_provider_dispatch_controls(caller_body),
+        plugin.strip_provider_dispatch_controls(strip_dispatch_controls(caller_body)),
         rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=auth_mode),
         auth_mode=auth_mode,
     )
@@ -134,4 +135,26 @@ async def test_api_key_native_top_k_reaches_wire_without_billing_header() -> Non
     assert "x-anthropic-billing-header" not in str(sent["json"])
     headers = {str(k).lower(): v for k, v in (sent["headers"] or {}).items()}
     assert headers["x-api-key"] == "sk-ant-api03-raw-key"
+    assert "authorization" not in headers
+
+
+@pytest.mark.asyncio
+async def test_caller_oauth_header_cannot_replace_the_gateway_api_key() -> None:
+    # INVARIANT: LiteLLM treats this exact lowercase/prefix combination as an
+    # Anthropic OAuth credential. It must be gone before the installed transform.
+    client = FakeClient()
+    body = _prepared(
+        {
+            "model": _MODEL,
+            "messages": _MESSAGES,
+            "extra_headers": {"authorization": "Bearer sk-ant-oat01-attacker"},
+        },
+        auth_mode="api_key",
+    )
+    body.update({"api_key": "sk-ant-api03-gateway", "client": client, "no-log": True})
+
+    await chat_completion(body)
+
+    headers = {str(key).lower(): value for key, value in client.calls[-1]["headers"].items()}
+    assert headers["x-api-key"] == "sk-ant-api03-gateway"
     assert "authorization" not in headers

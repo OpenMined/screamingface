@@ -31,6 +31,7 @@ from aigateway.core.chat_parameters import (
     ParameterSchema,
     ToolCapability,
 )
+from aigateway.core.model_parameter_contract import upstream_model_id
 from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
@@ -50,6 +51,12 @@ _AUTH: tuple[AuthMode, ...] = ("api_key", "oauth")
 # uncaptured in v1) — so it is authorized under api_key alone.
 _API_KEY_ONLY: tuple[AuthMode, ...] = ("api_key",)
 _REVISION = "anthropic-2026-07"
+
+_SAMPLING_PATHS: frozenset[str] = frozenset({"temperature", "top_p", "provider_params.top_k"})
+_SAMPLING_SUPPORTED_MODELS: frozenset[str] = frozenset(
+    {"claude-sonnet-4-6", "claude-sonnet-4-5", "claude-haiku-4-5"}
+)
+_SAMPLING_UNSUPPORTED_MODELS: frozenset[str] = frozenset({"claude-opus-4-8", "claude-opus-4-7"})
 
 # WHY: Anthropic's Messages API accepts temperature in [0, 1] (NOT the shared
 # OpenAI-compatible [0, 2]), and the installed litellm AnthropicConfig forwards the
@@ -121,10 +128,24 @@ _RULES: tuple[ParameterProjectionRule, ...] = (
 )
 
 
+def anthropic_sampling_support(model: str) -> bool | None:
+    """Whether reviewed evidence permits sampling parameters for ``model``."""
+    model_id = upstream_model_id(model)
+    if model_id in _SAMPLING_SUPPORTED_MODELS:
+        return True
+    if model_id in _SAMPLING_UNSUPPORTED_MODELS:
+        return False
+    return None
+
+
 def anthropic_chat_parameter_rules(
     *, model: str, auth_type: AuthMode | None = None
 ) -> tuple[ParameterProjectionRule, ...]:
-    return _RULES
+    # INVARIANT: sampling is fail-closed by model. Unknown operator-configured
+    # ids keep the model-independent rules but cannot inherit unreviewed sampling.
+    if anthropic_sampling_support(model) is True:
+        return _RULES
+    return tuple(rule for rule in _RULES if rule.request_path not in _SAMPLING_PATHS)
 
 
 def anthropic_chat_parameter_tools(
