@@ -1,31 +1,10 @@
-"""OME-479 closure Unit 2: promoting a genuinely observed-but-unruled P0 field.
+"""OME-479 closure Unit 2: provider-local OpenRouter ``top_p`` promotion.
 
-FEATURE: a provider-local parameter promotion. The framework's claim is that
-enabling a new parameter is a PROVIDER-LOCAL edit — one rule in one plugin
-package, with no change to shared ``core/`` or ``routes/`` source. ``top_p`` is
-the field that proves it: before this promotion it was the ONLY OpenRouter path
-that appeared in the provider's observations and in no rule, so the gateway
-published it as visible-but-``disabled`` and rejected it at dispatch.
-
-STORY: as an API consumer I could already SEE that OpenRouter accepts ``top_p``;
-now I can actually send it, with the gateway validating the value, projecting it
-to the wire, keeping strict routing on, and honouring the cache behaviour it
-published for it.
-
-INVARIANT (§4.4): the observation did not enable the field and still does not —
-only the rule does. ``test_the_observation_alone_still_does_not_authorize`` holds
-the real observation set fixed and withholds the rule to prove the two axes stay
-independent after the promotion.
-
-INVARIANT (OME-651): the promoted field rides a STRICT request. A parameter the
-selected endpoint cannot honour must produce an explicit provider refusal, never
-a silently ignored field — so the final wire JSON carries ``top_p`` and
-``provider.require_parameters=true`` together.
-
-AIDEV-NOTE: the route harness below (fixtures + helpers) is a verbatim copy of
-the one in ``test_openrouter_standard_parameter_projection``, NOT a shared
-import — ``_api_key_validation_ok`` is autouse, and an autouse fixture applies
-only to the module that DECLARES it.
+FEATURE: one reviewed rule enables validated dispatch without shared core/route edits.
+STORY: callers can send the observed field under validation and strict routing.
+INVARIANT: observation remains evidence only; the rule is authorization.
+INVARIANT: final wire carries ``top_p`` with ``require_parameters=true``.
+AIDEV-NOTE: the local route harness owns its autouse API-key-validation fixture.
 """
 
 from __future__ import annotations
@@ -51,20 +30,16 @@ _KEY = "sk-or-v1-test"
 _MODEL = "openrouter/anthropic/claude-fable-5"
 _UPSTREAM = "anthropic/claude-fable-5"
 _MESSAGES: list[Any] = [{"role": "user", "content": "hi"}]
-# Spelled out rather than imported: a rename of the production constant must not
-# be able to silently rename what OpenRouter receives.
+# Spelled out so a production rename cannot silently rename the wire expectation.
 _STRICT = {"require_parameters": True}
 
 
-# --------------------------------------------------------------------------
-# harness
-# --------------------------------------------------------------------------
+# Harness
 
 
 @pytest.fixture(autouse=True)
 def _api_key_validation_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Explicit test double (per tests/unit/conftest.py AIDEV-NOTE): key readiness
-    # is not what this promotion exercises.
+    # Explicit test double: key readiness is not what this promotion exercises.
     from aigateway.core.api_key_validation import (
         ApiKeyValidationResult,
         ApiKeyValidationStage,
@@ -89,7 +64,6 @@ def enabled_openrouter(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def _cache_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Must run before the `client` fixture builds the app so Settings sees it.
     monkeypatch.setenv("AIGW_REQUEST_CACHE_ENABLED", "true")
 
 
@@ -179,17 +153,11 @@ def _post_chat(client, body: dict[str, Any] | None = None):
     return client.post("/v1/chat/completions", json=payload)
 
 
-# --------------------------------------------------------------------------
-# (1) provider-local schema validation
-# --------------------------------------------------------------------------
+# (1) Provider-local schema validation
 
 
 def test_the_rule_binds_the_shared_bounded_top_p_schema() -> None:
-    # The promotion reuses the shared [0, 1] schema rather than inventing one:
-    # OpenRouter's accepted range for top_p is the standard OpenAI range, and the
-    # installed transform forwards the value unchanged, so there is nothing
-    # provider-specific to narrow or widen (contrast OPENROUTER_TOP_K_SCHEMA,
-    # which exists precisely because OpenRouter's top_k floor differs).
+    # OpenRouter uses the shared [0, 1] range; unlike top_k, no local override is needed.
     from aigateway.core.standard_parameters import TOP_P_SCHEMA
 
     rule = next(r for r in _rules() if r.request_path == "top_p")
@@ -214,15 +182,11 @@ def test_out_of_range_or_mistyped_values_fail_closed(value) -> None:
         rule.parameter_schema.validate_value(value)
 
 
-# --------------------------------------------------------------------------
-# (2) provider-local rule and projection
-# --------------------------------------------------------------------------
+# (2) Provider-local rule and projection
 
 
 def test_top_p_projects_to_its_own_top_level_target() -> None:
-    # A DIRECT rule: the request path IS the provider target. It must not be
-    # swept into extra_body (which in this codebase means "a native target the
-    # projection produced") and must not disturb an unrelated native promotion.
+    # A direct field must not disturb the separately projected native top_k.
     body = _dispatch_body(
         {
             "model": _MODEL,
@@ -236,9 +200,7 @@ def test_top_p_projects_to_its_own_top_level_target() -> None:
     assert "provider_params" not in body
 
 
-# --------------------------------------------------------------------------
-# (3) observation is evidence; the rule is authorization
-# --------------------------------------------------------------------------
+# (3) Observation is evidence; the rule is authorization
 
 
 def test_the_observation_alone_still_does_not_authorize() -> None:
@@ -270,8 +232,7 @@ def test_the_observation_alone_still_does_not_authorize() -> None:
 
 
 def test_the_promotion_added_a_rule_and_left_the_evidence_alone() -> None:
-    # The promotion is one rule, not a new observation: the observed set is what
-    # it was, and the ruled set grew by exactly this path.
+    # The ruled set grows; the observation source remains independent.
     plugin = OpenRouterProviderPlugin()
     observed = {o.request_path for o in plugin.chat_parameter_observations(model=_MODEL)}
     ruled = {r.request_path for r in _rules()}
@@ -282,9 +243,7 @@ def test_the_promotion_added_a_rule_and_left_the_evidence_alone() -> None:
     )
 
 
-# --------------------------------------------------------------------------
-# (4) the detailed contract moves the field from disabled to enabled
-# --------------------------------------------------------------------------
+# (4) The detailed contract moves the field from disabled to enabled
 
 
 def test_the_detail_contract_publishes_top_p_as_enabled_with_evidence() -> None:
@@ -303,9 +262,7 @@ def test_the_detail_contract_publishes_top_p_as_enabled_with_evidence() -> None:
     assert entry["schema"]["maximum"] == 1
 
 
-# --------------------------------------------------------------------------
-# (5) the /v1/models summary stays correct
-# --------------------------------------------------------------------------
+# (5) The /v1/models summary stays correct
 
 
 def test_the_model_summary_advertises_top_p_from_the_same_rule_set() -> None:
@@ -326,9 +283,7 @@ def test_the_live_models_route_lists_top_p_for_openrouter(
         assert "top_p" in row["supported_parameters"], row["id"]
 
 
-# --------------------------------------------------------------------------
-# (6) chat accepts valid values and rejects invalid ones before dispatch
-# --------------------------------------------------------------------------
+# (6) Chat accepts valid values and rejects invalid ones before dispatch
 
 
 def test_a_valid_top_p_reaches_dispatch(
@@ -358,9 +313,7 @@ def test_an_invalid_top_p_rejects_before_credential_access_and_dispatch(
     assert captured == {}  # fail closed
 
 
-# --------------------------------------------------------------------------
-# (7) + (8) the final wire JSON carries the value AND strict routing
-# --------------------------------------------------------------------------
+# (7) + (8) Final wire JSON carries the value and strict routing
 
 
 def test_final_wire_json_carries_top_p_together_with_strict_routing() -> None:
@@ -419,9 +372,7 @@ def test_the_boundary_overwrites_a_provider_that_reaches_it_with_top_p_present()
     assert body["top_p"] == 0.9
 
 
-# --------------------------------------------------------------------------
-# (9) observed cache behaviour matches the published declaration
-# --------------------------------------------------------------------------
+# (9) Observed cache behaviour matches the published declaration
 
 
 def test_the_contract_declares_bypass_for_top_p() -> None:
