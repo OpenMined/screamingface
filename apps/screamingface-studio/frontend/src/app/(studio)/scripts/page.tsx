@@ -118,7 +118,7 @@ export default function ScriptsPage() {
           <h1 className="text-base font-semibold">Scripts</h1>
           <p className="mt-1 text-xs text-muted-foreground">
             Python reduce scripts and response loops you can reference from any
-            ensemble.
+            fusion.
           </p>
         </div>
         {!editorOpen && (

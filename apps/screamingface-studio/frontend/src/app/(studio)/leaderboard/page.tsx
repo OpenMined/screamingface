@@ -147,7 +147,7 @@ export default function LeaderboardPage() {
         <div className="min-w-0 flex-1">
           <h1 className="text-base font-semibold">Leaderboard</h1>
           <p className="mt-1 text-xs text-muted-foreground">
-            Ensembles ranked against published single-model results from public
+            Fusions ranked against published single-model results from public
             leaderboards.
           </p>
         </div>
@@ -193,7 +193,7 @@ export default function LeaderboardPage() {
               value="mine"
               className="h-7 rounded-md border-0 px-3 py-1.5 data-[state=active]:border-transparent data-[state=active]:bg-card data-[state=active]:shadow-sm"
             >
-              Your ensembles
+              Your fusions
             </TabsTrigger>
           </TabsList>
         </Tabs>

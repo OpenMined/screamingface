@@ -20,11 +20,11 @@ export default function HomePage() {
         <div data-tauri-drag-region className="flex min-w-0 flex-1 items-center self-stretch">
           <div>
             <h1 className="text-sm font-semibold">Home</h1>
-            <p className="hidden text-[11px] text-muted-foreground sm:block">Your ensemble workspace</p>
+            <p className="hidden text-[11px] text-muted-foreground sm:block">Your fusion workspace</p>
           </div>
         </div>
         <Button size="sm" className="rounded-lg shadow-sm" asChild>
-          <Link href="/ensembles/new/" prefetch={false}><Plus className="size-4" />Compose ensemble</Link>
+          <Link href="/ensembles/new/" prefetch={false}><Plus className="size-4" />Compose fusion</Link>
         </Button>
       </header>
 
@@ -34,10 +34,10 @@ export default function HomePage() {
             <div>
               <p className="font-mono text-[11px] font-medium uppercase tracking-wider text-primary">Welcome back, irina</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight">Your models are smarter together.</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Continue building ensembles, compare evaluation results, or see what is performing best across the hub.</p>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Continue building fusions, compare evaluation results, or see what is performing best across the hub.</p>
             </div>
             <div className="flex shrink-0 items-center gap-5 font-mono text-[11px] text-muted-foreground">
-              <span><strong className="block text-base font-semibold text-foreground">9,431</strong>ensembles</span>
+              <span><strong className="block text-base font-semibold text-foreground">9,431</strong>fusions</span>
               <span className="h-8 w-px bg-border" />
               <span><strong className="block text-base font-semibold text-foreground">184k</strong>evals run</span>
               <span className="h-8 w-px bg-border" />
@@ -47,13 +47,13 @@ export default function HomePage() {
 
           <section className="pt-7">
             <header className="flex items-end justify-between">
-              <div><div className="mb-1 flex items-center gap-2"><TrendingUp className="size-4 text-accent" /><h2 className="text-base font-semibold">Top ensembles</h2></div><p className="text-xs text-muted-foreground">Ranked by gain over the best single model.</p></div>
+              <div><div className="mb-1 flex items-center gap-2"><TrendingUp className="size-4 text-accent" /><h2 className="text-base font-semibold">Top fusions</h2></div><p className="text-xs text-muted-foreground">Ranked by gain over the best single model.</p></div>
               <Button variant="ghost" size="sm" className="shrink-0 rounded-lg text-muted-foreground hover:text-foreground" asChild><Link href="/leaderboard/" prefetch={false}>View leaderboard <ChevronRight className="size-4" /></Link></Button>
             </header>
 
             <div className="mt-4 overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm">
               <div className="hidden h-9 items-center gap-3 border-b bg-muted/40 px-5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground sm:flex">
-                <span className="w-7" /><span className="min-w-0 flex-1">Ensemble</span><span className="w-28 shrink-0">Benchmark</span><span className="w-16 shrink-0 text-right">Gain</span>
+                <span className="w-7" /><span className="min-w-0 flex-1">Fusion</span><span className="w-28 shrink-0">Benchmark</span><span className="w-16 shrink-0 text-right">Gain</span>
               </div>
               {topEnsembles.map((ensemble, index) => (
                 <Link className="group flex items-center gap-3 border-b border-border/70 px-4 py-3 font-medium transition-colors last:border-b-0 hover:bg-secondary/45 sm:px-5" href={`/leaderboard/?ensemble=${encodeURIComponent(ensemble.recipe)}`} prefetch={false} key={ensemble.recipe}>
@@ -72,7 +72,7 @@ export default function HomePage() {
             </div>
             <div className="mt-3 flex items-center justify-between px-1 text-[11px] text-muted-foreground">
               <span>Updated from recent public evaluations</span>
-              <Link href="/ensembles/" prefetch={false} className="inline-flex items-center gap-1 font-medium hover:text-foreground">Your ensembles <ArrowRight className="size-3" /></Link>
+              <Link href="/ensembles/" prefetch={false} className="inline-flex items-center gap-1 font-medium hover:text-foreground">Your fusions <ArrowRight className="size-3" /></Link>
             </div>
           </section>
         </div>

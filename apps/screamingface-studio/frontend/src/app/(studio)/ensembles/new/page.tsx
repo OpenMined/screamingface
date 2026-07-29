@@ -982,7 +982,7 @@ function RunDetail({
                   onClick={() => setParticipant("reduce")}
                 >
                   <Scale className="size-3" />
-                  Ensemble
+                  Fusion
                   {question.correct ? (
                     <Check className="size-3" />
                   ) : (
@@ -1226,7 +1226,7 @@ function RunsPanel({
             <div>
               <h2 className="text-sm font-medium">Run history</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Compare this ensemble across benchmarks.
+                Compare this fusion across benchmarks.
               </p>
             </div>
             <Button
@@ -1242,7 +1242,7 @@ function RunsPanel({
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed py-20 text-muted-foreground">
               <History className="size-6 opacity-20" />
               <p className="text-sm opacity-50">
-                No runs yet — evaluate this ensemble against a benchmark.
+                No runs yet — evaluate this fusion against a benchmark.
               </p>
             </div>
           ) : (
@@ -1633,7 +1633,7 @@ function EnsembleComposer() {
     () => scripts.filter((script) => script.kind === "reduce"),
     [scripts],
   );
-  const [name, setName] = useState("ensemble-1");
+  const [name, setName] = useState("fusion-1");
   const [editingName, setEditingName] = useState(false);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [strategy, setStrategy] =
@@ -1739,7 +1739,7 @@ function EnsembleComposer() {
         setRunHistory([]);
         setSavedSnapshot("");
       } else {
-        setName("ensemble-1");
+        setName("fusion-1");
         setSlots([]);
         setStrategy("majority_vote");
         setCustomReduce(false);
@@ -1751,7 +1751,7 @@ function EnsembleComposer() {
         setSavedSnapshot(
           JSON.stringify({
             id: ensembleId,
-            name: "ensemble-1",
+            name: "fusion-1",
             slots: [],
             strategy: "majority_vote",
             customReduce: false,
@@ -1949,7 +1949,7 @@ function EnsembleComposer() {
           className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           <ChevronLeft className="size-3.5" />
-          All ensembles
+          All fusions
         </Link>
 
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1976,7 +1976,7 @@ function EnsembleComposer() {
                 type="button"
                 className="group flex min-w-0 items-center gap-2"
                 onClick={() => setEditingName(true)}
-                title="Rename ensemble"
+                title="Rename fusion"
               >
                 <span className="truncate font-mono text-base font-semibold">
                   {name}

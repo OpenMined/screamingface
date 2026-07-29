@@ -69,7 +69,7 @@ export default function EnsemblesPage() {
           data-tauri-drag-region
           className="min-w-0 flex-1"
         >
-          <h1 className="text-base font-semibold">Ensembles</h1>
+          <h1 className="text-base font-semibold">Fusions</h1>
           <p className="mt-1 text-xs text-muted-foreground">
             Your recipes. Open one to compose, run evals, and analyze results.
           </p>
@@ -91,7 +91,7 @@ export default function EnsemblesPage() {
           <Button size="sm" className="rounded-lg shadow-sm" asChild>
             <Link href="/ensembles/new/" prefetch={false}>
               <Plus className="size-4" />
-              New Ensemble
+              New Fusion
             </Link>
           </Button>
         </div>
@@ -102,7 +102,7 @@ export default function EnsemblesPage() {
           <div className="w-full">
             <div className="mb-2 flex items-start justify-between gap-4">
               <p className="text-xs text-muted-foreground">
-                Paste a url4 recipe to create an ensemble from it
+                Paste a url4 recipe to create a fusion from it
               </p>
               <Button
                 variant="ghost"
@@ -152,16 +152,16 @@ export default function EnsemblesPage() {
             <div className="flex w-full max-w-md flex-col items-center gap-5 rounded-xl border bg-card p-8 text-center">
               <Boxes className="size-7 text-muted-foreground/30" />
               <div className="space-y-2">
-                <h2 className="text-sm font-semibold">No ensembles yet</h2>
+                <h2 className="text-sm font-semibold">No fusions yet</h2>
                 <p className="text-xs text-muted-foreground">
-                  An ensemble runs several models on the same question and
+                  A fusion runs several models on the same question and
                   combines their answers into one.
                 </p>
               </div>
               <Button size="sm" className="rounded-lg shadow-sm" asChild>
                 <Link href="/ensembles/new/" prefetch={false}>
                   <Plus className="size-4" />
-                  New Ensemble
+                  New Fusion
                 </Link>
               </Button>
               {!hasProviderConnected && (

@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ScreamingFace",
-  description: "The loudest ensemble hub",
+  description: "The loudest fusion hub",
   icons: {
     icon: "/icon.svg",
   },

@@ -144,7 +144,7 @@ export default function UpdatesPage() {
           </span>
           <div>
             <p className="text-xl font-semibold">ScreamingFace</p>
-            <p className="text-xs text-muted-foreground">the loudest ensemble hub</p>
+            <p className="text-xs text-muted-foreground">the loudest fusion hub</p>
           </div>
         </div>
 
